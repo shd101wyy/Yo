@@ -22,7 +22,6 @@ import {
   isStructType,
   isTupleType,
   Type,
-  typeToString,
 } from "../../types";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 
@@ -55,7 +54,7 @@ export function synthesizeTypes(
     );
     const givenBoundType = getValueOfSomeTypeFromEnv(given.env, given.type);
 
-    if (expectedBoundType && !isSomeType(expectedBoundType)) {
+    if (!isSomeType(expectedBoundType)) {
       // Expected is bound, use it to bind given
       const value = createTypeValue(expectedBoundType);
       const existingVariables = getVariablesFromEnv(given.env, given.type.name);
@@ -82,7 +81,7 @@ export function synthesizeTypes(
           value,
         });
       }
-    } else if (givenBoundType && !isSomeType(givenBoundType)) {
+    } else if (!isSomeType(givenBoundType)) {
       // Given is bound, use it to bind expected
       const value = createTypeValue(givenBoundType);
       const existingVariables = getVariablesFromEnv(
@@ -112,33 +111,75 @@ export function synthesizeTypes(
           value,
         });
       }
-    } else {
+    } else if (expectedBoundType === givenBoundType) {
+      // Do nothing since both are the same
+    }
+    // both are some type
+    else {
       // Neither is bound yet - bind given to expected's name
       // This creates a constraint that they should be the same type
+      // TODO: Check both parentType
       const value = createTypeValue(expected.type);
-      const existingVariables = getVariablesFromEnv(given.env, given.type.name);
-      const variable = existingVariables[existingVariables.length - 1];
-      if (!variable) {
-        const { env: nextEnv } = addVariableToEnv({
-          env: given.env,
-          variable: {
-            name: given.type.name,
-            value: value,
-            type: value.type,
-            isMutable: false,
-            isCompileTimeOnly: true,
-            isImplicit: false,
-            token: PlaceholderToken,
-            initializedAtToken: PlaceholderToken,
-            consumedAtToken: undefined,
-          },
-        });
-        given.env = nextEnv;
-      } else {
-        given.env = updateExistingVariable(given.env, variable, {
-          ...variable,
-          value,
-        });
+      // Update expected
+      {
+        const existingVariables = getVariablesFromEnv(
+          expected.env,
+          expected.type.name
+        );
+        const variable = existingVariables[existingVariables.length - 1];
+        if (!variable) {
+          const { env: nextEnv } = addVariableToEnv({
+            env: expected.env,
+            variable: {
+              name: expected.type.name,
+              value: value,
+              type: value.type,
+              isMutable: false,
+              isCompileTimeOnly: true,
+              isImplicit: false,
+              token: PlaceholderToken,
+              initializedAtToken: PlaceholderToken,
+              consumedAtToken: undefined,
+            },
+          });
+          expected.env = nextEnv;
+        } else {
+          expected.env = updateExistingVariable(expected.env, variable, {
+            ...variable,
+            value,
+          });
+        }
+      }
+
+      // Update given
+      {
+        const existingVariables = getVariablesFromEnv(
+          given.env,
+          given.type.name
+        );
+        const variable = existingVariables[existingVariables.length - 1];
+        if (!variable) {
+          const { env: nextEnv } = addVariableToEnv({
+            env: given.env,
+            variable: {
+              name: given.type.name,
+              value: value,
+              type: value.type,
+              isMutable: false,
+              isCompileTimeOnly: true,
+              isImplicit: false,
+              token: PlaceholderToken,
+              initializedAtToken: PlaceholderToken,
+              consumedAtToken: undefined,
+            },
+          });
+          given.env = nextEnv;
+        } else {
+          given.env = updateExistingVariable(given.env, variable, {
+            ...variable,
+            value,
+          });
+        }
       }
     }
   } else if (isSomeType(expected.type)) {
@@ -205,6 +246,13 @@ export function synthesizeTypes(
           value,
         });
       }
+    } else if (!isSomeType(type)) {
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        { type: type, env: expected.env },
+        { type: given.type, env: given.env }
+      );
+      expected.env = expectedEnv;
+      given.env = givenEnv;
     }
   } else if (isSomeType(given.type)) {
     // Handle case where given is SomeType but expected is not
@@ -212,7 +260,7 @@ export function synthesizeTypes(
 
     // Check if the given SomeType is already bound in its environment
     const existingType = getValueOfSomeTypeFromEnv(given.env, given.type);
-    if (existingType && !isSomeType(existingType)) {
+    if (!isSomeType(existingType)) {
       // The given SomeType is already bound to a concrete type
       // Recursively synthesize with the bound type
       const { expectedEnv, givenEnv } = synthesizeTypes(
@@ -275,16 +323,6 @@ export function synthesizeTypes(
     // They might be different structs that both are returned from the same function.
     // We removed the typeName condition since it fails for Data(boolean) vs Data(A1)
   ) {
-    console.log(
-      `[DEBUG-SYNTH] Synthesizing struct types: expected=${typeToString(expected.type)}, given=${typeToString(given.type)}`
-    );
-    console.log(
-      `[DEBUG-SYNTH] id match: ${expected.type.id === given.type.id}`
-    );
-    console.log(
-      `[DEBUG-SYNTH] functionValue match: ${expected.type.functionValue === given.type.functionValue}`
-    );
-
     for (let i = 0; i < expected.type.elements.length; i++) {
       const expectedElement = expected.type.elements[i]!;
       const givenElement = given.type.elements[i]!;

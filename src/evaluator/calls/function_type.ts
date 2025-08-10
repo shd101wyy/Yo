@@ -1,8 +1,8 @@
-import { transformFunctionBodyToCps } from "../../cps-transformer";
 import {
   Environment,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
+  printEnvVarNames,
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
@@ -138,7 +138,7 @@ export function tryToImplementFunctionByFunctionType({
       : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
     functionType.parametersFrame
   );
-  const originalEnv = env; // backup the env for later CPS transformation use.
+  // const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value
   const functionValue: FunctionValue = {
@@ -177,56 +177,6 @@ export function tryToImplementFunctionByFunctionType({
   }
   env = evaluatedFunctionBody.$.env;
 
-  // Check if the function uses `do` and apply CPS transformation
-  if (
-    evaluationContext.isEvaluatingFunctionBody?.usedDo &&
-    evaluationContext.isEvaluatingFunctionBody?.usedDo.length > 0
-  ) {
-    console.log(`Function uses 'do', applying CPS transformation...`);
-
-    // Apply CPS transformation to the function body
-    const transformedBody = transformFunctionBodyToCps(
-      functionBodyExpr,
-      evaluationContext.isEvaluatingFunctionBody.usedDo,
-      "resume"
-    );
-
-    // Store the transformed body separately
-    functionValue.cpsTransformedBody = transformedBody;
-
-    const {
-      evaluationContext: freshEvaluationContext,
-      capturedVariables: freshCapturedVariables,
-    } = createFunctionBodyEvaluationContext(
-      context,
-      functionType,
-      functionValue,
-      originalEnv
-    );
-    capturedVariables = freshCapturedVariables;
-
-    // Re-evaluate the transformed body to ensure it's valid
-    const evaluatedTransformedBody = evaluateBeginExpression({
-      expr: transformedBody,
-      env: originalEnv,
-      context: freshEvaluationContext,
-      variablesToAdd: [],
-    });
-
-    if (!evaluatedTransformedBody.$) {
-      throw formatErrorMessage({
-        token: functionBodyExpr.token,
-        errorMessage: `Failed to evaluate the CPS-transformed function body.`,
-      });
-    }
-
-    console.log(
-      `CPS transformation applied to function ${functionValue.funcId}`
-    );
-
-    env = evaluatedTransformedBody.$.env;
-  }
-
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$.type;
   if (
@@ -235,6 +185,7 @@ export function tryToImplementFunctionByFunctionType({
       { type: functionBodyReturnType, env }
     )
   ) {
+    printEnvVarNames(env);
     // console.trace();
     // printEnvVarNames(env);
     throw formatErrorMessage({

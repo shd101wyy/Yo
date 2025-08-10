@@ -5,7 +5,6 @@ import {
   Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
-  printEnvVarNames,
   pushEnvFrame,
   updateExistingVariable,
   Variable,
@@ -44,8 +43,11 @@ import {
   isMutRefType,
   isRefType,
   isSomeType,
+  isStructType,
   isTypeHierarchyType,
   isUnitType,
+  SomeType,
+  StructType,
   Type,
   TypeHierarchyType,
   typeRequiresComptModifier,
@@ -1000,6 +1002,12 @@ Got:   ${argExprs.length} arguments`,
       calleeEnv = expectedEnv;
       callerEnv = givenEnv;
 
+      console.log(
+        "after synthesizeTypes for implicit parameter",
+        typeToString(implicitParameterType),
+        typeToString(argType)
+      );
+
       // Compare the types
       if (
         !areTypesCompatible(
@@ -1383,17 +1391,18 @@ ${implicitVariables
   // Otherwise it might cause the variable shadowing problem.
   // See example in compt_runtime.yo.
   if (context.expectedType) {
-    const { expectedEnv } = synthesizeTypes(
-      { type: returnType, env: calleeEnv },
-      { type: context.expectedType.type, env: context.expectedType.env }
-    );
-
     console.log(
       `[DEBUG] synthesize for returnType of ${expr ? exprToString(expr) : "undefined"}:`,
       typeToString(returnType),
       typeToString(context.expectedType.type)
     );
 
+    const { expectedEnv } = synthesizeTypes(
+      { type: returnType, env: calleeEnv },
+      { type: context.expectedType.type, env: context.expectedType.env }
+    );
+
+    const calleeEnvChanged = expectedEnv !== calleeEnv;
     calleeEnv = expectedEnv;
 
     // console.log("- givenEnv");
@@ -1428,8 +1437,48 @@ ${implicitVariables
     // }
 
     if (typeToString(context.expectedType.type) === "Data(boolean)") {
-      printEnvVarNames(calleeEnv);
+      // printEnvVarNames(calleeEnv);
+      console.log("calleeEnvChanged: ", calleeEnvChanged);
       console.log(typeToString(returnType), isSomeType(returnType));
+
+      if (isSomeType(returnType)) {
+        const type = getValueOfSomeTypeFromEnv(
+          calleeEnv,
+          returnType as SomeType
+        );
+        console.log(typeToString(type), isStructType(type));
+        if (isStructType(type)) {
+          const structType = type as StructType;
+          const field = structType.elements[0]!;
+          console.log(typeToString(field.type), isSomeType(field.type));
+        }
+      }
+    }
+
+    if (calleeEnvChanged) {
+      console.log(
+        `[DEBUG] calleeEnvChanged! Re-evaluate ${exprToString(functionType.return.expr)}`
+      );
+      // printEnvVarNames(calleeEnv);
+      // Re-evaluate the returnType again
+      const { returnType: newReturnType, calleeEnv: updatedCalleeEnv } =
+        evaluateFunctionReturnTypeAgain({
+          functionReturn: functionType.return,
+          calleeEnv,
+          context: {
+            ...context,
+            isEvaluatingFunctionType: true,
+          },
+          functionValue,
+          functionCalleeExpr,
+        });
+      calleeEnv = updatedCalleeEnv;
+      returnType = newReturnType;
+      console.log(
+        `[DEBUG] Re-evaluated returnType after synthesis for ${exprToString(functionType.return.expr)}: ${typeToString(
+          returnType
+        )}`
+      );
     }
   }
 
@@ -1500,6 +1549,8 @@ ${implicitVariables
   else if (isSomeType(returnType)) {
     const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
     returnType = newReturnType;
+    // printEnvVarNames(calleeEnv);
+    console.log("Runtime isSomeType(returnType): ", typeToString(returnType));
   }
 
   if (expr && exprToString(expr) === "pure(true, using(DataApplicative))") {

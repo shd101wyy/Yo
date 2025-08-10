@@ -31,11 +31,7 @@ import {
   isUnionType,
 } from "./guards";
 import { TypeTag } from "./tags";
-import {
-  getValueOfSomeTypeFromEnv,
-  typeContainsSomeType,
-  typeToString,
-} from "./utils";
+import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
 
 /**
  * Check if two types are compatible.
@@ -227,15 +223,6 @@ export function areTypesCompatible(
       const givenElement = given.type.elements[i]!;
 
       if (
-        typeToString(expected.type).includes("Data") &&
-        typeToString(given.type).includes("Data")
-      ) {
-        console.log(
-          `[DEBUG-COMPAT] Checking element ${i}: expected=${typeToString(expectedElement.type)}, given=${typeToString(givenElement.type)}`
-        );
-      }
-
-      if (
         expectedElement.label !== givenElement.label ||
         !areTypesCompatible(
           {
@@ -245,12 +232,6 @@ export function areTypesCompatible(
           { type: givenElement.type, env: given.env }
         )
       ) {
-        if (
-          typeToString(expected.type).includes("Data") &&
-          typeToString(given.type).includes("Data")
-        ) {
-          console.log(`[DEBUG-COMPAT] Element ${i} incompatible`);
-        }
         return false;
       }
     }
@@ -559,15 +540,8 @@ export function areTypesCompatible(
       );
     }
   } else if (isSomeType(given.type)) {
-    console.log(`[DEBUG-COMPAT-SOME] Given is SomeType: ${given.type.name}`);
     const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
-    console.log(
-      `[DEBUG-COMPAT-SOME] Resolved ${given.type.name} to: ${typeToString(givenType_)}`
-    );
     if (given.type === givenType_) {
-      console.log(
-        `[DEBUG-COMPAT-SOME] SomeType ${given.type.name} not bound, returning false`
-      );
       return false;
     }
     return areTypesCompatible(expected, { type: givenType_, env: given.env });
