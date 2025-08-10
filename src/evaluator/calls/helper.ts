@@ -43,6 +43,7 @@ import {
   isFunctionType,
   isMutRefType,
   isRefType,
+  isSomeType,
   isTypeHierarchyType,
   isUnitType,
   Type,
@@ -1355,7 +1356,8 @@ ${implicitVariables
   // }
 
   // Evaluate the function return type again
-  const { returnType, calleeEnv: nextCalleeEnv } =
+  // eslint-disable-next-line prefer-const
+  let { returnType, calleeEnv: nextCalleeEnv } =
     evaluateFunctionReturnTypeAgain({
       functionReturn: functionType.return,
       calleeEnv,
@@ -1471,13 +1473,15 @@ ${implicitVariables
           functionType.return.label,
           someTypeId
         );
-        // Check if the returnType variable exists in the callerEnv.
-        const newReturnType = getValueOfSomeTypeFromEnv(callerEnv, someType);
+        const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, someType);
         returnValue = createTypeValue(newReturnType);
       } else {
         returnValue = createUnknownValue(returnType, functionType.return.label);
       }
     }
+  } else if (isSomeType(returnType)) {
+    const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
+    returnType = newReturnType;
   }
 
   // Check if function has compile-time parameters and create specialized version if needed
