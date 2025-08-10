@@ -235,6 +235,7 @@ export function tryToImplementFunctionByFunctionType({
       { type: functionBodyReturnType, env }
     )
   ) {
+    console.trace("Incompatible function return type");
     throw formatErrorMessage({
       token: functionType.return.expr.token,
       errorMessage: `Incompatible function return type:

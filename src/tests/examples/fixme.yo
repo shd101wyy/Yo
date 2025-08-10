@@ -1,63 +1,31 @@
-Applicative :: (fn(
-  compt(Wrapper1) : (fn(compt(W) : Type) -> compt(Type))
-  ) -> compt(Module))
-  module(
-    pure :
-      fn(
-        forall(A : Type),
-        a : A
-      ) -> Wrapper1(A)
-  )
-;
-
-pure :: (fn(
-  forall(
-    A: Type,
-    Wrapper2 : (fn(compt(W) : Type) -> compt(Type))
-  ),
-  a : A,
-  using(ApplicativeInstance : Applicative(Wrapper2))
-) -> Wrapper2(A))
-  ApplicativeInstance.pure(a)
+/*
+extern "Yo",
+  Wrapper1 : (fn(compt(W1) : Type) -> compt(Type)),
+  pure : 
+    fn(
+      forall(
+        A1 : Type,
+        Wrapper2 : (fn(compt(W2) : Type) -> compt(Type))
+      ),
+      value : A1
+    ) -> Wrapper2(A1)
 ;
 
 Data ::
-  (fn(compt(W) : Type) -> compt(Type))
-  struct(value: W)
+  (fn(compt(W3) : Type) -> compt(Type))
+  struct(value: W3)
 ;
 
-given(DataApplicative) :: Applicative(Data)
-  pure :
-    ((a) -> {
-      A :: typeof(a);
-      Data(A)(a)
-    })
+test :: (fn() -> Data(boolean))
+  pure(true)
+;
+*/
+
+extern "Yo",
+  any :
+    fn(forall(T : Type)) -> T
 ;
 
-/*
-test1 :: (fn() -> Data(boolean)) {
-  return pure(true, using(DataApplicative));
-};
-
-test2 :: (fn() -> Data(boolean)) {
-  return DataApplicative.pure(true);
-};
-
-test3 :: (fn() -> Data(boolean)) {
-  (x : Data(boolean)) = pure(true, using(DataApplicative));
-  return x;
-};
-*/
-
-
-test4 :: (fn() -> Data(boolean)) {
-  x := pure(true, using(DataApplicative));
-  return x;
-};
-
-/*
-test5 :: (fn() -> Data(boolean)) {
-  x := pure(true);
-  return x;
-};
-*/
+test :: (fn() -> boolean)
+  any()
+;

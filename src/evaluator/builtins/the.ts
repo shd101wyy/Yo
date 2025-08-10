@@ -12,7 +12,7 @@ import {
 } from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { synthesizeExprAndType } from "../types/synthesizer";
+import { synthesizeExprAndType } from "../types/expr_synthesizer";
 
 export function evaluateThe({
   expr,

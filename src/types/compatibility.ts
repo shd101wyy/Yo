@@ -1,13 +1,7 @@
-import { addVariableToEnv, Environment, getVariablesFromEnv } from "../env";
-import { randomId } from "../utils";
-import { areValuesEqual, createUnknownValue, Value } from "../value";
-import {
-  ClosureType,
-  FunctionParameter,
-  FunctionType,
-  ModuleElement,
-  Type,
-} from "./definitions";
+import { Environment } from "../env";
+import { synthesizeTypes } from "../evaluator/types/synthesizer";
+import { areValuesEqual } from "../value";
+import { ClosureType, FunctionType, ModuleElement, Type } from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
@@ -36,7 +30,6 @@ import {
   isU8Type,
   isUnionType,
 } from "./guards";
-import { getFunctionParameterToken } from "./hierarchy";
 import { TypeTag } from "./tags";
 import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
 
@@ -539,37 +532,6 @@ export function areTypesCompatible(
   return false;
 }
 
-// Helper function
-function addTypeValueToEnvForFunctionParameter(
-  parameter: FunctionParameter,
-  typeValue: Value,
-  env: Environment
-): Environment {
-  // We should skip if the variable of the same name already exists
-  const variables = getVariablesFromEnv(env, parameter.label);
-  if (variables.length > 0) {
-    return env;
-  } else {
-    const { env: nextEnv } = addVariableToEnv({
-      env: env,
-      variable: {
-        name: parameter.label,
-        value: typeValue,
-        type: typeValue.type,
-        isCompileTimeOnly: true,
-        isImplicit: false,
-        isMutable: false,
-        token: getFunctionParameterToken(parameter),
-        initializedAtToken: getFunctionParameterToken(parameter),
-        consumedAtToken: undefined,
-      },
-      // QUESTION: Should we update existing variable? Or skip it?
-      allowDuplicate: true, // Allow duplicates during type compatibility checking
-    });
-    return nextEnv;
-  }
-}
-
 /**
  * Check if two function types are compatible.
  * @param expectedType The expected function type.
@@ -627,6 +589,20 @@ export function areFunctionTypesCompatible(
     return false;
   }
 
+  // Synthesize the types
+  const { expectedEnv, givenEnv } = synthesizeTypes(
+    {
+      type: expected.type,
+      env: expected.env,
+    },
+    {
+      type: given.type,
+      env: given.env,
+    }
+  );
+  expected.env = expectedEnv;
+  given.env = givenEnv;
+
   // Check type parameters for compatibility
   for (let i = 0; i < expected.type.forallParameters.length; i++) {
     const expectedTypeParam = expected.type.forallParameters[i]!;
@@ -647,22 +623,6 @@ export function areFunctionTypesCompatible(
     ) {
       return false;
     }
-    // Create some type value for expectedType and givenType
-    // then add it to the env.
-    const typeValue = createUnknownValue(
-      givenTypeParam.type,
-      `some_type_${randomId()}`
-    );
-    expected.env = addTypeValueToEnvForFunctionParameter(
-      expectedTypeParam,
-      typeValue,
-      expected.env
-    );
-    given.env = addTypeValueToEnvForFunctionParameter(
-      givenTypeParam,
-      typeValue,
-      given.env
-    );
   }
 
   // Check regular parameters for compatibility
@@ -672,29 +632,6 @@ export function areFunctionTypesCompatible(
 
     if (expectedParam.isCompileTimeOnly !== givenParam.isCompileTimeOnly) {
       return false;
-    }
-
-    if (
-      isTypeHierarchyType(expectedParam.type) &&
-      isTypeHierarchyType(givenParam.type)
-    ) {
-      // Create some type value for expectedType and givenType
-      // then add it to the env.
-      const typeValue = createUnknownValue(
-        givenParam.type,
-        `some_type_${randomId()}`
-      );
-      expected.env = addTypeValueToEnvForFunctionParameter(
-        expectedParam,
-        typeValue,
-        expected.env
-      );
-      given.env = addTypeValueToEnvForFunctionParameter(
-        givenParam,
-        typeValue,
-        given.env
-      );
-      continue;
     }
 
     // Special handling for function parameter reference compatibility
@@ -772,29 +709,6 @@ export function areFunctionTypesCompatible(
       givenImplicitParam.isCompileTimeOnly
     ) {
       return false;
-    }
-
-    if (
-      isTypeHierarchyType(expectedImplicitParam.type) &&
-      isTypeHierarchyType(givenImplicitParam.type)
-    ) {
-      // Create some type value for expectedType and givenType
-      // then add it to the env.
-      const typeValue = createUnknownValue(
-        givenImplicitParam.type,
-        `some_type_${randomId()}`
-      );
-      expected.env = addTypeValueToEnvForFunctionParameter(
-        expectedImplicitParam,
-        typeValue,
-        expected.env
-      );
-      given.env = addTypeValueToEnvForFunctionParameter(
-        givenImplicitParam,
-        typeValue,
-        given.env
-      );
-      continue;
     }
 
     // Special handling for implicit parameter reference compatibility

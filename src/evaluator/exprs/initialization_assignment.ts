@@ -31,7 +31,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
-import { synthesizeExprAndType } from "../types/synthesizer";
+import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";

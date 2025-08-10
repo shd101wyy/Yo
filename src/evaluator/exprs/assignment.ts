@@ -45,7 +45,7 @@ import {
   isUnknownValue,
 } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
-import { synthesizeExprAndType } from "../types/synthesizer";
+import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 

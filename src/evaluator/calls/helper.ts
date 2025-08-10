@@ -5,6 +5,7 @@ import {
   Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
+  printEnvVarNames,
   pushEnvFrame,
   updateExistingVariable,
   Variable,
@@ -854,47 +855,6 @@ Got:   ${argExprs.length} arguments`,
     });
   }
 
-  // Synthesize the returnType if context.expectedType is giving
-  // The context.expectedType is the expected function return type.
-  // QUESTION: Should we run it after evaluating the normal arguments?
-  // YES We should do it after evaluating the normal arguments
-  // Otherwise it might cause the variable shadowing problem.
-  // See example in compt_runtime.yo.
-  if (context.expectedType) {
-    const { expectedEnv, givenEnv } = synthesizeTypes(
-      { type: functionType.return.type, env: calleeEnv },
-      { type: context.expectedType.type, env: context.expectedType.env }
-    );
-
-    calleeEnv = expectedEnv;
-
-    // IMPORTANT: During synthesis, variables might end up in givenEnv that are needed in calleeEnv
-    // We need to copy any variables from givenEnv that don't exist in expectedEnv
-    // This commonly happens when the context.expectedType.env contains variables that the
-    // function body needs but aren't naturally in the calleeEnv
-    const givenVarNames = new Set<string>();
-    for (const frame of givenEnv.frames) {
-      for (const variable of frame.variables) {
-        givenVarNames.add(variable.name);
-      }
-    }
-
-    for (const varName of givenVarNames) {
-      const existingInCallee = getVariablesFromEnv(calleeEnv, varName);
-      const inGiven = getVariablesFromEnv(givenEnv, varName);
-
-      // If variable exists in givenEnv but not in calleeEnv, copy it over
-      if (inGiven.length > 0 && existingInCallee.length === 0) {
-        const varToCopy = inGiven[inGiven.length - 1]!; // Get the most recent one
-        const { env: nextEnv } = addVariableToEnv({
-          env: calleeEnv,
-          variable: varToCopy,
-        });
-        calleeEnv = nextEnv;
-      }
-    }
-  }
-
   // Check if the implicit parameters are provided
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParameter = functionType.implicitParameters[i]!;
@@ -1411,6 +1371,54 @@ ${implicitVariables
   // if (exprToString(functionType.return.expr) === "Data(A)") {
   //   console.log("after Data(A): ", typeToString(returnType));
   // }
+
+  // Synthesize the returnType if context.expectedType is giving
+  // The context.expectedType is the expected function return type.
+  // QUESTION: Should we run it after evaluating the normal arguments?
+  // YES We should do it after evaluating the normal arguments
+  // Otherwise it might cause the variable shadowing problem.
+  // See example in compt_runtime.yo.
+  if (context.expectedType) {
+    const { expectedEnv } = synthesizeTypes(
+      { type: returnType, env: calleeEnv },
+      { type: context.expectedType.type, env: context.expectedType.env }
+    );
+
+    console.log(
+      "[DEBUG] synthesize:",
+      typeToString(returnType),
+      typeToString(context.expectedType.type)
+    );
+
+    calleeEnv = expectedEnv;
+    printEnvVarNames(calleeEnv);
+
+    // IMPORTANT: During synthesis, variables might end up in givenEnv that are needed in calleeEnv
+    // We need to copy any variables from givenEnv that don't exist in expectedEnv
+    // This commonly happens when the context.expectedType.env contains variables that the
+    // function body needs but aren't naturally in the calleeEnv
+    /// const givenVarNames = new Set<string>();
+    /// for (const frame of givenEnv.frames) {
+    ///   for (const variable of frame.variables) {
+    ///     givenVarNames.add(variable.name);
+    ///   }
+    /// }
+    ///
+    /// for (const varName of givenVarNames) {
+    ///   const existingInCallee = getVariablesFromEnv(calleeEnv, varName);
+    ///   const inGiven = getVariablesFromEnv(givenEnv, varName);
+    ///
+    ///   // If variable exists in givenEnv but not in calleeEnv, copy it over
+    ///   if (inGiven.length > 0 && existingInCallee.length === 0) {
+    ///     const varToCopy = inGiven[inGiven.length - 1]!; // Get the most recent one
+    ///     const { env: nextEnv } = addVariableToEnv({
+    ///       env: calleeEnv,
+    ///       variable: varToCopy,
+    ///     });
+    ///     calleeEnv = nextEnv;
+    ///   }
+    /// }
+  }
 
   const pathCollection: PathCollection = [];
   if (context.borrowings.length !== initialBorrowings.length) {
