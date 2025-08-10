@@ -1392,8 +1392,34 @@ ${implicitVariables
       typeToString(context.expectedType.type)
     );
 
+    // const calleeEnvChanged = calleeEnv !== expectedEnv;
     calleeEnv = expectedEnv;
-    printEnvVarNames(calleeEnv);
+    console.log("- expectedEnv");
+    printEnvVarNames(expectedEnv);
+    // console.log("- givenEnv");
+    // printEnvVarNames(givenEnv);
+
+    // Evaluate the returnType again with the updated calleeEnv
+    // if (calleeEnvChanged) {
+    //   const { returnType: newReturnType, calleeEnv: updatedCalleeEnv } =
+    //     evaluateFunctionReturnTypeAgain({
+    //       functionReturn: functionType.return,
+    //       calleeEnv,
+    //       context: {
+    //         ...context,
+    //         isEvaluatingFunctionType: true,
+    //       },
+    //       functionValue,
+    //       functionCalleeExpr,
+    //     });
+    //   calleeEnv = updatedCalleeEnv;
+    //   returnType = newReturnType;
+    //
+    //   console.log(
+    //     "[DEBUG] evaluate returnType again:",
+    //     typeToString(returnType)
+    //   );
+    // }
 
     // IMPORTANT: During synthesis, variables might end up in givenEnv that are needed in calleeEnv
     // We need to copy any variables from givenEnv that don't exist in expectedEnv
@@ -1443,6 +1469,7 @@ ${implicitVariables
   // Check if we need to evaluate the compt function call
   // such as the type function, macro function, or function that returns compt value.
   let returnValue: Value | undefined;
+  /// Compile-time
   if (functionType.return.isCompileTimeOnly) {
     if (isFunctionValue(functionValue)) {
       const { value: nextReturnValue, callerEnv: nextEnv } =
@@ -1479,7 +1506,9 @@ ${implicitVariables
         returnValue = createUnknownValue(returnType, functionType.return.label);
       }
     }
-  } else if (isSomeType(returnType)) {
+  }
+  /// Runtime
+  else if (isSomeType(returnType)) {
     const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
     returnType = newReturnType;
   }
@@ -1499,6 +1528,11 @@ ${implicitVariables
       callerEnv: callerEnv,
       context,
     });
+  }
+
+  if (typeToString(returnType) === "Data(A1)") {
+    console.log("[DEBUG] Found Data(A1) return type");
+    printEnvVarNames(calleeEnv);
   }
 
   return {
