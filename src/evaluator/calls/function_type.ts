@@ -2,6 +2,7 @@ import {
   Environment,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
+  printEnvVarNames,
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
@@ -48,6 +49,7 @@ export function createFunctionBodyEvaluationContext(
     isExecuting: false, // We're analyzing, not executing
     isValidatingFunctionDefinition: true, // We're validating function definition
     isEvaluatingFunctionBody: functionBodyContext,
+    isEvaluatingFunctionType: false,
     expectedType: {
       type: functionType.return.type,
       env: env,
@@ -185,7 +187,7 @@ export function tryToImplementFunctionByFunctionType({
     )
   ) {
     // console.trace();
-    // printEnvVarNames(env);
+    printEnvVarNames(env);
     throw formatErrorMessage({
       token: functionType.return.expr.token,
       errorMessage: `Incompatible function return type:

@@ -966,7 +966,7 @@ export function evaluateFunctionType({
   const evaluatedReturnType = context.evaluateExpression({
     expr: returnTypeExpr,
     env,
-    context: { ...context },
+    context: { ...context, isEvaluatingFunctionType: true },
   });
 
   // Check that the return type is indeed a type

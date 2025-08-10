@@ -5,6 +5,7 @@ import {
   Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
+  printEnvVarNames,
   pushEnvFrame,
   updateExistingVariable,
   Variable,
@@ -34,6 +35,7 @@ import {
   createSomeType,
   FunctionParameter,
   FunctionType,
+  getAllSomeTypes,
   getValueOfSomeTypeFromEnv,
   isClosureType,
   isExprListType,
@@ -1443,17 +1445,57 @@ ${implicitVariables
         if (context.expectedType?.type) {
           returnValue = createTypeValue(context.expectedType.type);
         } else {
-          const someType = createSomeType(
-            returnType as TypeHierarchyType,
-            functionType.return.label,
-            someTypeId
-          );
-          someType.functionApplication = expr;
-          const newReturnType = getValueOfSomeTypeFromEnv(calleeEnv, someType);
-          returnValue = createTypeValue(newReturnType);
+          if (context.isEvaluatingFunctionType) {
+            const someType = createSomeType(
+              returnType as TypeHierarchyType,
+              functionType.return.label,
+              someTypeId
+            );
+            someType.functionApplication = expr;
+            const newReturnType = getValueOfSomeTypeFromEnv(
+              calleeEnv,
+              someType
+            );
+            returnValue = createTypeValue(newReturnType);
+          } else {
+            throw formatErrorMessage({
+              token:
+                expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
+              errorMessage: `Cannot infer compt return type. Please provide the expected type.`,
+            });
+          }
         }
       } else {
         returnValue = createUnknownValue(returnType, functionType.return.label);
+      }
+    }
+  }
+
+  // Check if the returnType contains any SomeType that doesn't exist in the callerEnv;
+  // If yes, then throw error
+  if (expr && exprToString(expr) === "pure(true, using(DataApplicative))") {
+    console.log(
+      "\nEnter here",
+      context.isEvaluatingFunctionType,
+      context.expectedType
+    );
+  }
+  if (!context.isEvaluatingFunctionType && !context.expectedType) {
+    const returnTypeSomeTypes = getAllSomeTypes(returnType);
+    for (const returnTypeSomeType of returnTypeSomeTypes) {
+      const variables = getVariablesFromEnv(callerEnv, returnTypeSomeType.name);
+      console.log(
+        "checking: ",
+        typeToString(returnTypeSomeType),
+        variables.length
+      );
+      printEnvVarNames(callerEnv);
+      if (!variables.length) {
+        throw formatErrorMessage({
+          token: expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
+          errorMessage: `Cannot infer the return type:
+${typeToString(returnType)}.`,
+        });
       }
     }
   }

@@ -198,6 +198,54 @@ export function typeContainsSomeType(type?: Type): boolean {
 }
 
 /**
+ * Get all SomeTypes contained within a type.
+ * @param type
+ */
+export function getAllSomeTypes(type: Type): Set<SomeType> {
+  const result = new Set<SomeType>();
+
+  function helper(t: Type) {
+    if (isSomeType(t)) {
+      result.add(t);
+    }
+
+    switch (t.tag) {
+      case TypeTag.Array:
+        helper((t as ArrayType).elementType);
+        break;
+      case TypeTag.Tuple:
+        (t as TupleType).elements.forEach((element) => helper(element.type));
+        break;
+      case TypeTag.Struct:
+        (t as StructType).elements.forEach((element) => helper(element.type));
+        break;
+      case TypeTag.Enum:
+        (t as EnumType).variants.forEach((variant) => {
+          variant.elements?.forEach((param) => helper(param.type));
+        });
+        break;
+      case TypeTag.Union:
+        (t as UnionType).elements.forEach((element) => helper(element.type));
+        break;
+      case TypeTag.Module:
+        (t as ModuleType).elements.forEach((element) => helper(element.type));
+        break;
+      case TypeTag.Ptr:
+      case TypeTag.MutPtr:
+      case TypeTag.Ref:
+      case TypeTag.MutRef:
+        helper((t as PtrType | MutPtrType | RefType | MutRefType).type);
+        break;
+      default:
+        break; // For other types, do nothing
+    }
+  }
+
+  helper(type);
+  return result;
+}
+
+/**
  * Check if a type contains unknown values.
  */
 export function typeRequiresInference(type?: Type): boolean {
