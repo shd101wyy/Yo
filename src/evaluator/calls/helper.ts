@@ -1389,6 +1389,21 @@ ${implicitVariables
       { type: context.expectedType.type, env: context.expectedType.env }
     );
     calleeEnv = expectedEnv;
+
+    // Evaluate the function return type again after synthesizing
+    // This is to ensure that any SomeType in the returnType is properly resolved
+    const evalReturnTypeResult = evaluateFunctionReturnTypeAgain({
+      functionType: functionType,
+      calleeEnv,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+      functionValue,
+      functionCalleeExpr,
+    });
+    returnType = evalReturnTypeResult.returnType;
+    calleeEnv = evalReturnTypeResult.calleeEnv;
   }
 
   const pathCollection: PathCollection = [];

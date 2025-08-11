@@ -1,62 +1,6 @@
-Applicative :: (fn(
-  compt(Wrapper1) : (fn(compt(W1) : Type) -> compt(Type))
-  ) -> compt(Module))
-  module(
-    pure :
-      fn(
-        forall(A1 : Type),
-        a1 : A1
-      ) -> Wrapper1(A1)
-  )
-;
-
-pure :: (fn(
-  forall(
-    A2: Type,
-    Wrapper2 : (fn(compt(W2) : Type) -> compt(Type))
-  ),
-  a2 : A2,
-  using(ApplicativeInstance : Applicative(Wrapper2))
-) -> Wrapper2(A2))
-  ApplicativeInstance.pure(a2)
-;
-
-Data ::
-  (fn(compt(W3) : Type) -> compt(Type))
-  struct(value: W3)
-;
-
-given(DataApplicative) :: Applicative(Data)
-  pure :
-    ((forall(A1), x) ->
-      Data(A1)(x)
-    )
-;
-
-test1 :: (fn() -> Data(boolean))
-  pure(true, using(DataApplicative))
-;
-
-test1_2 :: (fn() -> Data(boolean))
-  pure(true)
-;
-
-// This is working fine
-test2 :: (fn() -> Data(boolean))
-  DataApplicative.pure(true)
-;
-
-test3 :: (fn() -> Data(boolean)) {
-  (x : Data(boolean)) = pure(true, using(DataApplicative));
-  return x;
-};
-
-test4 :: (fn() -> Data(boolean)) {
-  compt_expect_error(
-    x := pure(true, using(DataApplicative))
-  );
-  compt_expect_error(
-    x := pure(true)
-  );
-  return pure(true);
+main :: (fn() -> unit) {
+  {
+    compt(x) : Type;
+    x = struct(x: i32, y: i32);
+  };
 };

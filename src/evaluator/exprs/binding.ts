@@ -183,7 +183,7 @@ ${exprToString(rhs)}`,
       isCompileTimeOnly,
       isImplicit,
       value: isCompileTimeOnly
-        ? createUnknownValue(userDefinedType)
+        ? createUnknownValue(userDefinedType, variableName)
         : undefined,
       token: lhs.token,
       initializedAtToken: undefined, // The variable is not initialized yet
