@@ -1,14 +1,45 @@
-{ not, BooleanLogicalNot } :: import "../../../std/modules/logic.yo";
-
-Eq ::
-  (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs) -> compt(Module))
-  module
-    (==): (fn(lhs: Lhs, rhs: Rhs) -> boolean),
-
-    ((!=) : (fn(lhs: Lhs, rhs: Rhs) -> boolean)) ?= 
-      ((lhs, rhs) ->
-        not((==)(lhs, rhs), using(BooleanLogicalNot))
-      )
+Point ::
+  (fn(compt(P): Type)-> compt(Type))
+  struct
+    x: P,
+    y: P
 ;
 
-export Eq;
+Id ::
+  (fn(compt(Self_): Type)-> compt(Module))
+  module
+    (Self: Type) = Self_,
+    id:
+      fn(self : Self)-> Self
+;
+
+id ::
+  (fn(forall(T: Type), x: T, using(I : Id(T)))-> T)
+  I.id(x)
+;
+
+given(IdInt) ::
+  Id(i32)
+    id:
+      (x) -> x
+;
+
+given(IdBoolean) ::
+  Id(boolean)
+    id:
+      (x) -> x
+;
+
+given(IdPoint) ::
+  (fn( forall(IP: Type), 
+    using(I : Id(IP))
+  )-> compt(Id(Point(IP))))
+  Id(Point(IP))
+    id:
+      (p) -> {
+        { x, y } := p;
+        Point(IP)(I.id(x), I.id(y))
+      }
+;
+
+x := id(Point(i32)(1, 2), using(IdPoint()));
