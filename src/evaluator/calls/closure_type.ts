@@ -1,4 +1,3 @@
-import { transformFunctionBodyToCps } from "../../cps-transformer";
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
@@ -55,7 +54,7 @@ export function tryToImplementClosureByClosureType({
   // Add parameters to the env new frame
   // For closures, we keep the full caller environment to enable variable capturing
   let env = pushEnvFrame(callerEnv, closureType.callType.parametersFrame);
-  const originalEnv = env; // backup the env for later CPS transformation use.
+  // const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value for the closure
   const functionValue: FunctionValue = {
@@ -95,56 +94,6 @@ export function tryToImplementClosureByClosureType({
     });
   }
   env = evaluatedClosureBody.$.env;
-
-  // Check if the closure uses `do` and apply CPS transformation
-  if (
-    evaluationContext.isEvaluatingFunctionBody?.usedDo &&
-    evaluationContext.isEvaluatingFunctionBody?.usedDo.length > 0
-  ) {
-    console.log(`Closure uses 'do', applying CPS transformation...`);
-
-    // Apply CPS transformation to the closure body
-    const transformedBody = transformFunctionBodyToCps(
-      closureBodyExpr,
-      evaluationContext.isEvaluatingFunctionBody.usedDo,
-      functionValue.funcId
-    );
-
-    // Store the transformed body separately
-    functionValue.cpsTransformedBody = transformedBody;
-
-    const {
-      evaluationContext: freshEvaluationContext,
-      capturedVariables: freshCapturedVariables,
-    } = createFunctionBodyEvaluationContext(
-      context,
-      closureType.callType,
-      functionValue,
-      originalEnv
-    );
-    capturedVariables = freshCapturedVariables;
-
-    // Re-evaluate the transformed body to ensure it's valid
-    const evaluatedTransformedBody = evaluateBeginExpression({
-      expr: transformedBody,
-      env: originalEnv,
-      context: freshEvaluationContext,
-      variablesToAdd: [],
-    });
-
-    if (!evaluatedTransformedBody.$) {
-      throw formatErrorMessage({
-        token: closureBodyExpr.token,
-        errorMessage: `Failed to evaluate the CPS-transformed closure body.`,
-      });
-    }
-
-    console.log(
-      `CPS transformation applied to closure ${functionValue.funcId}`
-    );
-
-    env = evaluatedTransformedBody.$.env;
-  }
 
   // Check if the closure body type matches the closure return type
   const closureBodyReturnType = evaluatedClosureBody.$.type;

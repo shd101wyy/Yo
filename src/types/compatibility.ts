@@ -10,7 +10,6 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
-  isEffectFunctionType,
   isEffType,
   isEnumType,
   isExprListType,
@@ -570,21 +569,6 @@ export function areFunctionTypesCompatible(
 ): boolean {
   if (expected.type === given.type) {
     return true;
-  }
-
-  if (
-    isEffectFunctionType(expected.type) &&
-    given.type.isHandlerForEffectFunction
-  ) {
-    return areFunctionTypesCompatible(
-      expected,
-      { type: given.type.isHandlerForEffectFunction, env: given.env },
-      exactNumericTypeMatch
-    );
-  }
-
-  if (expected.type.isEffect !== given.type.isEffect) {
-    return false;
   }
 
   // Check if the type parameters have the same count

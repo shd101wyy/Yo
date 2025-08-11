@@ -395,7 +395,6 @@ export const BuiltinKeywords = {
   return: ["return"],
   recur: ["recur"],
   fn: ["fn"],
-  eff: ["eff"],
   extern: ["extern"],
   cond: ["cond"],
   type: ["type"],

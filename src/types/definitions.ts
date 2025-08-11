@@ -499,17 +499,6 @@ export interface FunctionType extends Type {
    * - "FnMove": Move closure (can only be called once, moves captured values)
    */
   closureKind?: ClosureKind;
-
-  /**
-   * Whether this function type is an effectful function defined using `ctl` keyword.
-   */
-  isEffect: boolean;
-
-  /**
-   * Whether this function type is an effect handler function.
-   * This is used to record the effect function type that this handler is implementing for.
-   */
-  isHandlerForEffectFunction?: FunctionType & { isEffect: true };
 }
 
 export interface MutPtrType extends Type {

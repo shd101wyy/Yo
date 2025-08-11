@@ -2,7 +2,6 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
-  isEffectFunctionType,
   isEnumType,
   isFunctionType,
   isLinearOrType0Type,
@@ -664,12 +663,6 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
       if (!variable.isCompileTimeOnly) {
         return false;
       } else {
-        // Check if it's an `eff` function
-        // If yes, then return false
-        if (isEffectFunctionType(variable.type)) {
-          return false;
-        }
-
         return true;
       }
     });

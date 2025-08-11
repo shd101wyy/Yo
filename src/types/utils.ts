@@ -41,7 +41,6 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
-  isEffectFunctionType,
   isEffType,
   isEnumType,
   isExprListType,
@@ -85,7 +84,6 @@ export function typeRequiresComptModifier(type?: Type): boolean {
   return (
     isTypeHierarchyType(type) ||
     isModuleType(type) ||
-    isEffectFunctionType(type) ||
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||
@@ -645,7 +643,7 @@ function functionTypeToString(func: FunctionType): string {
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
-  return `${from ? `(${from}) ` : ""}${func.closureKind ?? (func.isEffect ? "eff" : "fn")}(${paramsString}) -> ${returnString}`;
+  return `${from ? `(${from}) ` : ""}${func.closureKind ?? "fn"}(${paramsString}) -> ${returnString}`;
 }
 
 /**
