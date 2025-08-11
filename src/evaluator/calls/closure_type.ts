@@ -3,6 +3,7 @@ import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
+import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   ClosureType,
@@ -154,7 +155,7 @@ export function tryToImplementClosureByClosureType({
     )
   ) {
     throw formatErrorMessage({
-      token: closureType.callType.return.expr.token,
+      token: closureType.callType.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Incompatible closure return type:
 - Expected: ${typeToString(closureType.callType.return.type)}
 - Given  : ${typeToString(closureBodyReturnType)}`,
@@ -166,7 +167,7 @@ export function tryToImplementClosureByClosureType({
     !evaluatedClosureBody.$.value
   ) {
     throw formatErrorMessage({
-      token: closureType.callType.return.expr.token,
+      token: closureType.callType.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }

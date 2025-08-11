@@ -1370,18 +1370,20 @@ ${implicitVariables
   // );
 
   // Evaluate the function return type again
-  // eslint-disable-next-line prefer-const
-  let { returnType, calleeEnv: nextCalleeEnv } =
-    evaluateFunctionReturnTypeAgain({
-      functionType: functionType,
-      calleeEnv,
-      context: {
-        ...context,
-        isEvaluatingFunctionType: true,
-      },
-      functionValue,
-      functionCalleeExpr,
-    });
+  let {
+    returnType,
+    // eslint-disable-next-line prefer-const
+    calleeEnv: nextCalleeEnv,
+  } = evaluateFunctionReturnTypeAgain({
+    functionType: functionType,
+    calleeEnv,
+    context: {
+      ...context,
+      isEvaluatingFunctionType: true,
+    },
+    functionValue,
+    functionCalleeExpr,
+  });
   calleeEnv = nextCalleeEnv;
 
   // if (exprToString(functionType.return.expr) === "Data(A)") {
@@ -1415,6 +1417,24 @@ ${implicitVariables
     });
     returnType = evalReturnTypeResult.returnType;
     calleeEnv = evalReturnTypeResult.calleeEnv;
+
+    if (
+      areTypesCompatible(
+        { type: context.expectedType.type, env: context.expectedType.env },
+        { type: returnType, env: calleeEnv }
+      )
+    ) {
+      returnType = context.expectedType.type;
+    } else {
+      // QUESTION: Should we throw error here?
+      // ANSWER: It seems like if we throw error here, then some code examples will be broken. I am not sure why
+      //       throw formatErrorMessage({
+      //         token: expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
+      //         errorMessage: `Function return type mismatch:
+      // Expected: ${typeToString(context.expectedType.type)}
+      // Got:   ${typeToString(returnType)}`,
+      //       });
+    }
   }
 
   const pathCollection: PathCollection = [];
@@ -1458,6 +1478,7 @@ ${implicitVariables
         },
       });
       returnValue = nextReturnValue;
+      returnType = nextReturnValue.type;
       callerEnv = nextCallerEnv;
       calleeEnv = nextCalleeEnv;
     } else {

@@ -1,4 +1,3 @@
-import { transformFunctionBodyToCps } from "../../cps-transformer";
 import {
   addVariableToEnv,
   Environment,
@@ -9,7 +8,6 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  cloneExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -21,7 +19,6 @@ import {
   FunctionCapturedVariableInfo,
   FunctionValue,
 } from "../../function-value";
-import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
@@ -306,8 +303,6 @@ Got:      "${paramName}"`,
     });
     env = nextEnv;
 
-    console.log("expectedParam.type: ", typeToString(expectedParam.type));
-
     paramExpr.$ = {
       env: env,
       type: expectedParam.type,
@@ -375,15 +370,6 @@ Got:      "${paramName}"`,
 
   const parametersFrame = env.frames[env.frames.length - 1]!;
 
-  // Construct the function return expr from the function type
-  const returnValueExpr = generateExprFromCode(
-    typeToString(functionType.return.type)
-  );
-
-  console.log("functionType: ", typeToString(functionType));
-  console.log("- original: ", exprToString(functionType.return.expr));
-  console.log("- generated: ", exprToString(returnValueExpr));
-
   // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
     ...functionType,
@@ -415,13 +401,11 @@ Got:      "${paramName}"`,
     }),
     return: {
       ...functionType.return,
-      expr: cloneExpr(returnValueExpr),
+      expr: undefined, // Clear return expr for anonymous functions
     },
     parametersFrame: parametersFrame,
     env: envWithoutParametersFrame, // functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.
   };
-
-  const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value BEFORE evaluating the function body (fixing FIXME)
   const functionValue: FunctionValue = {
@@ -464,60 +448,6 @@ Got:      "${paramName}"`,
     });
   }
   env = evaluatedBody.$.env;
-
-  // Check if the function uses `do` and apply CPS transformation
-  if (
-    evaluationContext.isEvaluatingFunctionBody?.usedDo &&
-    evaluationContext.isEvaluatingFunctionBody?.usedDo.length > 0
-  ) {
-    console.log(`Function uses 'do', applying CPS transformation...`);
-
-    // Apply CPS transformation to the function body
-    const transformedBody = transformFunctionBodyToCps(
-      functionBodyExpr,
-      evaluationContext.isEvaluatingFunctionBody.usedDo,
-      functionValue.funcId
-    );
-
-    // Store the transformed body separately
-    functionValue.cpsTransformedBody = transformedBody;
-
-    const {
-      evaluationContext: freshEvaluationContext,
-      capturedVariables: freshCapturedVariables,
-    } = createFunctionBodyEvaluationContext(
-      {
-        ...context,
-        isExecuting: false,
-        isValidatingFunctionDefinition: false,
-      },
-      functionType,
-      functionValue,
-      originalEnv
-    );
-    capturedVariables = freshCapturedVariables;
-
-    // Re-evaluate the transformed body to ensure it's valid
-    const evaluatedTransformedBody = evaluateBeginExpression({
-      expr: transformedBody,
-      env: originalEnv,
-      context: freshEvaluationContext,
-      variablesToAdd: [],
-    });
-
-    if (!evaluatedTransformedBody.$) {
-      throw formatErrorMessage({
-        token: functionBodyExpr.token,
-        errorMessage: `Failed to evaluate the CPS-transformed function body.`,
-      });
-    }
-
-    console.log(
-      `CPS transformation applied to function ${functionValue.funcId}`
-    );
-
-    env = evaluatedTransformedBody.$.env;
-  }
 
   // Check if the return type is compatible
   const evaluatedBodyReturnType = evaluatedBody.$?.type;

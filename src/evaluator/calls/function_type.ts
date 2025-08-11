@@ -7,6 +7,7 @@ import {
 import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
+import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   createEffectHandlerType,
@@ -187,15 +188,15 @@ export function tryToImplementFunctionByFunctionType({
   ) {
     // console.trace();
     throw formatErrorMessage({
-      token: functionType.return.expr.token,
-      errorMessage: `Incompatible function return type:
+      token: functionType.return.expr?.token ?? PlaceholderToken,
+      errorMessage: `Incompatible function return type for:
 - Expected: ${typeToString(functionType.return.type)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
     });
   }
   if (functionType.return.isCompileTimeOnly && !evaluatedFunctionBody.$.value) {
     throw formatErrorMessage({
-      token: functionType.return.expr.token,
+      token: functionType.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }

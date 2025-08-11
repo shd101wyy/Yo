@@ -420,7 +420,11 @@ export interface UnionType extends Type {
 
 export interface FunctionReturn {
   type: Type;
-  expr: Expr;
+  /**
+   * For anonymous function implementataion, let's set `expr` to undefined.
+   */
+  expr?: Expr;
+
   isCompileTimeOnly: boolean;
   isUnquote: boolean;
   label: string;

@@ -401,10 +401,6 @@ Given type: ${typeToString(defaultValueType)}`,
     };
   }
 
-  if (label && !elementType.typeName) {
-    elementType.typeName = label;
-  }
-
   return {
     type: {
       label: label ?? `$element_${randomId()}`,

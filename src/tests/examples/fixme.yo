@@ -1,22 +1,14 @@
-Clone :: (fn(compt(Self): Type) -> compt(Module))
+{ not, BooleanLogicalNot } :: import "../../../std/modules/logic.yo";
+
+Eq ::
+  (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs) -> compt(Module))
   module
-    Self  := Self,
-    clone :
-      (fn( self: &(Self) ) -> Self)
+    (==): (fn(lhs: Lhs, rhs: Rhs) -> boolean),
+
+    ((!=) : (fn(lhs: Lhs, rhs: Rhs) -> boolean)) ?= 
+      ((lhs, rhs) ->
+        not((==)(lhs, rhs), using(BooleanLogicalNot))
+      )
 ;
 
-Point :: struct
-  x : i32,
-  y : i32,
-
-  // Implement the Clone module
-  ...(
-    Clone(Self)(
-      clone :
-        (self) ->
-          Self(self.x, self.y)
-    ))
-;
-
-p := Point(1, 2);
-Point.clone(&(p));
+export Eq;

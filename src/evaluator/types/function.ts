@@ -1245,6 +1245,9 @@ export function evaluateFunctionReturnTypeAgain({
   functionCalleeExpr?: Expr;
 }): { returnType: Type; calleeEnv: Environment } {
   const functionReturn = functionType.return;
+  if (!functionReturn.expr) {
+    return { returnType: functionReturn.type, calleeEnv };
+  }
   const evaluatedFunctionReturnExpr = context.evaluateExpression({
     expr: cloneExpr(functionReturn.expr),
     env: calleeEnv,
