@@ -2,7 +2,6 @@ import {
   Environment,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
-  printEnvVarNames,
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
@@ -187,7 +186,6 @@ export function tryToImplementFunctionByFunctionType({
     )
   ) {
     // console.trace();
-    printEnvVarNames(env);
     throw formatErrorMessage({
       token: functionType.return.expr.token,
       errorMessage: `Incompatible function return type:

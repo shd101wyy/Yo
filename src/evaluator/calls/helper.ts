@@ -5,7 +5,7 @@ import {
   Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
-  printEnvVarNames,
+  popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
   Variable,
@@ -1471,34 +1471,12 @@ ${implicitVariables
     }
   }
 
-  // Check if the returnType contains any SomeType that doesn't exist in the callerEnv;
-  // If yes, then throw error
-  if (expr && exprToString(expr) === "pure(true, using(DataApplicative))") {
-    console.log(
-      "\nEnter here",
-      context.isEvaluatingFunctionType,
-      context.expectedType
-    );
-  }
-  if (!context.isEvaluatingFunctionType && !context.expectedType) {
-    const returnTypeSomeTypes = getAllSomeTypes(returnType);
-    for (const returnTypeSomeType of returnTypeSomeTypes) {
-      const variables = getVariablesFromEnv(callerEnv, returnTypeSomeType.name);
-      console.log(
-        "checking: ",
-        typeToString(returnTypeSomeType),
-        variables.length
-      );
-      printEnvVarNames(callerEnv);
-      if (!variables.length) {
-        throw formatErrorMessage({
-          token: expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
-          errorMessage: `Cannot infer the return type:
-${typeToString(returnType)}.`,
-        });
-      }
-    }
-  }
+  validateFunctionReturnType({
+    returnType,
+    env: popEnvFrame(callerEnv),
+    expr,
+    context,
+  });
 
   // Check if function has compile-time parameters and create specialized version if needed
   let specializedFunctionValue: FunctionValue | undefined;
@@ -1745,4 +1723,36 @@ function createSpecializedFunctionInline({
   ];
 
   return specializedFunction;
+}
+
+/**
+ * Check if the returnType contains any SomeType that doesn't exist in the callerEnv;
+ * If yes, then throw error
+ */
+export function validateFunctionReturnType({
+  returnType,
+  expr,
+  env,
+  context,
+}: {
+  returnType: Type;
+  expr: Expr | undefined;
+  env: Environment;
+  context: EvaluatorContext;
+}): void {
+  if (context.isEvaluatingFunctionType || context.expectedType) {
+    return;
+  }
+
+  const returnTypeSomeTypes = getAllSomeTypes(returnType);
+  for (const returnTypeSomeType of returnTypeSomeTypes) {
+    const variables = getVariablesFromEnv(env, returnTypeSomeType.name);
+    if (!variables.length) {
+      throw formatErrorMessage({
+        token: expr?.token ?? PlaceholderToken,
+        errorMessage: `Failed to infer the function call return type.
+Please consider providing the expected type.`,
+      });
+    }
+  }
 }
