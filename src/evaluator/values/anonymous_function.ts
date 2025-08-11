@@ -306,6 +306,8 @@ Got:      "${paramName}"`,
     });
     env = nextEnv;
 
+    console.log("expectedParam.type: ", typeToString(expectedParam.type));
+
     paramExpr.$ = {
       env: env,
       type: expectedParam.type,
@@ -377,6 +379,10 @@ Got:      "${paramName}"`,
   const returnValueExpr = generateExprFromCode(
     typeToString(functionType.return.type)
   );
+
+  console.log("functionType: ", typeToString(functionType));
+  console.log("- original: ", exprToString(functionType.return.expr));
+  console.log("- generated: ", exprToString(returnValueExpr));
 
   // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {

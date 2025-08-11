@@ -1095,6 +1095,7 @@ export function evaluateFunctionParameterTypeAgain({
   parameter,
   calleeEnv,
   context,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   functionValue,
 }: {
   parameter: FunctionParameter;
@@ -1111,7 +1112,7 @@ export function evaluateFunctionParameterTypeAgain({
       context: {
         ...context,
         expectedType: undefined,
-        SelfType: functionValue?.SelfType,
+        SelfType: functionValue?.SelfType ?? context.SelfType,
       },
     });
     if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
@@ -1172,7 +1173,7 @@ export function evaluateFunctionParameterTypeAgain({
       context: {
         ...context,
         expectedType: undefined,
-        SelfType: functionValue?.SelfType,
+        SelfType: functionValue?.SelfType ?? context.SelfType,
       },
     });
     if (!evaluatedDefaultValueExpr.$) {
@@ -1233,6 +1234,7 @@ export function evaluateFunctionReturnTypeAgain({
   functionType,
   calleeEnv,
   context,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   functionValue,
   functionCalleeExpr,
 }: {
@@ -1246,7 +1248,10 @@ export function evaluateFunctionReturnTypeAgain({
   const evaluatedFunctionReturnExpr = context.evaluateExpression({
     expr: cloneExpr(functionReturn.expr),
     env: calleeEnv,
-    context: { ...context, SelfType: functionValue?.SelfType },
+    context: {
+      ...context,
+      SelfType: functionValue?.SelfType ?? context.SelfType,
+    },
   });
 
   let returnType: Type;

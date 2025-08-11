@@ -1358,6 +1358,17 @@ ${implicitVariables
   //   printEnvVarNames(calleeEnv);
   // }
 
+  // console.log("\nFunction call: ", exprToString(expr));
+  // console.log("- return expr: ", exprToString(functionType.return.expr));
+  // console.log(
+  //   "- SelfType:",
+  //   context.SelfType ? typeToString(context.SelfType) : undefined
+  // );
+  // console.log(
+  //   "- functionValue?.SelfType:",
+  //   functionValue?.SelfType ? typeToString(functionValue.SelfType) : undefined
+  // );
+
   // Evaluate the function return type again
   // eslint-disable-next-line prefer-const
   let { returnType, calleeEnv: nextCalleeEnv } =
