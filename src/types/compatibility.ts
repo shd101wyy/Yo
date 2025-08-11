@@ -139,7 +139,7 @@ export function areTypesCompatible(
     return (
       areValuesEqual(
         { value: expected.type.length, env: expected.env },
-        { value: given.type.length, env: expected.env }
+        { value: given.type.length, env: given.env }
       ) &&
       areTypesCompatible(
         {

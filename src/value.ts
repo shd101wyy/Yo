@@ -740,6 +740,38 @@ export function areValuesEqual(
     //   { type: value1.type, env: expected.env },
     //   { type: value2.type, env: given.env }
     // );
+  }
+  // Handle the case where only one value is unknown - try to resolve it
+  else if (isUnknownValue(value1) && !isUnknownValue(value2)) {
+    // Try to resolve the unknown value from its environment
+    if (value1.variableName) {
+      const variables1 = getVariablesFromEnv(expected.env, value1.variableName);
+      if (variables1.length > 0) {
+        const variable1 = variables1[variables1.length - 1]!;
+        if (variable1.value && !isUnknownValue(variable1.value)) {
+          return areValuesEqual(
+            { value: variable1.value, env: expected.env },
+            { value: value2, env: given.env }
+          );
+        }
+      }
+    }
+    return false;
+  } else if (!isUnknownValue(value1) && isUnknownValue(value2)) {
+    // Try to resolve the unknown value from its environment
+    if (value2.variableName) {
+      const variables2 = getVariablesFromEnv(given.env, value2.variableName);
+      if (variables2.length > 0) {
+        const variable2 = variables2[variables2.length - 1]!;
+        if (variable2.value && !isUnknownValue(variable2.value)) {
+          return areValuesEqual(
+            { value: value1, env: expected.env },
+            { value: variable2.value, env: given.env }
+          );
+        }
+      }
+    }
+    return false;
   } else {
     return false;
   }
