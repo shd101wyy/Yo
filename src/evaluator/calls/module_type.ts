@@ -270,6 +270,27 @@ Got:   ${typeToString(argType)}`,
 
   callerEnv = popEnvFrame(callerEnv);
 
+  // Check if the module value has "Self" element
+  // If yes, set the typeValue as the assignedValue.
+  const selfElementIndex = moduleType.elements.findIndex(
+    (e) => e.label === "Self"
+  );
+  if (selfElementIndex >= 0) {
+    const newModuleType: ModuleType = {
+      ...moduleType,
+      elements: moduleType.elements.map((e, index) => {
+        if (index === selfElementIndex) {
+          return {
+            ...e,
+            assignedValue: elements[index],
+          };
+        }
+        return e;
+      }),
+    };
+    moduleType = newModuleType;
+  }
+
   // Create the module value
   const moduleValue = createModuleValue(moduleType, elements);
   return { moduleValue, callerEnv };

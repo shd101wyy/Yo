@@ -75,6 +75,7 @@ import { evaluateModule } from "./exprs/module";
 import { evaluateOpen } from "./exprs/open";
 import { evaluatePropertyAccess } from "./exprs/property_access";
 import { evaluateRecur } from "./exprs/recur";
+import { evaluateSubtypeOf } from "./exprs/subtype_of";
 import { evaluateTypeOf } from "./exprs/typeof";
 import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
@@ -465,6 +466,9 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.alignof)) {
         // alignof
         return evaluateAlignOf({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, "<:")) {
+        // <: subtype_of
+        return evaluateSubtypeOf({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });

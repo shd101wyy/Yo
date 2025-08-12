@@ -811,13 +811,20 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Module: {
       const moduleType = type as ModuleType;
+      let moduleTypeString: string;
       if (moduleType.typeName) {
-        return moduleType.typeName;
+        moduleTypeString = moduleType.typeName;
+      } else {
+        moduleTypeString = `${
+          moduleType.typeName ? `(${moduleType.typeName}) ` : ""
+        }module(${moduleType.elements.map(moduleElementToString).join(", ")})`;
       }
 
-      return `${
-        moduleType.typeName ? `(${moduleType.typeName}) ` : ""
-      }module(${moduleType.elements.map(moduleElementToString).join(", ")})`;
+      if (moduleType.subtype) {
+        moduleTypeString = `(${typeToString(moduleType.subtype)} <: ${moduleTypeString})`;
+      }
+
+      return moduleTypeString;
     }
 
     case TypeTag.Function: {

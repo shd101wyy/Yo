@@ -330,6 +330,15 @@ export interface ModuleType extends Type {
    * The env is also useful to show the frame level at which the module is defined.
    */
   env: Environment;
+
+  /**
+   * The type that is the subtype of this module.
+   * eg:
+   *
+   *   T <: Id
+   *
+   */
+  subtype?: Type;
 }
 
 export interface EnumVariant {
