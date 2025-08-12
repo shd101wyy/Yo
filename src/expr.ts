@@ -422,6 +422,9 @@ export const BuiltinKeywords = {
   not: ["not"],
   gensym: ["gensym"],
 
+  // dynamic dispatch type
+  dyn: ["dyn"],
+
   // C related
   c_include: ["c_include"],
 

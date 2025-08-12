@@ -80,6 +80,9 @@ export enum TypeTag {
   MutRef = "MutRef",
   Ref = "Ref",
 
+  // Dynamic Dispatch Type
+  Dyn = "Dyn",
+
   // Expr (for macro/metaprogramming)
   Expr = "Expr",
   ExprList = "ExprList",

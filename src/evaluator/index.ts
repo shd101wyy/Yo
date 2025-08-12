@@ -65,6 +65,7 @@ import { evaluateBorrow } from "./exprs/borrow";
 import { evaluateCInclude } from "./exprs/c_include";
 import { evaluateCond } from "./exprs/cond";
 import { evaluateConsume } from "./exprs/consume";
+import { evaluateDyn } from "./exprs/dyn";
 import { evaluateExtern } from "./exprs/extern";
 import { evaluateFor } from "./exprs/for";
 import { evaluateIdentifierAndOperator } from "./exprs/identifer_and_operator";
@@ -537,6 +538,13 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.__YoEff)) {
         // Eff type
         return evaluateEffType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
+        // dyn type
+        return evaluateDyn({
           expr,
           env,
           context: { ...context },

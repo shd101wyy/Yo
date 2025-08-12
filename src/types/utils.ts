@@ -15,6 +15,7 @@ import {
 import {
   ArrayType,
   ClosureType,
+  DynType,
   EffType,
   EnumType,
   FunctionParameter,
@@ -890,6 +891,11 @@ export function typeToString(type: Type): string {
       return `Eff(${typeToString(effType.resultType)})`;
     }
 
+    case TypeTag.Dyn: {
+      const dynType = type as DynType;
+      return `dyn(${dynType.moduleTypes.map((mt) => typeToString(mt)).join(", ")})`;
+    }
+
     default: {
       return `${type.tag}`;
     }
@@ -1135,6 +1141,7 @@ export function getAlignmentOfType(type: Type): number | null {
 export function getSizeOfType(type: Type): number | null {
   if (type.isDynamicSized) {
     return -1; // Dynamic sized types have size -1
+    // eg, Slice, Void, Dyn
   }
   if (isSomeType(type)) {
     // SomeType is a placeholder, so it has unknown size

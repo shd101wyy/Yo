@@ -643,3 +643,20 @@ export interface EffType extends Type {
    */
   env: Environment;
 }
+
+/*
+ *   eg:
+ *   use_id :: (fn(forall(T: Type), value: *(dyn(T <: Id))) -> T) {
+ *     return value.*.id();
+ *   }
+ */
+export interface DynType extends Type {
+  tag: TypeTag.Dyn;
+  isDynamicSized: true;
+
+  /**
+   * The module types that this dynamic dispatch type can dispatch to.
+   * This is used to create vtable for dynamic dispatch.
+   */
+  moduleTypes: ModuleType[];
+}

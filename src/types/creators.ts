@@ -7,6 +7,7 @@ import {
   ArrayType,
   ClosureKind,
   ClosureType,
+  DynType,
   EffType,
   EnumType,
   ExprType,
@@ -579,5 +580,14 @@ export function createEffType(
     resultType,
     contextType,
     env,
+  };
+}
+
+export function createDynType(moduleTypes: ModuleType[]): DynType {
+  return {
+    id: `dyn_${moduleTypes.map((m) => m.id).join("_")}`,
+    tag: TypeTag.Dyn,
+    isDynamicSized: true,
+    moduleTypes,
   };
 }

@@ -1,36 +1,27 @@
-Id :: module(
+GiveInt :: module(
   Self : Type,
-  id :
-    fn(self : Self) -> Self
+  give_int :
+    fn(self : *(Self)) -> int
 );
 
-given(BooleanId) :: Id(
+given(BooleanGiveInt) :: GiveInt(
   Self : boolean,
-  id :
-    (self) -> self
+  give_int :
+    (self) -> 0
 );
 
-given(I32Id) :: Id(
+given(I32GiveInt) :: GiveInt(
   Self : i32,
-  id :
-    (self) -> self
+  give_int :
+    (self) -> 1
 );
 
 use_id :: 
   (fn(
-    forall(T : Type),
-    value : T,
-    using(IdInstance : (T <: Id))
-  ) -> T) {
-  return IdInstance.id(value);
+    value : *(dyn(GiveInt))
+  ) -> unit) {
+  x := value.give_int();
 };
 
-x := use_id(12, using(I32Id));
-x2 := use_id(13);
-
-y := use_id(true, using(BooleanId));
-y2 := use_id(false);
-
-compt_expect_error(
-  z := use_id(3.4)
-);
+// use_id(*(12));
+// use_id(*(true));
