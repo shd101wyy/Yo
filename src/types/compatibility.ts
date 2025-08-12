@@ -10,6 +10,7 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
+  isDynType,
   isEffType,
   isEnumType,
   isExprListType,
@@ -44,7 +45,7 @@ export function areTypesCompatible(
     type: Type;
     env: Environment;
   },
-  exactNumericTypeMatch = false
+  isMethodReceiver = false
 ): boolean {
   if (isPrimitiveType(expected.type) && isPrimitiveType(given.type)) {
     return expected.type.tag === given.type.tag;
@@ -77,7 +78,7 @@ export function areTypesCompatible(
       isCCompatibleType(expected.type)) &&
     isComptIntType(given.type)
   ) {
-    if (exactNumericTypeMatch && !isComptIntType(expected.type)) {
+    if (isMethodReceiver && !isComptIntType(expected.type)) {
       // If exact match is required, compt_int cannot be converted to other numeric types
       return false;
     }
@@ -95,7 +96,7 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.F64) &&
     isComptFloatType(given.type)
   ) {
-    if (exactNumericTypeMatch && !isComptFloatType(expected.type)) {
+    if (isMethodReceiver && !isComptFloatType(expected.type)) {
       // If exact match is required, compt_float cannot be converted to other numeric types
       return false;
     }
@@ -356,7 +357,7 @@ export function areTypesCompatible(
           !areTypesCompatible(
             { type: expectedElement.type, env: expected.env },
             { type: givenElement.type, env: given.env },
-            true // exactNumericTypeMatch
+            true // isMethodReceiver
           )
         ) {
           return false;
@@ -392,7 +393,7 @@ export function areTypesCompatible(
       !areFunctionTypesCompatible(
         { type: expectedClosure.callType, env: expected.env },
         { type: givenClosure.callType, env: given.env },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       return false;
@@ -403,7 +404,7 @@ export function areTypesCompatible(
     return areTypesCompatible(
       { type: expectedClosure.captureType, env: expected.env },
       { type: givenClosure.captureType, env: given.env },
-      exactNumericTypeMatch
+      isMethodReceiver
     );
   }
 
@@ -411,7 +412,7 @@ export function areTypesCompatible(
     return areFunctionTypesCompatible(
       { type: expected.type, env: expected.env },
       { type: given.type, env: given.env },
-      exactNumericTypeMatch
+      isMethodReceiver
     );
   }
 
@@ -500,10 +501,39 @@ export function areTypesCompatible(
     );
   }
 
+  if (isDynType(expected.type) && isDynType(given.type)) {
+    const expectedModules = expected.type.moduleTypes.sort((m1, m2) =>
+      m1.id.localeCompare(m2.id)
+    );
+    const givenModules = given.type.moduleTypes.sort((m1, m2) =>
+      m1.id.localeCompare(m2.id)
+    );
+    if (expectedModules.length !== givenModules.length) {
+      return false;
+    }
+    for (let i = 0; i < expectedModules.length; i++) {
+      const expectedModule = expectedModules[i]!;
+      const givenModule = givenModules[i]!;
+      if (
+        !areTypesCompatible(
+          { type: expectedModule, env: expected.env },
+          { type: givenModule, env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+
   // Meet SomeType,
   // eg: x: T
   // here T should already be added to env by the if condition above ^^^
   if (isSomeType(expected.type)) {
+    // QUESTION: Is this correct?
+    if (isDynType(given.type)) {
+      return true; // DynType is compatible with SomeType
+    }
+
     if (isSomeType(given.type)) {
       if (expected.type === given.type) {
         return true;
@@ -565,7 +595,7 @@ export function areFunctionTypesCompatible(
     type: FunctionType;
     env: Environment;
   },
-  exactNumericTypeMatch = false
+  isMethodReceiver = false
 ): boolean {
   if (expected.type === given.type) {
     return true;
@@ -620,7 +650,7 @@ export function areFunctionTypesCompatible(
       !areTypesCompatible(
         { type: expectedTypeParam.type, env: expected.env },
         { type: givenTypeParam.type, env: given.env },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       return false;
@@ -653,7 +683,7 @@ export function areFunctionTypesCompatible(
       areTypesCompatible(
         { type: expectedParam.type.type, env: expected.env },
         { type: givenParam.type.type, env: given.env },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       // A function that takes &(T) can be used where a function that takes &!(T) is expected
@@ -677,7 +707,7 @@ export function areFunctionTypesCompatible(
       areTypesCompatible(
         { type: expectedParam.type.type, env: expected.env },
         { type: givenParam.type.type, env: given.env },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       // A function that takes *(T) can be used where a function that takes *!(T) is expected
@@ -694,7 +724,7 @@ export function areFunctionTypesCompatible(
           type: givenParam.type,
           env: given.env,
         },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       return false;
@@ -733,7 +763,7 @@ export function areFunctionTypesCompatible(
       areTypesCompatible(
         { type: expectedImplicitParam.type.type, env: expected.env },
         { type: givenImplicitParam.type.type, env: given.env },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       // A function that takes &(T) can be used where a function that takes &!(T) is expected
@@ -760,7 +790,7 @@ export function areFunctionTypesCompatible(
       areTypesCompatible(
         { type: expectedImplicitParam.type.type, env: expected.env },
         { type: givenImplicitParam.type.type, env: given.env },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       // A function that takes *(T) can be used where a function that takes *!(T) is expected
@@ -771,7 +801,7 @@ export function areFunctionTypesCompatible(
       !areTypesCompatible(
         { type: expectedImplicitParam.type, env: expected.env },
         { type: givenImplicitParam.type, env: given.env },
-        exactNumericTypeMatch
+        isMethodReceiver
       )
     ) {
       return false;
@@ -781,7 +811,7 @@ export function areFunctionTypesCompatible(
   const returnTypesMatch = areTypesCompatible(
     { type: expected.type.return.type, env: expected.env },
     { type: given.type.return.type, env: given.env },
-    exactNumericTypeMatch
+    isMethodReceiver
   );
   return returnTypesMatch;
 }

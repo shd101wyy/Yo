@@ -1,6 +1,7 @@
 import {
   ArrayType,
   ClosureType,
+  DynType,
   EffType,
   EnumType,
   FunctionType,
@@ -255,6 +256,10 @@ export function isMutRefType(type?: Type): type is MutRefType {
 
 export function isRefType(type?: Type): type is RefType {
   return type?.tag === TypeTag.Ref;
+}
+
+export function isDynType(type?: Type): type is DynType {
+  return type?.tag === TypeTag.Dyn;
 }
 
 // Numeric type guards

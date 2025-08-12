@@ -2,6 +2,7 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
+  isDynType,
   isEnumType,
   isFunctionType,
   isLinearOrType0Type,
@@ -616,6 +617,39 @@ export function getMethodsByNameFromEnv(
         if (isModuleValue(moduleValue)) {
           checkModuleSelfCall(moduleValue);
         }
+      }
+    }
+  }
+
+  // Check if the dereferencedReceiverType is a DynType
+  if (isDynType(dereferencedReceiverType)) {
+    // For dynamic dispatch, we need to check all module types in the DynType
+    // A method might exist in only some modules, and that's perfectly valid
+    for (const moduleType of dereferencedReceiverType.moduleTypes) {
+      const method = moduleType.elements.find(
+        (element) =>
+          element.label === methodName &&
+          (isFunctionType(element.type) || isModuleType(element.type))
+      );
+      if (method && isFunctionType(method.type)) {
+        // Check if the receiver type is compatible
+        if (
+          method.type.parameters.length > 0 &&
+          (typeContainsSomeType(method.type.parameters[0]!.type) || // Leave it to the later function call checker.
+            areTypesCompatible(
+              {
+                type: method.type.parameters[0]!.type,
+                env: method.type.env,
+              },
+              { type: receiverType, env }
+            ))
+        ) {
+          // For dynamic dispatch, we create an unknown value since we don't know
+          // which concrete implementation will be called at runtime
+          const value = createUnknownValue(method.type, method.label);
+          methods.push({ type: method.type, value });
+        }
+        // Don't break - continue checking other modules in case they have different signatures
       }
     }
   }
