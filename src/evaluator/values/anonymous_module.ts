@@ -13,7 +13,6 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
 } from "../../expr";
 import {
   createModuleType,
@@ -358,65 +357,4 @@ export function evaluateAnonymousModuleBeginExprs({
     env,
     partialModuleError,
   };
-}
-
-export function evaluateAnonymousModule({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FuncCallExpr {
-  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected "module", got:\n${exprToString(expr)}`,
-    });
-  }
-  if (expr.args.length !== 1) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected "module" with 1 argument, got:\n${exprToString(expr)}`,
-    });
-  }
-  const moduleBodyExpr = expr.args[0]!;
-  if (
-    !exprIsFunctionCall(moduleBodyExpr) ||
-    !exprIsFunctionCallOf(moduleBodyExpr, BuiltinKeywords.begin)
-  ) {
-    throw formatErrorMessage({
-      token: moduleBodyExpr.token,
-      errorMessage: `Expected "begin", got:\n${exprToString(moduleBodyExpr)}`,
-    });
-  }
-
-  const beginExprs = moduleBodyExpr.args;
-
-  const {
-    moduleType,
-    moduleValue,
-    env: nextEnv,
-  } = evaluateAnonymousModuleBeginExprs({
-    beginExprs,
-    env,
-    context: {
-      ...context,
-      expectedType: undefined,
-      SelfType: undefined,
-    },
-  });
-  env = nextEnv;
-
-  // Set the module value to the expr
-  expr.$ = {
-    env,
-    type: moduleType,
-    value: moduleValue,
-    isMutable: false,
-    pathCollection: [],
-  };
-
-  return expr;
 }

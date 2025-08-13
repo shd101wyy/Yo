@@ -71,7 +71,6 @@ import { evaluateIdentifierAndOperator } from "./exprs/identifer_and_operator";
 import { evaluateImport } from "./exprs/import";
 import { evaluateInitializationAssignment } from "./exprs/initialization_assignment";
 import { evaluateMatch } from "./exprs/match";
-import { evaluateModule } from "./exprs/module";
 import { evaluateOpen } from "./exprs/open";
 import { evaluatePropertyAccess } from "./exprs/property_access";
 import { evaluateRecur } from "./exprs/recur";
@@ -84,6 +83,7 @@ import { evaluateDynType } from "./types/dyn";
 import { evaluateEffType } from "./types/eff";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
+import { evaluateModuleType } from "./types/module";
 import { evaluateSliceType } from "./types/slice";
 import { evaluateStructType } from "./types/struct";
 import { evaluateTupleType } from "./types/tuple";
@@ -97,6 +97,7 @@ import { evaluateDynValue } from "./values/dyn";
 import { evaluateExprListValue } from "./values/expr_list";
 import { evaluateFloatLiteral } from "./values/float";
 import { evaluateIntegerLiteral } from "./values/integer";
+import { evaluateModuleValue } from "./values/module";
 import { evaluateStringLiteral } from "./values/string";
 import { evaluateTupleValue } from "./values/tuple";
 
@@ -460,8 +461,11 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           variablesToAdd: [],
         });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
-        // module
-        return evaluateModule({ expr, env, context: { ...context } });
+        // module type
+        return evaluateModuleType({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.impl)) {
+        // module value implementation
+        return evaluateModuleValue({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeof)) {
         // typeof
         return evaluateTypeOf({ expr, env, context: { ...context } });

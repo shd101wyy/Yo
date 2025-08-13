@@ -403,6 +403,7 @@ export const BuiltinKeywords = {
   enum: ["enum"],
   union: ["union"],
   module: ["module"],
+  impl: ["impl"],
   begin: ["begin"],
   module_begin: ["module_begin"],
   import: ["import"],
