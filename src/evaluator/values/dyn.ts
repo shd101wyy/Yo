@@ -1,9 +1,9 @@
-import { Environment } from "../../env";
+import { Environment, getVariablesFromEnvByFilter } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
   expectExprToBeFunctionCallOf,
+  Expr,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
@@ -62,8 +62,8 @@ export function evaluateDynValue({
   const moduleTypes: ModuleType[] = [];
   const moduleValues: ModuleValue[] = [];
 
+  // Process explicitly provided modules first (if any)
   if (moduleExpr) {
-    // Module(s) explicitly provided
     // Check if it's a tuple of modules or a single module
     let moduleExprs: Expr[];
     if (exprIsFunctionCallOf(moduleExpr, BuiltinKeywords.tuple)) {
@@ -153,12 +153,6 @@ export function evaluateDynValue({
       moduleTypes.push(moduleValue.type);
       moduleValues.push(moduleValue);
     }
-  } else {
-    // TODO: Automatic module inference
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Automatic module inference for 'dyn' is not yet implemented. Please provide the module explicitly.`,
-    });
   }
 
   // Validate expected type
@@ -178,30 +172,122 @@ export function evaluateDynValue({
 
   const expectedDynType = context.expectedType.type;
 
-  // Validate that the provided modules match the expected Dyn type
-  if (moduleTypes.length !== expectedDynType.moduleTypes.length) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected ${expectedDynType.moduleTypes.length} module(s) for Dyn type, but got ${moduleTypes.length}.`,
-    });
-  }
+  // Check which modules we still need (automatic inference for missing modules)
+  const checkedModuleTypes = new Set<ModuleType>();
 
-  // Check that each provided module type is compatible with the expected module types
-  for (let i = 0; i < moduleTypes.length; i++) {
-    const providedModuleType = moduleTypes[i]!;
-    const foundMatch = expectedDynType.moduleTypes.some((expectedModuleType) =>
-      areTypesCompatible(
-        { type: expectedModuleType, env },
-        { type: providedModuleType, env }
-      )
-    );
+  // Mark already provided modules as checked
+  for (const moduleType of moduleTypes) {
+    let matched = false;
 
-    if (!foundMatch) {
+    for (const expectedModuleType of expectedDynType.moduleTypes) {
+      if (checkedModuleTypes.has(expectedModuleType)) {
+        continue;
+      }
+
+      if (
+        areTypesCompatible(
+          { type: expectedModuleType, env },
+          { type: moduleType, env }
+        )
+      ) {
+        checkedModuleTypes.add(expectedModuleType);
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
       throw formatErrorMessage({
-        token: moduleExpr?.token || expr.token,
-        errorMessage: `Module type ${typeToString(providedModuleType)} does not match any of the expected module types in ${typeToString(expectedDynType)}.`,
+        token: expr.token,
+        errorMessage: `Provided module type ${typeToString(moduleType)} is not compatible with any expected module type.`,
       });
     }
+  }
+
+  // Find missing modules automatically
+  for (const requiredModuleType of expectedDynType.moduleTypes) {
+    if (checkedModuleTypes.has(requiredModuleType)) {
+      continue;
+    }
+
+    // Find implicit variables that match this module type
+    const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
+      if (!variable.isImplicit) {
+        return false;
+      }
+
+      // Check if it's a module value
+      if (!isModuleValue(variable.value)) {
+        return false;
+      }
+
+      const moduleValue = variable.value;
+      if (!isModuleType(moduleValue.type)) {
+        return false;
+      }
+
+      // Check if the module has a 'Self' type
+      const selfElementIndex = moduleValue.type.elements.findIndex(
+        (element) => element.label === "Self"
+      );
+      if (selfElementIndex === -1) {
+        return false;
+      }
+
+      // Get the Self value from the module
+      const selfValue = moduleValue.elements[selfElementIndex];
+      if (!selfValue || !isTypeValue(selfValue)) {
+        return false;
+      }
+
+      const selfType = selfValue.value;
+
+      // Check if the value type is compatible with the module's Self type
+      if (
+        !areTypesCompatible({ type: selfType, env }, { type: valueType, env })
+      ) {
+        return false;
+      }
+
+      // Check if the module type is compatible with the required module type
+      return areTypesCompatible(
+        { type: requiredModuleType, env },
+        { type: moduleValue.type, env }
+      );
+    });
+
+    // Get the max frame level of the implicit variables
+    // This is to ensure that we get the most recent implicit variable
+    const maxImplicitVariableFrameLevel = Math.max(
+      ...implicitVariables.map((variable) => variable.frameLevel)
+    );
+    const filteredImplicitVariables = implicitVariables.filter(
+      (variable) => variable.frameLevel === maxImplicitVariableFrameLevel
+    );
+
+    if (filteredImplicitVariables.length === 0) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `No implicit module found for type ${typeToString(requiredModuleType)} with Self type compatible with ${typeToString(valueType)}.`,
+      });
+    }
+
+    if (filteredImplicitVariables.length > 1) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Ambiguous implicit modules found for type ${typeToString(requiredModuleType)}:
+${filteredImplicitVariables
+  .map((variable) => `- ${variable.name} : ${typeToString(variable.type)}`)
+  .join("\n")}`,
+      });
+    }
+
+    const implicitVariable = filteredImplicitVariables[0]!;
+    const moduleValue = implicitVariable.value as ModuleValue;
+
+    moduleValues.push(moduleValue);
+    moduleTypes.push(moduleValue.type);
+    checkedModuleTypes.add(requiredModuleType);
   }
 
   // Use the expected Dyn type instead of creating a new one
