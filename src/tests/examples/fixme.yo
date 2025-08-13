@@ -1,65 +1,25 @@
-GiveInt :: module(
-  Self : Type,
-  give_int :
-    fn(self : *(Self)) -> int
-);
+given(ComptIntMethods) :: module {
+  Self :: compt_int;
 
-given(BooleanGiveInt) :: GiveInt(
-  Self : boolean,
-  give_int :
-    (self) -> 0
-);
+  (as) :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
+    __yo_compt_int_as(self, Target)
+  ;
 
-given(I32GiveInt) :: GiveInt(
-  Self : i32,
-  give_int :
-    (self) -> 1
-);
-
-given(I32GiveAnotherInt) :: GiveInt(
-  Self : i32,
-  give_int :
-    (self) -> 2
-);
-
-use_id :: 
-  (fn(
-    value : *(Dyn(GiveInt))
-  ) -> unit) {
-  x := value.give_int();
+  export
+    Self,
+    as
+  ;
 };
 
-x := 12;
-use_id(*(dyn(x, I32GiveInt)));
-use_id(*(dyn(x, (I32GiveAnotherInt,))));
+compt_print(ComptIntMethods.Self);
 
-// Will give error because there are two available GiveInt for i32
-compt_expect_error(use_id(*(dyn(x))), "Ambiguous implicit modules found for type GiveInt");
+Data :: (fn(compt(T): Type) -> compt(Type))
+  struct(
+    len: usize,
 
-y := true;
-use_id(*(dyn(y, BooleanGiveInt)));
-use_id(*(dyn(y, (BooleanGiveInt,))));
-use_id(*(dyn(y)));
-
-
-SayHi :: module(
-  Self : Type,
-  say_hi :
-    fn(self : *(Self)) -> unit
-);
-given(BooleanSayHi) :: SayHi(
-  Self : boolean,
-  say_hi :
-    (self) -> ()
-);
-
-{
-  b := false;
-  compt_expect_error(dyn_b := dyn(b, BooleanSayHi)); // dyn_b needs to provide expected type
-
-  (dyn_b1 : *(Dyn(SayHi, GiveInt))) = *(dyn(b));
-  (dyn_b2 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, BooleanSayHi));
-  (dyn_b3 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, BooleanGiveInt));
-  (dyn_b4 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, (BooleanGiveInt, BooleanSayHi)));
-  (dyn_b5 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, (BooleanSayHi, BooleanGiveInt)));
-};
+    new :: ((fn() -> usize) {
+      len := (0).as(usize);
+      return len;
+    })
+  )
+;
