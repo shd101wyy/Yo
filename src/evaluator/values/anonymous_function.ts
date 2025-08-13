@@ -396,7 +396,6 @@ Got:      "${paramName}"`,
     funcId: `fn_${randomId()}`,
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],
-    SelfType: context.SelfType,
   };
 
   // Evaluate the function body

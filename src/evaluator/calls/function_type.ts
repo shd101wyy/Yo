@@ -126,7 +126,6 @@ export function tryToImplementFunctionByFunctionType({
     funcId: `fn_${randomId()}`,
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],
-    SelfType: context.SelfType, // In theory, this should be undefined.
   };
 
   // Create a mutable context that we can check after evaluation

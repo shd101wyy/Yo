@@ -491,7 +491,7 @@ export interface FunctionType extends Type {
   parametersFrame: Frame;
 
   /**
-   * Under which interface/struct/enum/union this function is defined.
+   * Under which struct/enum/union this function is defined.
    */
   SelfType?: Type;
 

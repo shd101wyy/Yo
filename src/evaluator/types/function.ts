@@ -16,7 +16,6 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
@@ -1092,12 +1091,12 @@ export function evaluateFunctionParameterTypeAgain({
   calleeEnv,
   context,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  functionValue,
+  functionType,
 }: {
   parameter: FunctionParameter;
   calleeEnv: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
-  functionValue: FunctionValue | undefined;
+  functionType: FunctionType;
 }): { parameterType: Type; calleeEnv: Environment } {
   const typeExpr = parameter.exprs.typeExpr;
   const defaultValueExpr = parameter.exprs.defaultValueExpr;
@@ -1108,7 +1107,7 @@ export function evaluateFunctionParameterTypeAgain({
       context: {
         ...context,
         expectedType: undefined,
-        SelfType: functionValue?.SelfType ?? context.SelfType,
+        SelfType: functionType.SelfType,
       },
     });
     if (!isTypeValue(evaluatedTypeExpr.$?.value)) {
@@ -1169,7 +1168,7 @@ export function evaluateFunctionParameterTypeAgain({
       context: {
         ...context,
         expectedType: undefined,
-        SelfType: functionValue?.SelfType ?? context.SelfType,
+        SelfType: functionType.SelfType,
       },
     });
     if (!evaluatedDefaultValueExpr.$) {
@@ -1231,13 +1230,11 @@ export function evaluateFunctionReturnTypeAgain({
   calleeEnv,
   context,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  functionValue,
   functionCalleeExpr,
 }: {
   functionType: FunctionType;
   calleeEnv: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
-  functionValue: FunctionValue | undefined;
   functionCalleeExpr?: Expr;
 }): { returnType: Type; calleeEnv: Environment } {
   const functionReturn = functionType.return;
@@ -1249,7 +1246,7 @@ export function evaluateFunctionReturnTypeAgain({
     env: calleeEnv,
     context: {
       ...context,
-      SelfType: functionValue?.SelfType ?? context.SelfType,
+      SelfType: functionType.SelfType,
     },
   });
 

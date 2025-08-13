@@ -88,12 +88,6 @@ export type FunctionValue = {
   funcId: FuncValueId;
 
   /**
-   * Under which type the function is defined,
-   * for example, it might be an module/struct/enum/union.
-   */
-  SelfType?: Type;
-
-  /**
    * This is used to cache the result of the call to the function that returns a compt type value.
    * For example, a function returns a Type.
    * If the function is not a compt function, this will be empty.

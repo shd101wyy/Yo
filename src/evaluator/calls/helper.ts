@@ -78,7 +78,7 @@ import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptFunctionCall } from "./compt_function";
 
 export function checkIfFunctionParameterMatchesArgument({
-  functionValue,
+  functionType,
   parameter,
   argExprs,
   argIndex,
@@ -88,7 +88,7 @@ export function checkIfFunctionParameterMatchesArgument({
   isMethodCall,
   runtimeArgExprsInOrder,
 }: {
-  functionValue?: FunctionValue;
+  functionType: FunctionType;
   /**
    * It could be forallParameters, parameters, or implicitParameters
    */
@@ -145,13 +145,13 @@ export function checkIfFunctionParameterMatchesArgument({
   // This ensures we have the correct parameterType for expectedType in argument evaluation
   const { parameterType, calleeEnv: updatedCalleeEnv } =
     evaluateFunctionParameterTypeAgain({
+      functionType,
       parameter,
       calleeEnv,
       context: {
         ...context,
         isEvaluatingFunctionType: true,
       },
-      functionValue,
     });
   calleeEnv = updatedCalleeEnv;
 
@@ -723,7 +723,7 @@ export function tryToCallFunctionWithArguments({
           ...context,
           isEvaluatingFunctionType: true,
         },
-        functionValue,
+        functionType,
       });
       calleeEnv = updatedCalleeEnv;
 
@@ -838,7 +838,7 @@ Got:   ${argExprs.length} arguments`,
       argType,
       parameterType: newParameterType,
     } = checkIfFunctionParameterMatchesArgument({
-      functionValue,
+      functionType,
       parameter,
       argExprs,
       argIndex: regularArgIndex,
@@ -866,13 +866,12 @@ Got:   ${argExprs.length} arguments`,
     // eslint-disable-next-line prefer-const
     calleeEnv: nextCalleeEnv,
   } = evaluateFunctionReturnTypeAgain({
-    functionType: functionType,
+    functionType,
     calleeEnv,
     context: {
       ...context,
       isEvaluatingFunctionType: true,
     },
-    functionValue,
     functionCalleeExpr,
   });
   calleeEnv = nextCalleeEnv;
@@ -889,13 +888,12 @@ Got:   ${argExprs.length} arguments`,
     // Evaluate the function return type again after synthesizing
     // This is to ensure that any SomeType in the returnType is properly resolved
     const evalReturnTypeResult = evaluateFunctionReturnTypeAgain({
-      functionType: functionType,
+      functionType,
       calleeEnv,
       context: {
         ...context,
         isEvaluatingFunctionType: true,
       },
-      functionValue,
       functionCalleeExpr,
     });
     returnType = evalReturnTypeResult.returnType;
@@ -929,13 +927,13 @@ Got:   ${argExprs.length} arguments`,
       parameterType: newImplicitParameterType,
       calleeEnv: nextCalleeEnv,
     } = evaluateFunctionParameterTypeAgain({
+      functionType,
       parameter: implicitParameter,
       calleeEnv,
       context: {
         ...context,
         isEvaluatingFunctionType: true,
       },
-      functionValue,
     });
     calleeEnv = nextCalleeEnv;
     const implicitParameterType = newImplicitParameterType;

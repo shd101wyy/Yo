@@ -66,7 +66,6 @@ export function tryToImplementClosureByClosureType({
     funcId: `closure_${randomId()}`,
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],
-    SelfType: context.SelfType,
   };
 
   // Create evaluation context using helper function
