@@ -1,10 +1,20 @@
 import { Environment } from "../../env";
-import { expectExprToBeFunctionCallOf, FuncCallExpr } from "../../expr";
-import { createDynType, isModuleType, ModuleType } from "../../types";
+import { formatErrorMessage } from "../../error";
+import {
+  BuiltinKeywords,
+  expectExprToBeFunctionCallOf,
+  FuncCallExpr,
+} from "../../expr";
+import {
+  createDynType,
+  isModuleType,
+  ModuleType,
+  typeToString,
+} from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
-export function evaluateDyn({
+export function evaluateDynType({
   expr,
   env,
   context,
@@ -13,7 +23,7 @@ export function evaluateDyn({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, "dyn");
+  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.Dyn);
   const moduleExprs = expr.args;
   const moduleTypes: ModuleType[] = [];
 
@@ -46,9 +56,18 @@ export function evaluateDyn({
       moduleType.elements.findIndex((element) => element.label === "Self") ===
       -1
     ) {
-      throw new Error(
-        `Module type for argument ${i + 1} of 'dyn' expression must have a 'Self' type.`
-      );
+      throw formatErrorMessage({
+        token: moduleExpr.token,
+        errorMessage: `Module type for argument ${i + 1} of '${BuiltinKeywords.Dyn}' expression must have a 'Self' type.`,
+      });
+    }
+
+    // Check if the moduleType already exists in moduleTypes
+    if (moduleTypes.some((mt) => mt.id === moduleType.id)) {
+      throw formatErrorMessage({
+        token: moduleExpr.token,
+        errorMessage: `Module type ${typeToString(moduleType)} is already included in '${BuiltinKeywords.Dyn}' expression.`,
+      });
     }
 
     moduleTypes.push(moduleType);

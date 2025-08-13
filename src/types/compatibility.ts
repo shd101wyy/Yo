@@ -523,6 +523,7 @@ export function areTypesCompatible(
         return false;
       }
     }
+    return true;
   }
 
   // Meet SomeType,

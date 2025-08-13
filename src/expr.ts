@@ -424,6 +424,7 @@ export const BuiltinKeywords = {
 
   // dynamic dispatch type
   dyn: ["dyn"],
+  Dyn: ["Dyn"],
 
   // C related
   c_include: ["c_include"],

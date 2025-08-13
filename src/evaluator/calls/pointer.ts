@@ -65,6 +65,7 @@ export function evaluateRawPointerCall({
     env,
     context: {
       ...context,
+      expectedType,
     },
   });
 

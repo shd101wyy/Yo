@@ -16,12 +16,25 @@ given(I32GiveInt) :: GiveInt(
     (self) -> 1
 );
 
+given(I32GiveAnotherInt) :: GiveInt(
+  Self : i32,
+  give_int :
+    (self) -> 2
+);
+
 use_id :: 
   (fn(
-    value : *(dyn(GiveInt))
+    value : *(Dyn(GiveInt))
   ) -> unit) {
   x := value.give_int();
 };
 
-// use_id(*(12));
-// use_id(*(true));
+x := 12;
+use_id(*(dyn(x, I32GiveInt)));
+use_id(*(dyn(x, (I32GiveAnotherInt,))));
+/// use_id(*(dyn(x))); // Wil give error because there are two available GiveInt for i32
+/// 
+/// y := true;
+/// use_id(*(dyn(y, BooleanGiveInt)));
+/// use_id(*(dyn(y, (BooleanGiveInt,))));
+/// use_id(*(y));

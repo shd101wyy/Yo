@@ -65,7 +65,6 @@ import { evaluateBorrow } from "./exprs/borrow";
 import { evaluateCInclude } from "./exprs/c_include";
 import { evaluateCond } from "./exprs/cond";
 import { evaluateConsume } from "./exprs/consume";
-import { evaluateDyn } from "./exprs/dyn";
 import { evaluateExtern } from "./exprs/extern";
 import { evaluateFor } from "./exprs/for";
 import { evaluateIdentifierAndOperator } from "./exprs/identifer_and_operator";
@@ -81,6 +80,7 @@ import { evaluateTypeOf } from "./exprs/typeof";
 import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
 import { evaluateClosureType } from "./types/closure";
+import { evaluateDynType } from "./types/dyn";
 import { evaluateEffType } from "./types/eff";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
@@ -93,6 +93,7 @@ import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous_module";
 import { evaluateArrayValue } from "./values/array";
 import { evaluateBooleanLiteral } from "./values/boolean";
 import { evaluateCharLiteral } from "./values/char";
+import { evaluateDynValue } from "./values/dyn";
 import { evaluateExprListValue } from "./values/expr_list";
 import { evaluateFloatLiteral } from "./values/float";
 import { evaluateIntegerLiteral } from "./values/integer";
@@ -419,6 +420,9 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           env,
           context: { ...context },
         });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
+        // dyn
+        return evaluateDynValue({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
         return evaluateStructType({
@@ -542,9 +546,9 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
-        // dyn type
-        return evaluateDyn({
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Dyn)) {
+        // Dyn type
+        return evaluateDynType({
           expr,
           env,
           context: { ...context },
