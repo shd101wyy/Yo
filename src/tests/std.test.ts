@@ -1,5 +1,5 @@
 import * as path from "path";
-import { printMoParserError } from "../error";
+import { printYoError } from "../error";
 import { ModuleManager } from "../module-manager";
 
 describe("Evaluate fixme.yo", () => {
@@ -9,7 +9,7 @@ describe("Evaluate fixme.yo", () => {
       "file://" + path.join(__dirname, `../../std/index.yo`)
     );
     if (moduleError) {
-      printMoParserError(moduleError);
+      printYoError(moduleError);
       throw moduleError;
     }
   });

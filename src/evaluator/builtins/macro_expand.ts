@@ -1,5 +1,5 @@
 import { Environment } from "../../env";
-import { formatErrorMessage, MoParserError } from "../../error";
+import { formatErrorMessage, YoError } from "../../error";
 import { exprIsFunctionCall, exprToString, FuncCallExpr } from "../../expr";
 import {
   createExprType,
@@ -151,9 +151,9 @@ export function evaluateMacroExpand({
           break;
         }
       } catch (error) {
-        // Throw the error if it's a MoParserError with isAssertionError flag
+        // Throw the error if it's a YoError with isAssertionError flag
         // which means is from `compt_assert` or similar assertion
-        if (error instanceof MoParserError && error.isAssertionError) {
+        if (error instanceof YoError && error.isAssertionError) {
           throw error;
         }
         // If evaluation throws an error, stop expanding

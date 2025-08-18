@@ -1,9 +1,5 @@
 import { addVariableToEnv, Environment } from "../../env";
-import {
-  formatErrorMessage,
-  formatErrorMessages,
-  MoParserError,
-} from "../../error";
+import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   BuiltinKeywords,
   exprToString,
@@ -127,7 +123,7 @@ export function evaluateOpen({
             token: argExpr.token,
             errorMessage: `Failed to import struct element "${element.label}"`,
           },
-          ...(error instanceof MoParserError
+          ...(error instanceof YoError
             ? error.tokenAndErrorList
             : [
                 {

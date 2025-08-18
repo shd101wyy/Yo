@@ -5,7 +5,7 @@ export interface TokenAndError {
   errorMessage: string;
 }
 
-export class MoLexerError {
+export class YoLexerError {
   public characterIndex: number;
   public message: string;
 
@@ -21,7 +21,7 @@ export class MoLexerError {
   }
 }
 
-export class MoParserError {
+export class YoError {
   public tokenAndErrorList: TokenAndError[] = [];
   public isAssertionError: boolean;
 
@@ -71,12 +71,12 @@ export function formatErrorMessage({
   errorMessage: string;
   cause?: Error;
   isAssertionError?: boolean;
-}): MoParserError {
+}): YoError {
   const errorMessages = `${errorMessage.trim()}
 
 ${getLineAtToken({ token })}`;
 
-  return new MoParserError(
+  return new YoError(
     [
       {
         token,
@@ -91,12 +91,12 @@ ${getLineAtToken({ token })}`;
 export function formatErrorMessages(
   tokenAndErrorList: TokenAndError[],
   isAssertionError?: boolean
-): MoParserError {
+): YoError {
   if (tokenAndErrorList.length === 0) {
     throw new Error("tokenAndErrorList must not be empty");
   }
 
-  return new MoParserError(tokenAndErrorList, isAssertionError);
+  return new YoError(tokenAndErrorList, isAssertionError);
 }
 
 export function formatWarningMessages({
@@ -118,8 +118,8 @@ ${getLineAtToken({ token })}`;
   );
 }
 
-export function printMoParserError(error: MoParserError | Error) {
-  if (error instanceof MoParserError) {
+export function printYoError(error: YoError | Error) {
+  if (error instanceof YoError) {
     const errorMessages = error.tokenAndErrorList
       .map(({ token, errorMessage }) => {
         return `Error: ${errorMessage}

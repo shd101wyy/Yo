@@ -1,10 +1,6 @@
 import { checkBorrowings } from "../../borrow";
 import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
-import {
-  formatErrorMessage,
-  formatErrorMessages,
-  MoParserError,
-} from "../../error";
+import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   attachTempVariableToExpr,
   Expr,
@@ -97,7 +93,7 @@ export function evaluateFunctionCall({
   let functions: {
     type: Type;
     value?: Value;
-    error?: Error | MoParserError;
+    error?: Error | YoError;
   }[] = [];
   if (givenFunc) {
     functions = [givenFunc];
@@ -739,13 +735,24 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     functionsWithMatchingTypes = comptFunctionCalls;
   }
 
+  console.log(
+    "here: ",
+    exprToString(expr),
+    functionsToCall.length,
+    functionsWithMatchingTypes.length,
+    comptFunctionCalls.length
+  );
+  if (functionsToCall.length > 0) {
+    console.log(`  - ${typeToString(functionsToCall[0]!.type)}`);
+  }
+
   if (functionsWithMatchingTypes.length === 0) {
     if (
       functionsToCall.length === 1 &&
       functionsToCall[0]!.result.kind === "error"
     ) {
       const error = functionsToCall[0]!.result.error;
-      if (error instanceof MoParserError) {
+      if (error instanceof YoError) {
         throw formatErrorMessages(
           [
             {
@@ -792,7 +799,7 @@ ${functionsToCall.length ? "Available functions:\n" : ""}`,
               ? functionsToCall.result.error
               : undefined;
           if (error) {
-            if (error instanceof MoParserError) {
+            if (error instanceof YoError) {
               return [
                 {
                   token: func.token,

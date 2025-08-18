@@ -1,6 +1,6 @@
 import { Borrowing } from "../borrow";
 import { Environment } from "../env";
-import { formatErrorMessages, MoParserError } from "../error";
+import { formatErrorMessages, YoError } from "../error";
 import { Expr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
@@ -236,7 +236,7 @@ export interface FunctionToCall {
       }
     | {
         kind: "error";
-        error: Error | MoParserError;
+        error: Error | YoError;
       };
 }
 

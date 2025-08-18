@@ -8,7 +8,7 @@ import {
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
 } from "@yo/env";
-import { MoLexerError, MoParserError } from "@yo/error";
+import { YoError, YoLexerError } from "@yo/error";
 import Evaluator from "@yo/evaluator";
 import {
   AtomExpr,
@@ -246,8 +246,8 @@ export function activate(context: vscode.ExtensionContext) {
     } catch (error) {
       const diagnostics: vscode.Diagnostic[] = [];
 
-      if (error instanceof MoParserError) {
-        // Handle MoParserError with its structured information
+      if (error instanceof YoError) {
+        // Handle YoError with its structured information
         for (const {
           token,
           errorMessage: message,
@@ -271,8 +271,8 @@ export function activate(context: vscode.ExtensionContext) {
 
           diagnostics.push(diagnostic);
         }
-      } else if (error instanceof MoLexerError) {
-        // Handle MoLexerError
+      } else if (error instanceof YoLexerError) {
+        // Handle YoLexerError
         const { characterIndex, message } = error;
         // Caculate position based on text and character index
         let index = 0;

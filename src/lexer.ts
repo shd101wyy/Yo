@@ -1,4 +1,4 @@
-import { MoLexerError } from "./error";
+import { YoLexerError } from "./error";
 import { charIsOperator, IdentifierRegex, Token, TokenType } from "./token";
 
 /**
@@ -160,7 +160,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           }
 
           if (nestingLevel > 0) {
-            throw new MoLexerError({
+            throw new YoLexerError({
               message: "Unterminated multi-line comment",
               characterIndex: input.length - 1,
             });
@@ -179,7 +179,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           });
           i = j - 1;
         } else {
-          throw new MoLexerError({
+          throw new YoLexerError({
             message: `Unexpected character ${char}`,
             characterIndex: i + 1,
           });
@@ -302,7 +302,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
             inputString: input,
           });
         } else {
-          throw new MoLexerError({
+          throw new YoLexerError({
             message: `Invalid char '${value}', expected char to have length 1.`,
             characterIndex: i,
           });
@@ -362,7 +362,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
         }
 
         if (!IdentifierRegex.test(value)) {
-          throw new MoLexerError({
+          throw new YoLexerError({
             message: `Invalid backtick identifier \`${value}\``,
             characterIndex: i,
           });
@@ -599,13 +599,13 @@ export function tokenize(input: string, modulePath: string): Token[] {
               }
             }
           } else {
-            throw new MoLexerError({
+            throw new YoLexerError({
               message: `Invalid identifier ${value}`,
               characterIndex: startIndex,
             });
           }
         } else {
-          throw new MoLexerError({
+          throw new YoLexerError({
             message: `Unexpected character ${char}`,
             characterIndex: i,
           });
