@@ -1,10 +1,5 @@
-open import "../data/primitives/ptr.yo";
-open import "../data/primitives/usize.yo";
-open import "../data/primitives/compt_int.yo";
-open import "../data/primitives/boolean.yo";
+open import "../data/primitives";
 open import "../data/result.yo";
-open import "../macros/if.yo";
-{ malloc, calloc, realloc, free } :: import "../libc/stdlib.yo";
 { SIZE_MAX } :: import "../libc/stdint.yo";
 
 /**
@@ -47,140 +42,36 @@ size_would_overflow ::
       true => (count > (SIZE_MAX / type_size))
   };
 
-Allocator :: module(
+CustomAllocator :: module(
+  Self : Type,
+
   /**
    * Allocate memory for count times of type T.
    */
-  alloc : (fn(compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
+  alloc : (fn(self : *!(Self), compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Allocate zeroed memory for count items of type T
    */
-  alloc_zeroed : (fn(compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
+  alloc_zeroed : (fn(self : *!(Self), compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Allocate aligned memory for count items of type T
    */
-  alloc_aligned : (fn(compt(T): Type, count: usize, alignment: usize) -> Result(?*!(T), AllocError)),
+  alloc_aligned : (fn(self : *!(Self), compt(T): Type, count: usize, alignment: usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Reallocate memory to new_count items
    */
-  realloc : (fn(forall(T : Type), old_ptr : ?*!(T), new_count : usize) -> Result(?*!(T), AllocError)),
+  realloc : (fn(forall(T : Type), self : *!(Self), old_ptr : ?*!(T), new_count : usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Deallocate memory pointed to by ptr.
    */
-  dealloc : (fn(forall(T : Type), ptr : *!(T)) -> Result(unit, AllocError))
+  dealloc : (fn(forall(T : Type), self : *!(Self), ptr : *!(T)) -> Result(unit, AllocError))
 );
 
-CAllocator :: Allocator(
-  alloc : ((T, count) -> {
-    // Check for overflow
-    if size_would_overflow(T, count), {
-      return .Error(.InvalidSize);
-    };
-    
-    size := (count * sizeof(T).as(usize));
-    ptr := malloc(size);
-    match ptr,
-      .Some => {
-        // Cast the void pointer to the correct type
-        typed_ptr := ptr.value.cast(*!(T));
-        .Ok(.Some(typed_ptr))
-      },
-      .None => .Error(.OutOfMemory)
-  }),
+Allocator :: *!(Dyn(CustomAllocator));
 
-  alloc_zeroed : ((T, count) -> {
-    // Check for overflow
-    if size_would_overflow(T, count), {
-      return .Error(.InvalidSize);
-    };
-    
-    ptr := calloc(count, sizeof(T).as(usize));
-    match ptr,
-      .Some => {
-        typed_ptr := ptr.value.cast(*!(T));
-        .Ok(.Some(typed_ptr))
-      },
-      .None => .Error(.OutOfMemory)
-  }),
 
-  alloc_aligned : ((T, count, alignment) -> {
-    // Check for overflow
-    if size_would_overflow(T, count), {
-      return .Error(.InvalidSize);
-    };
-    
-    // Check if alignment is valid (power of 2)
-    if (
-        (alignment == (0).as(usize)) ||
-        ((alignment & (alignment - (1).as(usize))) != (0).as(usize))
-    ), {
-      return .Error(.InvalidAlignment);
-    };
-    
-    // Check if alignment is at least as large as the type's natural alignment
-    natural_alignment := alignof(T);
-    if (alignment < natural_alignment), {
-      return .Error(.InvalidAlignment);
-    };
-    
-    // For now, fall back to regular malloc (would need aligned_alloc in real implementation)
-    size := (count * sizeof(T).as(usize));
-    ptr := malloc(size);
-    match ptr,
-      .Some => {
-        typed_ptr := ptr.value.cast(*!(T));
-        .Ok(.Some(typed_ptr))
-      },
-      .None => .Error(.OutOfMemory)
-  }),
-
-  realloc : ((forall(T), old_ptr, new_count) -> {
-    // Check for overflow
-    if (size_would_overflow(T, new_count)), {
-      return .Error(.InvalidSize);
-    };
-    
-    // Handle null pointer case
-    match old_ptr,
-      .None => {
-        // Realloc with null pointer behaves like malloc
-        size := (new_count * sizeof(T).as(usize));
-        ptr := malloc(size);
-        match ptr,
-          .Some => {
-            typed_ptr := ptr.value.cast(*!(T));
-            .Ok(.Some(typed_ptr))
-          },
-          .None => .Error(.OutOfMemory)
-      },
-      .Some => {
-        // Handle zero size case
-        if (new_count == (0).as(usize)), {
-          free(old_ptr);
-          return .Ok(.None);
-        };
-        
-        raw_old := old_ptr.value.cast(*!(void));
-        new_size := (new_count * sizeof(T).as(usize));
-        new_ptr := realloc(.Some(raw_old), new_size);
-        match new_ptr,
-          .Some => {
-            typed_ptr := new_ptr.value.cast(*!(T));
-            .Ok(.Some(typed_ptr))
-          },
-          .None => .Error(.OutOfMemory)
-      }
-  }),
-
-  dealloc : ((forall(T), ptr) -> {
-    raw_ptr := ptr.cast(*!(void));
-    free(.Some(raw_ptr));
-    .Ok(())
-  })
-);
-
-export Allocator, CAllocator, Layout, layout_of, AllocError;
+export size_would_overflow, CustomAllocator, Allocator, Layout, layout_of, AllocError;

@@ -1,14 +1,16 @@
 /**
  * ArrayList - A dynamic array implementation for Yo language
  * 
- * Similar to Rust's Vec<T>, this ArrayList provides:
+ * Similar to Rust's Vec<T> and Zig's ArrayList, this ArrayList provides:
  * - Dynamic resizing
- * - Memory management via global allocator
+ * - Memory management via custom allocator
  * - Type safety
  * - RAII for automatic cleanup
  */
-
-open import "std";
+open import "../../modules/allocator.yo";
+open import "../option.yo";
+open import "../result.yo";
+open import "../primitives";
 
 /**
  * ArrayList error types
@@ -29,29 +31,31 @@ ArrayListError :: enum(
  */
 ArrayList :: (fn(compt(T): Type) -> compt(Type))
   struct(
-    ptr: ?*!(T),
-    len: usize,
-    capacity: usize,
+    ptr : ?*!(T),
+    len : usize,
+    capacity : usize,
+    allocator : Allocator,
 
     /**
      * Create a new empty ArrayList
      */
-    new :: ((fn() -> Self)
+    new :: ((fn(allocator: Allocator) -> Self)
       Self(
         ptr: .None,
         len: (0).as(usize),
-        capacity: (0).as(usize)
+        capacity: (0).as(usize),
+        allocator
       )),
 
     /**
      * Create an ArrayList with a specific initial capacity
      */
-    with_capacity :: ((fn(capacity: usize) -> Result(Self, ArrayListError))
+    with_capacity :: ((fn(capacity: usize, allocator: Allocator) -> Result(Self, ArrayListError))
       cond 
         (capacity == (0).as(usize)) => 
-          .Ok(Self.new()),
+          .Ok(Self.new(allocator)),
         true => {
-          ptr_result := CAllocator.alloc(T, capacity);
+          ptr_result := allocator.alloc(T, capacity);
           match(ptr_result,
             .Ok => {
               ptr_result_value := ptr_result.value;
@@ -60,7 +64,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                   .Ok(Self(
                     ptr: ptr_result_value,
                     len: (0).as(usize),
-                    capacity: capacity
+                    capacity: capacity,
+                    allocator: allocator
                   )),
                 .None => .Error(.AllocError(.OutOfMemory))
               )
@@ -86,8 +91,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           // Allocate or reallocate
           ptr := self.ptr;
           new_ptr_result := match ptr,
-            .None => CAllocator.alloc(T, new_capacity),
-            .Some => CAllocator.realloc(self.ptr, new_capacity);
+            .None => self.allocator.alloc(T, new_capacity),
+            .Some => self.allocator.realloc(self.ptr, new_capacity);
           
           match(new_ptr_result,
             .Ok => {
@@ -117,17 +122,22 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     /**
      * Remove and return the last element
      */
-    /*
     pop :: ((fn(self: &!(Self)) -> Option(T))
       cond
         (self.len == (0).as(usize)) => .None,
         true => {
           self.len = (self.len - (1).as(usize));
-          // TODO: Implement pointer arithmetic and dereferencing to get the value
-          .Some(/* value from ptr + len */)
+          ptr := self.ptr;
+          match(ptr,
+            .None => .None,
+            .Some => {
+              ptr_value := ptr.value;
+              last_element := ptr_value.cast(*(T)).unchecked_deref();
+              .Some(last_element)
+            }
+          )
         }
     ),
-    */
 
     /**
      * Get an element by index (bounds checked)
@@ -163,7 +173,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
       match(optional_ptr,
         .Some => {
           ptr := optional_ptr.value;
-          CAllocator.dealloc(ptr);
+          self.allocator.dealloc(ptr);
         },
         .None => ()
       );
@@ -174,4 +184,5 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
 
 export
   ArrayList,
-  ArrayListError;
+  ArrayListError
+;

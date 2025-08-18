@@ -468,11 +468,11 @@ export function areTypesCompatible(
 
   // void
   if (
-    expected.type.tag === TypeTag.Void
+    expected.type.tag === TypeTag.Void &&
+    given.type.tag === TypeTag.Void
     // QUESTION: Do we need to check given.type if expected.type is already void?
     // For example: *(void) and *(i32) are compatible or not?
-    //
-    // && given.type.tag === TypeTag.Void
+    // ANSWER: No, only void == void.
   ) {
     return true;
   }

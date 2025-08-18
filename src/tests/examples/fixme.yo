@@ -1,25 +1,7 @@
-extern "Yo",
-  Data: Linear,
-  malloc  :
-    fn()-> Data,
- __yo_ptr_unchecked_deref :
-    fn(forall(T: Type), v : *(T)) -> T
-;
+open import "std";
+// open import "../../../std/data/primitives/compt_int.yo";
+// open import "../../../std/data/primitives/i32.yo";
+// open import "../../../std/data/primitives/i8.yo";
 
-PtrMethods :: impl {
-  // Unchecked dereference of a pointer
-  unchecked_deref :: (fn(forall(T: Type), v: *(T)) -> T)
-    __yo_ptr_unchecked_deref(v)
-  ;
-
-  export unchecked_deref;
-};
-
-main :: (fn() -> unit) {
-  x := malloc();
-  p := *(x);
-  {
-    // y := p.*; // This is not allowed as p.* is linear.
-    (y : Data) = p.unchecked_deref();
-  };
-};
+// x :: __yo_compt_int_as(12, i8);
+x :: 12.as(i8);
