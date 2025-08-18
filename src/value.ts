@@ -734,12 +734,15 @@ export function areValuesEqual(
       return false;
     }
 
-    return false;
+    // return false;
     // If neither resolved, fall back to type compatibility
-    // return areTypesCompatible(
-    //   { type: value1.type, env: expected.env },
-    //   { type: value2.type, env: given.env }
-    // );
+    // NOTE: This is an assumption. If we return false here, it might cause the
+    // "Maximum Call Stack Exceeded" exception due to the evaluateComptFunctionCall
+    // recursively evalauting the `recur` function.
+    return areTypesCompatible(
+      { type: value1.type, env: expected.env },
+      { type: value2.type, env: given.env }
+    );
   }
   // Handle the case where only one value is unknown - try to resolve it
   else if (isUnknownValue(value1) && !isUnknownValue(value2)) {

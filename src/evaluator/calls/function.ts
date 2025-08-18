@@ -75,14 +75,12 @@ export function evaluateFunctionCall({
   context,
   givenFunc,
   forMacroExpansion,
-  isEvaluatingDo,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
   givenFunc?: { type: Type; value: TypeValue | FunctionValue | undefined };
   forMacroExpansion?: boolean;
-  isEvaluatingDo?: boolean;
 }): Expr {
   let func = expr.func;
   let args = expr.args;
@@ -406,7 +404,6 @@ export function evaluateFunctionCall({
           callerEnv: env,
           context: { ...context },
           isMethodCall: Boolean(methodExpr),
-          isEvaluatingDo,
         });
         return {
           ...functionToCall,
@@ -437,7 +434,6 @@ export function evaluateFunctionCall({
           callerEnv: env,
           context: { ...context },
           isMethodCall: Boolean(methodExpr),
-          isEvaluatingDo,
         });
         return {
           ...functionToCall,
@@ -735,17 +731,6 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     functionsWithMatchingTypes = comptFunctionCalls;
   }
 
-  console.log(
-    "here: ",
-    exprToString(expr),
-    functionsToCall.length,
-    functionsWithMatchingTypes.length,
-    comptFunctionCalls.length
-  );
-  if (functionsToCall.length > 0) {
-    console.log(`  - ${typeToString(functionsToCall[0]!.type)}`);
-  }
-
   if (functionsWithMatchingTypes.length === 0) {
     if (
       functionsToCall.length === 1 &&
@@ -950,14 +935,6 @@ ${functionsWithMatchingTypes
     }
     return expr;
   } else if (isClosureType(functionToCall.type)) {
-    // Disallow `do` on closure calls
-    if (isEvaluatingDo) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `'do' cannot be used on closure calls. Use 'do' only on regular function calls.`,
-      });
-    }
-
     // Handle closure calls by delegating to the underlying function type
     const closureType = functionToCall.type as ClosureType;
     const {
@@ -1030,14 +1007,6 @@ ${functionsWithMatchingTypes
     }
     return expr;
   } else {
-    // Disallow `do` on type value calls (struct constructors, enum constructors, etc.)
-    if (isEvaluatingDo) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `'do' cannot be used on type constructors or other non-function calls. Use 'do' only on regular function calls.`,
-      });
-    }
-
     const value = functionToCall.value;
     // struct value
     if (isTypeValue(value) && isStructType(value.value)) {
