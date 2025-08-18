@@ -6,18 +6,14 @@
 extern "Yo",
   __yo_ptr_cast :
     fn(forall(Source: Type), source : *(Source), compt(Target) : Type) -> Target,
-  __yo_mut_ptr_cast :
-    fn(forall(Source: Type), source : *!(Source), compt(Target) : Type) -> Target,
-  
+  __yo_ptr_unchecked_deref :
+    fn(forall(T: Type), v : *(T)) -> T,
+
   // Pointer arithmetic operations
   __yo_ptr_add :
     fn(forall(T: Type), ptr : *(T), offset : usize) -> *(T),
-  __yo_mut_ptr_add :
-    fn(forall(T: Type), ptr : *!(T), offset : usize) -> *!(T),
   __yo_ptr_sub :
     fn(forall(T: Type), ptr : *(T), offset : usize) -> *(T),
-  __yo_mut_ptr_sub :
-    fn(forall(T: Type), ptr : *!(T), offset : usize) -> *!(T),
   __yo_ptr_diff :
     fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> isize,
   __yo_ptr_eq :
@@ -86,31 +82,24 @@ PtrMethods :: impl {
   cast :: (fn(forall(Source: Type), source: *(Source), compt(Target): Type) -> Target)
     __yo_ptr_cast(source, Target)
   ;
-  
-  export (+), (-), diff, (==), (!=), (<), (<=), (>), (>=), cast;
-};
 
-/**
- * Mutable pointer operations module
- */
-MutPtrMethods :: impl {
-  // Pointer arithmetic: ptr + offset
-  (+) :: (fn(forall(T: Type), ptr: *!(T), offset: usize) -> *!(T))
-    __yo_mut_ptr_add(ptr, offset)
+  // Unchecked dereference of a pointer
+  unchecked_deref :: (fn(forall(T: Type), v: *(T)) -> T)
+    __yo_ptr_unchecked_deref(v)
   ;
   
-  // Pointer subtraction: ptr - offset
-  (-) :: (fn(forall(T: Type), ptr: *!(T), offset: usize) -> *!(T))
-    __yo_mut_ptr_sub(ptr, offset)
-  ;
-  
-  
-  // Cast mutable pointer to another type
-  cast :: (fn(forall(Source: Type), source: *!(Source), compt(Target): Type) -> Target)
-    __yo_mut_ptr_cast(source, Target)
-  ;
-  
-  export (+), (-), cast;
+  export 
+    (+),
+    (-),
+    diff,
+    (==),
+    (!=),
+    (<),
+    (<=),
+    (>),
+    (>=),
+    cast,
+    unchecked_deref;
 };
 
 // Nullable pointer
@@ -125,7 +114,6 @@ MutPtrMethods :: impl {
 
 export
   PtrMethods,
-  MutPtrMethods,
   ?*,
   ?*!
 ;

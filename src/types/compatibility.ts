@@ -1,5 +1,8 @@
 import { Environment } from "../env";
-import { synthesizeTypes } from "../evaluator/types/synthesizer";
+import {
+  canAssignTypeHierarchy,
+  synthesizeTypes,
+} from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
 import { ClosureType, FunctionType, ModuleElement, Type } from "./definitions";
 import {
@@ -417,21 +420,7 @@ export function areTypesCompatible(
   }
 
   if (isTypeHierarchyType(expected.type) && isTypeHierarchyType(given.type)) {
-    // Free can be assigned to Linear,
-    // but not the other way around.
-    if (
-      expected.type.tag === TypeTag.Linear &&
-      given.type.tag === TypeTag.Free
-    ) {
-      return true;
-    }
-
-    // Check if the given type is a subtype of the expected type
-    return (
-      given.type.level === expected.type.level &&
-      (given.type.tag === expected.type.tag ||
-        expected.type.tag === TypeTag.Type)
-    );
+    return canAssignTypeHierarchy(expected.type, given.type);
   }
 
   // *

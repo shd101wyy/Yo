@@ -53,16 +53,18 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
         true => {
           ptr_result := CAllocator.alloc(T, capacity);
           match(ptr_result,
-            .Ok =>
-              match(ptr_result.value,
+            .Ok => {
+              ptr_result_value := ptr_result.value;
+              match(ptr_result_value,
                 .Some =>
                   .Ok(Self(
-                    ptr: ptr_result.value,
+                    ptr: ptr_result_value,
                     len: (0).as(usize),
                     capacity: capacity
                   )),
                 .None => .Error(.AllocError(.OutOfMemory))
-              ),
+              )
+            },
             .Error =>
               .Error(.AllocError(ptr_result.error))
           )
@@ -82,15 +84,17 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             true => (self.capacity * (2).as(usize));
           
           // Allocate or reallocate
-          new_ptr_result := match self.ptr,
+          ptr := self.ptr;
+          new_ptr_result := match ptr,
             .None => CAllocator.alloc(T, new_capacity),
             .Some => CAllocator.realloc(self.ptr, new_capacity);
           
           match(new_ptr_result,
-            .Ok =>
-              match(new_ptr_result.value,
+            .Ok => {
+              new_ptr_result_value := new_ptr_result.value;
+              match(new_ptr_result_value,
                 .Some => {
-                  self.ptr = new_ptr_result.value;
+                  self.ptr = new_ptr_result_value;
                   self.capacity = new_capacity;
                   // Now add the element
                   // TODO: Implement pointer arithmetic and dereferencing
@@ -98,7 +102,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                   .Ok(())
                 },
                 .None => .Error(.AllocError(.OutOfMemory))
-              ),
+              )
+            },
             .Error => .Error(.AllocError(new_ptr_result.error))
           )
         },

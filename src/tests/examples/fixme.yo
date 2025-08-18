@@ -1,33 +1,25 @@
-given(ComptIntMethods) :: impl {
-  Self :: compt_int;
+extern "Yo",
+  Data: Linear,
+  malloc  :
+    fn()-> Data,
+ __yo_ptr_unchecked_deref :
+    fn(forall(T: Type), v : *(T)) -> T
+;
 
-  (as) :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-    __yo_compt_int_as(self, Target)
+PtrMethods :: impl {
+  // Unchecked dereference of a pointer
+  unchecked_deref :: (fn(forall(T: Type), v: *(T)) -> T)
+    __yo_ptr_unchecked_deref(v)
   ;
 
-  export
-    Self,
-    as
-  ;
+  export unchecked_deref;
 };
 
-compt_print(ComptIntMethods.Self);
-
-Data :: (fn(compt(T): Type) -> compt(Type))
-  struct(
-    len: usize,
-
-    return_i32 :: ((fn() -> usize)
-      12
-    ),
-
-    new :: ((fn() -> usize) {
-      len := (0).as(usize);
-      return len;
-    }),
-
-    new2 :: ((fn() -> usize)) {
-      return Self.return_i32();
-    }
-  )
-;
+main :: (fn() -> unit) {
+  x := malloc();
+  p := *(x);
+  {
+    // y := p.*; // This is not allowed as p.* is linear.
+    (y : Data) = p.unchecked_deref();
+  };
+};

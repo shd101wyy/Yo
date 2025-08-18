@@ -21,9 +21,33 @@ import {
   isSomeType,
   isStructType,
   isTupleType,
+  isTypeHierarchyType,
   Type,
 } from "../../types";
+import { TypeTag } from "../../types/tags";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
+
+/**
+ * Check if a given type hierarchy type can be assigned to an expected type hierarchy type.
+ * Based on the logic from compatibility.ts
+ */
+export function canAssignTypeHierarchy(expected: Type, given: Type): boolean {
+  if (!isTypeHierarchyType(expected) || !isTypeHierarchyType(given)) {
+    return false;
+  }
+
+  // Free can be assigned to Linear,
+  // but not the other way around.
+  if (expected.tag === TypeTag.Linear && given.tag === TypeTag.Free) {
+    return true;
+  }
+
+  // Check if the given type is a subtype of the expected type
+  return (
+    given.level === expected.level &&
+    (given.tag === expected.tag || expected.tag === TypeTag.Type)
+  );
+}
 
 /**
  * Synthesize the types, such as
@@ -39,12 +63,6 @@ export function synthesizeTypes(
     env: Environment;
   }
 ): { expectedEnv: Environment; givenEnv: Environment } {
-  // console.log(
-  //   "synthesizeTypes:",
-  //   typeToString(expected.type),
-  //   typeToString(given.type)
-  // );
-
   if (isSomeType(expected.type) && isSomeType(given.type)) {
     // Handle case where both are SomeTypes - unify them
     // Check if either SomeType is already bound
@@ -116,69 +134,229 @@ export function synthesizeTypes(
     }
     // both are some type
     else {
-      // Neither is bound yet - bind given to expected's name
-      // This creates a constraint that they should be the same type
-      // TODO: Check both parentType
-      const value = createTypeValue(expected.type);
-      // Update expected
-      {
-        const existingVariables = getVariablesFromEnv(
-          expected.env,
-          expected.type.name
-        );
-        const variable = existingVariables[existingVariables.length - 1];
-        if (!variable) {
-          const { env: nextEnv } = addVariableToEnv({
-            env: expected.env,
-            variable: {
-              name: expected.type.name,
-              value: value,
-              type: value.type,
-              isMutable: false,
-              isCompileTimeOnly: true,
-              isImplicit: false,
-              token: PlaceholderToken,
-              initializedAtToken: PlaceholderToken,
-              consumedAtToken: undefined,
-            },
-          });
-          expected.env = nextEnv;
-        } else {
-          expected.env = updateExistingVariable(expected.env, variable, {
-            ...variable,
-            value,
-          });
-        }
-      }
+      // Neither is bound yet - check if they represent the same type variable
+      if (expected.type.name === given.type.name) {
+        // Same name, they should be unified to the same type
+        // Bind both to the expected type (could be either one)
+        const value = createTypeValue(expected.type);
 
-      // Update given
-      {
-        const existingVariables = getVariablesFromEnv(
-          given.env,
-          given.type.name
-        );
-        const variable = existingVariables[existingVariables.length - 1];
-        if (!variable) {
-          const { env: nextEnv } = addVariableToEnv({
-            env: given.env,
-            variable: {
-              name: given.type.name,
-              value: value,
-              type: value.type,
-              isMutable: false,
-              isCompileTimeOnly: true,
-              isImplicit: false,
-              token: PlaceholderToken,
-              initializedAtToken: PlaceholderToken,
-              consumedAtToken: undefined,
-            },
-          });
-          given.env = nextEnv;
+        // Update expected env
+        {
+          const existingVariables = getVariablesFromEnv(
+            expected.env,
+            expected.type.name
+          );
+          const variable = existingVariables[existingVariables.length - 1];
+          if (!variable) {
+            const { env: nextEnv } = addVariableToEnv({
+              env: expected.env,
+              variable: {
+                name: expected.type.name,
+                value: value,
+                type: value.type,
+                isMutable: false,
+                isCompileTimeOnly: true,
+                isImplicit: false,
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+              },
+            });
+            expected.env = nextEnv;
+          } else {
+            expected.env = updateExistingVariable(expected.env, variable, {
+              ...variable,
+              value,
+            });
+          }
+        }
+
+        // Update given env
+        {
+          const existingVariables = getVariablesFromEnv(
+            given.env,
+            given.type.name
+          );
+          const variable = existingVariables[existingVariables.length - 1];
+          if (!variable) {
+            const { env: nextEnv } = addVariableToEnv({
+              env: given.env,
+              variable: {
+                name: given.type.name,
+                value: value,
+                type: value.type,
+                isMutable: false,
+                isCompileTimeOnly: true,
+                isImplicit: false,
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+              },
+            });
+            given.env = nextEnv;
+          } else {
+            given.env = updateExistingVariable(given.env, variable, {
+              ...variable,
+              value,
+            });
+          }
+        }
+      } else {
+        // Different names - one might be a type variable, the other concrete
+        // Check if either is a concrete type vs a type variable
+        // A type variable has a type hierarchy parent (Type, Linear, Free) AND is bound in an environment as a variable
+        // A concrete type has a specific parent type (like Linear for Data) but is not a variable binding
+        const expectedIsTypeVar =
+          isTypeHierarchyType(expected.type.parentType) &&
+          expected.type.name.length === 1; // Simple heuristic: single letter names are usually type vars
+        const givenIsTypeVar =
+          isTypeHierarchyType(given.type.parentType) &&
+          given.type.name.length === 1;
+
+        if (expectedIsTypeVar && !givenIsTypeVar) {
+          // Expected is a type variable (T), given is concrete (Data)
+          // Check if the concrete type is compatible with the type variable's constraint
+          if (
+            canAssignTypeHierarchy(
+              expected.type.parentType!,
+              given.type.parentType!
+            )
+          ) {
+            // Bind the type variable to the concrete type
+            const value = createTypeValue(given.type);
+            const existingVariables = getVariablesFromEnv(
+              expected.env,
+              expected.type.name
+            );
+            const variable = existingVariables[existingVariables.length - 1];
+            if (!variable) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: expected.env,
+                variable: {
+                  name: expected.type.name,
+                  value: value,
+                  type: value.type,
+                  isMutable: false,
+                  isCompileTimeOnly: true,
+                  isImplicit: false,
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                },
+              });
+              expected.env = nextEnv;
+            } else {
+              expected.env = updateExistingVariable(expected.env, variable, {
+                ...variable,
+                value,
+              });
+            }
+          }
+          // If not compatible, we don't bind and synthesis fails
+        } else if (!expectedIsTypeVar && givenIsTypeVar) {
+          // Expected is concrete, given is a type variable
+          // Check if the type variable can be assigned to the concrete type's constraint
+          if (
+            canAssignTypeHierarchy(
+              expected.type.parentType!,
+              given.type.parentType!
+            )
+          ) {
+            // Bind the type variable to the concrete type
+            const value = createTypeValue(expected.type);
+            const existingVariables = getVariablesFromEnv(
+              given.env,
+              given.type.name
+            );
+            const variable = existingVariables[existingVariables.length - 1];
+            if (!variable) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: given.env,
+                variable: {
+                  name: given.type.name,
+                  value: value,
+                  type: value.type,
+                  isMutable: false,
+                  isCompileTimeOnly: true,
+                  isImplicit: false,
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                },
+              });
+              given.env = nextEnv;
+            } else {
+              given.env = updateExistingVariable(given.env, variable, {
+                ...variable,
+                value,
+              });
+            }
+          }
+          // If not compatible, we don't bind and synthesis fails
         } else {
-          given.env = updateExistingVariable(given.env, variable, {
-            ...variable,
-            value,
-          });
+          // Both are type variables or both are concrete - bind given to expected
+          const value = createTypeValue(expected.type);
+          // Update expected
+          {
+            const existingVariables = getVariablesFromEnv(
+              expected.env,
+              expected.type.name
+            );
+            const variable = existingVariables[existingVariables.length - 1];
+            if (!variable) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: expected.env,
+                variable: {
+                  name: expected.type.name,
+                  value: value,
+                  type: value.type,
+                  isMutable: false,
+                  isCompileTimeOnly: true,
+                  isImplicit: false,
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                },
+              });
+              expected.env = nextEnv;
+            } else {
+              expected.env = updateExistingVariable(expected.env, variable, {
+                ...variable,
+                value,
+              });
+            }
+          }
+
+          // Update given
+          {
+            const existingVariables = getVariablesFromEnv(
+              given.env,
+              given.type.name
+            );
+            const variable = existingVariables[existingVariables.length - 1];
+            if (!variable) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: given.env,
+                variable: {
+                  name: given.type.name,
+                  value: value,
+                  type: value.type,
+                  isMutable: false,
+                  isCompileTimeOnly: true,
+                  isImplicit: false,
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                },
+              });
+              given.env = nextEnv;
+            } else {
+              given.env = updateExistingVariable(given.env, variable, {
+                ...variable,
+                value,
+              });
+            }
+          }
         }
       }
     }
@@ -423,7 +601,7 @@ export function synthesizeTypes(
       (isRefType(given.type) || isMutRefType(given.type))) ||
     (isMutRefType(expected.type) && isMutRefType(given.type)) ||
     (isPtrType(expected.type) &&
-      (isPtrType(given.type) || isMutRefType(given.type))) ||
+      (isPtrType(given.type) || isMutPtrType(given.type))) ||
     (isMutPtrType(expected.type) && isMutPtrType(given.type))
   ) {
     const { expectedEnv, givenEnv } = synthesizeTypes(
