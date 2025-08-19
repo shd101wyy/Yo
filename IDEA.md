@@ -165,3 +165,177 @@ does_nothing :: (ref: &(i32), container: &mut(Vec<&i32>)) -> unit {
 // Rust thinks: "This function MIGHT store a reference to x in container"
 // Therefore: "x is borrowed until container might be done with it"
 ```
+
+---
+
+Runtime memory safety check inspired by [Inko language](https://docs.inko-lang.org/manual/latest/getting-started/memory-management/)
+
+```rust
+Point :: struct
+  x : i32,
+  y : i32
+;
+// Allocated on heap, Linear
+// can use both & and &!
+
+Point :: value struct
+  x : i32,
+  y : i32
+;
+// Allocated on stack, Free
+// cannot use & or &! references on Free
+// but can use * or *! pointers
+
+// => move semantics closure.
+// &=> capture by reference closure.
+// *=> capture by pointer closure.
+
+// QUESTION: What about `value struct` contains a `struct` field? Can we use &/&! on that field?
+// Disallow `value` type to contain non-value types?
+```
+
+---
+
+Optional Region created using `borrow` for reference types.
+So we still keep our current way of second-class reference.
+However, if we use `borrow`, then we attach a `region` to the reference.
+The `region` is optional.
+
+```rust
+x := 1;
+
+ref := &(x); // not allowed due to second-class reference
+mut_ref := &!(x); // not allowed due to second-class reference
+
+borrow &(x), (x_ref)=> {
+  // x cannot be used while borrowed.
+  // x_ref has type &(i32, r1), where r1 is generated when we borrow.
+  // x_ref is Free type.
+  x_ref2 := x_ref; // allowed, because x_ref has region information.
+
+  // You can cast &(i32, r1) to &(i32).
+};
+
+borrow &!(x), (x_ref)=> {
+  // x cannot be used while borrowed.
+  // x_ref has type &!(i32, r2), where r2 is generated when we borrow.
+  // x_ref is Linear type!!! Mutable reference type with region is Linear!
+  x_ref2 := x_ref; // x_ref is moved to x_ref2, so x_ref is no longer valid.
+
+  // You can cast &!(i32, r2) to &!(i32) or &(i32), but not &(i32, r2).
+}
+```
+The point is we only need `region` when we want to store references in the data structure.
+
+Let me simplify this:
+
+```rust
+x := 1;
+
+// region keeps track of the borrowed path collections like we did.
+
+r1 :: region();
+x_ref := &(x, r1); // borrow x at region r1.
+                   // x_ref: &(i32, r1) // Free type.
+x_ref2 := x_ref; // allowed, because x_ref has region information.
+
+x_ref3 := &(x, r1); // not allowed, because `x` is already borrowed.
+r1.end(); // end the region.
+
+r2 :: region();
+x_ref := &!(x, r2); // borrow x at region r2.
+                    // x_ref: &!(i32, r2) // Linear type.
+x_ref2 := x_ref; // x_ref is moved to x_ref2, so x_ref is no longer valid.
+
+x_ref3 := &(x, r2); // not allowed, because `x` is already borrowed.
+r2.end(); // end the region.
+```
+
+Let's simplify futher by automaticaly inserting `region`.
+`region` keeps track of the borrowed path collections like we did.
+Reference types that without `region` information are considered as 2nd-class references.
+
+```rust
+// ==> r1
+x := 1;
+
+{ // ==> r2
+  x_ref := &(x);   // allowed, x_ref : &(i32, r2) // Free type.
+  x2_ref := x_ref; // allowed, x2_ref : &(i32, r2) // Free type.
+  x3_ref := &(x);  // allowed, x3_ref : &(i32, r2) // Free type.
+  x4_ref := &!(x); // not allowed, because `x` is already borrowed in r2.
+
+  (x5_ref : &(i32)) = x_ref; // not allowed, because &(i32) is 2nd-class reference.
+
+  // r2 ends, invalidates all
+}
+
+{ // ==> r3
+  x_ref := &!(x);  // allowed, x_ref : &!(i32, r3) // Linear type.
+  x2_ref := x_ref; // allowed, x2_ref : &!(i32, r3) // Linear type.
+  x3_ref := &!(x); // not allowed, because `x` is already borrowed in r3.
+  x4_ref := &(x);  // not allowed, because `x` is already borrowed in r3.
+
+  (x5_ref : &!(i32)) = x_ref; // not allowed, because &!(i32) is 2nd-class reference.
+
+  // r3 ends, invalidates all
+}
+
+x_ref := &(x); // allowed, x_ref : &(i32, r1) // Free type.
+x2_ref := x_ref; // allowed, x2_ref : &(i32, r1) // Free type.
+x3_ref := &(x); // allowed, x3_ref : &(i32, r1) // Free type.
+x4_ref := &!(x); // not allowed, because `x` is already borrowed in r1.
+// r1 ends, invalidates all
+```
+
+1. Function boundaries
+
+```rust
+process :: (fn(forall(SomeRegion: Region), data: &(i32, SomeRegion)) -> unit) { ... }
+process2 :: (fn(data: &(i32)) -> unit) { ... }
+
+{ // r2
+  x_ref := &(x);  // &(i32, r2)
+  
+  process(x_ref); // &(i32, r2) is valid here
+
+  process2(x_ref); // &(i32, r2) gets casted to &(i32) here, which is allowed.
+}
+```
+
+2. Return Values: Can functions return region-tagged references?
+
+```rust
+get_ref :: (fn(forall(SomeRegion: Region)) -> &(i32, SomeRegion)) { ... } // This is not allowed
+```
+
+3. Data Structure Storage: This is where explicit regions might still be needed:
+
+```rust
+Container :: (fn(using(ExplicitRegion: Region))-> compt(Type)) 
+  struct(
+    data_ref: &(i32, ExplicitRegion) // Still need explicit regions here?
+  );
+```
+
+4. Cross-Block Dependencies: What happens here?
+
+```rust
+// r1
+x := 12;
+mut(container) := Container::new();
+{ // r2
+  x_ref := &(x); // &(i32, r2) 
+  container.store(x_ref); // Error, because containser has type Container(using(r1))
+}
+```
+
+```rust
+// r1
+x := 12;
+{ // r2
+  mut(container) := Container::new(); // Container(using(r2))
+  x_ref := &(x); // &(i32, r2)
+  container.store(x_ref); // Now it works!
+}
+```

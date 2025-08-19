@@ -90,13 +90,14 @@ CAllocator :: struct(
             .None => .Error(.OutOfMemory)
         },
         .Some => {
+          raw_old := (old_ptr.value).cast(*!(void));
+
           // Handle zero size case
           if (new_count == (0).as(usize)), {
-            free(old_ptr.value.cast(*!(void)));
+            free(raw_old);
             return .Ok(.None);
           };
           
-          raw_old := old_ptr.value; // .cast(*!(void));
           new_size := (new_count * sizeof(T).as(usize));
           new_ptr := realloc(.Some(raw_old), new_size);
           match new_ptr,
@@ -109,7 +110,7 @@ CAllocator :: struct(
     }),
 
     dealloc : ((forall(T), self, ptr) -> {
-      raw_ptr := ptr; // .cast(*!(void));
+      raw_ptr := ptr.cast(*!(void));
       free(.Some(raw_ptr));
       .Ok(())
     })

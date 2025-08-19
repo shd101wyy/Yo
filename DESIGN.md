@@ -2757,3 +2757,5 @@ defn unless(quote(condition), quote(do)),
 - [Refinement Types for TypeScript](https://goto.ucsd.edu/~pvekris/docs/pldi16.pdf)
 - [Continuations and Delimited Control
 ](https://okmij.org/ftp/continuations/)
+- [Custom allocators in Rust](https://nical.github.io/posts/rust-custom-allocators.html)
+- [Ownership You Can Count On: A Hybrid Approach to Safe Explicit Memory Management](https://inko-lang.org/papers/ownership.pdf)

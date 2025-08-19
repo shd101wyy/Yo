@@ -48,30 +48,30 @@ CustomAllocator :: module(
   /**
    * Allocate memory for count times of type T.
    */
-  alloc : (fn(self : *!(Self), compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
+  alloc : (fn(self : &(Self), compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Allocate zeroed memory for count items of type T
    */
-  alloc_zeroed : (fn(self : *!(Self), compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
+  alloc_zeroed : (fn(self : &(Self), compt(T): Type, count: usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Allocate aligned memory for count items of type T
    */
-  alloc_aligned : (fn(self : *!(Self), compt(T): Type, count: usize, alignment: usize) -> Result(?*!(T), AllocError)),
+  alloc_aligned : (fn(self : &(Self), compt(T): Type, count: usize, alignment: usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Reallocate memory to new_count items
    */
-  realloc : (fn(forall(T : Type), self : *!(Self), old_ptr : ?*!(T), new_count : usize) -> Result(?*!(T), AllocError)),
+  realloc : (fn(forall(T : Type), self : &(Self), old_ptr : ?*!(T), new_count : usize) -> Result(?*!(T), AllocError)),
 
   /**
    * Deallocate memory pointed to by ptr.
    */
-  dealloc : (fn(forall(T : Type), self : *!(Self), ptr : *!(T)) -> Result(unit, AllocError))
+  dealloc : (fn(forall(T : Type), self : &(Self), ptr : *!(T)) -> Result(unit, AllocError))
 );
 
-Allocator :: *!(Dyn(CustomAllocator));
+Allocator :: *(Dyn(CustomAllocator));
 
 
 export size_would_overflow, CustomAllocator, Allocator, Layout, layout_of, AllocError;
