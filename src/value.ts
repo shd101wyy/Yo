@@ -21,6 +21,7 @@ import {
   createI64Type,
   createI8Type,
   createIsizeType,
+  createSomeRegion,
   createSomeType,
   createU16Type,
   createU32Type,
@@ -30,6 +31,7 @@ import {
   EffType,
   EnumType,
   ExprType,
+  isRegionType,
   isTypeHierarchyType,
   ModuleType,
   StructType,
@@ -484,6 +486,21 @@ export function createUnknownValue(
     // SomeType
     const someType = createSomeType(type, variableName);
     return createTypeValue(someType);
+  }
+
+  if (isRegionType(type)) {
+    if (!variableName) {
+      console.trace();
+      throw new Error(
+        `createUnknownValue expects a variable name for region type ${typeToString(
+          type
+        )}`
+      );
+    }
+
+    // SomeRegion
+    const someRegion = createSomeRegion(variableName);
+    return createTypeValue(someRegion);
   }
 
   return {

@@ -8,14 +8,18 @@ import {
   FuncCallExpr,
   requireExprNotConsumed,
 } from "../../expr";
+import { RegionValue } from "../../region-value";
 import {
   createMutRefType,
   createRefType,
   isMutRefType,
   isRefType,
+  isRegionType,
+  isSomeRegion,
   TypeTag,
 } from "../../types";
-import { createTypeValue, isTypeValue } from "../../value";
+import { TypeValue } from "../../type-value";
+import { createTypeValue, isRegionValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
 /**
@@ -41,7 +45,16 @@ export function evaluateReferenceCall({
     ? TypeTag.Ref
     : TypeTag.MutRef;
 
+  // Handle both &(type) and &(type, region) syntax
+  if (expr.args.length !== 1 && expr.args.length !== 2) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Reference type expects 1 or 2 arguments, got ${expr.args.length}`,
+    });
+  }
+
   const argExpr = expr.args[0]!;
+  const regionExpr = expr.args[1]; // Optional region argument
 
   let expectedType = context.expectedType;
   if (
@@ -77,20 +90,74 @@ export function evaluateReferenceCall({
   }
   env = evaluatedArgExpr.$.env;
 
+  // Evaluate the region expression if provided
+  let regionValue: RegionValue | TypeValue | undefined;
+  if (regionExpr) {
+    const evaluatedRegionExpr = context.evaluateExpression({
+      expr: regionExpr,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+      },
+    });
+
+    if (!evaluatedRegionExpr.$) {
+      throw formatErrorMessage({
+        token: regionExpr.token,
+        errorMessage: `Failed to evaluate the region expression:\n${exprToString(
+          regionExpr
+        )}`,
+      });
+    }
+    env = evaluatedRegionExpr.$.env;
+
+    if (
+      !isRegionType(evaluatedRegionExpr.$.type) ||
+      !evaluatedRegionExpr.$.value
+    ) {
+      throw formatErrorMessage({
+        token: regionExpr.token,
+        errorMessage: `Expected region type for reference region parameter, got:\n${exprToString(
+          regionExpr
+        )}`,
+      });
+    }
+
+    // Handle both RegionValue (runtime regions) and TypeValue containing SomeRegion (type parameters)
+    if (isRegionValue(evaluatedRegionExpr.$.value)) {
+      // Compile-time region value (e.g., r1 :: region())
+      regionValue = evaluatedRegionExpr.$.value;
+    } else if (
+      isTypeValue(evaluatedRegionExpr.$.value) &&
+      isSomeRegion(evaluatedRegionExpr.$.value.value)
+    ) {
+      // Region type parameter (forall context, e.g., forall(r1 : Region))
+      regionValue = evaluatedRegionExpr.$.value;
+    } else {
+      throw formatErrorMessage({
+        token: regionExpr.token,
+        errorMessage: `Expected region value or region type parameter for reference region parameter, got:\n${exprToString(
+          regionExpr
+        )}`,
+      });
+    }
+  }
+
   // Check if the argExpr is a type
   if (isTypeValue(evaluatedArgExpr.$.value)) {
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
-    // Create the pointer type
+    // Create the reference type with optional region
     const referenceType =
       referenceTypeKind === TypeTag.Ref
-        ? createRefType(baseType)
-        : createMutRefType(baseType);
-    const typeValueForPointer = createTypeValue(referenceType);
+        ? createRefType(baseType, regionValue)
+        : createMutRefType(baseType, regionValue);
+    const typeValueForReference = createTypeValue(referenceType);
     expr.$ = {
       env,
-      type: typeValueForPointer.type,
-      value: typeValueForPointer,
+      type: typeValueForReference.type,
+      value: typeValueForReference,
       isMutable: false,
       pathCollection: [],
     };
@@ -102,10 +169,10 @@ export function evaluateReferenceCall({
     const argType = evaluatedArgExpr.$.type;
     const referenceType =
       referenceTypeKind === TypeTag.Ref
-        ? createRefType(argType)
-        : createMutRefType(argType);
+        ? createRefType(argType, regionValue)
+        : createMutRefType(argType, regionValue);
 
-    // Check if we are creating a mutable pointer to an immutable value
+    // Check if we are creating a mutable reference to an immutable value
     if (referenceTypeKind === TypeTag.MutRef && !evaluatedArgExpr.$.isMutable) {
       throw formatErrorMessage({
         token: argExpr.token,

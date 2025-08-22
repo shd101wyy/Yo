@@ -11,6 +11,7 @@ import {
   PtrType,
   RefType,
   SliceType,
+  SomeRegion,
   SomeType,
   StructType,
   TupleType,
@@ -244,6 +245,10 @@ export function isLinearOrType0Type(type?: Type): boolean {
 
 export function isSomeType(type?: Type): type is SomeType {
   return type?.tag === TypeTag.SomeType;
+}
+
+export function isSomeRegion(type?: Type): type is SomeRegion {
+  return type?.tag === TypeTag.SomeRegion;
 }
 
 // Pointer and reference guards

@@ -3,6 +3,7 @@ import { Token } from "../token";
 import {
   createFreeType,
   createLinearType,
+  createRegionType,
   createTypeHierarchy,
   createTypeType,
 } from "./creators";
@@ -32,6 +33,8 @@ import {
   isPrimitiveType,
   isPtrType,
   isRefType,
+  isRegionType,
+  isSomeRegion,
   isSomeType,
   isStructType,
   isTupleType,
@@ -130,6 +133,10 @@ export function typeOfType(
     return createFreeType(type); // Dynamic sized types are free types
   }
 
+  if (isRegionType(type)) {
+    return type; // Region is self-referential: typeOfType(Region) == Region
+  }
+
   if (isPrimitiveType(type)) {
     return createFreeType(type); // Primitive types are free types
   } else if (isTypeHierarchyType(type)) {
@@ -202,13 +209,34 @@ export function typeOfType(
     // Module type itself has the same level as Free/Linear/Type
   } else if (isSomeType(type)) {
     return type.parentType;
+  } else if (isSomeRegion(type)) {
+    return createRegionType(); // SomeRegion's type is Region
   } else if (
     isMutPtrType(type) ||
     isPtrType(type) ||
     isMutRefType(type) ||
     isRefType(type)
   ) {
-    return createFreeType(type);
+    // Reference and pointer type hierarchy logic
+    if (isMutRefType(type) || isRefType(type)) {
+      // For references, check if they have a region
+      if (type.regionValue) {
+        // 1st class references with regions
+        if (isMutRefType(type)) {
+          // &!(T, r1) -> Linear (only one mutable reference allowed)
+          return createLinearType(type);
+        } else {
+          // &(T, r1) -> Free (multiple immutable references allowed)
+          return createFreeType(type);
+        }
+      } else {
+        // 2nd class references without regions (like Swift in/inout)
+        return createFreeType(type);
+      }
+    } else {
+      // Raw pointers are always free
+      return createFreeType(type);
+    }
   } else {
     throw new Error(`Unknown type tag: ${type}`);
   }

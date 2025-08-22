@@ -1,6 +1,8 @@
 import { Environment, Frame } from "../env";
 import { Expr } from "../expr";
 import { FunctionValue } from "../function-value";
+import { RegionValue } from "../region-value";
+import { TypeValue } from "../type-value";
 import { Value } from "../value";
 import { TypeTag } from "./tags";
 
@@ -99,7 +101,7 @@ export interface ExprType extends Type {
 }
 
 export interface TypeHierarchyType extends Type {
-  tag: TypeTag.Free | TypeTag.Linear | TypeTag.Region | TypeTag.Type;
+  tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
 
   /**
    * Level of the type in the hierarchy.
@@ -111,6 +113,43 @@ export interface TypeHierarchyType extends Type {
 
   // The base type of this hierarchy type.
   baseType?: Type;
+}
+
+export interface RegionType extends Type {
+  tag: TypeTag.Region;
+  id: TypeTag.Region;
+}
+
+/**
+ * SomeRegion is a region that is not known.
+ *
+ * Similar to SomeType but for regions.
+ * Used for region parameters in forall clauses.
+ *
+ * Example:
+ * fn(forall(r: Region), data: &(i32, r)) -> unit
+ * - r is a SomeRegion
+ */
+export interface SomeRegion extends Type {
+  tag: TypeTag.SomeRegion;
+
+  /**
+   * The name of the SomeRegion.
+   * eg: r: Region
+   * r is the name of the SomeRegion.
+   */
+  name: string;
+
+  /**
+   * size is unknown for SomeRegion
+   */
+  size: undefined;
+
+  /**
+   * The function application expression that created this SomeRegion.
+   * This is useful for error reporting and debugging.
+   */
+  functionApplication?: Expr;
 }
 
 /**
@@ -535,6 +574,13 @@ export interface MutRefType extends Type {
    * The type of the reference.
    */
   type: Type;
+  /**
+   * The region this reference belongs to.
+   * - RegionValue: compile-time known region (e.g., r1 :: region())
+   * - TypeValue containing SomeRegion: region type parameter (e.g., forall(r1 : Region))
+   * - undefined: 2nd class reference (like in/inout in Swift)
+   */
+  regionValue?: RegionValue | TypeValue | undefined;
 }
 
 export interface RefType extends Type {
@@ -544,6 +590,13 @@ export interface RefType extends Type {
    * The type of the reference.
    */
   type: Type;
+  /**
+   * The region this reference belongs to.
+   * - RegionValue: compile-time known region (e.g., r1 :: region())
+   * - TypeValue containing SomeRegion: region type parameter (e.g., forall(r1 : Region))
+   * - undefined: 2nd class reference (like in/inout in Swift)
+   */
+  regionValue?: RegionValue | TypeValue | undefined;
 }
 
 /**
