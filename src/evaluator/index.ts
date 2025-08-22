@@ -44,6 +44,7 @@ import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
+import { evaluateYoRegionFunctions } from "./builtins/region";
 import { evaluateSizeOf } from "./builtins/sizeof";
 import { evaluateThe } from "./builtins/the";
 import {
@@ -865,6 +866,21 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       ) {
         // __yo_type_contains_reference;
         return evaluateYoTypeContainsReference({
+          expr,
+          env,
+          context: { ...context },
+        });
+      }
+      // Region related functions
+      else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_eq) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_neq) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_lt) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_lte) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_gt) ||
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_gte)
+      ) {
+        return evaluateYoRegionFunctions({
           expr,
           env,
           context: { ...context },

@@ -773,6 +773,14 @@ export const BuiltinFunctions = {
   __yo_type_contains_reference: ["__yo_type_contains_reference"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
 
+  // Region related functions
+  __yo_region_eq: ["__yo_region_eq"],
+  __yo_region_neq: ["__yo_region_neq"],
+  __yo_region_lt: ["__yo_region_lt"],
+  __yo_region_lte: ["__yo_region_lte"],
+  __yo_region_gt: ["__yo_region_gt"],
+  __yo_region_gte: ["__yo_region_gte"],
+
   // Operator related functions
   /// Arithemtic
   __yo_op_add: ["__yo_op_add"], // +
