@@ -27,5 +27,6 @@ export enum ValueTag {
   Module = "Module",
   Expr = "Expr",
   ExprList = "ExprList",
+  Region = "Region",
   Unknown = "Unknown",
 }

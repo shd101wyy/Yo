@@ -339,3 +339,71 @@ x := 12;
   container.store(x_ref); // Now it works!
 }
 ```
+
+----
+
+- 2nd-class reference, same as swift in/inout, &(i32) without region.
+- 1st-class reference, &(i32, r1) with region.
+
+We say a 1st-class reference is used when it is passed to a function or stored in a data structure.
+
+```rust
+Point :: struct
+  x : i32,
+  y : i32
+;
+
+extern "Yo"
+  use_ref : (fn(forall(r : Region), ref : &(Point, r)) -> unit),
+  use_mut_ref : (fn(forall(r : Region), mut_ref : &!(Point, r)) -> unit),
+
+  use_in_ref : (fn(in_ref : &(Point)) -> unit),
+  use_inout_mut_ref : (fn(inout_mut_ref : &!(Point)) -> unit),
+
+  use_i32_ref : (fn(forall(r : Region), ref : &(i32, r)) -> unit),
+  use_i32_mut_ref : (fn(forall(r : Region), mut_ref : &!(i32, r)) -> unit),
+
+  use_i32_in_ref : (fn(in_ref : &(i32)) -> unit),
+  use_i32_inout_mut_ref : (fn(inout_mut_ref : &!(i32)) -> unit)
+;
+
+
+// r1 :: region();
+p := Point(3, 4);
+
+{ // r2 :: region();
+  p_ref := &(p); // p_ref : &(Point, r2), Free, path `p` not used
+  p_ref2 := &!(p); // p_ref2 : &!(Point, r2), Linear, path `p` not used
+
+  use_in_ref(p_ref); // Allowed, p_ref is Free type
+                     // path `p` is still not used,
+                     // because we only passed it to function accepts &(i32),
+                     // but not &(i32, r2).
+  use_inout_mut_ref(p_ref2); // Allowed, p_ref2 is Linear type, but not consumed
+                             // because we only passed it to function accepts &!(i32),
+                             // but not &!(i32, r2).
+
+  use_ref(p_ref); // Allowed, p_ref is Free type, but not consumed.
+                  // path `p` is now used, as it is passed to a function that accepts &(i32, r2).
+  use_mut_ref(p_ref2); // Not allowed, because path `p` is used as immutable reference.
+};
+
+{
+  // r3 :: region();
+  px_ref = &(p.x); // px_ref : &(i32, r3), Free, path `p.x` not used
+  py_ref = &!(p.y); // py_ref : &!(i32, r3), Linear, path `p.y` not used
+
+  use_i32_in_ref(px_ref); // Allowed, px_ref is Free type
+                          // path `p.x` is still not used,
+                          // because we only passed it to function accepts &(i32),
+                          // but not &(i32, r3).
+  use_i32_inout_mut_ref(py_ref); // Allowed, py_ref is Linear type
+                                 // path `p.y` is still not used,
+                                 // because we only passed it to function accepts &!(i32),
+  
+  use_i32_ref(px_ref); // Allowed, px_ref is Free type, but not consumed.
+                  // path `p.x` is now used, as it is passed to a function that accepts &(i32, r3).
+  use_i32_mut_ref(py_ref); // Allowed, py_ref is Linear type, and it's consumed.
+                           // path `p.y` is now used, as it is passed to a function that accepts &!(i32, r3).
+};
+```

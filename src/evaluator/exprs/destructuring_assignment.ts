@@ -19,7 +19,7 @@ import {
   isTupleType,
   isUnionType,
   Type,
-  typeContainsReference,
+  typeContains2ndClassReference,
   typeOfType,
   typeToString,
 } from "../../types";
@@ -162,7 +162,7 @@ export function handleMemberDestructuring({
         }
 
         if (
-          typeContainsReference(element.type) &&
+          typeContains2ndClassReference(element.type) &&
           !isDestructuringAtomVariable
         ) {
           throw formatErrorMessage({
@@ -263,7 +263,7 @@ export function handleMemberDestructuring({
         }
 
         if (
-          typeContainsReference(element.type) &&
+          typeContains2ndClassReference(element.type) &&
           !isDestructuringAtomVariable
         ) {
           throw formatErrorMessage({
@@ -461,7 +461,7 @@ export function handleMemberDestructuring({
       }
 
       if (
-        typeContainsReference(rhsElement.type) &&
+        typeContains2ndClassReference(rhsElement.type) &&
         !isDestructuringAtomVariable
       ) {
         throw formatErrorMessage({

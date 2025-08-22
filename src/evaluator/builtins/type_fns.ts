@@ -12,7 +12,7 @@ import {
   isFreeType,
   isLinearType,
   isTypeHierarchyType,
-  typeContainsReference,
+  typeContains2ndClassReference,
   typeToString,
 } from "../../types";
 import {
@@ -334,7 +334,9 @@ export function evaluateYoTypeContainsReference({
   };
 
   if (isTypeValue(typeValue)) {
-    expr.$.value = createBooleanValue(typeContainsReference(typeValue.value));
+    expr.$.value = createBooleanValue(
+      typeContains2ndClassReference(typeValue.value)
+    );
   }
   return expr;
 }

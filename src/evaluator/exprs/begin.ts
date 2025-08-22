@@ -26,14 +26,16 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
+import { createRegionValue } from "../../region-value";
 import {
   areTypesCompatible,
   isLinearOrType0Type,
-  typeContainsReference,
+  typeContains2ndClassReference,
   typeOfType,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
+import { generateNewTempVariableName } from "../../utils";
 import { EvaluatorContext } from "../context";
 import { synthesizeTypes } from "../types/synthesizer";
 
@@ -106,6 +108,26 @@ export function evaluateBeginExpression({
 
   // Push a new environment frame
   env = pushEnvFrame(env);
+
+  // Create region value and add it to the environment
+  const regionValue = createRegionValue(env);
+  // Add the region value to the environment
+  const { env: nextEnv } = addVariableToEnv({
+    env,
+    variable: {
+      name: generateNewTempVariableName(env.modulePath),
+      type: regionValue.type,
+      value: regionValue,
+      isMutable: false,
+      token: expr.token,
+      consumedAtToken: undefined,
+      initializedAtToken: expr.token,
+      isCompileTimeOnly: true,
+      isImplicit: true,
+      isCreatedFromDestructuringAtomVariable: false,
+    },
+  });
+  env = nextEnv;
 
   // Add variablesToAdd to the environment
   for (let i = 0; i < variablesToAdd.length; i++) {
@@ -322,7 +344,7 @@ export function evaluateBeginExpression({
 
   // Prevent return reference to the local variable.
   const returnType = lastExpr.$.type;
-  if (typeContainsReference(returnType)) {
+  if (typeContains2ndClassReference(returnType)) {
     // Check the path
     const pathCollection = lastExpr.$.pathCollection;
     for (let i = 0; i < pathCollection.length; i++) {

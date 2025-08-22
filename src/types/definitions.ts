@@ -99,7 +99,7 @@ export interface ExprType extends Type {
 }
 
 export interface TypeHierarchyType extends Type {
-  tag: TypeTag.Free | TypeTag.Linear | TypeTag.Type;
+  tag: TypeTag.Free | TypeTag.Linear | TypeTag.Region | TypeTag.Type;
 
   /**
    * Level of the type in the hierarchy.

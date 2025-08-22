@@ -25,7 +25,7 @@ import {
   isMutRefType,
   MutRefType,
   RefType,
-  typeContainsReference,
+  typeContains2ndClassReference,
   typeToString,
 } from "../../types";
 import { EvaluatorContext } from "../context";
@@ -124,7 +124,7 @@ export function evaluateBorrow({
 
     // Check if it's a reference type
     if (
-      !typeContainsReference(evaluatedBorrowedValueExpr.$.type)
+      !typeContains2ndClassReference(evaluatedBorrowedValueExpr.$.type)
       /*
       !isRefType(evaluatedBorrowedValueExpr.$.type) &&
       !isMutRefType(evaluatedBorrowedValueExpr.$.type) &&

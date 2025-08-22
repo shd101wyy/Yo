@@ -50,6 +50,7 @@ export enum TypeTag {
   Free = "Free",
   Linear = "Linear",
   Type = "Type",
+  Region = "Region",
 
   // Complex types
   // Variant = "Variant",

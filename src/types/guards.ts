@@ -215,6 +215,7 @@ export function isTypeHierarchyType(type?: Type): type is TypeHierarchyType {
   return (
     type?.tag === TypeTag.Free ||
     type?.tag === TypeTag.Linear ||
+    type?.tag === TypeTag.Region ||
     type?.tag === TypeTag.Type
   );
 }
@@ -225,6 +226,10 @@ export function isFreeType(type?: Type): boolean {
 
 export function isLinearType(type?: Type): boolean {
   return type?.tag === TypeTag.Linear;
+}
+
+export function isRegionType(type?: Type): boolean {
+  return type?.tag === TypeTag.Region;
 }
 
 export function isType0(type?: Type): boolean {

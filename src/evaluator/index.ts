@@ -98,6 +98,7 @@ import { evaluateExprListValue } from "./values/expr_list";
 import { evaluateFloatLiteral } from "./values/float";
 import { evaluateIntegerLiteral } from "./values/integer";
 import { evaluateModuleValue } from "./values/module";
+import { evaluateRegionValue } from "./values/region";
 import { evaluateStringLiteral } from "./values/string";
 import { evaluateTupleValue } from "./values/tuple";
 
@@ -417,6 +418,13 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.expr_list)) {
         // expr_list
         return evaluateExprListValue({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.region)) {
+        // region
+        return evaluateRegionValue({
           expr,
           env,
           context: { ...context },

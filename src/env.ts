@@ -127,6 +127,10 @@ export interface Variable {
 
 export type Frame = {
   variables: Variable[];
+  /**
+   * The unique identifier of the frame.
+   */
+  id: string;
 };
 
 export type Environment = {
@@ -263,6 +267,7 @@ export function addVariableToFrame({
     const newVariables = frame.variables.slice();
     newVariables[existingUndefinedVariableIndex] = variable;
     return {
+      id: frame.id,
       variables: newVariables,
     };
   }
@@ -286,6 +291,7 @@ export function addVariableToFrame({
   }
 
   return {
+    id: frame.id,
     variables: [...frame.variables, variable],
   };
 }
@@ -353,6 +359,7 @@ export function getVariablesFromEnvByFilter(
 export function pushEnvFrame(
   env: Environment,
   frame: Frame = {
+    id: generateVarialeId(env.modulePath, "frame"),
     variables: [],
   }
 ): Environment {

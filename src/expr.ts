@@ -439,8 +439,6 @@ export const BuiltinKeywords = {
   // data types
   unique: ["unique", "^"],
 
-  // LinearPtr: ["^"],     // <= deprecated
-  // MutLinearPtr: ["^!"], // <= deprecated
   Ptr: ["*"],
   MutPtr: ["*!"],
   Ref: ["&"],
@@ -452,6 +450,7 @@ export const BuiltinKeywords = {
   __YoEff: ["__YoEff"],
   Free: ["Free"],
   Linear: ["Linear"],
+  Region: ["Region"],
   Type: ["Type"],
   Module: ["Module"],
 
@@ -465,6 +464,7 @@ export const BuiltinKeywords = {
   tuple: "tuple",
   array: "array",
   expr_list: "expr_list", // expr_list
+  region: "region",
 };
 
 export const BuiltinFunctions = {

@@ -17,7 +17,7 @@ import {
   isFreeType,
   isLinearType,
   prohibitDynamicSizedType,
-  typeContainsReference,
+  typeContains2ndClassReference,
   typeOfType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
@@ -247,7 +247,7 @@ ${exprToString(expr)}`,
     }
 
     // Check if the rhsType contains reference
-    if (typeContainsReference(rhsType)) {
+    if (typeContains2ndClassReference(rhsType)) {
       throw formatErrorMessage({
         token: rhs.token,
         errorMessage: `Assigning reference to variable is not allowed.`,
@@ -348,7 +348,7 @@ ${exprToString(rhs)}`,
 
     // Check if the runtimeDestructurings contain reference
     for (const destructuring of runtimeDestructurings) {
-      if (typeContainsReference(destructuring.type)) {
+      if (typeContains2ndClassReference(destructuring.type)) {
         // NOTE: destructuring assignment will consume the rhs because we extract reference type from it.
         env = setExprAsConsumed(rhs, env, context, true);
         break;

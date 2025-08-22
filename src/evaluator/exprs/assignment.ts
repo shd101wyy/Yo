@@ -32,7 +32,7 @@ import {
   isSomeType,
   isTypeHierarchyType,
   Type,
-  typeContainsReference,
+  typeContains2ndClassReference,
   typeOfType,
   typeRequiresInference,
   typeToString,
@@ -255,7 +255,7 @@ export function evaluateAssignment({
     }
 
     // Check if the rhsType contains reference - references cannot be assigned to variables
-    if (typeContainsReference(rhsType)) {
+    if (typeContains2ndClassReference(rhsType)) {
       throw formatErrorMessage({
         token: rhs.token,
         errorMessage: `Assigning reference to variable is not allowed. FnMut and Fn closures contain references and cannot be stored in variables.`,
@@ -597,7 +597,7 @@ export function evaluateAssignment({
     }
 
     // Check if the rhsType contains reference
-    if (typeContainsReference(rhsType)) {
+    if (typeContains2ndClassReference(rhsType)) {
       throw formatErrorMessage({
         token: rhs.token,
         errorMessage: `Assigning reference to variable is not allowed.`,
