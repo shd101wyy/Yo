@@ -3,7 +3,13 @@ import { formatErrorMessages } from "../error";
 import { exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
-import { isNumberValue, isUnknownValue, valueToString } from "../value";
+import {
+  isNumberValue,
+  isRegionValue,
+  isTypeValue,
+  isUnknownValue,
+  valueToString,
+} from "../value";
 import { ValueTag } from "../value-tag";
 import {
   createF64Type,
@@ -61,6 +67,7 @@ import {
   isMutRefType,
   isPtrType,
   isRefType,
+  isSomeRegion,
   isSomeType,
   isStructType,
   isTupleType,
@@ -880,11 +887,51 @@ export function typeToString(type: Type): string {
     }
 
     case TypeTag.Ref: {
-      return `&(${typeToString((type as RefType).type)})`;
+      const refType = type as RefType;
+      if (refType.regionValue) {
+        // Handle region parameter: &(type, region)
+        let regionStr: string;
+        if (isRegionValue(refType.regionValue)) {
+          // RegionValue: use the lifetime as identifier
+          regionStr = valueToString(refType.regionValue);
+        } else if (
+          isTypeValue(refType.regionValue) &&
+          isSomeRegion(refType.regionValue.value)
+        ) {
+          // TypeValue containing SomeRegion: use the name
+          regionStr = refType.regionValue.value.name;
+        } else {
+          regionStr = "unknown_region";
+        }
+        return `&(${typeToString(refType.type)}, ${regionStr})`;
+      } else {
+        // No region: &(type)
+        return `&(${typeToString(refType.type)})`;
+      }
     }
 
     case TypeTag.MutRef: {
-      return `&!(${typeToString((type as MutRefType).type)})`;
+      const mutRefType = type as MutRefType;
+      if (mutRefType.regionValue) {
+        // Handle region parameter: &!(type, region)
+        let regionStr: string;
+        if (isRegionValue(mutRefType.regionValue)) {
+          // RegionValue: use the lifetime as identifier
+          regionStr = valueToString(mutRefType.regionValue);
+        } else if (
+          isTypeValue(mutRefType.regionValue) &&
+          isSomeRegion(mutRefType.regionValue.value)
+        ) {
+          // TypeValue containing SomeRegion: use the name
+          regionStr = mutRefType.regionValue.value.name;
+        } else {
+          regionStr = "unknown_region";
+        }
+        return `&!(${typeToString(mutRefType.type)}, ${regionStr})`;
+      } else {
+        // No region: &!(type)
+        return `&!(${typeToString(mutRefType.type)})`;
+      }
     }
 
     case TypeTag.Expr: {
