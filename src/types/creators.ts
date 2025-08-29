@@ -7,7 +7,6 @@ import {
   ArrayType,
   ClosureType,
   DynType,
-  EffType,
   EnumType,
   ExprType,
   FunctionParameter,
@@ -536,20 +535,6 @@ export function createClosureType(
     tag: TypeTag.Closure,
     callType: callType as FunctionType & { isClosure: true },
     captureType,
-    env,
-  };
-}
-
-export function createEffType(
-  resultType: Type,
-  contextType: StructType,
-  env: Environment
-): EffType {
-  return {
-    id: `eff_${resultType.id}_${contextType.id}`,
-    tag: TypeTag.Eff,
-    resultType,
-    contextType,
     env,
   };
 }

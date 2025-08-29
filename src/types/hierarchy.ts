@@ -15,7 +15,6 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
-  isEffType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -139,9 +138,6 @@ export function typeOfType(
       // If no capture type, it's a level 0 type (no captures)
       return createType0(type);
     }
-  } else if (isEffType(type)) {
-    // All types are now level 0
-    return createType0(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.elementType);

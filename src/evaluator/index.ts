@@ -75,7 +75,6 @@ import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
 import { evaluateClosureType } from "./types/closure";
 import { evaluateDynType } from "./types/dyn";
-import { evaluateEffType } from "./types/eff";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
 import { evaluateModuleType } from "./types/module";
@@ -419,13 +418,6 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
         // Slice type
         return evaluateSliceType({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.__YoEff)) {
-        // Eff type
-        return evaluateEffType({
           expr,
           env,
           context: { ...context },

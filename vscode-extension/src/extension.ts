@@ -29,14 +29,11 @@ import {
   isEnumType,
   isFunctionType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isStructType,
   isUnionType,
   Type,
-  typeOfType,
   TypeTag,
   typeToString,
 } from "@yo/types";
@@ -513,9 +510,9 @@ export function activate(context: vscode.ExtensionContext) {
         if (expr.$?.type) {
           const typeString = typeToString(expr.$.type);
           markdownContent.appendMarkdown(`\n: ${typeString}`);
-          markdownContent.appendMarkdown(
-            `\n  : ${typeToString(typeOfType(expr.$.type))}`
-          );
+          // markdownContent.appendMarkdown(
+          //   `\n  : ${typeToString(typeOfType(expr.$.type))}`
+          // );
         }
 
         if (foundVariable && isUndefined) {
@@ -1048,12 +1045,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Automatically dereference pointer/reference types for field access only
         let fieldAccessType = variableType;
-        while (
-          isPtrType(fieldAccessType) ||
-          isMutPtrType(fieldAccessType) ||
-          isRefType(fieldAccessType) ||
-          isMutRefType(fieldAccessType)
-        ) {
+        while (isPtrType(fieldAccessType) || isMutPtrType(fieldAccessType)) {
           fieldAccessType = fieldAccessType.type;
         }
 

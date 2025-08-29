@@ -1,11 +1,13 @@
 import {
   addVariableToEnv,
   Environment,
+  popEnvFrame,
   pushEnvFrame,
   Variable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   cloneExpr,
   expectExprToBeFunctionCallOf,
@@ -370,6 +372,20 @@ export function evaluateBeginExpression({
   }
   */
 
-  // No consumption validation needed anymore
+  // Now pop the environment frame
+  env = popEnvFrame(env);
+
+  // console.log("begin expression after applying drops:");
+  // console.log(exprToString(expr));
+
+  expr.$ = {
+    env,
+    type: lastExpr.$.type,
+    value: lastExpr.$.value,
+    isMutable: false,
+    pathCollection: [],
+    controlFlow: lastExpr.$.controlFlow,
+  };
+  attachTempVariableToExpr(expr);
   return expr;
 }

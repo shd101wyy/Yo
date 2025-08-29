@@ -9,7 +9,6 @@ import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
   isClosureType,
-  isEffType,
   isEnumType,
   isFunctionType,
   isModuleType,
@@ -778,19 +777,6 @@ export function synthesizeTypes(
       },
       {
         type: givenFunction.return.type,
-        env: given.env,
-      }
-    );
-    expected.env = expectedEnv;
-    given.env = givenEnv;
-  } else if (isEffType(expected.type) && isEffType(given.type)) {
-    const { expectedEnv, givenEnv } = synthesizeTypes(
-      {
-        type: expected.type.resultType,
-        env: expected.env,
-      },
-      {
-        type: given.type.resultType,
         env: given.env,
       }
     );

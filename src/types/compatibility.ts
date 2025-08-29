@@ -14,7 +14,6 @@ import {
   isComptIntType,
   isComptStringType,
   isDynType,
-  isEffType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -473,19 +472,6 @@ export function areTypesCompatible(
     // ANSWER: No, only void == void.
   ) {
     return true;
-  }
-
-  if (isEffType(expected.type) && isEffType(given.type)) {
-    return areTypesCompatible(
-      {
-        type: expected.type.resultType,
-        env: expected.env,
-      },
-      {
-        type: given.type.resultType,
-        env: given.env,
-      }
-    );
   }
 
   if (isDynType(expected.type) && isDynType(given.type)) {
