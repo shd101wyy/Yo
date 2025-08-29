@@ -480,7 +480,8 @@ Let's keep it simple for now:
 - Add `ref` keyword to `struct` and `enum` for reference counted types.
 - Remove `&` and `&!` for reference types. Use them to create pointer values instead for `*` and `*!`.
 - Remove the borrow checker which is currently based on second-class references.
-- Remove the Linear/Free type system.
+- Remove the Linear/Free type system and the move semantics.
+- Simply the `match` to support destructuring.
 - Add `IO` monad for simple effect system.
 - Update closure syntax. So we have:
   - `fn(...) -> ... { ... }` normal function.

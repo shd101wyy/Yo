@@ -16,9 +16,7 @@ import {
   isEnumType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -190,17 +188,11 @@ export function evaluatePropertyAccess({
         // Dereference through property access: c.ptr.* where c.ptr is a pointer
         // Check if the origin type allows mutable access
         const originType = objectExpr.$.originType;
-        if (
-          originType &&
-          (isMutRefType(originType) || isMutPtrType(originType))
-        ) {
-          // Origin is a mutable reference/pointer, so we can mutate through it
+        if (originType && isMutPtrType(originType)) {
+          // Origin is a mutable pointer, so we can mutate through it
           resultIsMutable = ptrTypeAllowsWrite;
-        } else if (
-          originType &&
-          (isRefType(originType) || isPtrType(originType))
-        ) {
-          // Origin is an immutable reference/pointer, so we cannot mutate through it
+        } else if (originType && isPtrType(originType)) {
+          // Origin is an immutable pointer, so we cannot mutate through it
           resultIsMutable = false;
         } else {
           // Origin is owned (by-value), so dereference mutability depends only on pointer type
@@ -215,61 +207,6 @@ export function evaluatePropertyAccess({
         value: undefined,
         isMutable: resultIsMutable,
         originType: pointerType, // Set origin type to the pointer type to track mutability path
-        isAccessingProperty: true,
-        pathCollection: [],
-      };
-      propertyExpr.$ = expr.$;
-      return expr;
-    } else if (
-      isRefType(objectExpr.$?.type) ||
-      isMutRefType(objectExpr.$?.type)
-    ) {
-      const refType = objectExpr.$.type;
-      const baseType = refType.type;
-
-      // For reference dereference, determine mutability:
-      // The dereferenced value is mutable if the reference type allows writes
-      // and we have mutable access through the origin object
-      const refTypeAllowsWrite = isMutRefType(refType);
-
-      let resultIsMutable: boolean;
-
-      if (
-        exprIsAtom(objectExpr) &&
-        objectExpr.token.type === TokenType.Identifier
-      ) {
-        // Direct variable dereference: x.* where x is a reference parameter
-        // Only the reference type matters for mutability
-        resultIsMutable = refTypeAllowsWrite;
-      } else {
-        // Dereference through property access: c.val.* where c.val is a reference
-        // Check if the origin type allows mutable access
-        const originType = objectExpr.$.originType;
-        if (
-          originType &&
-          (isMutRefType(originType) || isMutPtrType(originType))
-        ) {
-          // Origin is a mutable reference/pointer, so we can mutate through it
-          resultIsMutable = refTypeAllowsWrite;
-        } else if (
-          originType &&
-          (isRefType(originType) || isPtrType(originType))
-        ) {
-          // Origin is an immutable reference/pointer, so we cannot mutate through it
-          resultIsMutable = false;
-        } else {
-          // Origin is owned (by-value), so dereference mutability depends only on reference type
-          // In Rust: even `fn foo(c: Container)` allows `c.mutable_ref.*` = value
-          resultIsMutable = refTypeAllowsWrite;
-        }
-      }
-
-      expr.$ = {
-        env,
-        type: baseType,
-        value: undefined,
-        isMutable: resultIsMutable,
-        originType: refType, // Set origin type to the reference type to track mutability path
         isAccessingProperty: true,
         pathCollection: [],
       };
@@ -428,14 +365,8 @@ export function evaluatePropertyAccess({
   const originalObjectType = objectExpr.$?.type; // Capture before dereferencing
 
   // QUESTION: Should we allow only one round here? Like zig.
-  while (
-    objectType &&
-    (isPtrType(objectType) ||
-      isMutPtrType(objectType) ||
-      isRefType(objectType) ||
-      isMutRefType(objectType))
-  ) {
-    // Dereference the pointer or reference type
+  while (objectType && (isPtrType(objectType) || isMutPtrType(objectType))) {
+    // Dereference the pointer type
     objectType = objectType.type;
   }
 
@@ -492,22 +423,13 @@ export function evaluatePropertyAccess({
 
         if (
           originalObjectType &&
-          (isRefType(originalObjectType) ||
-            isMutRefType(originalObjectType) ||
-            isPtrType(originalObjectType) ||
-            isMutPtrType(originalObjectType))
+          (isPtrType(originalObjectType) || isMutPtrType(originalObjectType))
         ) {
-          // Object is accessed through a reference/pointer
+          // Object is accessed through a pointer
           // Check if we can mutate through the origin
-          if (
-            fieldOriginType &&
-            (isMutRefType(fieldOriginType) || isMutPtrType(fieldOriginType))
-          ) {
-            fieldIsMutable = true; // Can mutate through mutable reference/pointer
-          } else if (
-            fieldOriginType &&
-            (isRefType(fieldOriginType) || isPtrType(fieldOriginType))
-          ) {
+          if (fieldOriginType && isMutPtrType(fieldOriginType)) {
+            fieldIsMutable = true; // Can mutate through mutable pointer
+          } else if (fieldOriginType && isPtrType(fieldOriginType)) {
             fieldIsMutable = false; // Cannot mutate through immutable reference/pointer
           } else {
             fieldIsMutable = objectExpr.$.isMutable; // Fall back to object mutability
@@ -577,23 +499,14 @@ export function evaluatePropertyAccess({
 
           if (
             originalObjectType &&
-            (isRefType(originalObjectType) ||
-              isMutRefType(originalObjectType) ||
-              isPtrType(originalObjectType) ||
-              isMutPtrType(originalObjectType))
+            (isPtrType(originalObjectType) || isMutPtrType(originalObjectType))
           ) {
-            // Object is accessed through a reference/pointer
+            // Object is accessed through a pointer
             // Check if we can mutate through the origin
-            if (
-              fieldOriginType &&
-              (isMutRefType(fieldOriginType) || isMutPtrType(fieldOriginType))
-            ) {
-              fieldIsMutable = true; // Can mutate through mutable reference/pointer
-            } else if (
-              fieldOriginType &&
-              (isRefType(fieldOriginType) || isPtrType(fieldOriginType))
-            ) {
-              fieldIsMutable = false; // Cannot mutate through immutable reference/pointer
+            if (fieldOriginType && isMutPtrType(fieldOriginType)) {
+              fieldIsMutable = true; // Can mutate through mutable pointer
+            } else if (fieldOriginType && isPtrType(fieldOriginType)) {
+              fieldIsMutable = false; // Cannot mutate through immutable pointer
             } else {
               fieldIsMutable = objectExpr.$!.isMutable; // Fall back to object mutability
             }

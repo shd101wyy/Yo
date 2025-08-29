@@ -18,9 +18,7 @@ import {
   isEnumType,
   isFunctionType,
   isMutPtrType,
-  isMutRefType,
   isPtrType,
-  isRefType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -1346,26 +1344,16 @@ function generateFieldAccess(
       // For slice types, always use dot notation regardless of pointer level in AST
       return `${objectCode}.${fieldName}`;
     }
-    // Check if the object is pointer or reference
-    else if (
-      isPtrType(objectType) ||
-      isMutPtrType(objectType) ||
-      isRefType(objectType) ||
-      isMutRefType(objectType)
-    ) {
+    // Check if the object is pointer
+    else if (isPtrType(objectType) || isMutPtrType(objectType)) {
       if (fieldName === "*") {
-        // Regular dereference for pointers/references
-        return `*(${objectCode})`; // Dereference the pointer/reference
+        // Regular dereference for pointers
+        return `*(${objectCode})`; // Dereference the pointer
       } else {
-        // Dereference until not a pointer/reference
+        // Dereference until not a pointer
         let dereferenceLevel = 0;
-        let currentType: Type = objectType;
-        while (
-          isPtrType(currentType) ||
-          isMutPtrType(currentType) ||
-          isRefType(currentType) ||
-          isMutRefType(currentType)
-        ) {
+        let currentType: Type = objectType!;
+        while (isPtrType(currentType) || isMutPtrType(currentType)) {
           dereferenceLevel++;
           currentType = currentType.type;
         }
@@ -1516,22 +1504,12 @@ function generateMatchExpression(
     return `// Error: "match" expression requires an enum type`;
   }
 
-  // Check if it's a pointer/reference type
+  // Check if it's a pointer type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
+  let ptrOrRefType: TypeTag.Ptr | TypeTag.MutPtr | undefined = undefined;
 
   let enumType: Type;
-  if (
-    isPtrType(matchValueType) ||
-    isMutPtrType(matchValueType) ||
-    isRefType(matchValueType) ||
-    isMutRefType(matchValueType)
-  ) {
+  if (isPtrType(matchValueType) || isMutPtrType(matchValueType)) {
     enumType = matchValueType.type;
     ptrOrRefType = matchValueType.tag;
   } else {
