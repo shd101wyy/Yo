@@ -79,6 +79,7 @@ import { evaluateEffType } from "./types/eff";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
 import { evaluateModuleType } from "./types/module";
+import { evaluateRefType } from "./types/ref";
 import { evaluateSliceType } from "./types/slice";
 import { evaluateStructType } from "./types/struct";
 import { evaluateTupleType } from "./types/tuple";
@@ -306,6 +307,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
         // dyn
         return evaluateDynValue({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ref)) {
+        // ref struct or ref enum - reference semantics
+        return evaluateRefType({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
         // struct
         return evaluateStructType({

@@ -19,10 +19,12 @@ export function evaluateEnumType({
   expr,
   env,
   context,
+  isReferenceSemantics = false,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  isReferenceSemantics?: boolean;
 }): FuncCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
     throw formatErrorMessage({
@@ -32,7 +34,7 @@ export function evaluateEnumType({
   }
 
   // Create enumType with empty variants
-  const enumType = createEnumType(env);
+  const enumType = createEnumType(env, isReferenceSemantics);
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;

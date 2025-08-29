@@ -369,6 +369,7 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 export const BuiltinKeywords = {
   compt: ["compt" /*"@"*/],
   mut: ["mut" /*"!"*/],
+  ref: ["ref"], // Reference semantics for struct/enum
 
   // implicit: ["implicit" /*"?"*/], // deprecated in favor of `using` and `given` like scala
   using: ["using"],

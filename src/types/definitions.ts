@@ -256,6 +256,12 @@ export interface StructType extends Type {
   tag: TypeTag.Struct;
 
   /**
+   * Whether this struct uses reference semantics.
+   * true for "ref struct(...)", false for "struct(...)"
+   */
+  isReferenceSemantics: boolean;
+
+  /**
    * The function that returns the struct.
    * eg:
    *   Point :: struct(x: i32, y: i32)
@@ -344,6 +350,12 @@ export interface EnumVariant {
 
 export interface EnumType extends Type {
   tag: TypeTag.Enum;
+
+  /**
+   * Whether this enum uses reference semantics.
+   * true for "ref enum(...)", false for "enum(...)"
+   */
+  isReferenceSemantics: boolean;
 
   /**
    * The function that returns the enum.

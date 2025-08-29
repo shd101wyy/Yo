@@ -290,12 +290,16 @@ export function createTupleType(elements: TupleElement[]): TupleType {
   };
 }
 
-export function createStructType(env: Environment): StructType {
+export function createStructType(
+  env: Environment,
+  isReferenceSemantics: boolean = false
+): StructType {
   const module = createModuleType(env);
 
   const structType: StructType = {
     id: `struct_${randomId()}`,
     tag: TypeTag.Struct,
+    isReferenceSemantics,
     elements: [],
     module,
     env,
@@ -331,12 +335,16 @@ export function createModuleType(env: Environment): ModuleType {
   };
 }
 
-export function createEnumType(env: Environment): EnumType {
+export function createEnumType(
+  env: Environment,
+  isReferenceSemantics: boolean = false
+): EnumType {
   const module = createModuleType(env);
 
   const enumType: EnumType = {
     id: `enum_${randomId()}`,
     tag: TypeTag.Enum,
+    isReferenceSemantics,
     variants: [],
     module,
     env,

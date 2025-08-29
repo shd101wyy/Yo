@@ -1048,6 +1048,10 @@ export function getAlignmentOfType(type: Type): number | null {
     }
     return maxAlign;
   } else if (isStructType(type)) {
+    // Check if it's reference semantics - if so, return pointer alignment
+    if ((type as StructType).isReferenceSemantics) {
+      return getTargetPointerSizeBytes();
+    }
     // Struct alignment is the maximum alignment of its elements
     let maxAlign = 1;
     for (const element of type.elements) {
@@ -1059,6 +1063,10 @@ export function getAlignmentOfType(type: Type): number | null {
     }
     return maxAlign;
   } else if (isEnumType(type)) {
+    // Check if it's reference semantics - if so, return pointer alignment
+    if ((type as EnumType).isReferenceSemantics) {
+      return getTargetPointerSizeBytes();
+    }
     // Enum alignment is the maximum alignment of its variants
     let maxAlign = 1;
     for (const variant of type.variants) {
@@ -1145,8 +1153,16 @@ export function getSizeOfType(type: Type): number | null {
   } else if (isTupleType(type)) {
     return getTupleTypeSize(type);
   } else if (isStructType(type)) {
+    // Check if it's reference semantics - if so, return pointer size
+    if ((type as StructType).isReferenceSemantics) {
+      return getTargetPointerSizeBits();
+    }
     return getStructTypeSize(type);
   } else if (isEnumType(type)) {
+    // Check if it's reference semantics - if so, return pointer size
+    if ((type as EnumType).isReferenceSemantics) {
+      return getTargetPointerSizeBits();
+    }
     return getEnumTypeSize(type);
   } else if (isUnionType(type)) {
     return getUnionType(type);
