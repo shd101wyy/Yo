@@ -12,7 +12,6 @@ import {
 } from "../../expr";
 import {
   ArrayType,
-  ClosureType,
   isArrayType,
   isClosureType,
   isEnumType,
@@ -44,7 +43,6 @@ import {
   valueToString,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
-import { FunctionGenerationContext } from "../functions/generation";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -837,6 +835,8 @@ function generateFuncCall(
       // Handle closure calls - following Rust model
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
+        return `// Error: Closure calls are not yet implemented in C codegen`;
+        /*
         // Generate closure value and function arguments
         const closureCode = generateExpr(expr.func, indent, context);
         const args = runtimeArgExprs.map((arg) => {
@@ -863,7 +863,6 @@ function generateFuncCall(
         // For runtime closures, we need to get the function info from the type system
         // since the closure value is not available at compile time
         let functionCName: string;
-
         if (closureValue && isClosureValue(closureValue)) {
           // Compile-time closure - we have the actual closure value
           const functionValue = closureValue.functionValue;
@@ -918,6 +917,7 @@ function generateFuncCall(
             return `${functionCName}(${argsList})`;
           }
         }
+        */
       } else {
         return `// Error: Failed to transpile closure call - no runtime args`;
       }
@@ -1070,6 +1070,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     return generateComptValue(expr.$.value, context);
   }
 
+  /*
   // Check if we're in a closure function and this variable is captured
   const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
   if (
@@ -1090,6 +1091,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       return `closure_struct.${expr.token.value}`;
     }
   }
+  */
 
   return expr.token.value;
 }
@@ -1222,9 +1224,13 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       closureType.captureType &&
       isStructType(closureType.captureType)
     ) {
+      // TODO: Runtime closure with captures - commented out for closure system simplification
+      return `// TODO: Runtime closure generation not yet implemented with new closure system`;
+      /*
       // Runtime closure with captures - use field names as variable names
       const captureType = closureType.captureType;
       const closureKind = closureType.callType.closureKind;
+      /*
       const fieldCodes: string[] = [];
 
       for (let i = 0; i < captureType.elements.length; i++) {
@@ -1243,6 +1249,7 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       }
 
       return `(${cName}){ ${fieldCodes.join(", ")} }`;
+      */
     } else {
       // Closure without captures - generate empty struct with dummy field
       return `(${cName}){ 0 }`;

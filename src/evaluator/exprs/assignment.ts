@@ -397,7 +397,7 @@ export function evaluateAssignment({
       // For closures, track variable writes to outer scope
       if (
         context.isEvaluatingFunctionBody &&
-        context.isEvaluatingFunctionBody.type.closureKind !== undefined &&
+        context.isEvaluatingFunctionBody.type.isClosure &&
         context.isEvaluatingFunctionBody.evaluationEnv
       ) {
         const closureEvaluationFrameLevel =
@@ -406,10 +406,12 @@ export function evaluateAssignment({
         // If variable is from an outer scope (lower frame level than closure evaluation), it's captured
         if (variable.frameLevel < closureEvaluationFrameLevel) {
           // Determine usage type based on closure kind
-          const usageType =
+          const usageType = "own";
+          /*
             context.isEvaluatingFunctionBody.type.closureKind === "FnMove"
               ? "own"
               : "write";
+          */
 
           trackVariableUsage(
             variable.name,

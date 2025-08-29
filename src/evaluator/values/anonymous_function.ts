@@ -82,15 +82,9 @@ export function evaluateAnonymousFunctionImplementation({
   let expectedOperator: string;
   let operatorDescription: string;
 
-  if (functionType.closureKind === "FnMove") {
+  if (functionType.isClosure) {
     expectedOperator = "=>";
-    operatorDescription = "FnMove closure";
-  } else if (
-    functionType.closureKind === "Fn" ||
-    functionType.closureKind === "FnMut"
-  ) {
-    expectedOperator = "=>>";
-    operatorDescription = `${functionType.closureKind} closure`;
+    operatorDescription = "closure";
   } else {
     // Regular function (not a closure)
     expectedOperator = "->";
@@ -399,7 +393,7 @@ Got:      "${paramName}"`,
   };
 
   // Evaluate the function body
-  const isClosureFunction = functionType.closureKind !== undefined;
+  const isClosureFunction = functionType.isClosure;
   // eslint-disable-next-line prefer-const
   let { evaluationContext, capturedVariables } =
     createFunctionBodyEvaluationContext(

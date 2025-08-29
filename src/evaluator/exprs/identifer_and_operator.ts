@@ -501,7 +501,7 @@ export function evaluateIdentifierAndOperator({
       // For closures, track variables captured from outer scopes
       if (
         context.isEvaluatingFunctionBody &&
-        context.isEvaluatingFunctionBody.type.closureKind !== undefined &&
+        context.isEvaluatingFunctionBody.type.isClosure &&
         context.isEvaluatingFunctionBody.evaluationEnv
       ) {
         const closureEvaluationFrameLevel =
@@ -510,11 +510,12 @@ export function evaluateIdentifierAndOperator({
         // If variable is from an outer scope (lower frame level than closure evaluation), it's captured
         if (variable.frameLevel < closureEvaluationFrameLevel) {
           // Determine usage type based on closure kind
-          const usageType =
+          const usageType = "own";
+          /*
             context.isEvaluatingFunctionBody.type.closureKind === "FnMove"
               ? "own"
               : "read";
-
+          */
           trackVariableUsage(
             variable.name,
             variable.frameLevel,

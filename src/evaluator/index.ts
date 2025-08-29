@@ -238,63 +238,6 @@ ${exprToString(expr)}`,
           });
         }
 
-        // Check if left side is FnMove, Fn, or FnMut
-        const leftSide = expr.args[0]!;
-        if (exprIsFunctionCall(leftSide)) {
-          if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnMove)) {
-            // FnMove(paramType) -> returnType - closure that can be called once
-            // Check if we're in a closure context
-            if (!context.isEvaluatingClosureCallType) {
-              throw formatErrorMessage({
-                token: leftSide.token,
-                errorMessage: `FnMove can only be used as the call type within a Closure type.
-Use: Closure(FnMove(elem: Type) -> ReturnType, CaptureType)
-Instead of: FnMove(elem: Type) -> ReturnType`,
-              });
-            }
-            return evaluateFunctionType({
-              expr,
-              env,
-              context: { ...context },
-              closureKind: "FnMove",
-            });
-          } else if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.Fn)) {
-            // Fn(paramType) -> returnType - closure that can be called multiple times
-            // Check if we're in a closure context
-            if (!context.isEvaluatingClosureCallType) {
-              throw formatErrorMessage({
-                token: leftSide.token,
-                errorMessage: `Fn can only be used as the call type within a Closure type.
-Use: Closure(Fn(elem: Type) -> ReturnType, CaptureType)
-Instead of: Fn(elem: Type) -> ReturnType`,
-              });
-            }
-            return evaluateFunctionType({
-              expr,
-              env,
-              context: { ...context },
-              closureKind: "Fn",
-            });
-          } else if (exprIsFunctionCallOf(leftSide, BuiltinKeywords.FnMut)) {
-            // FnMut(paramType) -> returnType - closure that can be called multiple times with mutation
-            // Check if we're in a closure context
-            if (!context.isEvaluatingClosureCallType) {
-              throw formatErrorMessage({
-                token: leftSide.token,
-                errorMessage: `FnMut can only be used as the call type within a Closure type.
-Use: Closure(FnMut(elem: Type) -> ReturnType, CaptureType)
-Instead of: FnMut(elem: Type) -> ReturnType`,
-              });
-            }
-            return evaluateFunctionType({
-              expr,
-              env,
-              context: { ...context },
-              closureKind: "FnMut",
-            });
-          }
-        }
-
         // Anonymous function implementation
         // (x) -> x;
         return evaluateAnonymousFunctionImplementation({
@@ -303,77 +246,21 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           context: { ...context },
         });
       } else if (exprIsFunctionCallOf(expr, "=>", 2)) {
-        // Closure type
-        // fn(x : i32) => i32;
+        // Closure type or closure implementation
         if (
+          // fn(x : i32) => i32 - Closure type
           exprIsFunctionCall(expr.args[0]) &&
           exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
         ) {
-          // Convert it to `Closure(FnMove(x : i32) -> i32, _)`
-          const newExpr: FuncCallExpr = {
-            tag: ExprTag.FuncCall,
-            func: {
-              tag: ExprTag.Atom,
-              token: {
-                ...expr.token,
-                type: TokenType.Identifier,
-                value: BuiltinKeywords.Closure[0]!,
-              },
-            },
-            args: [
-              {
-                tag: ExprTag.FuncCall,
-                func: {
-                  tag: ExprTag.Atom,
-                  token: {
-                    ...expr.token,
-                    type: TokenType.Operator,
-                    value: "->",
-                  },
-                },
-                token: {
-                  ...expr.token,
-                  type: TokenType.Operator,
-                  value: "->",
-                },
-                args: [
-                  {
-                    tag: ExprTag.FuncCall,
-                    func: {
-                      tag: ExprTag.Atom,
-                      token: {
-                        ...expr.args[0]!.token,
-                        type: TokenType.Identifier,
-                        value: BuiltinKeywords.FnMove[0]!,
-                      },
-                    },
-                    args: expr.args[0]!.args, // Function parameters
-                    token: expr.args[0]!.token,
-                  },
-                  expr.args[1]!, // Return type
-                ],
-                isInfix: true,
-              },
-              {
-                tag: ExprTag.Atom,
-                token: {
-                  ...expr.token,
-                  type: TokenType.Identifier,
-                  value: "_",
-                },
-              }, // Capture type is underscore
-            ],
-            token: expr.token,
-          };
-
+          // Handle closure type directly without transformation
           return evaluateClosureType({
-            expr: newExpr,
+            expr,
             env,
             context: { ...context },
           });
         }
 
-        // FnMove closue
+        // Anonymous closure implementation
         // (x) => x;
         return evaluateAnonymousFunctionImplementation({
           expr,
@@ -517,13 +404,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Array)) {
         // Array type
         return evaluateArrayType({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Closure)) {
-        // Closure type
-        return evaluateClosureType({
           expr,
           env,
           context: { ...context },

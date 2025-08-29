@@ -5,7 +5,6 @@ import { hashString, randomId } from "../utils";
 import { createTypeValue, Value, valueToString } from "../value";
 import {
   ArrayType,
-  ClosureKind,
   ClosureType,
   DynType,
   EffType,
@@ -406,7 +405,7 @@ export function createFunctionType({
   parametersFrame,
   SelfType,
   ModuleType,
-  closureKind,
+  isClosure,
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
@@ -417,10 +416,10 @@ export function createFunctionType({
   parametersFrame: Frame;
   SelfType?: Type;
   ModuleType?: ModuleType;
-  closureKind?: ClosureKind;
+  isClosure?: boolean;
 }): FunctionType {
   return {
-    id: `${closureKind ? "closure" : "fn"}_${randomId()}`,
+    id: `${isClosure ? "closure" : "fn"}_${randomId()}`,
     tag: TypeTag.Function,
     parameters: parameters, // Wrap params in a TupleType
     forallParameters,
@@ -431,7 +430,7 @@ export function createFunctionType({
     parametersFrame,
     SelfType,
     ModuleType,
-    closureKind,
+    isClosure: isClosure ?? false,
   };
 }
 
@@ -518,16 +517,16 @@ export function createClosureType(
   captureType: SomeType | StructType,
   env: Environment
 ): ClosureType {
-  if (!callType.closureKind) {
+  if (!callType.isClosure) {
     throw new Error(
-      `createClosureType expects a FunctionType with closureKind, got FunctionType without closureKind`
+      `createClosureType expects a FunctionType with isClosure=true, got FunctionType with isClosure=false`
     );
   }
 
   return {
     id: `closure_${callType.id}_${captureType.id}`,
     tag: TypeTag.Closure,
-    callType: callType as FunctionType & { closureKind: ClosureKind },
+    callType: callType as FunctionType & { isClosure: true },
     captureType,
     env,
   };

@@ -1522,10 +1522,9 @@ function createSpecializedFunctionInline({
       isEvaluatingFunctionBody: {
         type: functionType,
         value: originalFunction,
-        capturedVariables:
-          functionType.closureKind !== undefined
-            ? new Map<string, CapturedVariableInfo>()
-            : undefined,
+        capturedVariables: functionType.isClosure
+          ? new Map<string, CapturedVariableInfo>()
+          : undefined,
         evaluationEnv: specializedEnv,
       },
     },
@@ -1608,7 +1607,7 @@ function createSpecializedFunctionInline({
     env: functionType.env,
     SelfType: functionType.SelfType,
     ModuleType: functionType.ModuleType,
-    closureKind: functionType.closureKind, // Preserve closure property
+    isClosure: functionType.isClosure, // Preserve closure property
   });
 
   // console.log(

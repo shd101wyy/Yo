@@ -19,11 +19,12 @@ import {
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
-  ClosureKind,
-  ClosureType,
   convertComptTypeToRuntimeType,
+  createClosureType,
   createExprListType,
   createFunctionType,
+  createSomeType,
+  createType0,
   FunctionParameter,
   FunctionType,
   getFunctionParameterExprs,
@@ -34,6 +35,8 @@ import {
   isExprType,
   isSomeType,
   prohibitDynamicSizedType,
+  SomeType,
+  StructType,
   Type,
   typeOfType,
   typeProhibitsComptModifier,
@@ -387,17 +390,8 @@ ${typeToString(parameterType)}`,
 
   // Validate closure mutability requirements
   if (isClosureType(parameterType)) {
-    const closureType = parameterType as ClosureType;
-    if (closureType.callType.closureKind === "FnMut" && !isMutable) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `FnMut closure parameters must be mutable. 
-Use: mut(${label || "param"}) : ${typeToString(parameterType)}
-Instead of: ${label || "param"} : ${typeToString(parameterType)}
-
-FnMut closures can mutate their captured variables, so the closure parameter itself must be mutable.`,
-      });
-    }
+    // Note: With the new simplified closure system, we don't have different closure kinds
+    // All closures work the same way now
   }
 
   return {
@@ -764,31 +758,25 @@ export function evaluateFunctionParameters({
  * Evaluate the function type:
  *
  * - fn(x : i32) -> i32;     // regular function type.
- * - fn(x : i32) => i32;     // FnMove with `CaptureType` as SomeType.
- * - FnMove(x : i32) -> i32; // FnMove. Same as above.
- * - FnMut(x : i32) -> i32;  // FnMut.
- * - Fn(x : i32) -> i32;     // Fn.
+ * - fn(x : i32) => i32;     // closure type with capture inference.
  */
 export function evaluateFunctionType({
   expr,
   env,
   context,
-  closureKind,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
-  closureKind?: ClosureKind;
 }): FuncCallExpr {
-  // For closure types (Fn, FnMut, FnMove), we expect -> operator
-  // For regular functions, we expect -> operator
-  const expectedOperator = "->";
+  // Detect operator type to determine if it's a closure
+  const isClosure = exprIsFunctionCallOf(expr, "=>", 2);
+  const isRegularFunction = exprIsFunctionCallOf(expr, "->", 2);
 
-  if (!exprIsFunctionCallOf(expr, expectedOperator, 2)) {
-    const typeDescription = closureKind || "function";
+  if (!isClosure && !isRegularFunction) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected ${expectedOperator} for ${typeDescription} type, got:\n${exprToString(expr)}`,
+      errorMessage: `Expected -> for function type or => for closure type, got:\n${exprToString(expr)}`,
     });
   }
 
@@ -798,19 +786,8 @@ export function evaluateFunctionType({
   // Handle different forms of parameter lists
   let argList: Expr[] = [];
 
-  // For closure types (Fn, FnMut, FnMove), the argListExpr is the closure call itself
-  // e.g., for "FnMove(i32) -> i32", argListExpr is "FnMove(i32)"
-  if (closureKind && exprIsFunctionCall(argListExpr)) {
-    // Extract arguments from the closure type call
-    if (exprIsFunctionCallOf(argListExpr, closureKind)) {
-      argList = argListExpr.args;
-    } else {
-      throw formatErrorMessage({
-        token: argListExpr.token,
-        errorMessage: `Expected ${closureKind} for closure type, got:\n${exprToString(argListExpr)}`,
-      });
-    }
-  } else if (
+  // For both regular functions and closures, expect fn(...) syntax
+  if (
     exprIsFunctionCall(argListExpr) &&
     exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn)
   ) {
@@ -1052,6 +1029,15 @@ ${typeToString(returnType)}`,
     });
   }
 
+  // Handle capture type for closures
+  let captureType: SomeType | StructType | undefined = undefined;
+  if (isClosure) {
+    // For closure syntax like "fn(x: i32) => i32", we'll infer the capture type
+    // Create a SomeType for capture type inference
+    const captureTypePlaceholderName = `_capture_${randomId()}`;
+    captureType = createSomeType(createType0(), captureTypePlaceholderName);
+  }
+
   // Create the function type
   const functionType = createFunctionType({
     parameters,
@@ -1069,8 +1055,13 @@ ${typeToString(returnType)}`,
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
     ModuleType: context.ModuleType,
-    closureKind: closureKind, // Use the provided closure kind
+    isClosure: isClosure,
   });
+
+  // Create ClosureType if this is a closure, otherwise use FunctionType
+  const finalType = isClosure
+    ? createClosureType(functionType, captureType!, env)
+    : functionType;
 
   // Pop the environment frame
   env = popEnvFrame(env, true);
@@ -1078,8 +1069,8 @@ ${typeToString(returnType)}`,
   // Set the type and value of the expression
   expr.$ = {
     env,
-    value: createTypeValue(functionType),
-    type: typeOfType(functionType),
+    value: createTypeValue(finalType),
+    type: typeOfType(finalType),
     isMutable: false,
     pathCollection: [],
   };

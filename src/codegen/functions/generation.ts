@@ -6,15 +6,12 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
-  ClosureKind,
-  ClosureType,
   FunctionType,
   isFunctionType,
   isMutPtrType,
   isPtrType,
   isUnitType,
   TypeId,
-  TypeTag,
   typeToString,
 } from "../../types";
 import { generateExpr, generateReturnStatement } from "../expressions";
@@ -34,7 +31,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   >;
   currentFunctionName: string;
   currentClosureCaptures?: string[]; // Variables captured by current closure function
-  currentClosureKind?: ClosureKind; // Kind of current closure function (FnMove, FnMut, Fn)
+  // currentClosureKind?: ClosureKind; // Kind of current closure function (FnMove, FnMut, Fn)
 }
 
 /**
@@ -94,6 +91,7 @@ export function generateFunctionPrototype(
   const paramStrings: string[] = [];
 
   // For closure functions, add the closure struct as the first parameter
+  /*
   if (functionType.closureKind) {
     // Find the closure type that uses this function type
     const closureTypeEntry = Object.values(context.types).find(
@@ -125,6 +123,7 @@ export function generateFunctionPrototype(
       paramStrings.push(closureParamStr);
     }
   }
+  */
 
   // Add regular parameters
   const regularParamStrings = runtimeParams.map((param, index) => {
@@ -235,6 +234,7 @@ export function generateFunction(
 
   // Set closure capture context if this is a closure function
   const previousClosureCaptures = context.currentClosureCaptures;
+  /*
   const previousClosureKind = context.currentClosureKind;
   if (functionType.closureKind) {
     // This is a closure function - find the closure type to get capture info
@@ -259,6 +259,7 @@ export function generateFunction(
       }
     }
   }
+  */
 
   // Generate function body with proper return handling
   generateFunctionBody(functionValue.body, functionType, "  ", context);
@@ -266,7 +267,7 @@ export function generateFunction(
   // Restore previous function name and closure captures
   context.currentFunctionName = previousFunctionName;
   context.currentClosureCaptures = previousClosureCaptures;
-  context.currentClosureKind = previousClosureKind;
+  // context.currentClosureKind = previousClosureKind;
 
   emitter.emitLine(`}`);
 }

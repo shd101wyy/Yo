@@ -94,7 +94,8 @@ export function generateClosureDeclaration(
   // A closure is represented as just the captured data
   // Following the Rust model: no function pointer stored, call function is statically determined
 
-  // If the capture type is a struct, generate it inline as part of the closure
+  // TODO: If the capture type is a struct, generate it inline as part of the closure - commented out for closure system simplification
+  /*
   if (isStructType(closureType.captureType)) {
     const captureStructType = closureType.captureType as StructType;
     const closureKind = closureType.callType.closureKind;
@@ -131,6 +132,14 @@ export function generateClosureDeclaration(
     emitter.emitDeclarationLine(
       `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)}`
     );
+    */
+
+  // TODO: For now, generate a simple placeholder for all closures
+  emitter.emitDeclarationLine(
+    `typedef struct { int _placeholder; } ${cName}; // TODO: Closure struct generation with new closure system`
+  );
+
+  /*
     emitter.emitDeclarationLine(
       `  char _unused; // Empty closure with no captures`
     );
@@ -138,6 +147,7 @@ export function generateClosureDeclaration(
   }
 
   emitter.emitDeclarationLine(""); // Add blank line for readability
+  */
 }
 
 /**

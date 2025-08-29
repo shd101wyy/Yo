@@ -8,14 +8,6 @@ export type TypeId = string;
 
 export type ExternLanguage = "yo" | "c";
 
-/**
- * The kind of closure behavior.
- * - "Fn": Immutable borrow closure (can be called multiple times, read-only access to captures)
- * - "FnMut": Mutable borrow closure (can be called multiple times, can mutate captures)
- * - "FnMove": Move closure (can only be called once, moves/consumes captured values)
- */
-export type ClosureKind = "Fn" | "FnMut" | "FnMove";
-
 export interface Type {
   /**
    * The tag to identify the type of type.
@@ -501,13 +493,13 @@ export interface FunctionType extends Type {
   ModuleType?: ModuleType;
 
   /**
-   * The kind of closure this function type represents.
-   * - undefined: Regular function (uses -> syntax, doesn't capture)
-   * - "Fn": Immutable borrow closure (can be called multiple times)
-   * - "FnMut": Mutable borrow closure (can be called multiple times, can mutate)
-   * - "FnMove": Move closure (can only be called once, moves captured values)
+   * Whether this function is a closure (uses => syntax) or a regular function (uses -> syntax).
+   *
+   * - true: fn(x: i32) => i32  (closure that can capture variables)
+   * - false: fn(x: i32) -> i32  (regular function, no captures)
+   * - undefined: regular function (default behavior)
    */
-  closureKind?: ClosureKind;
+  isClosure?: boolean;
 }
 
 export interface MutPtrType extends Type {
@@ -529,26 +521,20 @@ export interface PtrType extends Type {
 }
 
 /**
- * ClosureType represents a closure as a combination of:
- * 1. A call function with the appropriate closure kind (Fn/FnMut/FnMove)
- * 2. A capture struct containing the captured variables
+ * ClosureType represents a closure with simplified syntax:
  *
  * Examples:
- * - Closure(FnMut(elem: i32) -> i32, _)
- * - Closure(Fn(elem: i32) -> i32, MyCapture)
- * - Closure(FnMove(elem: i32) -> i32, MyCapture)
+ * - fn(elem : i32) => i32
+ * - fn(x: i32, y: i32) => string
  */
 export interface ClosureType extends Type {
   tag: TypeTag.Closure;
 
   /**
-   * The function type that defines the call signature and closure behavior.
-   * This must have a closureKind set to "Fn", "FnMut", or "FnMove".
-   *
-   * The function signature should NOT include a self parameter - that's
-   * handled internally based on the closure kind and capture type.
+   * The function type that defines the call signature.
+   * This is a regular function type without closure kinds.
    */
-  callType: FunctionType & { closureKind: ClosureKind };
+  callType: FunctionType & { isClosure: true };
 
   /**
    * The type that contains the captured variables.

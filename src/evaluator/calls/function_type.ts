@@ -64,10 +64,9 @@ function createFreshFunctionBodyContext(
   functionBodyContext: FunctionEvaluationContext;
   capturedVariables: Map<string, CapturedVariableInfo> | undefined;
 } {
-  const capturedVariables =
-    functionType.closureKind !== undefined
-      ? new Map<string, CapturedVariableInfo>()
-      : undefined;
+  const capturedVariables = functionType.isClosure
+    ? new Map<string, CapturedVariableInfo>()
+    : undefined;
 
   const functionBodyContext: FunctionEvaluationContext = {
     type: functionType,
@@ -109,7 +108,7 @@ export function tryToImplementFunctionByFunctionType({
   let env = pushEnvFrame(
     // For closures, we keep the full caller environment to enable variable capturing
     // For regular functions, we only keep top-level frame and compile-time variables
-    functionType.closureKind !== undefined
+    functionType.isClosure
       ? callerEnv
       : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
     functionType.parametersFrame
@@ -183,7 +182,7 @@ export function tryToImplementFunctionByFunctionType({
   // For closures, consume the captured variables from outer scopes
   let finalCallerEnv = callerEnv;
   if (
-    functionType.closureKind !== undefined &&
+    functionType.isClosure &&
     capturedVariables &&
     capturedVariables.size > 0
   ) {

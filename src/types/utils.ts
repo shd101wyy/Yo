@@ -108,10 +108,13 @@ export function typeContainsPointer(type?: Type): boolean {
 
   // Check if the type is a ClosureType - Fn and FnMut contain references
   if (isClosureType(type)) {
+    return true;
+    /*
     const closureType = type as ClosureType;
     const closureKind = closureType.callType.closureKind;
     // FnMove doesn't contain references (takes ownership), but Fn and FnMut do
     return closureKind === "Fn" || closureKind === "FnMut";
+    */
   }
 
   // Recursively check for references in complex types
@@ -630,7 +633,7 @@ function functionTypeToString(func: FunctionType): string {
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
-  return `${from ? `(${from}) ` : ""}${func.closureKind ?? "fn"}(${paramsString}) -> ${returnString}`;
+  return `${from ? `(${from}) ` : ""}fn(${paramsString}) ${func.isClosure ? "=>" : "->"} ${returnString}`;
 }
 
 /**
@@ -817,14 +820,9 @@ export function typeToString(type: Type): string {
     }
     case TypeTag.Closure: {
       const closureType = type as ClosureType;
-      const captureTypeString = closureType.captureType
-        ? typeToString(closureType.captureType)
-        : "_";
-
       // Format the call type with closure kind
       const callType = closureType.callType;
-
-      return `Closure(${functionTypeToString(callType)}, ${captureTypeString})`;
+      return functionTypeToString(callType);
     }
 
     /*

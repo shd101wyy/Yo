@@ -1,5 +1,5 @@
 import { Environment } from "../env";
-import { formatErrorMessages, YoError } from "../error";
+import { YoError } from "../error";
 import { Expr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
@@ -295,7 +295,7 @@ export function trackVariableUsage(
     return;
   }
 
-  const functionType = context.isEvaluatingFunctionBody.type;
+  // const functionType = context.isEvaluatingFunctionBody.type;
   const evaluationEnv = context.isEvaluatingFunctionBody.evaluationEnv;
 
   // Only track variables from outer scopes (not local variables)
@@ -303,6 +303,7 @@ export function trackVariableUsage(
     return;
   }
 
+  /*
   // For Fn closures, only allow read access to outer scope variables
   if (functionType.closureKind === "Fn" && usageType !== "read") {
     throw formatErrorMessages([
@@ -322,6 +323,7 @@ export function trackVariableUsage(
       },
     ]);
   }
+  */
 
   // Track the variable usage
   if (!context.isEvaluatingFunctionBody.capturedVariables) {

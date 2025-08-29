@@ -444,12 +444,6 @@ export const BuiltinKeywords = {
   Type: ["Type"],
   Module: ["Module"],
 
-  // closure types (Rust-style)
-  Closure: ["Closure"],
-  Fn: ["Fn"],
-  FnMut: ["FnMut"],
-  FnMove: ["FnMove"],
-
   // data values
   tuple: "tuple",
   array: "array",
