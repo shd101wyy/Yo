@@ -9,14 +9,12 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
 import {
   createMutPtrType,
   createPtrType,
   createUsizeType,
   isArrayType,
-  isLinearOrType0Type,
   isMutPtrType,
   isPtrType,
   isSliceType,
@@ -105,9 +103,6 @@ export function evaluateFor({
       )}`,
     });
   }
-
-  // Set the array value as consumed
-  setExprAsConsumed(evaluatedItemsExpr, env, context);
 
   let elementVariableExpr: Expr | undefined;
   let elementIndexExpr: Expr | undefined;
@@ -243,17 +238,6 @@ export function evaluateFor({
       itemType = createPtrType(itemType);
     } else if (itemPtrOrRefType === TypeTag.MutPtr) {
       itemType = createMutPtrType(itemType);
-    }
-  } else {
-    // Check if we are extracting linear value from slice
-    // If yes then report error
-    if (itemsPtrOrRefType && isLinearOrType0Type(itemType)) {
-      throw formatErrorMessage({
-        token: elementVariableExpr.token,
-        errorMessage: `Cannot extract linear or type0 value from a slice, got:\n${exprToString(
-          elementVariableExpr
-        )}`,
-      });
     }
   }
 

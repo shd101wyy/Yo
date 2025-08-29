@@ -7,17 +7,11 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
-import { setTypeValueAsLinear } from "../../type-value";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
-  isFreeType,
-  isLinearType,
   prohibitDynamicSizedType,
-  typeContains2ndClassReference,
-  typeOfType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -143,9 +137,6 @@ export function evaluateInitializationAssignment({
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
   }
 
-  // Set the rhs as consumed
-  env = setExprAsConsumed(rhs, env, context);
-
   // If rhs is type value, then it cannot be mutable
   if (isTypeValue(rhs.$?.value) && isMutable) {
     throw formatErrorMessage({
@@ -245,16 +236,8 @@ ${exprToString(expr)}`,
       });
     }
 
-    // Check if the rhsType contains reference
-    if (typeContains2ndClassReference(rhsType)) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed.`,
-      });
-    }
-
     // Add .typeName info if necessary
-    let rhsValue = rhs.$?.value;
+    const rhsValue = rhs.$?.value;
     if (
       isTypeValue(rhsValue) &&
       /*
@@ -273,14 +256,7 @@ ${exprToString(expr)}`,
       rhsValue.type.typeName = lhs.token.value;
     }
 
-    // Check if it's assigning Free to Linear
-    if (
-      isTypeValue(rhsValue) &&
-      isFreeType(typeOfType(rhsValue.value)) &&
-      isLinearType(lhs.$.type)
-    ) {
-      rhsValue = setTypeValueAsLinear(rhsValue);
-    }
+    // No consumption logic needed
 
     // Prohibit assigning runtime value to comptime-only variable
     if (!rhsValue && isCompileTimeOnly) {
@@ -341,17 +317,6 @@ ${exprToString(rhs)}`,
         context: { ...context },
       });
     env = nextEnv;
-
-    // Check if the runtimeDestructurings contain reference
-    for (const destructuring of runtimeDestructurings) {
-      if (typeContains2ndClassReference(destructuring.type)) {
-        // NOTE: destructuring assignment will consume the rhs because we extract reference type from it.
-        env = setExprAsConsumed(rhs, env, context, true);
-        break;
-      }
-    }
-
-    // NOTE: rhs is already set as consumed above
 
     expr.$ = {
       env,

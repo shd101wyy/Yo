@@ -1,11 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import {
-  Expr,
-  exprToString,
-  FuncCallExpr,
-  setExprAsConsumed,
-} from "../../expr";
+import { Expr, exprToString, FuncCallExpr } from "../../expr";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
@@ -67,9 +62,6 @@ export function evaluateArrayValue({
       });
     }
     env = evaluatedElement.$.env;
-
-    // Set the evaluatedElement as consumed
-    env = setExprAsConsumed(evaluatedElement, env, context);
 
     // Save value
     arrayElementValues.push(evaluatedElement.$.value);

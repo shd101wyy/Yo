@@ -5,7 +5,6 @@ import {
   exprToString,
   FuncCallExpr,
   RuntimeDestructuring,
-  setExprAsConsumed,
 } from "../../expr";
 import { isStructType } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -48,9 +47,6 @@ export function evaluateOpen({
       errorMessage: `Failed to evaluate the module argument:\n${exprToString(evaluatedArgExpr)}`,
     });
   }
-
-  // Consume the arg expr
-  setExprAsConsumed(evaluatedArgExpr, env, context);
 
   const argType = evaluatedArgExpr.$.type;
   const argValue = evaluatedArgExpr.$.value;

@@ -22,7 +22,6 @@ import {
   exprToString,
   FuncCallExpr,
   PathCollection,
-  setExprAsConsumed,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
 import { PlaceholderToken, TokenType } from "../../token";
@@ -152,7 +151,6 @@ export function checkIfFunctionParameterMatchesArgument({
 
   // Evaluate the argExpr
   let evaluatedArgExpr: Expr | undefined = undefined;
-  let evaluatedDefaultValueExpr: Expr | undefined = undefined;
 
   if (
     !argExpr ||
@@ -167,7 +165,6 @@ export function checkIfFunctionParameterMatchesArgument({
           ...context,
         },
       });
-      evaluatedDefaultValueExpr = evaluatedArgExpr;
       if (evaluatedArgExpr.$?.env) {
         calleeEnv = evaluatedArgExpr.$?.env;
       }
@@ -283,14 +280,6 @@ export function checkIfFunctionParameterMatchesArgument({
     },
   });
   calleeEnv = nextEnv;
-
-  // Set the arg expr as consumed
-  // NOTE: If we evaluated the default value expression,
-  // then we don't set the arg expr as consumed,
-  // because that's the expression from parameter.exprs.defaultValueExpr
-  if (!evaluatedDefaultValueExpr) {
-    callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv, context);
-  }
 
   // Synthesize the types
   const { expectedEnv, givenEnv } = synthesizeTypes(

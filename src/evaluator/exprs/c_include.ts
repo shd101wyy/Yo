@@ -8,12 +8,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  isLinearOrType0Type,
-  ModuleElement,
-  typeOfType,
-  typeToString,
-} from "../../types";
+import { ModuleElement } from "../../types";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -116,23 +111,7 @@ c_include "<stdio.h>" ...;`,
     elements.push(element);
     env = nextEnv;
 
-    // Prevent having Linear variables in "c" extern modules
-    if (isLinearOrType0Type(element.type)) {
-      throw formatErrorMessage({
-        token: arg.token,
-        errorMessage: `Cannot have "Linear" or "Type" type in "c" extern module.
-Only "Free" is allowed.
-Got ${typeToString(element.type)}`,
-      });
-    }
-    if (isLinearOrType0Type(typeOfType(element.type))) {
-      throw formatErrorMessage({
-        token: arg.token,
-        errorMessage: `Cannot have "Linear" or "Type" value in "c" extern module.
-Only "Free" is allowed.
-Got ${typeToString(typeOfType(element.type))}`,
-      });
-    }
+    // No linear type restrictions needed anymore
 
     // Add element to env
     const { env: nextNextEnv } = addVariableToEnv({

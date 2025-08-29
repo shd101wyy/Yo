@@ -6,7 +6,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  requireExprNotConsumed,
 } from "../../expr";
 import {
   createMutPtrType,
@@ -106,9 +105,6 @@ export function evaluateAddressOperatorCall({
       )}`,
     });
   } else {
-    // The arg cannot be consumed.
-    requireExprNotConsumed(evaluatedArgExpr, env);
-
     const argType = evaluatedArgExpr.$.type;
     const pointerType =
       pointerTypeKind === TypeTag.Ptr

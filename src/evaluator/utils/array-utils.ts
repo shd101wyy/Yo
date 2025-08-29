@@ -10,8 +10,6 @@ import {
   areTypesCompatible,
   ArrayType,
   isArrayType,
-  isFreeType,
-  typeOfType,
   typeToString,
 } from "../../types";
 import {
@@ -79,14 +77,7 @@ export function evaluateArrayFillMethod({
     });
   }
 
-  // Restrict Array.fill to only support Free types (not Linear types)
-  // This prevents ownership issues when duplicating the fill value multiple times
-  if (!isFreeType(typeOfType(fillValueType))) {
-    throw formatErrorMessage({
-      token: fillValueArg.token,
-      errorMessage: `Array.fill only supports Free types that can be copied. Type ${typeToString(fillValueType)} is not a Free type. Consider using a primitive type like i32, f32, bool, etc.`,
-    });
-  }
+  // All types can now be used with Array.fill since we removed Linear/Free distinction
 
   // Extract array length from the ArrayType
   // arrayType.length should be a Value with a compile-time known integer

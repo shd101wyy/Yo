@@ -7,7 +7,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   PathCollection,
-  setExprAsConsumed,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -127,12 +126,6 @@ ${tupleElementToString(paramElement_)}`,
         errorMessage: `Failed to evaluate argument expression:\n${exprToString(argExpr)}`,
       });
     }
-    // Set the argExpr as consumed
-    callerEnv = setExprAsConsumed(
-      evaluatedArgExpr,
-      evaluatedArgExpr.$.env,
-      context
-    );
 
     // Get the type of the evaluated arg expr
     const argType = evaluatedArgExpr.$.type;

@@ -47,8 +47,6 @@ export enum TypeTag {
   // Undefined = "Undefined",
 
   // Type universes
-  Free = "Free",
-  Linear = "Linear",
   Type = "Type",
 
   // Complex types

@@ -14,10 +14,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  requireExprNotConsumed,
-  setExprAsConsumed,
 } from "../../expr";
-import { setTypeValueAsLinear } from "../../type-value";
 import {
   areTypesCompatible,
   ClosureType,
@@ -26,13 +23,9 @@ import {
   isArrayType,
   isClosureType,
   isEnumType,
-  isFreeType,
-  isLinearType,
   isSomeType,
   isTypeHierarchyType,
   Type,
-  typeContains2ndClassReference,
-  typeOfType,
   typeRequiresInference,
   typeToString,
 } from "../../types";
@@ -170,8 +163,6 @@ export function evaluateAssignment({
       }
       env = evaluatedLhs.$.env;
 
-      requireExprNotConsumed(evaluatedLhs, env);
-
       // Check if the variable exists in the environment
       lhs = evaluatedLhs;
       variableName = lhs.token.value;
@@ -221,9 +212,6 @@ export function evaluateAssignment({
       throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
     }
 
-    // Set rhs as consumed
-    env = setExprAsConsumed(rhs, env, context);
-
     let rhsType = rhs.$?.type;
     if (!rhsType) {
       // Try synthesize the type
@@ -251,14 +239,6 @@ export function evaluateAssignment({
           )}\n${e}`,
         });
       }
-    }
-
-    // Check if the rhsType contains reference - references cannot be assigned to variables
-    if (typeContains2ndClassReference(rhsType)) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed. FnMut and Fn closures contain references and cannot be stored in variables.`,
-      });
     }
 
     // Check if the type matches
@@ -336,7 +316,7 @@ export function evaluateAssignment({
     const updatedVariable = updatedVariables[updatedVariables.length - 1]!;
 
     // Add .typeName info if necessary
-    let rhsValue = rhs.$?.value;
+    const rhsValue = rhs.$?.value;
     if (isTypeValue(rhsValue) && !rhsValue.value.typeName) {
       rhsValue.value.typeName = variableName;
 
@@ -354,14 +334,7 @@ export function evaluateAssignment({
       rhsValue.type.typeName = variableName;
     }
 
-    // Check if it's assigning Free to Linear
-    if (
-      isTypeValue(rhsValue) &&
-      isFreeType(typeOfType(rhsValue.value)) &&
-      isLinearType(updatedVariable.type)
-    ) {
-      rhsValue = setTypeValueAsLinear(rhsValue);
-    }
+    // No consumption logic needed
 
     let variableType = updatedVariable.type;
     // Check if it's enum and selectedVariant changed
@@ -558,9 +531,6 @@ export function evaluateAssignment({
       env = rhs.$?.env;
     }
 
-    // Set rhs as consumed
-    env = setExprAsConsumed(rhs, env, context);
-
     let rhsType = rhs.$?.type;
     if (!rhsType) {
       // Try synthesize the type
@@ -588,14 +558,6 @@ export function evaluateAssignment({
           )}\n${e}`,
         });
       }
-    }
-
-    // Check if the rhsType contains reference
-    if (typeContains2ndClassReference(rhsType)) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed.`,
-      });
     }
 
     // Check if the type matches

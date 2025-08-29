@@ -5,7 +5,6 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
-  isLinearOrType0Type,
   isModuleType,
   isMutPtrType,
   isPtrType,
@@ -14,7 +13,6 @@ import {
   ModuleType,
   Type,
   typeContainsSomeType,
-  typeOfType,
   typeToString,
 } from "./types";
 import { generateVarialeId, isTempVariableName } from "./utils";
@@ -725,16 +723,8 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     return [];
   }
 
-  const topFrame = env.frames[env.frames.length - 1]!;
-  const variables = topFrame.variables.filter(
-    (variable) =>
-      isLinearOrType0Type(typeOfType(variable.type)) &&
-      !variable.consumedAtToken &&
-      !variable.isCompileTimeOnly
-  );
-
-  // Return in reverse order (end to start) for proper drop order
-  return variables.reverse();
+  // No consumption logic - return empty array
+  return [];
 }
 
 export function variableExistsInEnvTopFrame(

@@ -1,6 +1,6 @@
 import { Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr, requireExprNotConsumed } from "../../expr";
+import { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
 import {
   createBooleanType,
@@ -12,20 +12,18 @@ import {
   createExprType,
   createF32Type,
   createF64Type,
-  createFreeType,
   createI16Type,
   createI32Type,
   createI64Type,
   createI8Type,
   createIntType,
   createIsizeType,
-  createLinearType,
   createLongDoubleType,
   createLongLongType,
   createLongType,
   createShortType,
+  createType0,
   createTypeHierarchy,
-  createTypeType,
   createU16Type,
   createU32Type,
   createU64Type,
@@ -61,33 +59,9 @@ export function evaluateIdentifierAndOperator({
       ? expr.token.value.slice(1, -1) // Remove backticks
       : expr.token.value;
 
-  // Free
-  if (identifier === TypeTag.Free) {
-    const value = createTypeValue(createFreeType());
-    expr.$ = {
-      env,
-      type: value.type,
-      value: value,
-      isMutable: false,
-      pathCollection: [],
-    };
-    return expr;
-  }
-  // Linear
-  else if (identifier === TypeTag.Linear) {
-    const value = createTypeValue(createLinearType());
-    expr.$ = {
-      env,
-      type: value.type,
-      value: value,
-      isMutable: false,
-      pathCollection: [],
-    };
-    return expr;
-  }
   // Type
-  else if (identifier === TypeTag.Type) {
-    const value = createTypeValue(createTypeType());
+  if (identifier === TypeTag.Type) {
+    const value = createTypeValue(createType0());
     expr.$ = {
       env,
       type: value.type,
@@ -523,7 +497,6 @@ export function evaluateIdentifierAndOperator({
       /// console.log(`=== Checking variable ${variable.name} ===`);
       /// console.log("Variable type:", typeToString(variable.type));
       /// console.log("Type hierarchy:", typeToString(typeOfType(variable.type)));
-      requireExprNotConsumed(expr, env);
 
       // For closures, track variables captured from outer scopes
       if (

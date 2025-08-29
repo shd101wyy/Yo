@@ -210,29 +210,13 @@ export function isLiteralType(type?: Type): type is LiteralType {
 
 // Type hierarchy guards
 export function isTypeHierarchyType(type?: Type): type is TypeHierarchyType {
-  return (
-    type?.tag === TypeTag.Free ||
-    type?.tag === TypeTag.Linear ||
-    type?.tag === TypeTag.Type
-  );
-}
-
-export function isFreeType(type?: Type): boolean {
-  return type?.tag === TypeTag.Free;
-}
-
-export function isLinearType(type?: Type): boolean {
-  return type?.tag === TypeTag.Linear;
+  return type?.tag === TypeTag.Type;
 }
 
 export function isType0(type?: Type): boolean {
   return (
     isTypeHierarchyType(type) && type.tag === TypeTag.Type && type.level === 0
   );
-}
-
-export function isLinearOrType0Type(type?: Type): boolean {
-  return isLinearType(type) || isType0(type) || Boolean(type?.forceLinear);
 }
 
 export function isSomeType(type?: Type): type is SomeType {

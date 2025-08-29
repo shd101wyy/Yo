@@ -12,7 +12,6 @@ import {
   exprToString,
   FuncCallExpr,
   mergeAndCheckEnvs,
-  setExprAsConsumed,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -97,9 +96,6 @@ export function evaluateMatch({
     });
   }
   env = evaluatedScrutineeExpr.$.env;
-
-  // Consume the value expression
-  env = setExprAsConsumed(evaluatedScrutineeExpr, env, context);
 
   const scrutineeType = evaluatedScrutineeExpr.$.type;
   const scrutineeValue = evaluatedScrutineeExpr.$.value;

@@ -4,21 +4,15 @@ import {
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   Expr,
-  exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
-  replaceFuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
-import { generateExprFromCode } from "../../parser";
-import { isLinearOrType0Type, isSomeType } from "../../types";
 import { VUnit } from "../../unit-value";
-import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 
 /**
- * Explicitly drop a value.
- * This function is related with RAII.
+ * Drop function - simplified since we removed consumption logic.
+ * Just evaluates the argument and returns unit.
  */
 export function evaluateDrop({
   expr,
@@ -50,39 +44,7 @@ export function evaluateDrop({
   }
   env = evaluatedArgExpr.$.env;
 
-  // Check if there is `.drop` method available to call
-  // for Linear value
-  if (
-    !isSomeType(evaluatedArgExpr.$.type) &&
-    isLinearOrType0Type(evaluatedArgExpr.$.type)
-  ) {
-    const dropMethodCallExpr = generateExprFromCode(
-      `(${exprToString(evaluatedArgExpr)}).drop()`
-    ) as FuncCallExpr;
-
-    // Convert this drop(x) to x.drop() and evaluate the function call
-    const evaluatedDropMethodCallExpr = evaluateFunctionCall({
-      env,
-      context: { ...context },
-      expr: dropMethodCallExpr,
-    });
-
-    // Replace the original expr with the evaluated drop method call
-    if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
-      replaceFuncCallExpr(expr, evaluatedDropMethodCallExpr);
-      return expr;
-    } else {
-      // In theory we shouldn't enter here
-      return evaluatedDropMethodCallExpr;
-    }
-  }
-
-  // Set the expression as consumed
-  env = setExprAsConsumed(evaluatedArgExpr, env, context);
-
-  // TODO: Handle calling drop function.
-  // In theory, the Free values will be ignored.
-
+  // No consumption logic - just return unit
   expr.$ = {
     env,
     type: VUnit.type,

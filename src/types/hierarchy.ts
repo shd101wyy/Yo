@@ -1,15 +1,9 @@
 import { formatErrorMessage } from "../error";
 import { Token } from "../token";
-import {
-  createFreeType,
-  createLinearType,
-  createTypeHierarchy,
-  createTypeType,
-} from "./creators";
+import { createType0, createTypeHierarchy } from "./creators";
 import {
   ClosureType,
   FunctionParameter,
-  FunctionType,
   ModuleType,
   TupleElement,
   Type,
@@ -55,7 +49,6 @@ function determineTypeUniverse(
    */
   checkedTupleElements: TupleElement[]
 ): Type {
-  let hasLinear = false;
   let meetTypeTag = false;
   let maxTypeLevel = 0;
 
@@ -76,9 +69,7 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
 
     if (isTypeHierarchyType(typeOfSubType)) {
       maxTypeLevel = Math.max(maxTypeLevel, typeOfSubType.level);
-      if (typeOfSubType.tag === TypeTag.Linear) {
-        hasLinear = true;
-      } else if (typeOfSubType.tag === TypeTag.Type) {
+      if (typeOfSubType.tag === TypeTag.Type) {
         meetTypeTag = true;
       }
     }
@@ -88,16 +79,11 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
     return createTypeHierarchy(maxTypeLevel);
   }
   if (meetTypeTag) {
-    return createTypeType(baseType);
+    return createType0(baseType);
   }
 
-  // If we found any linear but no type, return linear
-  if (hasLinear) {
-    return createLinearType(baseType);
-  }
-
-  // Otherwise all are free
-  return createFreeType(baseType);
+  // All types are now at level 0
+  return createType0(baseType);
 }
 /**
  * Get the type of a type (meta-type).
@@ -121,15 +107,15 @@ export function typeOfType(
   checkedTupleElements: TupleElement[] = []
 ): Type {
   if (type.forceLinear) {
-    return createLinearType(type); // Force linear type
+    return createType0(type); // All types are now level 0
   }
 
   if (type.isDynamicSized) {
-    return createFreeType(type); // Dynamic sized types are free types
+    return createType0(type); // All types are now level 0
   }
 
   if (isPrimitiveType(type)) {
-    return createFreeType(type); // Primitive types are free types
+    return createType0(type); // All types are now level 0
   } else if (isTypeHierarchyType(type)) {
     return createTypeHierarchy((type as TypeHierarchyType).level + 1);
   } else if (
@@ -138,27 +124,24 @@ export function typeOfType(
     isComptStringType(type) ||
     isExprListType(type)
   ) {
-    return createFreeType(type);
+    return createType0(type);
   } else if (isExprType(type)) {
-    return createFreeType(type);
+    return createType0(type);
   } else if (isFunctionType(type)) {
-    // FnMove closures are linear types (can only be called once)
-    // Regular functions and Fn/FnMut closures are free types
-    return (type as FunctionType).closureKind === "FnMove"
-      ? createLinearType(type)
-      : createFreeType(type);
+    // All functions are now level 0 types
+    return createType0(type);
   } else if (isClosureType(type)) {
     // The type universe of a closure is determined by its capture type
     const closureType = type as ClosureType;
     if (closureType.captureType) {
       return typeOfType(closureType.captureType, checkedTupleElements);
     } else {
-      // If no capture type, it's a free type (no captures)
-      return createFreeType(type);
+      // If no capture type, it's a level 0 type (no captures)
+      return createType0(type);
     }
   } else if (isEffType(type)) {
-    // Effects are linear types (they can only be executed once)
-    return createLinearType(type);
+    // All types are now level 0
+    return createType0(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.elementType);
@@ -202,8 +185,8 @@ export function typeOfType(
     return type.parentType;
   } else if (isMutPtrType(type) || isPtrType(type)) {
     // Pointer type hierarchy logic
-    // Raw pointers are always free
-    return createFreeType(type);
+    // Raw pointers are now level 0 types
+    return createType0(type);
   } else {
     throw new Error(`Unknown type tag: ${type}`);
   }

@@ -48,9 +48,6 @@ import { evaluateSizeOf } from "./builtins/sizeof";
 import { evaluateThe } from "./builtins/the";
 import {
   evaluateYoAreTypesCompatible,
-  evaluateYoTypeContainsReference,
-  evaluateYoTypeIsFree,
-  evaluateYoTypeIsLinear,
   evaluateYoTypeToString,
 } from "./builtins/type_fns";
 import { evaluateVaStart } from "./builtins/va_start";
@@ -63,7 +60,6 @@ import { evaluateBeginExpression } from "./exprs/begin";
 import { evaluateBinding } from "./exprs/binding";
 import { evaluateCInclude } from "./exprs/c_include";
 import { evaluateCond } from "./exprs/cond";
-import { evaluateConsume } from "./exprs/consume";
 import { evaluateExtern } from "./exprs/extern";
 import { evaluateFor } from "./exprs/for";
 import { evaluateIdentifierAndOperator } from "./exprs/identifer_and_operator";
@@ -589,9 +585,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       ) {
         // and/or
         return evaluateAndOr({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
-        // consume
-        return evaluateConsume({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.drop)) {
         // drop
         return evaluateDrop({ expr, env, context: { ...context } });
@@ -822,37 +815,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       ) {
         // __yo_are_types_compatible
         return evaluateYoAreTypesCompatible({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_free, 1)
-      ) {
-        // __yo_type_if_free;
-        return evaluateYoTypeIsFree({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_is_linear, 1)
-      ) {
-        // __yo_type_is_linear;
-        return evaluateYoTypeIsLinear({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(
-          expr,
-          BuiltinFunctions.__yo_type_contains_reference,
-          1
-        )
-      ) {
-        // __yo_type_contains_reference;
-        return evaluateYoTypeContainsReference({
           expr,
           env,
           context: { ...context },

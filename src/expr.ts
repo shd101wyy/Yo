@@ -2,24 +2,15 @@
 import {
   addVariableToEnv,
   Environment,
-  getVariablesFromEnv,
   updateExistingVariable,
   Variable,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
-import { generateExprFromCode } from "./parser";
 import { Token, TokenType } from "./token";
-import {
-  areTypesCompatible,
-  isFreeType,
-  isLinearOrType0Type,
-  Type,
-  typeOfType,
-  typeToString,
-} from "./types";
+import { areTypesCompatible, Type, typeToString } from "./types";
 import { generateNewTempVariableName } from "./utils";
-import { isTypeValue, Value } from "./value";
+import { Value } from "./value";
 
 /**
  * Eg:
@@ -765,10 +756,7 @@ export const BuiltinFunctions = {
 
   // Type related functions
   __yo_type_to_string: ["__yo_type_to_string"],
-  __yo_type_is_linear: ["__yo_type_is_linear"],
-  __yo_type_is_free: ["__yo_type_is_free"],
   __yo_type_is_type0: ["__yo_type_is_type0"],
-  __yo_type_contains_reference: ["__yo_type_contains_reference"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
 
   // Operator related functions
@@ -1143,173 +1131,6 @@ ${exprToString(expr)}`);
   expr.$.env = nextEnv;
 }
 
-export function setExprAsConsumed(
-  expr: Expr,
-  env: Environment,
-  context: EvaluatorContext,
-  consumeFreeAsWell: boolean = false
-): Environment {
-  // Check if it's dereferencing a pointer/reference to linear type value.
-  if (
-    expr.$?.isAccessingProperty &&
-    isLinearOrType0Type(typeOfType(expr.$.type))
-  ) {
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage: `Cannot consume a property which is "Linear" value.`,
-      },
-    ]);
-  }
-
-  // Don't consume type values - they should be reusable
-  if (expr.$?.value && isTypeValue(expr.$?.value)) {
-    return env;
-  }
-
-  const nameOfVariableToConsume = expr.$?.variableName;
-  if (!nameOfVariableToConsume) {
-    return env;
-    /*
-    throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
-      tokenAndErrorList: [
-        {
-          token: expr.token,
-          errorMessage: `Failed to consume the expression as it is not a variable or does not have a temporary variable name.`,
-        },
-      ],
-    });
-    */
-  }
-
-  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
-  if (variables.length === 0) {
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
-      },
-    ]);
-  }
-
-  const variableToConsume = variables[variables.length - 1]!;
-  if (
-    consumeFreeAsWell ||
-    isLinearOrType0Type(typeOfType(variableToConsume.type))
-  ) {
-    // Check if the variable is already consumed
-    if (variableToConsume.consumedAtToken) {
-      throw formatErrorMessages([
-        {
-          token: expr.token,
-          errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
-        },
-        {
-          token: variableToConsume.consumedAtToken,
-          errorMessage: `Previously consumed here:`,
-        },
-      ]);
-    }
-
-    // For Fn and FnMut closures, prevent consuming linear values from outer scope
-    if (context.isEvaluatingFunctionBody) {
-      const functionType = context.isEvaluatingFunctionBody.type;
-      // Check if this is a Fn or FnMut closure AND the variable is from outer scope
-      if (
-        (functionType.closureKind === "Fn" ||
-          functionType.closureKind === "FnMut") &&
-        context.isEvaluatingFunctionBody.evaluationEnv &&
-        variableToConsume.frameLevel <
-          context.isEvaluatingFunctionBody.evaluationEnv.frames.length
-      ) {
-        throw formatErrorMessages([
-          {
-            token: expr.token,
-            errorMessage: `Cannot consume a linear value from outer scope in ${functionType.closureKind} closure. ${functionType.closureKind} closures can only borrow variables from outer scope, not consume them.`,
-          },
-          {
-            token: variableToConsume.token,
-            errorMessage: `Linear variable defined here:`,
-          },
-        ]);
-      }
-    }
-
-    // Check if we are consuming a linear value defined outside the function body
-    // Allow FnMove closures to consume outer linear values, but prevent regular functions and Fn/FnMut closures
-    if (
-      context.isEvaluatingFunctionBody &&
-      variableToConsume.frameLevel <
-        context.isEvaluatingFunctionBody.evaluationEnv.frames.length - 1 && // -1 here to exclude the parameters/arguments frame.
-      !(context.isEvaluatingFunctionBody.type.closureKind === "FnMove")
-    ) {
-      throw formatErrorMessages([
-        {
-          token: expr.token,
-          errorMessage: `Cannot consume a linear value defined outside the function body.`,
-        },
-        {
-          token: variableToConsume.token,
-          errorMessage: `Defined here:`,
-        },
-      ]);
-    }
-
-    // Set the variable as consumed
-    env = updateExistingVariable(env, variableToConsume, {
-      ...variableToConsume,
-      consumedAtToken: expr.token,
-    });
-  }
-  return env;
-}
-
-/**
- *
- * Require the given "expr" is not consumed,
- * if it is consumed, then throw an error.
- */
-export function requireExprNotConsumed(expr: Expr, env: Environment): void {
-  const nameOfVariableToConsume = expr.$?.variableName;
-  if (!nameOfVariableToConsume) {
-    return;
-  }
-
-  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
-  if (variables.length === 0) {
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
-      },
-    ]);
-  }
-
-  const variableToConsume = variables[variables.length - 1]!;
-  // NOTE: We also allow Free value to be consumed now.
-  // if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
-  // Check if the variable is already consumed
-  if (
-    // isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
-    variableToConsume.consumedAtToken
-  ) {
-    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`;
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage,
-      },
-      {
-        token: variableToConsume.consumedAtToken,
-        errorMessage: `Previously consumed here:`,
-      },
-    ]);
-  }
-  // }
-}
-
 /**
  * Update `env` based on multiple envs in different cases.
  * @param env the base env, before entering cond/match cases.
@@ -1319,6 +1140,7 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
 export function mergeAndCheckEnvs(
   env: Environment,
   bodies: Expr[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   contexts?: EvaluatorContext[] // Array of contexts for each body
 ): Environment {
   // console.log("env:");
@@ -1491,150 +1313,6 @@ export function mergeAndCheckEnvs(
                 errorMessage: `Conflicting initialization: ${typeToString(currentType)}`,
               },
             ]);
-          }
-        }
-      }
-
-      // Check the "Free" values.
-      // If any case consumed (used) the "Free" value, then we set it as consumed in env.
-      if (isFreeType(typeOfType(frameVariables[i]!.type))) {
-        const consumed = consumedAtTokens.filter((t) => !!t) as Token[];
-        if (consumed.length > 0) {
-          const newVariable: Variable = {
-            ...frameVariables[i]!,
-            consumedAtToken: consumedAtTokens[0],
-          };
-          env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-          frameVariables[i] = newVariable;
-        }
-      } else {
-        // consumedAtToken
-        // case 1
-        if (consumedAtTokens.length === 1) {
-          if (!!consumedAtTokens[0] && !frameVariables[i]!.consumedAtToken) {
-            /*
-          throw formatErrorMessages([
-              {
-                token: frameVariables[i]!.token,
-                errorMessage: `Variable "${variableName}" might not be consumed in all cases:`,
-              },
-              {
-                token: tokens[0],
-                errorMessage: `Might be consumed here:`,
-              },
-            ]);
-          */
-            // RAII, call "drop" on variable if it is not consumed.
-            const newVariable: Variable = {
-              ...frameVariables[i]!,
-              consumedAtToken: consumedAtTokens[0],
-            };
-            env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-            frameVariables[i] = newVariable;
-          }
-        }
-        // case 2
-        else if (consumedAtTokens.every((t) => !!t)) {
-          const newVariable: Variable = {
-            ...frameVariables[i]!,
-            consumedAtToken: consumedAtTokens[0],
-          };
-          env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-          frameVariables[i] = newVariable;
-        }
-        // case 3
-        else {
-          const consumed = consumedAtTokens.filter((t) => !!t) as Token[];
-          const notConsumed = consumedAtTokens.filter((t) => !t);
-          if (consumed.length > 0 && notConsumed.length > 0) {
-            // RAII: Insert drop calls in branches that don't consume the variable
-            // Only apply to Linear/Type0 variables
-            if (isLinearOrType0Type(typeOfType(frameVariables[i]!.type))) {
-              // Find which branches need drop calls inserted
-              for (
-                let branchIndex = 0;
-                branchIndex < consumedAtTokens.length;
-                branchIndex++
-              ) {
-                const wasConsumedInBranch = !!consumedAtTokens[branchIndex];
-                if (!wasConsumedInBranch) {
-                  // This branch didn't consume the variable, insert a drop call
-                  const body = bodies[branchIndex]!;
-
-                  // Check if the body is a begin expression that we can modify
-                  if (
-                    exprIsFunctionCall(body) &&
-                    exprIsFunctionCallOf(body, BuiltinKeywords.begin)
-                  ) {
-                    // Use generateExprFromCode to create the drop call
-                    const dropCall = generateExprFromCode(
-                      `drop(${variableName})`
-                    );
-
-                    // Find the position to insert drops - before return/break/continue or before the last expression
-                    let insertPosition = body.args.length - 1;
-                    const lastArg = body.args[insertPosition];
-
-                    // Check if the last expression is a control flow statement
-                    if (lastArg && lastArg.$ && lastArg.$.controlFlow) {
-                      // Insert before the control flow statement
-                      insertPosition = body.args.length - 1;
-                    } else {
-                      // Check the second-to-last expression for control flow
-                      const secondLastArg = body.args[body.args.length - 2];
-                      if (
-                        secondLastArg &&
-                        secondLastArg.$ &&
-                        secondLastArg.$.controlFlow
-                      ) {
-                        // Insert before the control flow statement
-                        insertPosition = body.args.length - 2;
-                      }
-                    }
-
-                    // If we have a context for this branch, evaluate the drop call
-                    if (contexts && contexts[branchIndex]) {
-                      const context = contexts[branchIndex]!;
-                      const evaluatedDropCall = context.evaluateExpression({
-                        expr: dropCall,
-                        env: caseEnvs[branchIndex]!,
-                        context: { ...context },
-                      });
-
-                      if (evaluatedDropCall.$) {
-                        // Update the case environment
-                        caseEnvs[branchIndex] = evaluatedDropCall.$.env;
-
-                        // Insert evaluated drop call at the correct position
-                        body.args = [
-                          ...body.args.slice(0, insertPosition),
-                          evaluatedDropCall,
-                          ...body.args.slice(insertPosition),
-                        ];
-                      } else {
-                        throw formatErrorMessage({
-                          token: dropCall.token,
-                          errorMessage: `Failed to evaluate auto-generated drop call: ${exprToString(dropCall)}`,
-                        });
-                      }
-                    } else {
-                      throw formatErrorMessage({
-                        token: dropCall.token,
-                        errorMessage: `No evaluation context provided for auto-generated drop call: ${exprToString(dropCall)}`,
-                      });
-                    }
-                  }
-                }
-              }
-            }
-
-            // Mark the variable as consumed
-            const newVariable: Variable = {
-              ...frameVariables[i]!,
-              consumedAtToken: consumed[0],
-            };
-            env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-            frameVariables[i] = newVariable;
           }
         }
       }

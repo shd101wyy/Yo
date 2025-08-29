@@ -13,14 +13,11 @@ import {
 import { Token } from "../../token";
 import {
   isEnumType,
-  isLinearOrType0Type,
   isModuleType,
   isStructType,
   isTupleType,
   isUnionType,
   Type,
-  typeContains2ndClassReference,
-  typeOfType,
   typeToString,
 } from "../../types";
 import {
@@ -161,18 +158,6 @@ export function handleMemberDestructuring({
           });
         }
 
-        if (
-          typeContains2ndClassReference(element.type) &&
-          !isDestructuringAtomVariable
-        ) {
-          throw formatErrorMessage({
-            token: lhsElement.token,
-            errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
-              element.type
-            )} with references from non-atom rhs variable.`,
-          });
-        }
-
         // Add to environment
         // console.log("(2) addVariableToEnv");
         const { env: nextEnv } = addVariableToEnv({
@@ -259,18 +244,6 @@ export function handleMemberDestructuring({
           throw formatErrorMessage({
             token: lhsElement.token,
             errorMessage: `Destructuring member "${element.label}" is not defined in compile-time only context.`,
-          });
-        }
-
-        if (
-          typeContains2ndClassReference(element.type) &&
-          !isDestructuringAtomVariable
-        ) {
-          throw formatErrorMessage({
-            token: lhsElement.token,
-            errorMessage: `Cannot destructure element "${element.label}" of type ${typeToString(
-              element.type
-            )} with references from non-atom rhs variable.`,
           });
         }
 
@@ -460,18 +433,6 @@ export function handleMemberDestructuring({
         });
       }
 
-      if (
-        typeContains2ndClassReference(rhsElement.type) &&
-        !isDestructuringAtomVariable
-      ) {
-        throw formatErrorMessage({
-          token: lhsElement.token,
-          errorMessage: `Cannot destructure element "${rhsElement.label}" of type ${typeToString(
-            rhsElement.type
-          )} with references from non-atom rhs variable.`,
-        });
-      }
-
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
@@ -517,22 +478,6 @@ export function handleMemberDestructuring({
           isMutable: false,
           pathCollection: [],
         };
-      }
-    }
-  }
-
-  // Iterate the rhsElements to check if there is any
-  // "Linear" value that is not destructured
-  for (const rhsElement of rhsElements) {
-    if (!destructuredRhsElements[rhsElement.label]) {
-      if (isLinearOrType0Type(typeOfType(rhsElement.type))) {
-        // If it's a linear type, we should throw an error
-        throw formatErrorMessage({
-          token: lhs.token,
-          errorMessage: `Linear value ${rhsElement.label ? `"${rhsElement.label}" ` : ""}of type ${typeToString(
-            rhsElement.type
-          )} is not destructured.`,
-        });
       }
     }
   }

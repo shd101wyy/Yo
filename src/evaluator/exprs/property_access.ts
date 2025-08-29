@@ -6,7 +6,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  requireExprNotConsumed,
 } from "../../expr";
 import { TokenType } from "../../token";
 import {
@@ -152,10 +151,6 @@ export function evaluatePropertyAccess({
   if (objectExpr.$?.env) {
     env = objectExpr.$?.env;
   }
-
-  // Check if the object expression is already consumed
-  // If yes, then throw an error due to using a consumed expression.
-  requireExprNotConsumed(objectExpr, env);
 
   // NOTE: We shouldn't check borrowings here,
   // because it might be like:

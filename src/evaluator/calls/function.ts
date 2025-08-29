@@ -8,7 +8,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { stringIsOperator, TokenType } from "../../token";
@@ -21,7 +20,6 @@ import {
   isClosureType,
   isEnumType,
   isFunctionType,
-  isLinearOrType0Type,
   isModuleType,
   isMutPtrType,
   isPtrType,
@@ -878,10 +876,7 @@ ${functionsWithMatchingTypes
         }
       }
 
-      // If function call is linear (for example, the closure), then we consume it
-      if (isLinearOrType0Type(typeOfType(functionToCall.type))) {
-        env = setExprAsConsumed(func, env, context);
-      }
+      // No consumption logic needed anymore
 
       expr.$ = {
         env,
@@ -948,12 +943,6 @@ ${functionsWithMatchingTypes
           )}`,
         });
       }
-    }
-
-    // If closure call is linear (FnMove), then we consume it
-    // NOTE: We shouldn't consume the one for FnMut/Fn, because they are actually used as reference.
-    if (closureType.callType.closureKind === "FnMove") {
-      env = setExprAsConsumed(func, env, context);
     }
 
     expr.$ = {

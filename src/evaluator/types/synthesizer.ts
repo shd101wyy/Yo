@@ -34,12 +34,6 @@ export function canAssignTypeHierarchy(expected: Type, given: Type): boolean {
     return false;
   }
 
-  // Free can be assigned to Linear,
-  // but not the other way around.
-  if (expected.tag === TypeTag.Linear && given.tag === TypeTag.Free) {
-    return true;
-  }
-
   // Check if the given type is a subtype of the expected type
   return (
     given.level === expected.level &&

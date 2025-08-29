@@ -94,9 +94,9 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
 }
 
 /**
- * Check if a type contains reference types.
+ * Check if a type contains pointer.
  */
-export function typeContains2ndClassReference(type?: Type): boolean {
+export function typeContainsPointer(type?: Type): boolean {
   if (!type) {
     return false;
   }
@@ -117,28 +117,26 @@ export function typeContains2ndClassReference(type?: Type): boolean {
   // Recursively check for references in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContains2ndClassReference((type as ArrayType).elementType);
+      return typeContainsPointer((type as ArrayType).elementType);
     case TypeTag.Tuple:
       return (type as TupleType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContainsPointer(element.type)
       );
     case TypeTag.Struct:
       return (type as StructType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContainsPointer(element.type)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) =>
-          typeContains2ndClassReference(param.type)
-        )
+        variant.elements?.some((param) => typeContainsPointer(param.type))
       );
     case TypeTag.Union:
       return (type as UnionType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContainsPointer(element.type)
       );
     case TypeTag.Module:
       return (type as ModuleType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContainsPointer(element.type)
       );
     default:
       return false; // For other types, no references are present
@@ -711,12 +709,6 @@ export function typeToString(type: Type): string {
     }
 
     // Type universes
-    case TypeTag.Free: {
-      return "Free";
-    }
-    case TypeTag.Linear: {
-      return "Linear";
-    }
     case TypeTag.Type: {
       if ("level" in type && typeof type.level === "number" && type.level > 0) {
         return `Type(${type.level})`;

@@ -10,7 +10,7 @@ import {
 import {
   createClosureType,
   createSomeType,
-  createTypeType,
+  createType0,
   FunctionType,
   isFunctionType,
   isSomeType,
@@ -62,7 +62,7 @@ Got:\n${exprToString(expr)}`,
   if (isCaptureUnderscore) {
     // Create a SomeType for inference with a unique name
     const captureTypePlaceholderName = `_capture_${randomId()}`;
-    captureType = createSomeType(createTypeType(), captureTypePlaceholderName);
+    captureType = createSomeType(createType0(), captureTypePlaceholderName);
   } else {
     // Evaluate the capture type expression
     const evaluatedCaptureTypeExpr = context.evaluateExpression({

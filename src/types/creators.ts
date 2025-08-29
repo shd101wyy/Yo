@@ -31,29 +31,7 @@ import {
 } from "./definitions";
 import { TypeTag } from "./tags";
 
-export function createFreeType(
-  baseType?: Type
-): TypeHierarchyType & { tag: TypeTag.Free } {
-  return {
-    id: TypeTag.Free,
-    tag: TypeTag.Free,
-    level: 0,
-    baseType,
-  };
-}
-
-export function createLinearType(
-  baseType?: Type
-): TypeHierarchyType & { tag: TypeTag.Linear } {
-  return {
-    id: TypeTag.Linear,
-    tag: TypeTag.Linear,
-    level: 0,
-    baseType,
-  };
-}
-
-export function createTypeType(baseType?: Type): TypeHierarchyType {
+export function createType0(baseType?: Type): TypeHierarchyType {
   return {
     id: "Type(0)",
     tag: TypeTag.Type,

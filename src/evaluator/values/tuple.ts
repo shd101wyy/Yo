@@ -7,7 +7,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
 import {
   convertComptTypeToRuntimeType,
@@ -105,9 +104,6 @@ ${typeToString(expectedTupleType)}`,
     });
   }
   env = evaluatedRhs.$.env;
-
-  // Set the evaluatedRhs as consumed
-  env = setExprAsConsumed(evaluatedRhs, env, context);
 
   const value = evaluatedRhs.$.value;
   if (value && isTypeValue(evaluatedRhs.$.value)) {
