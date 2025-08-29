@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -50,9 +49,6 @@ export function evaluateDrop({
     });
   }
   env = evaluatedArgExpr.$.env;
-
-  // Check if the drop argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
 
   // Check if there is `.drop` method available to call
   // for Linear value

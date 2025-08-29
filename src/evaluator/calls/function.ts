@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
@@ -108,13 +107,6 @@ export function evaluateFunctionCall({
 
       // Check borrowings
       // NOTE: This is necessary for function like array accessing element by index
-      // for example:
-      //   mut(xs) := [1, 2, 3];
-      //   borrow &!(xs), xs_ref => {
-      //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
-      //   }
-      checkBorrowings(context.borrowings, functionToCall);
-
       // Check if . property access for module method call
       if (!functionToCall.$?.type) {
         if (
@@ -325,13 +317,6 @@ export function evaluateFunctionCall({
 
         // Check borrowings
         // NOTE: This is necessary for function like array accessing element by index
-        // for example:
-        //   mut(xs) := [1, 2, 3];
-        //   borrow &!(xs), xs_ref => {
-        //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
-        //   }
-        checkBorrowings(context.borrowings, functionToCall);
-
         if (!functionToCall.$) {
           throw formatErrorMessage({
             token: func.token,

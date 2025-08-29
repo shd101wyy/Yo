@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -52,9 +51,6 @@ export function evaluateConsume({
       );
     }
     */
-  // Check if the consume argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedConsumeArgExpr);
-
   // Set the consume argument as consumed
   env = evaluatedConsumeArgExpr.$.env;
   env = setExprAsConsumed(evaluatedConsumeArgExpr, env, context);

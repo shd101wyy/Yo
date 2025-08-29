@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -253,9 +252,6 @@ ${exprToString(expr)}`,
         errorMessage: `Assigning reference to variable is not allowed.`,
       });
     }
-
-    // Check the borrowings
-    checkBorrowings(context.borrowings, rhs);
 
     // Add .typeName info if necessary
     let rhsValue = rhs.$?.value;

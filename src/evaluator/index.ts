@@ -61,7 +61,6 @@ import { EvaluatorContext } from "./context";
 import { evaluateAssignment } from "./exprs/assignment";
 import { evaluateBeginExpression } from "./exprs/begin";
 import { evaluateBinding } from "./exprs/binding";
-import { evaluateBorrow } from "./exprs/borrow";
 import { evaluateCInclude } from "./exprs/c_include";
 import { evaluateCond } from "./exprs/cond";
 import { evaluateConsume } from "./exprs/consume";
@@ -492,9 +491,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.open)) {
         // open
         return evaluateOpen({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
-        // borrow
-        return evaluateBorrow({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1) ||
         exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)
@@ -911,7 +907,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
         isExecuting: true, // We're executing the main program
         expectedType: undefined,
         SelfType: undefined,
-        borrowings: [],
         evaluateExpression: this.evaluateExpression.bind(this),
         loadModule: this.loadModule.bind(this),
       },
