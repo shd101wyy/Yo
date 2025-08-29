@@ -54,9 +54,9 @@ import {
   evaluateYoTypeToString,
 } from "./builtins/type_fns";
 import { evaluateVaStart } from "./builtins/va_start";
+import { evaluateAddressOperatorCall } from "./calls/address";
 import { evaluateFunctionCall } from "./calls/function";
 import { evaluateRawPointerCall } from "./calls/pointer";
-import { evaluateReferenceCall } from "./calls/reference";
 import { EvaluatorContext } from "./context";
 import { evaluateAssignment } from "./exprs/assignment";
 import { evaluateBeginExpression } from "./exprs/begin";
@@ -506,7 +506,7 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
         exprIsFunctionCallOf(expr, BuiltinKeywords.Ref)
       ) {
         // & or &! references (with or without region)
-        return evaluateReferenceCall({
+        return evaluateAddressOperatorCall({
           expr,
           env,
           context: { ...context },
