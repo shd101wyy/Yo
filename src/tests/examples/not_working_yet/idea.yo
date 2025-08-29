@@ -181,3 +181,34 @@ r.end(); // end the region, all the references in the region will be invalidated
 
 ----
 
+// "ref" only works with "struct" and "enum" types.
+List :: ref struct // reference counted
+  data : i32,
+  tail : Option(List)
+;
+
+Point :: struct // not reference counted
+  x : i32,
+  y : i32
+;
+
+Shape :: ref enum // reference counted
+  Rectangle(w: i32, h: i32),
+  Circle(r: i32)
+;
+
+mut(p1) := Point(3, 4);
+p2 := p1; // p2 and p1 are independent copies.
+p1.x = 6;
+p2 == Point(3, 4); // true
+p1 == Point(6, 4); // true
+
+Box :: (fn(compt(V) : Type) -> compt(Type))
+  ref struct
+    (*) : V
+;
+box :: (fn(forall(V : Type), value : V) -> Box(V))
+
+x := Box(i32)(42);
+x := box(42); // sugar
+x.* = 43;

@@ -23,7 +23,6 @@ import {
   createLongDoubleType,
   createLongLongType,
   createLongType,
-  createRegionType,
   createShortType,
   createTypeHierarchy,
   createTypeType,
@@ -77,18 +76,6 @@ export function evaluateIdentifierAndOperator({
   // Linear
   else if (identifier === TypeTag.Linear) {
     const value = createTypeValue(createLinearType());
-    expr.$ = {
-      env,
-      type: value.type,
-      value: value,
-      isMutable: false,
-      pathCollection: [],
-    };
-    return expr;
-  }
-  // Region
-  else if (identifier === TypeTag.Region) {
-    const value = createTypeValue(createRegionType());
     expr.$ = {
       env,
       type: value.type,

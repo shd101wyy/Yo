@@ -1,7 +1,6 @@
 import { Environment, getVariablesFromEnv } from "./env";
 import { Expr, exprsAreEqual, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
-import { RegionValue } from "./region-value";
 import { stringIsOperator } from "./token";
 import { TypeValue } from "./type-value";
 import {
@@ -21,7 +20,6 @@ import {
   createI64Type,
   createI8Type,
   createIsizeType,
-  createSomeRegion,
   createSomeType,
   createU16Type,
   createU32Type,
@@ -31,7 +29,6 @@ import {
   EffType,
   EnumType,
   ExprType,
-  isRegionType,
   isTypeHierarchyType,
   ModuleType,
   StructType,
@@ -180,7 +177,6 @@ export type Value =
   | ModuleValue
   | FunctionValue
   | ExprValue
-  | RegionValue
   | UnknownValue;
 
 /**
@@ -291,9 +287,6 @@ export function valueToString(value?: Value): string {
     case ValueTag.Expr: {
       return `quote(${exprToString(value.value)})`;
     }
-    case ValueTag.Region: {
-      return `<region ${value.lifetime}>`;
-    }
     case ValueTag.Unknown: {
       if (value.variableName) {
         return value.variableName;
@@ -377,8 +370,8 @@ export function isModuleValue(value?: Value): value is ModuleValue {
   return value?.tag === ValueTag.Module;
 }
 
-export function isRegionValue(value?: Value): value is RegionValue {
-  return value?.tag === ValueTag.Region;
+export function isRegionValue(_value?: Value): boolean {
+  return false;
 }
 
 export function isExprValue(value?: Value): value is ExprValue {
@@ -486,21 +479,6 @@ export function createUnknownValue(
     // SomeType
     const someType = createSomeType(type, variableName);
     return createTypeValue(someType);
-  }
-
-  if (isRegionType(type)) {
-    if (!variableName) {
-      console.trace();
-      throw new Error(
-        `createUnknownValue expects a variable name for region type ${typeToString(
-          type
-        )}`
-      );
-    }
-
-    // SomeRegion
-    const someRegion = createSomeRegion(variableName);
-    return createTypeValue(someRegion);
   }
 
   return {
@@ -720,9 +698,6 @@ export function areValuesEqual(
     return (
       value1.value === value2.value || exprsAreEqual(value1.value, value2.value)
     );
-  } else if (isRegionValue(value1) && isRegionValue(value2)) {
-    // Regions are equal if their IDs are the same
-    return value1.id === value2.id;
   }
   // Handle UnknownValue by attempting to resolve them and comparing resolved values
   else if (isUnknownValue(value1) && isUnknownValue(value2)) {

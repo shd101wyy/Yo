@@ -51,9 +51,6 @@ export enum TypeTag {
   Linear = "Linear",
   Type = "Type",
 
-  // Region universe (independent from type universe)
-  Region = "Region",
-
   // Complex types
   // Variant = "Variant",
   Array = "Array",
@@ -65,9 +62,8 @@ export enum TypeTag {
   Closure = "Closure",
   Eff = "Eff",
 
-  // Some Type/Region
+  // Some Type
   SomeType = "SomeType",
-  SomeRegion = "SomeRegion",
 
   // Slice (Fat Pointer)
   Slice = "Slice",

@@ -1,9 +1,9 @@
 ```rust,f#
-swap :: 
+swap ::
   (fn(forall(R1 : Region, compt(R2) : Region),
     a : &!(i32, using(R1)),
     b : &!(i32, using(R2))
-  ) -> unit) 
+  ) -> unit)
 {
   temp := a.*;
   a.* := b.*;
@@ -26,7 +26,7 @@ swap2 ::
       R4 :: R2;
       R2 < R4
     }
-  })) 
+  }))
 {
   pre(a.* != b.*);
   swap(a, b);
@@ -61,7 +61,7 @@ length :: (ref: &(i32)) -> usize `pure` // or `no_escape`
 
 // 2. For functions that might store references, require explicit regions
 store_in_container :: (
-  ref: &(i32, using(R1)), 
+  ref: &(i32, using(R1)),
   container: &mut(Container, using(R2))
 ) -> unit `where` R1 >= R2  // ref must outlive container
 
@@ -70,15 +70,15 @@ test1 :: (fn() -> unit) {
   mut(x) := 42;
   r1 :: region("data");
   x_mut := &!(x, using(r1));
-  
+
   // This works - length is pure/no_escape
   len := length(x_mut); // implicit temporary immutable borrow
-  
+
   // This requires explicit region management
   mut(container) := Container::new();
   r2 :: region("container");
   container_ref := &!(container, using(r2));
-  
+
   // This would fail unless R1 >= R2
   store_in_container(x_mut, container_ref);
 
@@ -98,7 +98,7 @@ test2 :: (fn() -> unit) {
   mut(container) := Container::new();
   r2 :: region("container");
   container_ref := &!(container, using(r2));
-  
+
   // This would fail unless R1 >= R2
   store_in_container(&!(x, using(r1)), container_ref);
 
@@ -132,7 +132,7 @@ test3 :: (fn() -> unit) {
     r2 :: region("temp");
     store_in_container(&!(x, using(r2)), some_container);
   } // r2 ends here, so any stored references are invalid
-  
+
   &!(x, using(r1)).* = 13; // Should be OK - r2 references are gone
 };
 
@@ -225,6 +225,7 @@ borrow &!(x), (x_ref)=> {
   // You can cast &!(i32, r2) to &!(i32) or &(i32), but not &(i32, r2).
 }
 ```
+
 The point is we only need `region` when we want to store references in the data structure.
 
 Let me simplify this:
@@ -296,7 +297,7 @@ process2 :: (fn(data: &(i32)) -> unit) { ... }
 
 { // r2
   x_ref := &(x);  // &(i32, r2)
-  
+
   process(x_ref); // &(i32, r2) is valid here
 
   process2(x_ref); // &(i32, r2) gets casted to &(i32) here, which is allowed.
@@ -312,7 +313,7 @@ get_ref :: (fn(forall(SomeRegion: Region)) -> &(i32, SomeRegion)) { ... } // Thi
 3. Data Structure Storage: This is where explicit regions might still be needed:
 
 ```rust
-Container :: (fn(using(ExplicitRegion: Region))-> compt(Type)) 
+Container :: (fn(using(ExplicitRegion: Region))-> compt(Type))
   struct(
     data_ref: &(i32, ExplicitRegion) // Still need explicit regions here?
   );
@@ -325,7 +326,7 @@ Container :: (fn(using(ExplicitRegion: Region))-> compt(Type))
 x := 12;
 mut(container) := Container::new();
 { // r2
-  x_ref := &(x); // &(i32, r2) 
+  x_ref := &(x); // &(i32, r2)
   container.store(x_ref); // Error, because containser has type Container(using(r1))
 }
 ```
@@ -340,7 +341,7 @@ x := 12;
 }
 ```
 
-----
+---
 
 - 2nd-class reference, same as swift in/inout, &(i32) without region.
 - 1st-class reference, &(i32, r1) with region.
@@ -400,10 +401,109 @@ p := Point(3, 4);
   use_i32_inout_mut_ref(py_ref); // Allowed, py_ref is Linear type
                                  // path `p.y` is still not used,
                                  // because we only passed it to function accepts &!(i32),
-  
+
   use_i32_ref(px_ref); // Allowed, px_ref is Free type, but not consumed.
                   // path `p.x` is now used, as it is passed to a function that accepts &(i32, r3).
   use_i32_mut_ref(py_ref); // Allowed, py_ref is Linear type, and it's consumed.
                            // path `p.y` is now used, as it is passed to a function that accepts &!(i32, r3).
 };
 ```
+
+```rust
+// Ref type
+List :: struct
+  data : i32,
+  tail : Option(Ref(List))
+;
+
+p := Ref(Point(3, 4));
+
+p.mut_ref();
+p.ref();
+p.try_mut_ref();
+p.try_ref();
+```
+
+```rust
+// "ref" only works with "struct" and "enum" types.
+List :: ref struct // reference counted
+  data : i32,
+  tail : Option(List)
+;
+
+Point :: struct // not reference counted
+  x : i32,
+  y : i32
+;
+
+Shape :: ref enum // reference counted
+  Rectangle(w: i32, h: i32),
+  Circle(r: i32)
+;
+
+mut(p1) := Point(3, 4);
+p2 := p1; // p2 and p1 are independent copies.
+p1.x = 6;
+p2 == Point(3, 4); // true
+p1 == Point(6, 4); // true
+
+// Or
+Point :: struct
+  x : i32,
+  y : i32
+;
+p1 := Point(3, 4); // allocated on stack
+p2 := new Point(5, 6); // allocated on heap
+// p2 : ^(Point); // Reference counted.
+p3 := p2; // p2 and p3 are the same reference.
+p2.x = 7;
+p2 == Point(7, 6); // true
+// ^ I feel this approach is too complicated.
+// It introduces new pointer type ^(T), which is reference counted.
+```
+
+```rust
+Box :: (fn(compt(V) : Type) -> compt(Type))
+  ref struct
+    (*) : V
+;
+box :: (fn(forall(V : Type), value : V) -> Box(V))
+
+x := Box(i32)(42);
+x := box(42); // sugar
+x.* = 43;
+```
+
+Let's keep it simple for now:
+
+- Remove the `region` concept.
+- Add `ref` keyword to `struct` and `enum` for reference counted types.
+- Remove `&` and `&!` for reference types. Use them to create pointer values instead for `*` and `*!`.
+- Remove the borrow checker which is currently based on second-class references.
+- Remove the Linear/Free type system.
+- Add `IO` monad for simple effect system.
+- Update closure syntax. So we have:
+  - `fn(...) -> ... { ... }` normal function.
+  - `fn(...) => ... { ... }` closure which is esssentially a struct containing context pointer and call function pointer.
+- Make dynamic dispatch support only `ref` types.
+
+  ```rust
+  Bark :: module
+    Self : Type,
+    bark : (fn(self: Self) -> String);
+  ;
+  dog := ref struct();
+  cat := ref struct();
+
+  given(DogBark) :: Bark
+    Self : dog,
+    bark :
+      (self) -> "Woof!"
+  ;
+  given(CatBark) :: Bark
+    Self : cat,
+    bark :
+      (self) -> "Meow!"
+  ;
+  (animals : Array(Dyn(Bark))) = [dyn(dog), dyn(cat)];
+  ```

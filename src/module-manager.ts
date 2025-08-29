@@ -1,7 +1,6 @@
 import path from "node:path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
 import Evaluator from "./evaluator/index";
-import { setRegionLifetime } from "./region-value";
 import { ModuleValue } from "./value";
 
 export class ModuleManager {
@@ -42,9 +41,6 @@ export class ModuleManager {
         moduleError: module.moduleError,
       };
     }
-
-    // QUESTION: Should we reset the lifetime for the module here?
-    setRegionLifetime(modulePath, 0);
 
     const evaluator = new Evaluator({
       modulePath,

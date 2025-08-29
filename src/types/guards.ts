@@ -11,7 +11,6 @@ import {
   PtrType,
   RefType,
   SliceType,
-  SomeRegion,
   SomeType,
   StructType,
   TupleType,
@@ -216,7 +215,6 @@ export function isTypeHierarchyType(type?: Type): type is TypeHierarchyType {
   return (
     type?.tag === TypeTag.Free ||
     type?.tag === TypeTag.Linear ||
-    type?.tag === TypeTag.Region ||
     type?.tag === TypeTag.Type
   );
 }
@@ -227,10 +225,6 @@ export function isFreeType(type?: Type): boolean {
 
 export function isLinearType(type?: Type): boolean {
   return type?.tag === TypeTag.Linear;
-}
-
-export function isRegionType(type?: Type): boolean {
-  return type?.tag === TypeTag.Region;
 }
 
 export function isType0(type?: Type): boolean {
@@ -245,10 +239,6 @@ export function isLinearOrType0Type(type?: Type): boolean {
 
 export function isSomeType(type?: Type): type is SomeType {
   return type?.tag === TypeTag.SomeType;
-}
-
-export function isSomeRegion(type?: Type): type is SomeRegion {
-  return type?.tag === TypeTag.SomeRegion;
 }
 
 // Pointer and reference guards

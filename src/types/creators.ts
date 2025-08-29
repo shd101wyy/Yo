@@ -1,8 +1,6 @@
 import { Environment, Frame } from "../env";
 import { Expr, ExprTag } from "../expr";
-import { RegionValue } from "../region-value";
 import { PlaceholderToken } from "../token";
-import { TypeValue } from "../type-value";
 import { hashString, randomId } from "../utils";
 import { createTypeValue, Value, valueToString } from "../value";
 import {
@@ -23,9 +21,7 @@ import {
   MutRefType,
   PtrType,
   RefType,
-  RegionType,
   SliceType,
-  SomeRegion,
   SomeType,
   StructType,
   TupleElement,
@@ -56,13 +52,6 @@ export function createLinearType(
     tag: TypeTag.Linear,
     level: 0,
     baseType,
-  };
-}
-
-export function createRegionType(): RegionType {
-  return {
-    id: TypeTag.Region,
-    tag: TypeTag.Region,
   };
 }
 
@@ -486,24 +475,19 @@ export function createPtrType(type: Type): PtrType {
   };
 }
 
-export function createMutRefType(
-  type: Type,
-  regionValue?: RegionValue | TypeValue
-): MutRefType {
+export function createMutRefType(type: Type): MutRefType {
   return {
     id: TypeTag.MutRef,
     tag: TypeTag.MutRef,
     type,
-    regionValue,
   };
 }
 
-export function createRefType(type: Type, regionValue?: RegionValue | TypeValue): RefType {
+export function createRefType(type: Type): RefType {
   return {
     id: TypeTag.Ref,
     tag: TypeTag.Ref,
     type,
-    regionValue,
   };
 }
 
@@ -524,18 +508,6 @@ export function createSomeType(
     tag: TypeTag.SomeType,
     name: variableName,
     parentType: type,
-    size: undefined,
-  };
-}
-
-export function createSomeRegion(
-  variableName: string,
-  id?: string
-): SomeRegion {
-  return {
-    id: id ?? `someregion_${randomId()}`,
-    tag: TypeTag.SomeRegion,
-    name: variableName,
     size: undefined,
   };
 }

@@ -44,7 +44,6 @@ import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
-import { evaluateYoRegionFunctions } from "./builtins/region";
 import { evaluateSizeOf } from "./builtins/sizeof";
 import { evaluateThe } from "./builtins/the";
 import {
@@ -99,7 +98,6 @@ import { evaluateExprListValue } from "./values/expr_list";
 import { evaluateFloatLiteral } from "./values/float";
 import { evaluateIntegerLiteral } from "./values/integer";
 import { evaluateModuleValue } from "./values/module";
-import { evaluateRegionValue } from "./values/region";
 import { evaluateStringLiteral } from "./values/string";
 import { evaluateTupleValue } from "./values/tuple";
 
@@ -419,13 +417,6 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.expr_list)) {
         // expr_list
         return evaluateExprListValue({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.region)) {
-        // region
-        return evaluateRegionValue({
           expr,
           env,
           context: { ...context },
@@ -871,21 +862,8 @@ Instead of: FnMut(elem: Type) -> ReturnType`,
           context: { ...context },
         });
       }
-      // Region related functions
-      else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_eq) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_neq) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_lt) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_lte) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_gt) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_region_gte)
-      ) {
-        return evaluateYoRegionFunctions({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
+      // while loop
+      else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // while
         return evaluateWhile({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.for)) {

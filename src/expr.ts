@@ -450,7 +450,6 @@ export const BuiltinKeywords = {
   __YoEff: ["__YoEff"],
   Free: ["Free"],
   Linear: ["Linear"],
-  Region: ["Region"],
   Type: ["Type"],
   Module: ["Module"],
 
@@ -464,7 +463,6 @@ export const BuiltinKeywords = {
   tuple: "tuple",
   array: "array",
   expr_list: "expr_list", // expr_list
-  region: "region",
 };
 
 export const BuiltinFunctions = {
@@ -772,14 +770,6 @@ export const BuiltinFunctions = {
   __yo_type_is_type0: ["__yo_type_is_type0"],
   __yo_type_contains_reference: ["__yo_type_contains_reference"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
-
-  // Region related functions
-  __yo_region_eq: ["__yo_region_eq"],
-  __yo_region_neq: ["__yo_region_neq"],
-  __yo_region_lt: ["__yo_region_lt"],
-  __yo_region_lte: ["__yo_region_lte"],
-  __yo_region_gt: ["__yo_region_gt"],
-  __yo_region_gte: ["__yo_region_gte"],
 
   // Operator related functions
   /// Arithemtic
