@@ -36,20 +36,24 @@ export function evaluateRefType({
 
   if (exprIsFunctionCallOf(innerExpr, BuiltinKeywords.struct)) {
     // ref(struct(...)) - Reference semantics struct
-    return evaluateStructType({
+    const evaluatedStructTypeExpr = evaluateStructType({
       expr: innerExpr as FuncCallExpr,
       env,
       context: { ...context },
       isReferenceSemantics: true,
     });
+    expr.$ = evaluatedStructTypeExpr.$;
+    return expr;
   } else if (exprIsFunctionCallOf(innerExpr, BuiltinKeywords.enum)) {
     // ref(enum(...)) - Reference semantics enum
-    return evaluateEnumType({
+    const evaluatedEnumTypeExpr = evaluateEnumType({
       expr: innerExpr as FuncCallExpr,
       env,
       context: { ...context },
       isReferenceSemantics: true,
     });
+    expr.$ = evaluatedEnumTypeExpr.$;
+    return expr;
   } else {
     throw formatErrorMessage({
       token: innerExpr.token,
