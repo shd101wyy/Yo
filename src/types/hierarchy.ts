@@ -16,6 +16,7 @@ import {
   isComptIntType,
   isComptStringType,
   isEnumType,
+  isEnumTypeWithReferenceSemantics,
   isExprListType,
   isExprType,
   isFunctionType,
@@ -25,6 +26,7 @@ import {
   isPtrType,
   isSomeType,
   isStructType,
+  isStructTypeWithReferenceSemantics,
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
@@ -68,6 +70,14 @@ function determineTypeUniverse(
 Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycle.`,
       });
     }
+
+    if (
+      isStructTypeWithReferenceSemantics(type) ||
+      isEnumTypeWithReferenceSemantics(type)
+    ) {
+      continue;
+    }
+
     // For non-universe types, recursively check their type
     checkedTupleElements.push(element);
     const typeOfSubType = typeOfType(type, checkedTupleElements);

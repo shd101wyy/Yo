@@ -186,6 +186,7 @@ export function evaluateStructType({
     }
   }
 
+  // console.log(typeToString(structType));
   const structTypeValue = createTypeValue(structType);
   expr.$ = {
     env,
