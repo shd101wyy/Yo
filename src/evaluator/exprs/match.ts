@@ -70,16 +70,7 @@ export function evaluateMatch({
   // Evaluate the value to be matched
   const scrutineeExpr = args[0]!;
 
-  // FIXME: Let's limit the scrutinee to be Atom expression for now
-  //
-  //   match self.ptr,
-  //     .Some => { self.ptr.value }, // <- This currently cannot detect the type of self.ptr
-  if (!exprIsAtom(scrutineeExpr)) {
-    throw formatErrorMessage({
-      token: scrutineeExpr.token,
-      errorMessage: `Expected scrutinee to be an atom expression, got ${exprToString(scrutineeExpr)}`,
-    });
-  }
+  // Evaluate any expression as scrutinee, not just atoms
 
   const evaluatedScrutineeExpr = context.evaluateExpression({
     expr: scrutineeExpr,
@@ -212,6 +203,15 @@ export function evaluateMatch({
           )}`,
         });
       }
+
+      // Enforce Rust-like constraint: if variant has fields, it must be destructured
+      if (variant && variant.elements && variant.elements.length > 0) {
+        throw formatErrorMessage({
+          token: matchArmExpr.token,
+          errorMessage: `Enum variant "${variantName}" has ${variant.elements.length} field(s) and must be destructured. Use .${variantName}(...) instead of .${variantName}`,
+        });
+      }
+
       checkedVariantNames.add(variantName);
       if (
         variantName !== "_" &&
@@ -357,24 +357,322 @@ export function evaluateMatch({
         }
       }
     }
-    // For patterns with destructuring like Shape.Circle(r)
-    // NOTE: This is no longer supported
+    // For patterns with destructuring like .Circle(r) or .Rectangle(w, h)
     else if (
       exprIsFunctionCall(matchArmExpr) &&
       exprIsFunctionCall(matchArmExpr.func) &&
       exprIsFunctionCallOf(matchArmExpr.func, ".", 1)
     ) {
-      throw formatErrorMessage({
-        token: matchArmExpr.token,
-        errorMessage: `Destructuring enum variant elements is not supported in match expressions.
-Please use .variantName for destructuring enum variants,
-then destructure the value in the case body expression.`,
+      if (usedWildcardPattern) {
+        throw formatErrorMessage({
+          token: matchArmExpr.token,
+          errorMessage: `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
+        });
+      }
+
+      // Extract variant name from .Circle(r) pattern
+      const variantNameExpr = matchArmExpr.func.args[0]!;
+      if (!exprIsAtom(variantNameExpr)) {
+        throw formatErrorMessage({
+          token: matchArmExpr.token,
+          errorMessage: `Expected identifier for enum variant, got ${exprToString(variantNameExpr)}`,
+        });
+      }
+
+      const variantName = variantNameExpr.token.value;
+
+      // Check if variant exists in enum
+      const variant = enumType.variants.find((v) => v.name === variantName);
+      if (!variant) {
+        throw formatErrorMessage({
+          token: matchArmExpr.token,
+          errorMessage: `Enum variant "${variantName}" not found in ${typeToString(enumType)}`,
+        });
+      }
+
+      checkedVariantNames.add(variantName);
+
+      // Check if this variant should be matched
+      if (
+        isEnumValue(scrutineeValue) &&
+        scrutineeValue.variantName !== variantName
+      ) {
+        continue; // No need to continue if the variant is not selected
+      }
+
+      // Extract destructuring parameters
+      const destructuringParams = matchArmExpr.args;
+
+      // Check if variant has elements
+      if (variant.elements && variant.elements.length > 0) {
+        // For labeled destructuring, we don't require all parameters to be specified
+        // For positional destructuring, we require exact match
+        const hasLabeledParams = destructuringParams.some(
+          (param) =>
+            exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+        );
+
+        if (
+          !hasLabeledParams &&
+          destructuringParams.length !== variant.elements.length
+        ) {
+          throw formatErrorMessage({
+            token: matchArmExpr.token,
+            errorMessage: `Variant "${variantName}" expects ${variant.elements.length} parameters, got ${destructuringParams.length}`,
+          });
+        }
+      } else if (destructuringParams.length > 0) {
+        throw formatErrorMessage({
+          token: matchArmExpr.token,
+          errorMessage: `Variant "${variantName}" has no elements, but destructuring parameters were provided`,
+        });
+      }
+
+      // Update the enum type to set the selectedVariantName
+      const newEnumType = {
+        ...enumType,
+        selectedVariantName: variantName,
+      };
+
+      // Add the newEnumType with selectedVariantName to the variantNameExpr
+      variantNameExpr.$ = {
+        env: caseEnv,
+        type: newEnumType,
+        value: undefined,
+        isMutable: false,
+        pathCollection: [],
+      };
+
+      let variableType: EnumType | PtrType | MutPtrType = newEnumType;
+      if (ptrOrRefType) {
+        if (ptrOrRefType === TypeTag.Ptr) {
+          variableType = createPtrType(newEnumType);
+        } else if (ptrOrRefType === TypeTag.MutPtr) {
+          variableType = createMutPtrType(newEnumType);
+        }
+      }
+
+      // Add destructured variables to environment
+      if (variant.elements && variant.elements.length > 0) {
+        const destructuredLabels = new Set<string>();
+
+        for (let j = 0; j < destructuringParams.length; j++) {
+          const param = destructuringParams[j]!;
+
+          // Handle labeled destructuring like (label: variable) or (label: _)
+          if (
+            exprIsFunctionCall(param) &&
+            exprIsFunctionCallOf(param, ":", 2)
+          ) {
+            const labelExpr = param.args[0]!;
+            const variableExpr = param.args[1]!;
+
+            if (!exprIsAtom(labelExpr)) {
+              throw formatErrorMessage({
+                token: labelExpr.token,
+                errorMessage: `Expected identifier for label in destructuring pattern, got ${exprToString(labelExpr)}`,
+              });
+            }
+
+            const label = labelExpr.token.value;
+
+            // Find the element with matching label
+            const elementIndex = variant.elements.findIndex(
+              (elem) => elem.label === label
+            );
+            if (elementIndex === -1) {
+              throw formatErrorMessage({
+                token: labelExpr.token,
+                errorMessage: `Label "${label}" not found in variant "${variantName}". Available labels: ${variant.elements.map((e) => e.label).join(", ")}`,
+              });
+            }
+
+            if (destructuredLabels.has(label)) {
+              throw formatErrorMessage({
+                token: labelExpr.token,
+                errorMessage: `Label "${label}" is already destructured`,
+              });
+            }
+            destructuredLabels.add(label);
+
+            const element = variant.elements[elementIndex]!;
+
+            // Handle the variable part (could be identifier or _)
+            if (exprIsAtom(variableExpr)) {
+              const variableName = variableExpr.token.value;
+
+              // Skip if variable name is "_" (ignore pattern)
+              if (variableName !== "_") {
+                const { env: nextEnv } = addVariableToEnv({
+                  env: caseEnv,
+                  variable: {
+                    name: variableName,
+                    type: element.type,
+                    isMutable: false,
+                    isCompileTimeOnly: false,
+                    isImplicit: false,
+                    value: undefined,
+                    token: variableExpr.token,
+                    initializedAtToken: variableExpr.token,
+                    consumedAtToken: undefined,
+                  },
+                  allowDuplicate: true,
+                });
+                caseEnv = nextEnv;
+              }
+            } else {
+              throw formatErrorMessage({
+                token: variableExpr.token,
+                errorMessage: `Expected identifier or "_" for variable in labeled destructuring, got ${exprToString(variableExpr)}`,
+              });
+            }
+          }
+          // Handle positional destructuring like (r) or (_)
+          else if (exprIsAtom(param)) {
+            const paramName = param.token.value;
+            const element = variant.elements[j]!;
+
+            // Skip if parameter name is "_" (ignore pattern)
+            if (paramName !== "_") {
+              const { env: nextEnv } = addVariableToEnv({
+                env: caseEnv,
+                variable: {
+                  name: paramName,
+                  type: element.type,
+                  isMutable: false,
+                  isCompileTimeOnly: false,
+                  isImplicit: false,
+                  value: undefined,
+                  token: param.token,
+                  initializedAtToken: param.token,
+                  consumedAtToken: undefined,
+                },
+                allowDuplicate: true,
+              });
+              caseEnv = nextEnv;
+            }
+          } else {
+            throw formatErrorMessage({
+              token: param.token,
+              errorMessage: `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${exprToString(param)}`,
+            });
+          }
+        }
+      }
+
+      // Add the scrutinee variable to env if it has a variable name
+      if (evaluatedScrutineeExpr.$.variableName) {
+        const variableName = evaluatedScrutineeExpr.$.variableName;
+        const { env: nextEnv } = addVariableToEnv({
+          env: caseEnv,
+          variable: {
+            name: variableName,
+            type: variableType,
+            isMutable: evaluatedScrutineeExpr.$.isMutable,
+            isCompileTimeOnly: false,
+            isImplicit: false,
+            value: evaluatedScrutineeExpr.$.value,
+            token: evaluatedScrutineeExpr.token,
+            initializedAtToken: evaluatedScrutineeExpr.token,
+            consumedAtToken: undefined,
+          },
+          allowDuplicate: true,
+        });
+        caseEnv = nextEnv;
+      }
+
+      // Mark the case as executed
+      matchArmExpr.$ = {
+        env: caseEnv,
+        type: variableType,
+        value: undefined,
+        isMutable: evaluatedScrutineeExpr.$.isMutable,
+        pathCollection: [],
+        caseExecuted: true,
+      };
+
+      const bodyExpr = rhsExpr;
+
+      // Evaluate the result expression
+      const evaluatedBody = evaluateBeginExpression({
+        expr: bodyExpr,
+        env: caseEnv,
+        context: {
+          ...context,
+          isExecuting:
+            isEnumValue(scrutineeValue) &&
+            scrutineeValue.variantName === variantName,
+        },
+        variablesToAdd: [],
       });
+
+      if (!evaluatedBody.$?.type) {
+        throw formatErrorMessage({
+          token: bodyExpr.token,
+          errorMessage: `Expected type for match result expression, got ${exprToString(bodyExpr)}`,
+        });
+      }
+
+      // Handle control flow
+      if (evaluatedBody.$.controlFlow) {
+        controlFlows.push(evaluatedBody.$.controlFlow);
+        if (scrutineeValue && isEnumValue(scrutineeValue)) {
+          expr.$ = {
+            env: evaluatedBody.$.env,
+            type: evaluatedBody.$.type,
+            value: evaluatedBody.$.value,
+            isMutable: evaluatedBody.$.isMutable,
+            pathCollection: evaluatedBody.$.pathCollection,
+            controlFlow: evaluatedBody.$.controlFlow,
+          };
+        }
+      } else {
+        hasCaseThatDoesntHaveControlFlowSet = true;
+      }
+
+      caseEnv = evaluatedBody.$.env;
+      bodies.push(evaluatedBody);
+
+      // Set or verify the result type consistency
+      if (!resultType) {
+        resultType = { type: evaluatedBody.$?.type, env: caseEnv };
+      } else if (
+        !areTypesCompatible(
+          { type: resultType.type, env: caseEnv },
+          { type: evaluatedBody.$?.type, env }
+        )
+      ) {
+        // Check if the types match when converting to runtime type
+        if (
+          areTypesCompatible(
+            {
+              type: convertComptTypeToRuntimeType(resultType.type),
+              env: resultType.env,
+            },
+            {
+              type: evaluatedBody.$.type,
+              env: caseEnv,
+            }
+          )
+        ) {
+          resultType = { type: evaluatedBody.$.type, env: caseEnv };
+        } else {
+          throw formatErrorMessage({
+            token: scrutineeExpr.token,
+            errorMessage: `Incompatible types:
+- Previous: ${typeToString(resultType.type)}
+- Current : ${typeToString(evaluatedBody.$.type)}`,
+          });
+        }
+      }
     } else {
       throw formatErrorMessage({
         token: matchArmExpr.token,
         errorMessage: `Invalid pattern in match expression: ${exprToString(matchArmExpr)}
-Please use .variantName for destructuring enum variants.`,
+Supported patterns:
+- .VariantName (for variants without elements)
+- .VariantName(param1, param2, ...) (for variants with elements)
+- _ (wildcard pattern)`,
       });
     }
   }

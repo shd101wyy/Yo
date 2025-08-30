@@ -18,12 +18,34 @@ Shape :: enum
 
 area :: (fn(shape: Shape) -> i32)
   match shape,
-    .Circle => {
-      { r } := shape;
-      (3 `mul` (r `mul` r))
-    },
-    .Rectangle => {
-      { w, h } := shape;
+    .Circle(r) =>
+      (3 `mul` (r `mul` r)),
+    .Rectangle(w, h) =>
       (w `mul` h)
-    }
 ;
+
+// Test labeled destructuring
+area_with_labels :: (fn(shape: Shape) -> i32)
+  match shape,
+    .Circle(r: radius) =>
+      (3 `mul` (radius `mul` radius)),
+    .Rectangle(h: height) =>
+      height
+;
+
+// Test partial labeled destructuring with ignore
+area_partial :: (fn(shape: Shape) -> i32)
+  match shape,
+    .Circle(_) =>
+      100,
+    .Rectangle(w: _, h: height) =>
+      height
+;
+
+// This should now fail - trying to use .Circle without destructuring
+compt_expect_error(
+invalid_area :: (fn(shape: Shape) -> i32)
+  match shape,
+    .Circle => 0,  // ERROR: Circle has fields and must be destructured
+    .Rectangle => 0  // ERROR: Rectangle has fields and must be destructured
+);

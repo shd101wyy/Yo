@@ -392,8 +392,8 @@ ${exprToString(expr)}`,
           context: { ...context },
         });
       } else if (
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.Ref)
+        exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1)
       ) {
         // & or &! references (with or without region)
         return evaluateAddressOperatorCall({

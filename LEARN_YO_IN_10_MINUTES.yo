@@ -715,8 +715,7 @@ borrow &!(arr).to_iter_mut(), iter => {
 // They are just the wrapper for Option(*(i32)) and Option(*!(i32)) respectively.
 (ptr : Option(*!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match ptr,
-  .Some => {
-    { value : p } := ptr;
+  .Some(p) => {
     p.* = 42; // dereference the pointer
     std.println(p.*); // print the value
   },
@@ -800,7 +799,7 @@ match x,
 
 x := Option(i32).Some(12);
 match x,
-  .Some => std.println("x is Some with value " + x.value),
+  .Some(value) => std.println("x is Some with value " + value),
   .None => std.println("x is None")
 
 // Error Handling
@@ -830,8 +829,8 @@ safe_div ::
 // Pattern matching for error handling
 division_result := safe_div(10, 2);
 match division_result,
-  .Ok  => std.println("Result: " + division_result.value.to_string()),
-  .Err => std.println("Error: Cannot divide by zero");
+  .Ok(value)  => std.println("Result: " + value.to_string()),
+  .Err(_) => std.println("Error: Cannot divide by zero");
 
 // Macro function definition
 // all of its parameters and return type are Expr
