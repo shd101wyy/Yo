@@ -1,6 +1,6 @@
 open import "std";
 
-(compt(LinearI32) : Linear) = i32;
+(compt(LinearI32) : Type) = i32;
 
 Shape :: enum
   Circle(radius: i32),
@@ -12,42 +12,38 @@ Shape :: enum
 
 test_ptr :: (fn(ptr: *(Shape)) -> unit) {
   match ptr,
-    .Circle => {
-        radius := ptr.radius;
+    .Circle(radius) => {
         ();
       },
-    .Rectangle => {
-        width := *(ptr.width);
-        height := *(ptr.height);
+    .Rectangle(width, height) => {
+        width := &(width);
+        height := &(height);
     },
-    .Triangle => {
+    .Triangle(base, height) => {
         ();
       },
-    .LinearShape => {
-        width := *(ptr.width);
-        height := *(ptr.height);
+    .LinearShape(width, height) => {
+        width := &(width);
+        height := &(height);
       }
   ;
 };
 
-test_ref :: (fn(ref: &(Shape)) -> unit) {
-  match ref,
-    .Circle => {
-        radius := ref.radius;
+test_mut_ptr :: (fn(ptr: *!(Shape)) -> unit) {
+  match ptr,
+    .Circle(radius) => {
         ();
       },
-    .Rectangle => {
-        width := *(ref.width);
-        height := *(ref.height);
-
-        // FIXME: Handle borrow checker
+    .Rectangle(width, height) => {
+        width := &(width);
+        height := &(height);
     },
-    .Triangle => {
+    .Triangle(base, height) => {
         ();
       },
-    .LinearShape => {
-        width := *(ref.width);
-        height := *(ref.height);
+    .LinearShape(width, height) => {
+        width := &(width);
+        height := &(height);
       }
   ;
 };
