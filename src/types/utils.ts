@@ -492,7 +492,8 @@ export function canComptFloatCastTo(targetType: Type): boolean {
  * Convert a function parameter to string representation.
  */
 export function functionParameterToString(
-  parameter: FunctionParameter
+  parameter: FunctionParameter,
+  visited: Set<string> = new Set()
 ): string {
   let label = parameter.label;
   if (parameter.isMutable) {
@@ -504,7 +505,7 @@ export function functionParameterToString(
     label = `compt(${label})`;
   }
 
-  const typeStr = typeToString(parameter.type);
+  const typeStr = typeToString(parameter.type, visited);
 
   const defaultValueStr = parameter.exprs.defaultValueExpr
     ? exprToString(parameter.exprs.defaultValueExpr)
@@ -521,7 +522,10 @@ export function functionParameterToString(
  * Convert a tuple element to string representation.
  * NOTE: Don't use element.exprs
  */
-export function tupleElementToString(element: TupleElement): string {
+export function tupleElementToString(
+  element: TupleElement,
+  visited: Set<string> = new Set()
+): string {
   let label = element.label;
   if (stringIsOperator(label)) {
     label = `(${label})`;
@@ -542,20 +546,23 @@ export function tupleElementToString(element: TupleElement): string {
     : "";
 
   if (defaultValueStr) {
-    return `(${label}: ${typeToString(element.type)}) ?= ${defaultValueStr}`;
+    return `(${label}: ${typeToString(element.type, visited)}) ?= ${defaultValueStr}`;
   }
 
   if (assignedValueStr) {
-    return `(${label}: ${typeToString(element.type)}) = ${assignedValueStr}`;
+    return `(${label}: ${typeToString(element.type, visited)}) = ${assignedValueStr}`;
   }
 
-  return `${label}: ${typeToString(element.type)}`;
+  return `${label}: ${typeToString(element.type, visited)}`;
 }
 
 /**
  * Convert a module element to string representation.
  */
-function moduleElementToString(element: ModuleElement): string {
+function moduleElementToString(
+  element: ModuleElement,
+  visited: Set<string> = new Set()
+): string {
   let label = element.label;
   if (stringIsOperator(label)) {
     label = `(${label})`;
@@ -573,29 +580,34 @@ function moduleElementToString(element: ModuleElement): string {
     : "";
 
   if (defaultValueStr) {
-    return `(${label}: ${typeToString(element.type)}) ?= ${defaultValueStr}`;
+    return `(${label}: ${typeToString(element.type, visited)}) ?= ${defaultValueStr}`;
   }
 
   if (assignedValueStr) {
-    return `(${label}: ${typeToString(element.type)}) = ${assignedValueStr}`;
+    return `(${label}: ${typeToString(element.type, visited)}) = ${assignedValueStr}`;
   }
 
-  return `${label}: ${typeToString(element.type)}`;
+  return `${label}: ${typeToString(element.type, visited)}`;
 }
 
-function functionTypeToString(func: FunctionType): string {
-  const params = func.parameters.map(functionParameterToString).join(", ");
+function functionTypeToString(
+  func: FunctionType,
+  visited: Set<string> = new Set()
+): string {
+  const params = func.parameters
+    .map((param) => functionParameterToString(param, visited))
+    .join(", ");
 
   const typeParams =
     func.forallParameters.length > 0
       ? `forall(${func.forallParameters
-          .map(functionParameterToString)
+          .map((param) => functionParameterToString(param, visited))
           .join(", ")})`
       : "";
   const implicitParams =
     func.implicitParameters.length > 0
       ? `using(${func.implicitParameters
-          .map(functionParameterToString)
+          .map((param) => functionParameterToString(param, visited))
           .join(", ")})`
       : "";
   let variadicParam = "";
@@ -611,7 +623,7 @@ function functionTypeToString(func: FunctionType): string {
     }
   }
 
-  const returnTypeString = typeToString(func.return.type);
+  const returnTypeString = typeToString(func.return.type, visited);
   let returnString = returnTypeString;
   if (func.return.isUnquote) {
     if (func.return.label) {
@@ -637,7 +649,35 @@ function functionTypeToString(func: FunctionType): string {
 /**
  * Convert a Type object to a human-readable string representation.
  */
-export function typeToString(type: Type): string {
+export function typeToString(
+  type: Type,
+  visited: Set<string> = new Set()
+): string {
+  // Check for circular references using type ID
+  if (type.id && visited.has(type.id)) {
+    // Return a placeholder for circular references
+    return type.typeName || `<circular:${type.tag}>`;
+  }
+
+  // Add current type to visited set if it has an ID
+  if (type.id) {
+    visited.add(type.id);
+  }
+
+  try {
+    return typeToStringInternal(type, visited);
+  } finally {
+    // Remove from visited set when done (for proper cleanup)
+    if (type.id) {
+      visited.delete(type.id);
+    }
+  }
+}
+
+/**
+ * Internal implementation of typeToString with cycle detection
+ */
+function typeToStringInternal(type: Type, visited: Set<string>): string {
   if (!type) {
     return "unknown";
   }
@@ -719,14 +759,14 @@ export function typeToString(type: Type): string {
 
     // Complex types
     case TypeTag.Array: {
-      return `[${typeToString((type as ArrayType).elementType)}; ${valueToString(
+      return `[${typeToString((type as ArrayType).elementType, visited)}; ${valueToString(
         (type as ArrayType).length
       )}]`;
     }
 
     case TypeTag.Slice: {
       const sliceType = type as ArrayType;
-      return `[${typeToString(sliceType.elementType)}]`;
+      return `[${typeToString(sliceType.elementType, visited)}]`;
     }
 
     case TypeTag.Tuple: {
@@ -734,7 +774,7 @@ export function typeToString(type: Type): string {
         return "()";
       }
       return `(${(type as TupleType).elements
-        .map(tupleElementToString)
+        .map((element) => tupleElementToString(element, visited))
         .join(", ")}${(type as TupleType).elements.length === 1 ? "," : ""})`;
     }
 
@@ -744,9 +784,7 @@ export function typeToString(type: Type): string {
         return structType.typeName;
       }
 
-      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${
-        structType.typeName ? "struct" : structType.id
-      }(${structType.elements.map(tupleElementToString).join(", ")})`;
+      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "ref " : ""}struct(${structType.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -768,11 +806,11 @@ export function typeToString(type: Type): string {
 
       return `${
         enumType.typeName ? `(${enumType.typeName}) ` : ""
-      }enum(${enumType.variants
+      }${enumType.isReferenceSemantics ? "ref " : ""}enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
             variant.elements
-              ? `(${variant.elements.map(tupleElementToString).join(", ")})`
+              ? `(${variant.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`
               : ""
           }`;
         })
@@ -788,7 +826,7 @@ export function typeToString(type: Type): string {
       const elements = unionType.elements;
       return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
         unionType.typeName ? "union" : unionType.id
-      }(${elements.map(tupleElementToString).join(", ")})`;
+      }(${elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
     }
 
     case TypeTag.Module: {
@@ -799,11 +837,11 @@ export function typeToString(type: Type): string {
       } else {
         moduleTypeString = `${
           moduleType.typeName ? `(${moduleType.typeName}) ` : ""
-        }module(${moduleType.elements.map(moduleElementToString).join(", ")})`;
+        }module(${moduleType.elements.map((element) => moduleElementToString(element, visited)).join(", ")})`;
       }
 
       if (moduleType.subtype) {
-        moduleTypeString = `(${typeToString(moduleType.subtype)} <: ${moduleTypeString})`;
+        moduleTypeString = `(${typeToString(moduleType.subtype, visited)} <: ${moduleTypeString})`;
       }
 
       return moduleTypeString;
@@ -814,13 +852,13 @@ export function typeToString(type: Type): string {
       if (func.typeName) {
         return func.typeName;
       }
-      return functionTypeToString(func);
+      return functionTypeToString(func, visited);
     }
     case TypeTag.Closure: {
       const closureType = type as ClosureType;
       // Format the call type with closure kind
       const callType = closureType.callType;
-      return functionTypeToString(callType);
+      return functionTypeToString(callType, visited);
     }
 
     /*
@@ -843,11 +881,11 @@ export function typeToString(type: Type): string {
     }
 
     case TypeTag.Ptr: {
-      return `*(${typeToString((type as PtrType).type)})`;
+      return `*(${typeToString((type as PtrType).type, visited)})`;
     }
 
     case TypeTag.MutPtr: {
-      return `*!(${typeToString((type as MutPtrType).type)})`;
+      return `*!(${typeToString((type as MutPtrType).type, visited)})`;
     }
 
     case TypeTag.Expr: {
@@ -856,7 +894,7 @@ export function typeToString(type: Type): string {
 
     case TypeTag.Dyn: {
       const dynType = type as DynType;
-      return `dyn(${dynType.moduleTypes.map((mt) => typeToString(mt)).join(", ")})`;
+      return `dyn(${dynType.moduleTypes.map((mt) => typeToString(mt, visited)).join(", ")})`;
     }
 
     default: {
