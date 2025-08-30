@@ -36,7 +36,7 @@ test_field_reassignment_vs_deref_basic :: (fn() -> unit) {
   mut(y) := 20;
   
   // Case 1: immutable binding to owned value
-  c1 := Container(*!(x), 42);
+  c1 := Container(&!(x), 42);
   tmp1 := c1.val.*;      // Should work - dereferencing through mutable ref field
   c1.val.* = y;          // Should work - dereferencing through mutable ref field
   compt_expect_error(
@@ -47,21 +47,21 @@ test_field_reassignment_vs_deref_basic :: (fn() -> unit) {
   );
   
   // Case 2: mutable binding to owned value
-  mut(c2) := Container(*!(x), 42);
+  mut(c2) := Container(&!(x), 42);
   tmp2 := c2.val.*;      // Should work - dereferencing through mutable ref field
   c2.val.* = y;          // Should work - dereferencing through mutable ref field
   c2.data = 100;         // Should work - field reassignment with mutable binding
-  c2.val = *!(y);        // Should work - field reassignment with mutable binding
+  c2.val = &!(y);        // Should work - field reassignment with mutable binding
 };
 
 main :: (fn() -> unit) {
   mut(x) := 1;
   mut(y) := 2;
 
-  swap1(*!(x), *!(y)); // allowed
-  swap2(Container(*!(x), 42), *!(y)); // allowed
-  swap3(*!(Container(*!(x), 42)), *!(y)); // allowed
-  swap4(*(Container(*!(x), 42)), *!(y)); // error: `c` is an immutable pointer
+  swap1(&!(x), &!(y)); // allowed
+  swap2(Container(&!(x), 42), &!(y)); // allowed
+  swap3(&!(Container(&!(x), 42)), &!(y)); // allowed
+  swap4(&(Container(&!(x), 42)), &!(y)); // error: `c` is an immutable pointer
 };
 
 // Additional test cases for comprehensive mutability testing
@@ -111,12 +111,12 @@ swap_mixed2 :: (fn(c : *!(MixedContainer), y : *!(i32)) -> unit) {
 // Test function return values
 get_mutable_container :: (fn() -> *!(Container)) {
   mut(x) := 42;
-  *!(Container(*!(x), 1))
+  &!(Container(&!(x), 1))
 };
 
 get_immutable_container :: (fn() -> *(Container)) {
   mut(x) := 42;
-  *(Container(*!(x), 1))
+  &(Container(&!(x), 1))
 };
 
 test_function_returns :: (fn() -> unit) {
@@ -154,12 +154,12 @@ test_chained_access :: (fn() -> unit) {
   mut(y) := 200;
   
   // Mutable chain
-  mut_chain := *!(ChainedContainer(Level1(Level2(*!(x)))));
+  mut_chain := &!(ChainedContainer(Level1(Level2(&!(x)))));
   tmp := mut_chain.level1.level2.value.*;
   mut_chain.level1.level2.value.* = y;
   
   // Immutable chain
-  immut_chain := *(ChainedContainer(Level1(Level2(*!(x)))));
+  immut_chain := &(ChainedContainer(Level1(Level2(&!(x)))));
   tmp2 := immut_chain.level1.level2.value.*; // Can read
   compt_expect_error(
     immut_chain.level1.level2.value.* = *!(y) // Cannot write
@@ -171,12 +171,12 @@ test_array_access :: (fn() -> unit) {
   mut(arr) := [1, 2, 3];
   
   // Mutable array access
-  mut_arr_ptr := *!(arr);
+  mut_arr_ptr := &!(arr);
   tmp := mut_arr_ptr.*(0);
   mut_arr_ptr.*(0) = 42;
   
   // Immutable array access
-  immut_arr_ptr := *(arr);
+  immut_arr_ptr := &(arr);
   tmp2 := immut_arr_ptr.*(0); // Can read
   compt_expect_error(
     immut_arr_ptr(0) = 42 // Cannot write through immutable pointer
@@ -193,7 +193,7 @@ test_ptr_vs_ref :: (fn() -> unit) {
   mut(x) := 50;
   
   // Both pointer and reference should behave similarly for mutability
-  mut(ptr_container) := PtrContainer(*!(x), *!(x));
+  mut(ptr_container) := PtrContainer(&!(x), &!(x));
   
   // Access through mutable container variable
   tmp1 := ptr_container.ptr_val.*;
@@ -225,13 +225,13 @@ test_parameter_binding_distinction :: (fn() -> unit) {
   mut(x) := 10;
   
   // Case 1: mutable binding, mutable pointer type
-  mut(ptr1) := *!(x);
+  mut(ptr1) := &!(x);
   tmp1 := ptr1.*;
   ptr1.* = 20; // Should work - mutable binding, mutable pointer
-  ptr1 = *!(x); // Should work - mutable binding allows reassignment
+  ptr1 = &!(x); // Should work - mutable binding allows reassignment
   
   // Case 2: immutable binding, mutable pointer type  
-  ptr2 := *!(x);
+  ptr2 := &!(x);
   tmp2 := ptr2.*;
   ptr2.* = 30; // Should work - pointer type allows writes
   compt_expect_error(
@@ -239,15 +239,15 @@ test_parameter_binding_distinction :: (fn() -> unit) {
   );
   
   // Case 3: mutable binding, immutable pointer type
-  mut(ptr3) := *(x);
+  mut(ptr3) := &(x);
   tmp3 := ptr3.*;
   compt_expect_error(
     ptr3.* = 40 // Should fail - immutable pointer type
   );
-  ptr3 = *(x); // Should work - mutable binding allows reassignment
+  ptr3 = &(x); // Should work - mutable binding allows reassignment
   
   // Case 4: immutable binding, immutable pointer type
-  ptr4 := *(x);
+  ptr4 := &(x);
   tmp4 := ptr4.*;
   compt_expect_error(
     ptr4.* = 50 // Should fail - immutable pointer type
@@ -272,10 +272,10 @@ test_complex_nested_mutability :: (fn() -> unit) {
   mut(x) := 100;
   mut(y) := 200;
   
-  mut(simple1) := SimpleContainer(*!(x));
-  mut(simple2) := SimpleContainer(*!(y));
+  mut(simple1) := SimpleContainer(&!(x));
+  mut(simple2) := SimpleContainer(&!(y));
   
-  complex := ComplexContainer(*!(simple1), *(simple2));
+  complex := ComplexContainer(&!(simple1), &(simple2));
   
   // Access through mutable field - should work
   tmp1 := complex.mutable_field.*.value.*;
@@ -312,12 +312,12 @@ test_array_indexing_mutability :: (fn() -> unit) {
   mut(arr) := [10, 20, 30];
   
   // Mutable pointer to array
-  mut_ptr := *!(arr);
+  mut_ptr := &!(arr);
   tmp1 := mut_ptr.*(1);
   mut_ptr.*(1) = 99; // Should work
   
   // Immutable pointer to array
-  immut_ptr := *(arr);
+  immut_ptr := &(arr);
   tmp2 := immut_ptr.*(1); // Can read
   compt_expect_error(
     immut_ptr.*(1) = 99 // Cannot write through immutable pointer
@@ -338,14 +338,14 @@ test_field_assignment_vs_deref :: (fn() -> unit) {
   mut(x) := 10;
   mut(y) := 20;
   
-  mut(container) := FieldTestContainer(*!(x), 5);
+  mut(container) := FieldTestContainer(&!(x), 5);
   
   // Dereference through field - should work
   tmp1 := container.ptr_field.*;
   container.ptr_field.* = 30; // Should work - dereferencing mutable pointer
   
   // Field reassignment - should work (mutable container binding)
-  container.ptr_field = *!(y); // Should work - reassigning field
+  container.ptr_field = &!(y); // Should work - reassigning field
   container.value_field = 15; // Should work - reassigning field
   
   // Test with immutable container binding
@@ -395,7 +395,7 @@ ArrayContainer :: struct
 
 test_struct_array_combinations :: (fn() -> unit) {
   mut(arr) := [1, 2, 3];
-  mut(container) := ArrayContainer([10, 20, 30], *!(arr));
+  mut(container) := ArrayContainer([10, 20, 30], &!(arr));
   
   // Direct array field access
   container.values(0) = 99; // Should work - mutable binding
@@ -440,9 +440,9 @@ MultiIndirect :: struct
 
 test_multiple_indirections :: (fn() -> unit) {
   mut(x) := 42;
-  mut(ptr) := *!(x);
+  mut(ptr) := &!(x);
   
-  mut(multi) := MultiIndirect(*!(ptr));
+  mut(multi) := MultiIndirect(&!(ptr));
   
   // Triple indirection: multi.ptr_to_ptr -> ptr -> x
   tmp := multi.ptr_to_ptr.*.*;
@@ -461,7 +461,7 @@ test_multiple_indirections :: (fn() -> unit) {
 // Test const/literal values and their mutability
 test_literal_mutability :: (fn() -> unit) {
   // Pointer to literal - should be immutable by nature
-  lit_ptr := *(42); // Pointer to literal value
+  lit_ptr := &(42); // Pointer to literal value
   tmp := lit_ptr.*; // Can read
   compt_expect_error(
     lit_ptr.* = 50 // Should fail - cannot modify literal
@@ -490,10 +490,10 @@ main_extended :: (fn() -> unit) {
   mut(x) := 1;
   mut(y) := 2;
 
-  swap1(*!(x), *!(y));
-  swap2(Container(*!(x), 42), *!(y));
-  swap3(*!(Container(*!(x), 42)), *!(y));
-  swap4(*(Container(*!(x), 42)), *!(y));
+  swap1(&!(x), &!(y));
+  swap2(Container(&!(x), 42), &!(y));
+  swap3(&!(Container(&!(x), 42)), &!(y));
+  swap4(&(Container(&!(x), 42)), &!(y));
   
   // Run basic working tests
   test_field_reassignment_vs_deref_basic();

@@ -38,11 +38,17 @@ function determineTypeUniverse(
   baseType: Type,
   elements: TupleElement[],
   /**
-   * checkedType is used to prevent infinite recursion
+   * checkedTupleElements is used to prevent infinite recursion
    * when the type is a recursive type.
    * For example:
    *
    *   Recursive :: struct
+   *     next : Self
+   *   ;
+   *
+   * But `ref` is allowed.
+   *
+   *   Recursive :: ref struct
    *     next : Self
    *   ;
    */

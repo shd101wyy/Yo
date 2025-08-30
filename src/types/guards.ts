@@ -147,8 +147,22 @@ export function isEnumType(type?: Type): type is EnumType {
   return type?.tag === TypeTag.Enum;
 }
 
+export function isEnumTypeWithReferenceSemantics(
+  type?: Type
+): type is EnumType {
+  return type?.tag === TypeTag.Enum && (type as EnumType).isReferenceSemantics;
+}
+
 export function isStructType(type?: Type): type is StructType {
   return type?.tag === TypeTag.Struct;
+}
+
+export function isStructTypeWithReferenceSemantics(
+  type?: Type
+): type is StructType {
+  return (
+    type?.tag === TypeTag.Struct && (type as StructType).isReferenceSemantics
+  );
 }
 
 export function isModuleType(type?: Type): type is ModuleType {

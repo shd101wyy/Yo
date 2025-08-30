@@ -6,13 +6,13 @@ Option :: (fn(compt(T): Type)-> compt(Type))
 
 use_nullable_ptr :: (fn(ptr : Option(*(i32))) -> i32)
   match ptr,
-    .Some => ptr.value.*,
+    .Some(value) => value.*,
     .None => 0
 ;
 
 main :: (fn() -> i32) {
   x := 12;
-  p := Option(*(i32)).Some(*(x));
+  p := Option(*(i32)).Some(&(x));
   use_nullable_ptr(p)
 };
 

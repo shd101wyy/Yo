@@ -30,16 +30,16 @@ use_id ::
 };
 
 x := 12;
-use_id(*(dyn(x, I32GiveInt)));
-use_id(*(dyn(x, (I32GiveAnotherInt,))));
+use_id(&(dyn(x, I32GiveInt)));
+use_id(&(dyn(x, (I32GiveAnotherInt,))));
 
 // Will give error because there are two available GiveInt for i32
 compt_expect_error(use_id(*(dyn(x))), "Ambiguous implicit modules found for type GiveInt");
 
 y := true;
-use_id(*(dyn(y, BooleanGiveInt)));
-use_id(*(dyn(y, (BooleanGiveInt,))));
-use_id(*(dyn(y)));
+use_id(&(dyn(y, BooleanGiveInt)));
+use_id(&(dyn(y, (BooleanGiveInt,))));
+use_id(&(dyn(y)));
 
 
 SayHi :: module(
@@ -57,9 +57,9 @@ given(BooleanSayHi) :: SayHi(
   b := false;
   compt_expect_error(dyn_b := dyn(b, BooleanSayHi)); // dyn_b needs to provide expected type
 
-  (dyn_b1 : *(Dyn(SayHi, GiveInt))) = *(dyn(b));
-  (dyn_b2 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, BooleanSayHi));
-  (dyn_b3 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, BooleanGiveInt));
-  (dyn_b4 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, (BooleanGiveInt, BooleanSayHi)));
-  (dyn_b5 : *(Dyn(SayHi, GiveInt))) = *(dyn(b, (BooleanSayHi, BooleanGiveInt)));
+  (dyn_b1 : *(Dyn(SayHi, GiveInt))) = &(dyn(b));
+  (dyn_b2 : *(Dyn(SayHi, GiveInt))) = &(dyn(b, BooleanSayHi));
+  (dyn_b3 : *(Dyn(SayHi, GiveInt))) = &(dyn(b, BooleanGiveInt));
+  (dyn_b4 : *(Dyn(SayHi, GiveInt))) = &(dyn(b, (BooleanGiveInt, BooleanSayHi)));
+  (dyn_b5 : *(Dyn(SayHi, GiveInt))) = &(dyn(b, (BooleanSayHi, BooleanGiveInt)));
 };
