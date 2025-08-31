@@ -15,6 +15,7 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
+  isDynType,
   isEnumType,
   isEnumTypeWithReferenceSemantics,
   isExprListType,
@@ -128,6 +129,10 @@ export function typeOfType(
   }
 
   if (type.isDynamicSized) {
+    return createType0(type); // All types are now level 0
+  }
+
+  if (isDynType(type)) {
     return createType0(type); // All types are now level 0
   }
 

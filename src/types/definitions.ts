@@ -586,17 +586,17 @@ export interface ClosureType extends Type {
 
 /*
  *   eg:
- *   use_id :: (fn(forall(T: Type), value: *(dyn(T <: Id))) -> T) {
- *     return value.*.id();
+ *   use_id :: (fn(value: Dyn(GiveInt)) -> unit) {
+ *     return value.give_int();
  *   }
  */
 export interface DynType extends Type {
   tag: TypeTag.Dyn;
-  isDynamicSized: true;
 
   /**
    * The module types that this dynamic dispatch type can dispatch to.
    * This is used to create vtable for dynamic dispatch.
+   * Now uses reference semantics by default, so it's not a dynamic sized type.
    */
   moduleTypes: ModuleType[];
 }

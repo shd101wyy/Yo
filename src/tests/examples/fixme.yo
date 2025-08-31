@@ -1,60 +1,70 @@
 open import "std";
 
-compt_assert(__yo_are_types_compatible(i32, i32) == true); // true
-compt_assert(__yo_are_types_compatible(i32, i64) == false); // false
-compt_assert(__yo_are_types_compatible(i64, i32) == false); // false
+GiveInt :: module(
+  Self : Type,
+  give_int :
+    fn(self : &(Self)) -> int
+);
 
-// Functions
-compt_assert(__yo_are_types_compatible( // true
-  fn(x: i32, y: i32)-> i32,
-  fn(a: i32, y: i32)-> i32
-) == true);
-compt_assert(__yo_are_types_compatible( // true
-  fn(forall(T: Type), x: T, y: T)-> T,
-  fn(forall(Z: Type), a: Z, b: Z)-> Z
-) == true);
-compt_assert(__yo_are_types_compatible( // false
-  fn(forall(T: Type), x: T, y: T)-> T,
-  fn(a: i32, b: i32)-> i32
-) == false);
-compt_assert(__yo_are_types_compatible( // false
-  fn(a: i32, b: i32)-> i32,
-  fn(forall(T: Type), x: T, y: T)-> T
-) == false);
+BoxedBoolean :: Box(boolean);
+BoxedI32 :: Box(i32);
 
-MyBox :: (fn(compt(T): Type)-> compt(Type))
-  struct(value: T)
-;
+given(BooleanGiveInt) :: GiveInt(
+  Self : BoxedBoolean,
+  give_int :
+    (self) -> 0
+);
 
-compt_assert(__yo_are_types_compatible( // true
-  fn(forall(T: Type), x: T)-> MyBox(T),
-  fn(forall(Z: Type), a: Z)-> MyBox(Z)
-) == true);
+given(I32GiveInt) :: GiveInt(
+  Self : BoxedI32,
+  give_int :
+    (self) -> 1
+);
 
-Point :: (fn(compt(T): Type)-> compt(Type))
-  struct(x: T, y: T)
-;
-compt_assert(__yo_are_types_compatible( // true
-  fn(forall(T: Type), x: T, y: T)-> Point(T),
-  fn(forall(Z: Type), a: Z, b: Z)-> Point(Z)
-) == true);
+given(I32GiveAnotherInt) :: GiveInt(
+  Self : BoxedI32,
+  give_int :
+    (self) -> 2
+);
+
+use_id :: 
+  (fn(
+    value : Dyn(GiveInt)
+  ) -> unit) {
+  x := &(value).give_int();
+};
+
+x := box(12);
+use_id(dyn(x, I32GiveInt));
+use_id(dyn(x, (I32GiveAnotherInt,)));
+
+// Will give error because there are two available GiveInt for i32
+compt_expect_error(use_id(*(dyn(x))), "Ambiguous implicit modules found for type GiveInt");
+
+y := box(true);
+use_id(dyn(y, BooleanGiveInt));
+use_id(dyn(y, (BooleanGiveInt,)));
+use_id(dyn(y));
 
 
-RefFunc1 ::
-  fn(x : *(i32)) -> unit;
+SayHi :: module(
+  Self : Type,
+  say_hi :
+    fn(self : &(Self)) -> unit
+);
+given(BooleanSayHi) :: SayHi(
+  Self : BoxedBoolean,
+  say_hi :
+    (self) -> ()
+);
 
-RefFunc2 ::
-  fn(x : *!(i32)) -> unit;
+{
+  b := box(false);
+  compt_expect_error(dyn_b := dyn(b, BooleanSayHi)); // dyn_b needs to provide expected type
 
-compt_assert(__yo_are_types_compatible(RefFunc1, RefFunc2) == false);
-compt_assert(__yo_are_types_compatible(RefFunc2, RefFunc1) == true);
-
-// Test pointer type compatibility
-PtrFunc1 ::
-  fn(x : *(i32)) -> unit;
-
-PtrFunc2 ::
-  fn(x : *!(i32)) -> unit;
-
-compt_assert(__yo_are_types_compatible(PtrFunc1, PtrFunc2) == false);
-compt_assert(__yo_are_types_compatible(PtrFunc2, PtrFunc1) == true);
+  (dyn_b1 : Dyn(SayHi, GiveInt)) = dyn(b);
+  (dyn_b2 : Dyn(SayHi, GiveInt)) = dyn(b, BooleanSayHi);
+  (dyn_b3 : Dyn(SayHi, GiveInt)) = dyn(b, BooleanGiveInt);
+  (dyn_b4 : Dyn(SayHi, GiveInt)) = dyn(b, (BooleanGiveInt, BooleanSayHi));
+  (dyn_b5 : Dyn(SayHi, GiveInt)) = dyn(b, (BooleanSayHi, BooleanGiveInt));
+};
