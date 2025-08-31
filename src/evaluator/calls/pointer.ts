@@ -1,10 +1,12 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  requireExprNotConsumed,
 } from "../../expr";
 import {
   createMutPtrType,
@@ -95,15 +97,33 @@ export function evaluateRawPointerCall({
     };
     return expr;
   } else {
-    // For creating pointer values, direct users to use &(x) and &!(x) instead
-    const pointerSyntax = pointerTypeKind === TypeTag.Ptr ? "*" : "*!";
-    const referenceSyntax = pointerTypeKind === TypeTag.Ptr ? "&" : "&!";
+    // The arg cannot be consumed.
+    requireExprNotConsumed(evaluatedArgExpr, env);
 
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `${pointerSyntax}(x) syntax is for creating pointer types, not pointer values. To create a pointer value, use ${referenceSyntax}(${exprToString(
-        argExpr
-      )}) instead.`,
-    });
+    const argType = evaluatedArgExpr.$.type;
+    const pointerType =
+      pointerTypeKind === TypeTag.Ptr
+        ? createPtrType(argType)
+        : createMutPtrType(argType);
+
+    // Check if we are creating a mutable pointer to an immutable value
+    if (pointerTypeKind === TypeTag.MutPtr && !evaluatedArgExpr.$.isMutable) {
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Cannot create a mutable pointer to the immutable:\n${exprToString(
+          argExpr
+        )}`,
+      });
+    }
+
+    expr.$ = {
+      env,
+      type: pointerType,
+      value: undefined, // pointer is only available for runtime
+      isMutable: pointerTypeKind === TypeTag.MutPtr,
+      pathCollection: [],
+    };
+    attachTempVariableToExpr(expr);
+    return expr;
   }
 }
