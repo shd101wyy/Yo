@@ -530,7 +530,7 @@ IdI32 :: Id(i32)
 ;
 
 MakeStringer ::
-  fn(forall(T: Type, compt(Y): Type),
+  fn(forall(T: Type, Y: Type),
    using(Stringer(T), Stringer(U))) ->
   compt(Stringer((T, Y))) {
   return Stringer((T, Y))
@@ -600,12 +600,8 @@ export
 { add, sub } :: import("./arith.yo");
 add(3, 4); // 7
 
-// Type in Yo can be either Linear or Free
-// Linear means it must be used exactly once
-// For example, String is a linear type
-(s : String) = String.from("Hello");
-s.drop(); // drop the string. s is consumed and can't be used anymore.
-s2 := s;  // error: s is consumed
+(s : String) = String.from("Hello"); // String is `ref struct` type with reference semantics.
+s2 := s; // s2 and s point to the same object.
 
 // RAII (Resource Acquisition Is Initialization)
 // Yo automatically insert `drop` function for Linear types that are not used anymore and implement `drop` function.
@@ -614,7 +610,7 @@ s2 := s;  // error: s is consumed
 // - ...
 // - Type 2
 // - Type 1
-// - Free | Linear | Type (or Type(0))
+// - Type (or Type(0))
 // - symbol | boolean | i32 | f64 | 
 //   Union | Intersection | Variant |
 //   1 | 2 | 3 | 4 | ...
@@ -713,14 +709,14 @@ borrow &!(arr).to_iter_mut(), iter => {
 // There is no null pointer in Yo.
 // We have ?*(i32) and ?*!(i32) for nullable pointers.
 // They are just the wrapper for Option(*(i32)) and Option(*!(i32)) respectively.
-(ptr : Option(*!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
-match ptr,
-  .Some(p) => {
-    p.* = 42; // dereference the pointer
-    std.println(p.*); // print the value
+(some_ptr : Option(*!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
+match some_ptr,
+  .Some(ptr) => {
+    ptr.* = 42; // dereference the pointer
+    std.println(ptr.*); // print the value
   },
   .None => std.println("Memory allocation failed");
-free(ptr); // free the memory
+free(some_ptr); // free the memory
 
 // cast reference to pointer using `as` function
 x := 12;
@@ -902,7 +898,6 @@ arr := [read_input(), 2, 3]; // arr: Array(i32, 3); runtime mutable
 // A function that returns a type is called a type function.  
 // The type function requires all its parameters to be `compt`.  
 // The type function is pure, which means it will be cached once executed.
-// All parameters of Type (Free or Linear) are `compt` by default so you don't need to specify it explicitly.
 Matrix :: (fn(compt(T): Type, compt(ROWS): usize, compt(COLS): usize)-> compt(Type))
   Array(Array(T, COLS), ROWS)
 ;
