@@ -22,7 +22,9 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
+  isMutRefType,
   isPtrType,
+  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -647,7 +649,9 @@ export function evaluateFunctionCall({
         isArrayType(functionToCall.type) ||
         // slice
         ((isPtrType(functionToCall.type) ||
-          isMutPtrType(functionToCall.type)) &&
+          isMutPtrType(functionToCall.type) ||
+          isRefType(functionToCall.type) ||
+          isMutRefType(functionToCall.type)) &&
           isSliceType(functionToCall.type.type))
       ) {
         try {
@@ -1160,7 +1164,10 @@ ${functionsWithMatchingTypes
     // array
     else if (
       isArrayType(functionToCall.type) ||
-      ((isPtrType(functionToCall.type) || isMutPtrType(functionToCall.type)) &&
+      ((isPtrType(functionToCall.type) ||
+        isMutPtrType(functionToCall.type) ||
+        isRefType(functionToCall.type) ||
+        isMutRefType(functionToCall.type)) &&
         isSliceType(functionToCall.type.type))
     ) {
       const { value, type, callerEnv } = getArrayCallResult(functionToCall);
@@ -1179,7 +1186,9 @@ ${functionsWithMatchingTypes
          *   }
          */
         isMutable:
-          Boolean(func.$?.isMutable) || isMutPtrType(functionToCall.type),
+          Boolean(func.$?.isMutable) ||
+          isMutPtrType(functionToCall.type) ||
+          isMutRefType(functionToCall.type),
         originType: func.$?.originType ?? functionToCall.type, // Array access inherits origin type
         pathCollection: func.$?.pathCollection ?? [],
         /**

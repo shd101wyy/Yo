@@ -9,7 +9,9 @@ import {
   FunctionType,
   isFunctionType,
   isMutPtrType,
+  isMutRefType,
   isPtrType,
+  isRefType,
   isUnitType,
   TypeId,
   typeToString,
@@ -148,7 +150,12 @@ export function generateFunctionPrototype(
 
       if (!param.isMutable) {
         // If the parameter is not mutable, we can use a const pointer
-        if (isPtrType(param.type) || isMutPtrType(param.type)) {
+        if (
+          isPtrType(param.type) ||
+          isMutPtrType(param.type) ||
+          isRefType(param.type) ||
+          isMutRefType(param.type)
+        ) {
           paramTypeStr = `${paramTypeStr} const`;
         } else {
           paramTypeStr = `const ${paramTypeStr}`;

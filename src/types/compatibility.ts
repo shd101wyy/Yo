@@ -20,8 +20,10 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
+  isMutRefType,
   isPrimitiveType,
   isPtrType,
+  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -110,7 +112,7 @@ export function areTypesCompatible(
   // - *(char)  char pointer with \0 terminator
   if (
     (isComptStringType(expected.type) ||
-      (isPtrType(expected.type) && // *([u8])
+      (isRefType(expected.type) && // &([u8])
         isSliceType(expected.type.type) &&
         isU8Type(expected.type.type.elementType)) ||
       (isPtrType(expected.type) && // *(u8) or *(char)
@@ -441,22 +443,22 @@ export function areTypesCompatible(
     );
   }
 
-  // *
-  // *
+  // &
+  // &
   if (
-    isPtrType(expected.type) &&
-    (isPtrType(given.type) || isMutPtrType(given.type))
+    isRefType(expected.type) &&
+    (isRefType(given.type) || isMutRefType(given.type))
   ) {
-    // Pointers must have the same type
+    // References must have the same type
     return areTypesCompatible(
       { type: expected.type.type, env: expected.env },
       { type: given.type.type, env: given.env }
     );
   }
 
-  // *!
-  if (isMutPtrType(expected.type) && isMutPtrType(given.type)) {
-    // Mut pointers must have the same type
+  // &!
+  if (isMutRefType(expected.type) && isMutRefType(given.type)) {
+    // Mut references must have the same type
     return areTypesCompatible(
       { type: expected.type.type, env: expected.env },
       { type: given.type.type, env: given.env }
@@ -643,24 +645,24 @@ export function areFunctionTypesCompatible(
     // Special handling for function parameter reference compatibility
     // For function parameters, compatibility is contravariant:
     // - A function that takes &(T) can be used where a function that takes &!(T) is expected
-    // - A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+    // - A function that takes &!(T) cannot be used where a function that takes &(T) is expected
 
-    // Explicitly prevent *!(T) from being used where *(T) is expected
-    if (isPtrType(expectedParam.type) && isMutPtrType(givenParam.type)) {
-      // A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+    // Explicitly prevent &!(T) from being used where &(T) is expected
+    if (isRefType(expectedParam.type) && isMutRefType(givenParam.type)) {
+      // A function that takes &!(T) cannot be used where a function that takes &(T) is expected
       return false;
     }
 
     if (
-      isMutPtrType(expectedParam.type) &&
-      isPtrType(givenParam.type) &&
+      isMutRefType(expectedParam.type) &&
+      isRefType(givenParam.type) &&
       areTypesCompatible(
         { type: expectedParam.type.type, env: expected.env },
         { type: givenParam.type.type, env: given.env },
         isMethodReceiver
       )
     ) {
-      // A function that takes *(T) can be used where a function that takes *!(T) is expected
+      // A function that takes &(T) can be used where a function that takes &!(T) is expected
       continue;
     }
 
@@ -719,21 +721,21 @@ export function areFunctionTypesCompatible(
 
     // Special handling for implicit parameter reference compatibility
     // For function parameters, compatibility is contravariant:
-    // - A function that takes *(T) can be used where a function that takes *!(T) is expected
-    // - A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+    // - A function that takes &(T) can be used where a function that takes &!(T) is expected
+    // - A function that takes &!(T) cannot be used where a function that takes &(T) is expected
 
-    // Explicitly prevent *!(T) from being used where *(T) is expected
+    // Explicitly prevent &!(T) from being used where &(T) is expected
     if (
-      isPtrType(expectedImplicitParam.type) &&
-      isMutPtrType(givenImplicitParam.type)
+      isRefType(expectedImplicitParam.type) &&
+      isMutRefType(givenImplicitParam.type)
     ) {
-      // A function that takes *!(T) cannot be used where a function that takes *(T) is expected
+      // A function that takes &!(T) cannot be used where a function that takes &(T) is expected
       return false;
     }
 
     if (
-      isMutPtrType(expectedImplicitParam.type) &&
-      isPtrType(givenImplicitParam.type) &&
+      isMutRefType(expectedImplicitParam.type) &&
+      isRefType(givenImplicitParam.type) &&
       areTypesCompatible(
         { type: expectedImplicitParam.type.type, env: expected.env },
         { type: givenImplicitParam.type.type, env: given.env },

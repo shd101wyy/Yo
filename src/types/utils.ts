@@ -8,7 +8,7 @@ import { ValueTag } from "../value-tag";
 import {
   createF64Type,
   createI32Type,
-  createPtrType,
+  createRefType,
   createSliceType,
   createU8Type,
 } from "./creators";
@@ -22,7 +22,9 @@ import {
   ModuleElement,
   ModuleType,
   MutPtrType,
+  MutRefType,
   PtrType,
+  RefType,
   SomeType,
   StructType,
   TupleElement,
@@ -54,7 +56,9 @@ import {
   isIsizeType,
   isModuleType,
   isMutPtrType,
+  isMutRefType,
   isPtrType,
+  isRefType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -99,8 +103,8 @@ export function typeContainsPointer(type?: Type): boolean {
     return false;
   }
 
-  // Check if the type is a pointer type
-  if (isPtrType(type) || isMutPtrType(type)) {
+  // Check if the type is a reference type
+  if (isRefType(type) || isMutRefType(type)) {
     return true;
   }
 
@@ -183,7 +187,11 @@ export function typeContainsSomeType(type?: Type): boolean {
       );
     case TypeTag.Ptr:
     case TypeTag.MutPtr:
-      return typeContainsSomeType((type as PtrType | MutPtrType).type);
+    case TypeTag.Ref:
+    case TypeTag.MutRef:
+      return typeContainsSomeType(
+        (type as PtrType | MutPtrType | RefType | MutRefType).type
+      );
     default:
       return false; // For other types, no SomeType is present
   }
@@ -224,7 +232,9 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         break;
       case TypeTag.Ptr:
       case TypeTag.MutPtr:
-        helper((t as PtrType | MutPtrType).type);
+      case TypeTag.Ref:
+      case TypeTag.MutRef:
+        helper((t as PtrType | MutPtrType | RefType | MutRefType).type);
         break;
       default:
         break; // For other types, do nothing
@@ -296,6 +306,10 @@ export function typeRequiresInference(type?: Type): boolean {
       return typeRequiresInference((type as PtrType).type);
     case TypeTag.MutPtr:
       return typeRequiresInference((type as MutPtrType).type);
+    case TypeTag.Ref:
+      return typeRequiresInference((type as RefType).type);
+    case TypeTag.MutRef:
+      return typeRequiresInference((type as MutRefType).type);
     */
     case TypeTag.SomeType:
       // SomeType represents unknown/inferable types
@@ -403,8 +417,8 @@ export function convertComptTypeToRuntimeType(
       }
     }
 
-    // Convert the compt_string to *([u8]);
-    return createPtrType(createSliceType(createU8Type()));
+    // Convert the compt_string to &([u8]);
+    return createRefType(createSliceType(createU8Type()));
   } else {
     // No change
     return type;
@@ -888,6 +902,16 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       return `*!(${typeToString((type as MutPtrType).type, visited)})`;
     }
 
+    case TypeTag.Ref: {
+      const refType = type as RefType;
+      return `&(${typeToString(refType.type)})`;
+    }
+
+    case TypeTag.MutRef: {
+      const mutRefType = type as MutRefType;
+      return `&!(${typeToString(mutRefType.type)})`;
+    }
+
     case TypeTag.Expr: {
       return "Expr";
     }
@@ -1125,8 +1149,13 @@ export function getAlignmentOfType(type: Type): number | null {
     return maxAlign;
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBytes(); // Functions are treated as pointers, so pointer-aligned
-  } else if (isMutPtrType(type) || isPtrType(type)) {
-    return getTargetPointerSizeBytes(); // Pointer types are pointer-aligned
+  } else if (
+    isMutPtrType(type) ||
+    isPtrType(type) ||
+    isMutRefType(type) ||
+    isRefType(type)
+  ) {
+    return getTargetPointerSizeBytes(); // Pointer and reference types are pointer-aligned
   }
 
   return null;
@@ -1197,8 +1226,13 @@ export function getSizeOfType(type: Type): number | null {
     return getUnionType(type);
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBits(); // Functions are treated as pointers, so return pointer size
-  } else if (isMutPtrType(type) || isPtrType(type)) {
-    return getTargetPointerSizeBits(); // Pointer types have pointer size
+  } else if (
+    isMutPtrType(type) ||
+    isPtrType(type) ||
+    isMutRefType(type) ||
+    isRefType(type)
+  ) {
+    return getTargetPointerSizeBits(); // Pointer and reference types have pointer size
   }
 
   return null;

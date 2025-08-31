@@ -12,11 +12,15 @@ import {
 } from "../../expr";
 import {
   createMutPtrType,
+  createMutRefType,
   createPtrType,
+  createRefType,
   createUsizeType,
   isArrayType,
   isMutPtrType,
+  isMutRefType,
   isPtrType,
+  isRefType,
   isSliceType,
   isUnitType,
   TypeTag,
@@ -81,16 +85,29 @@ export function evaluateFor({
 
   let itemsType = evaluatedItemsExpr.$.type;
 
-  // Check if it's a pointer type
+  // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let itemsPtrOrRefType: TypeTag.Ptr | TypeTag.MutPtr | undefined = undefined;
+  let itemsPtrOrRefType:
+    | TypeTag.Ptr
+    | TypeTag.MutPtr
+    | TypeTag.Ref
+    | TypeTag.MutRef
+    | undefined = undefined;
   let isItemsMutable = true;
 
-  if (isPtrType(itemsType) || isMutPtrType(itemsType)) {
+  if (
+    isPtrType(itemsType) ||
+    isMutPtrType(itemsType) ||
+    isRefType(itemsType) ||
+    isMutRefType(itemsType)
+  ) {
     itemsPtrOrRefType = itemsType.tag;
     itemsType = itemsType.type; // Dereference one level
 
-    if (itemsPtrOrRefType === TypeTag.Ptr) {
+    if (
+      itemsPtrOrRefType === TypeTag.Ptr ||
+      itemsPtrOrRefType === TypeTag.Ref
+    ) {
       isItemsMutable = false;
     }
   }
@@ -107,7 +124,12 @@ export function evaluateFor({
   let elementVariableExpr: Expr | undefined;
   let elementIndexExpr: Expr | undefined;
   let isElementVariableMutable = false;
-  let itemPtrOrRefType: TypeTag.Ptr | TypeTag.MutPtr | undefined = undefined;
+  let itemPtrOrRefType:
+    | TypeTag.Ptr
+    | TypeTag.MutPtr
+    | TypeTag.Ref
+    | TypeTag.MutRef
+    | undefined = undefined;
 
   if (exprIsAtom(bindingExpr)) {
     elementVariableExpr = bindingExpr;
@@ -135,13 +157,18 @@ export function evaluateFor({
       itemPtrOrRefType = TypeTag.Ptr;
     } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr)) {
       itemPtrOrRefType = TypeTag.MutPtr;
+    } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.Ref)) {
+      itemPtrOrRefType = TypeTag.Ref;
+    } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef)) {
+      itemPtrOrRefType = TypeTag.MutRef;
     }
 
     if (
       !isItemsMutable &&
-      exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr)
+      (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr) ||
+        exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef))
     ) {
-      // If the items are not mutable, we cannot use MutPtr
+      // If the items are not mutable, we cannot use MutPtr or MutRef
       throw formatErrorMessage({
         token: bindingExpr.token,
         errorMessage: `Cannot use &! or *! for immutable items, got:\n${exprToString(bindingExpr)}`,
@@ -182,11 +209,20 @@ export function evaluateFor({
         exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr)
       ) {
         itemPtrOrRefType = TypeTag.MutPtr;
+      } else if (
+        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.Ref)
+      ) {
+        itemPtrOrRefType = TypeTag.Ref;
+      } else if (
+        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef)
+      ) {
+        itemPtrOrRefType = TypeTag.MutRef;
       }
 
       if (
         !isItemsMutable &&
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr)
+        (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr) ||
+          exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef))
       ) {
         // If the items are not mutable, we cannot use MutPtr or MutRef
         throw formatErrorMessage({
@@ -238,6 +274,10 @@ export function evaluateFor({
       itemType = createPtrType(itemType);
     } else if (itemPtrOrRefType === TypeTag.MutPtr) {
       itemType = createMutPtrType(itemType);
+    } else if (itemPtrOrRefType === TypeTag.Ref) {
+      itemType = createRefType(itemType);
+    } else if (itemPtrOrRefType === TypeTag.MutRef) {
+      itemType = createMutRefType(itemType);
     }
   }
 

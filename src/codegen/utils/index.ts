@@ -8,7 +8,9 @@ import {
   FunctionType,
   isFunctionSpecializable,
   isMutPtrType,
+  isMutRefType,
   isPtrType,
+  isRefType,
   isSliceType,
   SliceType,
   Type,
@@ -219,9 +221,14 @@ export function getTypeString(
     }
   }
 
-  if (isPtrType(type) || isMutPtrType(type)) {
+  if (
+    isPtrType(type) ||
+    isMutPtrType(type) ||
+    isRefType(type) ||
+    isMutRefType(type)
+  ) {
     const baseType = type.type;
-    const isMutable = isMutPtrType(type);
+    const isMutable = isMutPtrType(type) || isMutRefType(type);
 
     // Special handling for pointer-to-slice: in Rust-like semantics,
     // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
@@ -347,8 +354,13 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
       // Variant with exactly one element
       const elementType = variant.elements[0]!.type;
 
-      // Check if it's a pointer type
-      if (isPtrType(elementType) || isMutPtrType(elementType)) {
+      // Check if it's a pointer/reference type
+      if (
+        isPtrType(elementType) ||
+        isMutPtrType(elementType) ||
+        isRefType(elementType) ||
+        isMutRefType(elementType)
+      ) {
         if (pointerVariant) {
           return null; // More than one pointer variant
         }

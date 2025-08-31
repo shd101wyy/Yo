@@ -13,7 +13,9 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
+  isMutRefType,
   isPtrType,
+  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -588,6 +590,9 @@ export function synthesizeTypes(
       }
     }
   } else if (
+    (isRefType(expected.type) &&
+      (isRefType(given.type) || isMutRefType(given.type))) ||
+    (isMutRefType(expected.type) && isMutRefType(given.type)) ||
     (isPtrType(expected.type) &&
       (isPtrType(given.type) || isMutPtrType(given.type))) ||
     (isMutPtrType(expected.type) && isMutPtrType(given.type))
