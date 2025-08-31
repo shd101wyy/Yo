@@ -1,3 +1,4 @@
+import { checkBorrowings } from "../../borrow";
 import { sanitizeForCIdentifier } from "../../codegen/utils";
 import {
   addVariableToEnv,
@@ -39,6 +40,8 @@ import {
   isExprType,
   isFunctionSpecializable,
   isFunctionType,
+  isMutRefType,
+  isRefType,
   isTypeHierarchyType,
   Type,
   TypeHierarchyType,
@@ -151,6 +154,8 @@ export function checkIfFunctionParameterMatchesArgument({
 
   // Evaluate the argExpr
   let evaluatedArgExpr: Expr | undefined = undefined;
+  let borrowings = context.borrowings;
+  // let evaluatedDefaultValueExpr: Expr | undefined = undefined;
 
   if (
     !argExpr ||
@@ -226,6 +231,24 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       errorMessage: `Failed to evaluate argument expression.`,
     });
+  }
+
+  // Check the borrowings
+  if (
+    evaluatedArgExpr.$.type &&
+    (isMutRefType(evaluatedArgExpr.$.type) ||
+      isRefType(evaluatedArgExpr.$.type))
+  ) {
+    checkBorrowings(context.borrowings, evaluatedArgExpr);
+
+    // Add evaluated arg expr to the borrowings
+    borrowings = borrowings.concat([
+      {
+        expr: evaluatedArgExpr,
+        type: evaluatedArgExpr.$.type,
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+      },
+    ]);
   }
 
   let argType = evaluatedArgExpr.$.type;
@@ -308,7 +331,7 @@ export function checkIfFunctionParameterMatchesArgument({
   return {
     calleeEnv,
     callerEnv,
-    context: { ...context },
+    context: { ...context, borrowings },
     argValue,
     argType,
     parameterType: parameterType,
@@ -362,6 +385,8 @@ export function tryToCallFunctionWithArguments({
     // Because it might be an anonymous function
     // the parameter names are different from the function type that it's implementing
   }
+
+  const initialBorrowings = [...context.borrowings];
 
   let forallArgsExpr: FuncCallExpr | undefined = undefined;
   let implicitArgExprs: Expr[] = [];
@@ -1321,6 +1346,15 @@ ${implicitVariables
   // );
 
   const pathCollection: PathCollection = [];
+  if (context.borrowings.length !== initialBorrowings.length) {
+    const newBorrowings = context.borrowings.slice(initialBorrowings.length);
+    newBorrowings.forEach((borrowing) => {
+      const pc = borrowing.pathCollection;
+      pc.forEach((path) => {
+        pathCollection.push(path);
+      });
+    });
+  }
 
   const argValues_: ArgValues = {
     args: argValues,

@@ -1,3 +1,4 @@
+import { checkBorrowings } from "../../borrow";
 import {
   Environment,
   getVariablesFromEnv,
@@ -444,6 +445,8 @@ export function evaluateAssignment({
       isMutable: variable.isMutable,
       pathCollection: [[variableName]],
     };
+    // Check the borrowings
+    checkBorrowings(context.borrowings, lhs);
 
     if (!isMutatingDefinedVariable) {
       expr.$ = {
@@ -493,6 +496,9 @@ export function evaluateAssignment({
         errorMessage: `Cannot assign value to the immutable: ${exprToString(lhs)}`,
       });
     }
+
+    // Check the borrowings
+    checkBorrowings(context.borrowings, evaluatedLhs);
 
     // Track variable usage for closure kind checking
     if (context.isEvaluatingFunctionBody && evaluatedLhs.$.pathCollection) {

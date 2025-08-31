@@ -160,6 +160,8 @@ export function evaluatePropertyAccess({
   //
   //   &(point.y) here objectExpr is Point, if we check borrowing here it will throw error.
   //
+  // Check borrowings
+  // checkBorrowings(context.borrowings, objectExpr);
 
   // Check if it's .* for dereference
   if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {

@@ -2,15 +2,22 @@
 import {
   addVariableToEnv,
   Environment,
+  getVariablesFromEnv,
   updateExistingVariable,
   Variable,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
 import { Token, TokenType } from "./token";
-import { areTypesCompatible, Type, typeToString } from "./types";
+import {
+  areTypesCompatible,
+  isType0,
+  Type,
+  typeOfType,
+  typeToString,
+} from "./types";
 import { generateNewTempVariableName } from "./utils";
-import { Value } from "./value";
+import { isTypeValue, Value } from "./value";
 
 /**
  * Eg:
@@ -1384,4 +1391,167 @@ export function replaceFuncCallExpr(
   funcExpr.isInfix = newFuncExpr.isInfix;
   funcExpr.tag = newFuncExpr.tag;
   funcExpr.token = newFuncExpr.token;
+}
+
+export function setExprAsConsumed(
+  expr: Expr,
+  env: Environment,
+  context: EvaluatorContext,
+  consumeFreeAsWell: boolean = false
+): Environment {
+  // Check if it's dereferencing a pointer/reference to linear type value.
+  if (expr.$?.isAccessingProperty && isType0(typeOfType(expr.$.type))) {
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: `Cannot consume a property which is "Linear" value.`,
+      },
+    ]);
+  }
+
+  // Don't consume type values - they should be reusable
+  if (expr.$?.value && isTypeValue(expr.$?.value)) {
+    return env;
+  }
+
+  const nameOfVariableToConsume = expr.$?.variableName;
+  if (!nameOfVariableToConsume) {
+    return env;
+    /*
+    throw formatErrorMessages({
+      modulePath: env.modulePath,
+      inputString: env.inputString,
+      tokenAndErrorList: [
+        {
+          token: expr.token,
+          errorMessage: `Failed to consume the expression as it is not a variable or does not have a temporary variable name.`,
+        },
+      ],
+    });
+    */
+  }
+
+  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
+  if (variables.length === 0) {
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
+      },
+    ]);
+  }
+
+  const variableToConsume = variables[variables.length - 1]!;
+  if (consumeFreeAsWell || isType0(typeOfType(variableToConsume.type))) {
+    // Check if the variable is already consumed
+    if (variableToConsume.consumedAtToken) {
+      throw formatErrorMessages([
+        {
+          token: expr.token,
+          errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
+        },
+        {
+          token: variableToConsume.consumedAtToken,
+          errorMessage: `Previously consumed here:`,
+        },
+      ]);
+    }
+
+    /*
+    // For Fn and FnMut closures, prevent consuming linear values from outer scope
+    if (context.isEvaluatingFunctionBody) {
+      const functionType = context.isEvaluatingFunctionBody.type;
+      // Check if this is a Fn or FnMut closure AND the variable is from outer scope
+      if (
+        (functionType.closureKind === "Fn" ||
+          functionType.closureKind === "FnMut") &&
+        context.isEvaluatingFunctionBody.evaluationEnv &&
+        variableToConsume.frameLevel <
+          context.isEvaluatingFunctionBody.evaluationEnv.frames.length
+      ) {
+        throw formatErrorMessages([
+          {
+            token: expr.token,
+            errorMessage: `Cannot consume a linear value from outer scope in ${functionType.closureKind} closure. ${functionType.closureKind} closures can only borrow variables from outer scope, not consume them.`,
+          },
+          {
+            token: variableToConsume.token,
+            errorMessage: `Linear variable defined here:`,
+          },
+        ]);
+      }
+    }
+
+    // Check if we are consuming a linear value defined outside the function body
+    // Allow FnMove closures to consume outer linear values, but prevent regular functions and Fn/FnMut closures
+    if (
+      context.isEvaluatingFunctionBody &&
+      variableToConsume.frameLevel <
+        context.isEvaluatingFunctionBody.evaluationEnv.frames.length - 1 && // -1 here to exclude the parameters/arguments frame.
+      !(context.isEvaluatingFunctionBody.type.closureKind === "FnMove")
+    ) {
+      throw formatErrorMessages([
+        {
+          token: expr.token,
+          errorMessage: `Cannot consume a linear value defined outside the function body.`,
+        },
+        {
+          token: variableToConsume.token,
+          errorMessage: `Defined here:`,
+        },
+      ]);
+    }
+    */
+
+    // Set the variable as consumed
+    env = updateExistingVariable(env, variableToConsume, {
+      ...variableToConsume,
+      consumedAtToken: expr.token,
+    });
+  }
+  return env;
+}
+
+/**
+ *
+ * Require the given "expr" is not consumed,
+ * if it is consumed, then throw an error.
+ */
+export function requireExprNotConsumed(expr: Expr, env: Environment): void {
+  const nameOfVariableToConsume = expr.$?.variableName;
+  if (!nameOfVariableToConsume) {
+    return;
+  }
+
+  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
+  if (variables.length === 0) {
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
+      },
+    ]);
+  }
+
+  const variableToConsume = variables[variables.length - 1]!;
+  // NOTE: We also allow Free value to be consumed now.
+  // if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
+  // Check if the variable is already consumed
+  if (
+    // isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
+    variableToConsume.consumedAtToken
+  ) {
+    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`;
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage,
+      },
+      {
+        token: variableToConsume.consumedAtToken,
+        errorMessage: `Previously consumed here:`,
+      },
+    ]);
+  }
+  // }
 }

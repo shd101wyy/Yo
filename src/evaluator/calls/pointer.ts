@@ -1,3 +1,4 @@
+import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -99,6 +100,9 @@ export function evaluateRawPointerCall({
   } else {
     // The arg cannot be consumed.
     requireExprNotConsumed(evaluatedArgExpr, env);
+
+    // Check borrowings
+    checkBorrowings(context.borrowings, evaluatedArgExpr);
 
     const argType = evaluatedArgExpr.$.type;
     const pointerType =

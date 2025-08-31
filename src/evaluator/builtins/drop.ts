@@ -1,13 +1,20 @@
+import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   Expr,
+  exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
+  replaceFuncCallExpr,
+  setExprAsConsumed,
 } from "../../expr";
+import { generateExprFromCode } from "../../parser";
+import { isSomeType, isType0 } from "../../types";
 import { VUnit } from "../../unit-value";
+import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 
 /**
@@ -44,7 +51,42 @@ export function evaluateDrop({
   }
   env = evaluatedArgExpr.$.env;
 
-  // No consumption logic - just return unit
+  // Check if the drop argument is already borrowed
+  checkBorrowings(context.borrowings, evaluatedArgExpr);
+
+  // Check if there is `.drop` method available to call
+  // for Linear value
+  if (
+    !isSomeType(evaluatedArgExpr.$.type) &&
+    isType0(evaluatedArgExpr.$.type)
+  ) {
+    const dropMethodCallExpr = generateExprFromCode(
+      `(${exprToString(evaluatedArgExpr)}).drop()`
+    ) as FuncCallExpr;
+
+    // Convert this drop(x) to x.drop() and evaluate the function call
+    const evaluatedDropMethodCallExpr = evaluateFunctionCall({
+      env,
+      context: { ...context },
+      expr: dropMethodCallExpr,
+    });
+
+    // Replace the original expr with the evaluated drop method call
+    if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
+      replaceFuncCallExpr(expr, evaluatedDropMethodCallExpr);
+      return expr;
+    } else {
+      // In theory we shouldn't enter here
+      return evaluatedDropMethodCallExpr;
+    }
+  }
+
+  // Set the expression as consumed
+  env = setExprAsConsumed(evaluatedArgExpr, env, context);
+
+  // TODO: Handle calling drop function.
+  // In theory, the Free values will be ignored.
+
   expr.$ = {
     env,
     type: VUnit.type,
