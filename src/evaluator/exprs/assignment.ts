@@ -412,11 +412,9 @@ export function evaluateAssignment({
         // Clone the enum only for value semantics, not for reference semantics
         const enumType = variable.type as EnumType;
         if (!enumType.isReferenceSemantics) {
-          valueToStore = createEnumValue(
-            enumType,
-            valueToStore.variantName,
-            [...valueToStore.elements]
-          );
+          valueToStore = createEnumValue(enumType, valueToStore.variantName, [
+            ...valueToStore.elements,
+          ]);
         }
         // For reference semantics enums, keep the original value to share the reference
       }
@@ -469,11 +467,9 @@ export function evaluateAssignment({
         // Clone the enum only for value semantics, not for reference semantics
         const enumType = variable.type as EnumType;
         if (!enumType.isReferenceSemantics) {
-          valueToStore = createEnumValue(
-            enumType,
-            valueToStore.variantName,
-            [...valueToStore.elements]
-          );
+          valueToStore = createEnumValue(enumType, valueToStore.variantName, [
+            ...valueToStore.elements,
+          ]);
         }
         // For reference semantics enums, keep the original value to share the reference
       }
@@ -768,13 +764,17 @@ export function evaluateAssignment({
                     newElements
                   );
 
-                  // For reference semantics enums, we need to update ALL variables 
+                  // For reference semantics enums, we need to update ALL variables
                   // that point to the same enum object
-                  if (isEnumType(variable.type) && variable.type.isReferenceSemantics) {
+                  if (
+                    isEnumType(variable.type) &&
+                    variable.type.isReferenceSemantics
+                  ) {
                     // Find all variables in the environment that have the same enum value
                     // and update them all to maintain reference semantics
-                    const allVariables = getVariablesFromEnvByFilter(env, (v) =>
-                      v.isCompileTimeOnly && v.value === currentValue
+                    const allVariables = getVariablesFromEnvByFilter(
+                      env,
+                      (v) => v.isCompileTimeOnly && v.value === currentValue
                     );
                     for (const sharedVariable of allVariables) {
                       env = updateExistingVariable(env, sharedVariable, {

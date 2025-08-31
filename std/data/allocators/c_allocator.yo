@@ -94,15 +94,15 @@ CAllocator :: struct(
 
           // Handle zero size case
           if (new_count == (0).as(usize)), {
-            free(raw_old);
+            free(.Some(raw_old));
             return .Ok(.None);
           };
           
           new_size := (new_count * sizeof(T).as(usize));
-          new_ptr := realloc(.Some(raw_old), new_size);
-          match new_ptr,
-            .Some => {
-              typed_ptr := new_ptr.value.cast(*!(T));
+          some_new_ptr := realloc(.Some(raw_old), new_size);
+          match some_new_ptr,
+            .Some(new_ptr) => {
+              typed_ptr := new_ptr.cast(*!(T));
               .Ok(.Some(typed_ptr))
             },
             .None => .Error(.OutOfMemory)
