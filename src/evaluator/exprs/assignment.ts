@@ -2,6 +2,7 @@ import { checkBorrowings } from "../../borrow";
 import {
   Environment,
   getVariablesFromEnv,
+  getVariablesFromEnvByFilter,
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages } from "../../error";
@@ -26,6 +27,7 @@ import {
   isClosureType,
   isEnumType,
   isSomeType,
+  isStructType,
   isTypeHierarchyType,
   StructType,
   TupleType,
@@ -36,9 +38,11 @@ import {
 import { VUnit } from "../../unit-value";
 import {
   createArrayValue,
+  createEnumValue,
   createStructValue,
   createTupleValue,
   isArrayValue,
+  isEnumValue,
   isFunctionValue,
   isModuleValue,
   isStructValue,
@@ -398,12 +402,23 @@ export function evaluateAssignment({
       }
 
       // Initialize the variable
-      // For value semantics, clone array values when initializing variables
+      // For value semantics, clone array and enum values when initializing variables
       let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
       if (valueToStore && isArrayValue(valueToStore)) {
         // Clone the array to ensure value semantics
         const arrayType = variable.type as ArrayType;
         valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
+      } else if (valueToStore && isEnumValue(valueToStore)) {
+        // Clone the enum only for value semantics, not for reference semantics
+        const enumType = variable.type as EnumType;
+        if (!enumType.isReferenceSemantics) {
+          valueToStore = createEnumValue(
+            enumType,
+            valueToStore.variantName,
+            [...valueToStore.elements]
+          );
+        }
+        // For reference semantics enums, keep the original value to share the reference
       }
 
       env = updateExistingVariable(env, variable, {
@@ -444,12 +459,23 @@ export function evaluateAssignment({
       }
 
       // Update the variable value
-      // For value semantics, clone array values when assigning to new variables
+      // For value semantics, clone array and enum values when assigning to new variables
       let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
       if (valueToStore && isArrayValue(valueToStore)) {
         // Clone the array to ensure value semantics
         const arrayType = variable.type as ArrayType;
         valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
+      } else if (valueToStore && isEnumValue(valueToStore)) {
+        // Clone the enum only for value semantics, not for reference semantics
+        const enumType = variable.type as EnumType;
+        if (!enumType.isReferenceSemantics) {
+          valueToStore = createEnumValue(
+            enumType,
+            valueToStore.variantName,
+            [...valueToStore.elements]
+          );
+        }
+        // For reference semantics enums, keep the original value to share the reference
       }
 
       env = updateExistingVariable(env, variable, {
@@ -641,28 +667,56 @@ export function evaluateAssignment({
               );
 
               if (fieldIndex >= 0 && rhs.$?.value) {
-                // Create a new struct/tuple value with the updated field
-                const newElements = [...currentValue.elements];
-                newElements[fieldIndex] = rhs.$.value;
-
-                let newValue: StructValue | TupleValue;
-                if (isStructValue(currentValue)) {
-                  newValue = createStructValue(
-                    structType as StructType,
+                // For reference semantics structs, we need to update ALL variables
+                // that point to the same struct object
+                if (
+                  isStructType(variable.type) &&
+                  variable.type.isReferenceSemantics
+                ) {
+                  // Create a new struct value with the updated field
+                  const newElements = [...currentValue.elements];
+                  newElements[fieldIndex] = rhs.$.value;
+                  const newValue = createStructValue(
+                    variable.type,
                     newElements
                   );
+
+                  // Find all variables in the environment that have the same struct value
+                  // and update them all to maintain reference semantics
+                  const allVariables = getVariablesFromEnvByFilter(
+                    env,
+                    (v) => v.isCompileTimeOnly && v.value === currentValue
+                  );
+                  for (const sharedVariable of allVariables) {
+                    env = updateExistingVariable(env, sharedVariable, {
+                      ...sharedVariable,
+                      value: newValue,
+                    });
+                  }
                 } else {
-                  newValue = createTupleValue(
-                    structType as TupleType,
-                    newElements
-                  );
-                }
+                  // Value semantics - only update the specific variable
+                  const newElements = [...currentValue.elements];
+                  newElements[fieldIndex] = rhs.$.value;
 
-                // Update the variable in the environment
-                env = updateExistingVariable(env, variable, {
-                  ...variable,
-                  value: newValue,
-                });
+                  let newValue: StructValue | TupleValue;
+                  if (isStructValue(currentValue)) {
+                    newValue = createStructValue(
+                      structType as StructType,
+                      newElements
+                    );
+                  } else {
+                    newValue = createTupleValue(
+                      structType as TupleType,
+                      newElements
+                    );
+                  }
+
+                  // Update only this variable
+                  env = updateExistingVariable(env, variable, {
+                    ...variable,
+                    value: newValue,
+                  });
+                }
               }
             }
             // Handle array index assignment
@@ -686,6 +740,56 @@ export function evaluateAssignment({
                   ...variable,
                   value: newValue,
                 });
+              }
+            }
+            // Handle enum field assignment
+            else if (isEnumValue(currentValue)) {
+              const enumType = variable.type as EnumType;
+
+              // Find the selected variant
+              const selectedVariant = enumType.variants.find(
+                (variant) => variant.name === currentValue.variantName
+              );
+
+              if (selectedVariant) {
+                // Find the field index in the variant
+                const fieldIndex = (selectedVariant.elements ?? []).findIndex(
+                  (element) => element.label === fieldOrIndex
+                );
+
+                if (fieldIndex >= 0 && rhs.$?.value) {
+                  // Create a new enum value with the updated field
+                  const newElements = [...currentValue.elements];
+                  newElements[fieldIndex] = rhs.$.value;
+
+                  const newValue = createEnumValue(
+                    enumType,
+                    currentValue.variantName,
+                    newElements
+                  );
+
+                  // For reference semantics enums, we need to update ALL variables 
+                  // that point to the same enum object
+                  if (isEnumType(variable.type) && variable.type.isReferenceSemantics) {
+                    // Find all variables in the environment that have the same enum value
+                    // and update them all to maintain reference semantics
+                    const allVariables = getVariablesFromEnvByFilter(env, (v) =>
+                      v.isCompileTimeOnly && v.value === currentValue
+                    );
+                    for (const sharedVariable of allVariables) {
+                      env = updateExistingVariable(env, sharedVariable, {
+                        ...sharedVariable,
+                        value: newValue,
+                      });
+                    }
+                  } else {
+                    // Value semantics - only update the specific variable
+                    env = updateExistingVariable(env, variable, {
+                      ...variable,
+                      value: newValue,
+                    });
+                  }
+                }
               }
             }
           }
