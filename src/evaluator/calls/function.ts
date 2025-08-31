@@ -1185,7 +1185,24 @@ ${functionsWithMatchingTypes
         isMutRefType(functionToCall.type)) &&
         isSliceType(functionToCall.type.type))
     ) {
-      const { value, type, callerEnv } = getArrayCallResult(functionToCall);
+      const { value, index, type, callerEnv } =
+        getArrayCallResult(functionToCall);
+
+      // Build pathCollection for array access
+      let pathCollection = func.$?.pathCollection ?? [];
+      // If there's a single argument (index), add it to the path for assignment support
+      if (args.length === 1 && typeof index === "number") {
+        if (pathCollection.length > 0) {
+          // Add the index to the existing path
+          pathCollection = pathCollection.map((path) => [
+            ...path,
+            index.toString(),
+          ]);
+        } else if (func.$?.variableName) {
+          // Create a new path with the variable name and index
+          pathCollection = [[func.$.variableName, index.toString()]];
+        }
+      }
 
       expr.$ = {
         env: callerEnv,
@@ -1205,7 +1222,7 @@ ${functionsWithMatchingTypes
           isMutPtrType(functionToCall.type) ||
           isMutRefType(functionToCall.type),
         originType: func.$?.originType ?? functionToCall.type, // Array access inherits origin type
-        pathCollection: func.$?.pathCollection ?? [],
+        pathCollection: pathCollection,
         /**
          * NOTE: We need to set isAccessingProperty to true here
          * to prevent getting an array element of Linear type.

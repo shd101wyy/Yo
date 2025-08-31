@@ -185,7 +185,12 @@ export function tryToCallArrayWithArguments({
 
     // It's compile time known value
     if (arrayValue) {
-      if (isNumberValue(evaluatedArgExpr.$.value)) {
+      if (!evaluatedArgExpr.$.value) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Expected compile-time known value for array index, got runtime value.`,
+        });
+      } else if (isNumberValue(evaluatedArgExpr.$.value)) {
         const index = evaluatedArgExpr.$.value.value;
         if (index < 0 || index >= arrayValue.elements.length) {
           throw formatErrorMessage({
@@ -194,7 +199,7 @@ export function tryToCallArrayWithArguments({
           });
         }
         const value = arrayValue.elements[index]!;
-        return { value, type: returnType, callerEnv };
+        return { value, index, type: returnType, callerEnv };
       } else {
         // TODO: Check the index bound?
         const value = createUnknownValue(returnType);

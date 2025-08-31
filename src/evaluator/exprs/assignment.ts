@@ -18,6 +18,7 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  ArrayType,
   ClosureType,
   createArrayType,
   EnumType,
@@ -26,16 +27,26 @@ import {
   isEnumType,
   isSomeType,
   isTypeHierarchyType,
+  StructType,
+  TupleType,
   Type,
   typeRequiresInference,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import {
+  createArrayValue,
+  createStructValue,
+  createTupleValue,
+  isArrayValue,
   isFunctionValue,
   isModuleValue,
+  isStructValue,
+  isTupleValue,
   isTypeValue,
   isUnknownValue,
+  StructValue,
+  TupleValue,
 } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
@@ -387,10 +398,18 @@ export function evaluateAssignment({
       }
 
       // Initialize the variable
+      // For value semantics, clone array values when initializing variables
+      let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
+      if (valueToStore && isArrayValue(valueToStore)) {
+        // Clone the array to ensure value semantics
+        const arrayType = variable.type as ArrayType;
+        valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
+      }
+
       env = updateExistingVariable(env, variable, {
         ...variable,
         initializedAtToken: lhs.token,
-        value: variable.isCompileTimeOnly ? rhsValue : undefined,
+        value: valueToStore,
         type: variableType,
         // type: rhsType,
       });
@@ -425,9 +444,17 @@ export function evaluateAssignment({
       }
 
       // Update the variable value
+      // For value semantics, clone array values when assigning to new variables
+      let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
+      if (valueToStore && isArrayValue(valueToStore)) {
+        // Clone the array to ensure value semantics
+        const arrayType = variable.type as ArrayType;
+        valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
+      }
+
       env = updateExistingVariable(env, variable, {
         ...variable,
-        value: variable.isCompileTimeOnly ? rhsValue : undefined,
+        value: valueToStore,
         type: variableType,
       });
       isMutatingDefinedVariable = true;
@@ -473,7 +500,8 @@ export function evaluateAssignment({
     return expr;
   }
   // Something like
-  // x.a = 12;
+  // - x.a = 12;
+  // - arr(0) = 12;
   else {
     // Evaluate the lhs
     const evaluatedLhs = context.evaluateExpression({
@@ -578,6 +606,91 @@ export function evaluateAssignment({
 - Expected: ${typeToString(expectedType)}
 - Given   : ${typeToString(rhsType)}`,
       });
+    }
+
+    // For field/index assignments, we need to update the actual variable value
+    // if it's a compile-time mutable variable
+    if (
+      evaluatedLhs.$.pathCollection &&
+      evaluatedLhs.$.pathCollection.length > 0
+    ) {
+      const path = evaluatedLhs.$.pathCollection[0];
+      if (path && path.length >= 2) {
+        const variableName = path[0] as string;
+        const fieldOrIndex = path[1] as string;
+
+        // Get the variable from environment
+        const variables = getVariablesFromEnv(env, variableName);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+
+          // If it's a compile-time mutable variable with a struct/array value, update it
+          if (
+            variable.isMutable &&
+            variable.isCompileTimeOnly &&
+            variable.value
+          ) {
+            const currentValue = variable.value;
+
+            // Handle struct/tuple field assignment
+            if (isStructValue(currentValue) || isTupleValue(currentValue)) {
+              // Find the field index
+              const structType = variable.type as StructType | TupleType;
+              const fieldIndex = structType.elements.findIndex(
+                (element) => element.label === fieldOrIndex
+              );
+
+              if (fieldIndex >= 0 && rhs.$?.value) {
+                // Create a new struct/tuple value with the updated field
+                const newElements = [...currentValue.elements];
+                newElements[fieldIndex] = rhs.$.value;
+
+                let newValue: StructValue | TupleValue;
+                if (isStructValue(currentValue)) {
+                  newValue = createStructValue(
+                    structType as StructType,
+                    newElements
+                  );
+                } else {
+                  newValue = createTupleValue(
+                    structType as TupleType,
+                    newElements
+                  );
+                }
+
+                // Update the variable in the environment
+                env = updateExistingVariable(env, variable, {
+                  ...variable,
+                  value: newValue,
+                });
+              }
+            }
+            // Handle array index assignment
+            else if (isArrayValue(currentValue)) {
+              const arrayIndex = parseInt(fieldOrIndex, 10);
+              if (
+                !isNaN(arrayIndex) &&
+                arrayIndex >= 0 &&
+                arrayIndex < currentValue.elements.length &&
+                rhs.$?.value
+              ) {
+                // Create a new array value with the updated element
+                const newElements = [...currentValue.elements];
+                newElements[arrayIndex] = rhs.$.value;
+
+                const arrayType = variable.type as ArrayType;
+                const newValue = createArrayValue(arrayType, newElements);
+
+                // Update the variable in the environment
+                env = updateExistingVariable(env, variable, {
+                  ...variable,
+                  value: newValue,
+                });
+              }
+            }
+          }
+        }
+      }
     }
 
     // Attach the updated env to expr

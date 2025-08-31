@@ -144,9 +144,14 @@ export interface ModuleTypeCallResult {
 
 export interface ArrayCallResult {
   /**
-   * The value accessing the array element.
+   * The value by index from the array value.
    */
   value: Value | undefined;
+
+  /**
+   * The index used to access the array, if it's compile-time known.
+   */
+  index?: number;
 
   /**
    * Type of the return value.
