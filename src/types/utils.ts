@@ -110,7 +110,8 @@ export function typeContains2ndClassReference(type?: Type): boolean {
 
   // Check if the type is a ClosureType - Fn and FnMut contain references
   if (isClosureType(type)) {
-    return true;
+    return false; // It's now all FnMove, which doesn't contain references.
+    // return true;
     /*
     const closureType = type as ClosureType;
     const closureKind = closureType.callType.closureKind;

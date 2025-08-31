@@ -5,16 +5,16 @@ main :: (fn() -> unit) {
   {
     I32Ptr :: *(i32);
     p : *(i32);
-    p = &(x);
-    (p2 : *(i32)) = &(x); // Create pointer
-    p3 := &(x); // Create pointer
+    p = *(x);
+    (p2 : *(i32)) = *(x); // Create pointer
+    p3 := *(x); // Create pointer
     q := p.*; // Dereference pointer
   };
 
   // mutable pointer
   {
     mut(x) := 12;
-    p := &!(x); // Create mutable pointer
+    p := *!(x); // Create mutable pointer
     // NOTE: Creating mutable pointer to immutable value is not allowed
     
     q := p.*;   // Dereference mutable pointer
@@ -31,6 +31,6 @@ main :: (fn() -> unit) {
       p.* = q.*;
       q.* = tmp;
     };
-    swap(&!(p.x), &!(y));
+    swap(*!(p.x), *!(y));
   };
 };

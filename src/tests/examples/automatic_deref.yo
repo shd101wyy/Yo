@@ -11,8 +11,8 @@ Point :: struct
 
 test_ptr :: (fn() -> unit) {
   point := Point(3, 4, 5);
-  ptr := &(point); // Create pointer to `point`
-  pptr := &(&(point)); // Create pointer to pointer to `point`
+  ptr := *(point); // Create pointer to `point`
+  pptr := *(*(point)); // Create pointer to pointer to `point`
   
   // Accessing fields directly
   {
@@ -50,25 +50,26 @@ test_ptr :: (fn() -> unit) {
 
   // Accesing fields through reference
   {
-    pt_ref := &(point);
-    x := pt_ref.x;
-    y := pt_ref.y;
+    borrow &(point), pt_ref => {
+      x := pt_ref.x;
+      y := pt_ref.y;
 
-    // The same as above ^
-    x1 := pt_ref.*.x;
-    y1 := pt_ref.*.y;
+      // The same as above ^
+      x1 := pt_ref.*.x;
+      y1 := pt_ref.*.y;
 
-    compt_expect_error(
-      { x : x2, y : y2, z } := pt_ref,
-      "error: cannot destructure pointer/reference"
-    );
+      compt_expect_error(
+        { x : x2, y : y2, z } := pt_ref,
+        "error: cannot destructure pointer/reference"
+      );
 
-    // {
-    //   Taking out linear value from free value is not allowed:
-    //   { x : x2, y : y2, z } := pt_ref; // <- Not allowed to move `z` out.
-    //   { x : x2, y : y2, &(z) } := pt_ref; // allowed, z has type: &(LinearI32)
-    //                                       // It's like `pt_ref` is borrowed, so after destructuring, `pt_ref` cannot be used anymore.
-    // };
-    // ^ Too complicated
+      // {
+      //   Taking out linear value from free value is not allowed:
+      //   { x : x2, y : y2, z } := pt_ref; // <- Not allowed to move `z` out.
+      //   { x : x2, y : y2, &(z) } := pt_ref; // allowed, z has type: &(LinearI32)
+      //                                       // It's like `pt_ref` is borrowed, so after destructuring, `pt_ref` cannot be used anymore.
+      // };
+      // ^ Too complicated
+    };
   };
 };

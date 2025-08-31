@@ -1,6 +1,6 @@
 open import "std";
 
-(compt(LinearI32) : Linear) = i32;
+(compt(LinearI32) : Type) = i32;
 
 Shape :: enum
   Circle(radius: i32),
@@ -54,13 +54,12 @@ test :: (fn() -> unit) {
 
 test_ref :: (fn(ref: &(Shape)) -> unit) {
   match ref,
-    .Circle => {
-        radius := ref.radius;
+    .Circle(radius) => {
         ();
     },
-    .LinearShape => {
-        width := *(ref.width);
-        height := *(ref.height);
+    .LinearShape(width, height) => {
+        width := *(width);
+        height := *(height);
     }
   ;
 };

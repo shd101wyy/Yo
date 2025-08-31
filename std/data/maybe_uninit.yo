@@ -2,9 +2,9 @@ extern "Yo",
   __yo_maybe_uninit_new : 
     (fn(compt(Self) : Type) -> Self),
   __yo_maybe_uninit_as_mut_ptr : 
-    (fn(compt(Self) : Type, compt(BaseType): Type, self: *!(Self)) -> *!(BaseType)),
+    (fn(compt(Self) : Type, compt(BaseType): Type, self: &!(Self)) -> *!(BaseType)),
   __yo_maybe_uninit_as_ptr : 
-    (fn(compt(Self) : Type, compt(BaseType): Type, self: *!(Self)) -> *(BaseType)),
+    (fn(compt(Self) : Type, compt(BaseType): Type, self: &!(Self)) -> *(BaseType)),
   __yo_maybe_uninit_assume_init : 
     (fn(compt(Self) : Type, compt(BaseType): Type, self: Self) -> BaseType)
 ;
@@ -15,11 +15,11 @@ MaybeUninit :: (fn(compt(BaseType): Type) -> compt(Type))
 
     new :: ((fn() -> Self) __yo_maybe_uninit_new(Self)),
 
-    as_mut_ptr :: ((fn(self: *!(Self)) -> *!(BaseType))
+    as_mut_ptr :: ((fn(self: &!(Self)) -> *!(BaseType))
       __yo_maybe_uninit_as_mut_ptr(Self, BaseType, self)
     ),
 
-    as_ptr :: ((fn(self: *!(Self)) -> *(BaseType))
+    as_ptr :: ((fn(self: &!(Self)) -> *(BaseType))
       __yo_maybe_uninit_as_ptr(Self, BaseType, self)
     ),
 

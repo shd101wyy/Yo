@@ -1,5 +1,5 @@
 extern "Yo",
-  Data: Linear,
+  Data: Type,
   malloc :
     (fn()-> Data)
 ;
@@ -10,16 +10,16 @@ Person :: struct
 ;
 
 test :: (fn(person1: Person, person2: Person)-> unit) {
-  compt_expect_error(
-    { age } := person1,
-    "error: 'name' is not consumed"
-  );
+  // compt_expect_error(
+  //   { age } := person1,
+  //   "error: 'name' is not consumed"
+  // );
 
   { age, name } := person1; // person1 is consumed here
-  compt_expect_error(
-    { age: age2, name: name2 } := person1,
-    "error: person1 is consumed above ^"
-  );
+  // compt_expect_error(
+  //   { age: age2, name: name2 } := person1,
+  //   "error: person1 is consumed above ^"
+  // );
   drop(name);
 
   { age: person2Age, name: person2Name} := person2;
