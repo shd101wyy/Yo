@@ -1,70 +1,20 @@
-open import "std";
+extern "Yo",
+  __yo_ptr_cast :
+    fn(forall(Source: Type), source : *(Source)) -> unit // <- this doesn't work
+//  fn(forall(Source2: Type), source : *(Source2)) -> unit // <- this works
+;
 
-GiveInt :: module(
-  Self : Type,
-  give_int :
-    fn(self : &(Self)) -> int
-);
+PtrMethods :: impl {
+  // Cast pointer to another type
+  cast :: (fn(forall(Source: Type), source: *(Source)) -> unit)
+    __yo_ptr_cast(source)
+  ;
 
-BoxedBoolean :: Box(boolean);
-BoxedI32 :: Box(i32);
-
-given(BooleanGiveInt) :: GiveInt(
-  Self : BoxedBoolean,
-  give_int :
-    (self) -> 0
-);
-
-given(I32GiveInt) :: GiveInt(
-  Self : BoxedI32,
-  give_int :
-    (self) -> 1
-);
-
-given(I32GiveAnotherInt) :: GiveInt(
-  Self : BoxedI32,
-  give_int :
-    (self) -> 2
-);
-
-use_id :: 
-  (fn(
-    value : Dyn(GiveInt)
-  ) -> unit) {
-  x := &(value).give_int();
+  export cast;
 };
 
-x := box(12);
-use_id(dyn(x, I32GiveInt));
-use_id(dyn(x, (I32GiveAnotherInt,)));
-
-// Will give error because there are two available GiveInt for i32
-compt_expect_error(use_id(*(dyn(x))), "Ambiguous implicit modules found for type GiveInt");
-
-y := box(true);
-use_id(dyn(y, BooleanGiveInt));
-use_id(dyn(y, (BooleanGiveInt,)));
-use_id(dyn(y));
-
-
-SayHi :: module(
-  Self : Type,
-  say_hi :
-    fn(self : &(Self)) -> unit
-);
-given(BooleanSayHi) :: SayHi(
-  Self : BoxedBoolean,
-  say_hi :
-    (self) -> ()
-);
-
-{
-  b := box(false);
-  compt_expect_error(dyn_b := dyn(b, BooleanSayHi)); // dyn_b needs to provide expected type
-
-  (dyn_b1 : Dyn(SayHi, GiveInt)) = dyn(b);
-  (dyn_b2 : Dyn(SayHi, GiveInt)) = dyn(b, BooleanSayHi);
-  (dyn_b3 : Dyn(SayHi, GiveInt)) = dyn(b, BooleanGiveInt);
-  (dyn_b4 : Dyn(SayHi, GiveInt)) = dyn(b, (BooleanGiveInt, BooleanSayHi));
-  (dyn_b5 : Dyn(SayHi, GiveInt)) = dyn(b, (BooleanSayHi, BooleanGiveInt));
+test :: (fn(forall(T : Type), old_ptr : *!(T)) -> unit) {
+  // __yo_ptr_cast(old_ptr);
+  // PtrMethods.cast(old_ptr);
+  old_ptr.cast();
 };

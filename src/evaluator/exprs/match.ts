@@ -541,6 +541,22 @@ export function evaluateMatch({
                 });
                 caseEnv = nextEnv;
               }
+
+              // Add type information to the variableExpr and labelExpr
+              variableExpr.$ = {
+                env: caseEnv,
+                type: element.type,
+                value: undefined,
+                isMutable: false,
+                pathCollection: [],
+              };
+              labelExpr.$ = {
+                env: caseEnv,
+                type: element.type,
+                value: undefined,
+                isMutable: false,
+                pathCollection: [],
+              };
             } else {
               throw formatErrorMessage({
                 token: variableExpr.token,
@@ -572,6 +588,15 @@ export function evaluateMatch({
               });
               caseEnv = nextEnv;
             }
+
+            // Add type information to the param
+            param.$ = {
+              env: caseEnv,
+              type: element.type,
+              value: undefined,
+              isMutable: false,
+              pathCollection: [],
+            };
           } else {
             throw formatErrorMessage({
               token: param.token,

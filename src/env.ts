@@ -567,23 +567,26 @@ export function getMethodsByNameFromEnv(
   function filterMethodsByReceiverType(
     methods: { type: Type; value: Value | undefined }[]
   ): { type: Type; value: Value | undefined }[] {
-    return methods.filter((method) => {
+    const filtered = methods.filter((method) => {
       if (isFunctionType(method.type)) {
         // Check if the first parameter is compatible with the receiverType
-        return (
+        const isCompatible =
           method.type.parameters.length > 0 &&
           (typeContainsSomeType(method.type.parameters[0]!.type) || // Leave it to the later function call checker.
+            typeContainsSomeType(receiverType) ||
             areTypesCompatible(
               {
                 type: method.type.parameters[0]!.type,
                 env: method.type.env, // QUESTION: What should be the env here?
               },
-              { type: receiverType, env }
-            ))
-        );
+              { type: receiverType, env },
+              true // isMethodReceiver
+            ));
+        return isCompatible;
       }
       return true; // QUESTION: How to handle non-function types?
     });
+    return filtered;
   }
 
   // Automatically dereference if it's pointer/reference type
@@ -641,12 +644,14 @@ export function getMethodsByNameFromEnv(
         if (
           method.type.parameters.length > 0 &&
           (typeContainsSomeType(method.type.parameters[0]!.type) || // Leave it to the later function call checker.
+            typeContainsSomeType(receiverType) ||
             areTypesCompatible(
               {
                 type: method.type.parameters[0]!.type,
                 env: method.type.env,
               },
-              { type: receiverType, env }
+              { type: receiverType, env },
+              true // isMethodReceiver
             ))
         ) {
           // For dynamic dispatch, we create an unknown value since we don't know

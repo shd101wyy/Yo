@@ -14,11 +14,11 @@ CAllocator :: struct(
       };
       
       size := (count * sizeof(T).as(usize));
-      ptr := malloc(size);
-      match ptr,
-        .Some => {
+      some_ptr := malloc(size);
+      match some_ptr,
+        .Some(ptr) => {
           // Cast the void pointer to the correct type
-          typed_ptr := ptr.value.cast(*!(T));
+          typed_ptr := ptr.cast(*!(T));
           .Ok(.Some(typed_ptr))
         },
         .None => .Error(.OutOfMemory)
@@ -30,10 +30,10 @@ CAllocator :: struct(
         return .Error(.InvalidSize);
       };
       
-      ptr := calloc(count, sizeof(T).as(usize));
-      match ptr,
-        .Some => {
-          typed_ptr := ptr.value.cast(*!(T));
+      some_ptr := calloc(count, sizeof(T).as(usize));
+      match some_ptr,
+        .Some(ptr) => {
+          typed_ptr := ptr.cast(*!(T));
           .Ok(.Some(typed_ptr))
         },
         .None => .Error(.OutOfMemory)
@@ -61,36 +61,36 @@ CAllocator :: struct(
       
       // For now, fall back to regular malloc (would need aligned_alloc in real implementation)
       size := (count * sizeof(T).as(usize));
-      ptr := malloc(size);
-      match ptr,
-        .Some => {
-          typed_ptr := ptr.value.cast(*!(T));
+      some_ptr := malloc(size);
+      match some_ptr,
+        .Some(ptr) => {
+          typed_ptr := ptr.cast(*!(T));
           .Ok(.Some(typed_ptr))
         },
         .None => .Error(.OutOfMemory)
     }),
 
-    realloc : ((forall(T), self, old_ptr, new_count) -> {
+    realloc : ((forall(T), self, some_old_ptr, new_count) -> {
       // Check for overflow
       if (size_would_overflow(T, new_count)), {
         return .Error(.InvalidSize);
       };
       
       // Handle null pointer case
-      match old_ptr,
+      match some_old_ptr,
         .None => {
           // Realloc with null pointer behaves like malloc
           size := (new_count * sizeof(T).as(usize));
-          ptr := malloc(size);
-          match ptr,
-            .Some => {
-              typed_ptr := ptr.value.cast(*!(T));
+          some_ptr := malloc(size);
+          match some_ptr,
+            .Some(ptr) => {
+              typed_ptr := ptr.cast(*!(T));
               .Ok(.Some(typed_ptr))
             },
             .None => .Error(.OutOfMemory)
         },
-        .Some => {
-          raw_old := (old_ptr.value).cast(*!(void));
+        .Some(old_ptr) => {
+          raw_old := old_ptr.cast(*!(void));
 
           // Handle zero size case
           if (new_count == (0).as(usize)), {
