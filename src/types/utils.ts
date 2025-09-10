@@ -33,6 +33,7 @@ import {
   UnionType,
 } from "./definitions";
 import {
+  isARCType,
   isArrayType,
   isBooleanType,
   isCCompatibleType,
@@ -146,6 +147,41 @@ export function typeContains2ndClassReference(type?: Type): boolean {
       return (type as ModuleType).elements.some((element) =>
         typeContains2ndClassReference(element.type)
       );
+    default:
+      return false; // For other types, no references are present
+  }
+}
+
+/**
+ * Check if the type contains `ref struct/enum`
+ * @param type
+ */
+export function typeContainsARCType(type?: Type): boolean {
+  if (!type) {
+    return false;
+  }
+
+  if (isARCType(type)) {
+    return true;
+  }
+
+  // Recursively check in complex types
+  switch (type.tag) {
+    case TypeTag.Array:
+      return typeContainsARCType((type as ArrayType).elementType);
+    case TypeTag.Tuple:
+      return (type as TupleType).elements.some((element) =>
+        typeContainsARCType(element.type)
+      );
+    case TypeTag.Union:
+      return (type as UnionType).elements.some((element) =>
+        typeContainsARCType(element.type)
+      );
+    case TypeTag.Module:
+      return (type as ModuleType).elements.some((element) =>
+        typeContainsARCType(element.type)
+      );
+    // No need to consider ptr/ref types, as they are not owning types
     default:
       return false; // For other types, no references are present
   }

@@ -410,7 +410,7 @@ export const BuiltinKeywords = {
   borrow: ["borrow", "~>"],
   open: ["open"],
   // pass: ["paas"], // pass is the same as noop
-  drop: ["drop"],
+  // drop: ["drop"],
   clone: ["clone", "%"], // IDEA: two circles and a slash perfectly represent clone!
   break: ["break"],
   continue: ["continue"],
@@ -790,6 +790,13 @@ export const BuiltinFunctions = {
 
   // C language related
   c_include: ["c_include"],
+
+  // ARC related
+  is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
+  __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
+  __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
+  ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
+  ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
 
   /// Others
   __yo_noop: ["__yo_noop"],

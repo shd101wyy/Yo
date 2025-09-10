@@ -1,99 +1,145 @@
-open import "std";
+Point :: ref struct
+  x : i32,
+  y : i32
+;
 
-// Value semantics
-/// struct
-{
-  Point :: struct(
-    x : i32,
-    y : i32
-  );
+// extern "yo",
+//   use_point: (fn(p : Point) -> unit),
+//   use_point_ref: (fn(p : &(Point)) -> unit)
+// ;
+// make_point :: (fn() -> Point) Point(1, 2);
 
-  mut(p1) :: Point(3, 4);
-  p2 :: p1;
-  p1.x = 5;
 
-  // compt_print("p1 ", p1);
-  // compt_print("p2 ", p2);
-  compt_assert(p1.x == 5);
-  compt_assert(p2.x == 3);
+// __dup function that:
+// - ref struct/enum: increments ref count
+// - type containing ref struct/enum: recursively dup all ref struct/enum fields
+// - other types: no-op
+// - __dup will be automatically trigger when variable is assigned to another variable or passed by value to function
+
+// __drop function that:
+// - ref struct/enum: decrements ref count, and if ref count reaches zero, call drop()
+// - type containing ref struct/enum: recursively __drop all ref struct/enum fields, then call drop() if defined, other no-op
+// - other types: call drop() if defined, otherwise no-op
+// - __drop will automatically trigger when variable goes out of scope
+
+// drop function: the real destructor function for the type
+// - only available for reference-semantics types, like `ref struct/enum`
+// .drop() cannot be called manually, only called by/inside __drop when ref count reaches zero
+
+test1 :: (fn() -> i32) {
+  p := Point(3, 4); // temp_var (Object A) created from Point(3, 4), p points to Object A
+  // dup(temp_var)    (Object A)
+
+  // drop(p);         (Object A)
+  // drop(temp_var);   (Object A)
+
+  // Object A: referenced by temp_var, p (2 references)
+  return 0;
+
+  // Scope end cleanup:
+  // Object A: emit 1 dup, 2 drop, so 2 - 1 = 1 drop needed
+  // Total: 1 drop operation needed
 };
 
-/// array
-{
-  mut(arr1) :: [1, 2, 3];
-  arr2 :: arr1;
-  index :: 0;
-  arr1(index) = 4;
-  // compt_print("arr1 ", arr1);
-  // compt_print("arr2 ", arr2);
-  compt_assert(arr1(0) == 4);
-  compt_assert(arr1(1) == 2);
-  compt_assert(arr1(2) == 3);
-  compt_assert(arr2(0) == 1);
+/*
+test2 :: (fn() -> i32) {
+  p1 := Point(3, 4);     // temp_var_1 (Object A), p1 points to Object A
+  // dup(temp_var_1)      (Object A)
+  p2 := p1;              // p2 points to Object A  
+  // dup(p1)              (Object A)
+  p3 := Point(5, 6);     // temp_var_2 (Object B), p3 points to Object B
+  // dup(temp_var_2)      (Object B)
+  
+  // drop(p3);             (Object B)
+  // drop(temp_var_2);     (Object B)
+  // drop(p2);             (Object A)
+  // drop(p1);             (Object A)
+  // drop(temp_var_1);     (Object A)
+
+  // Object A: referenced by temp_var_1, p1, p2 (3 references)
+  // Object B: referenced by temp_var_2, p3 (2 references)
+  
+  return 0;
+  
+  // Scope end cleanup:
+  // Object A: emit 2 dup, 3 drop, so 3 - 2 = 1 drop needed
+  // Object B: emit 1 dup, 2 drop, so 2 - 1 = 1 drop needed
+  // Total: 2 drop operations needed
 };
 
-/// tuple
-{
-  mut(t1) :: (1, 2.0);
-  mut(t2) :: t1;
-  t1.0 = 4;
+test3 :: (fn() -> i32) {
+  p1 := Point(3, 4); // temp_var_1 (Object A), p1 points to Object A
+  // dup(temp_var_1)  (Object A)
+  use_point(p1);   // pass by value, so dup
+  // dup(p1)          (Object A)
 
-  // compt_print("t1 ", t1);
-  // compt_print("t2 ", t2);
-  compt_assert(t1.0 == 4);
-  compt_assert(t2.0 == 1);
+  // drop(p1);         (Object A)
+  // drop(temp_var_1); (Object A)
+  return 0;
+
+  // Object A: referenced by temp_var_1, p1 (2 references)
+  // Scope end cleanup:
+  // Object A: emit 2 dup, 2 drop, so 2 - 2 = 0 drop needed
+  // Total: 0 drop operations needed
 };
 
-/// enum
-{
-  Shape :: enum(
-    Circle(radius : f32),
-    Rectangle(width : f32, height : f32)
-  );
+test4 :: (fn() -> i32) {
+  p1 := Point(3, 4); // temp_var_1 (Object A), p1 points to Object A
+  // dup(temp_var_1)  (Object A)
+  use_point_ref(&(p1)); // pass by reference, no dup
 
-  mut(c1) :: Shape.Circle(5.0);
-  c2 :: c1;
-  c1.radius = 10.0;
+  // drop(p1);         (Object A)
+  // drop(temp_var_1); (Object A)
+  return 0;
 
-  compt_print("c1 ", c1);
-  compt_print("c2 ", c2);
-
-  compt_assert(c1.radius == 10.0);
-  compt_assert(c2.radius == 5.0); // c2 should remain unchanged with value semantics
+  // Object A: referenced by temp_var_1, p1 (2 references)
+  // Scope end cleanup:
+  // Object A: emit 1 dup, 2 drop, so 2 - 1 = 1 drop needed
+  // Total: 1 drop operations needed
 };
 
-// Refernce semantics
-/// struct
-{
-  Point :: ref struct( // Point now uses reference semantics
-    x : i32,
-    y : i32
-  );
+test5 :: (fn() -> i32) {
+  p := make_point(); // temp_var (Object A) created from make_point(), p points to Object A
+  // dup(temp_var)    (Object A)
 
-  mut(p1) :: Point(3, 4);
-  p2 :: p1; // p1 and p2 point to the same object
-  p1.x = 5;
+  // drop(p);         (Object A)
+  // drop(temp_var);   (Object A)
+  return 0;
 
-  // compt_print("p1 ", p1);
-  // compt_print("p2 ", p2);
-
-  compt_assert(p1.x == 5);
-  compt_assert(p2.x == 5); // Both should be 5 with reference semantics
+  // Object A: referenced by temp_var, p (2 references)
+  // Scope end cleanup:
+  // Object A: emit 1 dup, 2 drop, so 2 - 1 = 1 drop needed
+  // Total: 1 drop operations needed
 };
 
-{
-  Shape :: ref enum(
-    Circle(radius : f32),
-    Rectangle(width : f32, height : f32)
-  );
+test6 :: (fn() -> i32) {
+  use_point(make_point()); // temp_var (Object A) created from make_point(), passed directly to use_point param_var
+  // Done at use_point(make_point()):
+  // - dup(temp_var)    (Object A)
+  // - drop(temp_var);   (Object A)
 
-  mut(c1) :: Shape.Circle(5.0);
-  c2 :: c1; // c1 and c2 point to the same object
-  c1.radius = 10.0;
+  return 0;
 
-  // compt_print("c1 ", c1);
-  // compt_print("c2 ", c2);
-
-  compt_assert(c1.radius == 10.0);
-  compt_assert(c2.radius == 10.0); // Both should be 10.0 with reference semantics
+  // Object A: referenced by temp_var (1 references)
+  // Scope end cleanup:
+  // Object A: emit 1 dup, 1 drop, so 1 - 1 = 0 drop needed
+  // Total: 0 drop operations needed
 };
+
+test7 :: (fn() -> i32) {
+  p := make_point(); // temp_var (Object A) created from make_point(), p points to Object A
+  // dup(temp_var)    (Object A)
+
+  use_point(p);
+  // dup(p)          (Object A)
+
+  // drop(p);         (Object A)
+  // drop(temp_var);   (Object A)
+  return 0;
+
+  // Object A: referenced by temp_var, p (2 references)
+  // Scope end cleanup:
+  // Object A: emit 2 dup, 2 drop, so 2 - 2 = 0 drop needed
+  // Total: 0 drop operations needed
+};
+*/

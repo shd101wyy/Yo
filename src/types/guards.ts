@@ -251,6 +251,20 @@ export function isDynType(type?: Type): type is DynType {
   return type?.tag === TypeTag.Dyn;
 }
 
+/**
+ * This checks if the type is using the reference semantics.
+ * @param type
+ * @returns
+ */
+export function isARCType(type?: Type): boolean {
+  return (
+    isStructTypeWithReferenceSemantics(type) ||
+    isEnumTypeWithReferenceSemantics(type) ||
+    isDynType(type) || // All Dyn types are reference semantics
+    isClosureType(type) // All closures are reference semantics
+  );
+}
+
 // Numeric type guards
 export function isIntegerType(type?: Type): boolean {
   return (

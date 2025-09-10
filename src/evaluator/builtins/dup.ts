@@ -9,7 +9,6 @@ import {
   exprToString,
   FuncCallExpr,
   replaceFuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import { isSomeType, typeContainsARCType } from "../../types";
@@ -18,10 +17,10 @@ import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 
 /**
- * ___drop function - simplified since we removed consumption logic.
+ * ___dup function - simplified since we removed consumption logic.
  * Just evaluates the argument and returns unit.
  */
-export function evaluateDrop({
+export function evaluateDup({
   expr,
   env,
   context,
@@ -30,7 +29,7 @@ export function evaluateDrop({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___drop, 1);
+  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___dup, 1);
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = context.evaluateExpression({
@@ -51,42 +50,36 @@ export function evaluateDrop({
   }
   env = evaluatedArgExpr.$.env;
 
-  // Check if the drop argument is already borrowed
+  // Check if the dup argument is already borrowed
   checkBorrowings(context.borrowings, evaluatedArgExpr);
 
-  // Check if there is `.___drop` method available to call
+  // Check if there is `.___dup` method available to call
   // for Linear value
   if (
     !isSomeType(evaluatedArgExpr.$.type) &&
     // isType0(evaluatedArgExpr.$.type)
     typeContainsARCType(evaluatedArgExpr.$.type)
   ) {
-    const dropMethodCallExpr = generateExprFromCode(
-      `(${exprToString(evaluatedArgExpr)}).___drop()`
+    const dupMethodCallExpr = generateExprFromCode(
+      `(${exprToString(evaluatedArgExpr)}).___dup()`
     ) as FuncCallExpr;
 
-    // Convert this ___drop(x) to x.___drop() and evaluate the function call
-    const evaluatedDropMethodCallExpr = evaluateFunctionCall({
+    // Convert this ___dup(x) to x.___dup() and evaluate the function call
+    const evaluatedDupMethodCallExpr = evaluateFunctionCall({
       env,
       context: { ...context },
-      expr: dropMethodCallExpr,
+      expr: dupMethodCallExpr,
     });
 
-    // Replace the original expr with the evaluated drop method call
-    if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
-      replaceFuncCallExpr(expr, evaluatedDropMethodCallExpr);
+    // Replace the original expr with the evaluated dup method call
+    if (exprIsFunctionCall(evaluatedDupMethodCallExpr)) {
+      replaceFuncCallExpr(expr, evaluatedDupMethodCallExpr);
       return expr;
     } else {
       // In theory we shouldn't enter here
-      return evaluatedDropMethodCallExpr;
+      return evaluatedDupMethodCallExpr;
     }
   }
-
-  // Set the expression as consumed
-  env = setExprAsConsumed(evaluatedArgExpr, env, context);
-
-  // TODO: Handle calling drop function.
-  // In theory, the Free values will be ignored.
 
   expr.$ = {
     env,

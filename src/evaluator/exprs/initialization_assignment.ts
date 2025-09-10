@@ -242,7 +242,8 @@ ${exprToString(expr)}`,
     if (typeContains2ndClassReference(rhsType)) {
       throw formatErrorMessage({
         token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed.`,
+        errorMessage: `Assigning reference to variable is not allowed:
+${typeToString(rhsType)}`,
       });
     }
 
