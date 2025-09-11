@@ -47,6 +47,8 @@ export class CodeGeneratorC {
         "<stdint.h>",
         "<stddef.h>",
         "<stdarg.h>",
+        "<stdatomic.h>",
+        "<stdlib.h>",
       ]),
     };
 

@@ -394,15 +394,6 @@ export function popEnvFrame(
     const frameToPop = env.frames[env.frames.length - 1]!;
     // Check if there is any Linear/Type0 value in the frame that is not consumed or uninitialized.
     const unconsumedVariables = getVariablesNeedingDrop(env);
-    /*
-    const unusedFreeValues = frameToPop.values.filter(
-      (value) =>
-        value.kind === "value" &&
-        value.type.kind === "Free" &&
-        !value.consumedAtToken &&
-        !isTempVariableName(env, value.variableName)
-    );
-    */
 
     const undefinedVariables = frameToPop.variables.filter(
       (variable) => !variable.initializedAtToken
@@ -425,20 +416,7 @@ export function popEnvFrame(
           };
         })
       );
-    } /* else if (unusedFreeValues.length > 0) {
-      console.warn(
-        formatWarningMessages({
-          modulePath: env.modulePath,
-          inputString: env.inputString,
-          tokenAndWarningList: unusedFreeValues.map((value) => {
-            return {
-              token: value.token,
-              warningMessage: `Variable "${value.variableName}" is not used.`,
-            };
-          }),
-        })
-      );
-    }*/
+    }
   }
 
   return {
@@ -749,7 +727,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
   const variables = topFrame.variables.filter(
     (variable) =>
       !variable.consumedAtToken &&
-      // !variable.isCompileTimeOnly &&
+      !variable.isCompileTimeOnly &&
       variable.isOwningTheARCValue &&
       typeContainsARCType(variable.type)
   );

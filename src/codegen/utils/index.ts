@@ -6,12 +6,16 @@ import {
   EnumType,
   EnumVariant,
   FunctionType,
+  isEnumType,
+  isEnumTypeWithReferenceSemantics,
   isFunctionSpecializable,
   isMutPtrType,
   isMutRefType,
   isPtrType,
   isRefType,
   isSliceType,
+  isStructType,
+  isStructTypeWithReferenceSemantics,
   SliceType,
   Type,
   TypeId,
@@ -77,6 +81,14 @@ export interface CodeGenContext {
  */
 export function sanitizeForCIdentifier(str: string): string {
   return str.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+/**
+ * Check if a type should avoid const qualifier even when not mutable
+ * This is needed for ref struct types that need to support reference counting operations
+ */
+export function shouldAvoidConst(type: Type): boolean {
+  return isStructTypeWithReferenceSemantics(type) || isEnumTypeWithReferenceSemantics(type);
 }
 
 /**
@@ -156,7 +168,23 @@ export function getTypeString(
           `No C type name found for struct ${typeToString(type)}`
         );
       }
-      return cTypeName;
+
+      // For reference semantics structs/enums, return pointer type
+      if (
+        (type.tag === TypeTag.Struct || type.tag === TypeTag.Enum) &&
+        isStructType(type) &&
+        type.isReferenceSemantics
+      ) {
+        return `${cTypeName}*`;
+      } else if (
+        (type.tag === TypeTag.Struct || type.tag === TypeTag.Enum) &&
+        isEnumType(type) &&
+        type.isReferenceSemantics
+      ) {
+        return `${cTypeName}*`;
+      } else {
+        return cTypeName;
+      }
     }
     // Function type (function pointer)
     case TypeTag.Function: {

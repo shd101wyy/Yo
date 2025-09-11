@@ -24,6 +24,20 @@ import {
  * Generate type declarations for all collected types
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
+  // Generate common reference counter header for ref structs
+  const hasRefStructs = Object.values(context.types).some(
+    ({ type }) => isStructType(type) && type.isReferenceSemantics
+  );
+
+  if (hasRefStructs) {
+    context.emitter
+      .emitDeclarationLine(`// Reference counter header for ref structs
+typedef struct {
+  size_t ref_count;
+} yo_ref_header_t;
+`);
+  }
+
   // Generate array struct types first
   generateArrayStructDeclarations(context);
 
@@ -159,17 +173,38 @@ export function generateStructDeclaration(
   context: CodeGenContext
 ): void {
   const emitter = context.emitter;
-  emitter.emitDeclarationLine(
-    `typedef struct { // ${structType.typeName} : ${typeToString(structType)}`
-  );
 
-  for (const element of structType.elements) {
-    const fieldTypeStr = getTypeString(element.type, context);
-    const fieldName = element.label;
-    emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+  if (structType.isReferenceSemantics) {
+    // For ref struct, generate a struct with the common reference header
+    emitter.emitDeclarationLine(
+      `typedef struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
+    );
+    emitter.emitDeclarationLine(
+      `  yo_ref_header_t header; // Reference count header`
+    );
+
+    for (const element of structType.elements) {
+      const fieldTypeStr = getTypeString(element.type, context);
+      const fieldName = element.label;
+      emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+    }
+
+    emitter.emitDeclarationLine(`} ${cName};`);
+  } else {
+    // For regular struct, generate as before
+    emitter.emitDeclarationLine(
+      `typedef struct { // ${structType.typeName} : ${typeToString(structType)}`
+    );
+
+    for (const element of structType.elements) {
+      const fieldTypeStr = getTypeString(element.type, context);
+      const fieldName = element.label;
+      emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+    }
+
+    emitter.emitDeclarationLine(`} ${cName};`);
   }
 
-  emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }
 

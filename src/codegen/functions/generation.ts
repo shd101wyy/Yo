@@ -12,6 +12,7 @@ import {
   isMutRefType,
   isPtrType,
   isRefType,
+  isStructType,
   isUnitType,
   TypeId,
   typeToString,
@@ -57,6 +58,11 @@ export function generateFunctionDeclarations(
     }
     generateFunctionDeclaration(type, cName, true, context);
   }
+  emitter.emitDeclarationLine("");
+
+  // Generate constructor functions for ref structs
+  emitter.emitDeclarationLine(`/// Ref struct constructors`);
+  generateRefStructConstructorDeclarations(context);
   emitter.emitDeclarationLine("");
 
   // Generate declarations for other functions
@@ -196,6 +202,12 @@ export function generateFunctionDeclaration(
  */
 export function generateAllFunctions(context: FunctionGenerationContext): void {
   context.emitter.emitLine(`// Function implementations`);
+
+  // Generate builtin functions first
+  generateBuiltinFunctions(context);
+
+  // Generate ref struct constructor functions
+  generateRefStructConstructorFunctions(context);
 
   for (const funcId in context.functions) {
     const { value, cName } = context.functions[funcId]!;
@@ -433,5 +445,101 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 
     // Generate the specialized function body
     generateFunction(functionValue, cFunctionName, context);
+  }
+}
+
+/**
+ * Generate constructor function declarations for ref structs
+ */
+export function generateRefStructConstructorDeclarations(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate builtin reference counting functions
+  emitter.emitDeclarationLine(
+    `void __yo_decr_rc(void* ptr); // Decrement reference count`
+  );
+
+  // Generate constructor declarations for each ref struct
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (isStructType(type) && type.isReferenceSemantics) {
+      // Generate constructor function declaration
+      const constructorName = `__yo_new_${cName}`;
+      const paramTypes = type.elements
+        .map((element, index) => {
+          const fieldType = getTypeString(element.type, context);
+          const fieldName = element.label || `field_${index}`;
+          return `${fieldType} ${fieldName}`;
+        })
+        .join(", ");
+
+      emitter.emitDeclarationLine(
+        `${cName}* ${constructorName}(${paramTypes}); // Constructor`
+      );
+    }
+  }
+}
+
+/**
+ * Generate builtin function implementations
+ */
+export function generateBuiltinFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate __yo_decr_rc function
+  emitter.emitLine(`void __yo_decr_rc(void* ptr) {
+  if (!ptr) return;
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  if (header->ref_count == 1) {
+    free(ptr);
+  } else {
+    header->ref_count--;
+  }
+}`);
+  emitter.emitLine(``);
+}
+
+/**
+ * Generate constructor function implementations for ref structs
+ */
+export function generateRefStructConstructorFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate constructor implementations for each ref struct
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (isStructType(type) && type.isReferenceSemantics) {
+      // Generate constructor function implementation
+      const constructorName = `__yo_new_${cName}`;
+      const paramTypes = type.elements
+        .map((element, index) => {
+          const fieldType = getTypeString(element.type, context);
+          const fieldName = element.label || `field_${index}`;
+          return `${fieldType} ${fieldName}`;
+        })
+        .join(", ");
+
+      emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
+      emitter.emitLine(
+        `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+      );
+      emitter.emitLine(`  obj->header.ref_count = 1;`);
+
+      // Initialize fields
+      type.elements.forEach((element, index) => {
+        const fieldName = element.label || `field_${index}`;
+        emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
+      });
+
+      emitter.emitLine(`  return obj;`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+    }
   }
 }

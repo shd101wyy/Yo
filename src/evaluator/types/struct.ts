@@ -73,13 +73,13 @@ function generateDropFunctionCode(structType: StructType): string {
 
   // If no fields to destructure, just create an empty function
   if (!destructurePattern) {
-    return `___drop :: ((fn(self: Self) -> unit) {
+    return `___drop :: ((fn(mut(self): Self) -> unit) {
   __yo_decr_rc(self);
   ()
 })`;
   }
 
-  return `___drop :: ((fn(self: Self) -> unit) {
+  return `___drop :: ((fn(mut(self): Self) -> unit) {
   { ${destructurePattern} } := self;
   __yo_decr_rc(self);
 })`;

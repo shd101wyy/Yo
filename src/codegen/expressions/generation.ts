@@ -54,6 +54,7 @@ import {
   getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
+  shouldAvoidConst,
 } from "../utils";
 import { generateArrayFillCall, isArrayFillMethodCall } from "./array";
 
@@ -81,6 +82,16 @@ function generateFuncCall(
   indent: string,
   context: CodeGenContext
 ): string {
+  // __yo_decr_rc - handle reference count decrement
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_decr_rc requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `__yo_decr_rc(${selfCode})`;
+  }
+
   // borrow - handle this first before other expressions
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
     const firstExpr = expr.args[0];
@@ -342,8 +353,9 @@ function generateFuncCall(
             context
           );
           const rhsCode = generateExpr(rhs, indent, context);
+          const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
           context.emitter.emitLine(
-            `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
           );
         } else {
           // Copying from another array - use direct struct assignment
@@ -353,8 +365,9 @@ function generateFuncCall(
             context
           );
           const rhsCode = generateExpr(rhs, indent, context);
+          const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
           context.emitter.emitLine(
-            `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
           );
         }
       } else {
@@ -369,8 +382,9 @@ function generateFuncCall(
             varName,
             context
           );
+          const shouldSkipConst = isMutable || shouldAvoidConst(sliceType);
           context.emitter.emitLine(
-            `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
           );
         } else {
           // Normal initialization
@@ -379,8 +393,9 @@ function generateFuncCall(
             varName,
             context
           );
+          const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
           context.emitter.emitLine(
-            `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
           );
         }
       }
@@ -461,8 +476,9 @@ function generateFuncCall(
           generateExpr(lhs, indent, context),
           context
         );
+        const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
         context.emitter.emitLine(
-          `${indent}${isMutable ? "" : "const "}${varTypeAndName} = ${rhsCode};`
+          `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
         );
       } else {
         // For assignment to existing array variable, use direct struct assignment
@@ -472,8 +488,10 @@ function generateFuncCall(
       // Non-array assignment - use existing logic
       const rhsCode = generateExpr(rhs, indent, context);
       if (!isUnitType(lhs.$.type)) {
+        const shouldSkipConst = !isInitialization || isMutable || shouldAvoidConst(lhs.$.type);
+        const constQualifier = shouldSkipConst ? "" : "const ";
         context.emitter.emitLine(
-          `${indent}${isInitialization && !isMutable ? "const " : ""}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
+          `${indent}${constQualifier}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
         );
       }
     }
@@ -719,6 +737,12 @@ function generateFuncCall(
     const argCode = generateExpr(arg, indent, context);
     return `sizeof(${argCode})`; // Use sizeof operator on the argument
   }
+  // __yo_decr_rc
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc, 1)) {
+    const arg = expr.args[0]!;
+    const argCode = generateExpr(arg, indent, context);
+    return `__yo_decr_rc(${argCode})`;
+  }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
@@ -926,25 +950,34 @@ function generateFuncCall(
     } else if (isTypeValue(functionValue)) {
       // struct
       if (isStructType(functionValue.value)) {
+        const structType = functionValue.value;
         const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
-        const cName = context.types[functionValue.value.id]?.cName;
-        const labels = functionValue.value.elements.map(
-          (element) => element.label
-        );
+        const cName = context.types[structType.id]?.cName;
+        const labels = structType.elements.map((element) => element.label);
         if (
           runtimeArgExprs &&
           cName &&
           labels.length === runtimeArgExprs.length
         ) {
-          // Generate struct initialization
-          const argsList = runtimeArgExprs
-            .map((arg, index) => {
-              return (
-                `.${labels[index]!} = ` + generateExpr(arg, indent, context)
-              );
-            })
-            .join(", ");
-          return `(${cName}){ ${argsList} }`;
+          if (structType.isReferenceSemantics) {
+            // For ref struct, call the constructor function
+            const argsList = runtimeArgExprs
+              .map((arg) => generateExpr(arg, indent, context))
+              .join(", ");
+
+            const constructorName = `__yo_new_${cName}`;
+            return `${constructorName}(${argsList})`;
+          } else {
+            // For regular struct, generate struct initialization as before
+            const argsList = runtimeArgExprs
+              .map((arg, index) => {
+                return (
+                  `.${labels[index]!} = ` + generateExpr(arg, indent, context)
+                );
+              })
+              .join(", ");
+            return `(${cName}){ ${argsList} }`;
+          }
         }
       }
       // union
@@ -1182,14 +1215,25 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
         return `// Error: No C type name found for struct ${typeToString(type)}\n`;
       }
 
-      const fields = value.elements.map((element, index) => {
-        const fieldValue = element;
-        const fieldName = type.elements[index]!.label;
-        const fieldCode = generateComptValue(fieldValue, context);
-        return `.${fieldName} = ${fieldCode}`;
-      });
+      if (type.isReferenceSemantics) {
+        // For ref struct compile-time values, use constructor function
+        const fieldValues = value.elements.map((element) =>
+          generateComptValue(element, context)
+        );
 
-      return `(${cName}){ ${fields.join(", ")} }`;
+        const constructorName = `__yo_new_${cName}`;
+        return `${constructorName}(${fieldValues.join(", ")})`;
+      } else {
+        // For regular struct compile-time values, generate as before
+        const fields = value.elements.map((element, index) => {
+          const fieldValue = element;
+          const fieldName = type.elements[index]!.label;
+          const fieldCode = generateComptValue(fieldValue, context);
+          return `.${fieldName} = ${fieldCode}`;
+        });
+
+        return `(${cName}){ ${fields.join(", ")} }`;
+      }
     }
   } else if (isArrayValue(value)) {
     // For array values, generate struct wrapper initialization
@@ -1403,7 +1447,14 @@ function generateFieldAccess(
       }
     } else {
       // For C structs and unions, access fields directly
-      return `${objectCode}.${fieldName}`;
+      // Check if this is a reference-counted struct type (ref struct)
+      if (isStructType(objectType) && objectType.isReferenceSemantics) {
+        // For ref structs (pointers), access field through data: ptr->data.field
+        return `${objectCode}->data.${fieldName}`;
+      } else {
+        // For regular structs, access fields directly
+        return `${objectCode}.${fieldName}`;
+      }
     }
   }
 
@@ -1869,6 +1920,10 @@ function generateYoInlineFunctionCall(
   else if (BuiltinFunctions.__yo_return_self.includes(functionName)) {
     // This is a special case where we just return the first argument
     return `(*${args[0]!})`;
+  }
+  // __yo_decr_rc
+  else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {
+    return `__yo_decr_rc((void*)(${args[0]!}))`;
   }
   // Handle other operators that are not defined in Yo
   else {
