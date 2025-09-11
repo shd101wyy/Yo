@@ -13,9 +13,7 @@ import { generateExprFromCode } from "../../parser";
 import {
   createStructType,
   isARCType,
-  isFunctionType,
   isStructType,
-  isUnitType,
   ModuleElement,
   StructType,
   TupleElement,
@@ -30,6 +28,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";
+import { validateDisposeFunction } from "./validation";
 
 /**
  * Helper function to parse and evaluate a Yo code string in the context of a struct
@@ -283,38 +282,12 @@ export function evaluateStructType({
         // Verify the disposeFunction has the correct type.
         // fn(mut(self): Self) -> unit
         if (type.label === BuiltinFunctions.dispose[0]) {
-          if (isFunctionType(type.type)) {
-            const funcType = type.type;
-            if (
-              funcType.parameters.length !== 1 ||
-              funcType.forallParameters.length !== 0 ||
-              funcType.implicitParameters.length !== 0
-            ) {
-              throw formatErrorMessage({
-                token: exprIsFunctionCall(arg)
-                  ? (arg.args[0]?.token ?? arg.token)
-                  : arg.token,
-                errorMessage: `The "dispose" function must have exactly one parameter of type "Self".`,
-              });
-            }
-
-            // Check if the return type is unit
-            if (!isUnitType(funcType.return.type)) {
-              throw formatErrorMessage({
-                token: exprIsFunctionCall(arg)
-                  ? (arg.args[0]?.token ?? arg.token)
-                  : arg.token,
-                errorMessage: `The "dispose" function must return "unit".`,
-              });
-            }
-          } else {
-            throw formatErrorMessage({
-              token: exprIsFunctionCall(arg)
-                ? (arg.args[0]?.token ?? arg.token)
-                : arg.token,
-              errorMessage: `The "dispose" must be a function.`,
-            });
-          }
+          validateDisposeFunction(
+            type as ModuleElement,
+            exprIsFunctionCall(arg)
+              ? (arg.args[0]?.token ?? arg.token)
+              : arg.token
+          );
         }
 
         const moduleElement = type as ModuleElement;

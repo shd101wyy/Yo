@@ -24,14 +24,16 @@ import {
  * Generate type declarations for all collected types
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
-  // Generate common reference counter header for ref structs
-  const hasRefStructs = Object.values(context.types).some(
-    ({ type }) => isStructType(type) && type.isReferenceSemantics
+  // Generate common reference counter header for ref structs and ref enums
+  const hasRefTypes = Object.values(context.types).some(
+    ({ type }) =>
+      (isStructType(type) && type.isReferenceSemantics) ||
+      (isEnumType(type) && type.isReferenceSemantics)
   );
 
-  if (hasRefStructs) {
+  if (hasRefTypes) {
     context.emitter
-      .emitDeclarationLine(`// Reference counter header for ref structs
+      .emitDeclarationLine(`// Reference counter header for ref structs and ref enums
 typedef struct {
   size_t ref_count;
 } yo_ref_header_t;
@@ -346,6 +348,14 @@ export function generateEnumDeclaration(
   emitter.emitDeclarationLine(
     `typedef struct { // ${enumType.typeName} : ${typeToString(enumType)}`
   );
+
+  // Add reference counter header for ref enums
+  if (enumType.isReferenceSemantics) {
+    emitter.emitDeclarationLine(
+      `  yo_ref_header_t header; // Reference count header`
+    );
+  }
+
   emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
   emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
 

@@ -6,7 +6,9 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
+  EnumType,
   FunctionType,
+  isEnumType,
   isFunctionType,
   isMutPtrType,
   isMutRefType,
@@ -20,6 +22,7 @@ import {
 import { generateExpr, generateReturnStatement } from "../expressions";
 import {
   CodeGenContext,
+  getEnumVariantCName,
   getTypeString,
   isComptFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
@@ -449,7 +452,7 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 }
 
 /**
- * Generate constructor function declarations for ref structs
+ * Generate constructor function declarations for ref structs and ref enums
  */
 export function generateRefStructConstructorDeclarations(
   context: FunctionGenerationContext
@@ -481,6 +484,31 @@ export function generateRefStructConstructorDeclarations(
       emitter.emitDeclarationLine(
         `${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
+    }
+  }
+
+  // Generate constructor declarations for each ref enum
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (isEnumType(type) && type.isReferenceSemantics) {
+      const enumType = type as EnumType;
+      // Generate constructor function declarations for each variant
+      for (const variant of enumType.variants) {
+        const constructorName = `__yo_new_${cName}_${variant.name}`;
+        const paramTypes = variant.elements
+          ? variant.elements
+              .map((element, index) => {
+                const fieldType = getTypeString(element.type, context);
+                const fieldName = element.label || `field_${index}`;
+                return `${fieldType} ${fieldName}`;
+              })
+              .join(", ")
+          : "";
+
+        emitter.emitDeclarationLine(
+          `${cName}* ${constructorName}(${paramTypes}); // ${variant.name} constructor`
+        );
+      }
     }
   }
 }
@@ -519,7 +547,7 @@ export function generateBuiltinFunctions(
 }
 
 /**
- * Generate constructor function implementations for ref structs
+ * Generate constructor function implementations for ref structs and ref enums
  */
 export function generateRefStructConstructorFunctions(
   context: FunctionGenerationContext
@@ -555,6 +583,50 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);
+    }
+  }
+
+  // Generate constructor implementations for each ref enum
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (isEnumType(type) && type.isReferenceSemantics) {
+      const enumType = type as EnumType;
+      // Generate constructor function implementations for each variant
+      for (const variant of enumType.variants) {
+        const constructorName = `__yo_new_${cName}_${variant.name}`;
+        const paramTypes = variant.elements
+          ? variant.elements
+              .map((element, index) => {
+                const fieldType = getTypeString(element.type, context);
+                const fieldName = element.label || `field_${index}`;
+                return `${fieldType} ${fieldName}`;
+              })
+              .join(", ")
+          : "";
+
+        emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
+        emitter.emitLine(
+          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+        );
+        emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(
+          `  obj->tag = ${getEnumVariantCName(enumType, variant.name, context)};`
+        );
+
+        // Initialize variant fields
+        if (variant.elements) {
+          variant.elements.forEach((element, index) => {
+            const fieldName = element.label || `field_${index}`;
+            emitter.emitLine(
+              `  obj->data.${variant.name}.${fieldName} = ${fieldName};`
+            );
+          });
+        }
+
+        emitter.emitLine(`  return obj;`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
+      }
     }
   }
 }

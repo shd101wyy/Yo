@@ -1,0 +1,43 @@
+import { formatErrorMessage } from "../../error";
+import { BuiltinFunctions } from "../../expr";
+import { Token } from "../../token";
+import { isFunctionType, isUnitType, ModuleElement } from "../../types";
+
+/**
+ * Validate that a dispose function has the correct signature: fn(mut(self): Self) -> unit
+ */
+export function validateDisposeFunction(
+  moduleElement: ModuleElement,
+  token: Token
+): void {
+  if (moduleElement.label !== BuiltinFunctions.dispose[0]) {
+    return; // Not a dispose function, skip validation
+  }
+
+  if (isFunctionType(moduleElement.type)) {
+    const funcType = moduleElement.type;
+    if (
+      funcType.parameters.length !== 1 ||
+      funcType.forallParameters.length !== 0 ||
+      funcType.implicitParameters.length !== 0
+    ) {
+      throw formatErrorMessage({
+        token,
+        errorMessage: `The "dispose" function must have exactly one parameter of type "Self".`,
+      });
+    }
+
+    // Check if the return type is unit
+    if (!isUnitType(funcType.return.type)) {
+      throw formatErrorMessage({
+        token,
+        errorMessage: `The "dispose" function must return "unit".`,
+      });
+    }
+  } else {
+    throw formatErrorMessage({
+      token,
+      errorMessage: `The "dispose" must be a function.`,
+    });
+  }
+}
