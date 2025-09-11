@@ -1097,24 +1097,6 @@ function generateFuncCall(
           const variantName = enumType.selectedVariantName;
           const variant = enumType.variants.find((v) => v.name === variantName);
           if (variant) {
-            const argsList = runtimeArgExprs
-              .map((arg, index) => {
-                if (variant.elements) {
-                  const element = variant.elements[index];
-                  if (element) {
-                    return (
-                      `.${element.label} = ` +
-                      generateExpr(arg, indent, context)
-                    );
-                  }
-                  return ""; // Skip if no element matches
-                } else {
-                  return "";
-                }
-              })
-              .filter((s) => s) // Remove empty strings
-              .join(", ");
-
             // Use constructor function for ref enums, struct literal for value enums
             if (enumType.isReferenceSemantics) {
               const constructorName = `__yo_new_${cName}_${variantName}`;
@@ -1123,6 +1105,23 @@ function generateFuncCall(
                 .join(", ");
               return `${constructorName}(${argValues})`;
             } else {
+              const argsList = runtimeArgExprs
+                .map((arg, index) => {
+                  if (variant.elements) {
+                    const element = variant.elements[index];
+                    if (element) {
+                      return (
+                        `.${element.label} = ` +
+                        generateExpr(arg, indent, context)
+                      );
+                    }
+                    return ""; // Skip if no element matches
+                  } else {
+                    return "";
+                  }
+                })
+                .filter((s) => s) // Remove empty strings
+                .join(", ");
               return `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`;
             }
           }

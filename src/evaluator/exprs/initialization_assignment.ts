@@ -328,7 +328,7 @@ ${exprToString(rhs)}`,
         isMutable,
         isCompileTimeOnly,
         isImplicit,
-        value: lhs.$.value,
+        value: isCompileTimeOnly ? lhs.$.value : undefined,
         token: lhs.token,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet

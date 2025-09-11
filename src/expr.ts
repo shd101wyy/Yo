@@ -17,7 +17,7 @@ import {
   typeOfType,
   typeToString,
 } from "./types";
-import { generateNewTempVariableName } from "./utils";
+import { generateNewTempVariableName, isTempVariableName } from "./utils";
 import { isTypeValue, Value } from "./value";
 
 /**
@@ -1535,6 +1535,21 @@ export function setExprAsNeedsToCallDup(expr: Expr) {
   }
 
   if (typeContainsARCType(expr.$.type)) {
+    // Check if the expr.variableName is owning the ARC value
+    // if yes, then no need to call dup
+    if (
+      expr.$.variableName &&
+      isTempVariableName(expr.$.env.modulePath, expr.$.variableName) // NOTE: This is necessary
+    ) {
+      const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.isOwningTheARCValue) {
+          return;
+        }
+      }
+    }
+
     expr.$.needsToCallDup = true;
   }
 }

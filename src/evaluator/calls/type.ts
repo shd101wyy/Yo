@@ -16,6 +16,7 @@ import {
   isRefType,
   TupleElement,
   tupleElementToString,
+  typeContainsARCType,
   typeToString,
 } from "../../types";
 import { Value } from "../../value";
@@ -128,7 +129,15 @@ ${tupleElementToString(paramElement_)}`,
       },
     });
 
+    console.log(
+      "evaluatedArgExpr",
+      exprToString(evaluatedArgExpr),
+      evaluatedArgExpr.$ ? typeToString(evaluatedArgExpr.$.type) : "no type",
+      typeContainsARCType(evaluatedArgExpr.$?.type)
+    );
+
     setExprAsNeedsToCallDup(evaluatedArgExpr);
+    console.log(evaluatedArgExpr.$?.needsToCallDup);
 
     if (!evaluatedArgExpr.$) {
       throw formatErrorMessage({
