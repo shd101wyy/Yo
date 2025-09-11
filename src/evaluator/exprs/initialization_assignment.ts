@@ -1,5 +1,11 @@
 import { checkBorrowings } from "../../borrow";
-import { addVariableToEnv, Environment } from "../../env";
+import {
+  addVariableToEnv,
+  Environment,
+  getVariablesFromEnv,
+  updateExistingVariable,
+  Variable,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -19,6 +25,7 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
+import { isTempVariableName } from "../../utils";
 import {
   createUnknownValue,
   isFunctionValue,
@@ -295,12 +302,29 @@ ${exprToString(rhs)}`,
 
     // Add variable to env
     // Attach the updated env to expr
-    // console.log("(6) addVariableToEnv");
-    const { env: nextEnv } = addVariableToEnv({
-      env,
-      variable: {
+
+    /// Check if the rhs is a temp variable owning the ARC value
+    let rhsVariableOwningARCValue: Variable | undefined = undefined;
+    if (
+      rhs.$?.variableName &&
+      isTempVariableName(env.modulePath, rhs.$.variableName)
+    ) {
+      const rhsVariables = getVariablesFromEnv(env, rhs.$?.variableName);
+      if (rhsVariables.length > 0) {
+        const candidate = rhsVariables[rhsVariables.length - 1]!;
+        if (candidate.isOwningTheARCValue) {
+          rhsVariableOwningARCValue = candidate;
+        }
+      }
+    }
+
+    if (rhsVariableOwningARCValue && !isMutable) {
+      // Update RHS variable name to use the LHS variable name
+      // NOTE: We require the lhs to be immutable because if it's mutable,
+      // then the ownership status might change later.
+      const nextEnv = updateExistingVariable(env, rhsVariableOwningARCValue, {
+        ...rhsVariableOwningARCValue,
         name: lhs.token.value,
-        type: lhs.$.type,
         isMutable,
         isCompileTimeOnly,
         isImplicit,
@@ -308,9 +332,26 @@ ${exprToString(rhs)}`,
         token: lhs.token,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
-      },
-    });
-    env = nextEnv;
+      });
+      env = nextEnv;
+    } else {
+      // Create new variable
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: lhs.token.value,
+          type: lhs.$.type,
+          isMutable,
+          isCompileTimeOnly,
+          isImplicit,
+          value: lhs.$.value,
+          token: lhs.token,
+          initializedAtToken: lhs.token,
+          consumedAtToken: undefined, // Not consumed yet
+        },
+      });
+      env = nextEnv;
+    }
 
     lhs.$.env = env;
     expr.$ = {

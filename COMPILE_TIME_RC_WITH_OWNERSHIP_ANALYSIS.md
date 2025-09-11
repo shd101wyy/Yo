@@ -101,4 +101,9 @@ Some optimization on ownership transfer:
 
 ```rust
 p1 := Point(3, 4); // temp_var transfers ownership to p1, and temp_var is consumed and will no longer be available for use.
+
+// QUESTION: How to handle
+mut(p1) := Point(3, 4);
+// This case could be hard, because if we have
+p1 = p2; // Then should we consider p1 as a borrowed variable or owned variable?
 ```

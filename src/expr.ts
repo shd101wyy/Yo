@@ -179,6 +179,11 @@ export interface EvaluatedExprData {
   caseExecuted?: boolean;
 
   /**
+   * Whether the value needs to call `___dup` to increment the reference counter when used.
+   */
+  needsToCallDup?: boolean;
+
+  /**
    * Comment for the expression.
    */
   comment?: string;
