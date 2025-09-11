@@ -15,6 +15,7 @@ import {
   isArrayType,
   isClosureType,
   isEnumType,
+  isEnumTypeWithReferenceSemantics,
   isFunctionType,
   isMutPtrType,
   isMutRefType,
@@ -22,6 +23,7 @@ import {
   isRefType,
   isSliceType,
   isStructType,
+  isStructTypeWithReferenceSemantics,
   isTupleType,
   isUnionType,
   isUnitType,
@@ -333,8 +335,16 @@ function generateFuncCall(
           fieldName = index >= 0 ? `_${index}` : fieldName;
         }
 
+        // Use -> for ref types (which are pointers), . for regular types
+        const memberAccessOp =
+          rhsType &&
+          (isStructTypeWithReferenceSemantics(rhsType) ||
+            isEnumTypeWithReferenceSemantics(rhsType))
+            ? "->"
+            : ".";
+
         context.emitter.emitLine(
-          `${indent}${varTypeAndName} = ${rhsCode}.${fieldName}; // Destructuring ${label}`
+          `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
         );
       });
       return "";
@@ -1473,12 +1483,15 @@ function generateFieldAccess(
       }
     } else {
       // For C structs and unions, access fields directly
-      // Check if this is a reference-counted struct type (ref struct)
-      if (isStructType(objectType) && objectType.isReferenceSemantics) {
-        // For ref structs (pointers), access field through data: ptr->data.field
-        return `${objectCode}->data.${fieldName}`;
+      // Check if this is a reference-counted type (ref struct or ref enum)
+      if (
+        isStructTypeWithReferenceSemantics(objectType) ||
+        isEnumTypeWithReferenceSemantics(objectType)
+      ) {
+        // For ref types (pointers), access field directly: ptr->field
+        return `${objectCode}->${fieldName}`;
       } else {
-        // For regular structs, access fields directly
+        // For regular structs/enums, access fields directly
         return `${objectCode}.${fieldName}`;
       }
     }

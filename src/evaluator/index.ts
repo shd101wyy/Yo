@@ -29,7 +29,6 @@ import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import { evaluateDrop } from "./builtins/drop";
-import { evaluateDup } from "./builtins/dup";
 import {
   evaluateYoExprEq,
   evaluateYoExprGetArgs,
@@ -477,9 +476,6 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
         // ___drop
         return evaluateDrop({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___dup)) {
-        // ___dup
-        return evaluateDup({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc) ||
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)

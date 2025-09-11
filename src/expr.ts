@@ -801,7 +801,6 @@ export const BuiltinFunctions = {
   is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
-  ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
 
   /// Others
