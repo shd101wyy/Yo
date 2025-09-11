@@ -14,6 +14,7 @@ import {
   isUnionType,
   ModuleType,
   Type,
+  typeContainsARCType,
   typeContainsSomeType,
   typeToString,
 } from "./types";
@@ -80,6 +81,17 @@ export interface Variable {
    * Whether the variable is implicit or not.
    */
   isImplicit: boolean;
+
+  /**
+   * Whether the variable is owning the ARC value or borrowing the ARC value.
+   * This is only relevant for types that are managed by ARC.
+   * eg:
+   *     Point :: ref struct(x : i32, y : i32);
+   *     p1 := Point(3, 4);  // isOwningTheARCValue: true
+   *     p2 := p1;           // isOwningTheARCValue: false
+   *
+   */
+  isOwningTheARCValue?: boolean;
 
   /**
    * Then token at which the variable is initialized.
@@ -400,7 +412,7 @@ export function popEnvFrame(
         unconsumedVariables.map((variable) => {
           return {
             token: variable.token,
-            errorMessage: `Linear variable "${variable.name}" was not consumed. Linear values must be consumed before going out of scope.`,
+            errorMessage: `Variable "${variable.name}" was not consumed. It is supposed to be consumed before going out of scope.`,
           };
         })
       );
@@ -476,6 +488,7 @@ export function printEnvVarNames(env: Environment) {
         isMutable: variable.isMutable,
         isImplicit: variable.isImplicit,
         isUndefined: !variable.initializedAtToken,
+        isOwningTheARCValue: !!variable.isOwningTheARCValue,
         isConsumed: !!variable.consumedAtToken,
       }));
     })
@@ -732,8 +745,17 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     return [];
   }
 
-  // No consumption logic - return empty array
-  return [];
+  const topFrame = env.frames[env.frames.length - 1]!;
+  const variables = topFrame.variables.filter(
+    (variable) =>
+      !variable.consumedAtToken &&
+      // !variable.isCompileTimeOnly &&
+      variable.isOwningTheARCValue &&
+      typeContainsARCType(variable.type)
+  );
+
+  // Return in reverse order (end to start) for proper drop order
+  return variables.reverse();
 }
 
 export function variableExistsInEnvTopFrame(

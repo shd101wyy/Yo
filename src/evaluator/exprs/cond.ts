@@ -231,7 +231,7 @@ export function evaluateCond({
         isMutable: false,
         pathCollection: [],
       };
-      attachTempVariableToExpr(expr);
+      attachTempVariableToExpr(expr, true);
 
       return expr;
     }
@@ -387,7 +387,7 @@ export function evaluateCond({
         isMutable: false,
         pathCollection: [],
       };
-      attachTempVariableToExpr(expr);
+      attachTempVariableToExpr(expr, true);
 
       return expr;
     } else {

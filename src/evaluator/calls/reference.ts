@@ -93,6 +93,7 @@ export function evaluateReferenceCall({
   env = evaluatedArgExpr.$.env;
 
   // Check if the argExpr is a type
+  // Create reference type
   if (isTypeValue(evaluatedArgExpr.$.value)) {
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
@@ -110,7 +111,9 @@ export function evaluateReferenceCall({
       pathCollection: [],
     };
     return expr;
-  } else {
+  }
+  // Create reference value
+  else {
     const argType = evaluatedArgExpr.$.type;
     const referenceType =
       referenceTypeKind === TypeTag.Ref
@@ -134,7 +137,7 @@ export function evaluateReferenceCall({
       isMutable: referenceTypeKind === TypeTag.MutRef,
       pathCollection: evaluatedArgExpr.$.pathCollection,
     };
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, false);
     return expr;
   }
 }

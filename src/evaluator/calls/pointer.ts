@@ -80,6 +80,7 @@ export function evaluateRawPointerCall({
   env = evaluatedArgExpr.$.env;
 
   // Check if the argExpr is a type
+  // Create pointer type
   if (isTypeValue(evaluatedArgExpr.$.value)) {
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
@@ -97,7 +98,9 @@ export function evaluateRawPointerCall({
       pathCollection: [],
     };
     return expr;
-  } else {
+  }
+  // Create pointer value
+  else {
     // The arg cannot be consumed.
     requireExprNotConsumed(evaluatedArgExpr, env);
 
@@ -127,7 +130,7 @@ export function evaluateRawPointerCall({
       isMutable: pointerTypeKind === TypeTag.MutPtr,
       pathCollection: [],
     };
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, false);
     return expr;
   }
 }

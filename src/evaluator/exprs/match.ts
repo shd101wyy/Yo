@@ -790,7 +790,7 @@ Supported patterns:
       isMutable: false,
       pathCollection: [],
     };
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, true);
   } else {
     // All cases have control flow - determine which one to use
     if (controlFlows.length === 0) {

@@ -516,7 +516,7 @@ export function evaluateAssignment({
       };
 
       // This temp variable is used to hold the old value of lhs
-      attachTempVariableToExpr(expr);
+      attachTempVariableToExpr(expr, !isMutatingDefinedVariable);
     }
 
     return expr;
@@ -808,7 +808,7 @@ export function evaluateAssignment({
     };
 
     // This temp variable is used to hold the old value of lhs
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, true);
 
     // Update the lhs with the new value
     evaluatedLhs.$ = {

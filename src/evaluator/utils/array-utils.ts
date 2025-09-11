@@ -96,7 +96,7 @@ export function evaluateArrayFillMethod({
       pathCollection: [],
     };
 
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, true);
     return { expr, env };
   }
 
@@ -134,7 +134,7 @@ export function evaluateArrayFillMethod({
       pathCollection: [],
     };
 
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, true);
     return { expr, env };
   }
 
@@ -154,7 +154,7 @@ export function evaluateArrayFillMethod({
   };
 
   // Set temp variable which holds the result of the function call
-  attachTempVariableToExpr(expr);
+  attachTempVariableToExpr(expr, true);
 
   return { expr, env };
 }

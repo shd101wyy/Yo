@@ -1103,7 +1103,10 @@ function exprToPrettyString(
   return exprToCompactString(expr);
 }
 
-export function attachTempVariableToExpr(expr: Expr): void {
+export function attachTempVariableToExpr(
+  expr: Expr,
+  isOwningTheARCValue: boolean
+): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
 ${exprToString(expr)}`);
@@ -1123,6 +1126,7 @@ ${exprToString(expr)}`);
       isCompileTimeOnly: Boolean(value),
       isImplicit: false,
       initializedAtToken: expr.token,
+      isOwningTheARCValue,
       consumedAtToken: undefined,
       token: expr.token,
     },

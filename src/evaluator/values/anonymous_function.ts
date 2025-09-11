@@ -542,7 +542,7 @@ Got:      "${paramName}"`,
   // For closures, attach a temporary variable so they can be consumed
   // This must be done AFTER expr.$ is set since attachTempVariableToExpr expects it
   if (isClosureFunction) {
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, true);
   }
 
   return expr;

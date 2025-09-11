@@ -65,6 +65,9 @@ export function evaluateDrop({
       `(${exprToString(evaluatedArgExpr)}).___drop()`
     ) as FuncCallExpr;
 
+    // Set the expression as consumed
+    env = setExprAsConsumed(evaluatedArgExpr, env, context);
+
     // Convert this ___drop(x) to x.___drop() and evaluate the function call
     const evaluatedDropMethodCallExpr = evaluateFunctionCall({
       env,
@@ -80,20 +83,20 @@ export function evaluateDrop({
       // In theory we shouldn't enter here
       return evaluatedDropMethodCallExpr;
     }
+  } else {
+    // Set the expression as consumed
+    env = setExprAsConsumed(evaluatedArgExpr, env, context);
+
+    // TODO: Handle calling drop function.
+    // In theory, the Free values will be ignored.
+
+    expr.$ = {
+      env,
+      type: VUnit.type,
+      value: VUnit,
+      isMutable: false,
+      pathCollection: [],
+    };
+    return expr;
   }
-
-  // Set the expression as consumed
-  env = setExprAsConsumed(evaluatedArgExpr, env, context);
-
-  // TODO: Handle calling drop function.
-  // In theory, the Free values will be ignored.
-
-  expr.$ = {
-    env,
-    type: VUnit.type,
-    value: VUnit,
-    isMutable: false,
-    pathCollection: [],
-  };
-  return expr;
 }

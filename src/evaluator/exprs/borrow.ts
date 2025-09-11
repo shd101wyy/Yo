@@ -250,7 +250,7 @@ export function evaluateBorrow({
     isAccessingProperty: evaluatedBorrowBlock.$.isAccessingProperty,
     controlFlow: evaluatedBorrowBlock.$.controlFlow,
   };
-  attachTempVariableToExpr(expr);
+  attachTempVariableToExpr(expr, true);
 
   return expr;
 }

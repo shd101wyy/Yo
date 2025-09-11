@@ -908,7 +908,7 @@ ${functionsWithMatchingTypes
       };
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr);
+      attachTempVariableToExpr(expr, true);
 
       // Attach necessary info to the func
       func.$ = {
@@ -975,7 +975,7 @@ ${functionsWithMatchingTypes
     };
 
     // Set temp variable which holds the result of the function call
-    attachTempVariableToExpr(expr);
+    attachTempVariableToExpr(expr, true);
 
     // Attach necessary info to the func
     func.$ = {
@@ -1030,7 +1030,7 @@ ${functionsWithMatchingTypes
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr);
+      attachTempVariableToExpr(expr, true);
 
       // Attach necessary info to the func
       func.$ = {
@@ -1083,7 +1083,7 @@ ${functionsWithMatchingTypes
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr);
+      attachTempVariableToExpr(expr, true);
 
       // Attach necessary info to the func
       func.$ = {
@@ -1114,7 +1114,7 @@ ${functionsWithMatchingTypes
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr);
+      attachTempVariableToExpr(expr, true);
 
       // Attach necessary info to the func
       func.$ = {
