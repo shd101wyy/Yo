@@ -8,6 +8,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   PathCollection,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -126,6 +127,8 @@ ${tupleElementToString(paramElement_)}`,
         borrowings,
       },
     });
+
+    setExprAsNeedsToCallDup(evaluatedArgExpr);
 
     if (!evaluatedArgExpr.$) {
       throw formatErrorMessage({

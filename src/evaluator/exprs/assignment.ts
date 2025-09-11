@@ -16,6 +16,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -588,6 +589,8 @@ export function evaluateAssignment({
     if (rhs.$?.env) {
       env = rhs.$?.env;
     }
+
+    setExprAsNeedsToCallDup(rhs);
 
     let rhsType = rhs.$?.type;
     if (!rhsType) {

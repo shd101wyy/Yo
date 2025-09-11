@@ -33,7 +33,7 @@ ___drop(temp_var); // <= This is automatically inserted by the compiler
 
 When to call `___dup` to increase the reference count?
 
-- On the right side of `=` assignment, and LHS is not variable.
+1. On the right side of `=` assignment, and LHS is not variable.
 
   ```rust
   p1 := Point(3, 4); // temp_var owns the Point(3, 4)
@@ -56,7 +56,7 @@ When to call `___dup` to increase the reference count?
   };
   ```
 
-- Passing to `struct`, `enum`, `union` or `array` constructors.
+2. Passing to `struct`, `enum`, `union` or `array` constructors.
 
   ```rust
   p1 := Point(3, 4); // temp_var owns the Point(3, 4)
@@ -65,7 +65,7 @@ When to call `___dup` to increase the reference count?
   result := Result(Point).Ok(p1); // Will call ___dup on p1, because we are passing to an enum constructor
   ```
 
-- Returning a borrowed variable from a block/function.
+3. Returning a borrowed variable from a block/function.
 
   ```rust
   get_point :: (fn() -> Point) {

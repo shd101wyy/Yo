@@ -24,6 +24,7 @@ import {
   FuncCallExpr,
   replaceFuncCallExpr,
   setExprAsConsumed,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import {
@@ -507,6 +508,22 @@ export function evaluateBeginExpression({
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
   };
+
+  let lastExprIsOwningTheARCValue = false;
+  const lastExprVariableName = lastExpr.$.variableName;
+  if (lastExprVariableName) {
+    const variables = getVariablesFromEnv(env, lastExprVariableName);
+    if (variables.length) {
+      const variable = variables[variables.length - 1]!;
+      lastExprIsOwningTheARCValue = Boolean(variable.isOwningTheARCValue);
+    }
+  }
+
   attachTempVariableToExpr(expr, true);
+
+  if (!lastExprIsOwningTheARCValue) {
+    setExprAsNeedsToCallDup(expr);
+  }
+
   return expr;
 }

@@ -13,6 +13,7 @@ import {
   areTypesCompatible,
   isType0,
   Type,
+  typeContainsARCType,
   typeOfType,
   typeToString,
 } from "./types";
@@ -1131,7 +1132,7 @@ ${exprToString(expr)}`);
       isCompileTimeOnly: Boolean(value),
       isImplicit: false,
       initializedAtToken: expr.token,
-      isOwningTheARCValue,
+      isOwningTheARCValue: isOwningTheARCValue && typeContainsARCType(type),
       consumedAtToken: undefined,
       token: expr.token,
     },
@@ -1526,6 +1527,16 @@ export function setExprAsConsumed(
     });
   }
   return env;
+}
+
+export function setExprAsNeedsToCallDup(expr: Expr) {
+  if (!expr.$) {
+    return;
+  }
+
+  if (typeContainsARCType(expr.$.type)) {
+    expr.$.needsToCallDup = true;
+  }
 }
 
 /**
