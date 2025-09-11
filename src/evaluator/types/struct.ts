@@ -24,6 +24,7 @@ import {
 import {
   areValuesEqual,
   createTypeValue,
+  isFunctionValue,
   isModuleValue,
   isTypeValue,
 } from "../../value";
@@ -336,7 +337,14 @@ export function evaluateStructType({
     // Extract the function value from the right-hand side of the :: assignment
     if (exprIsFunctionCall(dropFunctionExpr)) {
       const functionExpr = dropFunctionExpr;
-      if (functionExpr.$ && functionExpr.$.value) {
+      if (
+        functionExpr.$ &&
+        functionExpr.$.value &&
+        isFunctionValue(functionExpr.$.value)
+      ) {
+        // The code below is necessary for the C code generator to make the ___drop function to have a more descriptive name.
+        functionExpr.$.value.funcId += "___drop";
+
         // Add the drop function to the struct's module elements
         const dropModuleElement: ModuleElement = {
           label: BuiltinFunctions.___drop[0]!,
