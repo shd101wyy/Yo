@@ -66,12 +66,27 @@ export function generateExpr(
   indent: string,
   context: CodeGenContext
 ): string {
+  let result: string;
+
   switch (expr.tag) {
     case ExprTag.FuncCall:
-      return generateFuncCall(expr, indent, context);
+      result = generateFuncCall(expr, indent, context);
+      break;
     case ExprTag.Atom:
-      return generateAtom(expr, context);
+      result = generateAtom(expr, context);
+      break;
   }
+
+  // Check if this expression needs to call dup (increment reference count)
+  if (
+    expr.$?.needsToCallDup &&
+    expr.$?.type &&
+    shouldAvoidConst(expr.$?.type)
+  ) {
+    result = `__yo_incr_rc(${result})`;
+  }
+
+  return result;
 }
 
 /**
@@ -90,6 +105,16 @@ function generateFuncCall(
     }
     const selfCode = generateExpr(selfArg, indent, context);
     return `__yo_decr_rc(${selfCode})`;
+  }
+
+  // __yo_incr_rc - handle reference count increment
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_incr_rc requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `__yo_incr_rc(${selfCode})`;
   }
 
   // borrow - handle this first before other expressions

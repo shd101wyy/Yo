@@ -460,6 +460,9 @@ export function generateRefStructConstructorDeclarations(
   emitter.emitDeclarationLine(
     `void __yo_decr_rc(void* ptr); // Decrement reference count`
   );
+  emitter.emitDeclarationLine(
+    `void* __yo_incr_rc(void* ptr); // Increment reference count`
+  );
 
   // Generate constructor declarations for each ref struct
   for (const typeId in context.types) {
@@ -499,6 +502,15 @@ export function generateBuiltinFunctions(
   } else {
     header->ref_count--;
   }
+}`);
+  emitter.emitLine(``);
+
+  // Generate __yo_incr_rc function
+  emitter.emitLine(`void* __yo_incr_rc(void* ptr) {
+  if (!ptr) return ptr;
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  header->ref_count++;
+  return ptr;
 }`);
   emitter.emitLine(``);
 }
