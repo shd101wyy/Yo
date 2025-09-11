@@ -46,6 +46,28 @@ typedef struct {
   // Generate slice struct types
   generateSliceStructDeclarations(context);
 
+  // Forward declarations - generate struct and enum forward declarations first
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (typeContainsSomeType(type)) {
+      continue; // Skip types that contain `SomeType` as they are not concrete types
+    }
+
+    if (isStructType(type)) {
+      context.emitter.emitDeclarationLine(
+        `typedef struct ${cName}_struct ${cName}; // Forward declaration`
+      );
+    } else if (isEnumType(type)) {
+      context.emitter.emitDeclarationLine(
+        `typedef struct ${cName}_struct ${cName}; // Forward declaration`
+      );
+    }
+  }
+
+  // Add blank line after forward declarations
+  context.emitter.emitDeclarationLine("");
+
+  // First pass: Generate struct declarations
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
@@ -179,7 +201,7 @@ export function generateStructDeclaration(
   if (structType.isReferenceSemantics) {
     // For ref struct, generate a struct with the common reference header
     emitter.emitDeclarationLine(
-      `typedef struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
+      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
     );
     emitter.emitDeclarationLine(
       `  yo_ref_header_t header; // Reference count header`
@@ -191,11 +213,11 @@ export function generateStructDeclaration(
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
-    emitter.emitDeclarationLine(`} ${cName};`);
+    emitter.emitDeclarationLine(`};`);
   } else {
     // For regular struct, generate as before
     emitter.emitDeclarationLine(
-      `typedef struct { // ${structType.typeName} : ${typeToString(structType)}`
+      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)}`
     );
 
     for (const element of structType.elements) {
@@ -204,7 +226,7 @@ export function generateStructDeclaration(
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
-    emitter.emitDeclarationLine(`} ${cName};`);
+    emitter.emitDeclarationLine(`};`);
   }
 
   emitter.emitDeclarationLine(""); // Add blank line for readability
@@ -346,7 +368,7 @@ export function generateEnumDeclaration(
 
   // Generate the main tagged union struct
   emitter.emitDeclarationLine(
-    `typedef struct { // ${enumType.typeName} : ${typeToString(enumType)}`
+    `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)}`
   );
 
   // Add reference counter header for ref enums
@@ -359,6 +381,6 @@ export function generateEnumDeclaration(
   emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
   emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
 
-  emitter.emitDeclarationLine(`} ${cName};`);
+  emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }

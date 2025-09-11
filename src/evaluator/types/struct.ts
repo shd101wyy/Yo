@@ -86,7 +86,7 @@ function generateDropFunctionCode(structType: StructType): string {
   return `((fn(mut(self): Self) -> unit) {
   { ${destructurings.join(", ")} } := self;
 
-  ${destructurings.map((label) => `(${label}.${BuiltinFunctions.___drop[0]!})();`).join("\n")}
+  ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
   
   ${
     isARCType(structType)

@@ -1657,13 +1657,14 @@ function generateMatchExpression(
     return `// Error: "match" expression requires an enum type`;
   }
 
-  // Check if it's a pointer/reference type
+  // Check if it's a pointer/reference type OR reference semantics type
   // If yes, then automatically dereference one-level of it.
   let ptrOrRefType:
     | TypeTag.Ptr
     | TypeTag.MutPtr
     | TypeTag.Ref
     | TypeTag.MutRef
+    | "ref_semantics"
     | undefined = undefined;
 
   let enumType: Type;
@@ -1675,6 +1676,10 @@ function generateMatchExpression(
   ) {
     enumType = matchValueType.type;
     ptrOrRefType = matchValueType.tag;
+  } else if (isEnumTypeWithReferenceSemantics(matchValueType)) {
+    // ref enum types are represented as pointers in C
+    enumType = matchValueType;
+    ptrOrRefType = "ref_semantics";
   } else {
     enumType = matchValueType;
   }
@@ -1730,7 +1735,7 @@ function generateMatchExpression(
 
     // Generate the optimized if/else structure
     context.emitter.emitLine(
-      `${indent}if (${ptrOrRefType ? "*" : ""}${matchedValueCode} != NULL) {`
+      `${indent}if (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode} != NULL) {`
     );
 
     if (pointerCase) {
@@ -1770,7 +1775,7 @@ function generateMatchExpression(
   if (simpleEnumOptimizable) {
     // Generate optimized simple enum matching
     context.emitter.emitLine(
-      `${indent}switch (${ptrOrRefType ? "*" : ""}${matchedValueCode}) {`
+      `${indent}switch (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode}) {`
     );
 
     const caseExprs = expr.args.slice(1);
@@ -1820,7 +1825,7 @@ function generateMatchExpression(
 
   // Original tagged union matching
   context.emitter.emitLine(
-    `${indent}switch (${ptrOrRefType ? "*" : ""}(${matchedValueCode}).tag) {`
+    `${indent}switch (${ptrOrRefType === "ref_semantics" || ptrOrRefType ? matchedValueCode + "->tag" : "(" + matchedValueCode + ").tag"}) {`
   );
 
   const caseExprs = expr.args.slice(1);
@@ -1839,13 +1844,118 @@ function generateMatchExpression(
         caseBody &&
         // caseValue now has to be a variant:
         exprIsFunctionCall(caseValue) &&
-        exprIsFunctionCallOf(caseValue, ".", 1)
+        caseValue.func.tag === ExprTag.Atom &&
+        caseValue.func.token.value === "." &&
+        caseValue.args.length >= 1 // Allow 1 or more arguments for destructuring
       ) {
         const variantName = caseValue.args[0]!.token.value; // Get the variant name
         const variantTag = getEnumVariantCName(enumType, variantName, context);
 
         // Generate the case label
         context.emitter.emitLine(`${indent}case ${variantTag}:`);
+
+        // Handle destructuring patterns like .Point(point) => { ... }
+        if (caseValue.args.length > 1) {
+          // This is a destructuring pattern
+          const variant = enumType.variants.find((v) => v.name === variantName);
+          if (variant && variant.elements) {
+            // Generate local variable declarations for destructured fields
+            for (
+              let fieldIndex = 0;
+              fieldIndex <
+              Math.min(caseValue.args.length - 1, variant.elements.length);
+              fieldIndex++
+            ) {
+              const destructuredVar = caseValue.args[fieldIndex + 1]!; // Skip the variant name
+              const variantElement = variant.elements[fieldIndex];
+
+              if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+                const varName = destructuredVar.token.value;
+                const fieldName = variantElement.label || `field_${fieldIndex}`;
+                const fieldType = getTypeString(variantElement.type, context);
+
+                // Generate variable declaration and assignment
+                const accessPrefix =
+                  ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
+                context.emitter.emitLine(
+                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                );
+              }
+            }
+          }
+        }
+
+        if (
+          exprIsFunctionCall(caseBody) &&
+          exprIsFunctionCallOf(caseBody, "=>", 2)
+        ) {
+          const renameExpr = caseBody.args[0]!;
+          context.emitter.emitLine(
+            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`
+          );
+
+          caseBody = caseBody.args[1]!; // Get the value part of the case
+        }
+
+        // Generate the body of the case
+        const bodyCode = generateExpr(caseBody, indent + "  ", context);
+        if (!isUnit && tempVariableName) {
+          context.emitter.emitLine(
+            `${indent}  ${tempVariableName} = ${bodyCode};`
+          );
+        } else if (bodyCode) {
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        }
+        context.emitter.emitLine(`${indent}  break;`);
+      }
+      // Handle destructuring patterns like .Point(point) => { ... }
+      else if (
+        caseValue &&
+        caseBody &&
+        exprIsFunctionCall(caseValue) &&
+        exprIsFunctionCall(caseValue.func) &&
+        caseValue.func.func.tag === ExprTag.Atom &&
+        caseValue.func.func.token.value === "." &&
+        caseValue.func.args.length === 1
+      ) {
+        // Extract variant name from .Point(point) pattern
+        const variantName = caseValue.func.args[0]!.token.value;
+        const variantTag = getEnumVariantCName(enumType, variantName, context);
+        const destructuringParams = caseValue.args;
+
+        // Generate the case label
+        context.emitter.emitLine(`${indent}case ${variantTag}:`);
+
+        // Generate local variable declarations for destructured fields
+        const variant = enumType.variants.find((v) => v.name === variantName);
+        if (variant && variant.elements && destructuringParams.length > 0) {
+          for (
+            let fieldIndex = 0;
+            fieldIndex <
+            Math.min(destructuringParams.length, variant.elements.length);
+            fieldIndex++
+          ) {
+            const destructuredVar = destructuringParams[fieldIndex]!;
+            const variantElement = variant.elements[fieldIndex];
+
+            if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+              const varName = destructuredVar.token.value;
+
+              // Skip if variable name is "_" (ignore pattern)
+              if (varName !== "_") {
+                const fieldName = variantElement.label || `field_${fieldIndex}`;
+                const fieldType = getTypeString(variantElement.type, context);
+
+                // Generate variable declaration and assignment
+                const accessPrefix =
+                  ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
+                context.emitter.emitLine(
+                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                );
+              }
+            }
+          }
+        }
 
         if (
           exprIsFunctionCall(caseBody) &&
