@@ -1,16 +1,19 @@
+open import "../../../std/libc/stdio.yo";
+
 Point :: ref struct(
   x : i32,
-  y : i32
-);
+  y : i32,
 
-Box :: ref struct(
-  p : Point
+  dispose :: ((fn(mut(self) : Self) -> unit) {
+    printf("Disposed Point(%d, %d)\n", self.x, self.y);
+  })
 );
 
 main :: (fn() -> unit) {
   p1 := Point(3, 4);
-  box := Box(p1);
-  p2 := box.p; // Destructuring p
+  printf("Created Point: (%d, %d)\n", p1.x, p1.y);
+
+  // p1.dispose() should be called when p1 goes out of scope.
 };
 
 export main;

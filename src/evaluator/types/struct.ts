@@ -13,7 +13,9 @@ import { generateExprFromCode } from "../../parser";
 import {
   createStructType,
   isARCType,
+  isFunctionType,
   isStructType,
+  isUnitType,
   ModuleElement,
   StructType,
   TupleElement,
@@ -69,12 +71,14 @@ function generateDropFunctionCode(structType: StructType): string {
     )
     .map((element) => element.label);
 
-  // TODO: Check if there is `dispose` function and call it when necessary
+  const hasDisposeFunction = structType.module.elements.some(
+    (element) => element.label === BuiltinFunctions.dispose[0]
+  );
 
   // If no fields to destructure, just create an empty function
   if (!destructurings.length) {
     return `((fn(mut(self): Self) -> unit) {
-  __yo_decr_rc(self);
+  __yo_decr_rc(self${hasDisposeFunction ? `, Self.dispose` : ""});
   ()
 })`;
   }
@@ -87,7 +91,7 @@ function generateDropFunctionCode(structType: StructType): string {
   ${
     isARCType(structType)
       ? `
-  __yo_decr_rc(self);`
+  __yo_decr_rc(self${hasDisposeFunction ? `, Self.dispose` : ""});`
       : ""
   }
 })`;
@@ -264,6 +268,54 @@ export function evaluateStructType({
       }
 
       if (type.isCompileTimeOnly) {
+        // ___drop function
+        if (type.label === BuiltinFunctions.___drop[0]) {
+          throw formatErrorMessage({
+            token: exprIsFunctionCall(arg)
+              ? (arg.args[0]?.token ?? arg.token)
+              : arg.token,
+            errorMessage: `The label "${BuiltinFunctions.___drop[0]}()" is reserved for the auto-generated drop function. You cannot define it as a compile-time-only element.`,
+          });
+        }
+
+        // dispose function
+        // Verify the disposeFunction has the correct type.
+        // fn(mut(self): Self) -> unit
+        if (type.label === BuiltinFunctions.dispose[0]) {
+          if (isFunctionType(type.type)) {
+            const funcType = type.type;
+            if (
+              funcType.parameters.length !== 1 ||
+              funcType.forallParameters.length !== 0 ||
+              funcType.implicitParameters.length !== 0
+            ) {
+              throw formatErrorMessage({
+                token: exprIsFunctionCall(arg)
+                  ? (arg.args[0]?.token ?? arg.token)
+                  : arg.token,
+                errorMessage: `The "dispose" function must have exactly one parameter of type "Self".`,
+              });
+            }
+
+            // Check if the return type is unit
+            if (!isUnitType(funcType.return.type)) {
+              throw formatErrorMessage({
+                token: exprIsFunctionCall(arg)
+                  ? (arg.args[0]?.token ?? arg.token)
+                  : arg.token,
+                errorMessage: `The "dispose" function must return "unit".`,
+              });
+            }
+          } else {
+            throw formatErrorMessage({
+              token: exprIsFunctionCall(arg)
+                ? (arg.args[0]?.token ?? arg.token)
+                : arg.token,
+              errorMessage: `The "dispose" must be a function.`,
+            });
+          }
+        }
+
         const moduleElement = type as ModuleElement;
         structType.module.elements.push(moduleElement);
       } else {

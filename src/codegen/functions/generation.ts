@@ -458,7 +458,7 @@ export function generateRefStructConstructorDeclarations(
 
   // Generate builtin reference counting functions
   emitter.emitDeclarationLine(
-    `void __yo_decr_rc(void* ptr); // Decrement reference count`
+    `void __yo_decr_rc(void* ptr, void (*dispose_fn)(void*)); // Decrement reference count`
   );
   emitter.emitDeclarationLine(
     `void* __yo_incr_rc(void* ptr); // Increment reference count`
@@ -494,10 +494,13 @@ export function generateBuiltinFunctions(
   const emitter = context.emitter;
 
   // Generate __yo_decr_rc function
-  emitter.emitLine(`void __yo_decr_rc(void* ptr) {
+  emitter.emitLine(`void __yo_decr_rc(void* ptr, void (*dispose_fn)(void*)) {
   if (!ptr) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   if (header->ref_count == 1) {
+    if (dispose_fn) {
+      dispose_fn(ptr);
+    }
     free(ptr);
   } else {
     header->ref_count--;

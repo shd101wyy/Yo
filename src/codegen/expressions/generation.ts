@@ -102,11 +102,21 @@ function generateFuncCall(
   // __yo_decr_rc - handle reference count decrement
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
     const selfArg = expr.args[0];
+    const disposeFnArg = expr.args[1];
     if (!selfArg) {
-      return `// Error: __yo_decr_rc requires exactly 1 argument`;
+      return `// Error: __yo_decr_rc requires at least 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_decr_rc(${selfCode})`;
+
+    // If dispose function is provided, generate it; otherwise use NULL
+    let disposeFnCode = "NULL";
+    if (disposeFnArg) {
+      const rawDisposeFnCode = generateExpr(disposeFnArg, indent, context);
+      // Cast the function pointer to the expected void(*)(void*) type
+      disposeFnCode = `(void(*)(void*))${rawDisposeFnCode}`;
+    }
+
+    return `__yo_decr_rc(${selfCode}, ${disposeFnCode})`;
   }
 
   // __yo_incr_rc - handle reference count increment
@@ -774,10 +784,20 @@ function generateFuncCall(
     return `sizeof(${argCode})`; // Use sizeof operator on the argument
   }
   // __yo_decr_rc
-  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc, 1)) {
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
     const arg = expr.args[0]!;
+    const disposeFnArg = expr.args[1];
     const argCode = generateExpr(arg, indent, context);
-    return `__yo_decr_rc(${argCode})`;
+
+    // If dispose function is provided, generate it; otherwise use NULL
+    let disposeFnCode = "NULL";
+    if (disposeFnArg) {
+      const rawDisposeFnCode = generateExpr(disposeFnArg, indent, context);
+      // Cast the function pointer to the expected void(*)(void*) type
+      disposeFnCode = `(void(*)(void*))${rawDisposeFnCode}`;
+    }
+
+    return `__yo_decr_rc(${argCode}, ${disposeFnCode})`;
   }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {
@@ -1962,7 +1982,13 @@ function generateYoInlineFunctionCall(
   }
   // __yo_decr_rc
   else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {
-    return `__yo_decr_rc((void*)(${args[0]!}))`;
+    // Handle 1 or 2 arguments - second argument is dispose function (optional)
+    let disposeFnArg = "NULL";
+    if (args[1]) {
+      // Cast the function pointer to the expected void(*)(void*) type
+      disposeFnArg = `(void(*)(void*))${args[1]}`;
+    }
+    return `__yo_decr_rc((void*)(${args[0]!}), ${disposeFnArg})`;
   }
   // Handle other operators that are not defined in Yo
   else {

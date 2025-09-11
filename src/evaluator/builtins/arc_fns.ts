@@ -15,7 +15,7 @@ import { EvaluatorContext } from "../context";
 /**
  * Just evaluates the argument and returns unit.
  */
-export function evaluateARCOperation({
+export function evaluateYoDecrRc({
   expr,
   env,
   context,
@@ -24,11 +24,7 @@ export function evaluateARCOperation({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  expectExprToBeFunctionCallOf(
-    expr,
-    [BuiltinFunctions.__yo_incr_rc[0]!, BuiltinFunctions.__yo_decr_rc[0]!],
-    1
-  );
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_decr_rc[0]!]);
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = context.evaluateExpression({
@@ -51,6 +47,28 @@ export function evaluateARCOperation({
 
   // Check if the drop argument is already borrowed
   checkBorrowings(context.borrowings, evaluatedArgExpr);
+
+  // Evaluate the second argument (dispose function) if provided
+  const disposeFnExpr = expr.args[1];
+  if (disposeFnExpr) {
+    const evaluatedDisposeFnExpr = context.evaluateExpression({
+      expr: disposeFnExpr,
+      env,
+      context: {
+        ...context,
+      },
+    });
+
+    if (!evaluatedDisposeFnExpr.$) {
+      throw formatErrorMessage({
+        token: disposeFnExpr.token,
+        errorMessage: `Failed to evaluate the dispose function expression for "__yo_decr_rc":\n${exprToString(
+          disposeFnExpr
+        )}`,
+      });
+    }
+    env = evaluatedDisposeFnExpr.$.env;
+  }
 
   expr.$ = {
     env,

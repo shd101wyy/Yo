@@ -19,10 +19,7 @@ import { ModuleValue } from "../value";
 // Import extracted evaluator functions
 import { evaluateAlignOf } from "./builtins/alignof";
 import { evaluateAndOr } from "./builtins/and_or";
-import {
-  evaluateARCOperation,
-  evaluateIsUniquelyOwned,
-} from "./builtins/arc_fns";
+import { evaluateIsUniquelyOwned, evaluateYoDecrRc } from "./builtins/arc_fns";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
@@ -476,13 +473,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
         // ___drop
         return evaluateDrop({ expr, env, context: { ...context } });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc) ||
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)
-      ) {
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
         // __yo_decr_rc
-        // __yo_incr_rc
-        return evaluateARCOperation({ expr, env, context: { ...context } });
+        return evaluateYoDecrRc({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.is_uniquely_owned)
       ) {
