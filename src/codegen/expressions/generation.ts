@@ -488,7 +488,8 @@ function generateFuncCall(
       // Non-array assignment - use existing logic
       const rhsCode = generateExpr(rhs, indent, context);
       if (!isUnitType(lhs.$.type)) {
-        const shouldSkipConst = !isInitialization || isMutable || shouldAvoidConst(lhs.$.type);
+        const shouldSkipConst =
+          !isInitialization || isMutable || shouldAvoidConst(lhs.$.type);
         const constQualifier = shouldSkipConst ? "" : "const ";
         context.emitter.emitLine(
           `${indent}${constQualifier}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`

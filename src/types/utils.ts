@@ -177,10 +177,21 @@ export function typeContainsARCType(type?: Type): boolean {
       return (type as UnionType).elements.some((element) =>
         typeContainsARCType(element.type)
       );
+    case TypeTag.Struct:
+      return (type as StructType).elements.some((element) =>
+        typeContainsARCType(element.type)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.elements?.some((param) => typeContainsARCType(param.type))
+      );
     case TypeTag.Module:
       return (type as ModuleType).elements.some((element) =>
         typeContainsARCType(element.type)
       );
+    case TypeTag.Function: {
+      return !!(type as FunctionType).isClosure;
+    }
     // No need to consider ptr/ref types, as they are not owning types
     default:
       return false; // For other types, no references are present

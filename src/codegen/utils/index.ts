@@ -88,7 +88,10 @@ export function sanitizeForCIdentifier(str: string): string {
  * This is needed for ref struct types that need to support reference counting operations
  */
 export function shouldAvoidConst(type: Type): boolean {
-  return isStructTypeWithReferenceSemantics(type) || isEnumTypeWithReferenceSemantics(type);
+  return (
+    isStructTypeWithReferenceSemantics(type) ||
+    isEnumTypeWithReferenceSemantics(type)
+  );
 }
 
 /**
