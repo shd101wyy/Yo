@@ -1,0 +1,35 @@
+open import "../../../../std/libc/stdio.yo";
+
+Point :: ref struct
+  x : i32,
+  y : i32,
+
+  dispose :: ((fn(mut(self) : Self) -> unit) {
+    printf("Disposed Point(%d, %d)\n", self.x, self.y);
+  })
+;
+Shape :: ref enum
+  Point(point : Point),
+  Circle(radius : i32),
+  Square(side : i32),
+  Triangle(base : i32, height : i32),
+
+  dispose :: ((fn(mut(self) : Self) -> unit) {
+    printf("Disposed Shape\n");
+  })
+;
+
+main :: (fn() -> unit) {
+  // s1 := Shape.Circle(5);
+  
+  // x := 3;
+  // y := 4;
+  // s1 := Shape.Point(Point(x, y));
+  
+  s1 := Shape.Point(Point(3, 4));
+
+  // p1 := Point(3, 4);
+  // s1 := Shape.Point(p1);
+};
+
+export main;

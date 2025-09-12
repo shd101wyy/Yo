@@ -80,6 +80,52 @@ export function evaluateYoDecrRc({
   return expr;
 }
 
+/**
+ * Just evaluates the argument and returns unit.
+ */
+export function evaluateYoIncrRc({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_decr_rc[0]!]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = context.evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "drop":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  // Check if the drop argument is already borrowed
+  checkBorrowings(context.borrowings, evaluatedArgExpr);
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    isMutable: false,
+    pathCollection: [],
+  };
+  return expr;
+}
+
 export function evaluateIsUniquelyOwned({
   expr,
   env,

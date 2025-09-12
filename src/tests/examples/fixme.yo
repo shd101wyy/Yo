@@ -1,35 +1,32 @@
 open import "../../../std/libc/stdio.yo";
 
-Point :: ref struct
-  x : i32,
-  y : i32,
+Box :: ref struct
+  value : i32,
 
   dispose :: ((fn(mut(self) : Self) -> unit) {
-    printf("Disposed Point(%d, %d)\n", self.x, self.y);
+    printf("Disposed Box(%d)\n", self.value);
   })
 ;
-Shape :: ref enum
-  Point(point : Point),
-  Circle(radius : i32),
-  Square(side : i32),
-  Triangle(base : i32, height : i32),
 
-  dispose :: ((fn(mut(self) : Self) -> unit) {
-    printf("Disposed Shape\n");
-  })
+Point :: struct
+  x : Box,
+  y : Box
+;
+
+Container :: struct
+  point : Point
 ;
 
 main :: (fn() -> unit) {
-  // s1 := Shape.Circle(5);
-  
-  // x := 3;
-  // y := 4;
-  // s1 := Shape.Point(Point(x, y));
-  
-  s1 := Shape.Point(Point(3, 4));
+  x := Box(1);
+  y := Box(2);
+  p := Point(x, y);
+  c := Container(p); // FIXME: we should call ___dup on `p` here.
 
-  // p1 := Point(3, 4);
-  // s1 := Shape.Point(p1);
+  // ___drop(c);
+  // ___drop(p);
+  // ___drop(y);
+  // ___drop(x);
 };
 
 export main;

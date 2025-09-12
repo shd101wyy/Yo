@@ -19,13 +19,18 @@ import { ModuleValue } from "../value";
 // Import extracted evaluator functions
 import { evaluateAlignOf } from "./builtins/alignof";
 import { evaluateAndOr } from "./builtins/and_or";
-import { evaluateIsUniquelyOwned, evaluateYoDecrRc } from "./builtins/arc_fns";
+import {
+  evaluateIsUniquelyOwned,
+  evaluateYoDecrRc,
+  evaluateYoIncrRc,
+} from "./builtins/arc_fns";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import { evaluateDrop } from "./builtins/drop";
+import { evaluateDup } from "./builtins/dup";
 import {
   evaluateYoExprEq,
   evaluateYoExprGetArgs,
@@ -473,9 +478,15 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
         // ___drop
         return evaluateDrop({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___dup)) {
+        // ___dup
+        return evaluateDup({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
         // __yo_decr_rc
         return evaluateYoDecrRc({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc)) {
+        // __yo_incr_rc
+        return evaluateYoIncrRc({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.is_uniquely_owned)
       ) {

@@ -802,6 +802,7 @@ export const BuiltinFunctions = {
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
+  ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
   dispose: ["dispose"], // Destructor to run when a ref struct/enum is dropped
 
   /// Others
