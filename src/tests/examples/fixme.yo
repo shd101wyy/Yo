@@ -1,16 +1,16 @@
-Box :: (fn(compt(V) : Type) -> compt(Type))
-  ref struct(
-    (*) : V
-  )
-;
-box :: (fn(forall(V : Type), value : V) -> Box(V))
-  Box(V)(value)
-;
+open import "std";
 
-main :: (fn() -> int) {
-  x := box(3);
-  y := Box(i32)(4);
-  return 0;
+main :: (fn() -> i32) {
+  mut(x) := 1;
+  mut(closure) := ((fn(y : i32) => i32) {
+    x = (x + y);
+    return x;
+  });
+
+  closure(1); // 2
+  closure(1); // 3
+
+  return closure(2); // 5
 };
 
 export main;

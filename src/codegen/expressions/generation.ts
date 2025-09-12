@@ -12,6 +12,7 @@ import {
 } from "../../expr";
 import {
   ArrayType,
+  ClosureType,
   isArrayType,
   isClosureType,
   isEnumType,
@@ -46,6 +47,7 @@ import {
   valueToString,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
+import { FunctionGenerationContext } from "../functions/generation";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -905,7 +907,50 @@ function generateFuncCall(
       // Handle closure calls - following Rust model
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
-        return `// Error: Closure calls are not yet implemented in C codegen`;
+        // Generate closure value and function arguments
+        const closureCode = generateExpr(expr.func, indent, context);
+        const args = runtimeArgExprs.map((arg) => {
+          return generateExpr(arg, indent, context);
+        });
+
+        // Get the closure type and its function value to find the call function
+        const closureType = functionType as ClosureType;
+        const closureValue = expr.func.$?.value;
+
+        if (closureValue && isClosureValue(closureValue)) {
+          // Get the closure function name from the function value
+          const functionValue = closureValue.functionValue;
+          const cName = context.functions[functionValue.funcId]?.cName;
+
+          if (cName) {
+            // For closure calls, pass the closure context as first argument
+            const allArgs = [closureCode, ...args];
+            return `${cName}(${allArgs.join(", ")})`;
+          } else {
+            return `// Error: Could not find C name for closure function ${functionValue.funcName}`;
+          }
+        } else {
+          // Fallback: try to find the closure function from the call type
+          const callType = closureType.callType;
+
+          // Find the function that matches this call type
+          let closureFunctionName: string | undefined;
+          for (const funcId in context.functions) {
+            const { value } = context.functions[funcId]!;
+            if (value.type === callType || value.specializedType === callType) {
+              closureFunctionName = context.functions[funcId]!.cName;
+              break;
+            }
+          }
+
+          if (closureFunctionName) {
+            // For closure calls, pass the closure context as first argument
+            const allArgs = [closureCode, ...args];
+            return `${closureFunctionName}(${allArgs.join(", ")})`;
+          } else {
+            return `// Error: Could not find closure function for call type`;
+          }
+        }
         /*
         // Generate closure value and function arguments
         const closureCode = generateExpr(expr.func, indent, context);
@@ -1149,7 +1194,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     return generateComptValue(expr.$.value, context);
   }
 
-  /*
   // Check if we're in a closure function and this variable is captured
   const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
   if (
@@ -1157,20 +1201,9 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     functionContext.currentClosureCaptures.includes(expr.token.value)
   ) {
     // We're accessing a captured variable in a closure function
-    const closureKind = functionContext.currentClosureKind;
-
-    if (closureKind === "FnMut") {
-      // For FnMut, closure parameter is a pointer, and captured variables are also pointers
-      return `*(closure_struct->${expr.token.value})`;
-    } else if (closureKind === "Fn") {
-      // For Fn, closure parameter is a const pointer, and captured variables are const pointers
-      return `*(closure_struct->${expr.token.value})`;
-    } else {
-      // For FnMove, closure parameter is by value, and captured variables are values
-      return `closure_struct.${expr.token.value}`;
-    }
+    // All closures use move semantics - access captured variables through closure_context pointer
+    return `closure_context->${expr.token.value}`;
   }
-  */
 
   return expr.token.value;
 }
@@ -1316,8 +1349,21 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       closureType.captureType &&
       isStructType(closureType.captureType)
     ) {
-      // TODO: Runtime closure with captures - commented out for closure system simplification
-      return `// TODO: Runtime closure generation not yet implemented with new closure system`;
+      // Runtime closure with captures - generate constructor call
+      const captureType = closureType.captureType;
+      const constructorName = `__yo_new_${cName}`;
+
+      if (captureType.elements.length > 0) {
+        // Generate constructor call with captured variable names
+        const captureArgs = captureType.elements
+          .map((element) => element.label)
+          .join(", ");
+
+        return `${constructorName}(${captureArgs})`;
+      } else {
+        // Empty closure
+        return `${constructorName}()`;
+      }
       /*
       // Runtime closure with captures - use field names as variable names
       const captureType = closureType.captureType;

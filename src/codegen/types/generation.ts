@@ -4,11 +4,11 @@ import {
   isClosureType,
   isEnumType,
   isStructType,
-  isStructTypeWithReferenceSemantics,
   isTupleType,
   isUnionType,
   StructType,
   TupleType,
+  typeContainsARCType,
   typeContainsSomeType,
   typeToString,
   UnionType,
@@ -28,7 +28,7 @@ import {
 export function generateTypeDeclarations(context: CodeGenContext): void {
   // Generate common reference counter header for ref structs and ref enums
   const hasARCTypes = Object.values(context.types).some(({ type }) =>
-    isStructTypeWithReferenceSemantics(type)
+    typeContainsARCType(type)
   );
 
   if (hasARCTypes) {
@@ -172,12 +172,33 @@ export function generateClosureDeclaration(
     );
     */
 
-  // TODO: For now, generate a simple placeholder for all closures
-  emitter.emitDeclarationLine(
-    `typedef struct { int _placeholder; } ${cName}; // TODO: Closure struct generation with new closure system`
-  );
+  // Generate closure struct based on capture type
+  const captureType = closureType.captureType;
 
-  /*
+  if (isStructType(captureType) && captureType.elements.length > 0) {
+    // Generate struct with captured variables
+    emitter.emitDeclarationLine(
+      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (reference counted)`
+    );
+    emitter.emitDeclarationLine(
+      `  yo_ref_header_t header; // Reference count header`
+    );
+
+    for (const element of captureType.elements) {
+      // Use move semantics - capture by value
+      const fieldTypeStr = getTypeString(element.type, context);
+      const fieldName = sanitizeForCIdentifier(element.label);
+      emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+    }
+    emitter.emitDeclarationLine(`} ${cName};`);
+  } else {
+    // Generate empty closure struct (no captures)
+    emitter.emitDeclarationLine(
+      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (reference counted)`
+    );
+    emitter.emitDeclarationLine(
+      `  yo_ref_header_t header; // Reference count header`
+    );
     emitter.emitDeclarationLine(
       `  char _unused; // Empty closure with no captures`
     );
@@ -185,7 +206,6 @@ export function generateClosureDeclaration(
   }
 
   emitter.emitDeclarationLine(""); // Add blank line for readability
-  */
 }
 
 /**

@@ -6,7 +6,9 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
+  ClosureType,
   FunctionType,
+  isClosureType,
   isFunctionType,
   isMutPtrType,
   isMutRefType,
@@ -16,6 +18,7 @@ import {
   isUnitType,
   typeContainsSomeType,
   TypeId,
+  TypeTag,
   typeToString,
 } from "../../types";
 import { generateExpr, generateReturnStatement } from "../expressions";
@@ -36,7 +39,6 @@ export interface FunctionGenerationContext extends CodeGenContext {
   >;
   currentFunctionName: string;
   currentClosureCaptures?: string[]; // Variables captured by current closure function
-  // currentClosureKind?: ClosureKind; // Kind of current closure function (FnMove, FnMut, Fn)
 }
 
 /**
@@ -101,8 +103,7 @@ export function generateFunctionPrototype(
   const paramStrings: string[] = [];
 
   // For closure functions, add the closure struct as the first parameter
-  /*
-  if (functionType.closureKind) {
+  if (functionType.isClosure) {
     // Find the closure type that uses this function type
     const closureTypeEntry = Object.values(context.types).find(
       (t) =>
@@ -114,26 +115,12 @@ export function generateFunctionPrototype(
       // Use the closure type directly (which is now the same as the capture struct)
       const closureTypeStr = closureTypeEntry.cName;
 
-      // Determine parameter type based on closure kind
-      let closureParamStr: string;
-      if (functionType.closureKind === "FnMove") {
-        // FnMove: pass by value (copy), can be mutable since it's a copy
-        closureParamStr = `${closureTypeStr} closure_struct`;
-      } else if (functionType.closureKind === "FnMut") {
-        // FnMut: pass by pointer (reference), mutable
-        closureParamStr = `${closureTypeStr}* closure_struct`;
-      } else if (functionType.closureKind === "Fn") {
-        // Fn: pass by const pointer (immutable reference)
-        closureParamStr = `const ${closureTypeStr}* closure_struct`;
-      } else {
-        // Default fallback
-        closureParamStr = `${closureTypeStr} closure_struct`;
-      }
+      // All closures use move semantics - pass by pointer since closures are reference-counted
+      const closureParamStr = `${closureTypeStr}* closure_context`;
 
       paramStrings.push(closureParamStr);
     }
   }
-  */
 
   // Add regular parameters
   const regularParamStrings = runtimeParams.map((param, index) => {
@@ -255,9 +242,7 @@ export function generateFunction(
 
   // Set closure capture context if this is a closure function
   const previousClosureCaptures = context.currentClosureCaptures;
-  /*
-  const previousClosureKind = context.currentClosureKind;
-  if (functionType.closureKind) {
+  if (functionType.isClosure) {
     // This is a closure function - find the closure type to get capture info
     const closureTypeEntry = Object.values(context.types).find(
       (t) =>
@@ -275,12 +260,9 @@ export function generateFunction(
         context.currentClosureCaptures = captureType.elements.map(
           (elem) => elem.label
         );
-        // Store the closure kind for proper variable access
-        context.currentClosureKind = functionType.closureKind;
       }
     }
   }
-  */
 
   // Generate function body with proper return handling
   generateFunctionBody(functionValue.body, functionType, "  ", context);
@@ -288,7 +270,6 @@ export function generateFunction(
   // Restore previous function name and closure captures
   context.currentFunctionName = previousFunctionName;
   context.currentClosureCaptures = previousClosureCaptures;
-  // context.currentClosureKind = previousClosureKind;
 
   emitter.emitLine(`}`);
 }
@@ -493,6 +474,39 @@ export function generateRefStructConstructorDeclarations(
         `${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
     }
+
+    // Generate constructor declarations for each closure (they are also reference-counted)
+    if (isClosureType(type)) {
+      const closureType = type as ClosureType;
+      const captureType = closureType.captureType;
+
+      // Skip generic closures that contain SomeType parameters
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+
+      const constructorName = `__yo_new_${cName}`;
+
+      if (isStructType(captureType) && captureType.elements.length > 0) {
+        // Generate constructor parameters for captured variables
+        const paramTypes = captureType.elements
+          .map((element) => {
+            const fieldType = getTypeString(element.type, context);
+            const fieldName = sanitizeForCIdentifier(element.label);
+            return `${fieldType} ${fieldName}`;
+          })
+          .join(", ");
+
+        emitter.emitDeclarationLine(
+          `${cName}* ${constructorName}(${paramTypes}); // Closure constructor`
+        );
+      } else {
+        // Empty closure (no captures)
+        emitter.emitDeclarationLine(
+          `${cName}* ${constructorName}(); // Empty closure constructor`
+        );
+      }
+    }
   }
 }
 
@@ -575,6 +589,56 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);
+    }
+
+    // Generate constructor implementations for each closure
+    if (isClosureType(type)) {
+      const closureType = type as ClosureType;
+      const captureType = closureType.captureType;
+
+      // Skip generic closures that contain SomeType parameters
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+
+      const constructorName = `__yo_new_${cName}`;
+
+      if (isStructType(captureType) && captureType.elements.length > 0) {
+        // Generate constructor with captured variables
+        const paramTypes = captureType.elements
+          .map((element) => {
+            const fieldType = getTypeString(element.type, context);
+            const fieldName = sanitizeForCIdentifier(element.label);
+            return `${fieldType} ${fieldName}`;
+          })
+          .join(", ");
+
+        emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
+        emitter.emitLine(
+          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+        );
+        emitter.emitLine(`  obj->header.ref_count = 1;`);
+
+        // Initialize captured fields
+        captureType.elements.forEach((element) => {
+          const fieldName = sanitizeForCIdentifier(element.label);
+          emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
+        });
+
+        emitter.emitLine(`  return obj;`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
+      } else {
+        // Empty closure constructor (no captures)
+        emitter.emitLine(`${cName}* ${constructorName}() {`);
+        emitter.emitLine(
+          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+        );
+        emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(`  return obj;`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
+      }
     }
   }
 }

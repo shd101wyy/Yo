@@ -153,7 +153,7 @@ export function typeContains2ndClassReference(type?: Type): boolean {
 }
 
 /**
- * Check if the type contains `ref struct/enum`
+ * Check if the type contains `ref struct`
  * @param type
  */
 export function typeContainsARCType(type?: Type): boolean {

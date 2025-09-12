@@ -201,7 +201,8 @@ export function getTypeString(
           `No C type name found for closure ${typeToString(type)}`
         );
       }
-      return cTypeName;
+      // Closures are reference-counted, so return pointer type
+      return `${cTypeName}*`;
     }
     // Fixed size array
     case TypeTag.Array: {
