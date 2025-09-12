@@ -3,13 +3,11 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { generateExprFromCode } from "../../parser";
 import {
   createStructType,
   isARCType,
@@ -22,48 +20,24 @@ import {
 import {
   areValuesEqual,
   createTypeValue,
-  isFunctionValue,
   isModuleValue,
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";
+import { addFunctionToSelfTypeModule } from "./utils";
 import { validateDisposeFunction } from "./validation";
 
 /**
- * Helper function to parse and evaluate a Yo code string in the context of a struct
+ * Generate ___dispose function code for a struct type
+ *
+ * ___dispose :
+ *  fn(mut(self): Self) -> unit
  */
-function parseAndEvaluateExprInStruct(
-  code: string,
-  structType: StructType,
-  env: Environment,
-  context: EvaluatorContext
-): { expr: Expr; env: Environment } {
-  const expr = generateExprFromCode(code);
-
-  // Evaluate the expression with the struct as the SelfType
-  const evaluatedExpr = context.evaluateExpression({
-    expr,
-    env,
-    context: {
-      ...context,
-      SelfType: structType,
-    },
-  });
-
-  if (!evaluatedExpr.$) {
-    throw new Error(
-      `Failed to evaluate auto-generated expression: ${exprToString(expr)}`
-    );
+function generateDisposeFunctionCode(structType: StructType): string | null {
+  if (!isARCType(structType)) {
+    return null; // no need to generate ___dispose function
   }
-
-  return { expr: evaluatedExpr, env: evaluatedExpr.$.env };
-}
-
-/**
- * Generate ___drop function code for a struct type
- */
-function generateDropFunctionCode(structType: StructType): string {
   const destructurings = structType.elements
     .filter(
       (element) =>
@@ -75,28 +49,65 @@ function generateDropFunctionCode(structType: StructType): string {
     (element) => element.label === BuiltinFunctions.dispose[0]
   );
 
-  const decrRcExpr = isARCType(structType)
-    ? `
-  ${BuiltinFunctions.__yo_decr_rc[0]!}(self${hasDisposeFunction ? `, Self.dispose` : ""});`
-    : "";
-
-  // If no fields to destructure, just create an empty function
-  if (!destructurings.length) {
-    return `((fn(mut(self): Self) -> unit) {
-  ${decrRcExpr}
-  ()
-})`;
+  if (!destructurings.length && !hasDisposeFunction) {
+    return null; // no need to generate ___dispose function
   }
 
-  return `((fn(mut(self): Self) -> unit) {
+  const dropDestructuringsExpr = destructurings.length
+    ? `
   { ${destructurings.join(", ")} } := self;
-
   ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
-  
+`
+    : "";
+
+  return `((fn(mut(self) : Self) -> unit) {
+      ${hasDisposeFunction ? "Self.dispose(self);" : ""}
+      ${dropDestructuringsExpr}
+    })`;
+}
+
+/**
+ * Generate ___drop function code for a struct type
+ *
+ * ___drop :
+ *  fn(mut(self): Self) -> unit
+ */
+function generateDropFunctionCode(structType: StructType): string {
+  const destructurings = structType.elements
+    .filter(
+      (element) =>
+        !element.isCompileTimeOnly && typeContainsARCType(element.type)
+    )
+    .map((element) => element.label);
+
+  const decrRcExpr = isARCType(structType)
+    ? `
+  ${BuiltinFunctions.__yo_decr_rc[0]!}(self${generateDisposeFunctionCode(structType) ? ", Self.___dispose" : ""});`
+    : "";
+
+  const dropDestructuringsExpr = isARCType(structType)
+    ? ""
+    : destructurings.length
+      ? `
+  { ${destructurings.join(", ")} } := self;
+  ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
+`
+      : "";
+
+  return `((fn(mut(self): Self) -> unit) {
+  ${dropDestructuringsExpr}
   ${decrRcExpr}
 })`;
 }
 
+/**
+ *
+ * Generate ___dup function code for a struct type
+ *
+ * ___dup :
+ *  fn(mut(self): Self) -> Self
+ *
+ */
 function generateDupFunctionCode(structType: StructType): string {
   const destructurings = structType.elements
     .filter(
@@ -110,19 +121,17 @@ function generateDupFunctionCode(structType: StructType): string {
   ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
     : "";
 
-  // If no fields to destructure, just create an empty function
-  if (!destructurings.length) {
-    return `((fn(mut(self) : Self) -> Self) {
-  ${incrRcExpr}
-  self
-})`;
-  }
+  const dupDestructuringsExpr = isARCType(structType)
+    ? ""
+    : destructurings.length
+      ? `
+  { ${destructurings.join(", ")} } := self;
+  ${destructurings.map((label) => `(${BuiltinFunctions.___dup[0]!})(${label});`).join("\n")}
+`
+      : "";
 
   return `((fn(mut(self) : Self) -> Self) {
-  { ${destructurings.join(", ")} } := self;
-
-  ${destructurings.map((label) => `(${BuiltinFunctions.___dup[0]!})(${label});`).join("\n")}
-  
+  ${dupDestructuringsExpr}
   ${incrRcExpr}
   self
 })`;
@@ -326,84 +335,41 @@ export function evaluateStructType({
 
   // Auto-generate ___drop and ___dup function if it's needed
   if (typeContainsARCType(structType)) {
+    const disposeFunctionCode = generateDisposeFunctionCode(structType);
     const dropFunctionCode = generateDropFunctionCode(structType);
     const dupFunctionCode = generateDupFunctionCode(structType);
 
-    // Add ___drop function to the struct type module elements
-    {
-      const { expr: dropFunctionExpr, env: nextEnv } =
-        parseAndEvaluateExprInStruct(
-          dropFunctionCode,
-          structType,
-          env,
-          context
-        );
-      if (exprIsFunctionCall(dropFunctionExpr)) {
-        const functionExpr = dropFunctionExpr;
-        if (
-          functionExpr.$ &&
-          functionExpr.$.value &&
-          isFunctionValue(functionExpr.$.value)
-        ) {
-          // The code below is necessary for the C code generator to make the ___drop function to have a more descriptive name.
-          functionExpr.$.value.funcId += BuiltinFunctions.___drop[0]!;
-
-          // Add the drop function to the struct's module elements
-          const dropModuleElement: ModuleElement = {
-            label: BuiltinFunctions.___drop[0]!,
-            type: functionExpr.$.type,
-            assignedValue: functionExpr.$.value,
-            isCompileTimeOnly: true,
-            isImplicit: false,
-            exprs: {
-              expr: dropFunctionExpr,
-              labelExpr: dropFunctionExpr.args[0],
-              typeExpr: undefined,
-              defaultValueExpr: undefined,
-              assignedValueExpr: functionExpr,
-            },
-          };
-          structType.module.elements.push(dropModuleElement);
-        }
-      }
-
-      env = nextEnv;
+    // Add ___dispose function
+    if (disposeFunctionCode) {
+      env = addFunctionToSelfTypeModule({
+        label: BuiltinFunctions.___dispose[0]!,
+        functionCode: disposeFunctionCode,
+        SelfType: structType,
+        env,
+        context,
+      });
     }
 
     // Add ___dup function to the struct type module elements
-    {
-      const { expr: dupFunctionExpr, env: nextEnv } =
-        parseAndEvaluateExprInStruct(dupFunctionCode, structType, env, context);
-      if (exprIsFunctionCall(dupFunctionExpr)) {
-        const functionExpr = dupFunctionExpr;
-        if (
-          functionExpr.$ &&
-          functionExpr.$.value &&
-          isFunctionValue(functionExpr.$.value)
-        ) {
-          // The code below is necessary for the C code generator to make the ___dup function to have a more descriptive name.
-          functionExpr.$.value.funcId += BuiltinFunctions.___dup[0]!;
+    if (dupFunctionCode) {
+      env = addFunctionToSelfTypeModule({
+        label: BuiltinFunctions.___dup[0]!,
+        functionCode: dupFunctionCode,
+        SelfType: structType,
+        env,
+        context,
+      });
+    }
 
-          // Add the dup function to the struct's module elements
-          const dupModuleElement: ModuleElement = {
-            label: BuiltinFunctions.___dup[0]!,
-            type: functionExpr.$.type,
-            assignedValue: functionExpr.$.value,
-            isCompileTimeOnly: true,
-            isImplicit: false,
-            exprs: {
-              expr: dupFunctionExpr,
-              labelExpr: dupFunctionExpr.args[0],
-              typeExpr: undefined,
-              defaultValueExpr: undefined,
-              assignedValueExpr: functionExpr,
-            },
-          };
-          structType.module.elements.push(dupModuleElement);
-        }
-      }
-
-      env = nextEnv;
+    // Add ___drop function to the struct type module elements
+    if (dropFunctionCode) {
+      env = addFunctionToSelfTypeModule({
+        label: BuiltinFunctions.___drop[0]!,
+        functionCode: dropFunctionCode,
+        SelfType: structType,
+        env,
+        context,
+      });
     }
   }
 
