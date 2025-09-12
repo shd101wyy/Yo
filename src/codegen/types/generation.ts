@@ -18,6 +18,7 @@ import {
   CodeGenContext,
   getEnumVariantCName,
   getTypeString,
+  sanitizeForCIdentifier,
 } from "../utils";
 
 /**
@@ -209,7 +210,7 @@ export function generateStructDeclaration(
 
     for (const element of structType.elements) {
       const fieldTypeStr = getTypeString(element.type, context);
-      const fieldName = element.label;
+      const fieldName = sanitizeForCIdentifier(element.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
@@ -222,7 +223,7 @@ export function generateStructDeclaration(
 
     for (const element of structType.elements) {
       const fieldTypeStr = getTypeString(element.type, context);
-      const fieldName = element.label;
+      const fieldName = sanitizeForCIdentifier(element.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
@@ -249,7 +250,7 @@ export function generateTupleDeclaration(
     const fieldTypeStr = getTypeString(element.type, context);
     const fieldName = element.label.match(/^\d+$/)
       ? `_${element.label}`
-      : element.label;
+      : sanitizeForCIdentifier(element.label);
     emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
   }
 
@@ -273,7 +274,7 @@ export function generateUnionDeclaration(
 
   for (const element of unionType.elements) {
     const fieldTypeStr = getTypeString(element.type, context);
-    const fieldName = element.label || "field";
+    const fieldName = sanitizeForCIdentifier(element.label);
     emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
   }
 
@@ -355,7 +356,7 @@ export function generateEnumDeclaration(
 
       for (const element of variant.elements) {
         const fieldTypeStr = getTypeString(element.type, context);
-        const fieldName = element.label || "field";
+        const fieldName = sanitizeForCIdentifier(element.label);
         emitter.emitDeclarationLine(`    ${fieldTypeStr} ${fieldName};`);
       }
 

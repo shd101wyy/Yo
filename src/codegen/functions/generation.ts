@@ -27,6 +27,7 @@ import {
   isComptFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   isGenericFunction,
+  sanitizeForCIdentifier,
 } from "../utils";
 
 export interface FunctionGenerationContext extends CodeGenContext {
@@ -474,9 +475,9 @@ export function generateRefStructConstructorDeclarations(
       // Generate constructor function declaration
       const constructorName = `__yo_new_${cName}`;
       const paramTypes = type.elements
-        .map((element, index) => {
+        .map((element) => {
           const fieldType = getTypeString(element.type, context);
-          const fieldName = element.label || `field_${index}`;
+          const fieldName = sanitizeForCIdentifier(element.label);
           return `${fieldType} ${fieldName}`;
         })
         .join(", ");
@@ -497,9 +498,9 @@ export function generateRefStructConstructorDeclarations(
         const constructorName = `__yo_new_${cName}_${variant.name}`;
         const paramTypes = variant.elements
           ? variant.elements
-              .map((element, index) => {
+              .map((element) => {
                 const fieldType = getTypeString(element.type, context);
-                const fieldName = element.label || `field_${index}`;
+                const fieldName = sanitizeForCIdentifier(element.label);
                 return `${fieldType} ${fieldName}`;
               })
               .join(", ")
@@ -561,9 +562,9 @@ export function generateRefStructConstructorFunctions(
       // Generate constructor function implementation
       const constructorName = `__yo_new_${cName}`;
       const paramTypes = type.elements
-        .map((element, index) => {
+        .map((element) => {
           const fieldType = getTypeString(element.type, context);
-          const fieldName = element.label || `field_${index}`;
+          const fieldName = sanitizeForCIdentifier(element.label);
           return `${fieldType} ${fieldName}`;
         })
         .join(", ");
@@ -575,8 +576,8 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  obj->header.ref_count = 1;`);
 
       // Initialize fields
-      type.elements.forEach((element, index) => {
-        const fieldName = element.label || `field_${index}`;
+      type.elements.forEach((element) => {
+        const fieldName = sanitizeForCIdentifier(element.label);
         emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
       });
 
@@ -596,9 +597,9 @@ export function generateRefStructConstructorFunctions(
         const constructorName = `__yo_new_${cName}_${variant.name}`;
         const paramTypes = variant.elements
           ? variant.elements
-              .map((element, index) => {
+              .map((element) => {
                 const fieldType = getTypeString(element.type, context);
-                const fieldName = element.label || `field_${index}`;
+                const fieldName = sanitizeForCIdentifier(element.label);
                 return `${fieldType} ${fieldName}`;
               })
               .join(", ")
@@ -615,8 +616,8 @@ export function generateRefStructConstructorFunctions(
 
         // Initialize variant fields
         if (variant.elements) {
-          variant.elements.forEach((element, index) => {
-            const fieldName = element.label || `field_${index}`;
+          variant.elements.forEach((element) => {
+            const fieldName = sanitizeForCIdentifier(element.label);
             emitter.emitLine(
               `  obj->data.${variant.name}.${fieldName} = ${fieldName};`
             );

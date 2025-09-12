@@ -77,10 +77,13 @@ export interface CodeGenContext {
 
 /**
  * Sanitize a string to be a valid C identifier
- * Replaces any character that's not alphanumeric or underscore with underscore
+ * Replaces any character that's not alphanumeric or underscore with its Unicode code point
+ * This ensures unique identifiers for operators like * and +
  */
 export function sanitizeForCIdentifier(str: string): string {
-  return str.replace(/[^a-zA-Z0-9_]/g, "_");
+  return str.replace(/[^a-zA-Z0-9_]/g, (char) => {
+    return `_u${char.charCodeAt(0)}_`;
+  });
 }
 
 /**

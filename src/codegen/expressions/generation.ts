@@ -329,7 +329,9 @@ function generateFuncCall(
           variableName,
           context
         );
-        let fieldName = label.match(/^\d+$/) ? `_${label}` : label;
+        let fieldName = label.match(/^\d+$/)
+          ? `_${label}`
+          : sanitizeForCIdentifier(label);
 
         if (rhsType && isTupleType(rhsType) && !label.match(/^\d+$/)) {
           const index = rhsType.elements.findIndex((el) => el.label === label);
@@ -1260,7 +1262,9 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       }
 
       const fields = value.elements.map((element, index) => {
-        const fieldName = variant.elements![index]!.label || "field";
+        const fieldName = sanitizeForCIdentifier(
+          variant.elements![index]!.label
+        );
         const fieldCode = generateComptValue(element, context);
         return `.${fieldName} = ${fieldCode}`;
       });
@@ -1297,7 +1301,7 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
         // For regular struct compile-time values, generate as before
         const fields = value.elements.map((element, index) => {
           const fieldValue = element;
-          const fieldName = type.elements[index]!.label;
+          const fieldName = sanitizeForCIdentifier(type.elements[index]!.label);
           const fieldCode = generateComptValue(fieldValue, context);
           return `.${fieldName} = ${fieldCode}`;
         });
@@ -1442,7 +1446,7 @@ function generateFieldAccess(
             if (element.label === fieldName) {
               // Found the field in this variant
               const variantName = variant.name;
-              return `${objectCode}.data.${variantName}.${fieldName}`;
+              return `${objectCode}.data.${variantName}.${sanitizeForCIdentifier(fieldName)}`;
             }
           }
         }
@@ -1465,7 +1469,7 @@ function generateFieldAccess(
     // they should use dot notation because we generate them as struct values
     else if (isPtrType(objectType) && isSliceType(objectType.type)) {
       // For slice types, always use dot notation regardless of pointer level in AST
-      return `${objectCode}.${fieldName}`;
+      return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
     }
     // Check if the object is pointer or reference
     else if (
@@ -1493,15 +1497,15 @@ function generateFieldAccess(
         if (dereferenceLevel > 0) {
           // For pointer types, use arrow notation for field access
           if (dereferenceLevel === 1) {
-            return `${objectCode}->${fieldName}`;
+            return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
           } else {
             // Multiple levels of dereference: **(ptr).field
             const dereferencedObjectCode = `${"*".repeat(dereferenceLevel - 1)}(${objectCode})`;
-            return `${dereferencedObjectCode}->${fieldName}`;
+            return `${dereferencedObjectCode}->${sanitizeForCIdentifier(fieldName)}`;
           }
         } else {
           // If no dereferencing is needed, just access the field
-          return `${objectCode}.${fieldName}`;
+          return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
         }
       }
     }
@@ -1523,10 +1527,10 @@ function generateFieldAccess(
         isEnumTypeWithReferenceSemantics(objectType)
       ) {
         // For ref types (pointers), access field directly: ptr->field
-        return `${objectCode}->${fieldName}`;
+        return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
       } else {
         // For regular structs/enums, access fields directly
-        return `${objectCode}.${fieldName}`;
+        return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
       }
     }
   }
@@ -1861,7 +1865,7 @@ function generateMatchExpression(
 
               if (destructuredVar.tag === ExprTag.Atom && variantElement) {
                 const varName = destructuredVar.token.value;
-                const fieldName = variantElement.label || `field_${fieldIndex}`;
+                const fieldName = sanitizeForCIdentifier(variantElement.label);
                 const fieldType = getTypeString(variantElement.type, context);
 
                 // Generate variable declaration and assignment
@@ -1933,7 +1937,7 @@ function generateMatchExpression(
 
               // Skip if variable name is "_" (ignore pattern)
               if (varName !== "_") {
-                const fieldName = variantElement.label || `field_${fieldIndex}`;
+                const fieldName = sanitizeForCIdentifier(variantElement.label);
                 const fieldType = getTypeString(variantElement.type, context);
 
                 // Generate variable declaration and assignment
