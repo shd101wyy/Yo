@@ -17,7 +17,6 @@ import {
   isComptStringType,
   isDynType,
   isEnumType,
-  isEnumTypeWithReferenceSemantics,
   isExprListType,
   isExprType,
   isFunctionType,
@@ -74,10 +73,7 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
       });
     }
 
-    if (
-      isStructTypeWithReferenceSemantics(type) ||
-      isEnumTypeWithReferenceSemantics(type)
-    ) {
+    if (isStructTypeWithReferenceSemantics(type)) {
       continue;
     }
 

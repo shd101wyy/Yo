@@ -15,7 +15,6 @@ import {
   isArrayType,
   isClosureType,
   isEnumType,
-  isEnumTypeWithReferenceSemantics,
   isFunctionType,
   isMutPtrType,
   isMutRefType,
@@ -340,11 +339,7 @@ function generateFuncCall(
 
         // Use -> for ref types (which are pointers), . for regular types
         const memberAccessOp =
-          rhsType &&
-          (isStructTypeWithReferenceSemantics(rhsType) ||
-            isEnumTypeWithReferenceSemantics(rhsType))
-            ? "->"
-            : ".";
+          rhsType && isStructTypeWithReferenceSemantics(rhsType) ? "->" : ".";
 
         context.emitter.emitLine(
           `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
@@ -1090,33 +1085,24 @@ function generateFuncCall(
           const variantName = enumType.selectedVariantName;
           const variant = enumType.variants.find((v) => v.name === variantName);
           if (variant) {
-            // Use constructor function for ref enums, struct literal for value enums
-            if (enumType.isReferenceSemantics) {
-              const constructorName = `__yo_new_${cName}_${variantName}`;
-              const argValues = runtimeArgExprs
-                .map((arg) => generateExpr(arg, indent, context))
-                .join(", ");
-              return `${constructorName}(${argValues})`;
-            } else {
-              const argsList = runtimeArgExprs
-                .map((arg, index) => {
-                  if (variant.elements) {
-                    const element = variant.elements[index];
-                    if (element) {
-                      return (
-                        `.${element.label} = ` +
-                        generateExpr(arg, indent, context)
-                      );
-                    }
-                    return ""; // Skip if no element matches
-                  } else {
-                    return "";
+            const argsList = runtimeArgExprs
+              .map((arg, index) => {
+                if (variant.elements) {
+                  const element = variant.elements[index];
+                  if (element) {
+                    return (
+                      `.${element.label} = ` +
+                      generateExpr(arg, indent, context)
+                    );
                   }
-                })
-                .filter((s) => s) // Remove empty strings
-                .join(", ");
-              return `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`;
-            }
+                  return ""; // Skip if no element matches
+                } else {
+                  return "";
+                }
+              })
+              .filter((s) => s) // Remove empty strings
+              .join(", ");
+            return `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`;
           }
         }
       }
@@ -1246,12 +1232,7 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
 
     if (!value.elements || value.elements.length === 0) {
       // Variant with no data
-      if (enumType.isReferenceSemantics) {
-        const constructorName = `__yo_new_${cName}_${value.variantName}`;
-        return `${constructorName}()`;
-      } else {
-        return `(${cName}){ .tag = ${variantTag} }`;
-      }
+      return `(${cName}){ .tag = ${variantTag} }`;
     } else {
       // Variant with data
       const variant = enumType.variants.find(
@@ -1269,16 +1250,7 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
         return `.${fieldName} = ${fieldCode}`;
       });
 
-      // Use constructor function for ref enums, struct literal for value enums
-      if (enumType.isReferenceSemantics) {
-        const constructorName = `__yo_new_${cName}_${value.variantName}`;
-        const argValues = value.elements
-          .map((element) => generateComptValue(element, context))
-          .join(", ");
-        return `${constructorName}(${argValues})`;
-      } else {
-        return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${fields.join(", ")} } } }`;
-      }
+      return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${fields.join(", ")} } } }`;
     }
   } else if (isStructValue(value)) {
     // For structs, we need to generate a struct initialization
@@ -1522,10 +1494,7 @@ function generateFieldAccess(
     } else {
       // For C structs and unions, access fields directly
       // Check if this is a reference-counted type (ref struct or ref enum)
-      if (
-        isStructTypeWithReferenceSemantics(objectType) ||
-        isEnumTypeWithReferenceSemantics(objectType)
-      ) {
+      if (isStructTypeWithReferenceSemantics(objectType)) {
         // For ref types (pointers), access field directly: ptr->field
         return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
       } else {
@@ -1670,7 +1639,7 @@ function generateMatchExpression(
   ) {
     enumType = matchValueType.type;
     ptrOrRefType = matchValueType.tag;
-  } else if (isEnumTypeWithReferenceSemantics(matchValueType)) {
+  } else if (isStructTypeWithReferenceSemantics(matchValueType)) {
     // ref enum types are represented as pointers in C
     enumType = matchValueType;
     ptrOrRefType = "ref_semantics";

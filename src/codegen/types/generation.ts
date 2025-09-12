@@ -4,6 +4,7 @@ import {
   isClosureType,
   isEnumType,
   isStructType,
+  isStructTypeWithReferenceSemantics,
   isTupleType,
   isUnionType,
   StructType,
@@ -26,13 +27,11 @@ import {
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
   // Generate common reference counter header for ref structs and ref enums
-  const hasRefTypes = Object.values(context.types).some(
-    ({ type }) =>
-      (isStructType(type) && type.isReferenceSemantics) ||
-      (isEnumType(type) && type.isReferenceSemantics)
+  const hasARCTypes = Object.values(context.types).some(({ type }) =>
+    isStructTypeWithReferenceSemantics(type)
   );
 
-  if (hasRefTypes) {
+  if (hasARCTypes) {
     context.emitter
       .emitDeclarationLine(`// Reference counter header for ref structs and ref enums
 typedef struct {
@@ -371,13 +370,6 @@ export function generateEnumDeclaration(
   emitter.emitDeclarationLine(
     `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)}`
   );
-
-  // Add reference counter header for ref enums
-  if (enumType.isReferenceSemantics) {
-    emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Reference count header`
-    );
-  }
 
   emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
   emitter.emitDeclarationLine(`  ${variantUnionName} data;`);

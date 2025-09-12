@@ -149,12 +149,6 @@ export function isEnumType(type?: Type): type is EnumType {
   return type?.tag === TypeTag.Enum;
 }
 
-export function isEnumTypeWithReferenceSemantics(
-  type?: Type
-): type is EnumType {
-  return type?.tag === TypeTag.Enum && (type as EnumType).isReferenceSemantics;
-}
-
 export function isStructType(type?: Type): type is StructType {
   return type?.tag === TypeTag.Struct;
 }
@@ -259,7 +253,6 @@ export function isDynType(type?: Type): type is DynType {
 export function isARCType(type?: Type): boolean {
   return (
     isStructTypeWithReferenceSemantics(type) ||
-    isEnumTypeWithReferenceSemantics(type) ||
     isDynType(type) || // All Dyn types are reference semantics
     isClosureType(type) // All closures are reference semantics
   );

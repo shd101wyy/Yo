@@ -336,16 +336,12 @@ export function createModuleType(env: Environment): ModuleType {
   };
 }
 
-export function createEnumType(
-  env: Environment,
-  isReferenceSemantics: boolean = false
-): EnumType {
+export function createEnumType(env: Environment): EnumType {
   const module = createModuleType(env);
 
   const enumType: EnumType = {
     id: `enum_${randomId()}`,
     tag: TypeTag.Enum,
-    isReferenceSemantics,
     variants: [],
     module,
     env,

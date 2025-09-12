@@ -870,7 +870,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
       return `${
         enumType.typeName ? `(${enumType.typeName}) ` : ""
-      }${enumType.isReferenceSemantics ? "ref " : ""}enum(${enumType.variants
+      }enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
             variant.elements
@@ -1168,10 +1168,6 @@ export function getAlignmentOfType(type: Type): number | null {
     }
     return maxAlign;
   } else if (isEnumType(type)) {
-    // Check if it's reference semantics - if so, return pointer alignment
-    if ((type as EnumType).isReferenceSemantics) {
-      return getTargetPointerSizeBytes();
-    }
     // Enum alignment is the maximum alignment of its variants
     let maxAlign = 1;
     for (const variant of type.variants) {
@@ -1267,10 +1263,6 @@ export function getSizeOfType(type: Type): number | null {
     }
     return getStructTypeSize(type);
   } else if (isEnumType(type)) {
-    // Check if it's reference semantics - if so, return pointer size
-    if ((type as EnumType).isReferenceSemantics) {
-      return getTargetPointerSizeBits();
-    }
     return getEnumTypeSize(type);
   } else if (isUnionType(type)) {
     return getUnionType(type);

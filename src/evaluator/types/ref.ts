@@ -7,7 +7,6 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import { EvaluatorContext } from "../context";
-import { evaluateEnumType } from "./enum";
 import { evaluateStructType } from "./struct";
 
 /**
@@ -44,20 +43,10 @@ export function evaluateRefType({
     });
     expr.$ = evaluatedStructTypeExpr.$;
     return expr;
-  } else if (exprIsFunctionCallOf(innerExpr, BuiltinKeywords.enum)) {
-    // ref(enum(...)) - Reference semantics enum
-    const evaluatedEnumTypeExpr = evaluateEnumType({
-      expr: innerExpr as FuncCallExpr,
-      env,
-      context: { ...context },
-      isReferenceSemantics: true,
-    });
-    expr.$ = evaluatedEnumTypeExpr.$;
-    return expr;
   } else {
     throw formatErrorMessage({
       token: innerExpr.token,
-      errorMessage: `"ref" can only be used with "struct" or "enum", got:\n${exprToString(innerExpr)}`,
+      errorMessage: `"ref" can only be used with "struct", got:\n${exprToString(innerExpr)}`,
     });
   }
 }

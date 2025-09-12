@@ -6,9 +6,7 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
-  EnumType,
   FunctionType,
-  isEnumType,
   isFunctionType,
   isMutPtrType,
   isMutRefType,
@@ -22,7 +20,6 @@ import {
 import { generateExpr, generateReturnStatement } from "../expressions";
 import {
   CodeGenContext,
-  getEnumVariantCName,
   getTypeString,
   isComptFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
@@ -487,31 +484,6 @@ export function generateRefStructConstructorDeclarations(
       );
     }
   }
-
-  // Generate constructor declarations for each ref enum
-  for (const typeId in context.types) {
-    const { type, cName } = context.types[typeId]!;
-    if (isEnumType(type) && type.isReferenceSemantics) {
-      const enumType = type as EnumType;
-      // Generate constructor function declarations for each variant
-      for (const variant of enumType.variants) {
-        const constructorName = `__yo_new_${cName}_${variant.name}`;
-        const paramTypes = variant.elements
-          ? variant.elements
-              .map((element) => {
-                const fieldType = getTypeString(element.type, context);
-                const fieldName = sanitizeForCIdentifier(element.label);
-                return `${fieldType} ${fieldName}`;
-              })
-              .join(", ")
-          : "";
-
-        emitter.emitDeclarationLine(
-          `${cName}* ${constructorName}(${paramTypes}); // ${variant.name} constructor`
-        );
-      }
-    }
-  }
 }
 
 /**
@@ -584,50 +556,6 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);
-    }
-  }
-
-  // Generate constructor implementations for each ref enum
-  for (const typeId in context.types) {
-    const { type, cName } = context.types[typeId]!;
-    if (isEnumType(type) && type.isReferenceSemantics) {
-      const enumType = type as EnumType;
-      // Generate constructor function implementations for each variant
-      for (const variant of enumType.variants) {
-        const constructorName = `__yo_new_${cName}_${variant.name}`;
-        const paramTypes = variant.elements
-          ? variant.elements
-              .map((element) => {
-                const fieldType = getTypeString(element.type, context);
-                const fieldName = sanitizeForCIdentifier(element.label);
-                return `${fieldType} ${fieldName}`;
-              })
-              .join(", ")
-          : "";
-
-        emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
-        emitter.emitLine(
-          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
-        );
-        emitter.emitLine(`  obj->header.ref_count = 1;`);
-        emitter.emitLine(
-          `  obj->tag = ${getEnumVariantCName(enumType, variant.name, context)};`
-        );
-
-        // Initialize variant fields
-        if (variant.elements) {
-          variant.elements.forEach((element) => {
-            const fieldName = sanitizeForCIdentifier(element.label);
-            emitter.emitLine(
-              `  obj->data.${variant.name}.${fieldName} = ${fieldName};`
-            );
-          });
-        }
-
-        emitter.emitLine(`  return obj;`);
-        emitter.emitLine(`}`);
-        emitter.emitLine(``);
-      }
     }
   }
 }

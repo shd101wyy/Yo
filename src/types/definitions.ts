@@ -352,12 +352,6 @@ export interface EnumType extends Type {
   tag: TypeTag.Enum;
 
   /**
-   * Whether this enum uses reference semantics.
-   * true for "ref enum(...)", false for "enum(...)"
-   */
-  isReferenceSemantics: boolean;
-
-  /**
    * The function that returns the enum.
    */
   functionValue?: FunctionValue;

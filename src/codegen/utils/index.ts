@@ -6,8 +6,6 @@ import {
   EnumType,
   EnumVariant,
   FunctionType,
-  isEnumType,
-  isEnumTypeWithReferenceSemantics,
   isFunctionSpecializable,
   isMutPtrType,
   isMutRefType,
@@ -91,10 +89,7 @@ export function sanitizeForCIdentifier(str: string): string {
  * This is needed for ref struct types that need to support reference counting operations
  */
 export function shouldAvoidConst(type: Type): boolean {
-  return (
-    isStructTypeWithReferenceSemantics(type) ||
-    isEnumTypeWithReferenceSemantics(type)
-  );
+  return isStructTypeWithReferenceSemantics(type);
 }
 
 /**
@@ -179,12 +174,6 @@ export function getTypeString(
       if (
         (type.tag === TypeTag.Struct || type.tag === TypeTag.Enum) &&
         isStructType(type) &&
-        type.isReferenceSemantics
-      ) {
-        return `${cTypeName}*`;
-      } else if (
-        (type.tag === TypeTag.Struct || type.tag === TypeTag.Enum) &&
-        isEnumType(type) &&
         type.isReferenceSemantics
       ) {
         return `${cTypeName}*`;
