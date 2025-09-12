@@ -180,11 +180,6 @@ export interface EvaluatedExprData {
   caseExecuted?: boolean;
 
   /**
-   * Whether the value needs to call `___dup` to increment the reference counter when used.
-   */
-  needsToCallDup?: boolean;
-
-  /**
    * Comment for the expression.
    */
   comment?: string;
@@ -1399,16 +1394,30 @@ export function mergeAndCheckEnvs(
  * @param funcExpr
  * @param newFuncExpr
  */
-export function replaceFuncCallExpr(
+export function replaceFuncCallExprWithFuncCallExpr(
   funcExpr: FuncCallExpr,
   newFuncExpr: FuncCallExpr
-) {
+): void {
   funcExpr.$ = newFuncExpr.$;
   funcExpr.args = newFuncExpr.args;
   funcExpr.func = newFuncExpr.func;
   funcExpr.isInfix = newFuncExpr.isInfix;
   funcExpr.tag = newFuncExpr.tag;
   funcExpr.token = newFuncExpr.token;
+}
+
+export function replaceExprWithFuncCallExpr(
+  expr: Expr,
+  newFuncExpr: FuncCallExpr
+): void {
+  if (exprIsFunctionCall(expr)) {
+    replaceFuncCallExprWithFuncCallExpr(expr, newFuncExpr);
+  } else {
+    // expr is atom;
+    (expr as Expr).tag = newFuncExpr.tag;
+    const funcExpr = expr as unknown as FuncCallExpr;
+    replaceFuncCallExprWithFuncCallExpr(funcExpr, newFuncExpr);
+  }
 }
 
 export function setExprAsConsumed(
@@ -1530,7 +1539,10 @@ export function setExprAsConsumed(
   return env;
 }
 
-export function setExprAsNeedsToCallDup(expr: Expr) {
+export function setExprAsNeedsToCallDup(
+  expr: Expr,
+  context: EvaluatorContext
+): void {
   if (!expr.$) {
     return;
   }
@@ -1538,20 +1550,41 @@ export function setExprAsNeedsToCallDup(expr: Expr) {
   if (typeContainsARCType(expr.$.type)) {
     // Check if the expr.variableName is owning the ARC value
     // if yes, then no need to call dup
-    if (
-      expr.$.variableName &&
-      isTempVariableName(expr.$.env.modulePath, expr.$.variableName) // NOTE: This is necessary
-    ) {
-      const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
-      if (variables.length > 0) {
-        const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheARCValue) {
-          return;
+    if (expr.$.variableName) {
+      if (isTempVariableName(expr.$.env.modulePath, expr.$.variableName)) {
+        const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          if (variable.isOwningTheARCValue) {
+            return;
+          }
         }
       }
     }
 
-    expr.$.needsToCallDup = true;
+    // replace this expr with ___dup(...)
+    const dupCallExpr: FuncCallExpr = {
+      tag: ExprTag.FuncCall,
+      token: expr.token,
+      func: {
+        tag: ExprTag.Atom,
+        token: {
+          ...expr.token,
+          type: TokenType.Identifier,
+          value: BuiltinFunctions.___dup[0]!,
+        },
+      },
+      args: [expr],
+      isInfix: false,
+      $: undefined,
+    };
+    const evaluatedDupCallExpr = context.evaluateExpression({
+      expr: dupCallExpr,
+      env: expr.$.env,
+
+      context: { ...context },
+    }) as FuncCallExpr;
+    replaceExprWithFuncCallExpr(expr, evaluatedDupCallExpr);
   }
 }
 

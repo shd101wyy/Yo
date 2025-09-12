@@ -22,7 +22,7 @@ import {
   ExprTag,
   exprToString,
   FuncCallExpr,
-  replaceFuncCallExpr,
+  replaceFuncCallExprWithFuncCallExpr,
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -84,7 +84,7 @@ export function evaluateBeginExpression({
 
     // Replace everything from beginExpr to expr
     // expr = beginExpr;
-    replaceFuncCallExpr(expr as FuncCallExpr, beginExpr);
+    replaceFuncCallExprWithFuncCallExpr(expr as FuncCallExpr, beginExpr);
     expr = expr as FuncCallExpr;
   }
   const beginExpressions: Expr[] = expr.args;
@@ -522,7 +522,7 @@ export function evaluateBeginExpression({
   attachTempVariableToExpr(expr, true);
 
   if (!lastExprIsOwningTheARCValue) {
-    setExprAsNeedsToCallDup(expr);
+    setExprAsNeedsToCallDup(expr, context);
   }
 
   return expr;

@@ -38,7 +38,7 @@ export function evaluateYoDecrRc({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "drop":\n${exprToString(
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_decr_rc[0]!}":\n${exprToString(
         argExpr
       )}`,
     });
@@ -62,7 +62,7 @@ export function evaluateYoDecrRc({
     if (!evaluatedDisposeFnExpr.$) {
       throw formatErrorMessage({
         token: disposeFnExpr.token,
-        errorMessage: `Failed to evaluate the dispose function expression for "__yo_decr_rc":\n${exprToString(
+        errorMessage: `Failed to evaluate the dispose function expression for "${BuiltinFunctions.__yo_decr_rc[0]!}":\n${exprToString(
           disposeFnExpr
         )}`,
       });
@@ -92,7 +92,7 @@ export function evaluateYoIncrRc({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_decr_rc[0]!]);
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_incr_rc[0]!]);
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = context.evaluateExpression({
@@ -106,7 +106,7 @@ export function evaluateYoIncrRc({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "drop":\n${exprToString(
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_incr_rc[0]!}":\n${exprToString(
         argExpr
       )}`,
     });

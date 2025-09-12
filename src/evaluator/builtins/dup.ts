@@ -8,17 +8,16 @@ import {
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
-  replaceFuncCallExpr,
+  replaceFuncCallExprWithFuncCallExpr,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import { isSomeType, typeContainsARCType } from "../../types";
-import { VUnit } from "../../unit-value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 
 /**
- * ___dup function - simplified since we removed consumption logic.
- * Just evaluates the argument and returns unit.
+ * ___dup function
+ * Just evaluates the argument and returns the type of argument.
  */
 export function evaluateDup({
   expr,
@@ -73,7 +72,7 @@ export function evaluateDup({
 
     // Replace the original expr with the evaluated dup method call
     if (exprIsFunctionCall(evaluatedDupMethodCallExpr)) {
-      replaceFuncCallExpr(expr, evaluatedDupMethodCallExpr);
+      replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDupMethodCallExpr);
       return expr;
     } else {
       // In theory we shouldn't enter here
@@ -83,8 +82,8 @@ export function evaluateDup({
 
   expr.$ = {
     env,
-    type: VUnit.type,
-    value: VUnit,
+    type: evaluatedArgExpr.$.type,
+    value: undefined,
     isMutable: false,
     pathCollection: [],
   };

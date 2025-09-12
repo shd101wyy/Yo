@@ -590,7 +590,7 @@ export function evaluateAssignment({
       env = rhs.$?.env;
     }
 
-    setExprAsNeedsToCallDup(rhs);
+    setExprAsNeedsToCallDup(rhs, context);
 
     let rhsType = rhs.$?.type;
     if (!rhsType) {

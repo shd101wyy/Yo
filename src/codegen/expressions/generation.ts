@@ -79,15 +79,6 @@ export function generateExpr(
       break;
   }
 
-  // Check if this expression needs to call dup (increment reference count)
-  if (
-    expr.$?.needsToCallDup &&
-    expr.$?.type &&
-    shouldAvoidConst(expr.$?.type)
-  ) {
-    result = `__yo_incr_rc(${result})`;
-  }
-
   return result;
 }
 

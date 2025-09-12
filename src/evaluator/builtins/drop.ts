@@ -8,7 +8,7 @@ import {
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
-  replaceFuncCallExpr,
+  replaceFuncCallExprWithFuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
@@ -77,7 +77,7 @@ export function evaluateDrop({
 
     // Replace the original expr with the evaluated drop method call
     if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
-      replaceFuncCallExpr(expr, evaluatedDropMethodCallExpr);
+      replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDropMethodCallExpr);
       return expr;
     } else {
       // In theory we shouldn't enter here

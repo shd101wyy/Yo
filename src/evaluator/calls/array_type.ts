@@ -94,7 +94,7 @@ export function tryToImplementArrayByArrayType({
       });
     }
 
-    setExprAsNeedsToCallDup(evaluatedArg);
+    setExprAsNeedsToCallDup(evaluatedArg, context);
 
     env = evaluatedArg.$.env;
 
