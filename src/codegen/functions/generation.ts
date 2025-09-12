@@ -14,6 +14,7 @@ import {
   isRefType,
   isStructType,
   isUnitType,
+  typeContainsSomeType,
   TypeId,
   typeToString,
 } from "../../types";
@@ -469,6 +470,15 @@ export function generateRefStructConstructorDeclarations(
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
+      // Skip generic structs that contain SomeType parameters
+      const hasGenericTypes = type.elements.some((element) =>
+        typeContainsSomeType(element.type)
+      );
+
+      if (hasGenericTypes) {
+        continue; // Skip generic structs - only generate constructors for concrete types
+      }
+
       // Generate constructor function declaration
       const constructorName = `__yo_new_${cName}`;
       const paramTypes = type.elements
@@ -531,6 +541,15 @@ export function generateRefStructConstructorFunctions(
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
+      // Skip generic structs that contain SomeType parameters
+      const hasGenericTypes = type.elements.some((element) =>
+        typeContainsSomeType(element.type)
+      );
+
+      if (hasGenericTypes) {
+        continue; // Skip generic structs - only generate constructors for concrete types
+      }
+
       // Generate constructor function implementation
       const constructorName = `__yo_new_${cName}`;
       const paramTypes = type.elements

@@ -312,10 +312,23 @@ export function checkIfFunctionParameterMatchesArgument({
   calleeEnv = expectedEnv;
   callerEnv = givenEnv;
 
+  // Re-evaluate the parameter type after synthesis to get the resolved type
+  const { parameterType: resolvedParameterType, calleeEnv: finalCalleeEnv } =
+    evaluateFunctionParameterTypeAgain({
+      functionType,
+      parameter,
+      calleeEnv,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+    });
+  calleeEnv = finalCalleeEnv;
+
   // Compare the types
   if (
     !areTypesCompatible(
-      { type: parameterType, env: calleeEnv },
+      { type: resolvedParameterType, env: calleeEnv },
       { type: argType, env: callerEnv },
       // It's the receiver:
       argIndex === 0 && isMethodCall
@@ -324,7 +337,7 @@ export function checkIfFunctionParameterMatchesArgument({
     throw formatErrorMessage({
       token: argExpr?.token ?? PlaceholderToken,
       errorMessage: `Type mismatch for parameter "${parameter.label}":
-    Expected: ${typeToString(parameterType)}
+    Expected: ${typeToString(resolvedParameterType)}
     Got:   ${typeToString(argType)}`,
     });
   }
@@ -334,7 +347,7 @@ export function checkIfFunctionParameterMatchesArgument({
     context: { ...context, borrowings },
     argValue,
     argType,
-    parameterType: parameterType,
+    parameterType: resolvedParameterType,
   };
 }
 
