@@ -7,8 +7,10 @@ import {
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ClosureType,
+  DynType,
   FunctionType,
   isClosureType,
+  isDynType,
   isFunctionType,
   isMutPtrType,
   isMutRefType,
@@ -507,6 +509,19 @@ export function generateRefStructConstructorDeclarations(
         );
       }
     }
+
+    // Generate constructor declarations for each dyn type
+    if (isDynType(type)) {
+      // Skip generic dyn types that contain SomeType parameters
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+
+      const constructorName = `__yo_new_${cName}`;
+      emitter.emitDeclarationLine(
+        `${cName}* ${constructorName}(void* data, ...); // Dyn constructor`
+      );
+    }
   }
 }
 
@@ -639,6 +654,67 @@ export function generateRefStructConstructorFunctions(
         emitter.emitLine(`}`);
         emitter.emitLine(``);
       }
+    }
+
+    // Generate constructor implementations for each dyn type
+    if (isDynType(type)) {
+      const dynType = type as DynType;
+
+      // Skip generic dyn types that contain SomeType parameters
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+
+      const constructorName = `__yo_new_${cName}`;
+      const vtableName = `${cName}_vtable`;
+
+      emitter.emitLine(`${cName}* ${constructorName}(void* data, ...) {`);
+      emitter.emitLine(
+        `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+      );
+      emitter.emitLine(`  obj->header.ref_count = 1;`);
+      emitter.emitLine(
+        `  ${vtableName}* vtable = (${vtableName}*)malloc(sizeof(${vtableName}));`
+      );
+
+      emitter.emitLine(`  va_list args;`);
+      emitter.emitLine(`  va_start(args, data);`);
+
+      // Initialize vtable with function pointers from variadic arguments
+      const processedMethods = new Set<string>();
+      for (const moduleType of dynType.moduleTypes) {
+        for (const element of moduleType.elements) {
+          // Skip 'Self' type declarations and duplicates
+          if (element.label === "Self" || processedMethods.has(element.label)) {
+            continue;
+          }
+          processedMethods.add(element.label);
+
+          if (isFunctionType(element.type)) {
+            const functionType = element.type as FunctionType;
+            if (
+              functionType.parameters.length > 0 &&
+              functionType.parameters[0]?.label === "self"
+            ) {
+              const methodName = sanitizeForCIdentifier(element.label);
+              const returnTypeStr = getTypeString(
+                functionType.return.type,
+                context
+              );
+              emitter.emitLine(
+                `  vtable->${methodName} = (${returnTypeStr} (*)(void*))va_arg(args, void*);`
+              );
+            }
+          }
+        }
+      }
+
+      emitter.emitLine(`  va_end(args);`);
+      emitter.emitLine(`  obj->vtable = vtable;`);
+      emitter.emitLine(`  obj->data = __yo_incr_rc(data);`);
+      emitter.emitLine(`  return obj;`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
     }
   }
 }

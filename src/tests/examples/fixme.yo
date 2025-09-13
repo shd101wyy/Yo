@@ -1,8 +1,14 @@
+open import "std";
 open import "../../../std/libc/stdio.yo";
 
 Speak :: module(
   Self: Type,
   speak : (fn(self : Self) -> i32)
+);
+
+Run :: module(
+  Self: Type,
+  run : (fn(self : Self) -> i32)
 );
 
 // Dog :: struct(); // This should give error working with `dyn`.
@@ -16,14 +22,22 @@ DogSpeak :: Speak
   })
 ;
 
-speak :: (fn(s : Dyn(Speak)) -> i32)
-  s.speak()
+DogRun :: Run
+  Self : Dog,
+  run : ((self : Self) -> {
+    printf("The dog is running!\n");
+    return 2;
+  })
+;
+
+act :: (fn(s : Dyn(Speak, Run)) -> i32)
+  s.speak() + s.run()
 ;
 
 
 main :: ((fn() -> i32) {
   dog := Dog();
-  result := speak(dyn(dog, DogSpeak));
+  result := act(dyn(dog, (DogSpeak, DogRun)));
   return result;
 });
 

@@ -1237,21 +1237,11 @@ function generateDynCall(
     }
   }
 
-  const vtableTypeName = `${dynTypeName}_vtable`;
-
-  // Emit the dyn object creation statements
-  context.emitter.emitLine(
-    `${indent}${dynTypeName}* ${tempVarName} = (${dynTypeName}*)malloc(sizeof(${dynTypeName}));`
-  );
-  context.emitter.emitLine(`${indent}${tempVarName}->header.ref_count = 1;`);
-  context.emitter.emitLine(
-    `${indent}${vtableTypeName}* vtable_${tempVarName} = (${vtableTypeName}*)malloc(sizeof(${vtableTypeName}));`
-  );
-
-  // Get the module values and generate method assignments
+  // Collect all function pointers that need to be passed to constructor
+  const functionPointers: string[] = [];
   const moduleValues = expr.$.dynCallModuleValues;
   for (const moduleValue of moduleValues) {
-    // Find functions in the module and assign them to vtable
+    // Find functions in the module and collect their function IDs
     for (let i = 0; i < moduleValue.elements.length; i++) {
       const element = moduleValue.elements[i];
       const elementType = moduleValue.type.elements[i];
@@ -1263,25 +1253,21 @@ function generateDynCall(
           const functionId = element.funcId;
           // Check if function exists in context
           if (context.functions[functionId]) {
-            // Cast the function pointer to the expected vtable signature (void* -> return_type)
-            context.emitter.emitLine(
-              `${indent}vtable_${tempVarName}->${methodName} = (int32_t (*)(void*))${functionId};`
-            );
+            functionPointers.push(functionId);
           } else {
-            context.emitter.emitLine(
-              `${indent}vtable_${tempVarName}->${methodName} = NULL /* ${methodName} function not found */;`
-            );
+            functionPointers.push("NULL");
           }
         }
       }
     }
   }
 
+  // Generate constructor call
+  const constructorName = `__yo_new_${dynTypeName}`;
+  const functionArgs = functionPointers.join(", ");
+
   context.emitter.emitLine(
-    `${indent}${tempVarName}->vtable = vtable_${tempVarName};`
-  );
-  context.emitter.emitLine(
-    `${indent}${tempVarName}->data = __yo_incr_rc(${valueCode}); // Store object data with ref count`
+    `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(${valueCode}, ${functionArgs});`
   );
 
   // Return the variable reference

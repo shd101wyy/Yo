@@ -21,6 +21,7 @@ import {
 } from "../../types";
 import {
   createModuleValue,
+  isFunctionValue,
   isTypeValue,
   Value,
   valueToString,
@@ -195,6 +196,10 @@ Got:   ${typeToString(argType)}`,
           });
         }
         const argValue = evaluatedArgExpr.$?.value;
+
+        if (isFunctionValue(argValue)) {
+          argValue.funcId += `_${moduleElement.label}`;
+        }
 
         // Save the value to the members
         elements[i] = argValue;
