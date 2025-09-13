@@ -10,6 +10,7 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  isARCType,
   isDynType,
   isModuleType,
   ModuleType,
@@ -58,6 +59,14 @@ export function evaluateDynValue({
   env = evaluatedValueExpr.$.env;
 
   const valueType = evaluatedValueExpr.$.type;
+
+  // Validate that the value type uses reference semantics
+  if (!isARCType(valueType)) {
+    throw formatErrorMessage({
+      token: valueExpr.token,
+      errorMessage: `'dyn' can only be used with types that support reference counting (ref struct, Dyn, or Closure types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+    });
+  }
 
   const moduleTypes: ModuleType[] = [];
   const moduleValues: ModuleValue[] = [];
@@ -303,6 +312,7 @@ ${filteredImplicitVariables
     type: dynType,
     isMutable: evaluatedValueExpr.$.isMutable,
     pathCollection: evaluatedValueExpr.$.pathCollection,
+    dynCallModuleValues: moduleValues, // Store module values for C codegen
   };
 
   return expr;

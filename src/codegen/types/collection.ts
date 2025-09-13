@@ -2,9 +2,11 @@ import { Expr, ExprTag } from "../../expr";
 import {
   ArrayType,
   ClosureType,
+  DynType,
   FunctionType,
   isArrayType,
   isClosureType,
+  isDynType,
   isEnumType,
   isMutPtrType,
   isMutRefType,
@@ -124,7 +126,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isUnionType(type) ||
     isEnumType(type) ||
     isTupleType(type) ||
-    isClosureType(type)
+    isClosureType(type) ||
+    isDynType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName = `yo_${type.id}`;
@@ -140,6 +143,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
       // Don't collect the capture type - it will be generated inline
       // collectType(closureType.captureType, context);
       collectTypesFromFunctionType(closureType.callType, context);
+    }
+
+    // For dynamic dispatch types, collect the module types
+    if (isDynType(type)) {
+      const dynType = type as DynType;
+      // Collect all module types that this dynamic dispatch can handle
+      for (const moduleType of dynType.moduleTypes) {
+        collectType(moduleType, context);
+      }
     }
   }
   // Check if it's array types

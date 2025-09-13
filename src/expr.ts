@@ -18,7 +18,7 @@ import {
   typeToString,
 } from "./types";
 import { generateNewTempVariableName, isTempVariableName } from "./utils";
-import { isTypeValue, Value } from "./value";
+import { isTypeValue, ModuleValue, Value } from "./value";
 
 /**
  * Eg:
@@ -171,6 +171,13 @@ export interface EvaluatedExprData {
    * 4. normal expression.
    */
   controlFlow?: ControlFlowKind;
+
+  /**
+   * For dyn() function calls, this contains the module values that provide
+   * the dynamic dispatch implementations. Used by C codegen to generate
+   * vtables and method dispatch code.
+   */
+  dynCallModuleValues?: ModuleValue[];
 
   /**
    * This is for codegen for the "cond"/"match" expressions.

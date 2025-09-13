@@ -1,8 +1,12 @@
 import {
   ClosureType,
+  DynType,
   EnumType,
+  FunctionType,
   isClosureType,
+  isDynType,
   isEnumType,
+  isFunctionType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -78,6 +82,8 @@ typedef struct {
       generateStructDeclaration(type, cName, context);
     } else if (isClosureType(type)) {
       generateClosureDeclaration(type, cName, context);
+    } else if (isDynType(type)) {
+      generateDynDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
     } else if (isEnumType(type)) {
@@ -395,5 +401,104 @@ export function generateEnumDeclaration(
   emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
 
   emitter.emitDeclarationLine(`};`);
+  emitter.emitDeclarationLine(""); // Add blank line for readability
+}
+
+/**
+ * Generate a dynamic dispatch declaration
+ */
+export function generateDynDeclaration(
+  dynType: DynType,
+  cName: string,
+  context: CodeGenContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate vtable structure for the dynamic dispatch
+  // The vtable contains function pointers for each method in the module
+  const vtableName = `${cName}_vtable`;
+
+  emitter.emitDeclarationLine(
+    `typedef struct { // Vtable for ${typeToString(dynType)}`
+  );
+
+  // Generate function pointers for all methods in all module types
+  const processedMethods = new Set<string>();
+  for (const moduleType of dynType.moduleTypes) {
+    for (const element of moduleType.elements) {
+      // Skip 'Self' type declarations as they're not methods
+      if (element.label === "Self") {
+        continue;
+      }
+
+      // Avoid duplicate methods from different modules
+      if (processedMethods.has(element.label)) {
+        continue;
+      }
+      processedMethods.add(element.label);
+
+      // Generate function pointer for this method
+      const methodName = sanitizeForCIdentifier(element.label);
+
+      // Check if this element is a function type
+      if (isFunctionType(element.type)) {
+        const functionType = element.type as FunctionType;
+
+        // Only include methods whose first parameter is of type Self
+        if (functionType.parameters.length > 0) {
+          const firstParam = functionType.parameters[0];
+          if (firstParam && firstParam.label === "self") {
+            // FIXME: ^ This way is not sufficient judging if this function is a method.
+            // This is a method that should be included in the vtable
+            const returnTypeStr = getTypeString(
+              functionType.return.type,
+              context
+            );
+
+            // Generate the complete parameter list for the function pointer
+            const paramList = functionType.parameters
+              .map((param, index) => {
+                if (index === 0) {
+                  // First parameter (self) is always void* in vtable
+                  return "void* self";
+                } else {
+                  // Other parameters use their actual types
+                  const paramTypeStr = getTypeString(param.type, context);
+                  const paramName = sanitizeForCIdentifier(param.label);
+                  return `${paramTypeStr} ${paramName}`;
+                }
+              })
+              .join(", ");
+
+            emitter.emitDeclarationLine(
+              `  ${returnTypeStr} (*${methodName})(${paramList}); // Method pointer for ${element.label}`
+            );
+          }
+          // Skip functions that don't have 'self' as first parameter
+        }
+      } else {
+        // For non-function elements, treat as data members (shouldn't happen for trait methods)
+        const elementTypeStr = getTypeString(element.type, context);
+        emitter.emitDeclarationLine(
+          `  ${elementTypeStr} ${methodName}; // Non-function member ${element.label}`
+        );
+      }
+    }
+  }
+
+  emitter.emitDeclarationLine(`} ${vtableName};`);
+  emitter.emitDeclarationLine("");
+
+  // Generate the dynamic dispatch object structure
+  // Contains vtable pointer + actual data pointer
+  emitter.emitDeclarationLine(
+    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (reference counted)`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_ref_header_t header; // Reference count header`
+  );
+  emitter.emitDeclarationLine(`  ${vtableName}* vtable; // Function pointers`);
+  emitter.emitDeclarationLine(`  void* data; // Actual object data`);
+  emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }

@@ -15,6 +15,7 @@ import {
   ClosureType,
   isArrayType,
   isClosureType,
+  isDynType,
   isEnumType,
   isFunctionType,
   isMutPtrType,
@@ -119,6 +120,11 @@ function generateFuncCall(
     }
     const selfCode = generateExpr(selfArg, indent, context);
     return `__yo_incr_rc(${selfCode})`;
+  }
+
+  // dyn() - dynamic dispatch constructor
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
+    return generateDynCall(expr, indent, context);
   }
 
   // borrow - handle this first before other expressions
@@ -838,9 +844,28 @@ function generateFuncCall(
     if (isFunctionType(functionType)) {
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
-        // Generate arg list
-        const args = runtimeArgExprs.map((arg) => {
-          return generateExpr(arg, indent, context);
+        // Check if this is a method call on a dyn object
+        let isDynMethodCall = false;
+        if (
+          exprIsFunctionCall(expr.func) &&
+          exprIsFunctionCallOf(expr.func, ".", 2)
+        ) {
+          const objectExpr = expr.func.args[0];
+          const objectType = objectExpr?.$?.type;
+          if (objectType && isDynType(objectType)) {
+            isDynMethodCall = true;
+          }
+        }
+
+        // Generate arg list with special handling for dyn method calls
+        const args = runtimeArgExprs.map((arg, index) => {
+          // For dyn method calls, transform the first argument (self) from dyn object to data pointer
+          if (isDynMethodCall && index === 0) {
+            const dynObjectCode = generateExpr(arg, indent, context);
+            return `${dynObjectCode}->data`;
+          } else {
+            return generateExpr(arg, indent, context);
+          }
         });
         const argsList = args.join(", ");
 
@@ -1175,6 +1200,92 @@ function generateFuncCall(
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;
+}
+
+/**
+ * Generate C code for a dyn() constructor call
+ */
+function generateDynCall(
+  expr: FuncCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  if (!expr.$?.dynCallModuleValues || expr.$.dynCallModuleValues.length === 0) {
+    return `/* Error: dyn() call missing module values */`;
+  }
+
+  const valueExpr = expr.args[0];
+  if (!valueExpr) {
+    return `/* Error: dyn() requires a value argument */`;
+  }
+
+  // Generate the value expression
+  const valueCode = generateExpr(valueExpr, indent, context);
+
+  // Generate a unique temporary variable name for the dyn object
+  const tempVarName = `dyn_temp_${Date.now()}`;
+
+  // Get the dyn type information
+  const dynType = expr.$.type;
+  let dynTypeName = `yo_dyn_unknown`;
+
+  // Find the type in context.types
+  for (const typeEntry of Object.values(context.types)) {
+    if (typeEntry.type === dynType) {
+      dynTypeName = typeEntry.cName;
+      break;
+    }
+  }
+
+  const vtableTypeName = `${dynTypeName}_vtable`;
+
+  // Emit the dyn object creation statements
+  context.emitter.emitLine(
+    `${indent}${dynTypeName}* ${tempVarName} = (${dynTypeName}*)malloc(sizeof(${dynTypeName}));`
+  );
+  context.emitter.emitLine(`${indent}${tempVarName}->header.ref_count = 1;`);
+  context.emitter.emitLine(
+    `${indent}${vtableTypeName}* vtable_${tempVarName} = (${vtableTypeName}*)malloc(sizeof(${vtableTypeName}));`
+  );
+
+  // Get the module values and generate method assignments
+  const moduleValues = expr.$.dynCallModuleValues;
+  for (const moduleValue of moduleValues) {
+    // Find functions in the module and assign them to vtable
+    for (let i = 0; i < moduleValue.elements.length; i++) {
+      const element = moduleValue.elements[i];
+      const elementType = moduleValue.type.elements[i];
+
+      if (element && isFunctionValue(element) && elementType) {
+        const methodName = elementType.label;
+        // Skip 'Self' type declarations
+        if (methodName !== "Self") {
+          const functionId = element.funcId;
+          // Check if function exists in context
+          if (context.functions[functionId]) {
+            // Cast the function pointer to the expected vtable signature (void* -> return_type)
+            context.emitter.emitLine(
+              `${indent}vtable_${tempVarName}->${methodName} = (int32_t (*)(void*))${functionId};`
+            );
+          } else {
+            context.emitter.emitLine(
+              `${indent}vtable_${tempVarName}->${methodName} = NULL /* ${methodName} function not found */;`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  context.emitter.emitLine(
+    `${indent}${tempVarName}->vtable = vtable_${tempVarName};`
+  );
+  context.emitter.emitLine(
+    `${indent}${tempVarName}->data = __yo_incr_rc(${valueCode}); // Store object data with ref count`
+  );
+
+  // Return the variable reference
+  return tempVarName;
 }
 
 /**
@@ -1537,6 +1648,12 @@ function generateFieldAccess(
         );
         return `${objectCode}._${index}`;
       }
+    }
+    // Handle dynamic dispatch method access
+    else if (isDynType(objectType)) {
+      // For dyn types, access methods through vtable
+      // e.g. s.speak becomes s->vtable->speak
+      return `${objectCode}->vtable->${sanitizeForCIdentifier(fieldName)}`;
     } else {
       // For C structs and unions, access fields directly
       // Check if this is a reference-counted type (ref struct or ref enum)

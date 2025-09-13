@@ -11,7 +11,7 @@ Do not create new `.yo` files unless I tell you to do so.
 
 Do not use `npm` command, only use `bun` command.
 
-Never hard code anything.
+Never hardcode any typescript or yo when you are trying to solve a problem.
 
 You can run the command `bun run src/yo-cli.ts src/tests/examples/fixme.yo --emit-c --skip-c-compiler` on any `.yo` file to test its C code generation.
 

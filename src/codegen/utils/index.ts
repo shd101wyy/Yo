@@ -204,6 +204,20 @@ export function getTypeString(
       // Closures are reference-counted, so return pointer type
       return `${cTypeName}*`;
     }
+
+    // Dynamic dispatch type
+    case TypeTag.Dyn: {
+      // Use the registered C type name
+      const cTypeName = context.types[type.id]?.cName;
+      if (!cTypeName) {
+        throw new Error(
+          `No C type name found for dynamic dispatch type ${typeToString(type)}`
+        );
+      }
+      // Dynamic dispatch types are reference-counted, so return pointer type
+      return `${cTypeName}*`;
+    }
+
     // Fixed size array
     case TypeTag.Array: {
       const arrayType = type as ArrayType;

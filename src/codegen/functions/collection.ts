@@ -133,4 +133,12 @@ export function findFunctionCallsInExpr(
   else if (isTypeValue(expr.$?.value)) {
     collectType(expr.$.value.value, context);
   }
+
+  // Check for dynCallModuleValues and collect their functions
+  if (expr.$?.dynCallModuleValues) {
+    for (const moduleValue of expr.$.dynCallModuleValues) {
+      // Recursively collect functions from the dyn() module values
+      collectRequiredFunctions(moduleValue, context);
+    }
+  }
 }
