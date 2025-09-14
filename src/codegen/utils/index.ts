@@ -257,6 +257,11 @@ export function getTypeString(
 
       return sliceTypeName;
     }
+
+    // SomeType (used for Self references in modules/traits)
+    case TypeTag.SomeType:
+      // In dynamic dispatch contexts, Self should be void*
+      return "void*";
   }
 
   if (

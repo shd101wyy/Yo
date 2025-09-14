@@ -24,6 +24,7 @@ import {
   isTypeValue,
   ModuleValue,
   Value,
+  valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -364,8 +365,37 @@ ${filteredImplicitVariables
     checkedModuleTypes.add(requiredModuleType);
   }
 
-  // Use the expected Dyn type instead of creating a new one
-  const dynType = context.expectedType.type;
+  // Reorder moduleValues to match the order of expectedDynType.moduleTypes
+  // This ensures the constructor parameters match the vtable order
+  const orderedModuleValues: ModuleValue[] = [];
+  for (const expectedModuleType of expectedDynType.moduleTypes) {
+    // Find the corresponding module value
+    const moduleValueIndex = moduleTypes.findIndex((moduleType) =>
+      areTypesCompatible(
+        { type: expectedModuleType, env },
+        { type: moduleType, env }
+      )
+    );
+
+    if (moduleValueIndex === -1) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `No module value found for expected module type ${typeToString(expectedModuleType)}.`,
+      });
+    }
+
+    orderedModuleValues.push(moduleValues[moduleValueIndex]!);
+  }
+
+  orderedModuleValues.forEach((moduleValue) => {
+    console.log(valueToString(moduleValue));
+  });
+  console.log("----");
+  expectedDynType.moduleTypes.forEach((moduleType) => {
+    console.log(typeToString(moduleType));
+  });
+  console.log("====");
+  console.log("");
 
   // Create a runtime object that implements dynamic dispatch
   // This will be a special runtime construct that holds the value and the modules
@@ -374,10 +404,10 @@ ${filteredImplicitVariables
   expr.$ = {
     env,
     value: undefined, // This indicates it's a runtime value
-    type: dynType,
+    type: expectedDynType,
     isMutable: evaluatedValueExpr.$.isMutable,
     pathCollection: evaluatedValueExpr.$.pathCollection,
-    dynCallModuleValues: moduleValues, // Store module values for C codegen
+    dynCallModuleValues: orderedModuleValues, // Store ordered module values for C codegen
   };
 
   // Attach temp variable to the expr

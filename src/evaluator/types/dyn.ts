@@ -127,22 +127,14 @@ export function evaluateDynType({
   }
 
   // Create a module type that have:
-  //
-  //   Self : Type,
-  //   ___dispose :
-  //     fn(mut(self): Self) -> unit,
-  //   ___dup :
-  //     fn(mut(self): Self) -> Self,
-  //   ___drop :
-  //     fn(mut(self): Self) -> unit
   const moduleTypeExpr = generateExprFromCode(`
 module(
   Self : Type,
-  ___dispose :
-    fn(mut(self): Self) -> unit,
   ___dup :
     fn(mut(self): Self) -> Self,
   ___drop :
+    fn(mut(self): Self) -> unit,
+  ___dispose :
     fn(mut(self): Self) -> unit
 )
 `);

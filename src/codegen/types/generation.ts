@@ -422,8 +422,10 @@ export function generateDynDeclaration(
     `typedef struct { // Vtable for ${typeToString(dynType)}`
   );
 
-  // Generate function pointers for all methods in all module types
+  // Generate function pointers in the correct order: base module methods first, then user module methods
   const processedMethods = new Set<string>();
+
+  // Process modules in the order they appear in dynType.moduleTypes
   for (const moduleType of dynType.moduleTypes) {
     for (const element of moduleType.elements) {
       // Skip 'Self' type declarations as they're not methods
