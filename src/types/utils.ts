@@ -968,7 +968,10 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.Dyn: {
       const dynType = type as DynType;
-      return `dyn(${dynType.moduleTypes.map((mt) => typeToString(mt, visited)).join(", ")})`;
+      return `Dyn(${dynType.moduleTypes
+        .slice(1) // skip the baseModuleType which contains ___dup, ___drop, ___dispose
+        .map((mt) => typeToString(mt, visited))
+        .join(", ")})`;
     }
 
     default: {

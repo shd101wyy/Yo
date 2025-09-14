@@ -18,7 +18,13 @@ import {
   ModuleType,
   typeToString,
 } from "../../types";
-import { isModuleValue, isTypeValue, ModuleValue } from "../../value";
+import {
+  createModuleValue,
+  isModuleValue,
+  isTypeValue,
+  ModuleValue,
+  Value,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 
 export function evaluateDynValue({
@@ -229,6 +235,38 @@ export function evaluateDynValue({
       continue;
     }
 
+    // Check if the evaluatedArgExpr's module type is compatible with the required module type
+    if (
+      areTypesCompatible(
+        { type: requiredModuleType, env },
+        { type: valueType.module, env }
+      )
+    ) {
+      // Create the module value from the value type's module
+      const elements: (Value | undefined)[] = [];
+      for (let i = 0; i < requiredModuleType.elements.length; i++) {
+        const element = requiredModuleType.elements[i]!;
+        const valueTypeElementIndex = valueType.module.elements.findIndex(
+          (e) => e.label === element.label
+        );
+        if (valueTypeElementIndex === -1) {
+          elements.push(undefined);
+        } else {
+          elements.push(
+            valueType.module.elements[valueTypeElementIndex]!.assignedValue
+          );
+        }
+      }
+      const moduleValue = createModuleValue(requiredModuleType, elements);
+
+      // This module type is actually a value type, not a module type
+      // So we can skip it
+      moduleValues.push(moduleValue);
+      moduleTypes.push(moduleValue.type);
+      checkedModuleTypes.add(requiredModuleType);
+      continue;
+    }
+
     // Find implicit variables that match this module type
     const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
       if (!variable.isImplicit) {
@@ -302,7 +340,24 @@ ${filteredImplicitVariables
     }
 
     const implicitVariable = filteredImplicitVariables[0]!;
-    const moduleValue = implicitVariable.value as ModuleValue;
+    const implicitVariableModuleValue = implicitVariable.value as ModuleValue;
+    // Create the module value from the implicit variable
+    const elements: (Value | undefined)[] = [];
+    for (let i = 0; i < requiredModuleType.elements.length; i++) {
+      const element = requiredModuleType.elements[i]!;
+      const moduleValueElementIndex =
+        implicitVariableModuleValue.type.elements.findIndex(
+          (e) => e.label === element.label
+        );
+      if (moduleValueElementIndex === -1) {
+        elements.push(undefined);
+      } else {
+        elements.push(
+          implicitVariableModuleValue.elements[moduleValueElementIndex]
+        );
+      }
+    }
+    const moduleValue = createModuleValue(requiredModuleType, elements);
 
     moduleValues.push(moduleValue);
     moduleTypes.push(moduleValue.type);

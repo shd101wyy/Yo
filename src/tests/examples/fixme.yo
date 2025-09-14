@@ -8,11 +8,20 @@ Speak :: module(
 
 // Dog :: struct(); // This should give error working with `dyn`.
 Dog :: ref struct(
-  dispose :: (fn(mut(self) : Self) -> unit) {
+  dispose :: ((fn(mut(self) : Self) -> unit) {
     printf("Disposing Dog\n");
-  }
+  }),
+
+  ...(Speak
+    Self : Self,
+    speak : ((self : Self) -> {
+      printf("Woof!\n");
+      return 1;
+    })
+  )
 );
 
+/*
 DogSpeak :: Speak
   Self : Dog,
   speak : ((self : Self) -> {
@@ -20,17 +29,18 @@ DogSpeak :: Speak
     return 1;
   })
 ;
+*/
 
 
 main :: ((fn() -> i32) {
   dog := Dog();
-  (dyn_dog : Dyn(Speak)) = dyn(dog, DogSpeak); 
+  (dyn_dog : Dyn(Speak)) = dyn(dog); 
   // We insert ___dup: 
   //    dyn(___dup(dog), DogSpeak);
 
   result := dyn_dog.speak();
 
-  // ___drop(temp_var); // FIXME: This logic is missing
+  // ___drop(dyn_dog); // FIXME: This logic is missing
   // ___drop(dog);
   return result;
 });
