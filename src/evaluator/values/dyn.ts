@@ -1,18 +1,20 @@
 import { Environment, getVariablesFromEnvByFilter } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   Expr,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
-  isARCType,
   isDynType,
   isModuleType,
+  isStructTypeWithReferenceSemantics,
   ModuleType,
   typeToString,
 } from "../../types";
@@ -61,12 +63,20 @@ export function evaluateDynValue({
   const valueType = evaluatedValueExpr.$.type;
 
   // Validate that the value type uses reference semantics
-  if (!isARCType(valueType)) {
+  // if (!isARCType(valueType)) {
+  //   throw formatErrorMessage({
+  //     token: valueExpr.token,
+  //     errorMessage: `'dyn' can only be used with types that support reference counting (ref struct, Dyn, or Closure types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+  //   });
+  // }
+  if (!isStructTypeWithReferenceSemantics(valueType)) {
     throw formatErrorMessage({
       token: valueExpr.token,
-      errorMessage: `'dyn' can only be used with types that support reference counting (ref struct, Dyn, or Closure types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+      errorMessage: `'${BuiltinKeywords.dyn}' can only be used with types that have reference semantics (ref struct types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
     });
   }
+
+  setExprAsNeedsToCallDup(evaluatedValueExpr, context);
 
   const moduleTypes: ModuleType[] = [];
   const moduleValues: ModuleValue[] = [];
@@ -314,6 +324,9 @@ ${filteredImplicitVariables
     pathCollection: evaluatedValueExpr.$.pathCollection,
     dynCallModuleValues: moduleValues, // Store module values for C codegen
   };
+
+  // Attach temp variable to the expr
+  attachTempVariableToExpr(expr, true);
 
   return expr;
 }

@@ -4,6 +4,7 @@ import {
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   updateExistingVariable,
+  Variable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
@@ -37,6 +38,7 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
+import { isTempVariableName } from "../../utils";
 import {
   createArrayValue,
   createEnumValue,
@@ -418,13 +420,49 @@ export function evaluateAssignment({
         // For reference semantics enums, keep the original value to share the reference
       }
 
-      env = updateExistingVariable(env, variable, {
-        ...variable,
-        initializedAtToken: lhs.token,
-        value: valueToStore,
-        type: variableType,
-        // type: rhsType,
-      });
+      /// Check if the rhs is a temp variable owning the ARC value
+      let rhsVariableOwningARCValue: Variable | undefined = undefined;
+      if (
+        rhs.$?.variableName &&
+        isTempVariableName(env.modulePath, rhs.$.variableName)
+      ) {
+        const rhsVariables = getVariablesFromEnv(env, rhs.$?.variableName);
+        if (rhsVariables.length > 0) {
+          const candidate = rhsVariables[rhsVariables.length - 1]!;
+          if (candidate.isOwningTheARCValue) {
+            rhsVariableOwningARCValue = candidate;
+          }
+        }
+      }
+
+      // (dyn_dog : Dyn(Speak)) = dyn(dog, DogSpeak);
+      // We transfer the ownership from temp variable to the new variable `dyn_dog`
+      if (
+        rhsVariableOwningARCValue &&
+        !variable.isMutable &&
+        exprIsFunctionCall(expr.args[0]) &&
+        exprIsFunctionCallOf(expr.args[0], ":", 2)
+      ) {
+        env = updateExistingVariable(env, rhsVariableOwningARCValue, {
+          ...rhsVariableOwningARCValue,
+          consumedAtToken: lhs.token,
+        });
+        env = updateExistingVariable(env, variable, {
+          ...variable,
+          initializedAtToken: lhs.token,
+          value: valueToStore,
+          type: variableType,
+          isOwningTheARCValue: true,
+        });
+      } else {
+        env = updateExistingVariable(env, variable, {
+          ...variable,
+          initializedAtToken: lhs.token,
+          value: valueToStore,
+          type: variableType,
+          // type: rhsType,
+        });
+      }
     } else if (variable.isMutable) {
       // For closures, track variable writes to outer scope
       if (

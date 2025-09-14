@@ -437,6 +437,7 @@ export function evaluateBeginExpression({
 
   for (const variable of variablesNeedingDrop) {
     const dropCallCode = `${BuiltinFunctions.___drop[0]!}(${variable.name})`;
+    // console.log(`${dropCallCode}`);
     const dropCall = generateExprFromCode(dropCallCode);
     dropCallsToInsert.push(dropCall);
 
