@@ -1,11 +1,5 @@
 import { checkBorrowings } from "../../borrow";
-import {
-  addVariableToEnv,
-  Environment,
-  getVariablesFromEnv,
-  updateExistingVariable,
-  Variable,
-} from "../../env";
+import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -25,7 +19,6 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { isTempVariableName } from "../../utils";
 import {
   createUnknownValue,
   isFunctionValue,
@@ -275,6 +268,7 @@ ${exprToString(rhs)}`,
     // Add variable to env
     // Attach the updated env to expr
 
+    /*
     /// Check if the rhs is a temp variable owning the ARC value
     let rhsVariableOwningARCValue: Variable | undefined = undefined;
     if (
@@ -289,7 +283,10 @@ ${exprToString(rhs)}`,
         }
       }
     }
+    */
 
+    /*
+    /// NOTE: We cannot do this anymore because the LHS variable now is always mutable.
     if (
       rhsVariableOwningARCValue
       ///  && !isMutable
@@ -308,7 +305,9 @@ ${exprToString(rhs)}`,
         consumedAtToken: undefined, // Not consumed yet
       });
       env = nextEnv;
-    } else {
+    } else
+    */
+    {
       // Create new variable
       const { env: nextEnv } = addVariableToEnv({
         env,

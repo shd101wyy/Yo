@@ -4,7 +4,6 @@ import {
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   updateExistingVariable,
-  Variable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
@@ -38,7 +37,6 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { isTempVariableName } from "../../utils";
 import {
   createArrayValue,
   createEnumValue,
@@ -420,6 +418,7 @@ export function evaluateAssignment({
         // For reference semantics enums, keep the original value to share the reference
       }
 
+      /*
       /// Check if the rhs is a temp variable owning the ARC value
       let rhsVariableOwningARCValue: Variable | undefined = undefined;
       if (
@@ -434,12 +433,15 @@ export function evaluateAssignment({
           }
         }
       }
+      */
 
+      /*
+      // NOTE: We cannot optimize it here as the LHS is always mutable now.
       // (dyn_dog : Dyn(Speak)) = dyn(dog, DogSpeak);
       // We transfer the ownership from temp variable to the new variable `dyn_dog`
       if (
         rhsVariableOwningARCValue &&
-        // !variable.isMutable &&
+        /// !variable.isMutable &&
         exprIsFunctionCall(expr.args[0]) &&
         exprIsFunctionCallOf(expr.args[0], ":", 2)
       ) {
@@ -454,7 +456,9 @@ export function evaluateAssignment({
           type: variableType,
           isOwningTheARCValue: true,
         });
-      } else {
+      } else 
+      */
+      {
         env = updateExistingVariable(env, variable, {
           ...variable,
           initializedAtToken: lhs.token,
