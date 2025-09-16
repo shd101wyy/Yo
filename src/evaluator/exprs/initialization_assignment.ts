@@ -1,10 +1,5 @@
 import { checkBorrowings } from "../../borrow";
-import {
-  addVariableToEnv,
-  Environment,
-  getVariablesFromEnv,
-  Variable,
-} from "../../env";
+import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -24,7 +19,6 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { isTempVariableName } from "../../utils";
 import {
   createUnknownValue,
   isFunctionValue,
@@ -33,7 +27,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { isValidVariableName } from "../utils";
+import { findBorrowingRelationship, isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -275,19 +269,11 @@ ${exprToString(rhs)}`,
     // Attach the updated env to expr
 
     // Check if the rhs is a temp variable owning the ARC value
-    let rhsVariableOwningARCValue: Variable | undefined = undefined;
-    if (
-      rhs.$?.variableName &&
-      isTempVariableName(env.modulePath, rhs.$.variableName)
-    ) {
-      const rhsVariables = getVariablesFromEnv(env, rhs.$?.variableName);
-      if (rhsVariables.length > 0) {
-        const candidate = rhsVariables[rhsVariables.length - 1]!;
-        if (candidate.isOwningTheARCValue) {
-          rhsVariableOwningARCValue = candidate;
-        }
-      }
-    }
+    const rhsVariableOwningARCValue = findBorrowingRelationship(
+      rhs,
+      env,
+      env.modulePath
+    );
 
     // Create new variable
     const { env: nextEnv } = addVariableToEnv({

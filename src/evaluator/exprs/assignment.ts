@@ -55,6 +55,7 @@ import {
 } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
+import { findBorrowingRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -459,11 +460,19 @@ export function evaluateAssignment({
       } else 
       */
       {
+        // Check if the rhs is a temp variable owning the ARC value
+        const rhsVariableOwningARCValue = findBorrowingRelationship(
+          rhs,
+          env,
+          env.modulePath
+        );
+
         env = updateExistingVariable(env, variable, {
           ...variable,
           initializedAtToken: lhs.token,
           value: valueToStore,
           type: variableType,
+          isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
           // type: rhsType,
         });
       }
@@ -513,10 +522,18 @@ export function evaluateAssignment({
         // For reference semantics enums, keep the original value to share the reference
       }
 
+      // Check if the rhs is a temp variable owning the ARC value
+      const rhsVariableOwningARCValue = findBorrowingRelationship(
+        rhs,
+        env,
+        env.modulePath
+      );
+
       env = updateExistingVariable(env, variable, {
         ...variable,
         value: valueToStore,
         type: variableType,
+        isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
       });
       isMutatingDefinedVariable = true;
     }
