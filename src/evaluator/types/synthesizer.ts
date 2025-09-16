@@ -14,8 +14,6 @@ import {
   isModuleType,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -77,7 +75,6 @@ export function synthesizeTypes(
             name: given.type.name,
             value: value,
             type: value.type,
-            isMutable: false,
             isCompileTimeOnly: true,
             isImplicit: false,
             token: PlaceholderToken,
@@ -107,7 +104,6 @@ export function synthesizeTypes(
             name: expected.type.name,
             value: value,
             type: value.type,
-            isMutable: false,
             isCompileTimeOnly: true,
             isImplicit: false,
             token: PlaceholderToken,
@@ -147,7 +143,6 @@ export function synthesizeTypes(
               name: expected.type.name,
               value: value,
               type: value.type,
-              isMutable: false,
               isCompileTimeOnly: true,
               isImplicit: false,
               token: PlaceholderToken,
@@ -178,7 +173,6 @@ export function synthesizeTypes(
               name: given.type.name,
               value: value,
               type: value.type,
-              isMutable: false,
               isCompileTimeOnly: true,
               isImplicit: false,
               token: PlaceholderToken,
@@ -219,7 +213,6 @@ export function synthesizeTypes(
             name: expected.type.name,
             value: value,
             type: value.type,
-            isMutable: false,
             isCompileTimeOnly: true,
             isImplicit: false,
             token: PlaceholderToken, // FIXME: What should be `token` here?
@@ -271,7 +264,6 @@ export function synthesizeTypes(
             name: given.type.name,
             value: value,
             type: value.type,
-            isMutable: false,
             isCompileTimeOnly: true,
             isImplicit: false,
             token: PlaceholderToken,
@@ -408,11 +400,7 @@ export function synthesizeTypes(
       }
     }
   } else if (
-    (isRefType(expected.type) &&
-      (isRefType(given.type) || isMutRefType(given.type))) ||
     (isMutRefType(expected.type) && isMutRefType(given.type)) ||
-    (isPtrType(expected.type) &&
-      (isPtrType(given.type) || isMutPtrType(given.type))) ||
     (isMutPtrType(expected.type) && isMutPtrType(given.type))
   ) {
     const { expectedEnv, givenEnv } = synthesizeTypes(
@@ -465,7 +453,6 @@ export function synthesizeTypes(
             name: expectedLengthVariableName,
             value: givenLength,
             type: given.type.length.type,
-            isMutable: false,
             isCompileTimeOnly: true,
             isImplicit: false,
             token: PlaceholderToken, // FIXME: What should be `token` here?

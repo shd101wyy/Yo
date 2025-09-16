@@ -75,7 +75,6 @@ export function evaluateGensym({
 
   expr.$ = {
     env,
-    isMutable: false,
     pathCollection: [],
     type: atomExprValue.type,
     value: atomExprValue,

@@ -20,10 +20,8 @@ import {
   FunctionType,
   isClosureType,
   isFunctionType,
-  isMutRefType,
   isType0,
   MutRefType,
-  RefType,
   typeContains2ndClassReference,
   typeToString,
 } from "../../types";
@@ -164,10 +162,7 @@ export function evaluateBorrow({
 
     borrowings.push({
       expr: evaluatedBorrowedValueExpr,
-      type: borrowedType as
-        | RefType
-        | MutRefType
-        | (FunctionType & { isClosure: true }),
+      type: borrowedType as MutRefType | (FunctionType & { isClosure: true }),
       pathCollection: evaluatedBorrowedValueExpr.$.pathCollection,
     });
     checkBorrowings([...context.borrowings, ...borrowings]);
@@ -194,7 +189,6 @@ export function evaluateBorrow({
       variable: {
         name: bindingName,
         type: borrowing.type,
-        isMutable: isMutRefType(borrowing.type),
         isCompileTimeOnly: false,
         isImplicit: false,
         value: undefined, // borrowing.value,
@@ -210,7 +204,6 @@ export function evaluateBorrow({
     bindingExpr.$ = {
       env,
       type: borrowing.type,
-      isMutable: isMutRefType(borrowing.type),
       pathCollection: borrowing.pathCollection,
       isAccessingProperty: false, // TODO: Set it to true if it's accessing a property
     };
@@ -245,7 +238,6 @@ export function evaluateBorrow({
     env,
     type: returnType,
     value: returnValue,
-    isMutable: evaluatedBorrowBlock.$.isMutable,
     pathCollection: evaluatedBorrowBlock.$.pathCollection,
     isAccessingProperty: evaluatedBorrowBlock.$.isAccessingProperty,
     controlFlow: evaluatedBorrowBlock.$.controlFlow,

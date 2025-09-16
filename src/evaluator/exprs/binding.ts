@@ -9,7 +9,6 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import {
-  isTypeHierarchyType,
   prohibitDynamicSizedType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
@@ -69,7 +68,6 @@ ${exprToString(rhs)}`,
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;
-  let isMutable = false;
   let isImplicit = false;
   if (
     exprIsFunctionCall(lhs) &&
@@ -109,19 +107,6 @@ ${exprToString(rhs)}`,
     lhs = lhs.args[0]!;
   }
 
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.mut)
-  ) {
-    isMutable = true;
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected one argument for mut, got ${lhs.args.length}`,
-      });
-    }
-    lhs = lhs.args[0]!;
-  }
   if (!isValidVariableName(lhs)) {
     throw formatErrorMessage({
       token: lhs.token,
@@ -143,13 +128,6 @@ ${exprToString(rhs)}`,
     });
   }
 
-  if (isTypeHierarchyType(userDefinedType) && isMutable) {
-    throw formatErrorMessage({
-      token: lhs.token,
-      errorMessage: `Unexpected "mut" (or "!") for type hierarchy value binding. Type hierarchy values are immutable.`,
-    });
-  }
-
   const variableName = lhs.token.value;
   // Add the variable to the env
   // console.log("(5) addVariableToEnv");
@@ -158,7 +136,6 @@ ${exprToString(rhs)}`,
     variable: {
       name: variableName,
       type: userDefinedType,
-      isMutable,
       isCompileTimeOnly,
       isImplicit,
       value: isCompileTimeOnly
@@ -175,7 +152,6 @@ ${exprToString(rhs)}`,
   lhs.$ = {
     env,
     type: userDefinedType,
-    isMutable,
     pathCollection: [[variableName]],
   };
 
@@ -183,7 +159,6 @@ ${exprToString(rhs)}`,
     env,
     type: VUnit.type,
     value: VUnit,
-    isMutable: false,
     pathCollection: [],
   };
 

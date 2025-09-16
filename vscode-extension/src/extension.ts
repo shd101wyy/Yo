@@ -29,7 +29,6 @@ import {
   isEnumType,
   isFunctionType,
   isMutPtrType,
-  isPtrType,
   isSliceType,
   isStructType,
   isUnionType,
@@ -431,7 +430,6 @@ export function activate(context: vscode.ExtensionContext) {
                       type: selectedVariable.type,
                       value: selectedVariable.value,
                       env: bestEnv as Parameters<typeof getVariablesFromEnv>[0],
-                      isMutable: selectedVariable.isMutable || false,
                       pathCollection: [], // Empty path collection for fallback
                     },
                   };
@@ -474,10 +472,6 @@ export function activate(context: vscode.ExtensionContext) {
         if (expr.$?.env) {
           const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
           foundVariable = variables && variables.length > 0;
-          const isMutable =
-            variables &&
-            variables.length > 0 &&
-            variables[variables.length - 1]!.isMutable;
           const isCompileTimeOnly =
             variables &&
             variables.length > 0 &&
@@ -492,9 +486,6 @@ export function activate(context: vscode.ExtensionContext) {
             variables.length > 0 &&
             !variables[variables.length - 1]!.initializedAtToken;
 
-          if (isMutable) {
-            tokenText = `mut(${tokenText})`;
-          }
           if (isImplicit) {
             tokenText = `given(${tokenText})`;
           }
@@ -1045,7 +1036,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Automatically dereference pointer/reference types for field access only
         let fieldAccessType = variableType;
-        while (isPtrType(fieldAccessType) || isMutPtrType(fieldAccessType)) {
+        while (isMutPtrType(fieldAccessType)) {
           fieldAccessType = fieldAccessType.type;
         }
 

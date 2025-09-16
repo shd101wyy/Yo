@@ -20,8 +20,6 @@ import {
   isFunctionType,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isSliceType,
   isStructType,
   isStructTypeWithReferenceSemantics,
@@ -58,7 +56,6 @@ import {
   getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
-  shouldAvoidConst,
 } from "../utils";
 import { generateArrayFillCall, isArrayFillMethodCall } from "./array";
 
@@ -290,16 +287,6 @@ function generateFuncCall(
       lhs = lhs.args[0]!;
     }
 
-    let isMutable = false;
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.mut, 1)
-    ) {
-      // mutable variable, just use the inner expression
-      isMutable = true;
-      lhs = lhs.args[0]!;
-    }
-
     if (!lhs.$?.type) {
       return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
     }
@@ -308,7 +295,7 @@ function generateFuncCall(
 
     context.emitter.emitLine(
       // NOTE: We cannot assign "const" here.
-      `${indent}${isMutable ? "" : ""}${varTypeAndName};`
+      `${indent}${varTypeAndName};`
     );
     return "";
   }
@@ -356,7 +343,6 @@ function generateFuncCall(
       return "";
     }
 
-    let isMutable = false;
     // let isImplicit = false;
     if (
       exprIsFunctionCall(lhs) &&
@@ -364,14 +350,6 @@ function generateFuncCall(
     ) {
       // isImplicit = true;
       lhs = lhs.args[0]!; // Get the actual variable being assigned
-    }
-
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.mut, 1)
-    ) {
-      isMutable = true;
-      lhs = lhs.args[0]!; // Get the actual variable being mutated
     }
 
     if (exprIsAtom(lhs)) {
@@ -394,10 +372,7 @@ function generateFuncCall(
             context
           );
           const rhsCode = generateExpr(rhs, indent, context);
-          const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
-          context.emitter.emitLine(
-            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
-          );
+          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
         } else {
           // Copying from another array - use direct struct assignment
           const varTypeAndName = getVariableTypeString(
@@ -406,27 +381,21 @@ function generateFuncCall(
             context
           );
           const rhsCode = generateExpr(rhs, indent, context);
-          const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
-          context.emitter.emitLine(
-            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
-          );
+          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
         }
       } else {
         // Non-array initialization - use existing logic
         const rhsCode = generateExpr(rhs, indent, context);
 
         // Special handling for slice initialization.
-        if (isPtrType(lhs.$.type) && isSliceType(lhs.$.type.type)) {
+        if (isMutPtrType(lhs.$.type) && isSliceType(lhs.$.type.type)) {
           const sliceType = lhs.$.type.type; // Get the slice type directly
           const varTypeAndName = getVariableTypeString(
             sliceType,
             varName,
             context
           );
-          const shouldSkipConst = isMutable || shouldAvoidConst(sliceType);
-          context.emitter.emitLine(
-            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
-          );
+          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
         } else {
           // Normal initialization
           const varTypeAndName = getVariableTypeString(
@@ -434,10 +403,7 @@ function generateFuncCall(
             varName,
             context
           );
-          const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
-          context.emitter.emitLine(
-            `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
-          );
+          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
         }
       }
       return "";
@@ -449,7 +415,6 @@ function generateFuncCall(
     const rhs = expr.args[1]!;
 
     let isInitialization = false;
-    let isMutable = false;
     if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
       isInitialization = true;
       lhs = lhs.args[0]!; // Get the actual variable being assigned
@@ -466,14 +431,6 @@ function generateFuncCall(
       exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
     ) {
       // implicit variable, just use the inner expression
-      lhs = lhs.args[0]!;
-    }
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.mut, 1)
-    ) {
-      // mutable variable, just use the inner expression
-      isMutable = true;
       lhs = lhs.args[0]!;
     }
 
@@ -517,10 +474,7 @@ function generateFuncCall(
           generateExpr(lhs, indent, context),
           context
         );
-        const shouldSkipConst = isMutable || shouldAvoidConst(lhs.$.type);
-        context.emitter.emitLine(
-          `${indent}${shouldSkipConst ? "" : "const "}${varTypeAndName} = ${rhsCode};`
-        );
+        context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
       } else {
         // For assignment to existing array variable, use direct struct assignment
         context.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
@@ -529,11 +483,8 @@ function generateFuncCall(
       // Non-array assignment - use existing logic
       const rhsCode = generateExpr(rhs, indent, context);
       if (!isUnitType(lhs.$.type)) {
-        const shouldSkipConst =
-          !isInitialization || isMutable || shouldAvoidConst(lhs.$.type);
-        const constQualifier = shouldSkipConst ? "" : "const ";
         context.emitter.emitLine(
-          `${indent}${constQualifier}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
+          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
         );
       }
     }
@@ -611,9 +562,7 @@ function generateFuncCall(
   }
   // ptr or ref value
   else if (
-    exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1) ||
     exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1) ||
-    exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1) ||
     exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1)
   ) {
     const type = expr.$?.type;
@@ -675,7 +624,7 @@ function generateFuncCall(
       } else if (
         funcType &&
         (isSliceType(funcType) ||
-          (isPtrType(funcType) && isSliceType(funcType.type)))
+          (isMutPtrType(funcType) && isSliceType(funcType.type)))
       ) {
         // Handle slice-from-slice: *(slice(start:end))
         const sliceBaseType = isSliceType(funcType)
@@ -1189,7 +1138,7 @@ function generateFuncCall(
       return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
     } else if (
       functionType &&
-      isPtrType(functionType) &&
+      isMutPtrType(functionType) &&
       isSliceType(functionType.type)
     ) {
       // Slice access by index for pointer to slice (but we generate slice as value): slice.data[index]
@@ -1582,17 +1531,12 @@ function generateFieldAccess(
     }
     // Special handling for slice types: even if they appear as pointer types in AST,
     // they should use dot notation because we generate them as struct values
-    else if (isPtrType(objectType) && isSliceType(objectType.type)) {
+    else if (isMutPtrType(objectType) && isSliceType(objectType.type)) {
       // For slice types, always use dot notation regardless of pointer level in AST
       return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
     }
     // Check if the object is pointer or reference
-    else if (
-      isPtrType(objectType) ||
-      isMutPtrType(objectType) ||
-      isRefType(objectType) ||
-      isMutRefType(objectType)
-    ) {
+    else if (isMutPtrType(objectType) || isMutRefType(objectType)) {
       if (fieldName === "*") {
         // Regular dereference for pointers/references
         return `*(${objectCode})`; // Dereference the pointer/reference
@@ -1600,12 +1544,7 @@ function generateFieldAccess(
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;
         let currentType: Type = objectType;
-        while (
-          isPtrType(currentType) ||
-          isMutPtrType(currentType) ||
-          isRefType(currentType) ||
-          isMutRefType(currentType)
-        ) {
+        while (isMutPtrType(currentType) || isMutRefType(currentType)) {
           dereferenceLevel++;
           currentType = currentType.type;
         }
@@ -1772,20 +1711,13 @@ function generateMatchExpression(
   // Check if it's a pointer/reference type OR reference semantics type
   // If yes, then automatically dereference one-level of it.
   let ptrOrRefType:
-    | TypeTag.Ptr
     | TypeTag.MutPtr
-    | TypeTag.Ref
     | TypeTag.MutRef
     | "ref_semantics"
     | undefined = undefined;
 
   let enumType: Type;
-  if (
-    isPtrType(matchValueType) ||
-    isMutPtrType(matchValueType) ||
-    isRefType(matchValueType) ||
-    isMutRefType(matchValueType)
-  ) {
+  if (isMutPtrType(matchValueType) || isMutRefType(matchValueType)) {
     enumType = matchValueType.type;
     ptrOrRefType = matchValueType.tag;
   } else if (isStructTypeWithReferenceSemantics(matchValueType)) {
@@ -2418,14 +2350,6 @@ function generateForLoop(
     elementVarName = bindingExpr.token.value;
   } else if (
     exprIsFunctionCall(bindingExpr) &&
-    exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.mut)
-  ) {
-    // Mutable element: for arr, mut(elem) => body
-    if (bindingExpr.args[0] && exprIsAtom(bindingExpr.args[0])) {
-      elementVarName = bindingExpr.args[0].token.value;
-    }
-  } else if (
-    exprIsFunctionCall(bindingExpr) &&
     exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.tuple)
   ) {
     // Tuple case: for arr, (elem, index) => body
@@ -2435,13 +2359,6 @@ function generateForLoop(
     if (firstArg) {
       if (exprIsAtom(firstArg)) {
         elementVarName = firstArg.token.value;
-      } else if (
-        exprIsFunctionCall(firstArg) &&
-        exprIsFunctionCallOf(firstArg, BuiltinKeywords.mut) &&
-        firstArg.args[0] &&
-        exprIsAtom(firstArg.args[0])
-      ) {
-        elementVarName = firstArg.args[0].token.value;
       }
     }
 
@@ -2478,7 +2395,7 @@ function generateForLoop(
   } else if (
     itemsType &&
     (isSliceType(itemsType) ||
-      (isPtrType(itemsType) && isSliceType(itemsType.type)))
+      (isMutPtrType(itemsType) && isSliceType(itemsType.type)))
   ) {
     // Handle slice iteration
     const sliceType = isSliceType(itemsType)

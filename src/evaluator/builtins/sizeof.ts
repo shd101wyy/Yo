@@ -66,7 +66,6 @@ export function evaluateSizeOf({
     env,
     type: createUsizeType(),
     value: typeSizeValue,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

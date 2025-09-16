@@ -192,7 +192,6 @@ export function evaluateCond({
         env: evaluatedCaseBodyExpr.$.env,
         type: evaluatedCaseBodyExpr.$.type,
         value: evaluatedCaseBodyExpr.$.value,
-        isMutable: evaluatedCaseBodyExpr.$.isMutable,
         pathCollection: evaluatedCaseBodyExpr.$.pathCollection,
         controlFlow: evaluatedCaseBodyExpr.$.controlFlow,
       };
@@ -228,7 +227,6 @@ export function evaluateCond({
         env,
         type: valueType.type,
         value: value,
-        isMutable: false,
         pathCollection: [],
       };
       attachTempVariableToExpr(expr, true);
@@ -384,7 +382,6 @@ export function evaluateCond({
         env,
         type: valueType.type,
         value: value,
-        isMutable: false,
         pathCollection: [],
       };
       attachTempVariableToExpr(expr, true);
@@ -417,7 +414,6 @@ export function evaluateCond({
           )
             ? createUnknownValue(functionReturnType)
             : undefined,
-          isMutable: false,
           pathCollection: [],
           controlFlow: "return",
         };
@@ -433,7 +429,6 @@ export function evaluateCond({
           env,
           type: VUnit.type,
           value: VUnit,
-          isMutable: false,
           pathCollection: [],
           controlFlow: "break",
         };
@@ -449,7 +444,6 @@ export function evaluateCond({
           env,
           type: VUnit.type,
           value: VUnit,
-          isMutable: false,
           pathCollection: [],
           controlFlow: "continue",
         };

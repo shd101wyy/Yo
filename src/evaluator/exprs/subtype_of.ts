@@ -116,7 +116,6 @@ export function evaluateSubtypeOf({
     env,
     value: newModuleTypeValue,
     type: newModuleTypeValue.type,
-    isMutable: false,
     pathCollection: evaluatedRhs.$.pathCollection,
   };
   return expr;

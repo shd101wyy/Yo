@@ -86,7 +86,6 @@ If you are creating an array value with 1 element, please consider adding a "," 
         name: lengthPlaceholderName,
         value: unknownLength,
         type: createUsizeType(),
-        isMutable: false,
         isCompileTimeOnly: true,
         isImplicit: true,
         token: lengthExpr.token,
@@ -102,7 +101,6 @@ If you are creating an array value with 1 element, please consider adding a "," 
       env: envWithUnknownVar,
       type: arrayTypeValue.type,
       value: arrayTypeValue,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;
@@ -160,7 +158,6 @@ If you are creating an array value with 1 element, please consider adding a "," 
     env: evaluatedLengthExpr.$.env,
     type: arrayTypeValue.type,
     value: arrayTypeValue,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

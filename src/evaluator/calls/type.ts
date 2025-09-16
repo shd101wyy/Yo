@@ -13,7 +13,6 @@ import {
 import {
   areTypesCompatible,
   isMutRefType,
-  isRefType,
   TupleElement,
   tupleElementToString,
   typeToString,
@@ -146,7 +145,7 @@ ${tupleElementToString(paramElement_)}`,
     }
 
     // Check the borrowings
-    if (evaluatedArgExpr.$ && (isMutRefType(argType) || isRefType(argType))) {
+    if (evaluatedArgExpr.$ && isMutRefType(argType)) {
       checkBorrowings(borrowings, evaluatedArgExpr);
 
       // Add the evaluated arg expr to the borrowings

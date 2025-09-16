@@ -58,7 +58,6 @@ export function evaluateComptPrint({
     env,
     type: VUnit.type,
     value: VUnit,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

@@ -66,7 +66,6 @@ export function evaluateAlignOf({
     env,
     type: createUsizeType(),
     value: typeAlignValue,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

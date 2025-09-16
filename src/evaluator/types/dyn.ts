@@ -131,11 +131,11 @@ export function evaluateDynType({
 module(
   Self : Type,
   ___dup :
-    fn(mut(self): Self) -> Self,
+    fn(self: Self) -> Self,
   ___drop :
-    fn(mut(self): Self) -> unit,
+    fn(self: Self) -> unit,
   ___dispose :
-    fn(mut(self): Self) -> unit
+    fn(self: Self) -> unit
 )
 `);
   /// evaluate the moduleTypeExpr
@@ -164,7 +164,6 @@ module(
     env,
     value: dynTypeValue,
     type: dynTypeValue.type,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

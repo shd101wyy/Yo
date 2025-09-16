@@ -220,7 +220,6 @@ export function tryToImplementFunctionByFunctionType({
     env: finalCallerEnv,
     value: functionValue,
     type: functionType,
-    isMutable: false,
     pathCollection:
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)

@@ -14,7 +14,6 @@ export function evaluateStringLiteral(
       env,
       value,
       type: value.type,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;

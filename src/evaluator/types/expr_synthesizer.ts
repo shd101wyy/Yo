@@ -77,7 +77,6 @@ export function synthesizeExprAndType({
     expr.$ = {
       env,
       type,
-      isMutable: false,
       pathCollection: [],
     };
     return { expr, type, env };
@@ -151,7 +150,6 @@ export function synthesizeExprAndType({
       expr.$ = {
         type: newEnumType,
         env,
-        isMutable: false,
         pathCollection: [],
       };
       // TODO: comptime value

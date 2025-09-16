@@ -37,7 +37,6 @@ export function evaluateAndOr({
       env: env,
       type: createBooleanType(),
       value,
-      isMutable: false,
       pathCollection: [],
       isAccessingProperty: false,
     };
@@ -126,7 +125,6 @@ export function evaluateAndOr({
     env: currentEnv,
     type: createBooleanType(),
     value: resultValue,
-    isMutable: false,
     pathCollection: [],
     isAccessingProperty: false,
   };

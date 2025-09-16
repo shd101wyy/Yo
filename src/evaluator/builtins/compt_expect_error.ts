@@ -35,7 +35,6 @@ export function evaluateComptExpectError({
       env,
       type: VUnit.type,
       value: VUnit,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;

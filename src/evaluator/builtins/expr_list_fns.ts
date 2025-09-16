@@ -72,7 +72,6 @@ export function evaluateYoExprListCar({
     env: evaluatedArgExpr.$.env,
     type: createExprType(),
     value: createUnknownValue(createExprType()), // Will be updated later
-    isMutable: false,
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -141,7 +140,6 @@ export function evaluateYoExprListCdr({
     env: evaluatedArgExpr.$.env,
     type: createExprListType(),
     value: createUnknownValue(createExprListType()), // Will be updated later
-    isMutable: false,
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -246,7 +244,6 @@ export function evaluateYoExprListCons({
     env: env,
     type: createExprListType(),
     value: createUnknownValue(createExprListType()), // Will be updated later
-    isMutable: false,
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -351,7 +348,6 @@ export function evaluateYoExprListAppend({
     env: env,
     type: createExprListType(),
     value: createUnknownValue(createExprListType()), // Will be updated later
-    isMutable: false,
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -423,7 +419,6 @@ export function evaluateYoExprListLength({
     env: evaluatedArgExpr.$.env,
     type: createUsizeType(),
     value: createUnknownValue(createUsizeType()), // Will be updated later
-    isMutable: false,
     pathCollection: [],
     isAccessingProperty: false,
   };

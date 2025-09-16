@@ -170,7 +170,6 @@ export function evaluateMacroExpand({
       env: currentEnv,
       type: createExprType(),
       value: createExprValue(currentExpr),
-      isMutable: evaluatedArgExpr.$.isMutable,
       pathCollection: evaluatedArgExpr.$.pathCollection,
     };
   } else {
@@ -179,7 +178,6 @@ export function evaluateMacroExpand({
       env,
       type: evaluatedArgExpr.$.type,
       value: evaluatedArgExpr.$.value,
-      isMutable: evaluatedArgExpr.$.isMutable,
       pathCollection: evaluatedArgExpr.$.pathCollection,
     };
   }

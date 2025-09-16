@@ -94,7 +94,6 @@ export function evaluateYoComptStringFunctions({
       env,
       type: value.type,
       value: value,
-      isMutable: false,
       pathCollection: [],
     };
   }
@@ -203,7 +202,6 @@ export function evaluateYoComptStringFunctions({
       env,
       type: value.type,
       value: value,
-      isMutable: false,
       pathCollection: [],
     };
   } else {
@@ -328,7 +326,6 @@ export function evaluateYoComptStringFunctions({
       env,
       type: value.type,
       value: value,
-      isMutable: false,
       pathCollection: [],
     };
   }

@@ -92,7 +92,6 @@ export function evaluateArrayFillMethod({
       env,
       type: arrayType,
       value: arrayValue,
-      isMutable: true,
       pathCollection: [],
     };
 
@@ -130,7 +129,6 @@ export function evaluateArrayFillMethod({
       env,
       type: arrayType,
       value: arrayValue,
-      isMutable: true,
       pathCollection: [],
     };
 
@@ -149,7 +147,6 @@ export function evaluateArrayFillMethod({
     env,
     type: arrayType,
     value: arrayValue,
-    isMutable: true,
     pathCollection: [],
   };
 

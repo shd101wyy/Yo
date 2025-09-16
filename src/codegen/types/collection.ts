@@ -10,8 +10,6 @@ import {
   isEnumType,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -183,10 +181,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
   }
   // Check if it's pointer-to-slice types
   else if (
-    (isPtrType(type) ||
-      isMutPtrType(type) ||
-      isRefType(type) ||
-      isMutRefType(type)) &&
+    (isMutPtrType(type) || isMutRefType(type)) &&
     type.type.tag === TypeTag.Slice
   ) {
     const sliceType = type.type as SliceType;

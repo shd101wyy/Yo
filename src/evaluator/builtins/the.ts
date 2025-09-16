@@ -108,7 +108,6 @@ export function evaluateThe({
             env: synthesizedEnv,
             type: expectedType,
             value: synthesizedValueExpr.$?.value,
-            isMutable: synthesizedValueExpr.$?.isMutable || false,
             pathCollection: synthesizedValueExpr.$?.pathCollection || [],
           };
           return expr;
@@ -129,7 +128,6 @@ export function evaluateThe({
     env,
     type: expectedType,
     value: evaluatedValueExpr.$.value,
-    isMutable: evaluatedValueExpr.$.isMutable,
     pathCollection: evaluatedValueExpr.$.pathCollection,
   };
   return expr;

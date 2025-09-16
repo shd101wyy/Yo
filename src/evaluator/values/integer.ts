@@ -32,7 +32,6 @@ export function evaluateIntegerLiteral(
       env,
       value,
       type: value.type,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;

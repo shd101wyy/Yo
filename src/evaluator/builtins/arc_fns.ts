@@ -74,7 +74,6 @@ export function evaluateYoDecrRc({
     env,
     type: VUnit.type,
     value: VUnit,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;
@@ -120,7 +119,6 @@ export function evaluateYoIncrRc({
     env,
     type: VUnit.type,
     value: VUnit,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;
@@ -163,7 +161,6 @@ export function evaluateIsUniquelyOwned({
     env,
     type: createBooleanType(),
     value: undefined,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

@@ -13,7 +13,6 @@ import { evaluateStructType } from "./struct";
  * Evaluate reference semantics types:
  *
  * - ref(struct(...)) - Reference semantics struct
- * - ref(enum(...)) - Reference semantics enum
  */
 export function evaluateRefType({
   expr,

@@ -234,19 +234,6 @@ export type FunctionParameterExprs = {
 export interface FunctionParameter {
   label: string;
   type: Type;
-
-  /**
-   * Whether the parameter is mutable or not.
-   * This affects:
-   * - Variable reassignment: x = new_value
-   * - Creating mutable references: &!(x), *!(x)
-   *
-   * Examples:
-   * - x : i32        -> isMutable: false
-   * - mut(x) : i32   -> isMutable: true
-   */
-  isMutable: boolean;
-
   isCompileTimeOnly: boolean;
   isQuote: boolean;
   exprs: FunctionParameterExprs;
@@ -517,27 +504,9 @@ export interface MutPtrType extends Type {
   type: Type;
 }
 
-export interface PtrType extends Type {
-  tag: TypeTag.Ptr;
-  id: TypeTag.Ptr;
-  /**
-   * The type of the pointer.
-   */
-  type: Type;
-}
-
 export interface MutRefType extends Type {
   tag: TypeTag.MutRef;
   id: TypeTag.MutRef;
-  /**
-   * The type of the reference.
-   */
-  type: Type;
-}
-
-export interface RefType extends Type {
-  tag: TypeTag.Ref;
-  id: TypeTag.Ref;
   /**
    * The type of the reference.
    */
@@ -565,7 +534,7 @@ export interface ClosureType extends Type {
    * This defines what variables the closure captures and how they are captured.
    *
    * For example:
-   *   struct(counter: &!(i32), base: &(i32))
+   *   struct(counter: &(i32), base: &(i32))
    *
    * - SomeType: When the capture type should be inferred (e.g., using "_")
    * - StructType: When the capture type is known and contains the captured variables

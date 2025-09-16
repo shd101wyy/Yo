@@ -174,7 +174,6 @@ export function tryToImplementClosureByClosureType({
     env: finalCallerEnv,
     value: closureValue,
     type: finalClosureType, // Use the updated closure type
-    isMutable: false,
     pathCollection:
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)

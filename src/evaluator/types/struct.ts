@@ -32,7 +32,7 @@ import { validateDisposeFunction } from "./validation";
  * Generate ___dispose function code for a struct type
  *
  * ___dispose :
- *  fn(mut(self): Self) -> unit
+ *  fn(self : Self) -> unit
  */
 function generateDisposeFunctionCode(structType: StructType): string | null {
   if (!isARCType(structType)) {
@@ -60,7 +60,7 @@ function generateDisposeFunctionCode(structType: StructType): string | null {
 `
     : "";
 
-  return `((fn(mut(self) : Self) -> unit) {
+  return `((fn(self : Self) -> unit) {
       ${hasDisposeFunction ? "Self.dispose(self);" : ""}
       ${dropDestructuringsExpr}
     })`;
@@ -70,7 +70,7 @@ function generateDisposeFunctionCode(structType: StructType): string | null {
  * Generate ___drop function code for a struct type
  *
  * ___drop :
- *  fn(mut(self): Self) -> unit
+ *  fn(self : Self) -> unit
  */
 function generateDropFunctionCode(structType: StructType): string {
   const destructurings = structType.elements
@@ -94,7 +94,7 @@ function generateDropFunctionCode(structType: StructType): string {
 `
       : "";
 
-  return `((fn(mut(self): Self) -> unit) {
+  return `((fn(self : Self) -> unit) {
   ${dropDestructuringsExpr}
   ${decrRcExpr}
 })`;
@@ -105,7 +105,7 @@ function generateDropFunctionCode(structType: StructType): string {
  * Generate ___dup function code for a struct type
  *
  * ___dup :
- *  fn(mut(self): Self) -> Self
+ *  fn(self : Self) -> Self
  *
  */
 function generateDupFunctionCode(structType: StructType): string {
@@ -130,7 +130,7 @@ function generateDupFunctionCode(structType: StructType): string {
 `
       : "";
 
-  return `((fn(mut(self) : Self) -> Self) {
+  return `((fn(self : Self) -> Self) {
   ${dupDestructuringsExpr}
   ${incrRcExpr}
   self
@@ -313,7 +313,7 @@ export function evaluateStructType({
 
         // dispose function
         // Verify the disposeFunction has the correct type.
-        // fn(mut(self): Self) -> unit
+        // fn(self : Self) -> unit
         if (type.label === BuiltinFunctions.dispose[0]) {
           validateDisposeFunction(
             type as ModuleElement,
@@ -379,7 +379,6 @@ export function evaluateStructType({
     env,
     type: structTypeValue.type,
     value: structTypeValue,
-    isMutable: false,
     pathCollection: [],
   };
 

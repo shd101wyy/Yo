@@ -112,18 +112,6 @@ export interface EvaluatedExprData {
   variableName?: string;
 
   /**
-   * Check if the value returned from the expression is mutable.
-   * This affects:
-   * - Variable reassignment: x = new_value
-   * - Creating mutable references: &!(x), *!(x)
-   *
-   * Examples:
-   * - x := 12           -> isMutable: false
-   * - mut(x) := 12      -> isMutable: true
-   */
-  isMutable: boolean;
-
-  /**
    * The type of the root object in a property access chain.
    * Used to determine mutability for nested property access and dereference.
    *
@@ -383,7 +371,6 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 
 export const BuiltinKeywords = {
   compt: ["compt" /*"@"*/],
-  mut: ["mut" /*"!"*/],
   ref: ["ref"], // Reference semantics for struct/enum
 
   // implicit: ["implicit" /*"?"*/], // deprecated in favor of `using` and `given` like scala
@@ -446,11 +433,9 @@ export const BuiltinKeywords = {
   // data types
   unique: ["unique", "^"],
 
-  Ptr: ["*"],
-  MutPtr: ["*!"],
-  Ref: ["&"],
-  MutRef: ["&!"],
-  Rc: ["$"], // Everthing comes with a cost.
+  MutPtr: ["*"],
+  MutRef: ["&"],
+  // Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],
   Array: ["Array"],
   Slice: ["Slice"],
@@ -1121,7 +1106,7 @@ export function attachTempVariableToExpr(
     throw new Error(`Expected expression to be evaluated, but it is not:
 ${exprToString(expr)}`);
   }
-  const { env, type, value, isMutable, originType } = expr.$;
+  const { env, type, value, originType } = expr.$;
   const modulePath = env.modulePath;
   const tempVariableName = generateNewTempVariableName(modulePath);
 
@@ -1132,7 +1117,6 @@ ${exprToString(expr)}`);
       name: tempVariableName,
       type,
       value,
-      isMutable,
       isCompileTimeOnly: Boolean(value),
       isImplicit: false,
       initializedAtToken: expr.token,
@@ -1289,7 +1273,7 @@ export function mergeAndCheckEnvs(
       // Check type compatibility across cases for initialized variables
       // This is for checking the code like:
       //
-      //   mut(arr) : Array(i32, _);
+      //   arr : Array(i32, _);
       //   compt_expect_error(
       //     cond(
       //       some_condition() => {arr = [1, 2, 3]; },

@@ -13,14 +13,10 @@ import {
 import {
   createMutPtrType,
   createMutRefType,
-  createPtrType,
-  createRefType,
   createUsizeType,
   isArrayType,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isSliceType,
   isUnitType,
   TypeTag,
@@ -87,29 +83,8 @@ export function evaluateFor({
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let itemsPtrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
-  let isItemsMutable = true;
-
-  if (
-    isPtrType(itemsType) ||
-    isMutPtrType(itemsType) ||
-    isRefType(itemsType) ||
-    isMutRefType(itemsType)
-  ) {
-    itemsPtrOrRefType = itemsType.tag;
+  if (isMutPtrType(itemsType) || isMutRefType(itemsType)) {
     itemsType = itemsType.type; // Dereference one level
-
-    if (
-      itemsPtrOrRefType === TypeTag.Ptr ||
-      itemsPtrOrRefType === TypeTag.Ref
-    ) {
-      isItemsMutable = false;
-    }
   }
 
   if (!isArrayType(itemsType) && !isSliceType(itemsType)) {
@@ -123,56 +98,20 @@ export function evaluateFor({
 
   let elementVariableExpr: Expr | undefined;
   let elementIndexExpr: Expr | undefined;
-  let isElementVariableMutable = false;
-  let itemPtrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
+  let itemPtrOrRefType: TypeTag.MutPtr | TypeTag.MutRef | undefined = undefined;
 
   if (exprIsAtom(bindingExpr)) {
     elementVariableExpr = bindingExpr;
   } else if (
     exprIsFunctionCall(bindingExpr) &&
-    exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.mut)
-  ) {
-    if (bindingExpr.args.length !== 1) {
-      throw formatErrorMessage({
-        token: bindingExpr.token,
-        errorMessage: `Expected 'mut' to have exactly one argument, got ${bindingExpr.args.length}`,
-      });
-    }
-    isElementVariableMutable = true;
-    elementVariableExpr = bindingExpr.args[0];
-  } else if (
-    exprIsFunctionCall(bindingExpr) &&
-    (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.Ptr) ||
-      exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr) ||
-      exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.Ref) ||
+    (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr) ||
       exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef))
   ) {
     elementVariableExpr = bindingExpr.args[0];
-    if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.Ptr)) {
-      itemPtrOrRefType = TypeTag.Ptr;
-    } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr)) {
+    if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr)) {
       itemPtrOrRefType = TypeTag.MutPtr;
-    } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.Ref)) {
-      itemPtrOrRefType = TypeTag.Ref;
     } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef)) {
       itemPtrOrRefType = TypeTag.MutRef;
-    }
-
-    if (
-      !isItemsMutable &&
-      (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr) ||
-        exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef))
-    ) {
-      // If the items are not mutable, we cannot use MutPtr or MutRef
-      throw formatErrorMessage({
-        token: bindingExpr.token,
-        errorMessage: `Cannot use &! or *! for immutable items, got:\n${exprToString(bindingExpr)}`,
-      });
     }
   } else {
     if (!exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.tuple)) {
@@ -186,51 +125,15 @@ export function evaluateFor({
 
     if (
       exprIsFunctionCall(elementVariableExpr) &&
-      exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.mut)
-    ) {
-      if (elementVariableExpr.args.length !== 1) {
-        throw formatErrorMessage({
-          token: elementVariableExpr.token,
-          errorMessage: `Expected 'mut' to have exactly one argument, got ${elementVariableExpr.args.length}`,
-        });
-      }
-      isElementVariableMutable = true;
-      elementVariableExpr = elementVariableExpr.args[0];
-    } else if (
-      exprIsFunctionCall(elementVariableExpr) &&
-      (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.Ptr) ||
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr) ||
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.Ref) ||
+      (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr) ||
         exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef))
     ) {
-      if (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.Ptr)) {
-        itemPtrOrRefType = TypeTag.Ptr;
-      } else if (
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr)
-      ) {
+      if (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr)) {
         itemPtrOrRefType = TypeTag.MutPtr;
-      } else if (
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.Ref)
-      ) {
-        itemPtrOrRefType = TypeTag.Ref;
       } else if (
         exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef)
       ) {
         itemPtrOrRefType = TypeTag.MutRef;
-      }
-
-      if (
-        !isItemsMutable &&
-        (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr) ||
-          exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef))
-      ) {
-        // If the items are not mutable, we cannot use MutPtr or MutRef
-        throw formatErrorMessage({
-          token: elementVariableExpr.token,
-          errorMessage: `Cannot use &! or *! for immutable items, got:\n${exprToString(
-            elementVariableExpr
-          )}`,
-        });
       }
 
       elementVariableExpr = elementVariableExpr.args[0];
@@ -270,12 +173,8 @@ export function evaluateFor({
 
   let itemType = itemsType.elementType;
   if (itemPtrOrRefType) {
-    if (itemPtrOrRefType === TypeTag.Ptr) {
-      itemType = createPtrType(itemType);
-    } else if (itemPtrOrRefType === TypeTag.MutPtr) {
+    if (itemPtrOrRefType === TypeTag.MutPtr) {
       itemType = createMutPtrType(itemType);
-    } else if (itemPtrOrRefType === TypeTag.Ref) {
-      itemType = createRefType(itemType);
     } else if (itemPtrOrRefType === TypeTag.MutRef) {
       itemType = createMutRefType(itemType);
     }
@@ -284,7 +183,6 @@ export function evaluateFor({
   // Add type information to the element variable expr
   elementVariableExpr.$ = {
     type: itemType,
-    isMutable: isElementVariableMutable,
     env,
     value: evaluatedItemsExpr.$.value
       ? createUnknownValue(itemType, elementVariableName)
@@ -296,7 +194,6 @@ export function evaluateFor({
     /// Add type information to the element index variable expr
     elementIndexExpr!.$ = {
       type: createUsizeType(),
-      isMutable: false, // The index variable is immutable
       env,
       value: evaluatedItemsExpr.$.value
         ? createUnknownValue(createUsizeType(), elementIndexName) // Initialize it to 0
@@ -324,7 +221,6 @@ export function evaluateFor({
     variables.push({
       name: elementVariableName,
       type: itemType,
-      isMutable: isElementVariableMutable,
       consumedAtToken: undefined,
       initializedAtToken: elementVariableExpr.token,
       isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency
@@ -339,7 +235,6 @@ export function evaluateFor({
       variables.push({
         name: elementIndexName,
         type: createUsizeType(),
-        isMutable: false, // The index variable is immutable
         consumedAtToken: undefined,
         initializedAtToken: elementIndexExpr!.token,
         isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency
@@ -376,7 +271,6 @@ export function evaluateFor({
         // Guaranteed that we meet "return"
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
-          isMutable: evaluatedBodyExpr.$.isMutable,
           pathCollection: evaluatedBodyExpr.$.pathCollection,
           type: evaluatedBodyExpr.$.type,
           value: evaluatedBodyExpr.$.value,
@@ -387,7 +281,6 @@ export function evaluateFor({
         // Break exits the loop, return unit
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
-          isMutable: false,
           pathCollection: [],
           type: VUnit.type,
           value: isCompileTime ? VUnit : undefined,
@@ -412,7 +305,6 @@ export function evaluateFor({
   // Finish the loop
   expr.$ = {
     env: env,
-    isMutable: false,
     pathCollection: [],
     type: VUnit.type,
     value: isCompileTime ? VUnit : undefined,

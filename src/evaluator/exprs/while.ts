@@ -74,7 +74,6 @@ export function evaluateWhile({
     // return the expr
     expr.$ = {
       env: env,
-      isMutable: false,
       pathCollection: [],
       type: VUnit.type,
       value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
@@ -108,7 +107,6 @@ export function evaluateWhile({
         if (isBooleanValue(conditionValue) && conditionValue.value === true) {
           expr.$ = {
             env: evaluatedBodyExpr.$.env,
-            isMutable: evaluatedBodyExpr.$.isMutable,
             pathCollection: evaluatedBodyExpr.$.pathCollection,
             type: evaluatedBodyExpr.$.type,
             value: evaluatedBodyExpr.$.value,
@@ -118,7 +116,6 @@ export function evaluateWhile({
           // We might not even enter the while loop body
           expr.$ = {
             env: env,
-            isMutable: false,
             pathCollection: [],
             type: VUnit.type,
             value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
@@ -128,7 +125,6 @@ export function evaluateWhile({
         // Break exits the loop, return unit
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
-          isMutable: false,
           pathCollection: [],
           type: VUnit.type,
           value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
@@ -169,7 +165,6 @@ export function evaluateWhile({
           // Runtime condition - treat as unit for this evaluation
           expr.$ = {
             env: updatedEnv,
-            isMutable: false,
             pathCollection: [],
             type: VUnit.type,
             value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
@@ -222,7 +217,6 @@ export function evaluateWhile({
       // return the expr
       expr.$ = {
         env: env,
-        isMutable: false,
         pathCollection: [],
         type: VUnit.type,
         value: isCompileTime ? VUnit : undefined, // Only set value for compile-time

@@ -209,7 +209,6 @@ Got:      "${paramName}"`,
       variable: {
         name: expectedParam.label,
         type: expectedParam.type,
-        isMutable: expectedParam.isMutable,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
         isImplicit: false,
         value: createUnknownValue(expectedParam.type, expectedParam.label),
@@ -226,7 +225,6 @@ Got:      "${paramName}"`,
         env: env,
         type: expectedParam.type,
         value: createUnknownValue(expectedParam.type, expectedParam.label),
-        isMutable: expectedParam.isMutable,
         pathCollection: [],
       };
     }
@@ -263,7 +261,6 @@ Got:      "${paramName}"`,
       variable: {
         name: paramExpr.token.value,
         type: expectedParam.type,
-        isMutable: expectedParam.isMutable,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
         isImplicit: false,
         value: expectedParam.isCompileTimeOnly
@@ -283,7 +280,6 @@ Got:      "${paramName}"`,
       value: expectedParam.isCompileTimeOnly
         ? createUnknownValue(expectedParam.type, expectedParam.label)
         : undefined,
-      isMutable: expectedParam.isMutable,
       pathCollection: [],
     };
   }
@@ -319,7 +315,6 @@ Got:      "${paramName}"`,
       variable: {
         name: expectedParam.label,
         type: expectedParam.type,
-        isMutable: expectedParam.isMutable,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
         isImplicit: true,
         value: createUnknownValue(expectedParam.type, expectedParam.label),
@@ -336,7 +331,6 @@ Got:      "${paramName}"`,
         env: env,
         type: expectedParam.type,
         value: createUnknownValue(expectedParam.type, expectedParam.label),
-        isMutable: expectedParam.isMutable,
         pathCollection: [],
       };
     }
@@ -532,7 +526,6 @@ Got:      "${paramName}"`,
     env,
     type: finalType,
     value: finalValue,
-    isMutable: false,
     pathCollection:
       isClosureFunction && capturedVariables
         ? buildPathCollectionFromCapturedVariables(capturedVariables)

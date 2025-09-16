@@ -4,7 +4,7 @@ import { Token } from "../../token";
 import { isFunctionType, isUnitType, ModuleElement } from "../../types";
 
 /**
- * Validate that a dispose function has the correct signature: fn(mut(self): Self) -> unit
+ * Validate that a dispose function has the correct signature: fn(self : Self) -> unit
  */
 export function validateDisposeFunction(
   moduleElement: ModuleElement,

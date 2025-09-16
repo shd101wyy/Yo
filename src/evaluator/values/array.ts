@@ -125,7 +125,6 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
     env,
     type: arrayType,
     value: arrayValue,
-    isMutable: true,
     pathCollection: [],
     runtimeArgExprsInOrder,
   };

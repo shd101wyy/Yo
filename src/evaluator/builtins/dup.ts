@@ -84,7 +84,6 @@ export function evaluateDup({
     env,
     type: evaluatedArgExpr.$.type,
     value: undefined,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

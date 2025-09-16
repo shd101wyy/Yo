@@ -8,8 +8,6 @@ import {
   isModuleType,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isStructType,
   isUnionType,
   ModuleType,
@@ -60,17 +58,6 @@ export interface Variable {
    */
   value?: Value;
 
-  /**
-   * Whether the variable is mutable or not.
-   * This affects:
-   * - Variable reassignment: x = new_value
-   * - Creating mutable references: &!(x), *!(x)
-   *
-   * Examples:
-   * - x := 1         -> isMutable: false
-   * - mut(x) := 1    -> isMutable: true
-   */
-  isMutable: boolean;
   /**
    * Whether the variable is compile-time only or not.
    * Eg:
@@ -463,7 +450,6 @@ export function printEnvVarNames(env: Environment) {
         typeId: variable.type.id,
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
-        isMutable: variable.isMutable,
         isImplicit: variable.isImplicit,
         isUndefined: !variable.initializedAtToken,
         isOwningTheARCValue: !!variable.isOwningTheARCValue,
@@ -583,9 +569,7 @@ export function getMethodsByNameFromEnv(
   // Automatically dereference if it's pointer/reference type
   let dereferencedReceiverType = receiverType;
   while (
-    isPtrType(dereferencedReceiverType) ||
     isMutPtrType(dereferencedReceiverType) ||
-    isRefType(dereferencedReceiverType) ||
     isMutRefType(dereferencedReceiverType)
   ) {
     dereferencedReceiverType = dereferencedReceiverType.type;

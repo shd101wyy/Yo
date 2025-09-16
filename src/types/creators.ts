@@ -17,8 +17,6 @@ import {
   ModuleType,
   MutPtrType,
   MutRefType,
-  PtrType,
-  RefType,
   SliceType,
   SomeType,
   StructType,
@@ -447,26 +445,10 @@ export function createMutPtrType(type: Type): MutPtrType {
   };
 }
 
-export function createPtrType(type: Type): PtrType {
-  return {
-    id: TypeTag.Ptr,
-    tag: TypeTag.Ptr,
-    type,
-  };
-}
-
 export function createMutRefType(type: Type): MutRefType {
   return {
     id: TypeTag.MutRef,
     tag: TypeTag.MutRef,
-    type,
-  };
-}
-
-export function createRefType(type: Type): RefType {
-  return {
-    id: TypeTag.Ref,
-    tag: TypeTag.Ref,
     type,
   };
 }

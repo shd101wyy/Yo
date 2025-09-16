@@ -24,8 +24,6 @@ import {
   isModuleType,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -107,8 +105,8 @@ export function evaluateFunctionCall({
       // Check borrowings
       // NOTE: This is necessary for function like array accessing element by index
       // for example:
-      //   mut(xs) := [1, 2, 3];
-      //   borrow &!(xs), xs_ref => {
+      //   xs := [1, 2, 3];
+      //   borrow &(xs), xs_ref => {
       //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
       //   }
       checkBorrowings(context.borrowings, functionToCall);
@@ -258,7 +256,6 @@ export function evaluateFunctionCall({
           env,
           type: functions[0]!.type,
           value: functions[0]!.value,
-          isMutable: false,
           pathCollection: [],
         };
       }
@@ -324,8 +321,8 @@ export function evaluateFunctionCall({
         // Check borrowings
         // NOTE: This is necessary for function like array accessing element by index
         // for example:
-        //   mut(xs) := [1, 2, 3];
-        //   borrow &!(xs), xs_ref => {
+        //   xs := [1, 2, 3];
+        //   borrow &(xs), xs_ref => {
         //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
         //   }
         checkBorrowings(context.borrowings, functionToCall);
@@ -663,9 +660,7 @@ export function evaluateFunctionCall({
         // array
         isArrayType(functionToCall.type) ||
         // slice
-        ((isPtrType(functionToCall.type) ||
-          isMutPtrType(functionToCall.type) ||
-          isRefType(functionToCall.type) ||
+        ((isMutPtrType(functionToCall.type) ||
           isMutRefType(functionToCall.type)) &&
           isSliceType(functionToCall.type.type))
       ) {
@@ -839,7 +834,6 @@ ${functionsWithMatchingTypes
         env,
         type: createExprType(),
         value: returnValue,
-        isMutable: false,
         originType: createExprType(), // Macro result's origin type is the expression type
         pathCollection: pathCollection,
       };
@@ -901,7 +895,6 @@ ${functionsWithMatchingTypes
         env,
         type: returnType,
         value: returnValue,
-        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: returnType, // Function call result's origin type is its return type
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
@@ -915,7 +908,6 @@ ${functionsWithMatchingTypes
         env,
         type: functionToCall.type,
         value: specializedFunctionValue || functionToCall.value,
-        isMutable: false,
         pathCollection: [],
       };
       if (methodExpr) {
@@ -923,7 +915,6 @@ ${functionsWithMatchingTypes
           env,
           type: functionToCall.type,
           value: specializedFunctionValue || functionToCall.value,
-          isMutable: false,
           pathCollection: [],
         };
       }
@@ -968,7 +959,6 @@ ${functionsWithMatchingTypes
       env,
       type: returnType,
       value: returnValue,
-      isMutable: true,
       originType: returnType, // Function call result's origin type is its return type
       pathCollection: pathCollection,
       runtimeArgExprsInOrder,
@@ -982,7 +972,6 @@ ${functionsWithMatchingTypes
       env,
       type: functionToCall.type,
       value: specializedFunctionValue || functionToCall.value,
-      isMutable: false,
       pathCollection: [],
     };
     if (methodExpr) {
@@ -990,7 +979,6 @@ ${functionsWithMatchingTypes
         env,
         type: functionToCall.type,
         value: specializedFunctionValue || functionToCall.value,
-        isMutable: false,
         pathCollection: [],
       };
     }
@@ -1003,7 +991,6 @@ ${functionsWithMatchingTypes
       expr.$ = {
         env,
         type: structType,
-        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: structType, // Struct constructor result's origin type is the struct type
         pathCollection: [],
       };
@@ -1037,7 +1024,6 @@ ${functionsWithMatchingTypes
         env,
         type: value.type,
         value: value,
-        isMutable: false,
         pathCollection: [],
       };
       return expr;
@@ -1048,7 +1034,6 @@ ${functionsWithMatchingTypes
       expr.$ = {
         env,
         type: enumType,
-        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: enumType, // Enum constructor result's origin type is the enum type
         pathCollection: [],
       };
@@ -1090,7 +1075,6 @@ ${functionsWithMatchingTypes
         env,
         type: value.type,
         value: value,
-        isMutable: false,
         pathCollection: [],
       };
       return expr;
@@ -1101,7 +1085,6 @@ ${functionsWithMatchingTypes
       expr.$ = {
         env,
         type: unionType,
-        isMutable: true, // false, // QUESTION: Should we set the function call return value as mutable?
         originType: unionType, // Union constructor result's origin type is the union type
         pathCollection: [],
       };
@@ -1121,7 +1104,6 @@ ${functionsWithMatchingTypes
         env,
         type: value.type,
         value: value,
-        isMutable: false,
         pathCollection: [],
       };
       return expr;
@@ -1136,7 +1118,6 @@ ${functionsWithMatchingTypes
         env,
         type: moduleValue.type,
         value: moduleValue,
-        isMutable: false,
         originType: moduleValue.type, // Module result's origin type is its type
         pathCollection: [],
       };
@@ -1146,7 +1127,6 @@ ${functionsWithMatchingTypes
         env,
         type: value.type,
         value: value,
-        isMutable: false,
         pathCollection: [],
       };
       return expr;
@@ -1179,9 +1159,7 @@ ${functionsWithMatchingTypes
     // array
     else if (
       isArrayType(functionToCall.type) ||
-      ((isPtrType(functionToCall.type) ||
-        isMutPtrType(functionToCall.type) ||
-        isRefType(functionToCall.type) ||
+      ((isMutPtrType(functionToCall.type) ||
         isMutRefType(functionToCall.type)) &&
         isSliceType(functionToCall.type.type))
     ) {
@@ -1208,19 +1186,6 @@ ${functionsWithMatchingTypes
         env: callerEnv,
         type: type,
         value: value,
-        /**
-         * NOTE: Here func is the array value itself.
-         * We read the isMutable and pathCollection from it.
-         * This is mainly used for array, for example:
-         *   mut(xs) := [1, 2, 3];
-         *   borrow &!(xs(0)), xs_ref => {
-         *     //      ^ calling here, it is mutable.
-         *   }
-         */
-        isMutable:
-          Boolean(func.$?.isMutable) ||
-          isMutPtrType(functionToCall.type) ||
-          isMutRefType(functionToCall.type),
         originType: func.$?.originType ?? functionToCall.type, // Array access inherits origin type
         pathCollection: pathCollection,
         /**
@@ -1235,7 +1200,6 @@ ${functionsWithMatchingTypes
         env,
         type: functionToCall.type,
         value: functionToCall.value,
-        isMutable: Boolean(func.$?.isMutable),
         pathCollection: func.$?.pathCollection ?? [],
         isAccessingProperty: true,
       };

@@ -5,25 +5,19 @@ import {
   PathCollection,
   pathCollectionConflictsWithPathCollection,
 } from "./expr";
-import {
-  FunctionType,
-  isMutRefType,
-  MutRefType,
-  RefType,
-  typeToString,
-} from "./types";
+import { FunctionType, isMutRefType, MutRefType, typeToString } from "./types";
 
 export interface Borrowing {
   /**
    * The experssion that is borrowing a value. For example
-   *   &(x), &!(p.x)
+   *   &(x)
    */
   expr: Expr;
 
   /**
    * The type of the borrowing. It can be a reference type, mutable reference type, or closure type.
    */
-  type: RefType | MutRefType | (FunctionType & { isClosure: true });
+  type: MutRefType | (FunctionType & { isClosure: true });
 
   /**
    * Path collection of the borrowing. It represents the paths that are borrowed.

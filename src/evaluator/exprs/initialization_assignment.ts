@@ -73,7 +73,6 @@ export function evaluateInitializationAssignment({
     });
   }
 
-  let isMutable = false;
   let isImplicit = false;
 
   let lhs = expr.args[0]!;
@@ -90,22 +89,6 @@ export function evaluateInitializationAssignment({
       throw formatErrorMessage({
         token: lhs.token,
         errorMessage: `Expected one argument for implicit, got ${lhs.args.length}`,
-      });
-    }
-    lhs = lhs.args[0]!;
-  }
-
-  // Check if the variable is mutable
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.mut)
-  ) {
-    isMutable = true;
-    // Check if the lhs is a variable
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected one argument for mut, got ${lhs.args.length}`,
       });
     }
     lhs = lhs.args[0]!;
@@ -146,15 +129,6 @@ export function evaluateInitializationAssignment({
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
   }
 
-  // If rhs is type value, then it cannot be mutable
-  if (isTypeValue(rhs.$?.value) && isMutable) {
-    throw formatErrorMessage({
-      token: lhs.token,
-      errorMessage: `Unexpected "mut" (or "!") for type value:
-${exprToString(rhs)}`,
-    });
-  }
-
   if (exprIsAtom(lhs)) {
     if (!isValidVariableName(lhs)) {
       throw formatErrorMessage({
@@ -186,7 +160,6 @@ ${exprToString(rhs)}`,
       lhs.$ = {
         env,
         type: lhsType,
-        isMutable,
         pathCollection: [],
       };
     } else {
@@ -296,7 +269,6 @@ ${exprToString(rhs)}`,
       value: isCompileTimeOnly
         ? (rhsValue ?? createUnknownValue(lhs.$.type, lhs.token.value))
         : undefined,
-      isMutable,
       pathCollection: [],
     };
 
@@ -318,14 +290,16 @@ ${exprToString(rhs)}`,
       }
     }
 
-    if (rhsVariableOwningARCValue && !isMutable) {
+    if (
+      rhsVariableOwningARCValue
+      ///  && !isMutable
+    ) {
       // Update RHS variable name to use the LHS variable name
       // NOTE: We require the lhs to be immutable because if it's mutable,
       // then the ownership status might change later.
       const nextEnv = updateExistingVariable(env, rhsVariableOwningARCValue, {
         ...rhsVariableOwningARCValue,
         name: lhs.token.value,
-        isMutable,
         isCompileTimeOnly,
         isImplicit,
         value: isCompileTimeOnly ? lhs.$.value : undefined,
@@ -341,7 +315,6 @@ ${exprToString(rhs)}`,
         variable: {
           name: lhs.token.value,
           type: lhs.$.type,
-          isMutable,
           isCompileTimeOnly,
           isImplicit,
           value: lhs.$.value,
@@ -358,7 +331,6 @@ ${exprToString(rhs)}`,
       env,
       value: VUnit,
       type: VUnit.type,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;
@@ -377,7 +349,6 @@ ${exprToString(rhs)}`,
       env,
       value: VUnit,
       type: VUnit.type,
-      isMutable: false,
       pathCollection: [],
       runtimeDestructurings,
     };

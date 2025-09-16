@@ -12,10 +12,6 @@ import {
   isClosureType,
   isDynType,
   isFunctionType,
-  isMutPtrType,
-  isMutRefType,
-  isPtrType,
-  isRefType,
   isStructType,
   isUnitType,
   typeContainsSomeType,
@@ -130,34 +126,16 @@ export function generateFunctionPrototype(
 
     // Handle function pointer parameters specially
     if (isFunctionType(param.type)) {
-      let functionPointerType = generateFunctionPrototype(
+      const functionPointerType = generateFunctionPrototype(
         param.type,
         "(*)",
         context
       ).replace(" (*)(", ` (*${paramName})(`);
 
-      if (!param.isMutable) {
-        functionPointerType = `const ${functionPointerType}`;
-      }
-
       return functionPointerType;
     } else {
       // Handle non-function parameters
-      let paramTypeStr = getTypeString(param.type, context);
-
-      if (!param.isMutable) {
-        // If the parameter is not mutable, we can use a const pointer
-        if (
-          isPtrType(param.type) ||
-          isMutPtrType(param.type) ||
-          isRefType(param.type) ||
-          isMutRefType(param.type)
-        ) {
-          paramTypeStr = `${paramTypeStr} const`;
-        } else {
-          paramTypeStr = `const ${paramTypeStr}`;
-        }
-      }
+      const paramTypeStr = getTypeString(param.type, context);
 
       return `${paramTypeStr} ${paramName}`;
     }

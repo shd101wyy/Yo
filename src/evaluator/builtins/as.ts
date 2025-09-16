@@ -99,7 +99,6 @@ export function evaluateAs({
     env,
     type: targetType,
     value: valueExpr.$.value,
-    isMutable: valueExpr.$.isMutable,
     pathCollection: valueExpr.$.pathCollection,
   };
 

@@ -97,7 +97,6 @@ export function evaluateBeginExpression({
       env,
       type: VUnit.type,
       value: VUnit,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;
@@ -160,7 +159,6 @@ export function evaluateBeginExpression({
           env,
           type: VUnit.type,
           value: VUnit,
-          isMutable: false,
           pathCollection: [],
           controlFlow: "return",
         };
@@ -197,7 +195,6 @@ export function evaluateBeginExpression({
           env,
           type: evaluatedReturnExpr.$.type,
           value: evaluatedReturnExpr.$.value,
-          isMutable: false,
           pathCollection: evaluatedReturnExpr.$.pathCollection,
           variableName: evaluatedReturnExpr.$.variableName,
           controlFlow: "return",
@@ -240,7 +237,6 @@ export function evaluateBeginExpression({
         env,
         type: VUnit.type,
         value: VUnit,
-        isMutable: false,
         pathCollection: [],
         controlFlow: "break",
       };
@@ -281,7 +277,6 @@ export function evaluateBeginExpression({
         env,
         type: VUnit.type,
         value: VUnit,
-        isMutable: false,
         pathCollection: [],
         controlFlow: "continue",
       };
@@ -505,7 +500,6 @@ export function evaluateBeginExpression({
     env,
     type: lastExpr.$.type,
     value: lastExpr.$.value,
-    isMutable: false,
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
   };

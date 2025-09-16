@@ -209,7 +209,6 @@ Got:   ${typeToString(argType)}`,
           variable: {
             name: label,
             type: argType,
-            isMutable: false,
             isCompileTimeOnly: true,
             isImplicit: false,
             value: argValue,
@@ -226,7 +225,6 @@ Got:   ${typeToString(argType)}`,
           env: callerEnv,
           type: argType,
           value: argValue,
-          isMutable: false,
           pathCollection: [],
         };
         if (labelExpr) {
@@ -260,7 +258,6 @@ Got:   ${typeToString(argType)}`,
         variable: {
           name: moduleElement.label,
           type: moduleElement.type,
-          isMutable: false,
           isCompileTimeOnly: true,
           isImplicit: false,
           value: defaultValue ?? assignedValue,

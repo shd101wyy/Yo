@@ -51,7 +51,6 @@ export function evaluateTypeOf({
     env,
     type: value.type,
     value: value,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

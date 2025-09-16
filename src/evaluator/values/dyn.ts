@@ -394,7 +394,6 @@ ${filteredImplicitVariables
     env,
     value: undefined, // This indicates it's a runtime value
     type: expectedDynType,
-    isMutable: evaluatedValueExpr.$.isMutable,
     pathCollection: evaluatedValueExpr.$.pathCollection,
     dynCallModuleValues: orderedModuleValues, // Store ordered module values for C codegen
   };

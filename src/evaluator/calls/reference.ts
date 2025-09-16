@@ -7,13 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  createMutRefType,
-  createRefType,
-  isMutRefType,
-  isRefType,
-  TypeTag,
-} from "../../types";
+import { createMutRefType, isMutRefType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -22,7 +16,7 @@ import { EvaluatorContext } from "../context";
  * For example:
  *
  * &(i32)
- * &!(x)
+ * &(x)
  */
 export function evaluateReferenceCall({
   expr,
@@ -33,22 +27,12 @@ export function evaluateReferenceCall({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  if (
-    !exprIsFunctionCallOf(expr, BuiltinKeywords.Ref) &&
-    !exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef)
-  ) {
+  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `evaluateReferenceCall can only handle & or &! expressions`,
+      errorMessage: `evaluateReferenceCall can only handle & expressions`,
     });
   }
-
-  const referenceTypeKind: TypeTag.Ref | TypeTag.MutRef = exprIsFunctionCallOf(
-    expr,
-    BuiltinKeywords.Ref
-  )
-    ? TypeTag.Ref
-    : TypeTag.MutRef;
 
   // Simplified: only accept one argument (no regions)
   if (expr.args.length !== 1) {
@@ -61,10 +45,7 @@ export function evaluateReferenceCall({
   const argExpr = expr.args[0]!;
 
   let expectedType = context.expectedType;
-  if (
-    expectedType &&
-    (isRefType(expectedType.type) || isMutRefType(expectedType.type))
-  ) {
+  if (expectedType && isMutRefType(expectedType.type)) {
     // If the expected type is a reference type, we need to use the base type
     // for the reference creation.
     expectedType = {
@@ -98,16 +79,12 @@ export function evaluateReferenceCall({
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
     // Create the reference type without region
-    const referenceType =
-      referenceTypeKind === TypeTag.Ref
-        ? createRefType(baseType)
-        : createMutRefType(baseType);
+    const referenceType = createMutRefType(baseType);
     const typeValueForReference = createTypeValue(referenceType);
     expr.$ = {
       env,
       type: typeValueForReference.type,
       value: typeValueForReference,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;
@@ -115,26 +92,22 @@ export function evaluateReferenceCall({
   // Create reference value
   else {
     const argType = evaluatedArgExpr.$.type;
-    const referenceType =
-      referenceTypeKind === TypeTag.Ref
-        ? createRefType(argType)
-        : createMutRefType(argType);
+    const referenceType = createMutRefType(argType);
 
     // Check if we are creating a mutable reference to an immutable value
-    if (referenceTypeKind === TypeTag.MutRef && !evaluatedArgExpr.$.isMutable) {
-      throw formatErrorMessage({
-        token: argExpr.token,
-        errorMessage: `Cannot create a mutable reference to the immutable:\n${exprToString(
-          argExpr
-        )}`,
-      });
-    }
+    /// if (referenceTypeKind === TypeTag.MutRef && !evaluatedArgExpr.$.isMutable) {
+    ///   throw formatErrorMessage({
+    ///     token: argExpr.token,
+    ///     errorMessage: `Cannot create a mutable reference to the immutable:\n${exprToString(
+    ///       argExpr
+    ///     )}`,
+    ///   });
+    /// }
 
     expr.$ = {
       env,
       type: referenceType,
       value: undefined, // reference is only available for runtime
-      isMutable: referenceTypeKind === TypeTag.MutRef,
       pathCollection: evaluatedArgExpr.$.pathCollection,
     };
     attachTempVariableToExpr(expr, false);

@@ -80,7 +80,6 @@ export function evaluateVaStart({
     type: VUnit.type,
     value: VUnit,
     env,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

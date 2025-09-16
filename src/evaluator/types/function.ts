@@ -59,7 +59,6 @@ import { isValidVariableName } from "../utils";
  * type:
  * i32 in (i32, ...)
  * (x: i32) in (x: i32, ...)
- * (mut(x): i32) in (mut(x): i32, ...)
  */
 export function evaluateFunctionParameter({
   expr,
@@ -73,7 +72,6 @@ export function evaluateFunctionParameter({
   isParameterComptByDefault: boolean;
 }): { parameter: FunctionParameter; env: Environment } {
   let label: string | undefined = undefined;
-  let isMutable: boolean = false;
   let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
 
@@ -144,20 +142,6 @@ export function evaluateFunctionParameter({
         throw formatErrorMessage({
           token: lhsExpr.token,
           errorMessage: `Expected one argument for "compt" , got ${lhsExpr.args.length}`,
-        });
-      }
-      lhsExpr = lhsExpr.args[0]!;
-    }
-
-    if (
-      exprIsFunctionCall(lhsExpr) &&
-      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.mut)
-    ) {
-      isMutable = true;
-      if (lhsExpr.args.length !== 1) {
-        throw formatErrorMessage({
-          token: lhsExpr.token,
-          errorMessage: `Expected one argument for "mut" (or "!"), got ${lhsExpr.args.length}`,
         });
       }
       lhsExpr = lhsExpr.args[0]!;
@@ -352,7 +336,6 @@ ${typeToString(parameterType)}`,
     variable: {
       name: label,
       type: parameterType,
-      isMutable: isMutable,
       isCompileTimeOnly: isCompileTimeOnly,
       isImplicit: false,
       value:
@@ -373,7 +356,6 @@ ${typeToString(parameterType)}`,
       env,
       type: parameterType,
       value: value,
-      isMutable,
       pathCollection: [],
     };
   }
@@ -383,7 +365,6 @@ ${typeToString(parameterType)}`,
       env,
       type: VUnit.type,
       value: VUnit,
-      isMutable: false,
       pathCollection: [],
     };
   }
@@ -404,7 +385,6 @@ ${typeToString(parameterType)}`,
         typeExpr,
         defaultValueExpr,
       }),
-      isMutable,
       isCompileTimeOnly,
       isQuote,
     },
@@ -642,7 +622,6 @@ export function evaluateFunctionParameters({
           labelExpr,
         },
         isCompileTimeOnly,
-        isMutable: false,
         isQuote,
         label: parameterName,
         type: parameterType,
@@ -655,7 +634,6 @@ export function evaluateFunctionParameters({
           variable: {
             name: parameterName,
             type: parameterType,
-            isMutable: false,
             isCompileTimeOnly: variadicParameter.isCompileTimeOnly,
             isImplicit: false,
             value: isCompileTimeOnly
@@ -675,7 +653,6 @@ export function evaluateFunctionParameters({
           value: isCompileTimeOnly
             ? createUnknownValue(parameterType, parameterName)
             : undefined,
-          isMutable: false,
           pathCollection: [],
         };
       }
@@ -1071,7 +1048,6 @@ ${typeToString(returnType)}`,
     env,
     value: createTypeValue(finalType),
     type: typeOfType(finalType),
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

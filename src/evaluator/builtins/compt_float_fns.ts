@@ -94,7 +94,6 @@ export function evaluateYoComptFloatFunctions({
       env,
       type: value.type,
       value: value,
-      isMutable: false,
       pathCollection: [],
     };
   } else {
@@ -250,7 +249,6 @@ export function evaluateYoComptFloatFunctions({
       env,
       type: value.type,
       value: value,
-      isMutable: false,
       pathCollection: [],
     };
   }

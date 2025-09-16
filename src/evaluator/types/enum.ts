@@ -71,13 +71,13 @@ function generateDropFunctionCode(enumType: EnumType): string {
   );
 
   if (!variantsToHandle.length) {
-    return `((fn(mut(self): Self) -> unit) {
+    return `((fn(self : Self) -> unit) {
   __yo_decr_rc(self${hasDisposeFunction ? `, Self.dispose` : ""});
   ()
 })`;
   }
 
-  return `((fn(mut(self): Self) -> unit) {
+  return `((fn(self : Self) -> unit) {
   match(
     self,
     ${variantsToHandle
@@ -214,7 +214,7 @@ export function evaluateEnumType({
 
       // dispose function
       // Verify the disposeFunction has the correct type.
-      // fn(mut(self): Self) -> unit
+      // fn(self : Self) -> unit
       if (type.label === BuiltinFunctions.dispose[0]) {
         validateDisposeFunction(type as ModuleElement, arg.token);
       }
@@ -358,7 +358,6 @@ export function evaluateEnumType({
     env,
     value: enumTypeValue,
     type: enumTypeValue.type,
-    isMutable: false,
     pathCollection: [],
   };
 

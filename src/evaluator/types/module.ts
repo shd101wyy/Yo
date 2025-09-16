@@ -386,7 +386,6 @@ Given type: ${typeToString(defaultValueType)}`,
     labelExpr.$ = {
       env,
       type: elementType,
-      isMutable: false,
       pathCollection: [],
     };
   }
@@ -396,7 +395,6 @@ Given type: ${typeToString(defaultValueType)}`,
       env,
       value: VUnit,
       type: VUnit.type,
-      isMutable: false,
       pathCollection: [],
     };
   }
@@ -547,7 +545,6 @@ export function evaluateModuleType({
                   ),
                 isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
                 isImplicit: extendedModuleElement.isImplicit,
-                isMutable: false,
                 token: extendedModuleElement.exprs.expr.token,
                 initializedAtToken: extendedModuleElement.exprs.expr.token,
                 consumedAtToken: undefined,
@@ -609,7 +606,6 @@ export function evaluateModuleType({
                 value: elementValue,
                 isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
                 isImplicit: extendedModuleElement.isImplicit,
-                isMutable: false,
                 token: extendedModuleElement.exprs.expr.token,
                 initializedAtToken: extendedModuleElement.exprs.expr.token,
                 consumedAtToken: undefined,
@@ -675,7 +671,6 @@ export function evaluateModuleType({
             createUnknownValue(element.type, element.label),
           isCompileTimeOnly: element.isCompileTimeOnly,
           isImplicit: element.isImplicit,
-          isMutable: false,
           token: element.exprs.expr.token,
           initializedAtToken: element.exprs.expr.token,
           consumedAtToken: undefined,
@@ -693,7 +688,6 @@ export function evaluateModuleType({
     env,
     value: moduleTypeValue,
     type: moduleTypeValue.type,
-    isMutable: false,
     pathCollection: [],
   };
 

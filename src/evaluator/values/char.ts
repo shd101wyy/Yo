@@ -15,7 +15,6 @@ export function evaluateCharLiteral(
       env,
       value,
       type: value.type,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;

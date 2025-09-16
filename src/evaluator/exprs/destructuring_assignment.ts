@@ -166,7 +166,6 @@ export function handleMemberDestructuring({
             name: element.label,
             value: elementValue,
             type: element.type,
-            isMutable: false,
             isCompileTimeOnly,
             isImplicit: false,
             token: lhsElement.token,
@@ -183,7 +182,6 @@ export function handleMemberDestructuring({
         env,
         type: rhsType,
         value: rhsValue,
-        isMutable: false,
         pathCollection: [],
       };
 
@@ -255,7 +253,6 @@ export function handleMemberDestructuring({
             name: element.label,
             value: memberValue,
             type: element.type,
-            isMutable: false,
             isCompileTimeOnly,
             isImplicit: false,
             token: lhsElement.token,
@@ -272,7 +269,6 @@ export function handleMemberDestructuring({
         env,
         type: rhsType,
         value: rhsValue,
-        isMutable: false,
         pathCollection: [],
       };
 
@@ -438,7 +434,6 @@ export function handleMemberDestructuring({
         variable: {
           name: variableName,
           type: rhsElement.type,
-          isMutable: false,
           isImplicit: false,
           isCompileTimeOnly: isCompileTimeOnly,
           value: elementValue,
@@ -456,7 +451,6 @@ export function handleMemberDestructuring({
         env,
         type: rhsElement.type,
         value: elementValue,
-        isMutable: false,
         pathCollection: [],
       };
 
@@ -465,7 +459,6 @@ export function handleMemberDestructuring({
           env,
           type: rhsElement.type,
           value: elementValue, // !renameExpr ? elementValue : undefined,
-          isMutable: false,
           pathCollection: [],
         };
       }
@@ -475,7 +468,6 @@ export function handleMemberDestructuring({
           env,
           type: rhsElement.type,
           value: elementValue,
-          isMutable: false,
           pathCollection: [],
         };
       }

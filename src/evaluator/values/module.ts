@@ -52,7 +52,6 @@ export function evaluateModuleValue({
       env,
       type: moduleType,
       value: moduleValue,
-      isMutable: false,
       pathCollection: [],
     };
 

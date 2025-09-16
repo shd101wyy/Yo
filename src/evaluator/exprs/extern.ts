@@ -122,7 +122,6 @@ export function evaluateExtern({
           createUnknownValue(element.type, element.label),
         isCompileTimeOnly: element.isCompileTimeOnly,
         isImplicit: element.isImplicit,
-        isMutable: false,
         token: element.exprs.expr.token,
         initializedAtToken: element.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet
@@ -135,7 +134,6 @@ export function evaluateExtern({
     env,
     value: VUnit,
     type: VUnit.type,
-    isMutable: false,
     pathCollection: [],
   };
 
@@ -144,7 +142,6 @@ export function evaluateExtern({
     env,
     value: VUnit,
     type: VUnit.type,
-    isMutable: false,
     pathCollection: [],
   };
 

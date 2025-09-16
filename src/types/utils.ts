@@ -8,7 +8,7 @@ import { ValueTag } from "../value-tag";
 import {
   createF64Type,
   createI32Type,
-  createRefType,
+  createMutRefType,
   createSliceType,
   createU8Type,
 } from "./creators";
@@ -23,8 +23,6 @@ import {
   ModuleType,
   MutPtrType,
   MutRefType,
-  PtrType,
-  RefType,
   SomeType,
   StructType,
   TupleElement,
@@ -58,8 +56,6 @@ import {
   isModuleType,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -105,7 +101,7 @@ export function typeContains2ndClassReference(type?: Type): boolean {
   }
 
   // Check if the type is a reference type
-  if (isRefType(type) || isMutRefType(type)) {
+  if (isMutRefType(type)) {
     return true;
   }
 
@@ -235,13 +231,9 @@ export function typeContainsSomeType(type?: Type): boolean {
       return (type as ModuleType).elements.some((element) =>
         typeContainsSomeType(element.type)
       );
-    case TypeTag.Ptr:
     case TypeTag.MutPtr:
-    case TypeTag.Ref:
     case TypeTag.MutRef:
-      return typeContainsSomeType(
-        (type as PtrType | MutPtrType | RefType | MutRefType).type
-      );
+      return typeContainsSomeType((type as MutPtrType | MutRefType).type);
     default:
       return false; // For other types, no SomeType is present
   }
@@ -280,11 +272,9 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
       case TypeTag.Module:
         (t as ModuleType).elements.forEach((element) => helper(element.type));
         break;
-      case TypeTag.Ptr:
       case TypeTag.MutPtr:
-      case TypeTag.Ref:
       case TypeTag.MutRef:
-        helper((t as PtrType | MutPtrType | RefType | MutRefType).type);
+        helper((t as MutPtrType | MutRefType).type);
         break;
       default:
         break; // For other types, do nothing
@@ -460,7 +450,7 @@ export function convertComptTypeToRuntimeType(
       // - *(u8)
       // - *(char)
       if (
-        isPtrType(expectedType) && // *(u8) or *(char)
+        isMutPtrType(expectedType) && // *(u8) or *(char)
         (isU8Type(expectedType.type) || isCharType(expectedType.type))
       ) {
         return expectedType;
@@ -468,7 +458,7 @@ export function convertComptTypeToRuntimeType(
     }
 
     // Convert the compt_string to &([u8]);
-    return createRefType(createSliceType(createU8Type()));
+    return createMutRefType(createSliceType(createU8Type()));
   } else {
     // No change
     return type;
@@ -560,9 +550,7 @@ export function functionParameterToString(
   visited: Set<string> = new Set()
 ): string {
   let label = parameter.label;
-  if (parameter.isMutable) {
-    label = `mut(${label})`;
-  }
+
   if (parameter.isQuote) {
     label = `quote(${label})`;
   } else if (parameter.isCompileTimeOnly) {
@@ -944,22 +932,14 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       // return `some(${parentType.tag})`;
     }
 
-    case TypeTag.Ptr: {
-      return `*(${typeToString((type as PtrType).type, visited)})`;
-    }
-
     case TypeTag.MutPtr: {
-      return `*!(${typeToString((type as MutPtrType).type, visited)})`;
-    }
-
-    case TypeTag.Ref: {
-      const refType = type as RefType;
-      return `&(${typeToString(refType.type)})`;
+      const mutPtrType = type as MutPtrType;
+      return `*(${typeToString(mutPtrType.type, visited)})`;
     }
 
     case TypeTag.MutRef: {
       const mutRefType = type as MutRefType;
-      return `&!(${typeToString(mutRefType.type)})`;
+      return `&(${typeToString(mutRefType.type)})`;
     }
 
     case TypeTag.Expr: {
@@ -1198,12 +1178,7 @@ export function getAlignmentOfType(type: Type): number | null {
     return maxAlign;
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBytes(); // Functions are treated as pointers, so pointer-aligned
-  } else if (
-    isMutPtrType(type) ||
-    isPtrType(type) ||
-    isMutRefType(type) ||
-    isRefType(type)
-  ) {
+  } else if (isMutPtrType(type) || isMutRefType(type)) {
     return getTargetPointerSizeBytes(); // Pointer and reference types are pointer-aligned
   }
 
@@ -1271,12 +1246,7 @@ export function getSizeOfType(type: Type): number | null {
     return getUnionType(type);
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBits(); // Functions are treated as pointers, so return pointer size
-  } else if (
-    isMutPtrType(type) ||
-    isPtrType(type) ||
-    isMutRefType(type) ||
-    isRefType(type)
-  ) {
+  } else if (isMutPtrType(type) || isMutRefType(type)) {
     return getTargetPointerSizeBits(); // Pointer and reference types have pointer size
   }
 

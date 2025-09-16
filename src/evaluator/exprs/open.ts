@@ -66,7 +66,6 @@ export function evaluateOpen({
         variable: {
           name: element.label,
           type: element.type,
-          isMutable: false,
           isCompileTimeOnly: element.isCompileTimeOnly,
           isImplicit: element.isImplicit,
           value: value,
@@ -96,7 +95,6 @@ export function evaluateOpen({
           variable: {
             name: element.label,
             type: element.type,
-            isMutable: false,
             isCompileTimeOnly: element.isCompileTimeOnly,
             isImplicit: element.isImplicit,
             value: value,
@@ -141,7 +139,6 @@ export function evaluateOpen({
     env,
     value: VUnit,
     type: VUnit.type,
-    isMutable: false,
     pathCollection: [],
     runtimeDestructurings,
   };

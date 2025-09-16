@@ -15,7 +15,6 @@ export function evaluateBooleanLiteral(
       env,
       value,
       type: value.type,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;

@@ -187,7 +187,6 @@ export function evaluateQuote({
     env,
     type: exprValue.type,
     value: exprValue,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

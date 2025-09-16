@@ -122,7 +122,6 @@ export function evaluateImport({
       env,
       type: moduleValue.type,
       value: moduleValue,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;

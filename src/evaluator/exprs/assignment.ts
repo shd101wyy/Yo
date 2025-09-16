@@ -439,7 +439,7 @@ export function evaluateAssignment({
       // We transfer the ownership from temp variable to the new variable `dyn_dog`
       if (
         rhsVariableOwningARCValue &&
-        !variable.isMutable &&
+        // !variable.isMutable &&
         exprIsFunctionCall(expr.args[0]) &&
         exprIsFunctionCallOf(expr.args[0], ":", 2)
       ) {
@@ -463,7 +463,7 @@ export function evaluateAssignment({
           // type: rhsType,
         });
       }
-    } else if (variable.isMutable) {
+    } else {
       // For closures, track variable writes to outer scope
       if (
         context.isEvaluatingFunctionBody &&
@@ -515,18 +515,12 @@ export function evaluateAssignment({
         type: variableType,
       });
       isMutatingDefinedVariable = true;
-    } else {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Cannot assign to immutable variable "${variableName}"`,
-      });
     }
 
     lhs.$ = {
       env,
       type: variable.type, // NOTE: It shouldn't be the rhsType.
       value: variable.isCompileTimeOnly ? rhsValue : undefined,
-      isMutable: variable.isMutable,
       pathCollection: [[variableName]],
     };
     // Check the borrowings
@@ -537,7 +531,6 @@ export function evaluateAssignment({
         env,
         value: VUnit,
         type: VUnit.type,
-        isMutable: variable.isMutable,
         pathCollection: [],
       };
     } else {
@@ -546,7 +539,6 @@ export function evaluateAssignment({
         env,
         value: variable.value,
         type: variable.type,
-        isMutable: variable.isMutable,
         pathCollection: [],
       };
 
@@ -573,12 +565,6 @@ export function evaluateAssignment({
       throw formatErrorMessage({
         token: lhs.token,
         errorMessage: `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`,
-      });
-    }
-    if (!evaluatedLhs.$.isMutable) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Cannot assign value to the immutable: ${exprToString(lhs)}`,
       });
     }
 
@@ -684,11 +670,7 @@ export function evaluateAssignment({
           const variable = variables[variables.length - 1]!;
 
           // If it's a compile-time mutable variable with a struct/array value, update it
-          if (
-            variable.isMutable &&
-            variable.isCompileTimeOnly &&
-            variable.value
-          ) {
+          if (variable.isCompileTimeOnly && variable.value) {
             const currentValue = variable.value;
 
             // Handle struct/tuple field assignment
@@ -820,7 +802,6 @@ export function evaluateAssignment({
       env,
       value: evaluatedLhs.$.value,
       type: evaluatedLhs.$.type,
-      isMutable: evaluatedLhs.$.isMutable,
       pathCollection: [],
     };
 
@@ -832,7 +813,6 @@ export function evaluateAssignment({
       env,
       type: expectedType, // NOTE: It shouldn't be the rhsType.
       value: rhs.$?.value,
-      isMutable: evaluatedLhs.$.isMutable,
       pathCollection: evaluatedLhs.$.pathCollection,
     };
     // Return the updated expression

@@ -79,7 +79,6 @@ export function evaluateYoComptBooleanFunctions({
       env,
       type: value.type,
       value: value,
-      isMutable: false,
       pathCollection: [],
     };
   } else {
@@ -174,7 +173,6 @@ export function evaluateYoComptBooleanFunctions({
       env,
       type: value.type,
       value: value,
-      isMutable: false,
       pathCollection: [],
     };
   }

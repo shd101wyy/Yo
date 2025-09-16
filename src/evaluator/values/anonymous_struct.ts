@@ -245,7 +245,6 @@ export function evaluateAnonymousStructValue({
     env,
     type: structTypeValue.type,
     value: structTypeValue,
-    isMutable: false,
     pathCollection: [],
   };
 
@@ -258,7 +257,6 @@ export function evaluateAnonymousStructValue({
       type: structTypeValue.type,
       value: structTypeValue,
       initializedAtToken: expr.token,
-      isMutable: true,
       token: expr.token,
       isCompileTimeOnly: true,
       isImplicit: true,
@@ -271,7 +269,6 @@ export function evaluateAnonymousStructValue({
     env,
     type: structType,
     value: structValue,
-    isMutable: true,
     pathCollection: [],
     runtimeArgExprsInOrder,
   };

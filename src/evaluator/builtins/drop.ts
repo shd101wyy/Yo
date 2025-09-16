@@ -94,7 +94,6 @@ export function evaluateDrop({
       env,
       type: VUnit.type,
       value: VUnit,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;

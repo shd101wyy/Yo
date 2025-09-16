@@ -80,7 +80,6 @@ export function evaluateUnionType({
     env,
     value: unionTypeValue,
     type: unionTypeValue.type,
-    isMutable: false,
     pathCollection: [],
   };
 

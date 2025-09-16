@@ -391,21 +391,15 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
         // borrow
         return evaluateBorrow({ expr, env, context: { ...context } });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)
-      ) {
-        // * or *! raw pointers
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
+        // * raw pointer
         return evaluateRawPointerCall({
           expr,
           env,
           context: { ...context },
         });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.Ref, 1)
-      ) {
-        // & or &! references (with or without region)
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1)) {
+        // & reference (with or without region)
         return evaluateReferenceCall({
           expr,
           env,

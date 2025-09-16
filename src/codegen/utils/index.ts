@@ -9,8 +9,6 @@ import {
   isFunctionSpecializable,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   isSliceType,
   isStructType,
   isStructTypeWithReferenceSemantics,
@@ -264,12 +262,7 @@ export function getTypeString(
       return "void*";
   }
 
-  if (
-    isPtrType(type) ||
-    isMutPtrType(type) ||
-    isRefType(type) ||
-    isMutRefType(type)
-  ) {
+  if (isMutPtrType(type) || isMutRefType(type)) {
     const baseType = type.type;
     const isMutable = isMutPtrType(type) || isMutRefType(type);
 
@@ -398,12 +391,7 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
       const elementType = variant.elements[0]!.type;
 
       // Check if it's a pointer/reference type
-      if (
-        isPtrType(elementType) ||
-        isMutPtrType(elementType) ||
-        isRefType(elementType) ||
-        isMutRefType(elementType)
-      ) {
+      if (isMutPtrType(elementType) || isMutRefType(elementType)) {
         if (pointerVariant) {
           return null; // More than one pointer variant
         }

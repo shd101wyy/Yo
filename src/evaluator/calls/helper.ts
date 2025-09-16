@@ -41,7 +41,6 @@ import {
   isFunctionSpecializable,
   isFunctionType,
   isMutRefType,
-  isRefType,
   isTypeHierarchyType,
   Type,
   TypeHierarchyType,
@@ -195,7 +194,6 @@ export function checkIfFunctionParameterMatchesArgument({
           value: createExprValue(argExpr),
           env: callerEnv,
           pathCollection: [],
-          isMutable: false,
         };
       } else {
         throw formatErrorMessage({
@@ -234,11 +232,7 @@ export function checkIfFunctionParameterMatchesArgument({
   }
 
   // Check the borrowings
-  if (
-    evaluatedArgExpr.$.type &&
-    (isMutRefType(evaluatedArgExpr.$.type) ||
-      isRefType(evaluatedArgExpr.$.type))
-  ) {
+  if (evaluatedArgExpr.$.type && isMutRefType(evaluatedArgExpr.$.type)) {
     checkBorrowings(context.borrowings, evaluatedArgExpr);
 
     // Add evaluated arg expr to the borrowings
@@ -293,7 +287,6 @@ export function checkIfFunctionParameterMatchesArgument({
       name: parameter.label,
       type: argType, // QUESTION: Should we use parameterType here or argType?
       // This might affect assigning Free type arg to Type parameter
-      isMutable: parameter.isMutable,
       isCompileTimeOnly: parameter.isCompileTimeOnly,
       isImplicit: false,
       value: argValue,
@@ -495,7 +488,6 @@ export function tryToCallFunctionWithArguments({
         name: "Self",
         token: PlaceholderToken,
         type: typeValue.type,
-        isMutable: false,
         isCompileTimeOnly: true,
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
@@ -519,7 +511,6 @@ export function tryToCallFunctionWithArguments({
         variable: {
           name: forallParameter.label,
           type: forallParameter.type,
-          isMutable: false,
           isCompileTimeOnly: true,
           isImplicit: false,
           value: createUnknownValue(
@@ -642,7 +633,6 @@ export function tryToCallFunctionWithArguments({
           env: calleeEnv, // QUESTION: Which env should we use?
           type: typeValue.type,
           value: typeValue,
-          isMutable: false,
           pathCollection: [],
         };
       }
@@ -706,7 +696,6 @@ Got:   ${typeToString(typeValue.type)}`,
             variable: {
               name: forallParameter.label,
               type: typeValue.type,
-              isMutable: false,
               isCompileTimeOnly: true,
               isImplicit: false,
               value: typeValue,
@@ -882,7 +871,6 @@ Got:   ${argExprs.length} arguments`,
         variable: {
           name: implicitParameter.label,
           type: implicitParameterType,
-          isMutable: implicitParameter.isMutable,
           isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
           isImplicit: false,
           value: unknownValue,
@@ -970,7 +958,6 @@ Got:   ${argExprs.length} arguments`,
           variable: {
             name: implicitParameter.label,
             type: argType,
-            isMutable: implicitParameter.isMutable,
             isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
             isImplicit: false,
             value: argValue,
@@ -1162,7 +1149,6 @@ ${implicitVariables
         variable: {
           name: implicitParameter.label,
           type: returnType,
-          isMutable: implicitVariable.isMutable,
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
           isImplicit: implicitVariable.isImplicit,
           value: returnValue,
@@ -1196,7 +1182,6 @@ ${implicitVariables
               env: calleeEnv,
               type: implicitVariable.type,
               value: implicitVariable.value,
-              isMutable: implicitVariable.isMutable,
               pathCollection: [],
             },
           },
@@ -1212,7 +1197,6 @@ ${implicitVariables
             env: calleeEnv,
             type: returnType,
             value: returnValue,
-            isMutable: implicitVariable.isMutable,
             pathCollection: [],
           },
         });
@@ -1224,7 +1208,6 @@ ${implicitVariables
         variable: {
           name: implicitParameter.label,
           type: implicitVariable.type,
-          isMutable: implicitVariable.isMutable,
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
           isImplicit: implicitVariable.isImplicit,
           value: implicitVariable.value,
@@ -1256,7 +1239,6 @@ ${implicitVariables
             env: calleeEnv,
             type: implicitVariable.type,
             value: implicitVariable.value,
-            isMutable: implicitVariable.isMutable,
             pathCollection: [],
           },
         });
@@ -1278,7 +1260,6 @@ ${implicitVariables
           value: createExprValue(argExpr),
           env: callerEnv,
           pathCollection: [],
-          isMutable: false,
         };
         variadicArgs.push({
           value: evaluatedArgExpr.$.value,
@@ -1329,7 +1310,6 @@ ${implicitVariables
           name: functionType.variadicParameter.label,
           type: exprListValue.type, // QUESTION: Should we use parameterType here or argType?
           // This might affect assigning Free type arg to Type parameter
-          isMutable: functionType.variadicParameter.isMutable,
           isCompileTimeOnly: functionType.variadicParameter.isCompileTimeOnly,
           isImplicit: false,
           value: exprListValue,

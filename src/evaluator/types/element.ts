@@ -421,7 +421,6 @@ Given type: ${typeToString(defaultValueType)}`,
     labelExpr.$ = {
       env,
       type: elementType,
-      isMutable: false,
       pathCollection: [],
     };
   }
@@ -431,7 +430,6 @@ Given type: ${typeToString(defaultValueType)}`,
       env,
       value: VUnit,
       type: VUnit.type,
-      isMutable: false,
       pathCollection: [],
     };
   }

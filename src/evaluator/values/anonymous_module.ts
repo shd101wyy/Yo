@@ -129,7 +129,6 @@ export function evaluateAnonymousModuleBeginExprs({
                   env,
                   type: existingElement.type,
                   value: existingElement.assignedValue,
-                  isMutable: false,
                   pathCollection: [],
                 };
               } else {
@@ -166,7 +165,6 @@ export function evaluateAnonymousModuleBeginExprs({
                       env,
                       type: existingElement.type,
                       value: existingElement.assignedValue,
-                      isMutable: false,
                       pathCollection: [],
                     };
                   }
@@ -234,7 +232,6 @@ export function evaluateAnonymousModuleBeginExprs({
                   value: extendedModuleValue
                     ? extendedModuleValue.elements[i]
                     : undefined,
-                  isMutable: false, // TODO: Check if the element is mutable
                   pathCollection: [],
                 };
               }
@@ -302,7 +299,6 @@ export function evaluateAnonymousModuleBeginExprs({
                 env,
                 type: variable.type,
                 value: variable.value,
-                isMutable: variable.isMutable,
                 pathCollection: [],
               };
             }

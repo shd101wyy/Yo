@@ -68,7 +68,6 @@ export function evaluateYoTypeToString({
     env: arg.$.env,
     type: createComptStringType(),
     value: createUnknownValue(createComptStringType()), // Will be updated later
-    isMutable: false,
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -143,7 +142,6 @@ export function evaluateYoAreTypesCompatible({
     env,
     type: booleanValue.type,
     value: booleanValue,
-    isMutable: false,
     pathCollection: [],
   };
   return expr;

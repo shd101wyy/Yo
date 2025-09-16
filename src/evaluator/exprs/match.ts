@@ -18,19 +18,13 @@ import {
   convertComptTypeToRuntimeType,
   createMutPtrType,
   createMutRefType,
-  createPtrType,
-  createRefType,
   EnumType,
   isEnumType,
   isFunctionTypeAndReturnsComptValue,
   isMutPtrType,
   isMutRefType,
-  isPtrType,
-  isRefType,
   MutPtrType,
   MutRefType,
-  PtrType,
-  RefType,
   Type,
   TypeTag,
   typeToString,
@@ -99,21 +93,11 @@ export function evaluateMatch({
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType:
-    | TypeTag.Ptr
-    | TypeTag.MutPtr
-    | TypeTag.Ref
-    | TypeTag.MutRef
-    | undefined = undefined;
+  let ptrOrRefType: TypeTag.MutPtr | TypeTag.MutRef | undefined = undefined;
 
   let enumType: Type;
 
-  if (
-    isPtrType(scrutineeType) ||
-    isMutPtrType(scrutineeType) ||
-    isRefType(scrutineeType) ||
-    isMutRefType(scrutineeType)
-  ) {
+  if (isMutPtrType(scrutineeType) || isMutRefType(scrutineeType)) {
     enumType = scrutineeType.type;
     ptrOrRefType = scrutineeType.tag;
   } else {
@@ -247,19 +231,13 @@ export function evaluateMatch({
         env: caseEnv,
         type: newEnumType,
         value: undefined,
-        isMutable: false,
         pathCollection: [],
       };
 
-      let variableType: EnumType | PtrType | MutPtrType | RefType | MutRefType =
-        newEnumType;
+      let variableType: EnumType | MutPtrType | MutRefType = newEnumType;
       if (ptrOrRefType) {
-        if (ptrOrRefType === TypeTag.Ptr) {
-          variableType = createPtrType(newEnumType);
-        } else if (ptrOrRefType === TypeTag.MutPtr) {
+        if (ptrOrRefType === TypeTag.MutPtr) {
           variableType = createMutPtrType(newEnumType);
-        } else if (ptrOrRefType === TypeTag.Ref) {
-          variableType = createRefType(newEnumType);
         } else if (ptrOrRefType === TypeTag.MutRef) {
           variableType = createMutRefType(newEnumType);
         }
@@ -276,7 +254,6 @@ export function evaluateMatch({
           variable: {
             name: variableName,
             type: variableType,
-            isMutable: evaluatedScrutineeExpr.$.isMutable,
             isCompileTimeOnly: false,
             isImplicit: false,
             value: evaluatedScrutineeExpr.$.value,
@@ -294,7 +271,6 @@ export function evaluateMatch({
         env: caseEnv,
         type: variableType,
         value: undefined, // No value yet
-        isMutable: evaluatedScrutineeExpr.$.isMutable,
         pathCollection: [],
         caseExecuted: true, // Mark the case as executed
       };
@@ -333,7 +309,6 @@ export function evaluateMatch({
             env: evaluatedBody.$.env,
             type: evaluatedBody.$.type,
             value: evaluatedBody.$.value,
-            isMutable: evaluatedBody.$.isMutable,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
           };
@@ -460,15 +435,12 @@ export function evaluateMatch({
         env: caseEnv,
         type: newEnumType,
         value: undefined,
-        isMutable: false,
         pathCollection: [],
       };
 
-      let variableType: EnumType | PtrType | MutPtrType = newEnumType;
+      let variableType: EnumType | MutPtrType = newEnumType;
       if (ptrOrRefType) {
-        if (ptrOrRefType === TypeTag.Ptr) {
-          variableType = createPtrType(newEnumType);
-        } else if (ptrOrRefType === TypeTag.MutPtr) {
+        if (ptrOrRefType === TypeTag.MutPtr) {
           variableType = createMutPtrType(newEnumType);
         }
       }
@@ -529,7 +501,6 @@ export function evaluateMatch({
                   variable: {
                     name: variableName,
                     type: element.type,
-                    isMutable: false,
                     isCompileTimeOnly: false,
                     isImplicit: false,
                     value: undefined,
@@ -547,14 +518,12 @@ export function evaluateMatch({
                 env: caseEnv,
                 type: element.type,
                 value: undefined,
-                isMutable: false,
                 pathCollection: [],
               };
               labelExpr.$ = {
                 env: caseEnv,
                 type: element.type,
                 value: undefined,
-                isMutable: false,
                 pathCollection: [],
               };
             } else {
@@ -576,7 +545,6 @@ export function evaluateMatch({
                 variable: {
                   name: paramName,
                   type: element.type,
-                  isMutable: false,
                   isCompileTimeOnly: false,
                   isImplicit: false,
                   value: undefined,
@@ -594,7 +562,6 @@ export function evaluateMatch({
               env: caseEnv,
               type: element.type,
               value: undefined,
-              isMutable: false,
               pathCollection: [],
             };
           } else {
@@ -614,7 +581,6 @@ export function evaluateMatch({
           variable: {
             name: variableName,
             type: variableType,
-            isMutable: evaluatedScrutineeExpr.$.isMutable,
             isCompileTimeOnly: false,
             isImplicit: false,
             value: evaluatedScrutineeExpr.$.value,
@@ -632,7 +598,6 @@ export function evaluateMatch({
         env: caseEnv,
         type: variableType,
         value: undefined,
-        isMutable: evaluatedScrutineeExpr.$.isMutable,
         pathCollection: [],
         caseExecuted: true,
       };
@@ -667,7 +632,6 @@ export function evaluateMatch({
             env: evaluatedBody.$.env,
             type: evaluatedBody.$.type,
             value: evaluatedBody.$.value,
-            isMutable: evaluatedBody.$.isMutable,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
           };
@@ -787,7 +751,6 @@ Supported patterns:
       // TODO: Support the compile-time value.
       // For compile-time evaluation, we'd determine which arm matches and set the value
       value: undefined, // createUnknownValue(resultType),
-      isMutable: false,
       pathCollection: [],
     };
     attachTempVariableToExpr(expr, true);
@@ -818,7 +781,6 @@ Supported patterns:
         )
           ? createUnknownValue(functionReturnType)
           : undefined,
-        isMutable: false,
         pathCollection: [],
         controlFlow: "return",
       };
@@ -834,7 +796,6 @@ Supported patterns:
         env,
         type: VUnit.type,
         value: VUnit,
-        isMutable: false,
         pathCollection: [],
         controlFlow: "break",
       };
@@ -850,7 +811,6 @@ Supported patterns:
         env,
         type: VUnit.type,
         value: VUnit,
-        isMutable: false,
         pathCollection: [],
         controlFlow: "continue",
       };

@@ -20,7 +20,6 @@ export function evaluateComptAssert({
       env,
       type: VUnit.type,
       value: VUnit,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;
@@ -51,7 +50,6 @@ export function evaluateComptAssert({
       env,
       type: VUnit.type,
       value: VUnit,
-      isMutable: false,
       pathCollection: [],
     };
     return expr;
