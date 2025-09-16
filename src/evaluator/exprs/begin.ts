@@ -472,6 +472,17 @@ export function evaluateBeginExpression({
         return;
       }
 
+      // Skip while/for loops - they execute multiple times so optimization would be incorrect
+      if (
+        exprIsFunctionCall(expr) &&
+        (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
+          exprIsFunctionCallOf(expr, BuiltinKeywords.for))
+      ) {
+        // Don't apply optimization to while loops - the body can execute multiple times
+        // which would create multiple references without corresponding dup calls
+        return;
+      }
+
       // Helper function to handle branching expressions (cond, match)
       function handleBranchingExpression(
         expr: FuncCallExpr,

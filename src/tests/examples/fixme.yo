@@ -1,5 +1,7 @@
 extern "Yo",
-  some_cond : (fn() -> boolean)
+  some_cond : (fn() -> boolean),
+  (<) : (fn(lhs: i32, rhs: i32) -> boolean),
+  (+) : (fn(lhs: i32, rhs: i32) -> i32)
 ;
 
 Box :: ref struct(
@@ -10,59 +12,13 @@ BoxBox :: struct(
   (*) : Box
 );
 
-Color :: enum
-  Red,
-  Green,
-  Blue
-;
-
-test1 :: ((fn(color : Color) -> i32) {
+test1 :: ((fn() -> i32) {
   x := Box(3);
-  match(color,
-    .Red => {
-      y := BoxBox(x);
-    },
-    .Green => {
-      y := BoxBox(x);
-    },
-    .Blue => {
-      y := BoxBox(x);
-    }
-  );
+  i := 0;
+  while (<)(i, 100), i = (+)(i, 1), {
+    y := BoxBox(x);
+  };
   return 0;
 });
 
-test2 :: ((fn(color : Color) -> i32) {
-  x := Box(3);
-  match(color,
-    .Red => {
-      y := BoxBox(x);
-    },
-    .Green => {
-      ();
-    },
-    .Blue => {
-      y := BoxBox(x);
-    }
-  );
-  return 0;
-});
-
-
-test3 :: ((fn(color : Color) -> i32) {
-  x := Box(3);
-  match(color,
-    .Red => {
-      ();
-    },
-    .Green => {
-      ();
-    },
-    .Blue => {
-      ();
-    }
-  );
-  return 0;
-});
-
-export test1, test2, test3;
+export test1;
