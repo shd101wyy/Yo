@@ -1,0 +1,53 @@
+extern "Yo",
+  some_cond : (fn() -> boolean)
+;
+
+Box :: ref struct(
+  (*) : i32
+);
+
+BoxBox :: struct(
+  (*) : Box
+);
+
+test1 :: ((fn() -> i32) {
+  x := Box(3);
+  cond(
+    some_cond() => {
+      y := BoxBox(x); // _yo65d85c3c_temp_11
+    },
+    true => {
+      y := BoxBox(x); // _yo65d85c3c_temp_15
+    }
+  );
+  return 0;
+});
+
+test2 :: ((fn() -> i32) {
+  x := Box(3);
+  cond(
+    some_cond() => {
+      y := BoxBox(x);
+    },
+    true => {
+      ();
+    }
+  );
+  return 0;
+});
+
+test3 :: ((fn() -> i32) {
+  x := Box(3);
+  cond(
+    some_cond() => {
+      ();
+    },
+    true => {
+      ();
+    }
+  );
+  return 0;
+});
+
+
+export test1, test2;

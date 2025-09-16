@@ -1,0 +1,24 @@
+Box :: ref struct(
+  (*) : i32
+);
+
+BoxBox :: struct(
+  (*) : Box
+);
+
+main :: ((fn() -> i32) {
+  x := Box(3);    // Box(3) -> _yo65d85c3c_temp_8
+  x = Box(4);     // Box(4) -> _yo65d85c3c_temp_9
+  y := BoxBox(x); // BoxBox(x) -> _yo65d85c3c_temp_12
+                  // -> BoxBox(___dup(x))
+                  // -> BoxBox(___dup(_yo65d85c3c_temp_9))
+
+  // ___drop(_yo65d85c3c_temp_12)
+  // ___drop(_yo65d85c3c_temp_9) <- cancelled out with BoxBox(___dup(_yo65d85c3c_temp_9))
+  // ___drop(_yo65d85c3c_temp_8)
+  return 0;
+});
+
+export main;
+
+// y := { x }; // TODO: Support anonymous struct literals.
