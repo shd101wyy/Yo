@@ -74,11 +74,26 @@ export interface Variable {
    * This is only relevant for types that are managed by ARC.
    * eg:
    *     Point :: ref struct(x : i32, y : i32);
-   *     p1 := Point(3, 4);  // isOwningTheARCValue: true
-   *     p2 := p1;           // isOwningTheARCValue: false
+   *     p1 := Point(3, 4);  // temp_var holds the result of Point(3, 4)
+   *                         // temp_var : isOwningTheARCValue: true
+   *                         // p1       : isOwningTheARCValue: false
+   *     p2 := p1;           // p2       : isOwningTheARCValue: false
    *
    */
   isOwningTheARCValue?: boolean;
+
+  /**
+   * If the variable is borrowing the ARC value of another variable,
+   * then this field holds the name of that variable.
+   * This is only relevant for types that are managed by ARC.
+   * eg:
+   *     Point :: ref struct(x : i32, y : i32);
+   *     p1 := Point(3, 4);  // temp_var holds the result of Point(3, 4)
+   *                         // temp_var : isBorrowingTheARCValueOfVariableName: undefined
+   *                         // p1       : isBorrowingTheARCValueOfVariableName: temp_var
+   *     p2 := p1;           // p2       : isBorrowingTheARCValueOfVariableName: temp_var
+   */
+  isBorrowingTheARCValueOfVariable?: Variable;
 
   /**
    * Then token at which the variable is initialized.
@@ -711,7 +726,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
   const variables = topFrame.variables.filter(
     (variable) =>
       !variable.consumedAtToken &&
-      !variable.isCompileTimeOnly &&
+      // !variable.isCompileTimeOnly &&
       variable.isOwningTheARCValue &&
       typeContainsARCType(variable.type)
   );

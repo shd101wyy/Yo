@@ -5,10 +5,12 @@ import {
   getVariablesNeedingDrop,
   popEnvFrame,
   pushEnvFrame,
+  updateExistingVariable,
   Variable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  AtomExpr,
   attachTempVariableToExpr,
   BuiltinFunctions,
   BuiltinKeywords,
@@ -22,6 +24,7 @@ import {
   ExprTag,
   exprToString,
   FuncCallExpr,
+  replaceFuncCallExprWithAtomExpr,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
@@ -44,6 +47,54 @@ function isUnitValueExpression(expr: Expr): boolean {
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.tuple, 0)
   );
+}
+
+/**
+ * Recursively searches for ___dup calls within an expression
+ * Returns a map of borrowed-from variable names to their dup call expressions
+ */
+function findDupCallsInExpression(expr: Expr): Map<string, FuncCallExpr> {
+  const dupCalls = new Map<string, FuncCallExpr>();
+
+  function searchRecursively(currentExpr: Expr): void {
+    // Look for function calls like (x.___dup)()
+    if (
+      exprIsFunctionCall(currentExpr) &&
+      exprIsFunctionCall(currentExpr.func) &&
+      exprIsFunctionCallOf(currentExpr.func, ".", 2) &&
+      exprIsAtom(currentExpr.func.args[0]) &&
+      exprIsAtom(currentExpr.func.args[1]) &&
+      currentExpr.func.args[1].token.value === BuiltinFunctions.___dup[0] &&
+      currentExpr.args.length === 0 &&
+      currentExpr.$?.env
+    ) {
+      const variableName = currentExpr.func.args[0].token.value;
+
+      // Look up the variable in the expression's environment to find what it's borrowing from
+      const variables = getVariablesFromEnv(currentExpr.$.env, variableName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.isBorrowingTheARCValueOfVariable) {
+          // Store the dup call mapped to the borrowed-from variable name
+          const borrowedFromVariableName =
+            variable.isBorrowingTheARCValueOfVariable.name;
+          dupCalls.set(borrowedFromVariableName, currentExpr);
+        }
+      }
+      return;
+    }
+
+    // Recursively search in function calls
+    if (exprIsFunctionCall(currentExpr)) {
+      searchRecursively(currentExpr.func);
+      for (const arg of currentExpr.args) {
+        searchRecursively(arg);
+      }
+    }
+  }
+
+  searchRecursively(expr);
+  return dupCalls;
 }
 
 export function evaluateBeginExpression({
@@ -428,15 +479,59 @@ export function evaluateBeginExpression({
   // Handle automatic drop insertion for RAII before popping the frame
   // Get variables that need drop calls using the helper function
   const variablesNeedingDrop = getVariablesNeedingDrop(env);
+
+  // Optimization: Track ___dup calls that can be canceled with ___drop calls
+  const dupCallsToOptimize = new Map<string, FuncCallExpr>(); // borrowed-from variable name -> dup call expr
+
+  // Scan through expressions to find ___dup calls using the helper function
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of expr.args) {
+      const dupCallsInArg = findDupCallsInExpression(arg);
+      for (const [variableName, dupCallExpr] of dupCallsInArg) {
+        dupCallsToOptimize.set(variableName, dupCallExpr);
+      }
+    }
+  }
+
   const dropCallsToInsert: Expr[] = [];
 
   for (const variable of variablesNeedingDrop) {
-    const dropCallCode = `${BuiltinFunctions.___drop[0]!}(${variable.name})`;
-    // console.log(`${dropCallCode}`);
-    const dropCall = generateExprFromCode(dropCallCode);
-    dropCallsToInsert.push(dropCall);
+    // Check if this variable has a ___dup call that can be optimized
+    let shouldSkipDrop = false;
 
-    // console.log(`___drop(${variable.name})`);
+    // Check if there's a dup call for this variable that we can optimize
+    if (dupCallsToOptimize.has(variable.name)) {
+      // We can optimize: remove the ___dup call and skip the ___drop call
+      shouldSkipDrop = true;
+
+      // Replace the dup call with the original variable right here
+      const dupCallExpr = dupCallsToOptimize.get(variable.name)!;
+      const funcCallExpr = dupCallExpr as FuncCallExpr;
+      const funcExpr = funcCallExpr.func as FuncCallExpr;
+      const originalVarExpr: AtomExpr = {
+        tag: ExprTag.Atom,
+        token: (funcExpr.args[0] as AtomExpr).token,
+        $: dupCallExpr.$, // Keep the same evaluation data
+      };
+
+      replaceFuncCallExprWithAtomExpr(funcCallExpr, originalVarExpr);
+
+      // Mark the owning variable as consumed to prevent "not consumed" errors
+      const updatedVariable = {
+        ...variable,
+        consumedAtToken: dupCallExpr.token,
+      };
+      env = updateExistingVariable(env, variable, updatedVariable);
+
+      // Remove the dup call from future optimization attempts
+      dupCallsToOptimize.delete(variable.name);
+    }
+
+    if (!shouldSkipDrop) {
+      const dropCallCode = `${BuiltinFunctions.___drop[0]!}(${variable.name})`;
+      const dropCall = generateExprFromCode(dropCallCode);
+      dropCallsToInsert.push(dropCall);
+    }
   }
 
   // If we have drop calls to insert and this is a begin expression,
@@ -493,8 +588,10 @@ export function evaluateBeginExpression({
   // Now pop the environment frame
   env = popEnvFrame(env);
 
-  // console.log("begin expression after applying drops:");
-  // console.log(exprToString(expr));
+  if (variablesNeedingDrop.length) {
+    console.log("\nbegin expression after applying drops:");
+    console.log(exprToString(expr));
+  }
 
   expr.$ = {
     env,

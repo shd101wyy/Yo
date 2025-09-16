@@ -1398,6 +1398,22 @@ export function replaceFuncCallExprWithFuncCallExpr(
   funcExpr.token = newFuncExpr.token;
 }
 
+export function replaceFuncCallExprWithAtomExpr(
+  funcExpr: FuncCallExpr,
+  newAtomExpr: AtomExpr
+): void {
+  // Convert function call to atom by changing its properties
+  const atomExpr = funcExpr as unknown as AtomExpr;
+  atomExpr.tag = newAtomExpr.tag;
+  atomExpr.token = newAtomExpr.token;
+  atomExpr.$ = newAtomExpr.$;
+
+  // Clean up function call specific properties by setting them to undefined
+  (funcExpr as Partial<FuncCallExpr>).func = undefined;
+  (funcExpr as Partial<FuncCallExpr>).args = undefined;
+  (funcExpr as Partial<FuncCallExpr>).isInfix = undefined;
+}
+
 export function replaceExprWithFuncCallExpr(
   expr: Expr,
   newFuncExpr: FuncCallExpr
@@ -1409,6 +1425,21 @@ export function replaceExprWithFuncCallExpr(
     (expr as Expr).tag = newFuncExpr.tag;
     const funcExpr = expr as unknown as FuncCallExpr;
     replaceFuncCallExprWithFuncCallExpr(funcExpr, newFuncExpr);
+  }
+}
+
+export function replaceExprWithAtomExpr(
+  expr: Expr,
+  newAtomExpr: AtomExpr
+): void {
+  if (exprIsAtom(expr)) {
+    // Replace atom with atom - just copy all properties
+    expr.tag = newAtomExpr.tag;
+    expr.token = newAtomExpr.token;
+    expr.$ = newAtomExpr.$;
+  } else {
+    // Replace function call with atom - use the dedicated function
+    replaceFuncCallExprWithAtomExpr(expr, newAtomExpr);
   }
 }
 
