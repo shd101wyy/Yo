@@ -24,7 +24,6 @@ import {
   isTypeValue,
   ModuleValue,
   Value,
-  valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 
@@ -386,16 +385,6 @@ ${filteredImplicitVariables
 
     orderedModuleValues.push(moduleValues[moduleValueIndex]!);
   }
-
-  orderedModuleValues.forEach((moduleValue) => {
-    console.log(valueToString(moduleValue));
-  });
-  console.log("----");
-  expectedDynType.moduleTypes.forEach((moduleType) => {
-    console.log(typeToString(moduleType));
-  });
-  console.log("====");
-  console.log("");
 
   // Create a runtime object that implements dynamic dispatch
   // This will be a special runtime construct that holds the value and the modules
