@@ -2,11 +2,11 @@ open import "std";
 { printf } :: import "std/libc/stdio";
 
 main :: (fn() -> i32) {
-  mut(x) := 1;
-  mut(y) := 2;
+  x := 1;
+  y := 2;
 
   result1 := 
-  borrow (&!(x)), (x_ref)=> {
+  borrow (&(x)), (x_ref)=> {
     x_ref.* =
       (x_ref.*) + 1;
     x_ref.*
@@ -14,7 +14,7 @@ main :: (fn() -> i32) {
   printf("result1: %d\n", result1);
 
   result2 := 
-    borrow (&!(x), &!(y)), (x_ref, y_ref)=> {
+    borrow (&(x), &(y)), (x_ref, y_ref)=> {
       x_ref.* =
         (x_ref.*) + 1;
       y_ref.* = 

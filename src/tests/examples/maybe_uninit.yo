@@ -7,8 +7,8 @@ extern "C",
 ;
 
 func2 :: (fn() -> unit) {
-  mut(uninitialized_timer) := MaybeUninit(time_t).new();  // uninitialized_timer is a Uninit(time_t) type
-  ptr := (&!(uninitialized_timer)).as_mut_ptr();
+  uninitialized_timer := MaybeUninit(time_t).new();  // uninitialized_timer is a Uninit(time_t) type
+  ptr := (&(uninitialized_timer)).as_mut_ptr();
   time(.Some(ptr));     // initialize the timer
   timer := uninitialized_timer.assume_init();    // assume_init() converts Uninit to a regular type
 };

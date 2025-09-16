@@ -7,12 +7,12 @@ Shape :: enum
   LinearShape(width: LinearI32, height: LinearI32)
 ;
 
-use_mut_ref_shape :: (fn(ref: &!(Shape)) -> unit) {
+use_mut_ref_shape :: (fn(ref: &(Shape)) -> unit) {
   ();
 };
 
 test :: (fn() -> unit) {
-  mut(shape) := Shape.LinearShape(3, 4);
+  shape := Shape.LinearShape(3, 4);
 
   borrow &(shape.width), (width_ref)=> {
     height := *(shape.height);
@@ -20,7 +20,7 @@ test :: (fn() -> unit) {
     // so we can use `shape.height` without problem.
 
     compt_expect_error(
-      use_mut_ref_shape(&!(shape)),
+      use_mut_ref_shape(&(shape)),
       "error: cannot use 'shape' because it's already borrowed."
     );
   };

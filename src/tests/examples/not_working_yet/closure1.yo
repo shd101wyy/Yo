@@ -6,9 +6,9 @@ foreach_fn_mut ::
       size : usize
     ),
     arr : Array(i32, size),
-    mut(callback) : Closure(FnMut(value: &(i32)) -> unit, F)
+    callback : Closure(FnMut(value: &(i32)) -> unit, F)
   ) -> unit) {
-  mut(i) := 0.as(usize);
+  i := 0.as(usize);
   while (i < size), {
     callback(&(arr(i)));
     i = (i + 1.as(usize));
@@ -17,7 +17,7 @@ foreach_fn_mut ::
 
 test1 :: (fn() -> unit) {
   arr := [1, 2, 3, 4, 5];
-  mut(sum) := 0;
+  sum := 0;
 
   // FnMut `sum`
   foreach_fn_mut(arr, (value) =>> {

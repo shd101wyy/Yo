@@ -9,10 +9,10 @@
 open import "std";
 
 main :: (fn() -> unit) {
-  mut(arr) := [1, 2, 3, 4];
+  arr := [1, 2, 3, 4];
   arr_length :: arr.length;
   slice := *(arr(1:3));
-  slice_mut := *!(arr(1:3));
+  slice_mut := *(arr(1:3));
   full_slice := *(arr(:));
 
   borrow 
@@ -25,13 +25,13 @@ main :: (fn() -> unit) {
     };
 
   borrow
-    &!(arr(1:3)),
+    &(arr(1:3)),
     slice => {
       slice_length := slice.length;
 
       x := slice(0);
       slice(0) = 13;
 
-      slice_of_slice := *!(slice(0:2));
+      slice_of_slice := *(slice(0:2));
     }
 };

@@ -16,12 +16,12 @@ test0 :: (fn(p: Person)-> Person)
 ;
 
 test :: (fn(p: Person)-> Person) {
-  mut(p) := p;
+  p := p;
 
   age := p.age;
 
   {
-    borrow &!(p.name), name_ref => {
+    borrow &(p.name), name_ref => {
       old_name := (name_ref.* = malloc());
       drop(old_name);
     };

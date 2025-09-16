@@ -28,26 +28,26 @@
 // (:=) function is used to denote a runtime variable with type inferred
 // (::) function is used to denote a comptime variable with type inferred
 
-x : i32;        // Define a runtime immutable variable
-mut(x) : i32;   // Define a runtime mutable variable
-compt(x) : i32; // Define a compile-time immutable variable
-compt(mut(x)) : i32;  // Define a compile-time mutable variable
+x : i32;        // Define a runtime variable
+compt(x) : i32; // Define a compile-time variable
+// All variables are mutable by default. There is no immutable variable, for simplicity.
 
-(compt(x) : compt_int) = 12;  // compt(x): i32, immutable.
-(mut(y) : i32) = 14;          // mut(y): i32, mutable.
-(z : i32) = 16;               // z: i32, immutable.
+// Initialize variables
+(compt(x) : compt_int) = 12;
+(y : i32) = 14;
+(z : i32) = 16;
 
 // can be written as:
 
 (=)((:)(compt(x), compt_int), 12);
-(=)((:)(mut(y), i32), 14);
+(=)((:)(y, i32), 14);
 (=)((:)(z, i32), 16);
 
 // They are equavalent to the following:
 
 x :: 12;
-mut(y) := 14;
-z := 16; // This will give error, as compt_int type cannot be assigned to runtime variable.  
+y := 14;
+z := 16;
 
 
 // There is no arithmetic precedence in Yo
@@ -271,14 +271,8 @@ user2 := create_user(name: "Bob", age: 30);  // explicit values
   x + y;
 3 +++ 4; // 7
 
-// All function parameters are immutable by default
 modify :: (fn(x: i32)-> i32) {
-  x += 1; // error: x is immutable
-  x
-}
-// To make the function parameter mutable, add `mut` qualifier
-modify :: (fn(mut(x): i32)-> i32) {
-  x += 1; // OK
+  x += 1;
   x
 }
 
@@ -617,17 +611,17 @@ s2 := s; // s2 and s point to the same object.
 //    ^ Singleton Type
 
 // Reference and Pointer
-// Yo uses *, *! to for immutable pointer and mutable pointer
-// Yo uses &, &! for immutable reference and mutable reference
+// Yo uses * for pointer
+// Yo uses & for reference
 x := 1;
 y := 2;
 swap ::
-  (fn(a: &!(i32), b: &!(i32)) -> unit) {
+  (fn(a: &(i32), b: &(i32)) -> unit) {
   tmp := a.*; // dereference the pointer
   a.* = b.*;
   b.* = tmp;
 };
-swap(&!(x), &!(y));
+swap(&(x), &(y));
 
 // 2nd-class reference:
 // Rule 1.0, let's say fucntion parameter is not local variable, then:
@@ -641,21 +635,21 @@ swap(&!(x), &!(y));
 //          if f2 doesn't return a reference, then we don't need to check the paths of ref1 and ref2.
 
 x := 12;
-x_ref := &!(x); // error: Violate the Rule 1.1
+x_ref := &(x); // error: Violate the Rule 1.1
 
 y := {
   x := 12;
   &(x) // error: Violate the Rule 1.2
 }
 
-(fn(some_ref: &!(i32)) -> unit) {
+(fn(some_ref: &(i32)) -> unit) {
   x := some_ref;      // Not allowed! Violate the Rule 1.1
   return some_ref;    // Allowed
   // or
   return ( value: some_ref ); // Allowed
 }
 
-(fn(container: &!(Container), some_ref: &(i32)) -> unit) {
+(fn(container: &(Container), some_ref: &(i32)) -> unit) {
   container.x = some_ref; // Not allowed!
                           // Why? Because it is hard to compare the lifetime of container and some_ref.
                           // container might live longer than some_ref.
@@ -663,26 +657,26 @@ y := {
 
 
 // You can use the `borrow` function to use the reference value in a new scope
-borrow &!(x), x_ref => {
+borrow &(x), x_ref => {
   // `x` is not allowed to be used here
   x_ref.* = 13;
 }
 
 // Iterator
 to_iter_mut ::
-  (fn(forall(T: Type, length: usize) arr: &!(Array(T, length)))-> Iter)
+  (fn(forall(T: Type, length: usize) arr: &(Array(T, length)))-> Iter)
   return Iter
     data: arr, // allow to assign reference in this case because it's the last expression
     index: 0
 ;
 
 arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
-borrow &!(arr).to_iter_mut(), iter => {
+borrow &(arr).to_iter_mut(), iter => {
   // arr is not allowed to be used here
-  // iter: Iter(&!(String))
+  // iter: Iter(&(String))
   borrow iter.next(), v => {
     // iter is not allowed to be used here
-    // v: Option(&!(String))
+    // v: Option(&(String))
     // ...
   }
 };
@@ -707,9 +701,9 @@ borrow &!(arr).to_iter_mut(), iter => {
 
 // malloc
 // There is no null pointer in Yo.
-// We have ?*(i32) and ?*!(i32) for nullable pointers.
-// They are just the wrapper for Option(*(i32)) and Option(*!(i32)) respectively.
-(some_ptr : Option(*!(i32))) = malloc(sizeof(i32)); // allocate memory for i32
+// We have ?*(i32) for nullable pointers.
+// They are just the wrapper for Option(*(i32)).
+(some_ptr : Option(*(i32))) = malloc(sizeof(i32)); // allocate memory for i32
 match some_ptr,
   .Some(ptr) => {
     ptr.* = 42; // dereference the pointer
@@ -720,7 +714,7 @@ free(some_ptr); // free the memory
 
 // cast reference to pointer using `as` function
 x := 12;
-// ptr := &!(x) `as` *!(i32);
+// ptr := &(x) `as` *(i32);
 
 // Control flow
 /// cond
@@ -731,8 +725,7 @@ cond  (x == 1) => std.println("x is 1"),
 /// while
 factorial ::
   (fn(x: i32)-> i32) {
-  mut(x) := x; // Convert immutable variable to mutable
-  mut(result) := 1;
+  result := 1;
   while x > 1, do: {
     result = (result * x);
     x -= 1;
@@ -743,8 +736,7 @@ factorial ::
 //// or
 factorial ::
   (fn(x: i32)-> i32) {
-  mut(x) := x;
-  mut(result) := 1;
+  result := 1;
   while x > 1,  // condition
         x = (x - 1), // step
   do: { // body

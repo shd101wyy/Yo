@@ -5,11 +5,11 @@ extern
 ;
 
 main :: (fn() -> unit) {
-  (mut(x) : i32) = 12;
+  (x : i32) = 12;
 
   compt_expect_error(
     // "Cannot borrow `x` as mutable and immutable at the same time.",
-    borrow (&(x), &!(x)), (x_ref, x_mut_ref)-> {
+    borrow (&(x), &(x)), (x_ref, x_mut_ref)-> {
       // ^ Error. Cannot borrow `x` as mutable and immutable at the same time.
       y := x_ref.*;
       y := x_mut_ref.*;
@@ -31,7 +31,7 @@ main :: (fn() -> unit) {
     x: i32,
     y: i32
   );
-  mut(p) := Point(1, 2);
+  p := Point(1, 2);
 
   borrow (&(p.x)), (p_x_ref) => {
     x := p_x_ref.*;
@@ -51,23 +51,23 @@ main :: (fn() -> unit) {
   };
 
   swap :: 
-    (fn(x: &!(i32), y: &!(i32)) -> unit) {
+    (fn(x: &(i32), y: &(i32)) -> unit) {
       temp := x.*;
       x.* = y.*;
       y.* = temp;
   };
   
   compt_expect_error(
-    swap(&!(x), &!(x)) // error, because `x` is borrowed multiple times.
+    swap(&(x), &(x)) // error, because `x` is borrowed multiple times.
   );
   
-  swap(&!(p.x), &!(p.y)); // Allowed, because `p.x` and `p.y` are different paths.
+  swap(&(p.x), &(p.y)); // Allowed, because `p.x` and `p.y` are different paths.
   
   compt_expect_error(
-    swap(&!(p.x), &!(p.x)) // Error, because `p.x` is borrowed multiple times.
+    swap(&(p.x), &(p.x)) // Error, because `p.x` is borrowed multiple times.
   );
   
-  swap(&!(p.x), &!(x)); // Allowed, because `p.x` and `x` are different paths.
+  swap(&(p.x), &(x)); // Allowed, because `p.x` and `x` are different paths.
 
 
   // fn returns local reference
@@ -135,8 +135,8 @@ main :: (fn() -> unit) {
 
   // Largest reference
   {
-    (mut(x) : i32) = 12;
-    (mut(y) : i32) = 13;
+    (x : i32) = 12;
+    (y : i32) = 13;
     largest :: (fn(x: &(i32), y: &(i32))-> &(i32))
       cond
         (x.* `gt` y.*) => x,

@@ -1,6 +1,6 @@
 main :: (fn() -> unit) {
-  mut(xs) := [1, 2, 3];
-  borrow &!(xs), xs_ref => {
+  xs := [1, 2, 3];
+  borrow &(xs), xs_ref => {
     compt_expect_error(
       first_element := xs(0)
       "cannot use `xs` after it has been borrowed mutably"
@@ -13,21 +13,21 @@ main :: (fn() -> unit) {
     ();
   };
 
-  borrow &!(xs(0)), first_element_ref => {
+  borrow &(xs(0)), first_element_ref => {
     first_element_ref.* = 12;
 
     compt_expect_error(
       borrow &(xs), another_ref-> {
         ();
       },
-      "cannot borrow `xs` because it is already borrowed mutably in &!(xs(0))"
+      "cannot borrow `xs` because it is already borrowed mutably in &(xs(0))"
     );
 
     compt_expect_error(
-      borrow &!(xs(1)), another_ref -> {
+      borrow &(xs(1)), another_ref -> {
         ();
       },
-      "cannot borrow `xs(1)` because it is already borrowed mutably in &!(xs(0))"
+      "cannot borrow `xs(1)` because it is already borrowed mutably in &(xs(0))"
     );
   };
 };

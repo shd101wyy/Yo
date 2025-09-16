@@ -4,22 +4,22 @@ Data :: struct(x: &(i32));
 main :: (fn() -> unit) {
   // Create reference types
   I32Ref :: &(i32); // immutable reference
-  I32MutRef :: &!(i32); // mutable reference
+  I32MutRef :: &(i32); // mutable reference
 
-  swap :: (fn(p: &!(i32), q: &!(i32)) -> unit) {
+  swap :: (fn(p: &(i32), q: &(i32)) -> unit) {
     tmp := p.*;
     p.* = q.*;
     q.* = tmp;
   };
 
   // Assign value that contains reference to a variable is prohibited.
-  mut(x) := 12;
-  mut(y) := 13;
+  x := 12;
+  y := 13;
   // p := &(x); // This is not allowed.
-  swap(&!(x), &!(y));
+  swap(&(x), &(y));
 
   compt_expect_error(
-    swap(&!(x), &!(x))
+    swap(&(x), &(x))
   );                  // This shouldn't be allowed.
                       // Because we cannot create multiple references
                       // to the same variable.

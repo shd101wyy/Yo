@@ -10,11 +10,11 @@ main :: (fn() -> unit) {
 
   // Runtime mutable variable
   {
-    mut(x) : i32;
+    x : i32;
     x = 12;
   };
   {
-    (mut(x) : boolean) = true;
+    (x : boolean) = true;
     x = false;
   };
 
@@ -30,11 +30,11 @@ main :: (fn() -> unit) {
 
   // Compile-time mutable variable
   {
-    compt(mut(x)) : i32;
+    compt(x) : i32;
     x = 12;
   };
   {
-    (compt(mut(x)) : boolean) = true;
+    (compt(x) : boolean) = true;
     x = false;
   };
 
@@ -46,7 +46,7 @@ main :: (fn() -> unit) {
 
   // Runtime mutable variable
   {
-    (mut(x) : i32) = 12;
+    (x : i32) = 12;
     x = 13;
   };
 
@@ -58,18 +58,12 @@ main :: (fn() -> unit) {
 
   {
     // Compile-time mutable variable
-    mut(x) :: 12;
+    x :: 12;
     x = 13;
   };
 
   {
     compt(x) : Type;
     x = struct(x: i32, y: i32);
-  };
-
-  {
-    compt_expect_error(
-      compt(mut(x)) : Type
-    );
   };
 };

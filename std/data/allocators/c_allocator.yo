@@ -18,7 +18,7 @@ CAllocator :: struct(
       match some_ptr,
         .Some(ptr) => {
           // Cast the void pointer to the correct type
-          typed_ptr := ptr.cast(*!(T));
+          typed_ptr := ptr.cast(*(T));
           .Ok(.Some(typed_ptr))
         },
         .None => .Error(.OutOfMemory)
@@ -33,7 +33,7 @@ CAllocator :: struct(
       some_ptr := calloc(count, sizeof(T).as(usize));
       match some_ptr,
         .Some(ptr) => {
-          typed_ptr := ptr.cast(*!(T));
+          typed_ptr := ptr.cast(*(T));
           .Ok(.Some(typed_ptr))
         },
         .None => .Error(.OutOfMemory)
@@ -64,7 +64,7 @@ CAllocator :: struct(
       some_ptr := malloc(size);
       match some_ptr,
         .Some(ptr) => {
-          typed_ptr := ptr.cast(*!(T));
+          typed_ptr := ptr.cast(*(T));
           .Ok(.Some(typed_ptr))
         },
         .None => .Error(.OutOfMemory)
@@ -84,13 +84,13 @@ CAllocator :: struct(
           some_ptr := malloc(size);
           match some_ptr,
             .Some(ptr) => {
-              typed_ptr := ptr.cast(*!(T));
+              typed_ptr := ptr.cast(*(T));
               .Ok(.Some(typed_ptr))
             },
             .None => .Error(.OutOfMemory)
         },
         .Some(old_ptr) => {
-          raw_old := old_ptr.cast(*!(void));
+          raw_old := old_ptr.cast(*(void));
 
           // Handle zero size case
           if (new_count == (0).as(usize)), {
@@ -102,7 +102,7 @@ CAllocator :: struct(
           some_new_ptr := realloc(.Some(raw_old), new_size);
           match some_new_ptr,
             .Some(new_ptr) => {
-              typed_ptr := new_ptr.cast(*!(T));
+              typed_ptr := new_ptr.cast(*(T));
               .Ok(.Some(typed_ptr))
             },
             .None => .Error(.OutOfMemory)
@@ -110,7 +110,7 @@ CAllocator :: struct(
     }),
 
     dealloc : ((forall(T), self, ptr) -> {
-      raw_ptr := ptr.cast(*!(void));
+      raw_ptr := ptr.cast(*(void));
       free(.Some(raw_ptr));
       .Ok(())
     })

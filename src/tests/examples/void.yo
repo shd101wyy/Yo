@@ -16,20 +16,20 @@ use_void_ptr :: (fn(ptr : *(void)) -> unit) {
   i32_ptr := ptr.cast(*(i32));
 };
 
-mutate_void_ptr :: (fn(ptr : *!(void)) -> unit) {
+mutate_void_ptr :: (fn(ptr : *(void)) -> unit) {
   compt_expect_error(
     x := ptr.*,
     "Cannot use DST directly"
   );
   
-  i32_ptr := ptr.cast(*!(i32));
+  i32_ptr := ptr.cast(*(i32));
   i32_ptr.* = 16;
 };
 
 
 main :: (fn() -> unit) {
-  mut(x) := 12;
+  x := 12;
 
   use_void_ptr(*(x).cast(*(void)));
-  mutate_void_ptr(*!(x).cast(*!(void)));
+  mutate_void_ptr(*(x).cast(*(void)));
 };

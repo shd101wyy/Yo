@@ -13,8 +13,8 @@ main :: (fn() -> unit) {
 
   // mutable pointer
   {
-    mut(x) := 12;
-    p := *!(x); // Create mutable pointer
+    x := 12;
+    p := *(x); // Create mutable pointer
     // NOTE: Creating mutable pointer to immutable value is not allowed
     
     q := p.*;   // Dereference mutable pointer
@@ -24,13 +24,13 @@ main :: (fn() -> unit) {
   // swap
   {
     Point :: struct(x: i32, y: i32);
-    mut(p) := Point(1, 2);
-    mut(y) := 2;
-    swap :: (fn(p: *!(i32), q: *!(i32))-> unit) {
+    p := Point(1, 2);
+    y := 2;
+    swap :: (fn(p: *(i32), q: *(i32))-> unit) {
       tmp := p.*;
       p.* = q.*;
       q.* = tmp;
     };
-    swap(*!(p.x), *!(y));
+    swap(*(p.x), *(y));
   };
 };
