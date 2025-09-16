@@ -32,6 +32,7 @@ import {
 import { generateExprFromCode } from "../../parser";
 import {
   areTypesCompatible,
+  isClosureType,
   typeContains2ndClassReference,
   typeToString,
 } from "../../types";
@@ -480,6 +481,10 @@ export function evaluateBeginExpression({
       ) {
         // Don't apply optimization to while loops - the body can execute multiple times
         // which would create multiple references without corresponding dup calls
+        return;
+      }
+      // Skip closures - they may be called multiple times
+      if (exprIsFunctionCall(expr) && isClosureType(expr.$?.type)) {
         return;
       }
 
