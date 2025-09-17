@@ -1,7 +1,6 @@
 import { Environment, getVariablesFromEnv, Variable } from "../env";
 import { Expr, exprIsAtom } from "../expr";
 import { TokenType } from "../token";
-import { isTempVariableName } from "../utils";
 
 /**
  * Check if the expr is either an identifier or an operator
@@ -16,33 +15,37 @@ export function isValidVariableName(expr: Expr): boolean {
 }
 
 /**
- * Helper function to find the ARC-owning temp variable that an expression borrows from
- * @param rhs The right-hand side expression to check
- * @param env The current environment
- * @param modulePath The module path for temp variable name checking
- * @returns The variable that owns the ARC value, or undefined if not found
+ * Find the ultimate ARC-owning variable that a RHS expression borrows from.
+ * Handles chains like:
+ *   temp := Box(...); // temp owns
+ *   x := temp;        // x borrows temp
+ *   y := x;           // y borrows temp (should point to temp, not x)
  */
 export function findBorrowingRelationship(
   rhs: Expr,
   env: Environment,
-  modulePath: string
+  _modulePath: string
 ): Variable | undefined {
-  if (
-    !rhs.$?.variableName ||
-    !isTempVariableName(modulePath, rhs.$.variableName)
-  ) {
+  if (!rhs.$?.variableName) {
     return undefined;
   }
 
-  const rhsVariables = getVariablesFromEnv(env, rhs.$.variableName);
-  if (rhsVariables.length === 0) {
-    return undefined;
+  const vars = getVariablesFromEnv(env, rhs.$.variableName);
+  if (!vars.length) return undefined;
+
+  let candidate = vars[vars.length - 1]!;
+
+  // Follow the borrowing chain until we reach an owning variable or it breaks.
+  const visited = new Set<string>();
+  while (candidate && !candidate.isOwningTheARCValue) {
+    if (!candidate.isBorrowingTheARCValueOfVariable) return undefined;
+    if (visited.has(candidate.id)) return undefined; // cycle guard
+    visited.add(candidate.id);
+    candidate = candidate.isBorrowingTheARCValueOfVariable;
   }
 
-  const candidate = rhsVariables[rhsVariables.length - 1]!;
-  if (candidate.isOwningTheARCValue) {
+  if (candidate && candidate.isOwningTheARCValue) {
     return candidate;
   }
-
   return undefined;
 }

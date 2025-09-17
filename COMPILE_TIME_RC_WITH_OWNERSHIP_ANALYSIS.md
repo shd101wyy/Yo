@@ -74,6 +74,7 @@ When to call `___dup` to increase the reference count?
 
     return p1; // Will call ___dup on p1, because p1 is not an owned variable.
     // ___drop(temp_var); // <= This is automatically inserted by the compiler
+    // ___dup(p1) and ___drop(temp_var) cancelled out because p1 and temp_var are the same reference.
   };
 
   get_point2 :: (fn(p : Point) -> Point) { // p here is a borrowed variable, not owned.
@@ -96,14 +97,3 @@ When to call `___dup` to increase the reference count?
     ___drop(temp_var); // <= This is automatically inserted by the compiler
   };
   ```
-
-Some optimization on ownership transfer:
-
-```rust
-p1 := Point(3, 4); // temp_var transfers ownership to p1, and temp_var is consumed and will no longer be available for use.
-
-// QUESTION: How to handle
-mut(p1) := Point(3, 4);
-// This case could be hard, because if we have
-p1 = p2; // Then should we consider p1 as a borrowed variable or owned variable?
-```
