@@ -195,11 +195,6 @@ export function evaluateBeginExpression({
         }
         env = evaluatedReturnExpr.$.env;
 
-        // NOTE: Don't call setExprAsNeedsToCallDup here for return statements.
-        // The ownership transfer optimization at the end of the begin evaluation
-        // will handle this correctly by marking the owner as consumed and avoiding
-        // both dup and drop calls.
-
         exprToEvaluate.$ = {
           env,
           type: evaluatedReturnExpr.$.type,
@@ -430,9 +425,24 @@ export function evaluateBeginExpression({
   }
   */
 
-  // Set the last expression as the return value
-  // and mark it as consumed.
-  env = setExprAsConsumed(lastExpr, env, context);
+  let returnVariable: Variable | undefined = undefined;
+  let returnValueExpr: Expr | undefined = lastExpr;
+  if (
+    exprIsFunctionCall(lastExpr) &&
+    exprIsFunctionCallOf(lastExpr, BuiltinKeywords.return, 1)
+  ) {
+    returnValueExpr = lastExpr.args[0];
+  }
+  const returnValueExprVariableName = returnValueExpr
+    ? returnValueExpr.$?.variableName
+    : undefined;
+  if (returnValueExprVariableName) {
+    const variables = getVariablesFromEnv(env, returnValueExprVariableName);
+    if (variables.length) {
+      const variable = variables[variables.length - 1]!;
+      returnVariable = variable;
+    }
+  }
 
   // Optimization (Design: cancellation of ___dup + ___drop when returning a borrower):
   // If we are returning a variable that borrows an owning ARC variable in this frame,
@@ -440,33 +450,36 @@ export function evaluateBeginExpression({
   // Mark the owning variable as consumed so it will not receive an auto ___drop,
   // and skip adding a ___dup for the returned expression later.
   // Likewise, if directly returning an owning variable from this frame, mark it consumed.
-  if (lastExpr.$?.variableName) {
-    const lastExprVariables = getVariablesFromEnv(env, lastExpr.$.variableName);
-    if (lastExprVariables.length) {
-      const retVar = lastExprVariables[lastExprVariables.length - 1]!;
-      if (retVar.isBorrowingTheARCValueOfVariable) {
-        const ownerVar = retVar.isBorrowingTheARCValueOfVariable;
-        if (
-          ownerVar.isOwningTheARCValue &&
-          ownerVar.frameLevel === env.frames.length - 1 &&
-          !ownerVar.consumedAtToken
-        ) {
-          env = updateExistingVariable(env, ownerVar, {
-            ...ownerVar,
-            consumedAtToken: lastExpr.token,
-          });
-        }
-      } else if (
-        retVar.isOwningTheARCValue &&
-        retVar.frameLevel === env.frames.length - 1 &&
-        !retVar.consumedAtToken
-      ) {
-        env = updateExistingVariable(env, retVar, {
-          ...retVar,
-          consumedAtToken: lastExpr.token,
-        });
-      }
+  if (returnVariable?.isBorrowingTheARCValueOfVariable && returnValueExpr) {
+    const ownerVariable = returnVariable.isBorrowingTheARCValueOfVariable;
+    if (
+      ownerVariable.isOwningTheARCValue &&
+      ownerVariable.frameLevel === env.frames.length - 1 &&
+      !ownerVariable.consumedAtToken
+    ) {
+      env = updateExistingVariable(env, ownerVariable, {
+        ...ownerVariable,
+        consumedAtToken: lastExpr.token,
+      });
+    } else {
+      // Needs to call dup on the return value expression
+      setExprAsNeedsToCallDup(returnValueExpr, context);
     }
+  } else if (
+    returnVariable?.isOwningTheARCValue &&
+    returnVariable.frameLevel === env.frames.length - 1 &&
+    !returnVariable.consumedAtToken
+  ) {
+    env = updateExistingVariable(env, returnVariable, {
+      ...returnVariable,
+      consumedAtToken: lastExpr.token,
+    });
+  } else if (!returnVariable?.isOwningTheARCValue && returnValueExpr) {
+    setExprAsNeedsToCallDup(returnValueExpr, context);
+  } else {
+    // Set the last expression as the return value
+    // and mark it as consumed.
+    env = setExprAsConsumed(lastExpr, env, context);
   }
 
   // Handle automatic drop insertion for RAII before popping the frame
@@ -727,29 +740,7 @@ export function evaluateBeginExpression({
     controlFlow: lastExpr.$.controlFlow,
   };
 
-  // Only apply duplication to the result of the begin expression itself
-  // when it is NOT a return control flow (since return arg already handled).
-  if (lastExpr.$.controlFlow !== "return") {
-    let lastExprIsOwningTheARCValue = false;
-    const lastExprVariableName = lastExpr.$.variableName;
-    if (lastExprVariableName) {
-      const variables = getVariablesFromEnv(env, lastExprVariableName);
-      if (variables.length) {
-        const variable = variables[variables.length - 1]!;
-        lastExprIsOwningTheARCValue = Boolean(variable.isOwningTheARCValue);
-      }
-    }
-
-    attachTempVariableToExpr(expr, true);
-
-    if (!lastExprIsOwningTheARCValue) {
-      setExprAsNeedsToCallDup(expr, context);
-    }
-  } else {
-    // Still attach a temp variable for uniformity, but it's owning since the returned value
-    // leaves this scope (dup already applied to argument if needed).
-    attachTempVariableToExpr(expr, true);
-  }
+  attachTempVariableToExpr(expr, true);
 
   return expr;
 }

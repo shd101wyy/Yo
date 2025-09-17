@@ -165,3 +165,50 @@ export function evaluateIsUniquelyOwned({
   };
   return expr;
 }
+
+/**
+ * Just evaluates the argument and returns argument.
+ * Don't attach temp variable here, as this function is used to transfer
+ * the ownership of the reference counted value to the caller.
+ */
+export function evaluateYoRcOwn({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_rc_own[0]!]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = context.evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_incr_rc[0]!}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  expr.$ = {
+    env,
+    type: evaluatedArgExpr.$.type,
+    value: undefined,
+    pathCollection: [],
+  };
+
+  // NOTE: Don't attach temp variable here.
+
+  return expr;
+}

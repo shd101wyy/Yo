@@ -54,7 +54,7 @@ function generateTupleDupCall(tupleExpr: Expr): string {
 
   return `begin(
   ${destructuring} := ${exprToString(tupleExpr)},
-  (${dupCalls.join(", ")})
+  (${dupCalls.join(", ")}${dupCalls.length === 1 ? "," : ""})
 )`;
 }
 

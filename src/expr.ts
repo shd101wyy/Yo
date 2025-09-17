@@ -788,6 +788,7 @@ export const BuiltinFunctions = {
   is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
+  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheARCValue to be true. This is useful for implementing ___dup function.
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
@@ -1568,6 +1569,12 @@ export function setExprAsNeedsToCallDup(
   context: EvaluatorContext
 ): void {
   if (!expr.$) {
+    return;
+  }
+
+  if (!expr.$.variableName) {
+    // If expr has no variableName, then we just ignore it for now.
+    // For example, calling __yo_rc_own(...) function has no variableName.
     return;
   }
 

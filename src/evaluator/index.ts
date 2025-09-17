@@ -23,6 +23,7 @@ import {
   evaluateIsUniquelyOwned,
   evaluateYoDecrRc,
   evaluateYoIncrRc,
+  evaluateYoRcOwn,
 } from "./builtins/arc_fns";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
@@ -481,6 +482,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc)) {
         // __yo_incr_rc
         return evaluateYoIncrRc({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
+        // __yo_rc_own
+        return evaluateYoRcOwn({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.is_uniquely_owned)
       ) {

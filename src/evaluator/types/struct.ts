@@ -133,7 +133,7 @@ function generateDupFunctionCode(structType: StructType): string {
   return `((fn(self : Self) -> Self) {
   ${dupDestructuringsExpr}
   ${incrRcExpr}
-  self
+  ${BuiltinFunctions.__yo_rc_own[0]!}(self)
 })`;
 }
 
