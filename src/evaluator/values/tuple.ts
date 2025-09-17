@@ -1,12 +1,14 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinKeywords,
   Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   convertComptTypeToRuntimeType,
@@ -96,6 +98,8 @@ ${typeToString(expectedTupleType)}`,
         : undefined,
     },
   });
+
+  setExprAsNeedsToCallDup(evaluatedRhs, context);
 
   if (!evaluatedRhs.$) {
     throw formatErrorMessage({
@@ -261,5 +265,9 @@ export function evaluateTupleValue({
     pathCollection: [],
     runtimeArgExprsInOrder,
   };
+
+  // Attach temp variable to the expr
+  attachTempVariableToExpr(expr, true);
+
   return expr;
 }

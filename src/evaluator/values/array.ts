@@ -1,6 +1,12 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, exprToString, FuncCallExpr } from "../../expr";
+import {
+  attachTempVariableToExpr,
+  Expr,
+  exprToString,
+  FuncCallExpr,
+  setExprAsNeedsToCallDup,
+} from "../../expr";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
@@ -54,6 +60,8 @@ export function evaluateArrayValue({
           : undefined,
       },
     });
+
+    setExprAsNeedsToCallDup(evaluatedElement, context);
 
     if (!evaluatedElement.$) {
       throw formatErrorMessage({
@@ -128,5 +136,9 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
     pathCollection: [],
     runtimeArgExprsInOrder,
   };
+
+  // Attach temp variable to the expr
+  attachTempVariableToExpr(expr, true);
+
   return expr;
 }

@@ -1,12 +1,14 @@
 import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import { createStructType, ModuleElement, TupleElement } from "../../types";
 import { randomId } from "../../utils";
@@ -196,6 +198,9 @@ export function evaluateAnonymousStructValue({
           SelfType: structType,
         },
       });
+
+      setExprAsNeedsToCallDup(evaluatedArg, context);
+
       if (!evaluatedArg.$) {
         throw formatErrorMessage({
           token: valueExpr.token,
@@ -272,6 +277,9 @@ export function evaluateAnonymousStructValue({
     pathCollection: [],
     runtimeArgExprsInOrder,
   };
+
+  // Attach temp variable to the expr
+  attachTempVariableToExpr(expr, true);
 
   return expr;
 }

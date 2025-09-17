@@ -12,34 +12,14 @@ BoxBox :: struct(
   (*) : Box
 );
 
-test1 :: ((fn() -> Box) {
+test1 :: ((fn() -> unit) {
   x := Box(3); // _yo65d85c3c_temp_8
-  // (_yo65d85c3c_temp_8.___drop)()
-  return x; // (x.___dup)()
-
-  // (_yo65d85c3c_temp_8.___drop)() and (x.___dup)() cancelled out
-  // because _yo65d85c3c_temp_8 and x are the same reference.
-  // So no runtime calls are generated.
+  y := (x,); // _yo65d85c3c_temp_10
+  // (_yo65d85c3c_temp_10.___drop)()
 });
-// begin(x := Box(3), return(x), ())
 
-test2 :: ((fn(x : Box) -> Box) {
-  y := x;
-  return y; // (y.___dup)()
-});
-// begin(y := x, return((y.___dup)()), ())
-
-test3 :: ((fn(x : Box) -> Box) {
-  return x; // (x.___dup)()
-});
-// begin(return((x.___dup)()), ())
-
-test4 :: ((fn() -> Box) {
-  x := Box(3); // _yo65d85c3c_temp_15
-  y := x;
-  // (_yo65d85c3c_temp_15.___drop)()
-  return y; // (y.___dup)()
-  // (_yo65d85c3c_temp_15.___drop)() and (y.___dup)() cancelled out
-  // because _yo65d85c3c_temp_15 and y are the same
-});
-// begin(x := Box(3), y := x, return(y), ())
+/// test2 :: ((fn() -> Tuple(Box)) {
+///   x := Box(3); // _yo65d85c3c_temp_8
+///   y := (x,); // _yo65d85c3c_temp_9
+///   return y;
+/// });
