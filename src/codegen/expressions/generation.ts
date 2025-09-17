@@ -679,12 +679,27 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
     const cName = context.types[expr.$?.type?.id ?? ""]?.cName;
+    const tempVar = expr.$?.variableName;
+
     if (runtimeArgExprs && cName) {
       // Generate tuple initialization
       const argsList = runtimeArgExprs
         .map((arg) => generateExpr(arg, indent, context))
         .join(", ");
-      return `(${cName}){ ${argsList} }`;
+
+      // If this tuple has a temporary variable name, declare it
+      if (tempVar && expr.$?.type) {
+        const tupleValue = `(${cName}){ ${argsList} }`;
+        const varTypeAndName = getVariableTypeString(
+          expr.$.type,
+          tempVar,
+          context
+        );
+        context.emitter.emitLine(`${indent}${varTypeAndName} = ${tupleValue};`);
+        return tempVar;
+      } else {
+        return `(${cName}){ ${argsList} }`;
+      }
     } else if (expr.args.length === 0) {
       // unit
       return "";
@@ -694,13 +709,28 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
     const arrayType = expr.$?.type;
+    const tempVar = expr.$?.variableName;
+
     if (isArrayType(arrayType) && runtimeArgExprs) {
       // Generate struct wrapper initialization
       const argsList = runtimeArgExprs
         .map((arg) => generateExpr(arg, indent, context))
         .join(", ");
       const arrayTypeName = getTypeString(arrayType, context);
-      return `(${arrayTypeName}){ .data = { ${argsList} } }`;
+
+      // If this array has a temporary variable name, declare it
+      if (tempVar && expr.$?.type) {
+        const arrayValue = `(${arrayTypeName}){ .data = { ${argsList} } }`;
+        const varTypeAndName = getVariableTypeString(
+          expr.$.type,
+          tempVar,
+          context
+        );
+        context.emitter.emitLine(`${indent}${varTypeAndName} = ${arrayValue};`);
+        return tempVar;
+      } else {
+        return `(${arrayTypeName}){ .data = { ${argsList} } }`;
+      }
     }
   }
   // borrow
@@ -1017,6 +1047,8 @@ function generateFuncCall(
         const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
         const cName = context.types[structType.id]?.cName;
         const labels = structType.elements.map((element) => element.label);
+        const tempVar = expr.$?.variableName;
+
         if (
           runtimeArgExprs &&
           cName &&
@@ -1029,7 +1061,22 @@ function generateFuncCall(
               .join(", ");
 
             const constructorName = `__yo_new_${cName}`;
-            return `${constructorName}(${argsList})`;
+            const structValue = `${constructorName}(${argsList})`;
+
+            // If this struct has a temporary variable name, declare it
+            if (tempVar && expr.$?.type) {
+              const varTypeAndName = getVariableTypeString(
+                expr.$.type,
+                tempVar,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${structValue};`
+              );
+              return tempVar;
+            } else {
+              return structValue;
+            }
           } else {
             // For regular struct, generate struct initialization as before
             const argsList = runtimeArgExprs
@@ -1039,13 +1086,29 @@ function generateFuncCall(
                 );
               })
               .join(", ");
-            return `(${cName}){ ${argsList} }`;
+            const structValue = `(${cName}){ ${argsList} }`;
+
+            // If this struct has a temporary variable name, declare it
+            if (tempVar && expr.$?.type) {
+              const varTypeAndName = getVariableTypeString(
+                expr.$.type,
+                tempVar,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${structValue};`
+              );
+              return tempVar;
+            } else {
+              return structValue;
+            }
           }
         }
       }
       // union
       // union is supposed to have only one member initialized
       else if (isUnionType(functionValue.value)) {
+        const tempVar = expr.$?.variableName;
         const arg = expr.args[0]!;
         if (
           arg &&
@@ -1058,7 +1121,22 @@ function generateFuncCall(
           if (cName && exprIsAtom(labelExpr) && fieldExpr) {
             const label = labelExpr.token.value;
             const fieldCode = generateExpr(fieldExpr, indent, context);
-            return `(${cName}){ .${label} = ${fieldCode} }`;
+            const unionValue = `(${cName}){ .${label} = ${fieldCode} }`;
+
+            // If this union has a temporary variable name, declare it
+            if (tempVar && expr.$?.type) {
+              const varTypeAndName = getVariableTypeString(
+                expr.$.type,
+                tempVar,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${unionValue};`
+              );
+              return tempVar;
+            } else {
+              return unionValue;
+            }
           }
         }
       }
@@ -1067,6 +1145,8 @@ function generateFuncCall(
         const enumType = functionValue.value;
         const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
         const cName = context.types[enumType.id]?.cName;
+        const tempVar = expr.$?.variableName;
+
         if (enumType.selectedVariantName && runtimeArgExprs && cName) {
           // Check if this enum can be optimized as a nullable pointer
           const nullablePointerType = canOptimizeAsNullablePointer(enumType);
@@ -1079,7 +1159,20 @@ function generateFuncCall(
             if (variant) {
               if (!variant.elements || variant.elements.length === 0) {
                 // This is the "None" case - return NULL
-                return "NULL";
+                const enumValue = "NULL";
+                if (tempVar && expr.$?.type) {
+                  const varTypeAndName = getVariableTypeString(
+                    expr.$.type,
+                    tempVar,
+                    context
+                  );
+                  context.emitter.emitLine(
+                    `${indent}${varTypeAndName} = ${enumValue};`
+                  );
+                  return tempVar;
+                } else {
+                  return enumValue;
+                }
               } else if (variant.elements.length === 1) {
                 // This is the "Some" case - return the pointer value directly
                 const pointerValue = generateExpr(
@@ -1087,7 +1180,19 @@ function generateFuncCall(
                   indent,
                   context
                 );
-                return pointerValue;
+                if (tempVar && expr.$?.type) {
+                  const varTypeAndName = getVariableTypeString(
+                    expr.$.type,
+                    tempVar,
+                    context
+                  );
+                  context.emitter.emitLine(
+                    `${indent}${varTypeAndName} = ${pointerValue};`
+                  );
+                  return tempVar;
+                } else {
+                  return pointerValue;
+                }
               }
             }
           }
@@ -1097,7 +1202,24 @@ function generateFuncCall(
           if (simpleEnumOptimizable) {
             const variantName = enumType.selectedVariantName;
             // For simple enums, just return the enum constant
-            return getEnumVariantCName(enumType, variantName, context);
+            const enumValue = getEnumVariantCName(
+              enumType,
+              variantName,
+              context
+            );
+            if (tempVar && expr.$?.type) {
+              const varTypeAndName = getVariableTypeString(
+                expr.$.type,
+                tempVar,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${enumValue};`
+              );
+              return tempVar;
+            } else {
+              return enumValue;
+            }
           }
 
           // Generate enum initialization (fallback for non-optimized enums)
@@ -1121,7 +1243,20 @@ function generateFuncCall(
               })
               .filter((s) => s) // Remove empty strings
               .join(", ");
-            return `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`;
+            const enumValue = `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`;
+            if (tempVar && expr.$?.type) {
+              const varTypeAndName = getVariableTypeString(
+                expr.$.type,
+                tempVar,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${enumValue};`
+              );
+              return tempVar;
+            } else {
+              return enumValue;
+            }
           }
         }
       }

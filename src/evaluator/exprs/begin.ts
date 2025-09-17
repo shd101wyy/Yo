@@ -195,24 +195,10 @@ export function evaluateBeginExpression({
         }
         env = evaluatedReturnExpr.$.env;
 
-        // Decide duplication on the return VALUE (argument), not on the whole begin expression later.
-        if (evaluatedReturnExpr.$.variableName) {
-          const retArgVars = getVariablesFromEnv(
-            env,
-            evaluatedReturnExpr.$.variableName
-          );
-          if (retArgVars.length) {
-            const retArgVar = retArgVars[retArgVars.length - 1]!;
-            // If the returned variable is not owning the ARC value, we need a dup here.
-            if (retArgVar.isOwningTheARCValue !== true) {
-              setExprAsNeedsToCallDup(evaluatedReturnExpr, context);
-              // env may have been updated inside setExprAsNeedsToCallDup via evaluation
-              if (evaluatedReturnExpr.$?.env) {
-                env = evaluatedReturnExpr.$.env;
-              }
-            }
-          }
-        }
+        // NOTE: Don't call setExprAsNeedsToCallDup here for return statements.
+        // The ownership transfer optimization at the end of the begin evaluation
+        // will handle this correctly by marking the owner as consumed and avoiding
+        // both dup and drop calls.
 
         exprToEvaluate.$ = {
           env,
@@ -721,6 +707,11 @@ export function evaluateBeginExpression({
       ...originalArgs.slice(insertPosition),
     ];
   }
+
+  // if (variablesNeedingDrop.length > 0) {
+  //   console.log("* DEBUG\n");
+  //   printEnvVarNames(env);
+  // }
 
   // Now pop the environment frame
   env = popEnvFrame(env);

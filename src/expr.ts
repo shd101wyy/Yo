@@ -1495,10 +1495,11 @@ export function setExprAsConsumed(
   if (consumeFreeAsWell || isType0(typeOfType(variableToConsume.type))) {
     // Check if the variable is already consumed
     if (variableToConsume.consumedAtToken) {
+      const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (1).`;
       throw formatErrorMessages([
         {
           token: expr.token,
-          errorMessage: `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`,
+          errorMessage: errorMessage,
         },
         {
           token: variableToConsume.consumedAtToken,
@@ -1579,6 +1580,14 @@ export function setExprAsNeedsToCallDup(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           if (variable.isOwningTheARCValue) {
+            // Set the variable as consumed so we won't need to drop it later
+            if (!variable.consumedAtToken) {
+              expr.$.env = updateExistingVariable(expr.$.env, variable, {
+                ...variable,
+                consumedAtToken: expr.token,
+              });
+            }
+
             return;
           }
         }
@@ -1607,6 +1616,28 @@ export function setExprAsNeedsToCallDup(
 
       context: { ...context },
     }) as FuncCallExpr;
+
+    if (evaluatedDupCallExpr.$?.variableName) {
+      // Set the variable as consumed so we won't need to drop it later
+      const variables = getVariablesFromEnv(
+        evaluatedDupCallExpr.$.env,
+        evaluatedDupCallExpr.$.variableName
+      );
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (!variable.consumedAtToken) {
+          evaluatedDupCallExpr.$.env = updateExistingVariable(
+            evaluatedDupCallExpr.$.env,
+            variable,
+            {
+              ...variable,
+              consumedAtToken: evaluatedDupCallExpr.token,
+            }
+          );
+        }
+      }
+    }
+
     replaceExprWithFuncCallExpr(expr, evaluatedDupCallExpr);
   }
 }
@@ -1640,7 +1671,7 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
     // isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
     variableToConsume.consumedAtToken
   ) {
-    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again.`;
+    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (2).`;
     throw formatErrorMessages([
       {
         token: expr.token,

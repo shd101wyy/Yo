@@ -12,14 +12,61 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { isSomeType, typeContainsARCType } from "../../types";
+import { isSomeType, isTupleType, typeContainsARCType } from "../../types";
 import { VUnit } from "../../unit-value";
+import { randomId } from "../../utils";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 
 /**
- * ___drop function - simplified since we removed consumption logic.
- * Just evaluates the argument and returns unit.
+ * Generate ___drop function for a tuple type that contains ARC values
+ */
+function generateTupleDropCall(tupleExpr: Expr): string {
+  if (!tupleExpr.$?.type || !isTupleType(tupleExpr.$.type)) {
+    throw formatErrorMessage({
+      token: tupleExpr.token,
+      errorMessage: `Expected tuple type for drop generation:\n${exprToString(
+        tupleExpr
+      )}`,
+    });
+  }
+  if (!tupleExpr.$.variableName) {
+    throw formatErrorMessage({
+      token: tupleExpr.token,
+      errorMessage: `Expected variable name for drop generation:\n${exprToString(
+        tupleExpr
+      )}`,
+    });
+  }
+
+  const tupleType = tupleExpr.$.type;
+  const elementsNeedingDrop = tupleType.elements
+    .map((element, index) => ({
+      index,
+      element,
+      needsDrop: typeContainsARCType(element.type),
+    }))
+    .filter(({ needsDrop }) => needsDrop);
+
+  if (elementsNeedingDrop.length === 0) {
+    return ""; // No elements need dropping
+  }
+
+  // Destructure the tuple and drop each ARC-containing element
+  const id = randomId();
+  const destructuring = `(${elementsNeedingDrop.map(({ index }) => `_${id}_${index}`).join(", ")}${elementsNeedingDrop.length === 1 ? "," : ""})`;
+  const dropCalls = elementsNeedingDrop
+    .map(({ index }) => `${BuiltinFunctions.___drop[0]!}(_${id}_${index});`)
+    .join("\n  ");
+
+  return `begin(
+  ${destructuring} := ${tupleExpr.$.variableName},
+  ${dropCalls}
+)`;
+}
+
+/**
+ * ___drop function - handles both struct and tuple types with ARC management
  */
 export function evaluateDrop({
   expr,
@@ -54,34 +101,70 @@ export function evaluateDrop({
   // Check if the drop argument is already borrowed
   checkBorrowings(context.borrowings, evaluatedArgExpr);
 
-  // Check if there is `.___drop` method available to call
-  // for Linear value
+  // Check if there is `.___drop` method available to call or if it's a tuple needing drop
   if (
     !isSomeType(evaluatedArgExpr.$.type) &&
-    // isType0(evaluatedArgExpr.$.type)
     typeContainsARCType(evaluatedArgExpr.$.type)
   ) {
-    const dropMethodCallExpr = generateExprFromCode(
-      `(${exprToString(evaluatedArgExpr)}).___drop()`
-    ) as FuncCallExpr;
+    // Handle tuple types specially since they don't have methods
+    if (isTupleType(evaluatedArgExpr.$.type)) {
+      const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);
+      if (tupleDropCode) {
+        const tupleDropExpr = generateExprFromCode(
+          tupleDropCode
+        ) as FuncCallExpr;
 
-    // Set the expression as consumed
-    env = setExprAsConsumed(evaluatedArgExpr, env, context);
+        // Set the expression as consumed
+        env = setExprAsConsumed(evaluatedArgExpr, env, context);
 
-    // Convert this ___drop(x) to x.___drop() and evaluate the function call
-    const evaluatedDropMethodCallExpr = evaluateFunctionCall({
-      env,
-      context: { ...context },
-      expr: dropMethodCallExpr,
-    });
+        // Evaluate the generated tuple drop expression
+        const evaluatedTupleDropExpr = context.evaluateExpression({
+          expr: tupleDropExpr,
+          env,
+          context: { ...context },
+        });
 
-    // Replace the original expr with the evaluated drop method call
-    if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
-      replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDropMethodCallExpr);
-      return expr;
+        if (exprIsFunctionCall(evaluatedTupleDropExpr)) {
+          replaceFuncCallExprWithFuncCallExpr(expr, evaluatedTupleDropExpr);
+          return expr;
+        } else {
+          return evaluatedTupleDropExpr;
+        }
+      } else {
+        // No ARC elements in tuple, just consume and return unit
+        env = setExprAsConsumed(evaluatedArgExpr, env, context);
+        expr.$ = {
+          env,
+          type: VUnit.type,
+          value: VUnit,
+          pathCollection: [],
+        };
+        return expr;
+      }
     } else {
-      // In theory we shouldn't enter here
-      return evaluatedDropMethodCallExpr;
+      // Handle struct types and other types with ___drop methods
+      const dropMethodCallExpr = generateExprFromCode(
+        `(${exprToString(evaluatedArgExpr)}).___drop()`
+      ) as FuncCallExpr;
+
+      // Set the expression as consumed
+      env = setExprAsConsumed(evaluatedArgExpr, env, context);
+
+      // Convert this ___drop(x) to x.___drop() and evaluate the function call
+      const evaluatedDropMethodCallExpr = evaluateFunctionCall({
+        env,
+        context: { ...context },
+        expr: dropMethodCallExpr,
+      });
+
+      // Replace the original expr with the evaluated drop method call
+      if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
+        replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDropMethodCallExpr);
+        return expr;
+      } else {
+        // In theory we shouldn't enter here
+        return evaluatedDropMethodCallExpr;
+      }
     }
   } else {
     // Set the expression as consumed

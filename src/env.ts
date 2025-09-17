@@ -468,6 +468,8 @@ export function printEnvVarNames(env: Environment) {
         isImplicit: variable.isImplicit,
         isUndefined: !variable.initializedAtToken,
         isOwningTheARCValue: !!variable.isOwningTheARCValue,
+        isBorrowingTheARCValueOfVariable:
+          variable.isBorrowingTheARCValueOfVariable?.name,
         isConsumed: !!variable.consumedAtToken,
       }));
     })

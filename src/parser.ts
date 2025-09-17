@@ -175,6 +175,8 @@ export default class Parser {
           index = index + 1;
         }
 
+        // Skip whitespace after separator before checking for closing paren
+        index = this.skipWhitespace(tokens, index);
         if (tokens[index]!.type === TokenType.RParen) {
           break;
         }
