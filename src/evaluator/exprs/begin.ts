@@ -639,7 +639,10 @@ export function evaluateBeginExpression({
       // Replace all dup calls with the original variable
       const dupCallExprs = dupCallsToOptimize.get(variable.name)!;
       for (const dupCallExpr of dupCallExprs) {
-        const funcCallExpr = dupCallExpr as FuncCallExpr;
+        if (!exprIsFunctionCall(dupCallExpr)) {
+          continue;
+        }
+        const funcCallExpr = dupCallExpr;
         const funcExpr = funcCallExpr.func as FuncCallExpr;
         const originalVarExpr: AtomExpr = {
           tag: ExprTag.Atom,

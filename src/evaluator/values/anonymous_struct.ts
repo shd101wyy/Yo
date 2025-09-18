@@ -20,6 +20,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "../types/element";
+import { addARCFunctionsToStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
 
 export function evaluateAnonymousStructValue({
@@ -238,6 +239,13 @@ export function evaluateAnonymousStructValue({
       }
     }
   }
+
+  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
+  env = addARCFunctionsToStructType({
+    structType,
+    env,
+    context,
+  });
 
   // Check if it's comptime value
   let structValue: StructValue | undefined = undefined;

@@ -10,12 +10,9 @@ import {
 } from "../../expr";
 import {
   createStructType,
-  isARCType,
   isStructType,
   ModuleElement,
-  StructType,
   TupleElement,
-  typeContainsARCType,
 } from "../../types";
 import {
   areValuesEqual,
@@ -25,117 +22,8 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";
-import { addFunctionToSelfTypeModule } from "./utils";
+import { addARCFunctionsToStructType } from "./utils";
 import { validateDisposeFunction } from "./validation";
-
-/**
- * Generate ___dispose function code for a struct type
- *
- * ___dispose :
- *  fn(self : Self) -> unit
- */
-function generateDisposeFunctionCode(structType: StructType): string | null {
-  if (!isARCType(structType)) {
-    return null; // no need to generate ___dispose function
-  }
-  const destructurings = structType.elements
-    .filter(
-      (element) =>
-        !element.isCompileTimeOnly && typeContainsARCType(element.type)
-    )
-    .map((element) => element.label);
-
-  const hasDisposeFunction = structType.module.elements.some(
-    (element) => element.label === BuiltinFunctions.dispose[0]
-  );
-
-  if (!destructurings.length && !hasDisposeFunction) {
-    return null; // no need to generate ___dispose function
-  }
-
-  const dropDestructuringsExpr = destructurings.length
-    ? `
-  { ${destructurings.join(", ")} } := self;
-  ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
-`
-    : "";
-
-  return `((fn(self : Self) -> unit) {
-      ${hasDisposeFunction ? "Self.dispose(self);" : ""}
-      ${dropDestructuringsExpr}
-    })`;
-}
-
-/**
- * Generate ___drop function code for a struct type
- *
- * ___drop :
- *  fn(self : Self) -> unit
- */
-function generateDropFunctionCode(structType: StructType): string {
-  const destructurings = structType.elements
-    .filter(
-      (element) =>
-        !element.isCompileTimeOnly && typeContainsARCType(element.type)
-    )
-    .map((element) => element.label);
-
-  const decrRcExpr = isARCType(structType)
-    ? `
-  ${BuiltinFunctions.__yo_decr_rc[0]!}(self${generateDisposeFunctionCode(structType) ? ", Self.___dispose" : ""});`
-    : "";
-
-  const dropDestructuringsExpr = isARCType(structType)
-    ? ""
-    : destructurings.length
-      ? `
-  { ${destructurings.join(", ")} } := self;
-  ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
-`
-      : "";
-
-  return `((fn(self : Self) -> unit) {
-  ${dropDestructuringsExpr}
-  ${decrRcExpr}
-})`;
-}
-
-/**
- *
- * Generate ___dup function code for a struct type
- *
- * ___dup :
- *  fn(self : Self) -> Self
- *
- */
-function generateDupFunctionCode(structType: StructType): string {
-  const destructurings = structType.elements
-    .filter(
-      (element) =>
-        !element.isCompileTimeOnly && typeContainsARCType(element.type)
-    )
-    .map((element) => element.label);
-
-  const incrRcExpr = isARCType(structType)
-    ? `
-  ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
-    : "";
-
-  const dupDestructuringsExpr = isARCType(structType)
-    ? ""
-    : destructurings.length
-      ? `
-  { ${destructurings.join(", ")} } := self;
-  ${destructurings.map((label) => `(${BuiltinFunctions.___dup[0]!})(${label});`).join("\n")}
-`
-      : "";
-
-  return `((fn(self : Self) -> Self) {
-  ${dupDestructuringsExpr}
-  ${incrRcExpr}
-  ${BuiltinFunctions.__yo_rc_own[0]!}(self)
-})`;
-}
 
 export function evaluateStructType({
   expr,
@@ -333,45 +221,12 @@ export function evaluateStructType({
     }
   }
 
-  // Auto-generate ___drop and ___dup function if it's needed
-  if (typeContainsARCType(structType)) {
-    const disposeFunctionCode = generateDisposeFunctionCode(structType);
-    const dropFunctionCode = generateDropFunctionCode(structType);
-    const dupFunctionCode = generateDupFunctionCode(structType);
-
-    // Add ___dispose function
-    if (disposeFunctionCode) {
-      env = addFunctionToSelfTypeModule({
-        label: BuiltinFunctions.___dispose[0]!,
-        functionCode: disposeFunctionCode,
-        SelfType: structType,
-        env,
-        context,
-      });
-    }
-
-    // Add ___dup function to the struct type module elements
-    if (dupFunctionCode) {
-      env = addFunctionToSelfTypeModule({
-        label: BuiltinFunctions.___dup[0]!,
-        functionCode: dupFunctionCode,
-        SelfType: structType,
-        env,
-        context,
-      });
-    }
-
-    // Add ___drop function to the struct type module elements
-    if (dropFunctionCode) {
-      env = addFunctionToSelfTypeModule({
-        label: BuiltinFunctions.___drop[0]!,
-        functionCode: dropFunctionCode,
-        SelfType: structType,
-        env,
-        context,
-      });
-    }
-  }
+  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
+  env = addARCFunctionsToStructType({
+    structType,
+    env,
+    context,
+  });
 
   // console.log(typeToString(structType));
   const structTypeValue = createTypeValue(structType);
