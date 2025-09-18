@@ -12,7 +12,6 @@ import {
 } from "../../expr";
 import {
   ArrayType,
-  ClosureType,
   isArrayType,
   isClosureType,
   isDynType,
@@ -157,6 +156,36 @@ function generateFuncCall(
     }
     const selfCode = generateExpr(selfArg, indent, context);
     return `${selfCode}->vtable->___dup(${selfCode}->data)`;
+  }
+
+  // __yo_closure_dispose - call dispose on closure via vtable
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dispose)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_closure_dispose requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `${selfCode}->vtable->dispose(${selfCode})`;
+  }
+
+  // __yo_closure_drop - call drop on closure via vtable
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_drop)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_closure_drop requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `${selfCode}->vtable->drop(${selfCode})`;
+  }
+
+  // __yo_closure_dup - call dup on closure via vtable
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dup)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_closure_dup requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `${selfCode}->vtable->dup(${selfCode})`;
   }
 
   // dyn() - dynamic dispatch constructor
@@ -976,7 +1005,7 @@ function generateFuncCall(
         }
       }
     } else if (isClosureType(functionType)) {
-      // Handle closure calls - following Rust model
+      // Handle closure calls with dynamic dispatch through vtable
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
         // Generate closure value and function arguments
@@ -985,128 +1014,11 @@ function generateFuncCall(
           return generateExpr(arg, indent, context);
         });
 
-        // Get the closure type and its function value to find the call function
-        const closureType = functionType as ClosureType;
-        const closureValue = expr.func.$?.value;
-
-        if (closureValue && isClosureValue(closureValue)) {
-          // Get the closure function name from the function value
-          const functionValue = closureValue.functionValue;
-          const cName = context.functions[functionValue.funcId]?.cName;
-
-          if (cName) {
-            // For closure calls, pass the closure context as first argument
-            const allArgs = [closureCode, ...args];
-            return `${cName}(${allArgs.join(", ")})`;
-          } else {
-            return `// Error: Could not find C name for closure function ${functionValue.funcName}`;
-          }
-        } else {
-          // Fallback: try to find the closure function from the call type
-          const callType = closureType.callType;
-
-          // Find the function that matches this call type
-          let closureFunctionName: string | undefined;
-          for (const funcId in context.functions) {
-            const { value } = context.functions[funcId]!;
-            if (value.type === callType || value.specializedType === callType) {
-              closureFunctionName = context.functions[funcId]!.cName;
-              break;
-            }
-          }
-
-          if (closureFunctionName) {
-            // For closure calls, pass the closure context as first argument
-            const allArgs = [closureCode, ...args];
-            return `${closureFunctionName}(${allArgs.join(", ")})`;
-          } else {
-            return `// Error: Could not find closure function for call type`;
-          }
-        }
-        /*
-        // Generate closure value and function arguments
-        const closureCode = generateExpr(expr.func, indent, context);
-        const args = runtimeArgExprs.map((arg) => {
-          return generateExpr(arg, indent, context);
-        });
-
-        // Get the closure type and its function value to find the call function
-        const closureType = functionType as ClosureType;
-        const closureValue = expr.func.$?.value;
-
-        console.log(
-          `DEBUG: Closure call - functionType: ${typeToString(functionType)}, closureValue: ${closureValue ? valueToString(closureValue) : "undefined"}, expr.func.$: ${expr.func.$ ? "exists" : "undefined"}`
-        );
-        console.log(
-          `DEBUG: expr.func.$.type:`,
-          expr.func.$?.type ? typeToString(expr.func.$?.type) : "undefined"
-        );
-        console.log(
-          `DEBUG: expr.func.$.value:`,
-          expr.func.$?.value ? valueToString(expr.func.$?.value) : "undefined"
-        );
-        console.log(`DEBUG: expr.func:`, exprToString(expr.func));
-
-        // For runtime closures, we need to get the function info from the type system
-        // since the closure value is not available at compile time
-        let functionCName: string;
-        if (closureValue && isClosureValue(closureValue)) {
-          // Compile-time closure - we have the actual closure value
-          const functionValue = closureValue.functionValue;
-          const cName = context.functions[functionValue.funcId]?.cName;
-
-          if (!cName) {
-            return `// Error: No C function name found for closure function ${functionValue.funcId}`;
-          }
-          functionCName = cName;
-        } else {
-          // Runtime closure - we need to find the function from collected functions
-          // Look for functions with closure kinds that match this closure type
-          const matchingFunctions = Object.values(context.functions).filter(
-            (f) => f.value.type.closureKind === closureType.callType.closureKind
-          );
-
-          if (matchingFunctions.length === 1) {
-            functionCName = matchingFunctions[0]!.cName;
-          } else {
-            return `// Error: Cannot determine closure function name for runtime closure (found ${matchingFunctions.length} candidates)`;
-          }
-        }
-
-        // Call the static function with closure as first argument, followed by other args
-        // For FnMut and Fn, pass closure by reference; for FnMove, pass by value
-        const closureKind = closureType.callType.closureKind;
-        let closureArg: string;
-        if (closureKind === "FnMut" || closureKind === "Fn") {
-          closureArg = `&(${closureCode})`; // Pass by reference
-        } else {
-          closureArg = closureCode; // Pass by value (FnMove)
-        }
-
-        const allArgs = [closureArg, ...args];
-        const argsList = allArgs.join(", ");
-        const returnType = closureType.callType.return.type;
-
-        if (isUnitType(returnType)) {
-          // If the closure returns unit, just call it without assignment
-          context.emitter.emitLine(`${indent}${functionCName}(${argsList});`);
-          return ""; // No return value
-        } else {
-          // If it returns a value, assign to a temp variable or return directly
-          const tempVar = expr.$?.variableName;
-          const returnTypeStr = getTypeString(returnType, context);
-          if (tempVar) {
-            context.emitter.emitLine(
-              `${indent}${returnTypeStr} ${tempVar} = ${functionCName}(${argsList});`
-            );
-            return tempVar; // Return the temp variable name
-          } else {
-            return `${functionCName}(${argsList})`;
-          }
-        }
-        */
+        // Call through the vtable - closure->vtable->call(closure, args...)
+        const allArgs = [closureCode, ...args];
+        return `(${closureCode})->vtable->call(${allArgs.join(", ")})`;
       } else {
-        return `// Error: Failed to transpile closure call - no runtime args`;
+        return `// Error: No runtime args found for closure call`;
       }
     } else if (isTypeValue(functionValue)) {
       // struct
@@ -1455,7 +1367,19 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     functionContext.currentClosureCaptures.includes(expr.token.value)
   ) {
     // We're accessing a captured variable in a closure function
-    // All closures use move semantics - access captured variables through closure_context pointer
+    // With vtable approach, access captured variables through closure_context->data pointer
+    // Need to cast data to the appropriate capture struct type
+    const currentClosureType = functionContext.currentClosureType;
+    if (currentClosureType && isClosureType(currentClosureType)) {
+      const closureTypeEntry = Object.values(functionContext.types).find(
+        (entry) => entry.type === currentClosureType
+      );
+      if (closureTypeEntry) {
+        const captureStructName = `${closureTypeEntry.cName}_capture`;
+        return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
+      }
+    }
+    // Fallback to old approach if we can't determine the type
     return `closure_context->${sanitizeForCIdentifier(expr.token.value)}`;
   }
 
@@ -1577,35 +1501,37 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
     );
     return `(${arrayTypeName}){ .data = { ${elementCodes.join(", ")} } }`;
   } else if (isClosureValue(value)) {
-    // For closure values, generate only the captured data (following Rust model)
+    // For closure values, generate vtable-based dynamic dispatch structure
     const closureType = value.type;
     const cName = context.types[closureType.id]?.cName;
     if (!cName) {
       return `// Error: No C type name found for closure ${typeToString(closureType)}`;
     }
 
-    // Generate closure initialization with only captured data
+    // Generate closure initialization with vtable and captured data
+    const constructorName = `__yo_new_${cName}`;
+
+    // For compile-time closures, we need to generate the constructor call
     if (value.captureValue && isStructValue(value.captureValue)) {
-      // Closure with captures - generate compile-time closure
+      // Compile-time closure with captures
       const captureStruct = value.captureValue;
-      const fieldCodes: string[] = [];
+      const captureArgs: string[] = [];
 
       for (let i = 0; i < captureStruct.elements.length; i++) {
         const element = captureStruct.elements[i];
         if (element) {
           const fieldCode = generateComptValue(element, context);
-          fieldCodes.push(fieldCode);
+          captureArgs.push(fieldCode);
         }
       }
 
-      return `(${cName}){ ${fieldCodes.join(", ")} }`;
+      return `${constructorName}(${captureArgs.join(", ")})`;
     } else if (
       closureType.captureType &&
       isStructType(closureType.captureType)
     ) {
       // Runtime closure with captures - generate constructor call
       const captureType = closureType.captureType;
-      const constructorName = `__yo_new_${cName}`;
 
       if (captureType.elements.length > 0) {
         // Generate constructor call with captured variable names
@@ -1618,33 +1544,9 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
         // Empty closure
         return `${constructorName}()`;
       }
-      /*
-      // Runtime closure with captures - use field names as variable names
-      const captureType = closureType.captureType;
-      const closureKind = closureType.callType.closureKind;
-      /*
-      const fieldCodes: string[] = [];
-
-      for (let i = 0; i < captureType.elements.length; i++) {
-        const element = captureType.elements[i];
-        if (element) {
-          // For runtime closures, use the field label as the variable name
-          // For FnMut and Fn, we need to capture by reference (&variable)
-          // For FnMove, we capture by value (variable)
-          if (closureKind === "FnMut" || closureKind === "Fn") {
-            fieldCodes.push(`&${element.label}`);
-          } else {
-            // FnMove or default - capture by value
-            fieldCodes.push(element.label);
-          }
-        }
-      }
-
-      return `(${cName}){ ${fieldCodes.join(", ")} }`;
-      */
     } else {
-      // Closure without captures - generate empty struct with dummy field
-      return `(${cName}){ 0 }`;
+      // Closure without captures - generate empty constructor call
+      return `${constructorName}()`;
     }
   } else if (isFunctionValue(value)) {
     // For function values, we need to register them and return their C function name

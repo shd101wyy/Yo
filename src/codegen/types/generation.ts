@@ -126,7 +126,7 @@ export function generateSliceStructDeclarations(context: CodeGenContext): void {
 }
 
 /**
- * Generate a closure declaration
+ * Generate a closure declaration with vtable for dynamic dispatch
  */
 export function generateClosureDeclaration(
   closureType: ClosureType,
@@ -135,82 +135,87 @@ export function generateClosureDeclaration(
 ): void {
   const emitter = context.emitter;
 
-  // A closure is represented as just the captured data
-  // Following the Rust model: no function pointer stored, call function is statically determined
-
-  // TODO: If the capture type is a struct, generate it inline as part of the closure - commented out for closure system simplification
-  /*
-  if (isStructType(closureType.captureType)) {
-    const captureStructType = closureType.captureType as StructType;
-    const closureKind = closureType.callType.closureKind;
-
-    // Generate the closure as the capture struct directly
-    emitter.emitDeclarationLine(
-      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)}`
-    );
-    for (const element of captureStructType.elements) {
-      let fieldTypeStr: string;
-
-      if (closureKind === "FnMove") {
-        // For FnMove, capture by value
-        fieldTypeStr = getTypeString(element.type, context);
-      } else if (closureKind === "FnMut") {
-        // For FnMut, capture by mutable reference
-        const elementTypeStr = getTypeString(element.type, context);
-        fieldTypeStr = `${elementTypeStr}*`;
-      } else if (closureKind === "Fn") {
-        // For Fn, capture by immutable reference (const pointer)
-        const elementTypeStr = getTypeString(element.type, context);
-        fieldTypeStr = `const ${elementTypeStr}*`;
-      } else {
-        // Default to value capture for unknown closure kinds
-        fieldTypeStr = getTypeString(element.type, context);
-      }
-
-      emitter.emitDeclarationLine(`  ${fieldTypeStr} ${element.label};`);
-    }
-    emitter.emitDeclarationLine(`} ${cName};`);
-  }
-  // If no captures, generate an empty struct
-  else {
-    emitter.emitDeclarationLine(
-      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)}`
-    );
-    */
-
-  // Generate closure struct based on capture type
+  // Generate the capture data structure first (if there are captures)
   const captureType = closureType.captureType;
+  const captureStructName = `${cName}_capture`;
 
   if (isStructType(captureType) && captureType.elements.length > 0) {
-    // Generate struct with captured variables
+    // Generate capture struct (without reference counting since the closure handles that)
     emitter.emitDeclarationLine(
-      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (reference counted)`
-    );
-    emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Reference count header`
+      `typedef struct { // Capture data for ${typeToString(closureType)}`
     );
 
     for (const element of captureType.elements) {
-      // Use move semantics - capture by value
       const fieldTypeStr = getTypeString(element.type, context);
       const fieldName = sanitizeForCIdentifier(element.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
-    emitter.emitDeclarationLine(`} ${cName};`);
-  } else {
-    // Generate empty closure struct (no captures)
-    emitter.emitDeclarationLine(
-      `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (reference counted)`
-    );
-    emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Reference count header`
-    );
-    emitter.emitDeclarationLine(
-      `  char _unused; // Empty closure with no captures`
-    );
-    emitter.emitDeclarationLine(`} ${cName};`);
+
+    emitter.emitDeclarationLine(`} ${captureStructName};`);
+    emitter.emitDeclarationLine("");
   }
 
+  // Generate vtable structure for the closure's dynamic dispatch
+  // The vtable contains function pointers for call, dispose, drop, and dup methods
+  const vtableName = `${cName}_vtable`;
+
+  emitter.emitDeclarationLine(
+    `typedef struct { // Vtable for ${typeToString(closureType)}`
+  );
+
+  // Generate the call function pointer
+  const callType = closureType.callType;
+  const returnTypeStr = getTypeString(callType.return.type, context);
+
+  // Generate the complete parameter list for the call function pointer
+  const paramList = callType.parameters
+    .map((param) => {
+      const paramTypeStr = getTypeString(param.type, context);
+      const paramName = sanitizeForCIdentifier(param.label);
+      return `${paramTypeStr} ${paramName}`;
+    })
+    .join(", ");
+
+  // Call function takes closure pointer as first parameter, then user parameters
+  emitter.emitDeclarationLine(
+    `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Call function pointer`
+  );
+
+  // Generate ARC function pointers
+  emitter.emitDeclarationLine(
+    `  void (*dispose)(void* self); // Dispose function pointer`
+  );
+  emitter.emitDeclarationLine(
+    `  void (*drop)(void* self); // Drop function pointer`
+  );
+  emitter.emitDeclarationLine(
+    `  void* (*dup)(void* self); // Dup function pointer`
+  );
+
+  emitter.emitDeclarationLine(`} ${vtableName};`);
+  emitter.emitDeclarationLine("");
+
+  // Generate the closure structure with vtable and captured data pointer
+  emitter.emitDeclarationLine(
+    `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (reference counted)`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_ref_header_t header; // Reference count header`
+  );
+  emitter.emitDeclarationLine(`  ${vtableName}* vtable; // Function pointers`);
+
+  // Data field points to capture struct or is null if no captures
+  if (isStructType(captureType) && captureType.elements.length > 0) {
+    emitter.emitDeclarationLine(
+      `  ${captureStructName}* data; // Captured data`
+    );
+  } else {
+    emitter.emitDeclarationLine(
+      `  void* data; // No captured data (always NULL)`
+    );
+  }
+
+  emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }
 

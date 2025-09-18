@@ -1,6 +1,6 @@
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr } from "../../expr";
+import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
@@ -187,6 +187,9 @@ export function tryToImplementClosureByClosureType({
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
         : [],
   };
+
+  // Attach a temp variable to the expr to hold the ARC value for closure
+  attachTempVariableToExpr(expr, true);
 
   return expr;
 }

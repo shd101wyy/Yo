@@ -2,6 +2,7 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
+  isClosureType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -596,7 +597,8 @@ export function getMethodsByNameFromEnv(
   if (
     isStructType(dereferencedReceiverType) ||
     isEnumType(dereferencedReceiverType) ||
-    isUnionType(dereferencedReceiverType)
+    isUnionType(dereferencedReceiverType) ||
+    isClosureType(dereferencedReceiverType)
   ) {
     const method = dereferencedReceiverType.module.elements.find(
       (element) =>

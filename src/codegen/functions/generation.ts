@@ -37,6 +37,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   >;
   currentFunctionName: string;
   currentClosureCaptures?: string[]; // Variables captured by current closure function
+  currentClosureType?: ClosureType; // Current closure type being generated
 }
 
 /**
@@ -222,6 +223,8 @@ export function generateFunction(
 
   // Set closure capture context if this is a closure function
   const previousClosureCaptures = context.currentClosureCaptures;
+  const previousClosureType = (context as FunctionGenerationContext)
+    .currentClosureType;
   if (functionType.isClosure) {
     // This is a closure function - find the closure type to get capture info
     const closureTypeEntry = Object.values(context.types).find(
@@ -234,7 +237,10 @@ export function generateFunction(
       closureTypeEntry &&
       (closureTypeEntry.type as ClosureType).captureType
     ) {
-      const captureType = (closureTypeEntry.type as ClosureType).captureType;
+      const closureType = closureTypeEntry.type as ClosureType;
+      const captureType = closureType.captureType;
+      (context as FunctionGenerationContext).currentClosureType = closureType;
+
       if (captureType && captureType.tag === TypeTag.Struct) {
         // Extract field names as captured variables
         context.currentClosureCaptures = captureType.elements.map(
@@ -250,6 +256,8 @@ export function generateFunction(
   // Restore previous function name and closure captures
   context.currentFunctionName = previousFunctionName;
   context.currentClosureCaptures = previousClosureCaptures;
+  (context as FunctionGenerationContext).currentClosureType =
+    previousClosureType;
 
   emitter.emitLine(`}`);
 }
@@ -595,6 +603,7 @@ export function generateRefStructConstructorFunctions(
       }
 
       const constructorName = `__yo_new_${cName}`;
+      const vtableInstanceName = `${cName}_vtable_instance`;
 
       if (isStructType(captureType) && captureType.elements.length > 0) {
         // Generate constructor with captured variables
@@ -611,13 +620,21 @@ export function generateRefStructConstructorFunctions(
           `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
         );
         emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(`  obj->vtable = &${vtableInstanceName};`);
+
+        // Allocate and initialize captured data
+        const captureStructName = `${cName}_capture`;
+        emitter.emitLine(
+          `  ${captureStructName}* data = (${captureStructName}*)malloc(sizeof(${captureStructName}));`
+        );
 
         // Initialize captured fields
         captureType.elements.forEach((element) => {
           const fieldName = sanitizeForCIdentifier(element.label);
-          emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
+          emitter.emitLine(`  data->${fieldName} = ${fieldName};`);
         });
 
+        emitter.emitLine(`  obj->data = data;`);
         emitter.emitLine(`  return obj;`);
         emitter.emitLine(`}`);
         emitter.emitLine(``);
@@ -628,6 +645,8 @@ export function generateRefStructConstructorFunctions(
           `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
         );
         emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(`  obj->vtable = &${vtableInstanceName};`);
+        emitter.emitLine(`  obj->data = NULL; // No captures`);
         emitter.emitLine(`  return obj;`);
         emitter.emitLine(`}`);
         emitter.emitLine(``);
@@ -692,6 +711,112 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  obj->data = __yo_incr_rc(data);`);
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
+      emitter.emitLine(``);
+    }
+  }
+
+  // Generate vtable instances and ARC functions for closures
+  for (const typeEntry of Object.values(context.types)) {
+    const type = typeEntry.type;
+    const cName = typeEntry.cName;
+
+    if (isClosureType(type)) {
+      const closureType = type as ClosureType;
+
+      // Skip generic closures that contain SomeType parameters
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+
+      const vtableName = `${cName}_vtable`;
+      const vtableInstanceName = `${cName}_vtable_instance`;
+      const captureStructName = `${cName}_capture`;
+
+      // Generate ARC functions for this closure type
+      emitter.emitLine(`// ARC functions for ${cName}`);
+
+      // Generate dispose function
+      emitter.emitLine(`void ${cName}_dispose(void* self) {`);
+      emitter.emitLine(`  ${cName}* closure = (${cName}*)self;`);
+      emitter.emitLine(`  if (closure->data) {`);
+      if (
+        isStructType(closureType.captureType) &&
+        closureType.captureType.elements.length > 0
+      ) {
+        // TODO: Add disposal of captured data if needed (for now just free the capture struct)
+        emitter.emitLine(`    free(closure->data);`);
+      }
+      emitter.emitLine(`  }`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+
+      // Generate drop function
+      emitter.emitLine(`void ${cName}_drop(void* self) {`);
+      emitter.emitLine(`  ${cName}* closure = (${cName}*)self;`);
+      emitter.emitLine(`  if (closure->data) {`);
+      if (
+        isStructType(closureType.captureType) &&
+        closureType.captureType.elements.length > 0
+      ) {
+        emitter.emitLine(`    free(closure->data);`);
+      }
+      emitter.emitLine(`  }`);
+      emitter.emitLine(`  free(closure);`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+
+      // Generate dup function
+      emitter.emitLine(`void* ${cName}_dup(void* self) {`);
+      emitter.emitLine(`  ${cName}* closure = (${cName}*)self;`);
+      emitter.emitLine(
+        `  ${cName}* new_closure = (${cName}*)malloc(sizeof(${cName}));`
+      );
+      emitter.emitLine(`  new_closure->header.ref_count = 1;`);
+      emitter.emitLine(`  new_closure->vtable = closure->vtable;`);
+
+      if (
+        isStructType(closureType.captureType) &&
+        closureType.captureType.elements.length > 0
+      ) {
+        // Deep copy the capture data
+        emitter.emitLine(`  if (closure->data) {`);
+        emitter.emitLine(
+          `    ${captureStructName}* new_data = (${captureStructName}*)malloc(sizeof(${captureStructName}));`
+        );
+        emitter.emitLine(
+          `    *new_data = *((${captureStructName}*)closure->data); // Shallow copy for now`
+        );
+        emitter.emitLine(`    new_closure->data = new_data;`);
+        emitter.emitLine(`  } else {`);
+        emitter.emitLine(`    new_closure->data = NULL;`);
+        emitter.emitLine(`  }`);
+      } else {
+        emitter.emitLine(`  new_closure->data = NULL;`);
+      }
+
+      emitter.emitLine(`  return new_closure;`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+
+      // Find the call function for this closure
+      let callFunctionName = "NULL";
+      for (const funcEntry of Object.values(context.functions)) {
+        if (
+          funcEntry.value.type === closureType.callType ||
+          funcEntry.value.specializedType === closureType.callType
+        ) {
+          callFunctionName = funcEntry.cName;
+          break;
+        }
+      }
+
+      // Generate vtable instance
+      emitter.emitLine(`static ${vtableName} ${vtableInstanceName} = {`);
+      emitter.emitLine(`  .call = (void*)${callFunctionName},`);
+      emitter.emitLine(`  .dispose = ${cName}_dispose,`);
+      emitter.emitLine(`  .drop = ${cName}_drop,`);
+      emitter.emitLine(`  .dup = ${cName}_dup`);
+      emitter.emitLine(`};`);
       emitter.emitLine(``);
     }
   }
