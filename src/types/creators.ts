@@ -535,10 +535,37 @@ export function createClosureType(
   };
 }
 
-export function createDynType(moduleTypes: ModuleType[]): DynType {
-  return {
+export function createDynType(
+  moduleTypes: ModuleType[],
+  env: Environment
+): DynType {
+  const module = createModuleType(env);
+
+  const dynType: DynType = {
     id: `dyn_${moduleTypes.map((m) => m.id).join("_")}`,
     tag: TypeTag.Dyn,
     moduleTypes,
+    module,
+    env,
   };
+
+  // Add "Self" to dyn type module if not already present
+  const typeValue = createTypeValue(dynType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    label: "Self",
+    isCompileTimeOnly: true,
+    isImplicit: false,
+    defaultValue: undefined,
+    assignedValue: typeValue,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+    },
+  };
+  module.elements.push(selfElement);
+
+  return dynType;
 }

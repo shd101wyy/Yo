@@ -1323,8 +1323,8 @@ function generateDynCall(
   // Generate the value expression
   const valueCode = generateExpr(valueExpr, indent, context);
 
-  // Generate a unique temporary variable name for the dyn object
-  const tempVarName = `dyn_temp_${Date.now()}`;
+  // Use the temp variable name from the expression if available, otherwise generate one
+  const tempVarName = expr.$?.variableName || `dyn_temp_${Date.now()}`;
 
   // Get the dyn type information
   const dynType = expr.$.type;

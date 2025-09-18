@@ -562,4 +562,17 @@ export interface DynType extends Type {
    * Now uses reference semantics by default, so it's not a dynamic sized type.
    */
   moduleTypes: ModuleType[];
+
+  /**
+   * The module of the dyn type, which contains
+   * the ARC methods (___dup, ___drop, ___dispose) for the dyn wrapper itself.
+   * These operate on the dyn object, not the wrapped object.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the dyn type is created.
+   * The env is also useful to show the frame level at which the dyn is defined.
+   */
+  env: Environment;
 }

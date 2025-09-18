@@ -623,9 +623,24 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
-    // For dynamic dispatch, we need to check all module types in the DynType
+    // First, check the dyn object's own module for its ARC methods (___drop, ___dup, ___dispose)
+    const dynMethod = dereferencedReceiverType.module.elements.find(
+      (element) =>
+        element.label === methodName &&
+        (isFunctionType(element.type) || isModuleType(element.type))
+    );
+    if (dynMethod && isFunctionType(dynMethod.type)) {
+      // For dyn object's own methods, we can use the assigned value directly
+      const value =
+        dynMethod.assignedValue ||
+        createUnknownValue(dynMethod.type, dynMethod.label);
+      methods.push({ type: dynMethod.type, value });
+    }
+
+    // Then, for dynamic dispatch, check all module types in the DynType for wrapped object methods
     // A method might exist in only some modules, and that's perfectly valid
-    for (const moduleType of dereferencedReceiverType.moduleTypes) {
+    const moduleTypes = dereferencedReceiverType.moduleTypes.slice(1); // Skip the wrappedObjectARCModuleType that contains ___dup, ___drop, ___dispose since we already checked it above.
+    for (const moduleType of moduleTypes) {
       const method = moduleType.elements.find(
         (element) =>
           element.label === methodName &&

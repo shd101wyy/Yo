@@ -789,6 +789,12 @@ export const BuiltinFunctions = {
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
   __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheARCValue to be true. This is useful for implementing ___dup function.
+
+  // Dynamic dispatch vtable ARC functions
+  __yo_dyn_vtable_dispose: ["__yo_dyn_vtable_dispose"], // dispose the wrapped object via vtable
+  __yo_dyn_vtable_drop: ["__yo_dyn_vtable_drop"], // drop the wrapped object via vtable
+  __yo_dyn_vtable_dup: ["__yo_dyn_vtable_dup"], // dup the wrapped object via vtable
+
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary

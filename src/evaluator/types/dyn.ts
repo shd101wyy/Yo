@@ -16,6 +16,7 @@ import {
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { addARCFunctionsToDynType } from "./utils";
 
 export function evaluateDynType({
   expr,
@@ -126,8 +127,9 @@ export function evaluateDynType({
     }
   }
 
-  // Create a module type that have:
-  const moduleTypeExpr = generateExprFromCode(`
+  // Create a module type that defines the ARC interface for the wrapped object
+  // This will be used to call ___dup, ___drop, ___dispose on the inner data
+  const wrappedObjectARCModuleTypeExpr = generateExprFromCode(`
 module(
   Self : Type,
   ___dup :
@@ -138,26 +140,41 @@ module(
     fn(self: Self) -> unit
 )
 `);
-  /// evaluate the moduleTypeExpr
-  const evaluatedModuleTypeExpr = context.evaluateExpression({
-    expr: moduleTypeExpr,
+  /// evaluate the wrappedObjectARCModuleTypeExpr
+  const evaluatedWrappedObjectARCModuleTypeExpr = context.evaluateExpression({
+    expr: wrappedObjectARCModuleTypeExpr,
     env,
     context: {
       ...context,
     },
   });
   /// get its type value, which should be a ModuleType
-  const baseModuleTypeValue = evaluatedModuleTypeExpr.$?.value;
-  if (!isTypeValue(baseModuleTypeValue)) {
-    throw new Error(`Expected a type value for base module type.`);
+  const wrappedObjectARCModuleTypeValue =
+    evaluatedWrappedObjectARCModuleTypeExpr.$?.value;
+  if (!isTypeValue(wrappedObjectARCModuleTypeValue)) {
+    throw new Error(
+      `Expected a type value for wrapped object ARC module type.`
+    );
   }
-  if (!isModuleType(baseModuleTypeValue.value)) {
-    throw new Error(`Expected a module type for base module type.`);
+  if (!isModuleType(wrappedObjectARCModuleTypeValue.value)) {
+    throw new Error(
+      `Expected a module type for wrapped object ARC module type.`
+    );
   }
-  const baseModuleType = baseModuleTypeValue.value;
+  const wrappedObjectARCModuleType = wrappedObjectARCModuleTypeValue.value;
 
-  // Create the dyn type
-  const dynType = createDynType([baseModuleType, ...moduleTypes]);
+  // Create the dyn type with its own module for ARC functions
+  const dynType = createDynType(
+    [wrappedObjectARCModuleType, ...moduleTypes],
+    env
+  );
+
+  // Add ARC functions to the dyn type's module
+  env = addARCFunctionsToDynType({
+    dynType,
+    env,
+    context,
+  });
   const dynTypeValue = createTypeValue(dynType);
 
   expr.$ = {

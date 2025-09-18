@@ -12,6 +12,7 @@ import {
   createUsizeType,
   EnumType,
   isArrayType,
+  isDynType,
   isEnumType,
   isModuleType,
   isMutPtrType,
@@ -275,12 +276,16 @@ export function evaluatePropertyAccess({
       }
       return expr;
     }
-    // Accessing compt fields of a struct/union type.
-    else if (isStructType(typeValue.value) || isUnionType(typeValue.value)) {
+    // Accessing compt fields of a struct/union/dyn type.
+    else if (
+      isStructType(typeValue.value) ||
+      isUnionType(typeValue.value) ||
+      isDynType(typeValue.value)
+    ) {
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({
           token: propertyExpr.token,
-          errorMessage: `Expected identifier for struct type method, got:\n${exprToString(
+          errorMessage: `Expected identifier for type method, got:\n${exprToString(
             propertyExpr
           )}`,
         });
@@ -303,7 +308,7 @@ export function evaluatePropertyAccess({
       } else {
         throw formatErrorMessage({
           token: propertyExpr.token,
-          errorMessage: `Struct type property "${propertyName}" not found in struct type`,
+          errorMessage: `Type property "${propertyName}" not found in type`,
         });
       }
     }

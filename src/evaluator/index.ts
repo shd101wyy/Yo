@@ -22,6 +22,9 @@ import { evaluateAndOr } from "./builtins/and_or";
 import {
   evaluateIsUniquelyOwned,
   evaluateYoDecrRc,
+  evaluateYoDynVtableDispose,
+  evaluateYoDynVtableDrop,
+  evaluateYoDynVtableDup,
   evaluateYoIncrRc,
   evaluateYoRcOwn,
 } from "./builtins/arc_fns";
@@ -490,6 +493,25 @@ ${exprToString(expr)}`,
       ) {
         // is_uniquely_owned
         return evaluateIsUniquelyOwned({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dispose)
+      ) {
+        // __yo_dyn_vtable_dispose
+        return evaluateYoDynVtableDispose({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_drop)
+      ) {
+        // __yo_dyn_vtable_drop
+        return evaluateYoDynVtableDrop({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dup)
+      ) {
+        // __yo_dyn_vtable_dup
+        return evaluateYoDynVtableDup({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote)) {
         // metaprogramming
         // quote
