@@ -129,6 +129,36 @@ function generateFuncCall(
     return selfCode; // Just return the argument as-is
   }
 
+  // __yo_dyn_vtable_dispose - call dispose on wrapped object via vtable
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dispose)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_dyn_vtable_dispose requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `${selfCode}->vtable->___dispose(${selfCode}->data)`;
+  }
+
+  // __yo_dyn_vtable_drop - call drop on wrapped object via vtable
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_drop)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_dyn_vtable_drop requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `${selfCode}->vtable->___drop(${selfCode}->data)`;
+  }
+
+  // __yo_dyn_vtable_dup - call dup on wrapped object via vtable
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dup)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_dyn_vtable_dup requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `${selfCode}->vtable->___dup(${selfCode}->data)`;
+  }
+
   // dyn() - dynamic dispatch constructor
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
     return generateDynCall(expr, indent, context);
@@ -851,8 +881,34 @@ function generateFuncCall(
         // Generate arg list with special handling for dyn method calls
         const args = runtimeArgExprs.map((arg, index) => {
           // For dyn method calls, transform the first argument (self) from dyn object to data pointer
+          // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
           if (isDynMethodCall && index === 0) {
             const dynObjectCode = generateExpr(arg, indent, context);
+
+            // Check if this method exists in the dyn type's own module
+            if (
+              exprIsFunctionCall(expr.func) &&
+              exprIsFunctionCallOf(expr.func, ".", 2)
+            ) {
+              const objectExpr = expr.func.args[0];
+              const dynType = objectExpr?.$?.type;
+              const methodExpr = expr.func.args[1];
+
+              if (exprIsAtom(methodExpr) && isDynType(dynType)) {
+                const methodName = methodExpr.token.value;
+                // Check if this method exists in the dyn type's module
+                const dynMethod = dynType.module.elements.find(
+                  (element) => element.label === methodName
+                );
+
+                if (dynMethod) {
+                  // This is a dyn object's own method, pass the dyn object directly
+                  return dynObjectCode;
+                }
+              }
+            }
+
+            // For all other methods (wrapped object methods), pass the wrapped object data
             return `${dynObjectCode}->data`;
           } else {
             return generateExpr(arg, indent, context);
