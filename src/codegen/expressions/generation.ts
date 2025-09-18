@@ -328,9 +328,11 @@ function generateFuncCall(
       const rhsCode = generateExpr(rhs, indent, context);
       const rhsType = rhs.$?.type;
       runtimeDestructurings.forEach(({ label, type, variableName }) => {
+        // Sanitize the variable name for C
+        const sanitizedVariableName = sanitizeForCIdentifier(variableName);
         const varTypeAndName = getVariableTypeString(
           type,
-          variableName,
+          sanitizedVariableName,
           context
         );
         let fieldName = label.match(/^\d+$/)
@@ -1091,8 +1093,9 @@ function generateFuncCall(
             // For regular struct, generate struct initialization as before
             const argsList = runtimeArgExprs
               .map((arg, index) => {
+                const sanitizedLabel = sanitizeForCIdentifier(labels[index]!);
                 return (
-                  `.${labels[index]!} = ` + generateExpr(arg, indent, context)
+                  `.${sanitizedLabel} = ` + generateExpr(arg, indent, context)
                 );
               })
               .join(", ");
@@ -1130,8 +1133,9 @@ function generateFuncCall(
           const cName = context.types[functionValue.value.id]?.cName;
           if (cName && exprIsAtom(labelExpr) && fieldExpr) {
             const label = labelExpr.token.value;
+            const sanitizedLabel = sanitizeForCIdentifier(label);
             const fieldCode = generateExpr(fieldExpr, indent, context);
-            const unionValue = `(${cName}){ .${label} = ${fieldCode} }`;
+            const unionValue = `(${cName}){ .${sanitizedLabel} = ${fieldCode} }`;
 
             // If this union has a temporary variable name, declare it
             if (tempVar && expr.$?.type) {
@@ -1241,8 +1245,11 @@ function generateFuncCall(
                 if (variant.elements) {
                   const element = variant.elements[index];
                   if (element) {
+                    const sanitizedLabel = sanitizeForCIdentifier(
+                      element.label
+                    );
                     return (
-                      `.${element.label} = ` +
+                      `.${sanitizedLabel} = ` +
                       generateExpr(arg, indent, context)
                     );
                   }
@@ -1393,10 +1400,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   ) {
     // We're accessing a captured variable in a closure function
     // All closures use move semantics - access captured variables through closure_context pointer
-    return `closure_context->${expr.token.value}`;
+    return `closure_context->${sanitizeForCIdentifier(expr.token.value)}`;
   }
 
-  return expr.token.value;
+  return sanitizeForCIdentifier(expr.token.value);
 }
 
 /**
