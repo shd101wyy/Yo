@@ -795,6 +795,11 @@ export const BuiltinFunctions = {
   __yo_dyn_vtable_drop: ["__yo_dyn_vtable_drop"], // drop the wrapped object via vtable
   __yo_dyn_vtable_dup: ["__yo_dyn_vtable_dup"], // dup the wrapped object via vtable
 
+  // Closure ARC functions
+  __yo_closure_dispose: ["__yo_closure_dispose"], // dispose closure captured data
+  __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
+  __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
+
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary

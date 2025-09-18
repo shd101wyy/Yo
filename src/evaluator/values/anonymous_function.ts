@@ -36,6 +36,7 @@ import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { addARCFunctionsToClosureType } from "../types/utils";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
@@ -504,6 +505,13 @@ Got:      "${paramName}"`,
     });
 
     const closureType = createClosureType(newFunctionType, captureType, env);
+
+    // Add ARC functions to the closure type
+    env = addARCFunctionsToClosureType({
+      closureType,
+      env,
+      context,
+    });
 
     // Update the existing function value for closures
     functionValue.funcId = `closure_${randomId()}`;

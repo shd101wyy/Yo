@@ -12,6 +12,7 @@ import {
   createUsizeType,
   EnumType,
   isArrayType,
+  isClosureType,
   isDynType,
   isEnumType,
   isModuleType,
@@ -280,7 +281,8 @@ export function evaluatePropertyAccess({
     else if (
       isStructType(typeValue.value) ||
       isUnionType(typeValue.value) ||
-      isDynType(typeValue.value)
+      isDynType(typeValue.value) ||
+      isClosureType(typeValue.value)
     ) {
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({

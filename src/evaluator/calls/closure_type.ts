@@ -15,6 +15,7 @@ import { createClosureValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { addARCFunctionsToClosureType } from "../types/utils";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
@@ -161,6 +162,13 @@ export function tryToImplementClosureByClosureType({
           finalCallerEnv
         )
       : closureType;
+
+  // Add ARC functions to the closure type
+  finalCallerEnv = addARCFunctionsToClosureType({
+    closureType: finalClosureType,
+    env: finalCallerEnv,
+    context,
+  });
 
   // Create the closure value
   const closureValue = createClosureValue(

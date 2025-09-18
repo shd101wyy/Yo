@@ -54,6 +54,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
+import { addARCFunctionsToClosureType } from "./utils";
 
 /**
  * type:
@@ -1036,9 +1037,17 @@ ${typeToString(returnType)}`,
   });
 
   // Create ClosureType if this is a closure, otherwise use FunctionType
-  const finalType = isClosure
-    ? createClosureType(functionType, captureType!, env)
-    : functionType;
+  let finalType;
+  if (isClosure) {
+    finalType = createClosureType(functionType, captureType!, env);
+    env = addARCFunctionsToClosureType({
+      closureType: finalType,
+      env,
+      context,
+    });
+  } else {
+    finalType = functionType;
+  }
 
   // Pop the environment frame
   env = popEnvFrame(env, true);

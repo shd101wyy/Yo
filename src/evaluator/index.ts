@@ -21,6 +21,9 @@ import { evaluateAlignOf } from "./builtins/alignof";
 import { evaluateAndOr } from "./builtins/and_or";
 import {
   evaluateIsUniquelyOwned,
+  evaluateYoClosureDispose,
+  evaluateYoClosureDrop,
+  evaluateYoClosureDup,
   evaluateYoDecrRc,
   evaluateYoDynVtableDispose,
   evaluateYoDynVtableDrop,
@@ -512,6 +515,25 @@ ${exprToString(expr)}`,
       ) {
         // __yo_dyn_vtable_dup
         return evaluateYoDynVtableDup({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dispose)
+      ) {
+        // __yo_closure_dispose
+        return evaluateYoClosureDispose({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_drop)
+      ) {
+        // __yo_closure_drop
+        return evaluateYoClosureDrop({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dup)
+      ) {
+        // __yo_closure_dup
+        return evaluateYoClosureDup({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote)) {
         // metaprogramming
         // quote

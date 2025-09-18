@@ -526,13 +526,37 @@ export function createClosureType(
     );
   }
 
-  return {
-    id: `closure_${callType.id}_${captureType.id}`,
+  const closureId = `closure_${callType.id}_${captureType.id}`;
+  const module = createModuleType(env);
+
+  const closureType: ClosureType = {
+    id: closureId,
     tag: TypeTag.Closure,
     callType: callType as FunctionType & { isClosure: true },
     captureType,
+    module,
     env,
   };
+
+  // Add "Self" to closure type module, similar to struct type
+  const typeValue = createTypeValue(closureType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    label: "Self",
+    isCompileTimeOnly: true,
+    isImplicit: false,
+    defaultValue: undefined,
+    assignedValue: typeValue,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+    },
+  };
+  module.elements.push(selfElement);
+
+  return closureType;
 }
 
 export function createDynType(

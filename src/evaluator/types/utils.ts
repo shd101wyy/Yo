@@ -7,6 +7,7 @@ import {
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import {
+  ClosureType,
   DynType,
   EnumType,
   isARCType,
@@ -22,7 +23,7 @@ import { EvaluatorContext } from "../context";
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType: StructType | EnumType | DynType,
+  SelfType: StructType | EnumType | DynType | ClosureType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -62,7 +63,7 @@ export function addFunctionToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType: StructType | EnumType | DynType;
+  SelfType: StructType | EnumType | DynType | ClosureType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -354,6 +355,111 @@ function generateDupFunctionCodeForDynType(_dynType: DynType): string {
     // Duplicate the wrapped object (this updates the reference count of the inner object)
     ${BuiltinFunctions.__yo_dyn_vtable_dup[0]!}(self);
     // Increment the dyn object's own reference count and return it
+    ${BuiltinFunctions.__yo_incr_rc[0]!}(self);
+    ${BuiltinFunctions.__yo_rc_own[0]!}(self)
+  })`;
+}
+
+/**
+ * Add ARC functions (___dup, ___drop, ___dispose) to a closure type's module.
+ * These functions operate on the closure itself and its captured data.
+ */
+export function addARCFunctionsToClosureType({
+  closureType,
+  env,
+  context,
+}: {
+  closureType: ClosureType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Generate ARC functions for the closure
+  const disposeFunctionCode =
+    generateDisposeFunctionCodeForClosureType(closureType);
+  const dropFunctionCode = generateDropFunctionCodeForClosureType(closureType);
+  const dupFunctionCode = generateDupFunctionCodeForClosureType(closureType);
+
+  // Add ___dispose function
+  if (disposeFunctionCode) {
+    env = addFunctionToSelfTypeModule({
+      label: BuiltinFunctions.___dispose[0]!,
+      functionCode: disposeFunctionCode,
+      SelfType: closureType,
+      env,
+      context,
+    });
+  }
+
+  // Add ___dup function to the closure type module elements
+  if (dupFunctionCode) {
+    env = addFunctionToSelfTypeModule({
+      label: BuiltinFunctions.___dup[0]!,
+      functionCode: dupFunctionCode,
+      SelfType: closureType,
+      env,
+      context,
+    });
+  }
+
+  // Add ___drop function to the closure type module elements
+  if (dropFunctionCode) {
+    env = addFunctionToSelfTypeModule({
+      label: BuiltinFunctions.___drop[0]!,
+      functionCode: dropFunctionCode,
+      SelfType: closureType,
+      env,
+      context,
+    });
+  }
+
+  return env;
+}
+
+/**
+ * Generate ___dispose function code for a closure type
+ */
+function generateDisposeFunctionCodeForClosureType(
+  _closureType: ClosureType
+): string {
+  // For closure types, dispose should:
+  // 1. Dispose the captured data via builtin function
+  return `((fn(self : Self) -> unit) { // ___dispose for closure
+    // Dispose the captured data
+    ${BuiltinFunctions.__yo_closure_dispose[0]!}(self);
+  })`;
+}
+
+/**
+ * Generate ___drop function code for a closure type
+ */
+function generateDropFunctionCodeForClosureType(
+  _closureType: ClosureType
+): string {
+  // For closure types, drop should:
+  // 1. Drop the captured data via builtin function
+  // 2. Use __yo_decr_rc on the closure object itself
+  return `((fn(self : Self) -> unit) { // ___drop for closure
+    // Drop the captured data first
+    ${BuiltinFunctions.__yo_closure_drop[0]!}(self);
+    // Then decrement the closure object's own reference count
+    ${BuiltinFunctions.__yo_decr_rc[0]!}(self, Self.___dispose);
+  })`;
+}
+
+/**
+ * Generate ___dup function code for a closure type
+ */
+function generateDupFunctionCodeForClosureType(
+  _closureType: ClosureType
+): string {
+  // For closure types, dup should:
+  // 1. Duplicate the captured data via builtin function
+  // 2. Use __yo_incr_rc on the closure object itself
+  // 3. Return the closure object
+  return `((fn(self : Self) -> Self) {  // ___dup for closure
+    // Duplicate the captured data
+    ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
+    // Increment the closure object's own reference count and return it
     ${BuiltinFunctions.__yo_incr_rc[0]!}(self);
     ${BuiltinFunctions.__yo_rc_own[0]!}(self)
   })`;

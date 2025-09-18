@@ -542,6 +542,12 @@ export interface ClosureType extends Type {
   captureType: SomeType | StructType;
 
   /**
+   * The module that contains the closure's ARC functions (___dispose, ___drop, ___dup).
+   * Similar to DynType's module property.
+   */
+  module: ModuleType;
+
+  /**
    * The env when the closure type is created.
    */
   env: Environment;
