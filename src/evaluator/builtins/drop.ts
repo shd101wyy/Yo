@@ -12,7 +12,12 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { isSomeType, isTupleType, typeContainsARCType } from "../../types";
+import {
+  isArrayType,
+  isSomeType,
+  isTupleType,
+  typeContainsARCType,
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import { evaluateFunctionCall } from "../calls/function";
@@ -62,6 +67,45 @@ function generateTupleDropCall(tupleExpr: Expr): string {
   return `begin(
   ${destructuring} := ${tupleExpr.$.variableName},
   ${dropCalls}
+)`;
+}
+
+/**
+ * Generate ___drop function for an array type that contains ARC values
+ */
+function generateArrayDropCall(arrayExpr: Expr): string {
+  if (!arrayExpr.$?.type || !isArrayType(arrayExpr.$.type)) {
+    throw formatErrorMessage({
+      token: arrayExpr.token,
+      errorMessage: `Expected array type for drop generation:\n${exprToString(
+        arrayExpr
+      )}`,
+    });
+  }
+  if (!arrayExpr.$.variableName) {
+    throw formatErrorMessage({
+      token: arrayExpr.token,
+      errorMessage: `Expected variable name for drop generation:\n${exprToString(
+        arrayExpr
+      )}`,
+    });
+  }
+
+  const arrayType = arrayExpr.$.type;
+  const elementType = arrayType.elementType;
+
+  if (!typeContainsARCType(elementType)) {
+    return ""; // No elements need dropping
+  }
+
+  // Use a for loop to iterate over the array and drop each element
+  const id = randomId();
+  const elementVarName = `_${id}_element`;
+
+  return `begin(
+  for ${exprToString(arrayExpr)}, ${elementVarName} => {
+    ${BuiltinFunctions.___drop[0]!}(${elementVarName});
+  };
 )`;
 }
 
@@ -132,6 +176,42 @@ export function evaluateDrop({
         }
       } else {
         // No ARC elements in tuple, just consume and return unit
+        env = setExprAsConsumed(evaluatedArgExpr, env, context);
+        expr.$ = {
+          env,
+          type: VUnit.type,
+          value: VUnit,
+          pathCollection: [],
+        };
+        return expr;
+      }
+    }
+    // Handle array types specially since they don't have methods
+    else if (isArrayType(evaluatedArgExpr.$.type)) {
+      const arrayDropCode = generateArrayDropCall(evaluatedArgExpr);
+      if (arrayDropCode) {
+        const arrayDropExpr = generateExprFromCode(
+          arrayDropCode
+        ) as FuncCallExpr;
+
+        // Set the expression as consumed
+        env = setExprAsConsumed(evaluatedArgExpr, env, context);
+
+        // Evaluate the generated array drop expression
+        const evaluatedArrayDropExpr = context.evaluateExpression({
+          expr: arrayDropExpr,
+          env,
+          context: { ...context },
+        });
+
+        if (exprIsFunctionCall(evaluatedArrayDropExpr)) {
+          replaceFuncCallExprWithFuncCallExpr(expr, evaluatedArrayDropExpr);
+          return expr;
+        } else {
+          return evaluatedArrayDropExpr;
+        }
+      } else {
+        // No ARC elements in array, just consume and return unit
         env = setExprAsConsumed(evaluatedArgExpr, env, context);
         expr.$ = {
           env,

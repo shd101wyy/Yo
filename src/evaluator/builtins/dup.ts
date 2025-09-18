@@ -11,8 +11,14 @@ import {
   replaceFuncCallExprWithFuncCallExpr,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { isSomeType, isTupleType, typeContainsARCType } from "../../types";
+import {
+  isArrayType,
+  isSomeType,
+  isTupleType,
+  typeContainsARCType,
+} from "../../types";
 import { randomId } from "../../utils";
+import { isNumberValue, NumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 
@@ -53,9 +59,57 @@ function generateTupleDupCall(tupleExpr: Expr): string {
   );
 
   return `begin(
-  ${destructuring} := ${exprToString(tupleExpr)},
+  ${destructuring} := ${tupleExpr.$.variableName},
   (${dupCalls.join(", ")}${dupCalls.length === 1 ? "," : ""})
 )`;
+}
+
+/**
+ * Generate ___dup function for an array type that contains ARC values
+ */
+function generateArrayDupCall(arrayExpr: Expr): string {
+  if (!arrayExpr.$?.type || !isArrayType(arrayExpr.$.type)) {
+    throw new Error("Expected array type for dup generation");
+  }
+  if (!arrayExpr.$.variableName) {
+    throw formatErrorMessage({
+      token: arrayExpr.token,
+      errorMessage: `Expected variable name for dup generation:\n${exprToString(
+        arrayExpr
+      )}`,
+    });
+  }
+
+  const arrayType = arrayExpr.$.type;
+  const elementType = arrayType.elementType;
+
+  if (!typeContainsARCType(elementType)) {
+    return arrayExpr.$.variableName; // No elements need duplication, return as-is
+  }
+
+  // Generate a new array by iterating through the original and duplicating ARC elements
+  const id = randomId();
+  const originalArrayVarName = `_${id}_orig`;
+
+  // Check if we can get the array length at compile time
+  if (isNumberValue(arrayType.length)) {
+    const arrayLength = (arrayType.length as NumberValue).value;
+    // Generate array constructor call with duplicated elements
+    return `begin(
+  ${originalArrayVarName} := ${arrayExpr.$.variableName},
+  [${Array.from(
+    { length: Number(arrayLength) },
+    (_, i) => `${BuiltinFunctions.___dup[0]!}(${originalArrayVarName}(${i}))`
+  ).join(", ")}${arrayLength === 1 ? "," : ""}]
+)`;
+  } else {
+    // For dynamic-length arrays (though this might not be common)
+    return `begin(
+  for ${arrayExpr.$.variableName}, elem => {
+    ${BuiltinFunctions.___dup[0]!}(elem);
+  }
+)`;
+  }
 }
 
 /**
@@ -117,6 +171,24 @@ export function evaluateDup({
         return expr;
       } else {
         return evaluatedTupleDupExpr;
+      }
+    } else if (isArrayType(evaluatedArgExpr.$.type)) {
+      // Handle array types
+      const arrayDupCode = generateArrayDupCall(evaluatedArgExpr);
+      const arrayDupExpr = generateExprFromCode(arrayDupCode);
+
+      // Evaluate the generated array dup expression
+      const evaluatedArrayDupExpr = context.evaluateExpression({
+        expr: arrayDupExpr,
+        env,
+        context: { ...context },
+      });
+
+      if (exprIsFunctionCall(evaluatedArrayDupExpr)) {
+        replaceFuncCallExprWithFuncCallExpr(expr, evaluatedArrayDupExpr);
+        return expr;
+      } else {
+        return evaluatedArrayDupExpr;
       }
     } else {
       // Handle struct types and other types with ___dup methods
