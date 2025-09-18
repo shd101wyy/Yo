@@ -44,12 +44,6 @@ typedef struct {
 `);
   }
 
-  // Generate array struct types first
-  generateArrayStructDeclarations(context);
-
-  // Generate slice struct types
-  generateSliceStructDeclarations(context);
-
   // Forward declarations - generate struct and enum forward declarations first
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
@@ -70,6 +64,12 @@ typedef struct {
 
   // Add blank line after forward declarations
   context.emitter.emitDeclarationLine("");
+
+  // Generate array struct types after forward declarations
+  generateArrayStructDeclarations(context);
+
+  // Generate slice struct types
+  generateSliceStructDeclarations(context);
 
   // First pass: Generate struct declarations
   for (const typeId in context.types) {

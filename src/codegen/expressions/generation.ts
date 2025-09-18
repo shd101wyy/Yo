@@ -119,6 +119,16 @@ function generateFuncCall(
     return `__yo_incr_rc(${selfCode})`;
   }
 
+  // __yo_rc_own - return the value itself, used for transferring ownership
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_rc_own requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return selfCode; // Just return the argument as-is
+  }
+
   // dyn() - dynamic dispatch constructor
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
     return generateDynCall(expr, indent, context);

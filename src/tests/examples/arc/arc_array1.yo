@@ -1,0 +1,18 @@
+open import "../../../../std/libc/stdio.yo";
+
+Box :: ref struct(
+  (*) : i32,
+
+  dispose :: (fn(self : Self) -> unit) {
+    printf("Dropping Box with value %d\n", self.(*));
+  }
+);
+
+// tuple
+main :: ((fn() -> unit) {
+  x := Box(3);
+  y := [x,];
+  z := [y,];
+});
+
+export main;
