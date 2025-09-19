@@ -805,8 +805,14 @@ export function generateClosureConstructorFunctions(
 
         emitter.emitLine(`${cName}* ${constructorName}(${allParams}) {`);
 
-        // Allocate and initialize capture data
-        const captureTypeName = `${cName}_capture`;
+        // Allocate and initialize capture data using the existing struct type
+        const existingCaptureTypeEntry = Object.values(context.types).find(
+          (entry) => entry.type === captureType
+        );
+        const captureTypeName = existingCaptureTypeEntry
+          ? existingCaptureTypeEntry.cName
+          : `${cName}_capture`; // fallback
+
         emitter.emitLine(
           `  ${captureTypeName}* captureData = malloc(sizeof(${captureTypeName}));`
         );
@@ -902,7 +908,14 @@ export function generateClosureConstructorFunctions(
           const dropFunctionCName =
             context.functions[dropFunctionValue.funcId]?.cName;
           if (dropFunctionCName) {
-            const captureTypeName = `${cName}_capture`;
+            // Use the existing struct type name instead of generating a new capture type name
+            const existingCaptureTypeEntry = Object.values(context.types).find(
+              (entry) => entry.type === captureType
+            );
+            const captureTypeName = existingCaptureTypeEntry
+              ? existingCaptureTypeEntry.cName
+              : `${cName}_capture`; // fallback
+
             emitter.emitLine(`  if (self->data) {`);
             emitter.emitLine(
               `    ${dropFunctionCName}(*(${captureTypeName}*)self->data);`

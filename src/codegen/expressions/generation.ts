@@ -548,7 +548,14 @@ function generateFuncCall(
                   functionContext.types
                 ).find((entry) => entry.type === currentClosureType);
                 if (closureTypeEntry) {
-                  const captureStructName = `${closureTypeEntry.cName}_capture`;
+                  // Use the existing struct type name instead of generating a new capture type name
+                  const captureType = currentClosureType.captureType;
+                  const existingCaptureTypeEntry = Object.values(
+                    functionContext.types
+                  ).find((entry) => entry.type === captureType);
+                  const captureStructName = existingCaptureTypeEntry
+                    ? existingCaptureTypeEntry.cName
+                    : `${closureTypeEntry.cName}_capture`; // fallback
                   rhsCode = `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(rhs.token.value)}`;
                 } else {
                   rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
@@ -1526,7 +1533,14 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         (entry) => entry.type === currentClosureType
       );
       if (closureTypeEntry) {
-        const captureStructName = `${closureTypeEntry.cName}_capture`;
+        // Use the existing struct type name instead of generating a new capture type name
+        const captureType = currentClosureType.captureType;
+        const existingCaptureTypeEntry = Object.values(
+          functionContext.types
+        ).find((entry) => entry.type === captureType);
+        const captureStructName = existingCaptureTypeEntry
+          ? existingCaptureTypeEntry.cName
+          : `${closureTypeEntry.cName}_capture`; // fallback
         return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
       }
     }
@@ -1562,7 +1576,13 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
             (elem) => elem.label
           );
           if (capturedVarNames.includes(expr.token.value)) {
-            const captureStructName = `${closureTypeEntry.cName}_capture`;
+            // Use the existing struct type name instead of generating a new capture type name
+            const existingCaptureTypeEntry = Object.values(
+              functionContext.types
+            ).find((entry) => entry.type === captureType);
+            const captureStructName = existingCaptureTypeEntry
+              ? existingCaptureTypeEntry.cName
+              : `${closureTypeEntry.cName}_capture`; // fallback
             return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
           }
         }
@@ -1723,11 +1743,20 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       // Use the closure's dispose function instead of the capture type's drop function
       const closureDisposeFunctionName = `__yo_dispose_${cName}`;
 
-      const allArgs = [
-        ...captureArgs,
-        functionCName,
-        closureDisposeFunctionName,
-      ];
+      // Cast function pointers to generic void* function types for constructor
+      const callType = closureType.callType;
+      const returnTypeStr = getTypeString(callType.return.type, context);
+      const callParamList = callType.parameters
+        .map((param) => {
+          const paramTypeStr = getTypeString(param.type, context);
+          return paramTypeStr;
+        })
+        .join(", ");
+
+      const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
+      const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
+
+      const allArgs = [...captureArgs, castCallFunction, castDisposeFunction];
       return `${constructorName}(${allArgs.join(", ")})`;
     } else if (
       closureType.captureType &&
@@ -1745,20 +1774,49 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
         // Use the closure's dispose function instead of the capture type's drop function
         const closureDisposeFunctionName = `__yo_dispose_${cName}`;
 
+        // Cast function pointers to generic void* function types for constructor
+        const callType = closureType.callType;
+        const returnTypeStr = getTypeString(callType.return.type, context);
+        const callParamList = callType.parameters
+          .map((param) => {
+            const paramTypeStr = getTypeString(param.type, context);
+            return paramTypeStr;
+          })
+          .join(", ");
+
+        const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
+        const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
+
         // Pass capture values directly, then function pointers
-        const allArgs = [
-          ...captureArgs,
-          functionCName,
-          closureDisposeFunctionName,
-        ];
+        const allArgs = [...captureArgs, castCallFunction, castDisposeFunction];
         return `${constructorName}(${allArgs.join(", ")})`;
       } else {
-        // Empty closure
-        return `${constructorName}(${functionCName}, NULL)`;
+        // Empty closure - cast function pointer to generic void* function type
+        const callType = closureType.callType;
+        const returnTypeStr = getTypeString(callType.return.type, context);
+        const callParamList = callType.parameters
+          .map((param) => {
+            const paramTypeStr = getTypeString(param.type, context);
+            return paramTypeStr;
+          })
+          .join(", ");
+
+        const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
+        return `${constructorName}(${castCallFunction}, NULL)`;
       }
     } else {
-      // Closure without captures - generate empty constructor call
-      return `${constructorName}(${functionCName}, NULL)`;
+      // Closure without captures - cast function pointer to generic void* function type
+      const callType = closureType.callType;
+      const returnTypeStr = getTypeString(callType.return.type, context);
+      const callParamList = callType.parameters
+        .map((param) => {
+          const paramTypeStr = getTypeString(param.type, context);
+          return paramTypeStr;
+        })
+        .join(", ");
+
+      const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
+      return `${constructorName}(${castCallFunction}, NULL)`;
     }
   } else if (isFunctionValue(value)) {
     // For function values, we need to register them and return their C function name

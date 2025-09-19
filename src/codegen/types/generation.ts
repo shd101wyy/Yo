@@ -137,22 +137,31 @@ export function generateClosureDeclaration(
 
   // Generate the capture data structure first (if there are captures)
   const captureType = closureType.captureType;
-  const captureStructName = `${cName}_capture`;
 
   if (isStructType(captureType) && captureType.elements.length > 0) {
-    // Generate capture struct (without reference counting since the closure handles that)
-    emitter.emitDeclarationLine(
-      `typedef struct { // Capture data for ${typeToString(closureType)}`
+    // Check if the capture type already exists in the context (it should have been collected)
+    const existingCaptureTypeEntry = Object.values(context.types).find(
+      (entry) => entry.type === captureType
     );
 
-    for (const element of captureType.elements) {
-      const fieldTypeStr = getTypeString(element.type, context);
-      const fieldName = sanitizeForCIdentifier(element.label);
-      emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
-    }
+    if (!existingCaptureTypeEntry) {
+      // If capture type doesn't exist, we need to generate it inline
+      // This shouldn't normally happen if collection is working properly
+      const captureStructName = `${cName}_capture`;
+      emitter.emitDeclarationLine(
+        `typedef struct { // Capture data for ${typeToString(closureType)}`
+      );
 
-    emitter.emitDeclarationLine(`} ${captureStructName};`);
-    emitter.emitDeclarationLine("");
+      for (const element of captureType.elements) {
+        const fieldTypeStr = getTypeString(element.type, context);
+        const fieldName = sanitizeForCIdentifier(element.label);
+        emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+      }
+
+      emitter.emitDeclarationLine(`} ${captureStructName};`);
+      emitter.emitDeclarationLine("");
+    }
+    // If it already exists, we don't need to generate it again - just reference it
   }
 
   // Generate vtable structure for the closure's dynamic dispatch
