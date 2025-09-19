@@ -204,16 +204,8 @@ export function generateClosureDeclaration(
   );
   emitter.emitDeclarationLine(`  ${vtableName}* vtable; // Function pointers`);
 
-  // Data field points to capture struct or is null if no captures
-  if (isStructType(captureType) && captureType.elements.length > 0) {
-    emitter.emitDeclarationLine(
-      `  ${captureStructName}* data; // Captured data`
-    );
-  } else {
-    emitter.emitDeclarationLine(
-      `  void* data; // No captured data (always NULL)`
-    );
-  }
+  // Data field is always void* to allow different capture types for same closure type
+  emitter.emitDeclarationLine(`  void* data; // Captured data`);
 
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
