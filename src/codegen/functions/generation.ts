@@ -1,4 +1,5 @@
 import {
+  BuiltinFunctions,
   BuiltinKeywords,
   Expr,
   exprIsFunctionCall,
@@ -19,6 +20,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
+import { isFunctionValue } from "../../value";
 import { generateExpr, generateReturnStatement } from "../expressions";
 import {
   CodeGenContext,
@@ -67,6 +69,11 @@ export function generateFunctionDeclarations(
   // Generate constructor functions for ref structs
   emitter.emitDeclarationLine(`/// Ref struct constructors`);
   generateRefStructConstructorDeclarations(context);
+  emitter.emitDeclarationLine("");
+
+  // Generate constructor functions for closures
+  emitter.emitDeclarationLine(`/// Closure constructors`);
+  generateClosureConstructorDeclarations(context);
   emitter.emitDeclarationLine("");
 
   // Generate declarations for other functions
@@ -475,39 +482,6 @@ export function generateRefStructConstructorDeclarations(
       );
     }
 
-    // Generate constructor declarations for each closure (they are also reference-counted)
-    if (isClosureType(type)) {
-      const closureType = type as ClosureType;
-      const captureType = closureType.captureType;
-
-      // Skip generic closures that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      const constructorName = `__yo_new_${cName}`;
-
-      if (isStructType(captureType) && captureType.elements.length > 0) {
-        // Generate constructor parameters for captured variables
-        const paramTypes = captureType.elements
-          .map((element) => {
-            const fieldType = getTypeString(element.type, context);
-            const fieldName = sanitizeForCIdentifier(element.label);
-            return `${fieldType} ${fieldName}`;
-          })
-          .join(", ");
-
-        emitter.emitDeclarationLine(
-          `${cName}* ${constructorName}(${paramTypes}); // Closure constructor`
-        );
-      } else {
-        // Empty closure (no captures)
-        emitter.emitDeclarationLine(
-          `${cName}* ${constructorName}(); // Empty closure constructor`
-        );
-      }
-    }
-
     // Generate constructor declarations for each dyn type
     if (isDynType(type)) {
       // Skip generic dyn types that contain SomeType parameters
@@ -523,37 +497,14 @@ export function generateRefStructConstructorDeclarations(
   }
 }
 
-/**
- * Generate vtable instance declarations for closures
- */
-export function generateClosureVtableDeclarations(
+export function generateClosureConstructorDeclarations(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
-  // Generate forward declarations for ARC functions first
-  for (const typeEntry of Object.values(context.types)) {
-    const type = typeEntry.type;
-    const cName = typeEntry.cName;
-
-    if (isClosureType(type)) {
-      // Skip generic closures that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      // Forward declare ARC functions
-      emitter.emitDeclarationLine(`void ${cName}_dispose(void* self);`);
-      emitter.emitDeclarationLine(`void ${cName}_drop(void* self);`);
-      emitter.emitDeclarationLine(`void* ${cName}_dup(void* self);`);
-      emitter.emitDeclarationLine(``);
-    }
-  }
-
-  // Generate vtable instance declarations for closures
-  for (const typeEntry of Object.values(context.types)) {
-    const type = typeEntry.type;
-    const cName = typeEntry.cName;
+  // Generate constructor declarations for each closure (they are also reference-counted)
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
 
     if (isClosureType(type)) {
       const closureType = type as ClosureType;
@@ -563,33 +514,95 @@ export function generateClosureVtableDeclarations(
         continue;
       }
 
-      const vtableName = `${cName}_vtable`;
-      const vtableInstanceName = `${cName}_vtable_instance`;
+      const constructorName = `__yo_new_${cName}`;
 
-      // Find the call function for this closure
-      let callFunctionName = "NULL";
-      for (const funcEntry of Object.values(context.functions)) {
-        if (
-          funcEntry.value.type === closureType.callType ||
-          funcEntry.value.specializedType === closureType.callType
-        ) {
-          callFunctionName = funcEntry.cName;
-          break;
-        }
+      // Generate closure constructor that takes captured values directly
+      const captureType = closureType.captureType;
+      if (isStructType(captureType) && captureType.elements.length > 0) {
+        // Constructor takes captured values, call function, and drop function
+        const captureParams = captureType.elements
+          .map((element) => {
+            const fieldType = getTypeString(element.type, context);
+            const fieldName = sanitizeForCIdentifier(element.label);
+            return `${fieldType} ${fieldName}`;
+          })
+          .join(", ");
+
+        const callType = closureType.callType;
+        const returnTypeStr = getTypeString(callType.return.type, context);
+        const callParamList = callType.parameters
+          .map((param) => {
+            const paramTypeStr = getTypeString(param.type, context);
+            const paramName = sanitizeForCIdentifier(param.label);
+            return `${paramTypeStr} ${paramName}`;
+          })
+          .join(", ");
+
+        const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
+        const disposeFnParam = `void (*dispose)(void* self)`;
+
+        const allParams = `${captureParams}, ${callFnParam}, ${disposeFnParam}`;
+
+        emitter.emitDeclarationLine(
+          `${cName}* ${constructorName}(${allParams}); // Closure constructor`
+        );
+      } else {
+        // Empty closure (no captures) - just takes call and dispose functions
+        const callType = closureType.callType;
+        const returnTypeStr = getTypeString(callType.return.type, context);
+        const callParamList = callType.parameters
+          .map((param) => {
+            const paramTypeStr = getTypeString(param.type, context);
+            const paramName = sanitizeForCIdentifier(param.label);
+            return `${paramTypeStr} ${paramName}`;
+          })
+          .join(", ");
+
+        const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
+        const disposeFnParam = `void (*dispose)(void* self)`;
+
+        const allParams = `${callFnParam}, ${disposeFnParam}`;
+
+        emitter.emitDeclarationLine(
+          `${cName}* ${constructorName}(${allParams}); // Empty closure constructor`
+        );
       }
 
-      // Generate vtable instance declaration
+      // Declare the common create function for this closure type
+      const callType = closureType.callType;
+      const returnTypeStr = getTypeString(callType.return.type, context);
+      const callParamList = callType.parameters
+        .map((param) => {
+          const paramTypeStr = getTypeString(param.type, context);
+          const paramName = sanitizeForCIdentifier(param.label);
+          return `${paramTypeStr} ${paramName}`;
+        })
+        .join(", ");
+
+      const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
+      const disposeFnParam = `void (*dispose)(void* self)`;
+
       emitter.emitDeclarationLine(
-        `static ${vtableName} ${vtableInstanceName} = {`
+        `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}); // Create closure with data`
       );
-      emitter.emitDeclarationLine(`  .call = (void*)${callFunctionName},`);
-      emitter.emitDeclarationLine(`  .dispose = ${cName}_dispose,`);
-      emitter.emitDeclarationLine(`  .drop = ${cName}_drop,`);
-      emitter.emitDeclarationLine(`  .dup = ${cName}_dup`);
-      emitter.emitDeclarationLine(`};`);
-      emitter.emitDeclarationLine(``);
+
+      // Declare the dispose function for this closure type
+      const disposeFunctionName = `__yo_dispose_${cName}`;
+      emitter.emitDeclarationLine(
+        `void ${disposeFunctionName}(${cName}* self); // Dispose closure and captured data`
+      );
     }
   }
+}
+
+/**
+ * Generate vtable instance declarations for closures
+ */
+export function generateClosureVtableDeclarations(
+  _context: FunctionGenerationContext
+): void {
+  // No static vtable instances - closures will create vtables dynamically
+  // Each closure instance will have its own vtable with appropriate drop function
 }
 
 /**
@@ -747,71 +760,7 @@ export function generateClosureConstructorFunctions(
 ): void {
   const emitter = context.emitter;
 
-  // Generate constructor implementations for each closure
-  for (const typeId in context.types) {
-    const { type, cName } = context.types[typeId]!;
-    if (isClosureType(type)) {
-      const closureType = type as ClosureType;
-      const captureType = closureType.captureType;
-
-      // Skip generic closures that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      const constructorName = `__yo_new_${cName}`;
-      const vtableInstanceName = `${cName}_vtable_instance`;
-
-      if (isStructType(captureType) && captureType.elements.length > 0) {
-        // Generate constructor with captured variables
-        const paramTypes = captureType.elements
-          .map((element) => {
-            const fieldType = getTypeString(element.type, context);
-            const fieldName = sanitizeForCIdentifier(element.label);
-            return `${fieldType} ${fieldName}`;
-          })
-          .join(", ");
-
-        emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
-        emitter.emitLine(
-          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
-        );
-        emitter.emitLine(`  obj->header.ref_count = 1;`);
-        emitter.emitLine(`  obj->vtable = &${vtableInstanceName};`);
-
-        // Allocate and initialize captured data
-        const captureStructName = `${cName}_capture`;
-        emitter.emitLine(
-          `  ${captureStructName}* data = (${captureStructName}*)malloc(sizeof(${captureStructName}));`
-        );
-
-        // Initialize captured fields
-        captureType.elements.forEach((element) => {
-          const fieldName = sanitizeForCIdentifier(element.label);
-          emitter.emitLine(`  data->${fieldName} = ${fieldName};`);
-        });
-
-        emitter.emitLine(`  obj->data = data;`);
-        emitter.emitLine(`  return obj;`);
-        emitter.emitLine(`}`);
-        emitter.emitLine(``);
-      } else {
-        // Empty closure constructor (no captures)
-        emitter.emitLine(`${cName}* ${constructorName}() {`);
-        emitter.emitLine(
-          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
-        );
-        emitter.emitLine(`  obj->header.ref_count = 1;`);
-        emitter.emitLine(`  obj->vtable = &${vtableInstanceName};`);
-        emitter.emitLine(`  obj->data = NULL; // No captures`);
-        emitter.emitLine(`  return obj;`);
-        emitter.emitLine(`}`);
-        emitter.emitLine(``);
-      }
-    }
-  }
-
-  // Generate ARC functions for closures
+  // Generate closure constructor functions
   for (const typeEntry of Object.values(context.types)) {
     const type = typeEntry.type;
     const cName = typeEntry.cName;
@@ -824,71 +773,159 @@ export function generateClosureConstructorFunctions(
         continue;
       }
 
-      const captureStructName = `${cName}_capture`;
+      // Generate closure constructor function
+      const constructorName = `__yo_new_${cName}`;
 
-      // Generate ARC functions for this closure type
-      emitter.emitLine(`// ARC functions for ${cName}`);
+      // Generate constructor implementation
+      const captureType = closureType.captureType;
+      if (isStructType(captureType) && captureType.elements.length > 0) {
+        // Constructor takes captured values directly
+        const captureParams = captureType.elements
+          .map((element) => {
+            const fieldType = getTypeString(element.type, context);
+            const fieldName = sanitizeForCIdentifier(element.label);
+            return `${fieldType} ${fieldName}`;
+          })
+          .join(", ");
 
-      // Generate dispose function
-      emitter.emitLine(`void ${cName}_dispose(void* self) {`);
-      emitter.emitLine(`  ${cName}* closure = (${cName}*)self;`);
-      emitter.emitLine(`  if (closure->data) {`);
-      if (
-        isStructType(closureType.captureType) &&
-        closureType.captureType.elements.length > 0
-      ) {
-        // TODO: Add disposal of captured data if needed (for now just free the capture struct)
-        emitter.emitLine(`    free(closure->data);`);
-      }
-      emitter.emitLine(`  }`);
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
+        const callType = closureType.callType;
+        const returnTypeStr = getTypeString(callType.return.type, context);
+        const callParamList = callType.parameters
+          .map((param) => {
+            const paramTypeStr = getTypeString(param.type, context);
+            const paramName = sanitizeForCIdentifier(param.label);
+            return `${paramTypeStr} ${paramName}`;
+          })
+          .join(", ");
 
-      // Generate drop function
-      emitter.emitLine(`void ${cName}_drop(void* self) {`);
-      emitter.emitLine(`  ${cName}* closure = (${cName}*)self;`);
-      emitter.emitLine(`  if (closure->data) {`);
-      if (
-        isStructType(closureType.captureType) &&
-        closureType.captureType.elements.length > 0
-      ) {
-        emitter.emitLine(`    free(closure->data);`);
-      }
-      emitter.emitLine(`  }`);
-      emitter.emitLine(`  free(closure);`);
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
+        const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
+        const disposeFnParam = `void (*dispose)(void* self)`;
 
-      // Generate dup function
-      emitter.emitLine(`void* ${cName}_dup(void* self) {`);
-      emitter.emitLine(`  ${cName}* closure = (${cName}*)self;`);
-      emitter.emitLine(
-        `  ${cName}* new_closure = (${cName}*)malloc(sizeof(${cName}));`
-      );
-      emitter.emitLine(`  new_closure->header.ref_count = 1;`);
-      emitter.emitLine(`  new_closure->vtable = closure->vtable;`);
+        const allParams = `${captureParams}, ${callFnParam}, ${disposeFnParam}`;
 
-      if (
-        isStructType(closureType.captureType) &&
-        closureType.captureType.elements.length > 0
-      ) {
-        // Deep copy the capture data
-        emitter.emitLine(`  if (closure->data) {`);
+        emitter.emitLine(`${cName}* ${constructorName}(${allParams}) {`);
+
+        // Allocate and initialize capture data
+        const captureTypeName = `${cName}_capture`;
         emitter.emitLine(
-          `    ${captureStructName}* new_data = (${captureStructName}*)malloc(sizeof(${captureStructName}));`
+          `  ${captureTypeName}* captureData = malloc(sizeof(${captureTypeName}));`
+        );
+
+        // Initialize capture fields
+        captureType.elements.forEach((element) => {
+          const fieldName = sanitizeForCIdentifier(element.label);
+          emitter.emitLine(`  captureData->${fieldName} = ${fieldName};`);
+        });
+
+        // Use common create_closure function
+        emitter.emitLine(
+          `  return __yo_create_${cName}(captureData, call, dispose);`
+        );
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
+
+        // Generate the common create_closure function
+        emitter.emitLine(
+          `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
         );
         emitter.emitLine(
-          `    *new_data = *((${captureStructName}*)closure->data); // Shallow copy for now`
+          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
         );
-        emitter.emitLine(`    new_closure->data = new_data;`);
-        emitter.emitLine(`  } else {`);
-        emitter.emitLine(`    new_closure->data = NULL;`);
-        emitter.emitLine(`  }`);
+        emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(`  obj->data = data;`);
+
+        // Set vtable function pointers directly
+        emitter.emitLine(`  obj->vtable.call = call;`);
+        emitter.emitLine(`  obj->vtable.dispose = dispose;`);
+
+        emitter.emitLine(`  return obj;`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
       } else {
-        emitter.emitLine(`  new_closure->data = NULL;`);
+        // Empty closure (no captures)
+        const callType = closureType.callType;
+        const returnTypeStr = getTypeString(callType.return.type, context);
+        const callParamList = callType.parameters
+          .map((param) => {
+            const paramTypeStr = getTypeString(param.type, context);
+            const paramName = sanitizeForCIdentifier(param.label);
+            return `${paramTypeStr} ${paramName}`;
+          })
+          .join(", ");
+
+        const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
+        const disposeFnParam = `void (*dispose)(void* self)`;
+
+        const allParams = `${callFnParam}, ${disposeFnParam}`;
+
+        emitter.emitLine(`${cName}* ${constructorName}(${allParams}) {`);
+
+        // Use common create_closure function with NULL data
+        emitter.emitLine(`  return __yo_create_${cName}(NULL, call, dispose);`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
+
+        // Generate the common create_closure function
+        emitter.emitLine(
+          `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
+        );
+        emitter.emitLine(
+          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+        );
+        emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(`  obj->data = data;`);
+
+        // Set vtable function pointers directly
+        emitter.emitLine(`  obj->vtable.call = call;`);
+        emitter.emitLine(`  obj->vtable.dispose = dispose;`);
+
+        emitter.emitLine(`  return obj;`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
       }
 
-      emitter.emitLine(`  return new_closure;`);
+      // Generate dispose function for this closure type
+      const disposeFunctionName = `__yo_dispose_${cName}`;
+      emitter.emitLine(`void ${disposeFunctionName}(${cName}* self) {`);
+
+      if (isStructType(captureType) && captureType.elements.length > 0) {
+        // Find the drop function in the capture type's module
+        const dropFunction = captureType.module.elements.find(
+          (element) => element.label === BuiltinFunctions.___drop[0]
+        );
+        if (
+          dropFunction &&
+          dropFunction.assignedValue &&
+          isFunctionValue(dropFunction.assignedValue)
+        ) {
+          const dropFunctionValue = dropFunction.assignedValue;
+          const dropFunctionCName =
+            context.functions[dropFunctionValue.funcId]?.cName;
+          if (dropFunctionCName) {
+            const captureTypeName = `${cName}_capture`;
+            emitter.emitLine(`  if (self->data) {`);
+            emitter.emitLine(
+              `    ${dropFunctionCName}(*(${captureTypeName}*)self->data);`
+            );
+            emitter.emitLine(`    free(self->data);`);
+            emitter.emitLine(`  }`);
+          } else {
+            emitter.emitLine(
+              `  // No C function name found for capture type drop function`
+            );
+            emitter.emitLine(`  if (self->data) { free(self->data); }`);
+          }
+        } else {
+          emitter.emitLine(
+            `  // No drop function found in capture type module`
+          );
+          emitter.emitLine(`  if (self->data) { free(self->data); }`);
+        }
+      } else {
+        // No captures, nothing to dispose
+        emitter.emitLine(`  // No captured data to dispose`);
+      }
+
       emitter.emitLine(`}`);
       emitter.emitLine(``);
     }

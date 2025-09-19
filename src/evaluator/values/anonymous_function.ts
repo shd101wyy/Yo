@@ -502,6 +502,7 @@ Got:      "${paramName}"`,
       capturedVariablesWithValues,
       env,
       closureToken: expr.token,
+      context: { ...context },
     });
 
     const closureType = createClosureType(newFunctionType, captureType, env);

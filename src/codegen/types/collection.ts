@@ -134,12 +134,25 @@ export function collectType(type: Type, context: CodeGenContext): void {
       cName: cTypeName,
     };
 
-    // For closures, also collect the call type but NOT the capture type
-    // (capture type will be generated inline with the closure)
+    // For closures, also collect the call type and capture type functions
     if (isClosureType(type)) {
       const closureType = type as ClosureType;
-      // Don't collect the capture type - it will be generated inline
-      // collectType(closureType.captureType, context);
+      // Don't collect the capture type itself - it will be generated inline
+      // But DO collect functions from the capture type's module (___drop, ___dispose, etc.)
+      if (closureType.captureType && isStructType(closureType.captureType)) {
+        const captureStructType = closureType.captureType;
+        for (const element of captureStructType.module.elements) {
+          if (element.assignedValue && isFunctionValue(element.assignedValue)) {
+            const functionValue = element.assignedValue;
+            if (!context.functions[functionValue.funcId]) {
+              context.functions[functionValue.funcId] = {
+                value: functionValue,
+                cName: functionValue.funcId,
+              };
+            }
+          }
+        }
+      }
       collectTypesFromFunctionType(closureType.callType, context);
     }
 

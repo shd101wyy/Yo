@@ -196,24 +196,25 @@ function generateFuncCall(
     return `${selfCode}->vtable->dispose(${selfCode})`;
   }
 
-  // __yo_closure_drop - call drop on closure via vtable
+  // __yo_closure_drop - call dispose on closure via vtable then __yo_decr_rc on closure
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_drop)) {
     const selfArg = expr.args[0];
     if (!selfArg) {
       return `// Error: __yo_closure_drop requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    return `${selfCode}->vtable->drop(${selfCode})`;
+    // Use the dispose function from vtable to handle both captured data and closure cleanup
+    return `__yo_decr_rc((void*)(${selfCode}), ${selfCode}->vtable.dispose)`;
   }
 
-  // __yo_closure_dup - call dup on closure via vtable
+  // __yo_closure_dup - call __yo_incr_rc on closure
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dup)) {
     const selfArg = expr.args[0];
     if (!selfArg) {
       return `// Error: __yo_closure_dup requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    return `${selfCode}->vtable->dup(${selfCode})`;
+    return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
   // dyn() - dynamic dispatch constructor
@@ -516,7 +517,10 @@ function generateFuncCall(
 
           // Skip temp variable creation if temp var name matches the actual variable name
           // This prevents redundant declarations like "int32_t x = x;"
-          if (exprIsAtom(rhs) && tempVarName === sanitizeForCIdentifier(rhs.token.value)) {
+          if (
+            exprIsAtom(rhs) &&
+            tempVarName === sanitizeForCIdentifier(rhs.token.value)
+          ) {
             // Just use the variable directly, no temp variable needed
             rhsCode = generateExpr(rhs, indent, context);
           } else {
@@ -525,7 +529,9 @@ function generateFuncCall(
             if (
               exprIsAtom(rhs) &&
               functionContext.currentClosureCaptures &&
-              functionContext.currentClosureCaptures.includes(rhs.token.value) &&
+              functionContext.currentClosureCaptures.includes(
+                rhs.token.value
+              ) &&
               rhs.$?.env &&
               functionContext.currentClosureCaptureFrameLevel !== undefined &&
               checkVariableIsClosureCaptured(
@@ -1128,9 +1134,9 @@ function generateFuncCall(
           return generateExpr(arg, indent, context);
         });
 
-        // Call through the vtable - closure->vtable->call(closure, args...)
+        // Call through the vtable - closure->vtable.call(closure, args...)
         const allArgs = [closureCode, ...args];
-        return `(${closureCode})->vtable->call(${allArgs.join(", ")})`;
+        return `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
       } else {
         return `// Error: No runtime args found for closure call`;
       }
@@ -1692,6 +1698,12 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
     // Generate closure initialization with vtable and captured data
     const constructorName = `__yo_new_${cName}`;
 
+    // Get the function name for the closure implementation
+    const functionCName = context.functions[value.functionValue.funcId]?.cName;
+    if (!functionCName) {
+      return `// Error: No C function name found for closure function`;
+    }
+
     // For compile-time closures, we need to generate the constructor call
     if (value.captureValue && isStructValue(value.captureValue)) {
       // Compile-time closure with captures
@@ -1706,7 +1718,17 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
         }
       }
 
-      return `${constructorName}(${captureArgs.join(", ")})`;
+      // Pass capture values directly, then function pointers
+
+      // Use the closure's dispose function instead of the capture type's drop function
+      const closureDisposeFunctionName = `__yo_dispose_${cName}`;
+
+      const allArgs = [
+        ...captureArgs,
+        functionCName,
+        closureDisposeFunctionName,
+      ];
+      return `${constructorName}(${allArgs.join(", ")})`;
     } else if (
       closureType.captureType &&
       isStructType(closureType.captureType)
@@ -1715,19 +1737,28 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       const captureType = closureType.captureType;
 
       if (captureType.elements.length > 0) {
-        // Generate constructor call with captured variable names
-        const captureArgs = captureType.elements
-          .map((element) => element.label)
-          .join(", ");
+        // Pass captured variable values directly
+        const captureArgs = captureType.elements.map(
+          (element) => element.label
+        );
 
-        return `${constructorName}(${captureArgs})`;
+        // Use the closure's dispose function instead of the capture type's drop function
+        const closureDisposeFunctionName = `__yo_dispose_${cName}`;
+
+        // Pass capture values directly, then function pointers
+        const allArgs = [
+          ...captureArgs,
+          functionCName,
+          closureDisposeFunctionName,
+        ];
+        return `${constructorName}(${allArgs.join(", ")})`;
       } else {
         // Empty closure
-        return `${constructorName}()`;
+        return `${constructorName}(${functionCName}, NULL)`;
       }
     } else {
       // Closure without captures - generate empty constructor call
-      return `${constructorName}()`;
+      return `${constructorName}(${functionCName}, NULL)`;
     }
   } else if (isFunctionValue(value)) {
     // For function values, we need to register them and return their C function name

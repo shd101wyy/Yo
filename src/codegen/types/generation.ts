@@ -181,15 +181,9 @@ export function generateClosureDeclaration(
     `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Call function pointer`
   );
 
-  // Generate ARC function pointers
+  // Dispose function to handle closure cleanup
   emitter.emitDeclarationLine(
-    `  void (*dispose)(void* self); // Dispose function pointer`
-  );
-  emitter.emitDeclarationLine(
-    `  void (*drop)(void* self); // Drop function pointer`
-  );
-  emitter.emitDeclarationLine(
-    `  void* (*dup)(void* self); // Dup function pointer`
+    `  void (*dispose)(void* self); // Dispose closure function pointer`
   );
 
   emitter.emitDeclarationLine(`} ${vtableName};`);
@@ -202,7 +196,7 @@ export function generateClosureDeclaration(
   emitter.emitDeclarationLine(
     `  yo_ref_header_t header; // Reference count header`
   );
-  emitter.emitDeclarationLine(`  ${vtableName}* vtable; // Function pointers`);
+  emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
 
   // Data field is always void* to allow different capture types for same closure type
   emitter.emitDeclarationLine(`  void* data; // Captured data`);

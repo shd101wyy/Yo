@@ -22,7 +22,8 @@ import {
   UnknownValue,
   Value,
 } from "../../value";
-import { CapturedVariableInfo } from "../context";
+import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import { addARCFunctionsToStructType } from "../types/utils";
 
 /**
  * Consume captured variables for closures.
@@ -104,6 +105,7 @@ export function createCaptureTypeAndValue({
   capturedVariablesWithValues,
   env,
   closureToken,
+  context,
 }: {
   expectedCaptureType: SomeType | StructType;
   capturedVariablesWithValues:
@@ -111,6 +113,7 @@ export function createCaptureTypeAndValue({
     | undefined;
   env: Environment;
   closureToken: Token;
+  context: EvaluatorContext;
 }): {
   captureType: SomeType | StructType;
   captureValue: StructValue | UnknownValue | undefined;
@@ -149,6 +152,12 @@ export function createCaptureTypeAndValue({
       inferredCaptureType.elements = captureElements;
       captureType = inferredCaptureType;
 
+      env = addARCFunctionsToStructType({
+        structType: inferredCaptureType,
+        env,
+        context: { ...context },
+      });
+
       // Create a struct value if all captured values are compile-time known
       const captureValues = Array.from(
         capturedVariablesWithValues.values()
@@ -166,6 +175,13 @@ export function createCaptureTypeAndValue({
       // No captured variables but expected SomeType - create empty struct
       const emptyStructType = createStructType(env);
       emptyStructType.elements = [];
+
+      env = addARCFunctionsToStructType({
+        structType: emptyStructType,
+        env,
+        context: { ...context },
+      });
+
       captureType = emptyStructType;
       captureValue = createStructValue(emptyStructType, []);
     }

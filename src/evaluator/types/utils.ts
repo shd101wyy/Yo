@@ -138,6 +138,7 @@ function generateDisposeFunctionCodeForStructType(
   return `((fn(self : Self) -> unit) { // ___dispose for struct
       ${hasDisposeFunction ? "Self.dispose(self);" : ""}
       ${dropDestructuringsExpr}
+      return ();
     })`;
 }
 
@@ -169,6 +170,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): string {
   return `((fn(self : Self) -> unit) { // ___drop for struct
   ${dropDestructuringsExpr}
   ${decrRcExpr}
+  return ();
 })`;
 }
 
@@ -200,7 +202,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): string {
   return `((fn(self : Self) -> Self) {  // ___dup for struct
   ${dupDestructuringsExpr}
   ${incrRcExpr}
-  ${BuiltinFunctions.__yo_rc_own[0]!}(self)
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
 })`;
 }
 
@@ -218,45 +220,49 @@ export function addARCFunctionsToStructType({
   context: EvaluatorContext;
 }): Environment {
   // Auto-generate ___drop and ___dup function if it's needed
-  if (typeContainsARCType(structType)) {
-    const disposeFunctionCode =
-      generateDisposeFunctionCodeForStructType(structType);
-    const dropFunctionCode = generateDropFunctionCodeForStructType(structType);
-    const dupFunctionCode = generateDupFunctionCodeForStructType(structType);
+  // if (typeContainsARCType(structType)) {
+  const disposeFunctionCode =
+    generateDisposeFunctionCodeForStructType(structType);
+  const dropFunctionCode = generateDropFunctionCodeForStructType(structType);
+  const dupFunctionCode = generateDupFunctionCodeForStructType(structType);
 
-    // Add ___dispose function
-    if (disposeFunctionCode) {
-      env = addFunctionToSelfTypeModule({
-        label: BuiltinFunctions.___dispose[0]!,
-        functionCode: disposeFunctionCode,
-        SelfType: structType,
-        env,
-        context,
-      });
-    }
+  /// console.log("dispose: ", disposeFunctionCode);
+  /// console.log("drop: ", dropFunctionCode);
+  /// console.log("dup: ", dupFunctionCode);
 
-    // Add ___dup function to the struct type module elements
-    if (dupFunctionCode) {
-      env = addFunctionToSelfTypeModule({
-        label: BuiltinFunctions.___dup[0]!,
-        functionCode: dupFunctionCode,
-        SelfType: structType,
-        env,
-        context,
-      });
-    }
-
-    // Add ___drop function to the struct type module elements
-    if (dropFunctionCode) {
-      env = addFunctionToSelfTypeModule({
-        label: BuiltinFunctions.___drop[0]!,
-        functionCode: dropFunctionCode,
-        SelfType: structType,
-        env,
-        context,
-      });
-    }
+  // Add ___dispose function
+  if (disposeFunctionCode) {
+    env = addFunctionToSelfTypeModule({
+      label: BuiltinFunctions.___dispose[0]!,
+      functionCode: disposeFunctionCode,
+      SelfType: structType,
+      env,
+      context,
+    });
   }
+
+  // Add ___dup function to the struct type module elements
+  if (dupFunctionCode) {
+    env = addFunctionToSelfTypeModule({
+      label: BuiltinFunctions.___dup[0]!,
+      functionCode: dupFunctionCode,
+      SelfType: structType,
+      env,
+      context,
+    });
+  }
+
+  // Add ___drop function to the struct type module elements
+  if (dropFunctionCode) {
+    env = addFunctionToSelfTypeModule({
+      label: BuiltinFunctions.___drop[0]!,
+      functionCode: dropFunctionCode,
+      SelfType: structType,
+      env,
+      context,
+    });
+  }
+  // }
 
   return env;
 }
@@ -374,21 +380,8 @@ export function addARCFunctionsToClosureType({
   context: EvaluatorContext;
 }): Environment {
   // Generate ARC functions for the closure
-  const disposeFunctionCode =
-    generateDisposeFunctionCodeForClosureType(closureType);
   const dropFunctionCode = generateDropFunctionCodeForClosureType(closureType);
   const dupFunctionCode = generateDupFunctionCodeForClosureType(closureType);
-
-  // Add ___dispose function
-  if (disposeFunctionCode) {
-    env = addFunctionToSelfTypeModule({
-      label: BuiltinFunctions.___dispose[0]!,
-      functionCode: disposeFunctionCode,
-      SelfType: closureType,
-      env,
-      context,
-    });
-  }
 
   // Add ___dup function to the closure type module elements
   if (dupFunctionCode) {
@@ -416,33 +409,15 @@ export function addARCFunctionsToClosureType({
 }
 
 /**
- * Generate ___dispose function code for a closure type
- */
-function generateDisposeFunctionCodeForClosureType(
-  _closureType: ClosureType
-): string {
-  // For closure types, dispose should:
-  // 1. Dispose the captured data via builtin function
-  return `((fn(self : Self) -> unit) { // ___dispose for closure
-    // Dispose the captured data
-    ${BuiltinFunctions.__yo_closure_dispose[0]!}(self);
-  })`;
-}
-
-/**
  * Generate ___drop function code for a closure type
  */
 function generateDropFunctionCodeForClosureType(
   _closureType: ClosureType
 ): string {
-  // For closure types, drop should:
-  // 1. Drop the captured data via builtin function
-  // 2. Use __yo_decr_rc on the closure object itself
+  // For closure types, drop should use __yo_closure_drop
+  // This builtin function handles both the captured data cleanup and reference counting
   return `((fn(self : Self) -> unit) { // ___drop for closure
-    // Drop the captured data first
     ${BuiltinFunctions.__yo_closure_drop[0]!}(self);
-    // Then decrement the closure object's own reference count
-    ${BuiltinFunctions.__yo_decr_rc[0]!}(self, Self.___dispose);
   })`;
 }
 
@@ -452,15 +427,10 @@ function generateDropFunctionCodeForClosureType(
 function generateDupFunctionCodeForClosureType(
   _closureType: ClosureType
 ): string {
-  // For closure types, dup should:
-  // 1. Duplicate the captured data via builtin function
-  // 2. Use __yo_incr_rc on the closure object itself
-  // 3. Return the closure object
+  // For closure types, dup should use __yo_closure_dup
+  // This builtin function handles the closure reference counting properly
   return `((fn(self : Self) -> Self) {  // ___dup for closure
-    // Duplicate the captured data
     ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
-    // Increment the closure object's own reference count and return it
-    ${BuiltinFunctions.__yo_incr_rc[0]!}(self);
     ${BuiltinFunctions.__yo_rc_own[0]!}(self)
   })`;
 }

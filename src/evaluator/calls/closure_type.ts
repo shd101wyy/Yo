@@ -151,6 +151,7 @@ export function tryToImplementClosureByClosureType({
       capturedVariablesWithValues,
       env: finalCallerEnv,
       closureToken: expr.token,
+      context: { ...context },
     });
 
   // Update closure type with the inferred capture type if it was inferred
