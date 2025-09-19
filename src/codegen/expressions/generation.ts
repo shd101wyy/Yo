@@ -1,3 +1,4 @@
+import { Environment, getVariablesFromEnv } from "../../env";
 import {
   AtomExpr,
   BuiltinFunctions,
@@ -12,6 +13,7 @@ import {
 } from "../../expr";
 import {
   ArrayType,
+  ClosureType,
   isArrayType,
   isClosureType,
   isDynType,
@@ -57,6 +59,32 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { generateArrayFillCall, isArrayFillMethodCall } from "./array";
+
+/**
+ * Check if a variable is captured by the closure or is a local variable.
+ * A variable is captured if the latest variable with that name exists at a frame level
+ * that is <= the closure capture frame level.
+ * Variables at higher frame levels (more recent scopes) are local variables.
+ */
+function checkVariableIsClosureCaptured(
+  variableName: string,
+  env: Environment,
+  closureCaptureFrameLevel: number
+): boolean {
+  // Get all variables with this name, ordered from oldest to newest
+  const variables = getVariablesFromEnv(env, variableName);
+
+  if (variables.length === 0) {
+    // Variable not found in environment - assume it's not captured
+    return false;
+  }
+
+  // Get the latest (most recent) variable with this name
+  const latestVariable = variables[variables.length - 1]!;
+
+  // Check if it's from a captured frame level
+  return latestVariable.frameLevel <= closureCaptureFrameLevel;
+}
 
 /**
  * Generate C code for an expression - extracted from original codegen-c.ts
@@ -451,12 +479,98 @@ function generateFuncCall(
             varName,
             context
           );
-          const rhsCode = generateExpr(rhs, indent, context);
+          // Handle temp variable assignment for ARC values
+          let rhsCode: string;
+          if (rhs.$?.variableName) {
+            const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
+            const rhsExprCode = generateExpr(rhs, indent, context);
+
+            // Generate temp variable assignment first
+            const tempVarType = getVariableTypeString(
+              rhs.$.type!,
+              tempVarName,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${tempVarType} = ${rhsExprCode};`
+            );
+
+            // Use temp variable for the main assignment
+            rhsCode = tempVarName;
+          } else {
+            rhsCode = generateExpr(rhs, indent, context);
+          }
           context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
         }
       } else {
         // Non-array initialization - use existing logic
-        const rhsCode = generateExpr(rhs, indent, context);
+        let rhsCode: string;
+
+        // If RHS has a temp variable name (e.g., for ARC values), we need to:
+        // 1. First generate the RHS expression and assign it to the temp variable
+        // 2. Then use the temp variable for the assignment
+        // BUT: don't create temp variables for captured variables
+        // ALSO: don't create temp variables if the temp var name is the same as the variable itself
+        if (rhs.$?.variableName) {
+          const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
+
+          // Skip temp variable creation if temp var name matches the actual variable name
+          // This prevents redundant declarations like "int32_t x = x;"
+          if (exprIsAtom(rhs) && tempVarName === sanitizeForCIdentifier(rhs.token.value)) {
+            // Just use the variable directly, no temp variable needed
+            rhsCode = generateExpr(rhs, indent, context);
+          } else {
+            // Check if this temp variable is for a captured variable - if so, skip temp variable creation
+            const functionContext = context as FunctionGenerationContext;
+            if (
+              exprIsAtom(rhs) &&
+              functionContext.currentClosureCaptures &&
+              functionContext.currentClosureCaptures.includes(rhs.token.value) &&
+              rhs.$?.env &&
+              functionContext.currentClosureCaptureFrameLevel !== undefined &&
+              checkVariableIsClosureCaptured(
+                rhs.token.value,
+                rhs.$.env,
+                functionContext.currentClosureCaptureFrameLevel
+              )
+            ) {
+              // This is a captured variable, don't create a temp variable for it
+              // Generate closure access directly
+              const currentClosureType = functionContext.currentClosureType;
+              if (currentClosureType && isClosureType(currentClosureType)) {
+                const closureTypeEntry = Object.values(
+                  functionContext.types
+                ).find((entry) => entry.type === currentClosureType);
+                if (closureTypeEntry) {
+                  const captureStructName = `${closureTypeEntry.cName}_capture`;
+                  rhsCode = `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(rhs.token.value)}`;
+                } else {
+                  rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
+                }
+              } else {
+                rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
+              }
+            } else {
+              // Normal temp variable handling
+              const rhsExprCode = generateExpr(rhs, indent, context);
+
+              // Generate temp variable assignment first
+              const tempVarType = getVariableTypeString(
+                rhs.$.type!,
+                tempVarName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${tempVarType} = ${rhsExprCode};`
+              );
+
+              // Use temp variable for the main assignment
+              rhsCode = tempVarName;
+            }
+          }
+        } else {
+          rhsCode = generateExpr(rhs, indent, context);
+        }
 
         // Special handling for slice initialization.
         if (isMutPtrType(lhs.$.type) && isSliceType(lhs.$.type.type)) {
@@ -1356,15 +1470,46 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     return "break";
   }
 
+  // Check if we're in a closure function and this variable is captured
+  const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
+
+  // If this atom has a temp variable name (e.g., for ARC values), use that instead of the computed value
+  // This prevents regenerating constructor calls for temp variables that should just use their variable names
+  // BUT: if this is a captured variable in a closure, we should use closure access instead
+  if (expr.$?.variableName) {
+    // Check if this is a captured variable in a closure - if so, don't use temp variable name
+    if (
+      functionContext.currentClosureCaptures &&
+      functionContext.currentClosureCaptures.includes(expr.token.value) &&
+      expr.$?.env &&
+      functionContext.currentClosureCaptureFrameLevel !== undefined &&
+      checkVariableIsClosureCaptured(
+        expr.token.value,
+        expr.$.env,
+        functionContext.currentClosureCaptureFrameLevel
+      )
+    ) {
+      // Don't return early - let it fall through to closure capture logic
+    } else {
+      return sanitizeForCIdentifier(expr.$.variableName);
+    }
+  }
+
   if (expr.$?.value && !isUnknownValue(expr.$.value)) {
     return generateComptValue(expr.$.value, context);
   }
 
-  // Check if we're in a closure function and this variable is captured
-  const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
+  // Check if this variable should use closure access by comparing frame levels
   if (
     functionContext.currentClosureCaptures &&
-    functionContext.currentClosureCaptures.includes(expr.token.value)
+    functionContext.currentClosureCaptures.includes(expr.token.value) &&
+    expr.$?.env &&
+    functionContext.currentClosureCaptureFrameLevel !== undefined &&
+    checkVariableIsClosureCaptured(
+      expr.token.value,
+      expr.$.env,
+      functionContext.currentClosureCaptureFrameLevel
+    )
   ) {
     // We're accessing a captured variable in a closure function
     // With vtable approach, access captured variables through closure_context->data pointer
@@ -1381,6 +1526,42 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
     // Fallback to old approach if we can't determine the type
     return `closure_context->${sanitizeForCIdentifier(expr.token.value)}`;
+  }
+
+  // Fallback: Check if this is a closure function by looking at the current function name and finding its type
+  if (
+    functionContext.currentFunctionName &&
+    !functionContext.currentClosureCaptures
+  ) {
+    // Find the function value being generated
+    const currentFunctionEntry = Object.values(functionContext.functions).find(
+      (entry) => entry.cName === functionContext.currentFunctionName
+    );
+
+    if (currentFunctionEntry && currentFunctionEntry.value.type.isClosure) {
+      // This is a closure function, find its closure type
+      const closureTypeEntry = Object.values(functionContext.types).find(
+        (t) =>
+          t.type.tag === TypeTag.Closure &&
+          (t.type as ClosureType).callType === currentFunctionEntry.value.type
+      );
+
+      if (closureTypeEntry) {
+        const closureType = closureTypeEntry.type as ClosureType;
+        const captureType = closureType.captureType;
+
+        if (captureType && captureType.tag === TypeTag.Struct) {
+          // Check if this variable is in the captured variables
+          const capturedVarNames = captureType.elements.map(
+            (elem) => elem.label
+          );
+          if (capturedVarNames.includes(expr.token.value)) {
+            const captureStructName = `${closureTypeEntry.cName}_capture`;
+            return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
+          }
+        }
+      }
+    }
   }
 
   return sanitizeForCIdentifier(expr.token.value);

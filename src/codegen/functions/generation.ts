@@ -37,6 +37,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   >;
   currentFunctionName: string;
   currentClosureCaptures?: string[]; // Variables captured by current closure function
+  currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
   currentClosureType?: ClosureType; // Current closure type being generated
 }
 
@@ -223,6 +224,8 @@ export function generateFunction(
 
   // Set closure capture context if this is a closure function
   const previousClosureCaptures = context.currentClosureCaptures;
+  const previousClosureCaptureFrameLevel =
+    context.currentClosureCaptureFrameLevel;
   const previousClosureType = (context as FunctionGenerationContext)
     .currentClosureType;
   if (functionType.isClosure) {
@@ -243,9 +246,12 @@ export function generateFunction(
 
       if (captureType && captureType.tag === TypeTag.Struct) {
         // Extract field names as captured variables
+        // Store the frame level separately
+        const captureFrameLevel = captureType.env.frames.length - 1;
         context.currentClosureCaptures = captureType.elements.map(
           (elem) => elem.label
         );
+        context.currentClosureCaptureFrameLevel = captureFrameLevel;
       }
     }
   }
@@ -256,6 +262,7 @@ export function generateFunction(
   // Restore previous function name and closure captures
   context.currentFunctionName = previousFunctionName;
   context.currentClosureCaptures = previousClosureCaptures;
+  context.currentClosureCaptureFrameLevel = previousClosureCaptureFrameLevel;
   (context as FunctionGenerationContext).currentClosureType =
     previousClosureType;
 

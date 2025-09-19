@@ -1,16 +1,19 @@
-open import "std";
-
 main :: (fn() -> i32) {
   x := 1;
-  closure := ((fn(y : i32) => i32) {
-    x = (x + y);
+  closure := ((fn(v : i32) => i32) {
+    y := x;
+    {
+      z := x;
+      x := 12;
+      p := x;
+    };
     return x;
   });
 
-  closure(1); // 2
-  closure(1); // 3
+  closure(1);
+  closure(1);
 
-  return closure(2); // 5
+  return closure(2);
 };
 
 export main;
