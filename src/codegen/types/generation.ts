@@ -504,7 +504,7 @@ export function generateDynDeclaration(
   emitter.emitDeclarationLine(
     `  yo_ref_header_t header; // Reference count header`
   );
-  emitter.emitDeclarationLine(`  ${vtableName}* vtable; // Function pointers`);
+  emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
   emitter.emitDeclarationLine(`  void* data; // Actual object data`);
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability

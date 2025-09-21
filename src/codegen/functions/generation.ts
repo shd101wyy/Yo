@@ -934,7 +934,6 @@ export function generateDynConstructorFunctions(
 
       // Generate dyn constructor function
       const constructorName = `__yo_new_${cName}`;
-      const vtableName = `${cName}_vtable`;
 
       emitter.emitLine(
         `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...) {`
@@ -943,9 +942,6 @@ export function generateDynConstructorFunctions(
         `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
       );
       emitter.emitLine(`  obj->header.ref_count = 1;`);
-      emitter.emitLine(
-        `  ${vtableName}* vtable = (${vtableName}*)malloc(sizeof(${vtableName}));`
-      );
 
       emitter.emitLine(`  va_list args;`);
       emitter.emitLine(`  va_start(args, dispose_fn);`);
@@ -966,16 +962,17 @@ export function generateDynConstructorFunctions(
           processedMethods.add(element.label);
 
           const methodName = sanitizeForCIdentifier(element.label);
-          emitter.emitLine(`  vtable->${methodName} = va_arg(args, void*);`);
+          emitter.emitLine(
+            `  obj->vtable.${methodName} = va_arg(args, void*);`
+          );
         }
       }
 
       // Set the dispose function pointer for the dyn object itself
-      emitter.emitLine(`  vtable->dispose = dispose_fn;`);
+      emitter.emitLine(`  obj->vtable.dispose = dispose_fn;`);
 
       emitter.emitLine(`  va_end(args);`);
 
-      emitter.emitLine(`  obj->vtable = vtable;`);
       emitter.emitLine(`  obj->data = data;`);
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
@@ -985,11 +982,8 @@ export function generateDynConstructorFunctions(
       const disposeFunctionName = `__yo_dispose_${cName}`;
       emitter.emitLine(`void ${disposeFunctionName}(void* ptr) {`);
       emitter.emitLine(`  ${cName}* self = (${cName}*)ptr;`);
-      emitter.emitLine(
-        `  // Call the wrapped object's dispose function, then free the dyn object`
-      );
-      emitter.emitLine(`  __yo_decr_rc(self->data, self->vtable->___dispose);`);
-      emitter.emitLine(`  free(self->vtable);`);
+      emitter.emitLine(`  // Call the wrapped object's dispose function`);
+      emitter.emitLine(`  __yo_decr_rc(self->data, self->vtable.___dispose);`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);
       emitter.emitLine(``);

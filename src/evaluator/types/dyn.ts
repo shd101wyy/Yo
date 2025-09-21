@@ -135,10 +135,10 @@ export function evaluateDynType({
   const wrappedObjectARCModuleTypeExpr = generateExprFromCode(`
 module(
   Self : Type,
-  ___dup :
-    fn(self: Self) -> Self,
-  ___drop :
-    fn(self: Self) -> unit,
+  /// ___dup :
+  ///   fn(self: Self) -> Self,
+  /// ___drop :
+  ///   fn(self: Self) -> unit,
   ___dispose :
     fn(self: Self) -> unit
 )

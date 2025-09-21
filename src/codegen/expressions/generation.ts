@@ -164,7 +164,7 @@ function generateFuncCall(
     }
     const selfCode = generateExpr(selfArg, indent, context);
     // Use the dispose function from vtable for the dyn object itself
-    return `__yo_decr_rc((void*)(${selfCode}), ${selfCode}->vtable->dispose)`;
+    return `__yo_decr_rc((void*)(${selfCode}), ${selfCode}->vtable.dispose)`;
   }
 
   // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
@@ -2029,8 +2029,8 @@ function generateFieldAccess(
     // Handle dynamic dispatch method access
     else if (isDynType(objectType)) {
       // For dyn types, access methods through vtable
-      // e.g. s.speak becomes s->vtable->speak
-      return `${objectCode}->vtable->${sanitizeForCIdentifier(fieldName)}`;
+      // e.g. s.speak becomes s->vtable.speak
+      return `${objectCode}->vtable.${sanitizeForCIdentifier(fieldName)}`;
     } else {
       // For C structs and unions, access fields directly
       // Check if this is a reference-counted type (ref struct or ref enum)
