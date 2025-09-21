@@ -2113,6 +2113,7 @@ function generateCondExpression(
             exprIsFunctionCall(value) &&
             exprIsFunctionCallOf(value, BuiltinKeywords.begin)
           ) {
+            console.log(exprToString(value));
             // For begin blocks in conditionals, we need to generate the statements inline
             // like generateLoopBody but also capture the final expression result
 
@@ -2128,7 +2129,11 @@ function generateCondExpression(
             }
 
             // Generate the final expression and assign it to temp variable
-            if (beginArgs.length > 0 && !isUnit && tempVar) {
+            if (
+              beginArgs.length > 0 &&
+              /*!isUnit  &&*/ // This condition is wrong, because the lastExpr might be something like (x = 12) which is also unit
+              tempVar
+            ) {
               const finalExpr = beginArgs[beginArgs.length - 1]!;
               const finalExprCode = generateExpr(
                 finalExpr,
@@ -2150,7 +2155,7 @@ function generateCondExpression(
                   context.emitter.emitLine(
                     `${indent}  ${tempVar} = (${baseTypeName})${finalExprCode};`
                   );
-                } else {
+                } else if (!isUnit) {
                   context.emitter.emitLine(
                     `${indent}  ${tempVar} = ${finalExprCode};`
                   );
@@ -2173,7 +2178,7 @@ function generateCondExpression(
               context.emitter.emitLine(`${indent}  ${valueCode};`);
             } else if (valueCode === "" || !valueCode) {
               // For unit expressions, don't emit anything
-            } else if (!isUnit && tempVar) {
+            } else if (tempVar) {
               // For regular expressions, assign to temp variable (only if not unit type)
               // Special handling for closure types - add casting to base type
               if (
@@ -2188,7 +2193,7 @@ function generateCondExpression(
                 context.emitter.emitLine(
                   `${indent}  ${tempVar} = (${baseTypeName})${valueCode};`
                 );
-              } else {
+              } else if (!isUnit) {
                 context.emitter.emitLine(
                   `${indent}  ${tempVar} = ${valueCode};`
                 );
