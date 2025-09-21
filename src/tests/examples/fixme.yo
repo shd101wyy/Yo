@@ -1,36 +1,16 @@
-open import "std";
-open import "std/libc/stdio.yo";
+Box :: ref struct
+  (*) : i32
+;
 
-Speak :: module(
-  Self: Type,
-  speak : (fn(self : Self) -> i32)
-);
+use_box :: (fn(b : Box) -> i32) {
+  return 0;
+};
 
-// Dog :: struct(); // This should give error working with `dyn`.
-Dog :: ref struct(
-  dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing Dog\n");
-  }),
-
-  ...(Speak
-    Self : Self,
-    speak : ((self : Self) -> {
-      printf("Woof!\n");
-      return 1;
-    })
-  )
-);
 
 main :: ((fn() -> i32) {
-  dog := Dog();
-  (dyn_dog : Dyn(Speak)) = dyn(dog);
-  // We insert ___dup: 
-  //    dyn(___dup(dog), DogSpeak);
+  result := use_box(Box(0));
 
-  result := dyn_dog.speak();
-
-  // ___drop(dyn_dog);
-  // ___drop(dog);
+  // return result;
   return result;
 });
 

@@ -453,12 +453,12 @@ export function areTypesCompatible(
   }
 
   if (isDynType(expected.type) && isDynType(given.type)) {
-    const expectedModules = expected.type.moduleTypes.toSorted((m1, m2) =>
-      m1.id.localeCompare(m2.id)
-    );
-    const givenModules = given.type.moduleTypes.toSorted((m1, m2) =>
-      m1.id.localeCompare(m2.id)
-    );
+    const expectedModules = expected.type.moduleTypes
+      .slice(1)
+      .toSorted((m1, m2) => m1.id.localeCompare(m2.id));
+    const givenModules = given.type.moduleTypes
+      .slice(1)
+      .toSorted((m1, m2) => m1.id.localeCompare(m2.id));
     if (expectedModules.length !== givenModules.length) {
       return false;
     }

@@ -112,7 +112,8 @@ function generateDisposeFunctionCodeForStructType(
   structType: StructType
 ): string | null {
   if (!isARCType(structType)) {
-    return null; // no need to generate ___dispose function
+    // return null; // no need to generate ___dispose function
+    return `((fn(self : Self) -> unit) ())`;
   }
   const destructurings = structType.elements
     .filter(
@@ -126,7 +127,8 @@ function generateDisposeFunctionCodeForStructType(
   );
 
   if (!destructurings.length && !hasDisposeFunction) {
-    return null; // no need to generate ___dispose function
+    // return null; // no need to generate ___dispose function
+    return `((fn(self : Self) -> unit) ())`;
   }
 
   const dropDestructuringsExpr = destructurings.length
