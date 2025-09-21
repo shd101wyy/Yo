@@ -1404,6 +1404,8 @@ export function mergeAndCheckEnvs(
         }
       }
 
+      // In theory, all cases above shouldn't happen, because the analysis of initializedAtTokens will capture the errors.
+      // But let's still leave the check here for safety.
       // Check isOwningTheARCValueAtTokens
       // case 1
       if (isOwningTheARCValueAtTokens.length === 1) {
