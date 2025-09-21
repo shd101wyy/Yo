@@ -320,6 +320,22 @@ export function evaluateMatch({
       caseEnv = evaluatedBody.$.env;
       bodies.push(evaluatedBody);
 
+      if (context.expectedType) {
+        if (
+          !areTypesCompatible(context.expectedType, {
+            type: evaluatedBody.$.type,
+            env: evaluatedBody.$.env,
+          })
+        ) {
+          throw formatErrorMessage({
+            token: evaluatedBody.token,
+            errorMessage: `Incompatible type with expected type:
+- Expected: ${typeToString(context.expectedType.type)}
+- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+          });
+        }
+      }
+
       // Set or verify the result type consistency
       if (!resultType) {
         resultType = { type: evaluatedBody.$?.type, env: caseEnv };

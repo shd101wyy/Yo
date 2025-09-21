@@ -281,6 +281,22 @@ export function evaluateCond({
       bodies.push(evaluatedCaseBodyExpr);
       caseBodyValues.push(evaluatedCaseBodyExpr.$.value);
 
+      if (context.expectedType) {
+        if (
+          !areTypesCompatible(context.expectedType, {
+            type: evaluatedCaseBodyExpr.$.type,
+            env: evaluatedCaseBodyExpr.$.env,
+          })
+        ) {
+          throw formatErrorMessage({
+            token: evaluatedCaseBodyExpr.token,
+            errorMessage: `Incompatible type with expected type:
+- Expected: ${typeToString(context.expectedType.type)}
+- Actual  : ${typeToString(evaluatedCaseBodyExpr.$.type)}`,
+          });
+        }
+      }
+
       if (!valueType) {
         valueType = {
           type: evaluatedCaseBodyExpr.$.type,

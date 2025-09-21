@@ -7,7 +7,6 @@ import {
   areTypesCompatible,
   ClosureType,
   createClosureType,
-  isSomeType,
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
@@ -157,7 +156,7 @@ export function tryToImplementClosureByClosureType({
 
   // Update closure type with the inferred capture type if it was inferred
   const finalClosureType =
-    isSomeType(closureType.captureType) && !isSomeType(inferredCaptureType)
+    closureType.captureType === undefined && inferredCaptureType !== undefined
       ? createClosureType(
           closureType.callType,
           inferredCaptureType,

@@ -536,10 +536,10 @@ export interface ClosureType extends Type {
    * For example:
    *   struct(counter: &(i32), base: &(i32))
    *
-   * - SomeType: When the capture type should be inferred (e.g., using "_")
-   * - StructType: When the capture type is known and contains the captured variables
+   * - undefined: Base closure type that can accept any closure with the same call signature
+   * - StructType: Specific closure type with known captured variables
    */
-  captureType: SomeType | StructType;
+  captureType: StructType | undefined;
 
   /**
    * The module that contains the closure's ARC functions (___dispose, ___drop, ___dup).

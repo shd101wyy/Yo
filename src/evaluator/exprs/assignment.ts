@@ -21,13 +21,10 @@ import {
 import {
   areTypesCompatible,
   ArrayType,
-  ClosureType,
   createArrayType,
   EnumType,
   isArrayType,
-  isClosureType,
   isEnumType,
-  isSomeType,
   isStructType,
   isTypeHierarchyType,
   StructType,
@@ -109,23 +106,6 @@ function resolveUnknownValuesAndSomeTypeInType(
           // Create a new array type with the resolved length
           return createArrayType(type.elementType, variable.value);
         }
-      }
-    }
-  }
-
-  if (isClosureType(type) && isSomeType(type.captureType)) {
-    const someTypeCapture = type.captureType;
-    // Look up the resolved value of the SomeType
-    const variables = getVariablesFromEnv(env, someTypeCapture.name);
-    if (variables.length > 0) {
-      const variable = variables[variables.length - 1]!;
-      if (variable.value && isTypeValue(variable.value)) {
-        const resolvedCaptureType = variable.value.value;
-        // Create a new closure type with the resolved capture type
-        return {
-          ...type,
-          captureType: resolvedCaptureType,
-        } as ClosureType;
       }
     }
   }

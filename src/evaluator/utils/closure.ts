@@ -11,8 +11,6 @@ import { Token } from "../../token";
 import {
   areTypesCompatible,
   createStructType,
-  isSomeType,
-  SomeType,
   StructType,
   TupleElement,
   typeContainsARCType,
@@ -109,7 +107,7 @@ export function createCaptureTypeAndValue({
   closureToken,
   context,
 }: {
-  expectedCaptureType: SomeType | StructType;
+  expectedCaptureType: StructType | undefined;
   capturedVariablesWithValues:
     | Map<string, FunctionCapturedVariableInfo>
     | undefined;
@@ -117,14 +115,14 @@ export function createCaptureTypeAndValue({
   closureToken: Token;
   context: EvaluatorContext;
 }): {
-  captureType: SomeType | StructType;
+  captureType: StructType | undefined;
   captureValue: StructValue | UnknownValue | undefined;
 } {
   let captureType = expectedCaptureType;
   let captureValue: StructValue | UnknownValue | undefined;
 
   // Handle capture type inference vs explicit struct type
-  if (isSomeType(captureType)) {
+  if (captureType === undefined) {
     // Inference case: create new anonymous struct from captured variables
     if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
       // Create a struct type using createStructType
@@ -174,7 +172,7 @@ export function createCaptureTypeAndValue({
         captureValue = undefined;
       }
     } else {
-      // No captured variables but expected SomeType - create empty struct
+      // No captured variables but expected undefined capture type - create empty struct
       const emptyStructType = createStructType(env);
       emptyStructType.elements = [];
 

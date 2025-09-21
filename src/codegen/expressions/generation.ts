@@ -32,6 +32,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
+import { createClosureType } from "../../types/creators";
 import {
   isArrayValue,
   isBooleanValue,
@@ -2054,8 +2055,18 @@ function generateCondExpression(
   // Check if the cond expression has been evaluated and has a variable name
   if (expr.$) {
     const tempVar = expr.$.variableName;
-    const valueType = expr.$.type;
+    let valueType = expr.$.type;
     const isUnit = valueType && isUnitType(valueType);
+
+    // Special handling for closure types - use base closure type for temp variable
+    if (valueType && isClosureType(valueType) && valueType.captureType) {
+      // Create base closure type by removing captureType (set to undefined)
+      valueType = createClosureType(
+        valueType.callType,
+        undefined,
+        valueType.env
+      );
+    }
 
     // For unit types, don't declare a temporary variable
     if (!isUnit && tempVar) {
@@ -2112,7 +2123,24 @@ function generateCondExpression(
               // For unit expressions, don't emit anything
             } else if (!isUnit && tempVar) {
               // For regular expressions, assign to temp variable (only if not unit type)
-              context.emitter.emitLine(`${indent}  ${tempVar} = ${valueCode};`);
+              // Special handling for closure types - add casting to base type
+              if (
+                expr.$.type &&
+                isClosureType(expr.$.type) &&
+                valueType &&
+                isClosureType(valueType) &&
+                !valueType.captureType
+              ) {
+                // Cast specific closure type to base closure type
+                const baseTypeName = getTypeString(valueType, context);
+                context.emitter.emitLine(
+                  `${indent}  ${tempVar} = (${baseTypeName})${valueCode};`
+                );
+              } else {
+                context.emitter.emitLine(
+                  `${indent}  ${tempVar} = ${valueCode};`
+                );
+              }
             }
           }
           context.emitter.emitLine(`${indent}}`);

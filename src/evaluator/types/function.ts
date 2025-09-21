@@ -23,8 +23,6 @@ import {
   createClosureType,
   createExprListType,
   createFunctionType,
-  createSomeType,
-  createType0,
   FunctionParameter,
   FunctionType,
   getFunctionParameterExprs,
@@ -35,7 +33,6 @@ import {
   isExprType,
   isSomeType,
   prohibitDynamicSizedType,
-  SomeType,
   StructType,
   Type,
   typeOfType,
@@ -1008,12 +1005,11 @@ ${typeToString(returnType)}`,
   }
 
   // Handle capture type for closures
-  let captureType: SomeType | StructType | undefined = undefined;
+  let captureType: StructType | undefined = undefined;
   if (isClosure) {
     // For closure syntax like "fn(x: i32) => i32", we'll infer the capture type
-    // Create a SomeType for capture type inference
-    const captureTypePlaceholderName = `_capture_${randomId()}`;
-    captureType = createSomeType(createType0(), captureTypePlaceholderName);
+    // Use undefined to indicate that the capture type should be inferred
+    captureType = undefined;
   }
 
   // Create the function type
@@ -1039,7 +1035,7 @@ ${typeToString(returnType)}`,
   // Create ClosureType if this is a closure, otherwise use FunctionType
   let finalType;
   if (isClosure) {
-    finalType = createClosureType(functionType, captureType!, env);
+    finalType = createClosureType(functionType, captureType, env);
     env = addARCFunctionsToClosureType({
       closureType: finalType,
       env,

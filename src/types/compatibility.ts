@@ -397,15 +397,18 @@ export function areTypesCompatible(
       )
     ) {
       return false;
+    } else {
+      return true;
     }
 
     // Check if the capture types are compatible
     // Handle the case where expected has SomeType (inference) and given has StructType (concrete)
-    return areTypesCompatible(
-      { type: expectedClosure.captureType, env: expected.env },
-      { type: givenClosure.captureType, env: given.env },
-      isMethodReceiver
-    );
+    // return areTypesCompatible(
+    //   { type: expectedClosure.captureType, env: expected.env },
+    //   { type: givenClosure.captureType, env: given.env },
+    //   isMethodReceiver
+    // );
+    // NOTE: No need to check callType, as we now uses the dynamic dispatch for closure
   }
 
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {
