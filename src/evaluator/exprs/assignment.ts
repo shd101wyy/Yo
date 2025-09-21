@@ -31,6 +31,7 @@ import {
   StructType,
   TupleType,
   Type,
+  typeContainsARCType,
   typeRequiresInference,
   typeToString,
 } from "../../types";
@@ -192,7 +193,7 @@ export function evaluateAssignment({
         errorMessage: `Variable ${variableName} not found in the environment`,
       });
     }
-    const variable = variables[variables.length - 1]!;
+    let variable = variables[variables.length - 1]!;
 
     // Evaluate the rhs expression
     rhs = context.evaluateExpression({
@@ -203,8 +204,29 @@ export function evaluateAssignment({
         expectedType: { type: variable.type, env },
       },
     });
-    if (rhs.$?.env) {
-      env = rhs.$?.env;
+    if (!rhs.$) {
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `Failed to evaluate right-hand side of assignment: ${exprToString(rhs)}`,
+      });
+    }
+    env = rhs.$.env;
+
+    // Needs to call dup on rhs if lhs is not on the current frame
+    if (variable.frameLevel < env.frames.length - 1) {
+      setExprAsNeedsToCallDup(rhs, context);
+      env = rhs.$.env;
+
+      // Transfer ownership if necessary
+      if (typeContainsARCType(variable.type)) {
+        const newVariable: Variable = {
+          ...variable,
+          isOwningTheARCValue: true,
+          isBorrowingTheARCValueOfVariable: undefined,
+        };
+        env = updateExistingVariable(env, variable, newVariable);
+        variable = newVariable;
+      }
     }
 
     if (rhs.$?.controlFlow) {
@@ -448,31 +470,14 @@ export function evaluateAssignment({
           env.modulePath
         );
 
-        const newVariable: Variable = {
+        env = updateExistingVariable(env, variable, {
           ...variable,
           initializedAtToken: lhs.token,
           value: valueToStore,
           type: variableType,
           isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
           // type: rhsType,
-        };
-        env = updateExistingVariable(env, variable, newVariable);
-
-        if (
-          rhsVariableOwningARCValue &&
-          rhsVariableOwningARCValue.frameLevel > variable.frameLevel
-        ) {
-          console.log("call dup on: ", exprToString(rhs));
-          if (setExprAsNeedsToCallDup(rhs, context)) {
-            // Transfer the ownership
-            console.log("transfer ownership to: ", variable.name);
-            env = updateExistingVariable(env, newVariable, {
-              ...newVariable,
-              isOwningTheARCValue: true,
-              isBorrowingTheARCValueOfVariable: undefined,
-            });
-          }
-        }
+        });
       }
     } else {
       // For closures, track variable writes to outer scope
@@ -527,30 +532,13 @@ export function evaluateAssignment({
         env.modulePath
       );
 
-      const newVariable: Variable = {
+      env = updateExistingVariable(env, variable, {
         ...variable,
         value: valueToStore,
         type: variableType,
         isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
-      };
-      env = updateExistingVariable(env, variable, newVariable);
+      });
       isMutatingDefinedVariable = true;
-
-      if (
-        rhsVariableOwningARCValue &&
-        rhsVariableOwningARCValue.frameLevel > variable.frameLevel
-      ) {
-        console.log("call dup on: ", exprToString(rhs));
-        if (setExprAsNeedsToCallDup(rhs, context)) {
-          // Transfer the ownership
-          console.log("transfer ownership to: ", variable.name);
-          env = updateExistingVariable(env, newVariable, {
-            ...newVariable,
-            isOwningTheARCValue: true,
-            isBorrowingTheARCValueOfVariable: undefined,
-          });
-        }
-      }
     }
 
     lhs.$ = {
@@ -642,11 +630,17 @@ export function evaluateAssignment({
         expectedType: { type: expectedType, env },
       },
     });
-    if (rhs.$?.env) {
-      env = rhs.$?.env;
+
+    if (!rhs.$) {
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `Failed to evaluate right-hand side of assignment: ${exprToString(rhs)}`,
+      });
     }
+    env = rhs.$.env;
 
     setExprAsNeedsToCallDup(rhs, context);
+    env = rhs.$.env;
 
     let rhsType = rhs.$?.type;
     if (!rhsType) {

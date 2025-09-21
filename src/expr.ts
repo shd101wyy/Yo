@@ -1654,10 +1654,15 @@ export function setExprAsConsumed(
   return env;
 }
 
+/**
+ * @param expr
+ * @param context
+ * @returns
+ */
 export function setExprAsNeedsToCallDup(
   expr: Expr,
   context: EvaluatorContext
-): true | undefined {
+): void {
   if (!expr.$) {
     return;
   }
@@ -1683,8 +1688,6 @@ export function setExprAsNeedsToCallDup(
                 ...variable,
                 consumedAtToken: expr.token,
               });
-              console.log("set as consumed");
-              return true; // means can transfer ownership
             }
 
             return;
