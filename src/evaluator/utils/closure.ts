@@ -4,7 +4,7 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { ExprTag } from "../../expr";
+import { Expr, ExprTag } from "../../expr";
 import { FunctionCapturedVariableInfo } from "../../function-value";
 import { Token } from "../../token";
 import {
@@ -14,6 +14,7 @@ import {
   SomeType,
   StructType,
   TupleElement,
+  typeContainsARCType,
   typeToString,
 } from "../../types";
 import {
@@ -289,4 +290,88 @@ export function enrichCapturedVariables({
   }
 
   return enrichedMap;
+}
+
+/**
+ * Generate ___dup expressions for captured ARC variables.
+ *
+ * This function creates and evaluates ___dup expressions for all captured variables
+ * that require ARC (Automatic Reference Counting). These expressions are used during
+ * closure construction to properly handle reference counting.
+ *
+ * @param capturedVariablesWithValues - Map of captured variables with their values and types
+ * @param env - The environment to use for evaluation
+ * @param context - The evaluator context
+ * @returns Object containing the generated dup expressions and updated environment
+ */
+export function generateCapturedVariableDupExpressions({
+  capturedVariablesWithValues,
+  env,
+  context,
+}: {
+  capturedVariablesWithValues:
+    | Map<string, FunctionCapturedVariableInfo>
+    | undefined;
+  env: Environment;
+  context: EvaluatorContext;
+}): {
+  capturedVariableDupExpressions: Expr[] | undefined;
+  env: Environment;
+} {
+  const capturedVariableDupExpressions: Expr[] = [];
+  let finalEnv = env;
+
+  if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
+    for (const [
+      varName,
+      captureInfo,
+    ] of capturedVariablesWithValues.entries()) {
+      // Check if the captured variable type requires ARC (contains ARC types)
+      if (typeContainsARCType(captureInfo.type)) {
+        // Create an expression: varName.___dup()
+        const dupExpr: Expr = {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              ...captureInfo.token,
+              value: "___dup",
+            },
+          },
+          args: [
+            {
+              tag: ExprTag.Atom,
+              token: {
+                ...captureInfo.token,
+                value: varName,
+              },
+            },
+          ],
+          token: captureInfo.token,
+        };
+
+        // Evaluate the dupExpr to ensure it's properly typed and processed
+        const evaluatedDupExpr = context.evaluateExpression({
+          expr: dupExpr,
+          env: finalEnv,
+          context: { ...context },
+        });
+
+        capturedVariableDupExpressions.push(evaluatedDupExpr);
+
+        // Update the environment with the evaluated expression's environment
+        if (evaluatedDupExpr.$ && evaluatedDupExpr.$.env) {
+          finalEnv = evaluatedDupExpr.$.env;
+        }
+      }
+    }
+  }
+
+  return {
+    capturedVariableDupExpressions:
+      capturedVariableDupExpressions.length > 0
+        ? capturedVariableDupExpressions
+        : undefined,
+    env: finalEnv,
+  };
 }

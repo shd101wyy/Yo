@@ -41,6 +41,7 @@ import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
   createCaptureTypeAndValue,
+  generateCapturedVariableDupExpressions,
 } from "../utils/closure";
 
 export function evaluateAnonymousFunctionImplementation({
@@ -494,6 +495,7 @@ Got:      "${paramName}"`,
   // Set the type and value of the expression
   let finalType: Type;
   let finalValue: Value;
+  let capturedVariableDupExpressions: Expr[] | undefined;
 
   if (isCreatingClosure && expectedClosureType) {
     // Create a closure type and closure value using helper function
@@ -513,6 +515,16 @@ Got:      "${paramName}"`,
       env,
       context,
     });
+
+    // Generate ___dup expressions for captured ARC variables
+    const { capturedVariableDupExpressions: dupExpressions, env: updatedEnv } =
+      generateCapturedVariableDupExpressions({
+        capturedVariablesWithValues,
+        env,
+        context,
+      });
+    capturedVariableDupExpressions = dupExpressions;
+    env = updatedEnv;
 
     // Update the existing function value for closures
     functionValue.funcId = `closure_${randomId()}`;
@@ -539,6 +551,10 @@ Got:      "${paramName}"`,
       isClosureFunction && capturedVariables
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
         : [],
+    capturedVariableDupExpressions:
+      isCreatingClosure && capturedVariableDupExpressions
+        ? capturedVariableDupExpressions
+        : undefined,
   };
 
   // For closures, attach a temporary variable so they can be consumed
