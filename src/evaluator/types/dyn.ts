@@ -105,11 +105,12 @@ export function evaluateDynType({
     }
   }
 
-  // Prevent having ___dup, ___drop, ___dispose in moduleTypes
+  // Prevent having ___dup, ___drop, ___dispose, dispose in moduleTypes
   const reservedFunctionNames = [
     BuiltinFunctions.___dup[0]!,
     BuiltinFunctions.___drop[0]!,
     BuiltinFunctions.___dispose[0]!,
+    BuiltinFunctions.dispose[0]!,
   ];
   for (const moduleType of moduleTypes) {
     for (const element of moduleType.elements) {
@@ -127,6 +128,8 @@ export function evaluateDynType({
     }
   }
 
+  // QUESTION: From the C codegen, it seems like only the ___dispose is used for the wrapped object
+  // So do we still need to have ___dup and ___drop in the module type for the wrapped object?
   // Create a module type that defines the ARC interface for the wrapped object
   // This will be used to call ___dup, ___drop, ___dispose on the inner data
   const wrappedObjectARCModuleTypeExpr = generateExprFromCode(`

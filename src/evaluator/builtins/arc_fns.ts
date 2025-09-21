@@ -214,55 +214,7 @@ export function evaluateYoRcOwn({
 }
 
 /**
- * Evaluates __yo_dyn_vtable_dispose builtin function.
- * Just evaluates the argument and returns unit.
- */
-export function evaluateYoDynVtableDispose({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): Expr {
-  expectExprToBeFunctionCallOf(expr, [
-    BuiltinFunctions.__yo_dyn_vtable_dispose[0]!,
-  ]);
-
-  const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
-    expr: argExpr,
-    env,
-    context: {
-      ...context,
-    },
-  });
-
-  if (!evaluatedArgExpr.$) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_dyn_vtable_dispose[0]!}":\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
-  env = evaluatedArgExpr.$.env;
-
-  // Check if the argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
-
-  expr.$ = {
-    env,
-    type: VUnit.type,
-    value: VUnit,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/**
- * Evaluates __yo_dyn_vtable_drop builtin function.
+ * Evaluates __yo_dyn_drop builtin function.
  * Just evaluates the argument and returns unit.
  */
 export function evaluateYoDynVtableDrop({
@@ -274,9 +226,7 @@ export function evaluateYoDynVtableDrop({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  expectExprToBeFunctionCallOf(expr, [
-    BuiltinFunctions.__yo_dyn_vtable_drop[0]!,
-  ]);
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_dyn_drop[0]!]);
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = context.evaluateExpression({
@@ -290,7 +240,7 @@ export function evaluateYoDynVtableDrop({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_dyn_vtable_drop[0]!}":\n${exprToString(
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_dyn_drop[0]!}":\n${exprToString(
         argExpr
       )}`,
     });
@@ -310,7 +260,7 @@ export function evaluateYoDynVtableDrop({
 }
 
 /**
- * Evaluates __yo_dyn_vtable_dup builtin function.
+ * Evaluates __yo_dyn_dup builtin function.
  * Just evaluates the argument and returns unit.
  */
 export function evaluateYoDynVtableDup({
@@ -322,9 +272,7 @@ export function evaluateYoDynVtableDup({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  expectExprToBeFunctionCallOf(expr, [
-    BuiltinFunctions.__yo_dyn_vtable_dup[0]!,
-  ]);
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_dyn_dup[0]!]);
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = context.evaluateExpression({
@@ -338,55 +286,7 @@ export function evaluateYoDynVtableDup({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_dyn_vtable_dup[0]!}":\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
-  env = evaluatedArgExpr.$.env;
-
-  // Check if the argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
-
-  expr.$ = {
-    env,
-    type: VUnit.type,
-    value: VUnit,
-    pathCollection: [],
-  };
-  return expr;
-}
-
-/**
- * Evaluates __yo_closure_dispose builtin function.
- * Just evaluates the argument and returns unit.
- */
-export function evaluateYoClosureDispose({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): Expr {
-  expectExprToBeFunctionCallOf(expr, [
-    BuiltinFunctions.__yo_closure_dispose[0]!,
-  ]);
-
-  const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
-    expr: argExpr,
-    env,
-    context: {
-      ...context,
-    },
-  });
-
-  if (!evaluatedArgExpr.$) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_closure_dispose[0]!}":\n${exprToString(
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_dyn_dup[0]!}":\n${exprToString(
         argExpr
       )}`,
     });

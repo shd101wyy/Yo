@@ -156,44 +156,26 @@ function generateFuncCall(
     return selfCode; // Just return the argument as-is
   }
 
-  // __yo_dyn_vtable_dispose - call dispose on wrapped object via vtable
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dispose)) {
+  // __yo_dyn_drop - call dispose on dyn object via dispose function then __yo_decr_rc on dyn
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_drop)) {
     const selfArg = expr.args[0];
     if (!selfArg) {
-      return `// Error: __yo_dyn_vtable_dispose requires exactly 1 argument`;
+      return `// Error: __yo_dyn_drop requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    return `${selfCode}->vtable->___dispose(${selfCode}->data)`;
+    // Use the dispose function from vtable for the dyn object itself
+    return `__yo_decr_rc((void*)(${selfCode}), ${selfCode}->vtable->dispose)`;
   }
 
-  // __yo_dyn_vtable_drop - call drop on wrapped object via vtable
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_drop)) {
+  // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
     const selfArg = expr.args[0];
     if (!selfArg) {
-      return `// Error: __yo_dyn_vtable_drop requires exactly 1 argument`;
+      return `// Error: __yo_dyn_dup requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    return `${selfCode}->vtable->___drop(${selfCode}->data)`;
-  }
-
-  // __yo_dyn_vtable_dup - call dup on wrapped object via vtable
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_dyn_vtable_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `${selfCode}->vtable->___dup(${selfCode}->data)`;
-  }
-
-  // __yo_closure_dispose - call dispose on closure via vtable
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dispose)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_closure_dispose requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `${selfCode}->vtable->dispose(${selfCode})`;
+    // Only increment the dyn object's own reference count, don't duplicate wrapped object
+    return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
   // __yo_closure_drop - call dispose on closure via vtable then __yo_decr_rc on closure
@@ -1527,10 +1509,11 @@ function generateDynCall(
 
   // Generate constructor call
   const constructorName = `__yo_new_${dynTypeName}`;
+  const disposeFunctionName = `__yo_dispose_${dynTypeName}`;
   const functionArgs = functionPointers.join(", ");
 
   context.emitter.emitLine(
-    `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(${valueCode}, ${functionArgs});`
+    `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(${valueCode}, ${disposeFunctionName}, ${functionArgs});`
   );
 
   // Return the variable reference

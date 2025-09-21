@@ -1,42 +1,37 @@
 open import "std";
-open import "std/libc/stdio";
+open import "std/libc/stdio.yo";
 
-MyBox :: ref struct
-  (*) : i32,
+Speak :: module(
+  Self: Type,
+  speak : (fn(self : Self) -> i32)
+);
 
-  dispose :: (fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.*);
-  }
-;
+// Dog :: struct(); // This should give error working with `dyn`.
+Dog :: ref struct(
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing Dog\n");
+  }),
 
-some_condition :: (fn() -> boolean) {
-  return false;
-};
+  ...(Speak
+    Self : Self,
+    speak : ((self : Self) -> {
+      printf("Woof!\n");
+      return 1;
+    })
+  )
+);
 
-main :: (fn() -> i32) {
-  closure : (fn(v : i32) => i32);
+main :: ((fn() -> i32) {
+  dog := Dog();
+  (dyn_dog : Dyn(Speak)) = dyn(dog);
+  // We insert ___dup: 
+  //    dyn(___dup(dog), DogSpeak);
 
-  cond(
-    some_condition() => {
-      x := MyBox(1);
-      closure = ((v) => {
-        x.* = (x.* + v);
-        return x.*;
-      }) // NOTE: No ';' here intentionally
-    },
-    true => {
-      y := MyBox(2);
-      closure = ((v) => {
-        y.* = (y.* * v);
-        return y.*;
-      });
-    }
-  );
+  result := dyn_dog.speak();
 
-  closure(2);
-  closure(3);
-  result := closure(4);
+  // ___drop(dyn_dog);
+  // ___drop(dog);
   return result;
-};
+});
 
 export main;

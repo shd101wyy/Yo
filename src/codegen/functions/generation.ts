@@ -68,6 +68,11 @@ export function generateFunctionDeclarations(
   generateClosureConstructorDeclarations(context);
   emitter.emitDeclarationLine("");
 
+  // Generate constructor functions for dyn types
+  emitter.emitDeclarationLine(`/// Dyn type constructors`);
+  generateDynConstructorDeclarations(context);
+  emitter.emitDeclarationLine("");
+
   // Generate declarations for other functions
   emitter.emitDeclarationLine(`/// Regular functions`);
   for (const funcId in context.functions) {
@@ -183,6 +188,12 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
   // Generate ref struct constructor functions
   generateRefStructConstructorFunctions(context);
+
+  // Generate closure constructor and ARC functions
+  generateClosureConstructorFunctions(context);
+
+  // Generate dyn type constructor and ARC functions
+  generateDynConstructorFunctions(context);
 
   for (const funcId in context.functions) {
     const { value, cName } = context.functions[funcId]!;
@@ -479,19 +490,6 @@ export function generateRefStructConstructorDeclarations(
         `${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
     }
-
-    // Generate constructor declarations for each dyn type
-    if (isDynType(type)) {
-      // Skip generic dyn types that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      const constructorName = `__yo_new_${cName}`;
-      emitter.emitDeclarationLine(
-        `${cName}* ${constructorName}(void* data, ...); // Dyn constructor`
-      );
-    }
   }
 }
 
@@ -594,6 +592,40 @@ export function generateClosureConstructorDeclarations(
 }
 
 /**
+ * Generate constructor function declarations for dyn types
+ */
+export function generateDynConstructorDeclarations(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate constructor declarations for each dyn type
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+
+    if (isDynType(type)) {
+      // Skip generic dyn types that contain SomeType parameters
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+
+      const constructorName = `__yo_new_${cName}`;
+
+      // Declare the constructor function that takes data, dispose function, and function pointers
+      emitter.emitDeclarationLine(
+        `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...); // Dyn constructor`
+      );
+
+      // Declare the dispose function for this dyn type
+      const disposeFunctionName = `__yo_dispose_${cName}`;
+      emitter.emitDeclarationLine(
+        `void ${disposeFunctionName}(void* ptr); // Dispose dyn and wrapped data`
+      );
+    }
+  }
+}
+
+/**
  * Generate vtable instance declarations for closures
  */
 export function generateClosureVtableDeclarations(
@@ -683,71 +715,7 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`}`);
       emitter.emitLine(``);
     }
-
-    // Generate constructor implementations for each dyn type
-    if (isDynType(type)) {
-      const dynType = type as DynType;
-
-      // Skip generic dyn types that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      const constructorName = `__yo_new_${cName}`;
-      const vtableName = `${cName}_vtable`;
-
-      emitter.emitLine(`${cName}* ${constructorName}(void* data, ...) {`);
-      emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
-      );
-      emitter.emitLine(`  obj->header.ref_count = 1;`);
-      emitter.emitLine(
-        `  ${vtableName}* vtable = (${vtableName}*)malloc(sizeof(${vtableName}));`
-      );
-
-      emitter.emitLine(`  va_list args;`);
-      emitter.emitLine(`  va_start(args, data);`);
-
-      // Initialize vtable with function pointers from variadic arguments
-      const processedMethods = new Set<string>();
-      for (const moduleType of dynType.moduleTypes) {
-        for (const element of moduleType.elements) {
-          // Skip 'Self' type declarations and duplicates
-          if (element.label === "Self" || processedMethods.has(element.label)) {
-            continue;
-          }
-          processedMethods.add(element.label);
-
-          if (isFunctionType(element.type)) {
-            const functionType = element.type as FunctionType;
-            if (
-              functionType.parameters.length > 0 &&
-              functionType.parameters[0]?.label === "self"
-            ) {
-              const methodName = sanitizeForCIdentifier(element.label);
-              const returnTypeStr = getTypeString(
-                functionType.return.type,
-                context
-              );
-              emitter.emitLine(
-                `  vtable->${methodName} = (${returnTypeStr} (*)(void*))va_arg(args, void*);`
-              );
-            }
-          }
-        }
-      }
-
-      emitter.emitLine(`  va_end(args);`);
-      emitter.emitLine(`  obj->vtable = vtable;`);
-      emitter.emitLine(`  obj->data = __yo_incr_rc(data);`);
-      emitter.emitLine(`  return obj;`);
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
-    }
   }
-
-  // Generate closure constructor and ARC functions
-  generateClosureConstructorFunctions(context);
 }
 
 /**
@@ -938,6 +906,92 @@ export function generateClosureConstructorFunctions(
       }
 
       emitter.emitLine(`}`);
+      emitter.emitLine(``);
+    }
+  }
+}
+
+/**
+ * Generate constructor function implementations for dyn types and their ARC functions
+ */
+export function generateDynConstructorFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate dyn constructor functions
+  for (const typeEntry of Object.values(context.types)) {
+    const type = typeEntry.type;
+    const cName = typeEntry.cName;
+
+    if (isDynType(type)) {
+      const dynType = type as DynType;
+
+      // Skip generic dyn types that contain SomeType parameters
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+
+      // Generate dyn constructor function
+      const constructorName = `__yo_new_${cName}`;
+      const vtableName = `${cName}_vtable`;
+
+      emitter.emitLine(
+        `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...) {`
+      );
+      emitter.emitLine(
+        `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+      );
+      emitter.emitLine(`  obj->header.ref_count = 1;`);
+      emitter.emitLine(
+        `  ${vtableName}* vtable = (${vtableName}*)malloc(sizeof(${vtableName}));`
+      );
+
+      emitter.emitLine(`  va_list args;`);
+      emitter.emitLine(`  va_start(args, dispose_fn);`);
+
+      // Initialize vtable with function pointers from variadic arguments
+      const processedMethods = new Set<string>();
+      for (const moduleType of dynType.moduleTypes) {
+        for (const element of moduleType.elements) {
+          // Skip 'Self' type declarations
+          if (element.label === "Self") {
+            continue;
+          }
+
+          // Avoid duplicate methods from different modules
+          if (processedMethods.has(element.label)) {
+            continue;
+          }
+          processedMethods.add(element.label);
+
+          const methodName = sanitizeForCIdentifier(element.label);
+          emitter.emitLine(`  vtable->${methodName} = va_arg(args, void*);`);
+        }
+      }
+
+      // Set the dispose function pointer for the dyn object itself
+      emitter.emitLine(`  vtable->dispose = dispose_fn;`);
+
+      emitter.emitLine(`  va_end(args);`);
+
+      emitter.emitLine(`  obj->vtable = vtable;`);
+      emitter.emitLine(`  obj->data = data;`);
+      emitter.emitLine(`  return obj;`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+
+      // Generate dispose function for this dyn type
+      const disposeFunctionName = `__yo_dispose_${cName}`;
+      emitter.emitLine(`void ${disposeFunctionName}(void* ptr) {`);
+      emitter.emitLine(`  ${cName}* self = (${cName}*)ptr;`);
+      emitter.emitLine(
+        `  // Call the wrapped object's dispose function, then free the dyn object`
+      );
+      emitter.emitLine(`  __yo_decr_rc(self->data, self->vtable->___dispose);`);
+      emitter.emitLine(`  free(self->vtable);`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
       emitter.emitLine(``);
     }
   }

@@ -488,6 +488,11 @@ export function generateDynDeclaration(
     }
   }
 
+  // Add the dispose function pointer for dyn object cleanup (like closures)
+  emitter.emitDeclarationLine(
+    `  void (*dispose)(void* self); // Dispose function for dyn object`
+  );
+
   emitter.emitDeclarationLine(`} ${vtableName};`);
   emitter.emitDeclarationLine("");
 

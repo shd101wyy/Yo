@@ -21,11 +21,9 @@ import { evaluateAlignOf } from "./builtins/alignof";
 import { evaluateAndOr } from "./builtins/and_or";
 import {
   evaluateIsUniquelyOwned,
-  evaluateYoClosureDispose,
   evaluateYoClosureDrop,
   evaluateYoClosureDup,
   evaluateYoDecrRc,
-  evaluateYoDynVtableDispose,
   evaluateYoDynVtableDrop,
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
@@ -496,34 +494,12 @@ ${exprToString(expr)}`,
       ) {
         // is_uniquely_owned
         return evaluateIsUniquelyOwned({ expr, env, context: { ...context } });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dispose)
-      ) {
-        // __yo_dyn_vtable_dispose
-        return evaluateYoDynVtableDispose({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_drop)
-      ) {
-        // __yo_dyn_vtable_drop
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_drop)) {
+        // __yo_dyn_drop
         return evaluateYoDynVtableDrop({ expr, env, context: { ...context } });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_vtable_dup)
-      ) {
-        // __yo_dyn_vtable_dup
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
+        // __yo_dyn_dup
         return evaluateYoDynVtableDup({ expr, env, context: { ...context } });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dispose)
-      ) {
-        // __yo_closure_dispose
-        return evaluateYoClosureDispose({
-          expr,
-          env,
-          context: { ...context },
-        });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_drop)
       ) {
