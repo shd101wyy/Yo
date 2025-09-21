@@ -190,7 +190,7 @@ export function evaluateCond({
       // No need to evaluate further if a return was encountered
       expr.$ = {
         env: evaluatedCaseBodyExpr.$.env,
-        type: evaluatedCaseBodyExpr.$.type,
+        type: context.expectedType?.type ?? evaluatedCaseBodyExpr.$.type,
         value: evaluatedCaseBodyExpr.$.value,
         pathCollection: evaluatedCaseBodyExpr.$.pathCollection,
         controlFlow: evaluatedCaseBodyExpr.$.controlFlow,
@@ -225,7 +225,7 @@ export function evaluateCond({
 
       expr.$ = {
         env,
-        type: valueType.type,
+        type: context.expectedType?.type ?? valueType.type,
         value: value,
         pathCollection: [],
       };
@@ -396,7 +396,7 @@ export function evaluateCond({
 
       expr.$ = {
         env,
-        type: valueType.type,
+        type: context.expectedType?.type ?? valueType.type,
         value: value,
         pathCollection: [],
       };
@@ -424,7 +424,7 @@ export function evaluateCond({
           context.isEvaluatingFunctionBody.type.return.type;
         expr.$ = {
           env,
-          type: functionReturnType,
+          type: context.expectedType?.type ?? functionReturnType,
           value: isFunctionTypeAndReturnsComptValue(
             context.isEvaluatingFunctionBody.type
           )

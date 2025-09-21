@@ -12,24 +12,14 @@ export function collectCIncludes(context: CodeGenContext): void {
     }
   }
 
-  // Debug: Log extern functions
-  console.log(
-    "DEBUG: Extern functions collected:",
-    Object.keys(context.externFunctions)
-  );
-
   // Collect cIncludes from all extern functions
   for (const functionId in context.externFunctions) {
     const { type } = context.externFunctions[functionId]!;
-    console.log(`DEBUG: Extern function ${functionId}:`, {
-      cInclude: type.cInclude,
-    });
+
     if (type.cInclude) {
       context.cIncludes.add(type.cInclude);
     }
   }
-
-  console.log("DEBUG: Final cIncludes:", Array.from(context.cIncludes));
 }
 
 /**

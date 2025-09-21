@@ -32,7 +32,6 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
-import { createClosureType } from "../../types/creators";
 import {
   isArrayValue,
   isBooleanValue,
@@ -2055,18 +2054,8 @@ function generateCondExpression(
   // Check if the cond expression has been evaluated and has a variable name
   if (expr.$) {
     const tempVar = expr.$.variableName;
-    let valueType = expr.$.type;
+    const valueType = expr.$.type;
     const isUnit = valueType && isUnitType(valueType);
-
-    // Special handling for closure types - use base closure type for temp variable
-    if (valueType && isClosureType(valueType) && valueType.captureType) {
-      // Create base closure type by removing captureType (set to undefined)
-      valueType = createClosureType(
-        valueType.callType,
-        undefined,
-        valueType.env
-      );
-    }
 
     // For unit types, don't declare a temporary variable
     if (!isUnit && tempVar) {
@@ -2103,8 +2092,50 @@ function generateCondExpression(
             exprIsFunctionCall(value) &&
             exprIsFunctionCallOf(value, BuiltinKeywords.begin)
           ) {
-            // Generate the begin block contents directly without assignment
-            generateLoopBody(value, indent + "  ", context);
+            // For begin blocks in conditionals, we need to generate the statements inline
+            // like generateLoopBody but also capture the final expression result
+
+            const beginArgs = value.args;
+
+            // Generate each statement except the last one
+            for (let i = 0; i < beginArgs.length - 1; i++) {
+              const arg = beginArgs[i]!;
+              const argCode = generateExpr(arg, indent + "  ", context);
+              if (argCode) {
+                context.emitter.emitLine(`${indent}  ${argCode};`);
+              }
+            }
+
+            // Generate the final expression and assign it to temp variable
+            if (beginArgs.length > 0 && !isUnit && tempVar) {
+              const finalExpr = beginArgs[beginArgs.length - 1]!;
+              const finalExprCode = generateExpr(
+                finalExpr,
+                indent + "  ",
+                context
+              );
+
+              if (finalExprCode) {
+                // Special handling for closure types - add casting to base type
+                if (
+                  expr.$.type &&
+                  isClosureType(expr.$.type) &&
+                  valueType &&
+                  isClosureType(valueType) &&
+                  !valueType.captureType
+                ) {
+                  // Cast specific closure type to base closure type
+                  const baseTypeName = getTypeString(valueType, context);
+                  context.emitter.emitLine(
+                    `${indent}  ${tempVar} = (${baseTypeName})${finalExprCode};`
+                  );
+                } else {
+                  context.emitter.emitLine(
+                    `${indent}  ${tempVar} = ${finalExprCode};`
+                  );
+                }
+              }
+            }
           } else {
             // Generate the value expression INSIDE the conditional block
             const valueCode = generateExpr(value, indent + "  ", context);

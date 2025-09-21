@@ -307,7 +307,7 @@ export function evaluateMatch({
           // If the scrutinee value is an enum value, we can return it directly
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: evaluatedBody.$.type,
+            type: context.expectedType?.type ?? evaluatedBody.$.type,
             value: evaluatedBody.$.value,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -646,7 +646,7 @@ export function evaluateMatch({
         if (scrutineeValue && isEnumValue(scrutineeValue)) {
           expr.$ = {
             env: evaluatedBody.$.env,
-            type: evaluatedBody.$.type,
+            type: context.expectedType?.type ?? evaluatedBody.$.type,
             value: evaluatedBody.$.value,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
@@ -763,7 +763,7 @@ Supported patterns:
     // Set the type and value of the match expression
     expr.$ = {
       env,
-      type: resultType.type,
+      type: context.expectedType?.type ?? resultType.type,
       // TODO: Support the compile-time value.
       // For compile-time evaluation, we'd determine which arm matches and set the value
       value: undefined, // createUnknownValue(resultType),
@@ -791,7 +791,7 @@ Supported patterns:
         context.isEvaluatingFunctionBody.type.return.type;
       expr.$ = {
         env,
-        type: functionReturnType,
+        type: context.expectedType?.type ?? functionReturnType,
         value: isFunctionTypeAndReturnsComptValue(
           context.isEvaluatingFunctionBody.type
         )
