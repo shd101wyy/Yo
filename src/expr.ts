@@ -1291,11 +1291,10 @@ export function mergeAndCheckEnvs(
     const cols = matrix[0]!.length;
     for (let i = 0; i < cols; i++) {
       const variableName = frameVariables[i]!.name;
-      const consumedAtTokens: (Token | undefined)[] = [];
       const initializedAtTokens: (Token | undefined)[] = [];
+      const isOwningTheARCValueAtTokens: (Token | undefined)[] = [];
       const types: Type[] = [];
       for (let j = 1; j < rows; j++) {
-        consumedAtTokens.push(matrix[j]![i]!.consumedAtToken);
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
         types.push(matrix[j]![i]!.type);
       }
@@ -1398,6 +1397,68 @@ export function mergeAndCheckEnvs(
                   (token
                     ? "Might be initialized here:"
                     : "Not initialized here:"),
+                token: token ?? bodies[index]!.token,
+              };
+            })
+          );
+        }
+      }
+
+      // Check isOwningTheARCValueAtTokens
+      // case 1
+      if (isOwningTheARCValueAtTokens.length === 1) {
+        if (
+          isOwningTheARCValueAtTokens[0] &&
+          !frameVariables[i]!.isOwningTheARCValue
+        ) {
+          throw formatErrorMessages([
+            {
+              token: frameVariables[i]!.token,
+              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the ARC value in all cases.`,
+            },
+            {
+              token: isOwningTheARCValueAtTokens[0]!,
+              errorMessage: `Might be owning the ARC value here:`,
+            },
+          ]);
+        }
+      }
+      // case 2
+      // variable is not owning the ARC value outside, but all cases make it owning.
+      else if (
+        !frameVariables[i]!.isOwningTheARCValue &&
+        isOwningTheARCValueAtTokens.every((u) => u)
+      ) {
+        const newVariable: Variable = {
+          ...frameVariables[i]!,
+          isOwningTheARCValue: true,
+          isBorrowingTheARCValueOfVariable: undefined,
+        };
+        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+        frameVariables[i] = newVariable;
+      }
+      // case 3
+      else {
+        const isOwningTheARCValue = isOwningTheARCValueAtTokens.filter(
+          (u) => !!u
+        );
+        const isNotOwningTheARCValue = isOwningTheARCValueAtTokens.filter(
+          (u) => !u
+        );
+        if (
+          isOwningTheARCValue.length > 0 &&
+          isNotOwningTheARCValue.length > 0
+        ) {
+          throw formatErrorMessages(
+            isOwningTheARCValueAtTokens.map((token, index) => {
+              return {
+                errorMessage:
+                  (index === 0
+                    ? `Variable "${variableName}" might be owning the ARC value in some cases but not owning the ARC value in other cases:\n`
+                    : "") +
+                  (token
+                    ? "Might be owning the ARC value here:"
+                    : "Might be not owning the ARC value here:"),
                 token: token ?? bodies[index]!.token,
               };
             })
@@ -1596,7 +1657,7 @@ export function setExprAsConsumed(
 export function setExprAsNeedsToCallDup(
   expr: Expr,
   context: EvaluatorContext
-): void {
+): true | undefined {
   if (!expr.$) {
     return;
   }
@@ -1622,6 +1683,8 @@ export function setExprAsNeedsToCallDup(
                 ...variable,
                 consumedAtToken: expr.token,
               });
+              console.log("set as consumed");
+              return true; // means can transfer ownership
             }
 
             return;

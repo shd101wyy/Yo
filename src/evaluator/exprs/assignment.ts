@@ -4,6 +4,7 @@ import {
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   updateExistingVariable,
+  Variable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
@@ -447,14 +448,31 @@ export function evaluateAssignment({
           env.modulePath
         );
 
-        env = updateExistingVariable(env, variable, {
+        const newVariable: Variable = {
           ...variable,
           initializedAtToken: lhs.token,
           value: valueToStore,
           type: variableType,
           isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
           // type: rhsType,
-        });
+        };
+        env = updateExistingVariable(env, variable, newVariable);
+
+        if (
+          rhsVariableOwningARCValue &&
+          rhsVariableOwningARCValue.frameLevel > variable.frameLevel
+        ) {
+          console.log("call dup on: ", exprToString(rhs));
+          if (setExprAsNeedsToCallDup(rhs, context)) {
+            // Transfer the ownership
+            console.log("transfer ownership to: ", variable.name);
+            env = updateExistingVariable(env, newVariable, {
+              ...newVariable,
+              isOwningTheARCValue: true,
+              isBorrowingTheARCValueOfVariable: undefined,
+            });
+          }
+        }
       }
     } else {
       // For closures, track variable writes to outer scope
@@ -509,13 +527,30 @@ export function evaluateAssignment({
         env.modulePath
       );
 
-      env = updateExistingVariable(env, variable, {
+      const newVariable: Variable = {
         ...variable,
         value: valueToStore,
         type: variableType,
         isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
-      });
+      };
+      env = updateExistingVariable(env, variable, newVariable);
       isMutatingDefinedVariable = true;
+
+      if (
+        rhsVariableOwningARCValue &&
+        rhsVariableOwningARCValue.frameLevel > variable.frameLevel
+      ) {
+        console.log("call dup on: ", exprToString(rhs));
+        if (setExprAsNeedsToCallDup(rhs, context)) {
+          // Transfer the ownership
+          console.log("transfer ownership to: ", variable.name);
+          env = updateExistingVariable(env, newVariable, {
+            ...newVariable,
+            isOwningTheARCValue: true,
+            isBorrowingTheARCValueOfVariable: undefined,
+          });
+        }
+      }
     }
 
     lhs.$ = {
