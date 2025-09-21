@@ -308,6 +308,7 @@ export function evaluateBeginExpression({
   }
 
   let lastExpr = beginExpressions[beginExpressions.length - 1]!;
+  let returnExpr: Expr | undefined = undefined;
 
   // Evaluate expressions
   for (let i = 0; i < beginExpressions.length; i++) {
@@ -346,6 +347,7 @@ export function evaluateBeginExpression({
           errorMessage: `The "return" keyword can only be used inside a function body.`,
         });
       }
+      returnExpr = exprToEvaluate;
 
       if (exprIsAtom(exprToEvaluate)) {
         // return;
@@ -778,6 +780,12 @@ export function evaluateBeginExpression({
     });
     deferredDropExpressions = dropResult.deferredDropExpressions;
     env = dropResult.env;
+  }
+
+  // Attach deferredDropExpressions to returnExpr if exists
+  if (returnExpr && returnExpr.$) {
+    returnExpr.$.deferredDropExpressions = deferredDropExpressions;
+    attachTempVariableToExpr(returnExpr, true);
   }
 
   // Now pop the environment frame

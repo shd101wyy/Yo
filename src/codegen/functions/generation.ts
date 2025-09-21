@@ -16,12 +16,15 @@ import {
   isStructType,
   isUnitType,
   typeContainsSomeType,
-  TypeId,
   TypeTag,
   typeToString,
 } from "../../types";
 import { isFunctionValue } from "../../value";
-import { generateExpr, generateReturnStatement } from "../expressions";
+import {
+  generateDeferredDropExpressions,
+  generateExpr,
+  generateReturnStatement,
+} from "../expressions";
 import {
   CodeGenContext,
   getTypeString,
@@ -30,18 +33,7 @@ import {
   isGenericFunction,
   sanitizeForCIdentifier,
 } from "../utils";
-
-export interface FunctionGenerationContext extends CodeGenContext {
-  functions: Record<FuncValueId, { value: FunctionValue; cName: string }>;
-  externFunctions: Record<
-    TypeId,
-    { type: FunctionType; cName: string; cInclude?: string }
-  >;
-  currentFunctionName: string;
-  currentClosureCaptures?: string[]; // Variables captured by current closure function
-  currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
-  currentClosureType?: ClosureType; // Current closure type being generated
-}
+import { FunctionGenerationContext } from "./context";
 
 /**
  * Generate function declarations (prototypes)
@@ -281,23 +273,6 @@ export function generateFunction(
   emitter.emitLine(`}`);
 }
 
-export function generateDeferredDropExpressions(
-  expr: Expr,
-  indent: string,
-  context: FunctionGenerationContext
-) {
-  const emitter = context.emitter;
-
-  if (expr.$?.deferredDropExpressions) {
-    for (const dropExpr of expr.$.deferredDropExpressions) {
-      const dropCode = generateExpr(dropExpr, indent, context);
-      if (dropCode) {
-        emitter.emitLine(`${indent}${dropCode};`);
-      }
-    }
-  }
-}
-
 /**
  * Generate function body with proper return handling
  */
@@ -322,9 +297,6 @@ export function generateFunctionBody(
 
       if (exprIsFunctionCallOf(arg, BuiltinKeywords.return)) {
         findReturn = true;
-
-        // Generate deferred drop expressions before function ends
-        generateDeferredDropExpressions(expr, indent, context);
       }
       const argCode = generateExpr(arg, indent, context);
       if (argCode) {

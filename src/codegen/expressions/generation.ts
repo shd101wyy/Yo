@@ -47,7 +47,7 @@ import {
   valueToString,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
-import { FunctionGenerationContext } from "../functions/generation";
+import { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -349,9 +349,33 @@ function generateFuncCall(
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
     const arg = expr.args[0];
     if (arg) {
+      if (!expr.$?.variableName) {
+        return `// Error: return expression missing temporary variable name`;
+      }
+
       const argCode = generateExpr(arg, indent, context);
-      return `return ${argCode}`;
+      const returnType = getTypeString(expr.$.type!, context);
+
+      if (!isUnitType(expr.$.type)) {
+        context.emitter.emitLine(
+          `${indent}${returnType} ${expr.$.variableName} = ${argCode};`
+        );
+      }
+
+      if (expr.$.deferredDropExpressions) {
+        generateDeferredDropExpressions(expr, indent, context);
+      }
+
+      if (isUnitType(expr.$.type)) {
+        return `return`;
+      }
+
+      return `return ${expr.$.variableName}`;
     } else {
+      if (expr.$?.deferredDropExpressions) {
+        generateDeferredDropExpressions(expr, indent, context);
+      }
+
       return "return";
     }
   }
@@ -2863,4 +2887,21 @@ function generateForLoop(
   context.emitter.emitLine(`${indent}}`);
 
   return "";
+}
+
+export function generateDeferredDropExpressions(
+  expr: Expr,
+  indent: string,
+  context: FunctionGenerationContext
+) {
+  const emitter = context.emitter;
+
+  if (expr.$?.deferredDropExpressions) {
+    for (const dropExpr of expr.$.deferredDropExpressions) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
 }
