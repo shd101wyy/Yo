@@ -1,5 +1,9 @@
 import { checkBorrowings } from "../../borrow";
-import { Environment } from "../../env";
+import {
+  Environment,
+  getVariablesFromEnv,
+  updateExistingVariable,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
@@ -206,6 +210,25 @@ export function evaluateDup({
       // Replace the original expr with the evaluated dup method call
       if (exprIsFunctionCall(evaluatedDupMethodCallExpr)) {
         replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDupMethodCallExpr);
+
+        const tempVariableName = expr.$?.variableName;
+        if (expr.$ && tempVariableName) {
+          // In theory, we should enter here.
+          // We need to set the variable as not owning the ARC value
+          // This is necessary, otherwise we will generate the ___drop function call for that temp variable
+          const variables = getVariablesFromEnv(expr.$.env, tempVariableName);
+          if (variables.length) {
+            const variable = variables[variables.length - 1]!;
+            if (variable.isOwningTheARCValue) {
+              const nextEnv = updateExistingVariable(expr.$.env, variable, {
+                ...variable,
+                isOwningTheARCValue: false,
+              });
+              expr.$.env = nextEnv;
+            }
+          }
+        }
+
         return expr;
       } else {
         // In theory we shouldn't enter here
