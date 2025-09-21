@@ -30,6 +30,7 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
+import { Token } from "../../token";
 import {
   areTypesCompatible,
   isClosureType,
@@ -95,6 +96,139 @@ function generateDeferredDropExpressions({
       deferredDropExpressions.length > 0 ? deferredDropExpressions : undefined,
     env: finalEnv,
   };
+}
+
+function searchRecursively(
+  expr: Expr,
+  dupCalls: Map<string, FuncCallExpr[]>
+): void {
+  // Check the captured dup expressions first
+  if (expr.$?.capturedVariableDupExpressions) {
+    for (const dupExpr of expr.$.capturedVariableDupExpressions) {
+      searchRecursively(dupExpr, dupCalls);
+    }
+  }
+
+  // Look for function calls like (x.___dup)()
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCall(expr.func) &&
+    exprIsFunctionCallOf(expr.func, ".", 2) &&
+    exprIsAtom(expr.func.args[0]) &&
+    exprIsAtom(expr.func.args[1]) &&
+    expr.func.args[1].token.value === BuiltinFunctions.___dup[0] &&
+    expr.args.length === 0 &&
+    expr.$?.env
+  ) {
+    const variableName = expr.func.args[0].token.value;
+
+    // Look up the variable in the expression's environment to find what it's borrowing from
+    const variables = getVariablesFromEnv(expr.$.env, variableName);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
+      if (variable.isBorrowingTheARCValueOfVariable) {
+        // Store the dup call mapped to the borrowed-from variable name
+        const borrowedFromVariableName =
+          variable.isBorrowingTheARCValueOfVariable.name;
+        if (!dupCalls.has(borrowedFromVariableName)) {
+          dupCalls.set(borrowedFromVariableName, []);
+        }
+        dupCalls.get(borrowedFromVariableName)!.push(expr);
+      }
+    }
+    return;
+  }
+
+  // Skip while/for loops - they execute multiple times so optimization would be incorrect
+  if (
+    exprIsFunctionCall(expr) &&
+    (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.for))
+  ) {
+    // Don't apply optimization to while loops - the body can execute multiple times
+    // which would create multiple references without corresponding dup calls
+    return;
+  }
+  // Skip closures - they may be called multiple times
+  if (exprIsFunctionCall(expr) && isClosureType(expr.$?.type)) {
+    return;
+  }
+
+  // Helper function to handle branching expressions (cond, match)
+  function handleBranchingExpression(
+    expr: FuncCallExpr,
+    startIndex: number
+  ): void {
+    const branchDupCalls: Map<string, FuncCallExpr[]>[] = [];
+
+    // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
+    for (let i = startIndex; i < expr.args.length; i++) {
+      const statement = expr.args[i]!;
+      if (
+        exprIsFunctionCall(statement) &&
+        exprIsFunctionCallOf(statement, "=>", 2)
+      ) {
+        const branchBody = statement.args[1]!; // The body is the second argument
+        const branchDups = collectDupCallsConservatively(branchBody);
+        branchDupCalls.push(branchDups);
+      }
+    }
+
+    // Only include dup calls that are present in ALL branches
+    if (branchDupCalls.length > 0) {
+      const firstBranchDups = branchDupCalls[0]!;
+      for (const [varName, _dupCallArray] of firstBranchDups) {
+        const isPresentInAllBranches = branchDupCalls.every((branchDups) =>
+          branchDups.has(varName)
+        );
+
+        if (isPresentInAllBranches) {
+          // Collect all dup call expressions from all branches
+          const allDupCallsForVar: FuncCallExpr[] = [];
+          for (const branchDups of branchDupCalls) {
+            allDupCallsForVar.push(...branchDups.get(varName)!);
+          }
+          dupCalls.set(varName, allDupCallsForVar);
+        }
+      }
+    }
+  }
+
+  // Handle cond expressions - only include dup calls that are present in ALL branches
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
+  ) {
+    handleBranchingExpression(expr, 0);
+    return;
+  }
+
+  // Handle match expressions - only include dup calls that are present in ALL branches
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+  ) {
+    handleBranchingExpression(expr, 1); // Skip the first argument (scrutinee)
+    return;
+  }
+
+  // Recursively search in function calls
+  if (exprIsFunctionCall(expr)) {
+    searchRecursively(expr.func, dupCalls);
+    for (const arg of expr.args) {
+      searchRecursively(arg, dupCalls);
+    }
+  }
+}
+
+// Function to recursively collect dup calls with conservative cross-branch analysis
+function collectDupCallsConservatively(
+  currentExpr: Expr
+): Map<string, FuncCallExpr[]> {
+  const dupCalls = new Map<string, FuncCallExpr[]>();
+
+  searchRecursively(currentExpr, dupCalls);
+  return dupCalls;
 }
 
 /**
@@ -546,129 +680,6 @@ export function evaluateBeginExpression({
   // Optimization: Track ___dup calls that can be canceled with ___drop calls
   const dupCallsToOptimize = new Map<string, FuncCallExpr[]>(); // borrowed-from variable name -> array of dup call exprs
 
-  // Function to recursively collect dup calls with conservative cross-branch analysis
-  function collectDupCallsConservatively(
-    currentExpr: Expr
-  ): Map<string, FuncCallExpr[]> {
-    const dupCalls = new Map<string, FuncCallExpr[]>();
-
-    function searchRecursively(expr: Expr): void {
-      // Look for function calls like (x.___dup)()
-      if (
-        exprIsFunctionCall(expr) &&
-        exprIsFunctionCall(expr.func) &&
-        exprIsFunctionCallOf(expr.func, ".", 2) &&
-        exprIsAtom(expr.func.args[0]) &&
-        exprIsAtom(expr.func.args[1]) &&
-        expr.func.args[1].token.value === BuiltinFunctions.___dup[0] &&
-        expr.args.length === 0 &&
-        expr.$?.env
-      ) {
-        const variableName = expr.func.args[0].token.value;
-
-        // Look up the variable in the expression's environment to find what it's borrowing from
-        const variables = getVariablesFromEnv(expr.$.env, variableName);
-        if (variables.length > 0) {
-          const variable = variables[variables.length - 1]!;
-          if (variable.isBorrowingTheARCValueOfVariable) {
-            // Store the dup call mapped to the borrowed-from variable name
-            const borrowedFromVariableName =
-              variable.isBorrowingTheARCValueOfVariable.name;
-            if (!dupCalls.has(borrowedFromVariableName)) {
-              dupCalls.set(borrowedFromVariableName, []);
-            }
-            dupCalls.get(borrowedFromVariableName)!.push(expr);
-          }
-        }
-        return;
-      }
-
-      // Skip while/for loops - they execute multiple times so optimization would be incorrect
-      if (
-        exprIsFunctionCall(expr) &&
-        (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
-          exprIsFunctionCallOf(expr, BuiltinKeywords.for))
-      ) {
-        // Don't apply optimization to while loops - the body can execute multiple times
-        // which would create multiple references without corresponding dup calls
-        return;
-      }
-      // Skip closures - they may be called multiple times
-      if (exprIsFunctionCall(expr) && isClosureType(expr.$?.type)) {
-        return;
-      }
-
-      // Helper function to handle branching expressions (cond, match)
-      function handleBranchingExpression(
-        expr: FuncCallExpr,
-        startIndex: number
-      ): void {
-        const branchDupCalls: Map<string, FuncCallExpr[]>[] = [];
-
-        // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
-        for (let i = startIndex; i < expr.args.length; i++) {
-          const statement = expr.args[i]!;
-          if (
-            exprIsFunctionCall(statement) &&
-            exprIsFunctionCallOf(statement, "=>", 2)
-          ) {
-            const branchBody = statement.args[1]!; // The body is the second argument
-            const branchDups = collectDupCallsConservatively(branchBody);
-            branchDupCalls.push(branchDups);
-          }
-        }
-
-        // Only include dup calls that are present in ALL branches
-        if (branchDupCalls.length > 0) {
-          const firstBranchDups = branchDupCalls[0]!;
-          for (const [varName, _dupCallArray] of firstBranchDups) {
-            const isPresentInAllBranches = branchDupCalls.every((branchDups) =>
-              branchDups.has(varName)
-            );
-
-            if (isPresentInAllBranches) {
-              // Collect all dup call expressions from all branches
-              const allDupCallsForVar: FuncCallExpr[] = [];
-              for (const branchDups of branchDupCalls) {
-                allDupCallsForVar.push(...branchDups.get(varName)!);
-              }
-              dupCalls.set(varName, allDupCallsForVar);
-            }
-          }
-        }
-      }
-
-      // Handle cond expressions - only include dup calls that are present in ALL branches
-      if (
-        exprIsFunctionCall(expr) &&
-        exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
-      ) {
-        handleBranchingExpression(expr, 0);
-        return;
-      }
-
-      // Handle match expressions - only include dup calls that are present in ALL branches
-      if (
-        exprIsFunctionCall(expr) &&
-        exprIsFunctionCallOf(expr, BuiltinKeywords.match)
-      ) {
-        handleBranchingExpression(expr, 1); // Skip the first argument (scrutinee)
-        return;
-      }
-
-      // Recursively search in function calls
-      if (exprIsFunctionCall(expr)) {
-        searchRecursively(expr.func);
-        for (const arg of expr.args) {
-          searchRecursively(arg);
-        }
-      }
-    }
-
-    searchRecursively(currentExpr);
-    return dupCalls;
-  }
-
   // Scan through expressions to find dup calls that can be safely optimized
   if (exprIsFunctionCall(expr)) {
     for (const arg of expr.args) {
@@ -684,6 +695,8 @@ export function evaluateBeginExpression({
 
   const variablesActuallyNeedingDrop: Variable[] = [];
 
+  // key is tempVariableName, token is which token to consume at
+  const tempVariablesToConsume: Record<string, Token> = {};
   for (const variable of variablesNeedingDrop) {
     // Check if this variable has a ___dup call that can be optimized
     let shouldSkipDrop = false;
@@ -693,7 +706,7 @@ export function evaluateBeginExpression({
       // We can optimize: remove all ___dup calls and skip the ___drop call
       shouldSkipDrop = true;
 
-      // Replace all dup calls with the original variable
+      // Replace ~~all~~ one dup calls with the original variable
       const dupCallExprs = dupCallsToOptimize.get(variable.name)!;
       for (const dupCallExpr of dupCallExprs) {
         if (!exprIsFunctionCall(dupCallExpr)) {
@@ -701,13 +714,24 @@ export function evaluateBeginExpression({
         }
         const funcCallExpr = dupCallExpr;
         const funcExpr = funcCallExpr.func as FuncCallExpr;
+
+        const tempVariableName = funcCallExpr.$?.variableName;
+        if (tempVariableName) {
+          tempVariablesToConsume[tempVariableName] = funcCallExpr.token;
+        }
+
         const originalVarExpr: AtomExpr = {
           tag: ExprTag.Atom,
           token: (funcExpr.args[0] as AtomExpr).token,
-          $: dupCallExpr.$, // Keep the same evaluation data
+          $: {
+            ...dupCallExpr.$!,
+            variableName: (funcExpr.args[0] as AtomExpr).token.value, // NOTE: This line is necessary
+          }, // Keep the same evaluation data
         };
 
         replaceFuncCallExprWithAtomExpr(funcCallExpr, originalVarExpr);
+
+        break;
       }
 
       // Mark the owning variable as consumed to prevent "not consumed" errors
@@ -728,11 +752,27 @@ export function evaluateBeginExpression({
     }
   }
 
+  // Clean up variablesActuallyNeedingDrop by removing variables in tempVariablesToConsume
+  const variablesActuallyNeedingDropFiltered: Variable[] = [];
+  for (let i = variablesActuallyNeedingDrop.length - 1; i >= 0; i--) {
+    const variable = variablesActuallyNeedingDrop[i]!;
+    if (tempVariablesToConsume[variable.name]) {
+      // Set the variable as consumed at the recorded token
+      env = updateExistingVariable(env, variable, {
+        ...variable,
+        consumedAtToken: tempVariablesToConsume[variable.name],
+      });
+      // Do not add to the filtered list
+    } else {
+      variablesActuallyNeedingDropFiltered.push(variable);
+    }
+  }
+
   // Generate deferred drop expressions instead of inserting them directly
   let deferredDropExpressions: Expr[] | undefined = undefined;
-  if (variablesActuallyNeedingDrop.length > 0) {
+  if (variablesActuallyNeedingDropFiltered.length > 0) {
     const dropResult = generateDeferredDropExpressions({
-      variablesToDrop: variablesActuallyNeedingDrop,
+      variablesToDrop: variablesActuallyNeedingDropFiltered,
       env,
       context,
     });
