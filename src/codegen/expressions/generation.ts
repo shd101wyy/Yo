@@ -696,7 +696,7 @@ function generateFuncCall(
     !isUnitType(expr.$.type)
   ) {
     const value: Value = expr.$.value;
-    return generateComptValue(value, context);
+    return generateComptValue(value, context, expr);
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {
@@ -1509,7 +1509,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   }
 
   if (expr.$?.value && !isUnknownValue(expr.$.value)) {
-    return generateComptValue(expr.$.value, context);
+    return generateComptValue(expr.$.value, context, expr);
   }
 
   // Check if this variable should use closure access by comparing frame levels
@@ -1596,7 +1596,11 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
 /**
  * Generate C code for a compile-time value - extracted from original codegen-c.ts
  */
-function generateComptValue(value: Value, context: CodeGenContext): string {
+function generateComptValue(
+  value: Value,
+  context: CodeGenContext,
+  sourceExpr?: Expr
+): string {
   if (isNumberValue(value)) {
     // For numbers, we can directly return the value as a string
     return valueToString(value);
@@ -1766,10 +1770,28 @@ function generateComptValue(value: Value, context: CodeGenContext): string {
       const captureType = closureType.captureType;
 
       if (captureType.elements.length > 0) {
-        // Pass captured variable values directly
-        const captureArgs = captureType.elements.map(
-          (element) => element.label
-        );
+        // Check if we have captured variable dup expressions available from sourceExpr
+        let captureArgs: string[];
+
+        if (sourceExpr?.$?.capturedVariableDupExpressions) {
+          // Use the evaluated dup expressions for ARC variables
+          const capturedVariableDupExpressions =
+            sourceExpr.$.capturedVariableDupExpressions;
+
+          captureArgs = capturedVariableDupExpressions.map((dupExpr) =>
+            generateExpr(dupExpr, "", context)
+          );
+
+          // Fill in any remaining non-ARC captured variables with their labels
+          while (captureArgs.length < captureType.elements.length) {
+            const elementIndex = captureArgs.length;
+            const element = captureType.elements[elementIndex]!;
+            captureArgs.push(element.label);
+          }
+        } else {
+          // Fallback to original behavior - just use variable names
+          captureArgs = captureType.elements.map((element) => element.label);
+        }
 
         // Use the closure's dispose function instead of the capture type's drop function
         const closureDisposeFunctionName = `__yo_dispose_${cName}`;

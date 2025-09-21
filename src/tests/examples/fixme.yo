@@ -1,23 +1,26 @@
 open import "std";
+open import "std/libc/stdio";
+
+MyBox :: ref struct
+  (*) : i32,
+
+  dispose :: (fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.*);
+  }
+;
 
 main :: (fn() -> i32) {
-  x := 1;
+  x := MyBox(1);
   closure := ((fn(v : i32) => i32) {
-    /// y := x;
-    /// {
-    ///   z := x;
-    ///   x := 12;
-    ///   p := x;
-    /// };
-    x = (x + v);
-    return x;
+    x.* = (x.* + v);
+    return x.*;
   });
 
-  closure(1);
-  closure(1);
+  closure(2);
+  closure(3);
 
-  result := closure(2);
-  return result;
+  result := closure(4);
+  return x.*;
 
   // return closure(2); // TODO: Fix this
 };

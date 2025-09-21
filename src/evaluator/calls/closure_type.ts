@@ -1,6 +1,11 @@
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
+import {
+  attachTempVariableToExpr,
+  Expr,
+  ExprTag,
+  FuncCallExpr,
+} from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
@@ -8,6 +13,7 @@ import {
   ClosureType,
   createClosureType,
   isSomeType,
+  typeContainsARCType,
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
@@ -178,6 +184,54 @@ export function tryToImplementClosureByClosureType({
     functionValue
   );
 
+  // Generate ___dup expressions for captured ARC variables
+  const capturedVariableDupExpressions: Expr[] = [];
+  if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
+    for (const [
+      varName,
+      captureInfo,
+    ] of capturedVariablesWithValues.entries()) {
+      // Check if the captured variable type requires ARC (contains ARC types)
+      if (typeContainsARCType(captureInfo.type)) {
+        // Create an expression: varName.___dup()
+        const dupExpr: Expr = {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              ...captureInfo.token,
+              value: "___dup",
+            },
+          },
+          args: [
+            {
+              tag: ExprTag.Atom,
+              token: {
+                ...captureInfo.token,
+                value: varName,
+              },
+            },
+          ],
+          token: captureInfo.token,
+        };
+
+        // Evaluate the dupExpr to ensure it's properly typed and processed
+        const evaluatedDupExpr = context.evaluateExpression({
+          expr: dupExpr,
+          env: finalCallerEnv,
+          context: { ...context },
+        });
+
+        capturedVariableDupExpressions.push(evaluatedDupExpr);
+
+        // Update the environment with the evaluated expression's environment
+        if (evaluatedDupExpr.$ && evaluatedDupExpr.$.env) {
+          finalCallerEnv = evaluatedDupExpr.$.env;
+        }
+      }
+    }
+  }
+
   // Set the result with the closure type
   expr.$ = {
     env: finalCallerEnv,
@@ -187,6 +241,10 @@ export function tryToImplementClosureByClosureType({
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
         : [],
+    capturedVariableDupExpressions:
+      capturedVariableDupExpressions.length > 0
+        ? capturedVariableDupExpressions
+        : undefined,
   };
 
   // Attach a temp variable to the expr to hold the ARC value for closure

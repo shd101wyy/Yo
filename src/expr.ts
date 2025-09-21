@@ -178,6 +178,15 @@ export interface EvaluatedExprData {
    * Comment for the expression.
    */
   comment?: string;
+
+  /**
+   * For closures that capture ARC variables, this contains expressions that
+   * call ___dup on the captured variables. Used by C codegen to generate
+   * proper ARC handling in closure ___dup methods.
+   *
+   * Example: If a closure captures `x: MyBox`, this would contain the expression `x.___dup()`
+   */
+  capturedVariableDupExpressions?: Expr[];
 }
 
 export type AtomExpr = {

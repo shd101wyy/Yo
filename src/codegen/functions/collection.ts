@@ -134,6 +134,13 @@ export function findFunctionCallsInExpr(
     collectType(expr.$.value.value, context);
   }
 
+  // Check for capturedVariableDupExpressions and collect their functions
+  if (expr.$?.capturedVariableDupExpressions) {
+    for (const dupExpr of expr.$.capturedVariableDupExpressions) {
+      findFunctionCallsInExpr(dupExpr, context);
+    }
+  }
+
   // Check for dynCallModuleValues and collect their functions
   if (expr.$?.dynCallModuleValues) {
     for (const moduleValue of expr.$.dynCallModuleValues) {

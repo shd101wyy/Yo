@@ -14,6 +14,7 @@ import {
   ModuleElement,
   StructType,
   typeContainsARCType,
+  typeToString,
 } from "../../types";
 import { isFunctionValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -135,7 +136,7 @@ function generateDisposeFunctionCodeForStructType(
 `
     : "";
 
-  return `((fn(self : Self) -> unit) { // ___dispose for struct
+  return `((fn(self : Self) -> unit) { // ___dispose for ${typeToString(structType)}
       ${hasDisposeFunction ? "Self.dispose(self);" : ""}
       ${dropDestructuringsExpr}
       return ();
@@ -167,7 +168,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): string {
 `
       : "";
 
-  return `((fn(self : Self) -> unit) { // ___drop for struct
+  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(structType)}
   ${dropDestructuringsExpr}
   ${decrRcExpr}
   return ();
@@ -199,7 +200,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): string {
 `
       : "";
 
-  return `((fn(self : Self) -> Self) {  // ___dup for struct
+  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(structType)}
   ${dupDestructuringsExpr}
   ${incrRcExpr}
   return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
@@ -328,7 +329,7 @@ function generateDisposeFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, dispose should:
   // 1. Call the wrapped object's ___dispose method via builtin function
   // 2. Free the vtable memory (done implicitly by the C ARC system)
-  return `((fn(self : Self) -> unit) { // ___dispose for dyn
+  return `((fn(self : Self) -> unit) { // ___dispose for ${typeToString(_dynType)}
     // Dispose the wrapped object first
     ${BuiltinFunctions.__yo_dyn_vtable_dispose[0]!}(self);
   })`;
@@ -341,7 +342,7 @@ function generateDropFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, drop should:
   // 1. Call the wrapped object's ___drop method via builtin function
   // 2. Use __yo_decr_rc on the dyn object itself
-  return `((fn(self : Self) -> unit) { // ___drop for dyn
+  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
     // Drop the wrapped object first
     ${BuiltinFunctions.__yo_dyn_vtable_drop[0]!}(self);
     // Then decrement the dyn object's own reference count
@@ -357,7 +358,7 @@ function generateDupFunctionCodeForDynType(_dynType: DynType): string {
   // 1. Call the wrapped object's ___dup method via builtin function
   // 2. Use __yo_incr_rc on the dyn object itself
   // 3. Return the dyn object
-  return `((fn(self : Self) -> Self) {  // ___dup for dyn
+  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
     // Duplicate the wrapped object (this updates the reference count of the inner object)
     ${BuiltinFunctions.__yo_dyn_vtable_dup[0]!}(self);
     // Increment the dyn object's own reference count and return it
@@ -416,7 +417,7 @@ function generateDropFunctionCodeForClosureType(
 ): string {
   // For closure types, drop should use __yo_closure_drop
   // This builtin function handles both the captured data cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for closure
+  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_closureType)}
     ${BuiltinFunctions.__yo_closure_drop[0]!}(self);
   })`;
 }
@@ -429,7 +430,7 @@ function generateDupFunctionCodeForClosureType(
 ): string {
   // For closure types, dup should use __yo_closure_dup
   // This builtin function handles the closure reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for closure
+  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_closureType)}
     ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
     ${BuiltinFunctions.__yo_rc_own[0]!}(self)
   })`;
