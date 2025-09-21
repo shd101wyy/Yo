@@ -187,6 +187,15 @@ export interface EvaluatedExprData {
    * Example: If a closure captures `x: MyBox`, this would contain the expression `x.___dup()`
    */
   capturedVariableDupExpressions?: Expr[];
+
+  /**
+   * Contains expressions that call ___drop on variables that need cleanup.
+   * Used to defer drop call generation to codegen phase instead of inserting
+   * them directly into the AST during evaluation, preventing use-after-free errors.
+   *
+   * Example: If a variable `x: MyBox` needs dropping, this would contain the expression `___drop(x)`
+   */
+  deferredDropExpressions?: Expr[];
 }
 
 export type AtomExpr = {

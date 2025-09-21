@@ -281,6 +281,23 @@ export function generateFunction(
   emitter.emitLine(`}`);
 }
 
+export function generateDeferredDropExpressions(
+  expr: Expr,
+  indent: string,
+  context: FunctionGenerationContext
+) {
+  const emitter = context.emitter;
+
+  if (expr.$?.deferredDropExpressions) {
+    for (const dropExpr of expr.$.deferredDropExpressions) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+}
+
 /**
  * Generate function body with proper return handling
  */
@@ -305,6 +322,9 @@ export function generateFunctionBody(
 
       if (exprIsFunctionCallOf(arg, BuiltinKeywords.return)) {
         findReturn = true;
+
+        // Generate deferred drop expressions before function ends
+        generateDeferredDropExpressions(expr, indent, context);
       }
       const argCode = generateExpr(arg, indent, context);
       if (argCode) {
@@ -320,6 +340,9 @@ export function generateFunctionBody(
     // Generate the last expression as a return statement
     if (!findReturn && args.length > 0) {
       const lastExpr = args[args.length - 1];
+
+      // Generate deferred drop expressions before the return statement
+      generateDeferredDropExpressions(expr, indent, context);
 
       if (lastExpr && isUnitType(functionType.return.type)) {
         // For unit/void functions, just generate the expression but don't return
@@ -370,6 +393,9 @@ export function generateFunctionBody(
       }
     }
   } else {
+    // Generate deferred drop expressions before the return statement
+    generateDeferredDropExpressions(expr, indent, context);
+
     // Single expression function body
     if (isUnitType(functionType.return.type)) {
       // For unit/void functions, just generate the expression

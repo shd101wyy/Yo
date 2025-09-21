@@ -93,13 +93,6 @@ export function collectTypesFromExpr(
     collectType(expr.$.type, context);
   }
 
-  // Collect types from capturedVariableDupExpressions if they exist
-  if (expr.$ && expr.$.capturedVariableDupExpressions) {
-    for (const dupExpr of expr.$.capturedVariableDupExpressions) {
-      collectTypesFromExpr(dupExpr, context);
-    }
-  }
-
   switch (expr.tag) {
     case ExprTag.FuncCall:
       // Collect types from function arguments

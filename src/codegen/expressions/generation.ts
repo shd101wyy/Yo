@@ -730,6 +730,17 @@ function generateFuncCall(
           `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
         );
       }
+
+      // Generate deferred drop expressions before closing the block
+      if (expr.$?.deferredDropExpressions) {
+        for (const dropExpr of expr.$.deferredDropExpressions) {
+          const dropCode = generateExpr(dropExpr, indent + "  ", context);
+          if (dropCode) {
+            context.emitter.emitLine(`${indent}  ${dropCode};`);
+          }
+        }
+      }
+
       context.emitter.emitLine(`${indent}} // end begin block`);
 
       return isUnitType(valueType) || expr.$?.controlFlow
@@ -746,6 +757,17 @@ function generateFuncCall(
           context.emitter.emitLine(`${indent}  ${argCode};`);
         }
       });
+
+      // Generate deferred drop expressions before closing the block
+      if (expr.$?.deferredDropExpressions) {
+        for (const dropExpr of expr.$.deferredDropExpressions) {
+          const dropCode = generateExpr(dropExpr, indent + "  ", context);
+          if (dropCode) {
+            context.emitter.emitLine(`${indent}  ${dropCode};`);
+          }
+        }
+      }
+
       context.emitter.emitLine(`${indent}} // end begin block`);
       return "";
     }
@@ -2645,6 +2667,16 @@ function generateLoopBody(
       const argCode = generateExpr(arg, indent, context);
       if (argCode) {
         context.emitter.emitLine(`${indent}${argCode};`);
+      }
+    }
+
+    // Generate deferred drop expressions before end of loop body
+    if (bodyExpr.$?.deferredDropExpressions) {
+      for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
+        const dropCode = generateExpr(dropExpr, indent, context);
+        if (dropCode) {
+          context.emitter.emitLine(`${indent}${dropCode};`);
+        }
       }
     }
   } else {

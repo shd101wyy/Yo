@@ -4,8 +4,9 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, ExprTag } from "../../expr";
+import { BuiltinFunctions, Expr, ExprTag } from "../../expr";
 import { FunctionCapturedVariableInfo } from "../../function-value";
+import { generateExprFromCode } from "../../parser";
 import { Token } from "../../token";
 import {
   areTypesCompatible,
@@ -329,26 +330,9 @@ export function generateCapturedVariableDupExpressions({
       // Check if the captured variable type requires ARC (contains ARC types)
       if (typeContainsARCType(captureInfo.type)) {
         // Create an expression: varName.___dup()
-        const dupExpr: Expr = {
-          tag: ExprTag.FuncCall,
-          func: {
-            tag: ExprTag.Atom,
-            token: {
-              ...captureInfo.token,
-              value: "___dup",
-            },
-          },
-          args: [
-            {
-              tag: ExprTag.Atom,
-              token: {
-                ...captureInfo.token,
-                value: varName,
-              },
-            },
-          ],
-          token: captureInfo.token,
-        };
+        const dupExpr: Expr = generateExprFromCode(
+          `${BuiltinFunctions.___dup[0]!}(${varName})`
+        );
 
         // Evaluate the dupExpr to ensure it's properly typed and processed
         const evaluatedDupExpr = context.evaluateExpression({

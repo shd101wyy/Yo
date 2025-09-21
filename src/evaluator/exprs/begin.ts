@@ -41,6 +41,63 @@ import { EvaluatorContext } from "../context";
 import { synthesizeTypes } from "../types/synthesizer";
 
 /**
+ * Generate ___drop expressions for variables that need cleanup.
+ *
+ * This function creates and evaluates ___drop expressions for variables that require
+ * cleanup at the end of a scope. These expressions are deferred to the codegen phase
+ * to prevent use-after-free errors that would occur if drop calls were inserted
+ * directly into the AST during evaluation.
+ *
+ * @param variablesToDrop - Array of variables that need drop calls
+ * @param env - The environment to use for evaluation
+ * @param context - The evaluator context
+ * @param dropToken - Token to use for the drop expressions (typically the end of scope token)
+ * @returns Object containing the generated drop expressions and updated environment
+ */
+function generateDeferredDropExpressions({
+  variablesToDrop,
+  env,
+  context,
+}: {
+  variablesToDrop: Variable[];
+  env: Environment;
+  context: EvaluatorContext;
+}): {
+  deferredDropExpressions: Expr[] | undefined;
+  env: Environment;
+} {
+  const deferredDropExpressions: Expr[] = [];
+  let finalEnv = env;
+
+  for (const variable of variablesToDrop) {
+    // Create a drop expression: ___drop(varName)
+    const dropExpr: Expr = generateExprFromCode(
+      `${BuiltinFunctions.___drop[0]!}(${variable.name})`
+    );
+
+    // Evaluate the dropExpr to ensure it's properly typed and processed
+    const evaluatedDropExpr = context.evaluateExpression({
+      expr: dropExpr,
+      env: finalEnv,
+      context: { ...context },
+    });
+
+    deferredDropExpressions.push(evaluatedDropExpr);
+
+    // Update the environment with the evaluated expression's environment
+    if (evaluatedDropExpr.$ && evaluatedDropExpr.$.env) {
+      finalEnv = evaluatedDropExpr.$.env;
+    }
+  }
+
+  return {
+    deferredDropExpressions:
+      deferredDropExpressions.length > 0 ? deferredDropExpressions : undefined,
+    env: finalEnv,
+  };
+}
+
+/**
  * Checks if an expression represents a unit value (empty tuple)
  */
 function isUnitValueExpression(expr: Expr): boolean {
@@ -625,7 +682,7 @@ export function evaluateBeginExpression({
     }
   }
 
-  const dropCallsToInsert: Expr[] = [];
+  const variablesActuallyNeedingDrop: Variable[] = [];
 
   for (const variable of variablesNeedingDrop) {
     // Check if this variable has a ___dup call that can be optimized
@@ -667,67 +724,21 @@ export function evaluateBeginExpression({
     }
 
     if (!shouldSkipDrop) {
-      const dropCallCode = `${BuiltinFunctions.___drop[0]!}(${variable.name})`;
-      const dropCall = generateExprFromCode(dropCallCode);
-      dropCallsToInsert.push(dropCall);
+      variablesActuallyNeedingDrop.push(variable);
     }
   }
 
-  // If we have drop calls to insert and this is a begin expression,
-  // we need to evaluate them and insert them before control flow statements
-  if (dropCallsToInsert.length > 0 && exprIsFunctionCall(expr)) {
-    const originalArgs = expr.args.slice();
-
-    // Find the position to insert drops - before return/break/continue or before the last expression
-    let insertPosition = originalArgs.length - 1;
-    const lastArg = originalArgs[insertPosition];
-
-    // Check if the last expression is a control flow statement
-    if (lastArg && lastArg.$ && lastArg.$.controlFlow) {
-      // Insert before the control flow statement
-      insertPosition = originalArgs.length - 1;
-    } else {
-      // Check the second-to-last expression for control flow
-      const secondLastArg = originalArgs[originalArgs.length - 2];
-      if (secondLastArg && secondLastArg.$ && secondLastArg.$.controlFlow) {
-        // Insert before the control flow statement
-        insertPosition = originalArgs.length - 2;
-      }
-    }
-
-    // Evaluate each drop call and mark variables as consumed
-    const evaluatedDropCalls: Expr[] = [];
-    for (let i = 0; i < dropCallsToInsert.length; i++) {
-      const dropCall = dropCallsToInsert[i]!;
-
-      const evaluatedDropCall = context.evaluateExpression({
-        expr: dropCall,
-        env,
-        context: { ...context },
-      });
-      if (evaluatedDropCall.$) {
-        env = evaluatedDropCall.$.env;
-        evaluatedDropCalls.push(evaluatedDropCall);
-      } else {
-        throw formatErrorMessage({
-          token: dropCall.token,
-          errorMessage: `Failed to evaluate auto-generated drop call: ${exprToString(dropCall)}`,
-        });
-      }
-    }
-
-    // Insert evaluated drop calls at the correct position
-    expr.args = [
-      ...originalArgs.slice(0, insertPosition),
-      ...evaluatedDropCalls,
-      ...originalArgs.slice(insertPosition),
-    ];
+  // Generate deferred drop expressions instead of inserting them directly
+  let deferredDropExpressions: Expr[] | undefined = undefined;
+  if (variablesActuallyNeedingDrop.length > 0) {
+    const dropResult = generateDeferredDropExpressions({
+      variablesToDrop: variablesActuallyNeedingDrop,
+      env,
+      context,
+    });
+    deferredDropExpressions = dropResult.deferredDropExpressions;
+    env = dropResult.env;
   }
-
-  // if (variablesNeedingDrop.length > 0) {
-  //   console.log("* DEBUG\n");
-  //   printEnvVarNames(env);
-  // }
 
   // Now pop the environment frame
   env = popEnvFrame(env);
@@ -741,6 +752,7 @@ export function evaluateBeginExpression({
     value: lastExpr.$.value,
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
+    deferredDropExpressions,
   };
 
   attachTempVariableToExpr(expr, true);

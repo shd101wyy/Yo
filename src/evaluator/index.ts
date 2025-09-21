@@ -219,7 +219,7 @@ export default class Evaluator {
         default: {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `(1) Evaluating the expression below is not implemented:
+            errorMessage: `(1) Evaluating the expression (tag: ${expr.tag}, token: ${expr.token.type}) below is not implemented:
 ${exprToString(expr)}`,
           });
         }

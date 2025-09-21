@@ -141,6 +141,13 @@ export function findFunctionCallsInExpr(
     }
   }
 
+  // Check for deferredDropExpressions and collect their functions
+  if (expr.$?.deferredDropExpressions) {
+    for (const dropExpr of expr.$.deferredDropExpressions) {
+      findFunctionCallsInExpr(dropExpr, context);
+    }
+  }
+
   // Check for dynCallModuleValues and collect their functions
   if (expr.$?.dynCallModuleValues) {
     for (const moduleValue of expr.$.dynCallModuleValues) {
