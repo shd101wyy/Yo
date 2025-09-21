@@ -24,6 +24,7 @@ import {
   ModuleValue,
 } from "../../value";
 import { PrimitiveTypeTags } from "../constants";
+import { findFunctionCallsInExpr } from "../functions";
 import {
   CodeGenContext,
   getTypeString,
@@ -133,6 +134,25 @@ export function collectType(type: Type, context: CodeGenContext): void {
       type,
       cName: cTypeName,
     };
+
+    // For struct types, collect functions from the module (___dup, ___drop, etc.)
+    if (isStructType(type)) {
+      for (const element of type.module.elements) {
+        if (element.assignedValue && isFunctionValue(element.assignedValue)) {
+          const functionValue = element.assignedValue;
+          if (!context.functions[functionValue.funcId]) {
+            context.functions[functionValue.funcId] = {
+              value: functionValue,
+              cName: functionValue.funcId,
+            };
+
+            // Recursively collect functions called by this struct member function
+            // This is needed to collect extern functions like printf used in dispose methods
+            findFunctionCallsInExpr(functionValue.body, context);
+          }
+        }
+      }
+    }
 
     // For closures, also collect the call type and capture type functions
     if (isClosureType(type)) {
