@@ -338,7 +338,10 @@ function generateFuncCall(
       const argCode = generateExpr(arg, indent, context);
       const returnType = getTypeString(expr.$.type!, context);
 
-      if (!isUnitType(expr.$.type)) {
+      if (
+        !isUnitType(expr.$.type) &&
+        expr.$.variableName !== argCode // Prevent something like: int32_t _yof4ca7ba3_temp_2071 = _yof4ca7ba3_temp_2071;
+      ) {
         context.emitter.emitLine(
           `${indent}${returnType} ${expr.$.variableName} = ${argCode};`
         );
@@ -520,10 +523,14 @@ function generateFuncCall(
         // ALSO: don't create temp variables if the temp var name is the same as the variable itself
         if (rhs.$?.variableName) {
           const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
+          const sanitizedVarName = sanitizeForCIdentifier(varName);
 
           // Skip temp variable creation if temp var name matches the actual variable name
           // This prevents redundant declarations like "int32_t x = x;"
-          if (
+          if (tempVarName === sanitizedVarName) {
+            // Just use the variable directly, no temp variable needed
+            rhsCode = generateExpr(rhs, indent, context);
+          } else if (
             exprIsAtom(rhs) &&
             tempVarName === sanitizeForCIdentifier(rhs.token.value)
           ) {
@@ -573,15 +580,19 @@ function generateFuncCall(
               // Normal temp variable handling
               const rhsExprCode = generateExpr(rhs, indent, context);
 
-              // Generate temp variable assignment first
-              const tempVarType = getVariableTypeString(
-                rhs.$.type!,
-                tempVarName,
-                context
-              );
-              context.emitter.emitLine(
-                `${indent}${tempVarType} = ${rhsExprCode};`
-              );
+              // Check if the RHS expression already generates the same temp variable
+              // If so, don't generate a redundant assignment
+              if (rhsExprCode.trim() !== tempVarName) {
+                // Generate temp variable assignment first
+                const tempVarType = getVariableTypeString(
+                  rhs.$.type!,
+                  tempVarName,
+                  context
+                );
+                context.emitter.emitLine(
+                  `${indent}${tempVarType} = ${rhsExprCode};`
+                );
+              }
 
               // Use temp variable for the main assignment
               rhsCode = tempVarName;
