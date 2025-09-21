@@ -703,7 +703,28 @@ function generateFuncCall(
       }
     } else {
       // Non-array assignment - use existing logic
-      const rhsCode = generateExpr(rhs, indent, context);
+      let rhsCode = generateExpr(rhs, indent, context);
+
+      // Check if we need to cast closure types
+      const lhsType = lhs.$.type;
+      const rhsType = rhs.$?.type;
+      if (
+        lhsType &&
+        rhsType &&
+        isClosureType(lhsType) &&
+        isClosureType(rhsType)
+      ) {
+        // Check if LHS is a base closure type and RHS is a specific closure type
+        if (
+          lhsType.captureType === undefined &&
+          rhsType.captureType !== undefined
+        ) {
+          // Cast from specific closure type to base closure type
+          const lhsTypeName = getTypeString(lhsType, context);
+          rhsCode = `(${lhsTypeName})${rhsCode}`;
+        }
+      }
+
       if (!isUnitType(lhs.$.type)) {
         context.emitter.emitLine(
           `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
