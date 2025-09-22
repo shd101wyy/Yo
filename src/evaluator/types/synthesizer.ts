@@ -52,8 +52,21 @@ export function synthesizeTypes(
   given: {
     type: Type;
     env: Environment;
-  }
+  },
+  checkedTypePairs: { expected: Type; given: Type }[] = []
 ): { expectedEnv: Environment; givenEnv: Environment } {
+  // Prevent circular checks for `ref struct` and similar recursive types
+  if (
+    checkedTypePairs.find(
+      (pair) => pair.expected === expected.type && pair.given === given.type
+    )
+  ) {
+    // Already checked this pair, avoid infinite recursion
+    return { expectedEnv: expected.env, givenEnv: given.env };
+  } else {
+    checkedTypePairs.push({ expected: expected.type, given: given.type });
+  }
+
   if (isSomeType(expected.type) && isSomeType(given.type)) {
     // Handle case where both are SomeTypes - unify them
     // Check if either SomeType is already bound
@@ -231,7 +244,8 @@ export function synthesizeTypes(
     } else if (!isSomeType(type)) {
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: type, env: expected.env },
-        { type: given.type, env: given.env }
+        { type: given.type, env: given.env },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -247,7 +261,8 @@ export function synthesizeTypes(
       // Recursively synthesize with the bound type
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expected.type, env: expected.env },
-        { type: existingType, env: given.env }
+        { type: existingType, env: given.env },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -288,7 +303,8 @@ export function synthesizeTypes(
     for (let i = 0; i < expected.type.elements.length; i++) {
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expected.type.elements[i]!.type, env: expected.env },
-        { type: given.type.elements[i]!.type, env: given.env }
+        { type: given.type.elements[i]!.type, env: given.env },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -309,7 +325,8 @@ export function synthesizeTypes(
       const givenElement = given.type.elements[i]!;
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
-        { type: givenElement.type, env: given.env }
+        { type: givenElement.type, env: given.env },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -328,7 +345,8 @@ export function synthesizeTypes(
           {
             type: givenElement.assignedValue.value,
             env: given.env,
-          }
+          },
+          checkedTypePairs
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -354,7 +372,8 @@ export function synthesizeTypes(
       for (let j = 0; j < expectedTypeVariantElements.length; j++) {
         const { expectedEnv, givenEnv } = synthesizeTypes(
           { type: expectedTypeVariantElements[j]!.type, env: expected.env },
-          { type: givenTypeVariantElements[j]!.type, env: given.env }
+          { type: givenTypeVariantElements[j]!.type, env: given.env },
+          checkedTypePairs
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -374,7 +393,8 @@ export function synthesizeTypes(
       const givenElement = given.type.elements[i]!;
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
-        { type: givenElement.type, env: given.env }
+        { type: givenElement.type, env: given.env },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -393,7 +413,8 @@ export function synthesizeTypes(
           {
             type: givenElement.assignedValue.value,
             env: given.env,
-          }
+          },
+          checkedTypePairs
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -411,7 +432,8 @@ export function synthesizeTypes(
       {
         type: given.type.type,
         env: given.env,
-      }
+      },
+      checkedTypePairs
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -425,7 +447,8 @@ export function synthesizeTypes(
       {
         type: given.type.elementType,
         env: given.env,
-      }
+      },
+      checkedTypePairs
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -479,7 +502,8 @@ export function synthesizeTypes(
       {
         type: given.type.elementType,
         env: given.env,
-      }
+      },
+      checkedTypePairs
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -497,25 +521,29 @@ export function synthesizeTypes(
       {
         type: givenClosure.callType,
         env: given.env,
-      }
+      },
+      checkedTypePairs
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
 
     // Synthesize the capture types
-    const { expectedEnv: captureExpectedEnv, givenEnv: captureGivenEnv } =
-      synthesizeTypes(
-        {
-          type: expectedClosure.captureType,
-          env: expected.env,
-        },
-        {
-          type: givenClosure.captureType,
-          env: given.env,
-        }
-      );
-    expected.env = captureExpectedEnv;
-    given.env = captureGivenEnv;
+    if (expectedClosure.captureType && givenClosure.captureType) {
+      const { expectedEnv: captureExpectedEnv, givenEnv: captureGivenEnv } =
+        synthesizeTypes(
+          {
+            type: expectedClosure.captureType,
+            env: expected.env,
+          },
+          {
+            type: givenClosure.captureType,
+            env: given.env,
+          },
+          checkedTypePairs
+        );
+      expected.env = captureExpectedEnv;
+      given.env = captureGivenEnv;
+    }
   } else if (
     isFunctionType(expected.type) &&
     isFunctionType(given.type) &&
@@ -541,7 +569,8 @@ export function synthesizeTypes(
         {
           type: givenForallParam.type,
           env: given.env,
-        }
+        },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -557,7 +586,8 @@ export function synthesizeTypes(
         {
           type: givenFunction.parameters[i]!.type,
           env: given.env,
-        }
+        },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -573,7 +603,8 @@ export function synthesizeTypes(
         {
           type: givenFunction.implicitParameters[i]!.type,
           env: given.env,
-        }
+        },
+        checkedTypePairs
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -588,7 +619,8 @@ export function synthesizeTypes(
       {
         type: givenFunction.return.type,
         env: given.env,
-      }
+      },
+      checkedTypePairs
     );
     expected.env = expectedEnv;
     given.env = givenEnv;

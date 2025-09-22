@@ -58,6 +58,7 @@ import {
   isMutRefType,
   isSomeType,
   isStructType,
+  isStructTypeWithReferenceSemantics,
   isTupleType,
   isTypeHierarchyType,
   isU16Type,
@@ -95,9 +96,18 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
 /**
  * Check if a type contains 2nd class reference.
  */
-export function typeContains2ndClassReference(type?: Type): boolean {
+export function typeContains2ndClassReference(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
   if (!type) {
     return false;
+  }
+
+  if (checkedTypes.includes(type)) {
+    return false;
+  } else {
+    checkedTypes.push(type);
   }
 
   // Check if the type is a reference type
@@ -120,28 +130,31 @@ export function typeContains2ndClassReference(type?: Type): boolean {
   // Recursively check for references in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContains2ndClassReference((type as ArrayType).elementType);
+      return typeContains2ndClassReference(
+        (type as ArrayType).elementType,
+        checkedTypes
+      );
     case TypeTag.Tuple:
       return (type as TupleType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContains2ndClassReference(element.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContains2ndClassReference(element.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.elements?.some((param) =>
-          typeContains2ndClassReference(param.type)
+          typeContains2ndClassReference(param.type, checkedTypes)
         )
       );
     case TypeTag.Union:
       return (type as UnionType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContains2ndClassReference(element.type, checkedTypes)
       );
     case TypeTag.Module:
       return (type as ModuleType).elements.some((element) =>
-        typeContains2ndClassReference(element.type)
+        typeContains2ndClassReference(element.type, checkedTypes)
       );
     default:
       return false; // For other types, no references are present
@@ -152,9 +165,18 @@ export function typeContains2ndClassReference(type?: Type): boolean {
  * Check if the type contains `ref struct`
  * @param type
  */
-export function typeContainsARCType(type?: Type): boolean {
+export function typeContainsARCType(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
   if (!type) {
     return false;
+  }
+
+  if (checkedTypes.includes(type)) {
+    return false;
+  } else {
+    checkedTypes.push(type);
   }
 
   if (isARCType(type)) {
@@ -164,26 +186,28 @@ export function typeContainsARCType(type?: Type): boolean {
   // Recursively check in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsARCType((type as ArrayType).elementType);
+      return typeContainsARCType((type as ArrayType).elementType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).elements.some((element) =>
-        typeContainsARCType(element.type)
+        typeContainsARCType(element.type, checkedTypes)
       );
     case TypeTag.Union:
       return (type as UnionType).elements.some((element) =>
-        typeContainsARCType(element.type)
+        typeContainsARCType(element.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).elements.some((element) =>
-        typeContainsARCType(element.type)
+        typeContainsARCType(element.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) => typeContainsARCType(param.type))
+        variant.elements?.some((param) =>
+          typeContainsARCType(param.type, checkedTypes)
+        )
       );
     case TypeTag.Module:
       return (type as ModuleType).elements.some((element) =>
-        typeContainsARCType(element.type)
+        typeContainsARCType(element.type, checkedTypes)
       );
     case TypeTag.Function: {
       return !!(type as FunctionType).isClosure;
@@ -197,10 +221,19 @@ export function typeContainsARCType(type?: Type): boolean {
 /**
  * Check if a type contains SomeType.
  */
-export function typeContainsSomeType(type?: Type): boolean {
+export function typeContainsSomeType(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
   if (!type) {
     return false;
   }
+
+  if (checkedTypes.includes(type)) {
+    return false; // Prevent infinite recursion on circular types
+  }
+
+  checkedTypes.push(type);
 
   // Check if the type is a SomeType
   if (isSomeType(type)) {
@@ -210,30 +243,38 @@ export function typeContainsSomeType(type?: Type): boolean {
   // Recursively check for SomeType in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsSomeType((type as ArrayType).elementType);
+      return typeContainsSomeType(
+        (type as ArrayType).elementType,
+        checkedTypes
+      );
     case TypeTag.Tuple:
       return (type as TupleType).elements.some((element) =>
-        typeContainsSomeType(element.type)
+        typeContainsSomeType(element.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).elements.some((element) =>
-        typeContainsSomeType(element.type)
+        typeContainsSomeType(element.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) => typeContainsSomeType(param.type))
+        variant.elements?.some((param) =>
+          typeContainsSomeType(param.type, checkedTypes)
+        )
       );
     case TypeTag.Union:
       return (type as UnionType).elements.some((element) =>
-        typeContainsSomeType(element.type)
+        typeContainsSomeType(element.type, checkedTypes)
       );
     case TypeTag.Module:
       return (type as ModuleType).elements.some((element) =>
-        typeContainsSomeType(element.type)
+        typeContainsSomeType(element.type, checkedTypes)
       );
     case TypeTag.MutPtr:
     case TypeTag.MutRef:
-      return typeContainsSomeType((type as MutPtrType | MutRefType).type);
+      return typeContainsSomeType(
+        (type as MutPtrType | MutRefType).type,
+        checkedTypes
+      );
     default:
       return false; // For other types, no SomeType is present
   }
@@ -424,6 +465,11 @@ export function convertComptTypeToRuntimeType(
     });
     return type;
   } else if (isStructType(type)) {
+    // To prevent circular reference issues
+    if (isStructTypeWithReferenceSemantics(type)) {
+      return type;
+    }
+
     type.elements = type.elements.map((element) => {
       return {
         ...element,

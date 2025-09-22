@@ -153,7 +153,7 @@ export function isStructType(type?: Type): type is StructType {
 
 export function isStructTypeWithReferenceSemantics(
   type?: Type
-): type is StructType {
+): type is StructType & { isReferenceSemantics: true } {
   return (
     type?.tag === TypeTag.Struct && (type as StructType).isReferenceSemantics
   );
