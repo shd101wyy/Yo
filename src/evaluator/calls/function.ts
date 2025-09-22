@@ -825,8 +825,12 @@ ${functionsWithMatchingTypes
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isUnquote
     ) {
-      const { returnValue, callerEnv, pathCollection } =
-        getFunctionCallResult(functionToCall);
+      const {
+        returnValue,
+        callerEnv,
+        pathCollection,
+        deferredDropExpressions,
+      } = getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
 
@@ -836,6 +840,7 @@ ${functionsWithMatchingTypes
         value: returnValue,
         originType: createExprType(), // Macro result's origin type is the expression type
         pathCollection: pathCollection,
+        deferredDropExpressions,
       };
 
       return expr;
@@ -864,6 +869,7 @@ ${functionsWithMatchingTypes
         pathCollection,
         specializedFunctionValue,
         runtimeArgExprsInOrder,
+        deferredDropExpressions,
       } = getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
@@ -898,6 +904,7 @@ ${functionsWithMatchingTypes
         originType: returnType, // Function call result's origin type is its return type
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
+        deferredDropExpressions,
       };
 
       // Set temp variable which holds the result of the function call
@@ -930,6 +937,7 @@ ${functionsWithMatchingTypes
       pathCollection,
       specializedFunctionValue,
       runtimeArgExprsInOrder,
+      deferredDropExpressions,
     } = getFunctionCallResult(functionToCall);
 
     env = popEnvFrame(callerEnv);
@@ -962,6 +970,7 @@ ${functionsWithMatchingTypes
       originType: returnType, // Function call result's origin type is its return type
       pathCollection: pathCollection,
       runtimeArgExprsInOrder,
+      deferredDropExpressions,
     };
 
     // Set temp variable which holds the result of the function call

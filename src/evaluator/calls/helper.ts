@@ -5,6 +5,7 @@ import {
   Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
+  getVariablesNeedingDrop,
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
@@ -12,6 +13,7 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
   Expr,
@@ -25,6 +27,7 @@ import {
   PathCollection,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
+import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken, TokenType } from "../../token";
 import {
   areTypesCompatible,
@@ -72,6 +75,62 @@ import {
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptFunctionCall } from "./compt_function";
+
+/**
+ * Generate ___drop expressions for variables that need cleanup during function calls.
+ *
+ * This function creates and evaluates ___drop expressions for variables that require
+ * cleanup when a function call completes. These expressions are deferred to the codegen phase
+ * to prevent use-after-free errors that would occur if drop calls were inserted
+ * directly into the AST during evaluation.
+ *
+ * @param variablesToDrop - Array of variables that need drop calls
+ * @param env - The environment to use for evaluation
+ * @param context - The evaluator context
+ * @returns Object containing the generated drop expressions and updated environment
+ */
+function generateDeferredDropExpressions({
+  variablesToDrop,
+  env,
+  context,
+}: {
+  variablesToDrop: Variable[];
+  env: Environment;
+  context: EvaluatorContext;
+}): {
+  deferredDropExpressions: Expr[] | undefined;
+  env: Environment;
+} {
+  const deferredDropExpressions: Expr[] = [];
+  let finalEnv = env;
+
+  for (const variable of variablesToDrop) {
+    // Create a drop expression: ___drop(varName)
+    const dropExpr: Expr = generateExprFromCode(
+      `${BuiltinFunctions.___drop[0]!}(${variable.name})`
+    );
+
+    // Evaluate the dropExpr to ensure it's properly typed and processed
+    const evaluatedDropExpr = context.evaluateExpression({
+      expr: dropExpr,
+      env: finalEnv,
+      context: { ...context },
+    });
+
+    deferredDropExpressions.push(evaluatedDropExpr);
+
+    // Update the environment with the evaluated expression's environment
+    if (evaluatedDropExpr.$ && evaluatedDropExpr.$.env) {
+      finalEnv = evaluatedDropExpr.$.env;
+    }
+  }
+
+  return {
+    deferredDropExpressions:
+      deferredDropExpressions.length > 0 ? deferredDropExpressions : undefined,
+    env: finalEnv,
+  };
+}
 
 export function checkIfFunctionParameterMatchesArgument({
   functionType,
@@ -1421,7 +1480,7 @@ ${implicitVariables
 
   validateFunctionReturnType({
     returnType,
-    env: popEnvFrame(callerEnv),
+    env: popEnvFrame(callerEnv, true), // Ignore check here, as we are adding deferred drop later
     expr,
     context,
   });
@@ -1443,6 +1502,23 @@ ${implicitVariables
     });
   }
 
+  // Handle automatic drop insertion for RAII before returning from function call
+  // Get variables that need drop calls from the caller environment (function arguments)
+  const variablesNeedingDrop = getVariablesNeedingDrop(callerEnv);
+
+  // Generate deferred drop expressions for all variables that need cleanup
+  let deferredDropExpressions: Expr[] | undefined = undefined;
+  if (variablesNeedingDrop.length > 0) {
+    const dropResult = generateDeferredDropExpressions({
+      variablesToDrop: variablesNeedingDrop,
+      env: callerEnv,
+      context,
+    });
+    deferredDropExpressions = dropResult.deferredDropExpressions;
+
+    callerEnv = dropResult.env;
+  }
+
   return {
     returnType,
     calleeEnv,
@@ -1452,6 +1528,7 @@ ${implicitVariables
     returnValue,
     specializedFunctionValue,
     runtimeArgExprsInOrder,
+    deferredDropExpressions,
   };
 }
 
