@@ -79,6 +79,20 @@ export class CodeGenerator {
           }
         });
 
+        // Always use bundled mimalloc
+        const mimallocStaticPath = "vendor/mimalloc/src/static.c";
+        const mimallocIncludePath = "vendor/mimalloc/include";
+
+        if (fs.existsSync(mimallocStaticPath)) {
+          compileArgs.splice(-2, 0, mimallocStaticPath); // Add mimalloc static.c
+          compileArgs.splice(-2, 0, `-I${mimallocIncludePath}`); // Add include path
+          console.log("Using bundled mimalloc");
+        } else {
+          console.warn(
+            "Bundled mimalloc not found, falling back to standard malloc"
+          );
+        }
+
         console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
 
         const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });

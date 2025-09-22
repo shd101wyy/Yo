@@ -16,6 +16,7 @@ A multi-paradigm, general-purpose, compiled programming language.
 - 2nd-class reference, allowing for unsafe raw-pointers.
 - Modular implicits.
 - Homoiconicity and metaprogramming.
+- High-performance memory allocation with bundled [mimalloc](./MIMALLOC.md).
 
 ## Development
 

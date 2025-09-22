@@ -651,7 +651,7 @@ export function generateBuiltinFunctions(
     if (dispose_fn) {
       dispose_fn(ptr);
     }
-    free(ptr);
+    yo_free(ptr);
   } else {
     header->ref_count--;
   }
@@ -701,7 +701,7 @@ export function generateRefStructConstructorFunctions(
 
       emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+        `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
       );
       emitter.emitLine(`  obj->header.ref_count = 1;`);
 
@@ -780,7 +780,7 @@ export function generateClosureConstructorFunctions(
           : `${cName}_capture`; // fallback
 
         emitter.emitLine(
-          `  ${captureTypeName}* captureData = malloc(sizeof(${captureTypeName}));`
+          `  ${captureTypeName}* captureData = yo_malloc(sizeof(${captureTypeName}));`
         );
 
         // Initialize capture fields
@@ -801,7 +801,7 @@ export function generateClosureConstructorFunctions(
           `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
         );
         emitter.emitLine(
-          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+          `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
         );
         emitter.emitLine(`  obj->header.ref_count = 1;`);
         emitter.emitLine(`  obj->data = data;`);
@@ -842,7 +842,7 @@ export function generateClosureConstructorFunctions(
           `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
         );
         emitter.emitLine(
-          `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+          `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
         );
         emitter.emitLine(`  obj->header.ref_count = 1;`);
         emitter.emitLine(`  obj->data = data;`);
@@ -886,19 +886,19 @@ export function generateClosureConstructorFunctions(
             emitter.emitLine(
               `    ${dropFunctionCName}(*(${captureTypeName}*)self->data);`
             );
-            emitter.emitLine(`    free(self->data);`);
+            emitter.emitLine(`    yo_free(self->data);`);
             emitter.emitLine(`  }`);
           } else {
             emitter.emitLine(
               `  // No C function name found for capture type drop function`
             );
-            emitter.emitLine(`  if (self->data) { free(self->data); }`);
+            emitter.emitLine(`  if (self->data) { yo_free(self->data); }`);
           }
         } else {
           emitter.emitLine(
             `  // No drop function found in capture type module`
           );
-          emitter.emitLine(`  if (self->data) { free(self->data); }`);
+          emitter.emitLine(`  if (self->data) { yo_free(self->data); }`);
         }
       } else {
         // No captures, nothing to dispose
@@ -939,7 +939,7 @@ export function generateDynConstructorFunctions(
         `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...) {`
       );
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)malloc(sizeof(${cName}));`
+        `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
       );
       emitter.emitLine(`  obj->header.ref_count = 1;`);
 
