@@ -1096,38 +1096,87 @@ function generateFuncCall(
 
         // Generate arg list with special handling for dyn method calls
         const args = runtimeArgExprs.map((arg, index) => {
-          // For dyn method calls, transform the first argument (self) from dyn object to data pointer
-          // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
-          if (isDynMethodCall && index === 0) {
-            const dynObjectCode = generateExpr(arg, indent, context);
-
-            // Check if this method exists in the dyn type's own module
-            if (
-              exprIsFunctionCall(expr.func) &&
-              exprIsFunctionCallOf(expr.func, ".", 2)
-            ) {
-              const objectExpr = expr.func.args[0];
-              const dynType = objectExpr?.$?.type;
-              const methodExpr = expr.func.args[1];
-
-              if (exprIsAtom(methodExpr) && isDynType(dynType)) {
-                const methodName = methodExpr.token.value;
-                // Check if this method exists in the dyn type's module
-                const dynMethod = dynType.module.elements.find(
-                  (element) => element.label === methodName
-                );
-
-                if (dynMethod) {
-                  // This is a dyn object's own method, pass the dyn object directly
-                  return dynObjectCode;
-                }
-              }
+          // First, check if this argument needs a temporary variable
+          if (arg.$?.variableName && arg.$?.type) {
+            // Generate the argument expression and declare it as a temp variable
+            const argCode = generateExpr(arg, indent, context);
+            if (argCode && argCode !== arg.$.variableName) {
+              // Only emit declaration if the expression doesn't already handle it
+              const varTypeAndName = getVariableTypeString(
+                arg.$.type,
+                arg.$.variableName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${argCode};`
+              );
             }
 
-            // For all other methods (wrapped object methods), pass the wrapped object data
-            return `${dynObjectCode}->data`;
+            // For dyn method calls, transform the first argument (self) from dyn object to data pointer
+            // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
+            if (isDynMethodCall && index === 0) {
+              // Check if this method exists in the dyn type's own module
+              if (
+                exprIsFunctionCall(expr.func) &&
+                exprIsFunctionCallOf(expr.func, ".", 2)
+              ) {
+                const objectExpr = expr.func.args[0];
+                const dynType = objectExpr?.$?.type;
+                const methodExpr = expr.func.args[1];
+
+                if (exprIsAtom(methodExpr) && isDynType(dynType)) {
+                  const methodName = methodExpr.token.value;
+                  // Check if this method exists in the dyn type's module
+                  const dynMethod = dynType.module.elements.find(
+                    (element) => element.label === methodName
+                  );
+
+                  if (dynMethod) {
+                    // This is a dyn object's own method, pass the dyn object directly
+                    return arg.$.variableName;
+                  }
+                }
+              }
+
+              // For all other methods (wrapped object methods), pass the wrapped object data
+              return `${arg.$.variableName}->data`;
+            } else {
+              return arg.$.variableName;
+            }
           } else {
-            return generateExpr(arg, indent, context);
+            // For dyn method calls, transform the first argument (self) from dyn object to data pointer
+            // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
+            if (isDynMethodCall && index === 0) {
+              const dynObjectCode = generateExpr(arg, indent, context);
+
+              // Check if this method exists in the dyn type's own module
+              if (
+                exprIsFunctionCall(expr.func) &&
+                exprIsFunctionCallOf(expr.func, ".", 2)
+              ) {
+                const objectExpr = expr.func.args[0];
+                const dynType = objectExpr?.$?.type;
+                const methodExpr = expr.func.args[1];
+
+                if (exprIsAtom(methodExpr) && isDynType(dynType)) {
+                  const methodName = methodExpr.token.value;
+                  // Check if this method exists in the dyn type's module
+                  const dynMethod = dynType.module.elements.find(
+                    (element) => element.label === methodName
+                  );
+
+                  if (dynMethod) {
+                    // This is a dyn object's own method, pass the dyn object directly
+                    return dynObjectCode;
+                  }
+                }
+              }
+
+              // For all other methods (wrapped object methods), pass the wrapped object data
+              return `${dynObjectCode}->data`;
+            } else {
+              return generateExpr(arg, indent, context);
+            }
           }
         });
         const argsList = args.join(", ");
@@ -1150,6 +1199,12 @@ function generateFuncCall(
             if (isUnitType(functionType.return.type)) {
               // If the function returns unit, just call it without assignment
               context.emitter.emitLine(`${indent}${cFuncName}(${argsList});`);
+
+              // Handle deferred drop expressions if they exist
+              if (expr.$?.deferredDropExpressions) {
+                generateDeferredDropExpressions(expr, indent, context);
+              }
+
               return ""; // No return value
             } else {
               // If it returns a value, assign to a temp variable
@@ -1158,7 +1213,16 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${getTypeString(functionType.return.type, context)} ${tempVar} = ${cFuncName}(${argsList});`
                 );
+
+                // Handle deferred drop expressions if they exist
+                if (expr.$?.deferredDropExpressions) {
+                  generateDeferredDropExpressions(expr, indent, context);
+                }
+
                 return tempVar; // Return the temp variable name
+              } else {
+                // Error: regular function call returns non-unit type but no temp variable assigned
+                return `// Error: Regular function call returns ${getTypeString(functionType.return.type, context)} but no temp variable assigned`;
               }
             }
           }
@@ -1168,6 +1232,12 @@ function generateFuncCall(
           if (externFunction) {
             // Generate extern function call
             const cFuncName = externFunction.cName;
+
+            // Handle deferred drop expressions if they exist
+            if (expr.$?.deferredDropExpressions) {
+              generateDeferredDropExpressions(expr, indent, context);
+            }
+
             return `${cFuncName}(${argsList})`;
           } else {
             // Function parameter call (e.g., callback(x))
@@ -1175,6 +1245,12 @@ function generateFuncCall(
             if (isUnitType(functionType.return.type)) {
               // If the function returns unit, just call it without assignment
               context.emitter.emitLine(`${indent}${funcCode}(${argsList});`);
+
+              // Handle deferred drop expressions if they exist
+              if (expr.$?.deferredDropExpressions) {
+                generateDeferredDropExpressions(expr, indent, context);
+              }
+
               return ""; // No return value
             } else {
               // If it returns a value, assign to a temp variable or return directly
@@ -1183,9 +1259,16 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${getTypeString(functionType.return.type, context)} ${tempVar} = ${funcCode}(${argsList});`
                 );
+
+                // Handle deferred drop expressions if they exist
+                if (expr.$?.deferredDropExpressions) {
+                  generateDeferredDropExpressions(expr, indent, context);
+                }
+
                 return tempVar; // Return the temp variable name
               } else {
-                return `${funcCode}(${argsList})`;
+                // Error: function parameter call returns non-unit type but no temp variable assigned
+                return `// Error: Function parameter call returns ${getTypeString(functionType.return.type, context)} but no temp variable assigned`;
               }
             }
           }
@@ -1195,15 +1278,71 @@ function generateFuncCall(
       // Handle closure calls with dynamic dispatch through vtable
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
+        // First, handle arguments that need temporary variables
+        for (const arg of runtimeArgExprs) {
+          if (arg.$?.variableName && arg.$?.type) {
+            // Generate the argument expression and declare it as a temp variable
+            const argCode = generateExpr(arg, indent, context);
+            if (argCode && argCode !== arg.$.variableName) {
+              // Only emit declaration if the expression doesn't already handle it
+              const varTypeAndName = getVariableTypeString(
+                arg.$.type,
+                arg.$.variableName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${argCode};`
+              );
+            }
+          }
+        }
+
         // Generate closure value and function arguments
         const closureCode = generateExpr(expr.func, indent, context);
         const args = runtimeArgExprs.map((arg) => {
-          return generateExpr(arg, indent, context);
+          if (arg.$?.variableName && arg.$?.type) {
+            return arg.$.variableName;
+          } else {
+            return generateExpr(arg, indent, context);
+          }
         });
 
         // Call through the vtable - closure->vtable.call(closure, args...)
         const allArgs = [closureCode, ...args];
-        return `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
+        const closureCall = `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
+
+        // Get return type from the closure's function signature
+        const returnType = functionType.callType.return.type;
+
+        if (isUnitType(returnType)) {
+          // If the closure returns unit, just call it without assignment
+          context.emitter.emitLine(`${indent}${closureCall};`);
+
+          // Handle deferred drop expressions if they exist
+          if (expr.$?.deferredDropExpressions) {
+            generateDeferredDropExpressions(expr, indent, context);
+          }
+
+          return ""; // No return value
+        } else {
+          // If it returns a value, assign to a temp variable or return directly
+          const tempVar = expr.$?.variableName;
+          if (tempVar) {
+            context.emitter.emitLine(
+              `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
+            );
+
+            // Handle deferred drop expressions if they exist
+            if (expr.$?.deferredDropExpressions) {
+              generateDeferredDropExpressions(expr, indent, context);
+            }
+
+            return tempVar; // Return the temp variable name
+          } else {
+            // Error: closure returns non-unit type but no temp variable assigned
+            return `// Error: Closure call returns ${getTypeString(returnType, context)} but no temp variable assigned`;
+          }
+        }
       } else {
         return `// Error: No runtime args found for closure call`;
       }
