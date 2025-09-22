@@ -1,4 +1,4 @@
-import { setTypeAsLinear, Type, typeOfType } from "./types";
+import { Type } from "./types";
 import { ValueTag } from "./value-tag";
 
 export type TypeValue = {
@@ -17,16 +17,7 @@ export type TypeValue = {
   type: Type;
 
   /**
-   * Such as TFree, TLinear, TType, TI32, TBoolean, TStruct, etc.
+   * Such as TType, TI32, TBoolean, TStruct, etc.
    */
   value: Type;
 };
-
-export function setTypeValueAsLinear(typeValue: TypeValue): TypeValue {
-  const value = setTypeAsLinear(typeValue.value);
-  return {
-    ...typeValue,
-    type: typeOfType(value),
-    value: value,
-  };
-}

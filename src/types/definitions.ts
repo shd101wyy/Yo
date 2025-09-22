@@ -40,11 +40,6 @@ export interface Type {
   typeName?: string;
 
   /**
-   * Force this type to be treated as a linear type.
-   */
-  forceLinear?: boolean;
-
-  /**
    *  Whether this type is a dynamic sized type.
    *  Dynamic sized types are types whose size cannot be determined at compile time.
    *  For example:

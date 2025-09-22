@@ -14,7 +14,6 @@ import {
   ModuleElement,
   StructType,
   typeContainsARCType,
-  typeToString,
 } from "../../types";
 import { isFunctionValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -138,7 +137,7 @@ function generateDisposeFunctionCodeForStructType(
 `
     : "";
 
-  return `((fn(self : Self) -> unit) { // ___dispose for ${typeToString(structType)}
+  return `((fn(self : Self) -> unit) { // ___dispose
       ${hasDisposeFunction ? "Self.dispose(self);" : ""}
       ${dropDestructuringsExpr}
       return ();
@@ -170,7 +169,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): string {
 `
       : "";
 
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(structType)}
+  return `((fn(self : Self) -> unit) { // ___drop
   ${dropDestructuringsExpr}
   ${decrRcExpr}
   return ();
@@ -202,7 +201,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): string {
 `
       : "";
 
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(structType)}
+  return `((fn(self : Self) -> Self) {  // ___dup
   ${dupDestructuringsExpr}
   ${incrRcExpr}
   return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
@@ -318,7 +317,7 @@ export function addARCFunctionsToDynType({
 function generateDropFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, drop should use __yo_dyn_drop
   // This builtin function handles both the wrapped object cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
+  return `((fn(self : Self) -> unit) { // ___drop
     ${BuiltinFunctions.__yo_dyn_drop[0]!}(self);
   })`;
 }
@@ -329,7 +328,7 @@ function generateDropFunctionCodeForDynType(_dynType: DynType): string {
 function generateDupFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, dup should use __yo_dyn_dup
   // This builtin function handles the dyn reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
+  return `((fn(self : Self) -> Self) {  // ___dup
     ${BuiltinFunctions.__yo_dyn_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
@@ -385,7 +384,7 @@ function generateDropFunctionCodeForClosureType(
 ): string {
   // For closure types, drop should use __yo_closure_drop
   // This builtin function handles both the captured data cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_closureType)}
+  return `((fn(self : Self) -> unit) { // ___drop
     ${BuiltinFunctions.__yo_closure_drop[0]!}(self);
   })`;
 }
@@ -398,7 +397,7 @@ function generateDupFunctionCodeForClosureType(
 ): string {
   // For closure types, dup should use __yo_closure_dup
   // This builtin function handles the closure reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_closureType)}
+  return `((fn(self : Self) -> Self) {  // ___dup
     ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;

@@ -466,16 +466,6 @@ export function convertComptTypeToRuntimeType(
 }
 
 /**
- * Set a type as linear.
- */
-export function setTypeAsLinear(type: Type): Type {
-  return {
-    ...type,
-    forceLinear: true,
-  };
-}
-
-/**
  * Get the bit size of an integer type.
  */
 export function getIntegerTypeBits(type: Type): number {

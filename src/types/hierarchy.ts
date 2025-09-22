@@ -118,10 +118,6 @@ export function typeOfType(
    */
   checkedTupleElements: TupleElement[] = []
 ): Type {
-  if (type.forceLinear) {
-    return createType0(type); // All types are now level 0
-  }
-
   if (type.isDynamicSized) {
     return createType0(type); // All types are now level 0
   }
@@ -157,7 +153,7 @@ export function typeOfType(
     }
   } else if (isArrayType(type)) {
     // For arrays, check the element type
-    return typeOfType(type.elementType);
+    return typeOfType(type.elementType, checkedTupleElements);
   } else if (isTupleType(type)) {
     // For tuples, check all element types
     return determineTypeUniverse(

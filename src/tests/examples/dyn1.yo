@@ -34,17 +34,19 @@ use_id ::
   x := &(value).give_int();
 };
 
-x := box(12);
-use_id(dyn(x, I32GiveInt));
-use_id(dyn(x, (I32GiveAnotherInt,)));
+{
+  x := box(12);
+  use_id(dyn(x, I32GiveInt));
+  use_id(dyn(x, (I32GiveAnotherInt,)));
 
-// Will give error because there are two available GiveInt for i32
-compt_expect_error(use_id(*(dyn(x))), "Ambiguous implicit modules found for type GiveInt");
+  // Will give error because there are two available GiveInt for i32
+  compt_expect_error(use_id(*(dyn(x))), "Ambiguous implicit modules found for type GiveInt");
 
-y := box(true);
-use_id(dyn(y, BooleanGiveInt));
-use_id(dyn(y, (BooleanGiveInt,)));
-use_id(dyn(y));
+  y := box(true);
+  use_id(dyn(y, BooleanGiveInt));
+  use_id(dyn(y, (BooleanGiveInt,)));
+  use_id(dyn(y));
+};
 
 
 SayHi :: module(
