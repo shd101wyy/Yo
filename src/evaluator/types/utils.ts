@@ -14,6 +14,8 @@ import {
   ModuleElement,
   StructType,
   typeContainsARCType,
+  typeOfType,
+  typeToString,
 } from "../../types";
 import { isFunctionValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -221,6 +223,8 @@ export function addARCFunctionsToStructType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
+  typeOfType(structType); // Ensure no invalid recursive type
+
   // Auto-generate ___drop and ___dup function if it's needed
   // if (typeContainsARCType(structType)) {
   const disposeFunctionCode =
@@ -317,7 +321,7 @@ export function addARCFunctionsToDynType({
 function generateDropFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, drop should use __yo_dyn_drop
   // This builtin function handles both the wrapped object cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop
+  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
     ${BuiltinFunctions.__yo_dyn_drop[0]!}(self);
   })`;
 }
@@ -328,7 +332,7 @@ function generateDropFunctionCodeForDynType(_dynType: DynType): string {
 function generateDupFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, dup should use __yo_dyn_dup
   // This builtin function handles the dyn reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup
+  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
     ${BuiltinFunctions.__yo_dyn_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
@@ -384,7 +388,7 @@ function generateDropFunctionCodeForClosureType(
 ): string {
   // For closure types, drop should use __yo_closure_drop
   // This builtin function handles both the captured data cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop
+  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_closureType)}
     ${BuiltinFunctions.__yo_closure_drop[0]!}(self);
   })`;
 }
@@ -397,7 +401,7 @@ function generateDupFunctionCodeForClosureType(
 ): string {
   // For closure types, dup should use __yo_closure_dup
   // This builtin function handles the closure reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup
+  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_closureType)}
     ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
