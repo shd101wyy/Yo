@@ -12,7 +12,6 @@ import {
   isUnionType,
   StructType,
   TupleType,
-  typeContainsARCType,
   typeContainsSomeType,
   typeToString,
   UnionType,
@@ -30,19 +29,13 @@ import {
  * Generate type declarations for all collected types
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
-  // Generate common reference counter header for ref structs and ref enums
-  const hasARCTypes = Object.values(context.types).some(({ type }) =>
-    typeContainsARCType(type)
-  );
-
-  if (hasARCTypes) {
-    context.emitter
-      .emitDeclarationLine(`// Reference counter header for ref structs and ref enums
+  // Always generate common reference counter header for ref structs and ref enums
+  context.emitter
+    .emitDeclarationLine(`// Reference counter header for ref structs and ref enums
 typedef struct {
   size_t ref_count;
 } yo_ref_header_t;
 `);
-  }
 
   // Forward declarations - generate struct and enum forward declarations first
   for (const typeId in context.types) {

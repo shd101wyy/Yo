@@ -19,6 +19,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
+import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import {
   generateDeferredDropExpressions,
@@ -310,7 +311,10 @@ export function generateFunctionBody(
         findReturn = true;
       }
       const argCode = generateExpr(arg, indent, context);
-      if (argCode) {
+      if (
+        argCode &&
+        !isTempVariableName(arg.$!.env.modulePath, argCode) // Prevent emit meaningless line like `_yof4ca7ba3_temp_127;`
+      ) {
         // Emit the expression as a statement
         emitter.emitLine(`${indent}${argCode};`);
       }

@@ -492,7 +492,9 @@ export function evaluateIdentifierAndOperator({
         type: variable.type,
         value: variable.value,
         originType: variable.type, // Set origin type for direct variable access
-        variableName: variable.name, // NOTE: The tempVariableName here is the variable name itself.
+        variableName: variable.isBorrowingTheARCValueOfVariable
+          ? variable.isBorrowingTheARCValueOfVariable.name
+          : variable.name, // NOTE: The tempVariableName here is the variable name itself.
         pathCollection: [[variable.name]],
       };
 

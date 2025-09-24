@@ -849,12 +849,13 @@ export function evaluateAssignment({
     attachTempVariableToExpr(expr, true);
 
     // Update the lhs with the new value
-    evaluatedLhs.$ = {
-      env,
-      type: expectedType, // NOTE: It shouldn't be the rhsType.
-      value: rhs.$?.value,
-      pathCollection: evaluatedLhs.$.pathCollection,
-    };
+    // Let's not set evaluatedLhs.$ as it is causing problem in C codegen.
+    // evaluatedLhs.$ = {
+    //   env,
+    //   type: expectedType, // NOTE: It shouldn't be the rhsType.
+    //   value: rhs.$?.value,
+    //   pathCollection: evaluatedLhs.$.pathCollection,
+    // };
     // Return the updated expression
     return expr;
   }

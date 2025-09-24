@@ -151,6 +151,7 @@ export function evaluateInitializationAssignment({
 
       // user didn't specify the type
       lhs.$ = {
+        ...lhs.$,
         env,
         type: lhsType,
         pathCollection: [],
@@ -257,6 +258,7 @@ ${exprToString(rhs)}`,
 
     // Set the variable value
     lhs.$ = {
+      ...lhs.$,
       env,
       type: lhs.$.type,
       value: isCompileTimeOnly
