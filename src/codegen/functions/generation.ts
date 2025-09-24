@@ -771,29 +771,38 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
 }`);
   emitter.emitLine(``);
 
-  // Generate helper function for GC marking
+  // Generate helper functions for QuickJS-style cycle detection
   emitter.emitLine(
-    `// Helper function to visit referenced objects during marking`
+    `// Helper function to temporarily decrement references during trial deletion`
   );
-  emitter.emitLine(`static void mark_gray_visitor(void* ptr) {`);
+  emitter.emitLine(`static void trial_decref_visitor(void* ptr) {`);
   emitter.emitLine(`  if (ptr == NULL) return;`);
   emitter.emitLine(``);
   emitter.emitLine(`  yo_ref_header_t* header = (yo_ref_header_t*)ptr;`);
   emitter.emitLine(``);
-  emitter.emitLine(
-    `  // Only mark white objects as gray (avoid infinite loops)`
-  );
-  emitter.emitLine(
-    `  if ((header->gc_flags & (YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) == YO_GC_WHITE) {`
-  );
-  emitter.emitLine(
-    `    header->gc_flags = (header->gc_flags & ~(YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) | YO_GC_GRAY;`
-  );
+  emitter.emitLine(`  // Only decrement if object is being tested for cycles`);
+  emitter.emitLine(`  if (header->gc_flags & YO_GC_TRACKED) {`);
+  emitter.emitLine(`    header->ref_count--;`);
   emitter.emitLine(`  }`);
   emitter.emitLine(`}`);
   emitter.emitLine(``);
 
-  // Generate __yo_gc_collect function
+  emitter.emitLine(
+    `// Helper function to restore references after trial deletion`
+  );
+  emitter.emitLine(`static void restore_refcount_visitor(void* ptr) {`);
+  emitter.emitLine(`  if (ptr == NULL) return;`);
+  emitter.emitLine(``);
+  emitter.emitLine(`  yo_ref_header_t* header = (yo_ref_header_t*)ptr;`);
+  emitter.emitLine(``);
+  emitter.emitLine(`  // Only increment if object was part of cycle test`);
+  emitter.emitLine(`  if (header->gc_flags & YO_GC_TRACKED) {`);
+  emitter.emitLine(`    header->ref_count++;`);
+  emitter.emitLine(`  }`);
+  emitter.emitLine(`}`);
+  emitter.emitLine(``);
+
+  // Generate __yo_gc_collect function (QuickJS-style cycle detection)
   emitter.emitLine(`void __yo_gc_collect() {
   // Ensure only one GC collection runs at a time
   if (yo_gc_collection_in_progress) {
@@ -806,38 +815,19 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
     return;  // Nothing to collect
   }
   
-  // Phase 1: Reset all objects to white
+  // QuickJS-style cycle detection algorithm
+  // Phase 1: Trial deletion - temporarily remove internal references
   yo_ref_header_t* obj = yo_gc_tracked_objects;
   while (obj != NULL) {
-    obj->gc_flags = (obj->gc_flags & ~(YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) | YO_GC_WHITE;
+    // For each tracked object, temporarily decrement ref counts of all objects it references
+    if (obj->traverse_fn) {
+      obj->traverse_fn(obj, trial_decref_visitor);
+    }
     obj = (yo_ref_header_t*)obj->gc_next;
   }
   
-  // Phase 2: Mark root objects (objects with external references)
-  // For manual GC collection (like in tests), assume no external references
-  // In a real implementation, we'd scan roots and mark reachable objects
-  
-  // Phase 3: Process gray objects (traverse their references and mark children)
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    obj = yo_gc_tracked_objects;
-    while (obj != NULL) {
-      if ((obj->gc_flags & (YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) == YO_GC_GRAY) {
-        // Mark this object as black (fully processed)
-        obj->gc_flags = (obj->gc_flags & ~(YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) | YO_GC_BLACK;
-        changed = true;
-        
-        // Traverse this object's references using its traversal function
-        if (obj->traverse_fn) {
-          obj->traverse_fn(obj, mark_gray_visitor);
-        }
-      }
-      obj = (yo_ref_header_t*)obj->gc_next;
-    }
-  }
-  
-  // Phase 4: Sweep - collect all white objects (unreachable)
+  // Phase 2: Identify unreachable cycles
+  // Objects with ref_count == 0 after trial deletion are only referenced by cycle members
   yo_ref_header_t* current = yo_gc_tracked_objects;
   yo_ref_header_t* prev = NULL;
   size_t collected_count = 0;
@@ -845,8 +835,8 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
   while (current != NULL) {
     yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
     
-    if ((current->gc_flags & (YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) == YO_GC_WHITE) {
-      // This object is unreachable, collect it
+    if (current->ref_count == 0) {
+      // This object is only referenced by other objects in the cycle - collect it
       if (prev == NULL) {
         // Removing head of list
         yo_gc_tracked_objects = next;
@@ -862,7 +852,7 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
       current->gc_flags |= YO_GC_DISPOSED;
       current->gc_next = NULL;
       
-      // Call user's cleanup function (now correctly points to user cleanup only)
+      // Call user's cleanup function
       if (current->dispose_fn) {
         current->dispose_fn(current);
       }
@@ -872,6 +862,11 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
       // Continue with next, don't update prev
       current = next;
     } else {
+      // This object has external references - restore its internal reference counts
+      if (current->traverse_fn) {
+        current->traverse_fn(current, restore_refcount_visitor);
+      }
+      
       // Keep this object, move to next
       prev = current;
       current = next;
@@ -1001,7 +996,9 @@ export function generateRefStructConstructorFunctions(
         `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
       );
       emitter.emitLine(`  obj->header.ref_count = 1;`);
-      emitter.emitLine(`  obj->header.gc_flags = YO_GC_WHITE;`);
+      emitter.emitLine(
+        `  obj->header.gc_flags = 0;  // Initialize with no flags`
+      );
       emitter.emitLine(`  obj->header.gc_next = NULL;`);
 
       // Set dispose function pointer to user's dispose function (not ___dispose which includes ref counting)
