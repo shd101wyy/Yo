@@ -27,6 +27,7 @@ import {
   isTupleType,
   isUnionType,
   isUnitType,
+  ModuleType,
   SliceType,
   Type,
   TypeTag,
@@ -738,6 +739,31 @@ function generateFuncCall(
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {
+    // Add debugging for method calls that should not be field access
+    const objectExpr = expr.args[0];
+    const fieldExpr = expr.args[1];
+    if (objectExpr && fieldExpr && exprIsAtom(fieldExpr)) {
+      const fieldName = fieldExpr.token.value;
+      if (fieldName.startsWith("___")) {
+        console.log("DEBUG: Field access to method:", fieldName);
+        console.log(
+          "DEBUG: Object expr type:",
+          objectExpr.$?.type ? typeToString(objectExpr.$.type) : "no type"
+        );
+        console.log(
+          "DEBUG: Object expr value:",
+          objectExpr.$?.value ? valueToString(objectExpr.$.value) : "no value"
+        );
+        console.log(
+          "DEBUG: Field expr type:",
+          fieldExpr.$?.type ? typeToString(fieldExpr.$.type) : "no type"
+        );
+        console.log(
+          "DEBUG: Field expr value:",
+          fieldExpr.$?.value ? valueToString(fieldExpr.$.value) : "no value"
+        );
+      }
+    }
     return generateFieldAccess(expr, indent, context);
   }
   // begin
@@ -2088,6 +2114,49 @@ function generateFieldAccess(
 
   if (exprIsAtom(fieldExpr)) {
     const fieldName = fieldExpr.token.value;
+
+    // Check if this is an ARC method call (___drop, ___dup, ___dispose)
+    // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
+    // So they are using the `undefined` function value, before we actually update its module elements.
+    if (
+      !expr.$?.value &&
+      (BuiltinFunctions.___dispose.includes(fieldName) ||
+        BuiltinFunctions.___drop.includes(fieldName) ||
+        BuiltinFunctions.___dup.includes(fieldName)) &&
+      objectType
+    ) {
+      // For ARC methods, we need to look up the function from the type's module
+      // and return the function name directly instead of treating it as field access
+      let typeModule: ModuleType | null = null;
+
+      if (isStructType(objectType)) {
+        typeModule = objectType.module;
+      } else if (isEnumType(objectType)) {
+        typeModule = objectType.module;
+      }
+
+      if (typeModule) {
+        // Find the function in the type's module
+        const functionElement = typeModule.elements.find(
+          (element) =>
+            element.label === fieldName &&
+            element.assignedValue &&
+            isFunctionValue(element.assignedValue)
+        );
+
+        if (functionElement && isFunctionValue(functionElement.assignedValue)) {
+          const functionValue = functionElement.assignedValue;
+          const cFunctionName =
+            context.functions[functionValue.funcId]?.cName ||
+            functionValue.funcId;
+          return cFunctionName;
+        } else {
+          return `/* ERROR: ARC method ${fieldName} not found in type module */`;
+        }
+      } else {
+        return `/* ERROR: No module found for ARC method ${fieldName} */`;
+      }
+    }
 
     // Check if the object is an enum type
     if (isEnumType(objectType)) {

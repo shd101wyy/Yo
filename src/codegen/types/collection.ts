@@ -137,6 +137,11 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
     // For struct types, collect functions from the module (___dup, ___drop, etc.)
     if (isStructType(type)) {
+      // Recursively collect types from struct elements
+      for (const element of type.elements) {
+        collectType(element.type, context);
+      }
+
       for (const element of type.module.elements) {
         if (element.assignedValue && isFunctionValue(element.assignedValue)) {
           const functionValue = element.assignedValue;
@@ -151,6 +156,42 @@ export function collectType(type: Type, context: CodeGenContext): void {
             findFunctionCallsInExpr(functionValue.body, context);
           }
         }
+      }
+    }
+
+    // For enum types, collect functions from the module and types from variants
+    if (isEnumType(type)) {
+      // Recursively collect types from enum variant elements
+      for (const variant of type.variants) {
+        if (variant.elements) {
+          for (const element of variant.elements) {
+            collectType(element.type, context);
+          }
+        }
+      }
+
+      // Collect functions from the enum's module (___dup, ___drop, etc.)
+      for (const element of type.module.elements) {
+        if (element.assignedValue && isFunctionValue(element.assignedValue)) {
+          const functionValue = element.assignedValue;
+          if (!context.functions[functionValue.funcId]) {
+            context.functions[functionValue.funcId] = {
+              value: functionValue,
+              cName: functionValue.funcId,
+            };
+
+            // Recursively collect functions called by this enum member function
+            findFunctionCallsInExpr(functionValue.body, context);
+          }
+        }
+      }
+    }
+
+    // For union types, collect types from union elements
+    if (isUnionType(type)) {
+      // Recursively collect types from union elements
+      for (const element of type.elements) {
+        collectType(element.type, context);
       }
     }
 

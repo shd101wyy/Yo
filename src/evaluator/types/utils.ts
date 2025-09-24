@@ -89,7 +89,7 @@ export function addFunctionSignatureToSelfTypeModule({
       const moduleElement: ModuleElement = {
         label: label,
         type: functionType,
-        assignedValue: undefined, // createUnknownValue(functionType),
+        assignedValue: undefined, // NOTE: We have to use the `undefined` here.
         isCompileTimeOnly: true,
         isImplicit: false,
         exprs: {
@@ -104,7 +104,8 @@ export function addFunctionSignatureToSelfTypeModule({
         (el) => el.label === label
       );
       if (index >= 0) {
-        return env; // No need to update. Don't throw error.
+        SelfType.module.elements[index] = moduleElement;
+        // return env; // No need to update. Don't throw error.
       } else {
         // Add new element
         SelfType.module.elements.push(moduleElement);
