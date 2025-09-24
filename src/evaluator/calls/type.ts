@@ -127,14 +127,15 @@ ${tupleElementToString(paramElement_)}`,
       },
     });
 
-    setExprAsNeedsToCallDup(evaluatedArgExpr, context);
-
     if (!evaluatedArgExpr.$) {
       throw formatErrorMessage({
         token: argExpr.token,
         errorMessage: `Failed to evaluate argument expression:\n${exprToString(argExpr)}`,
       });
     }
+
+    setExprAsNeedsToCallDup(evaluatedArgExpr, context);
+    callerEnv = evaluatedArgExpr.$.env;
 
     // Get the type of the evaluated arg expr
     const argType = evaluatedArgExpr.$.type;

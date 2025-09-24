@@ -1678,19 +1678,28 @@ export function setExprAsNeedsToCallDup(
     // if yes, then no need to call dup
     if (expr.$.variableName) {
       if (isTempVariableName(expr.$.env.modulePath, expr.$.variableName)) {
-        const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
-        if (variables.length > 0) {
-          const variable = variables[variables.length - 1]!;
-          if (variable.isOwningTheARCValue) {
-            // Set the variable as consumed so we won't need to drop it later
-            if (!variable.consumedAtToken) {
-              expr.$.env = updateExistingVariable(expr.$.env, variable, {
-                ...variable,
-                consumedAtToken: expr.token,
-              });
-            }
+        if (exprIsAtom(expr) && expr.token.value !== expr.$.variableName) {
+          // Do nothing
+          // This means the expr is a variable borrows some ARC value
+          // So we need to call ___dup on it
+        } else {
+          const variables = getVariablesFromEnv(
+            expr.$.env,
+            expr.$.variableName
+          );
+          if (variables.length > 0) {
+            const variable = variables[variables.length - 1]!;
+            if (variable.isOwningTheARCValue) {
+              // Set the variable as consumed so we won't need to drop it later
+              if (!variable.consumedAtToken) {
+                expr.$.env = updateExistingVariable(expr.$.env, variable, {
+                  ...variable,
+                  consumedAtToken: expr.token,
+                });
+              }
 
-            return;
+              return;
+            }
           }
         }
       }

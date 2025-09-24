@@ -722,12 +722,13 @@ export function evaluateBeginExpression({
           tempVariablesToConsume[tempVariableName] = funcCallExpr.token;
         }
 
+        const atomExpr = funcExpr.args[0] as AtomExpr;
         const originalVarExpr: AtomExpr = {
           tag: ExprTag.Atom,
-          token: (funcExpr.args[0] as AtomExpr).token,
+          token: atomExpr.token,
           $: {
             ...dupCallExpr.$!,
-            variableName: (funcExpr.args[0] as AtomExpr).token.value, // NOTE: This line is necessary
+            variableName: atomExpr.$?.variableName ?? atomExpr.token.value, // NOTE: This line is necessary
           }, // Keep the same evaluation data
         };
 
