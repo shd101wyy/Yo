@@ -22,7 +22,10 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";
-import { addARCFunctionsToStructType } from "./utils";
+import {
+  addARCFunctionSignaturesToStructType,
+  addARCFunctionsToStructType,
+} from "./utils";
 import { validateDisposeFunction } from "./validation";
 
 export function evaluateStructType({
@@ -46,8 +49,10 @@ export function evaluateStructType({
   // Create structType with empty elements
   // This is used as the SelfType for the following evaluations.
   const structType = createStructType(env, isReferenceSemantics);
-  const elements = structType.elements;
+  addARCFunctionSignaturesToStructType({ structType, env, context });
 
+  // Evaluate the elements
+  const elements = structType.elements;
   for (let i = 0; i < expr.args.length; i++) {
     const arg = expr.args[i]!;
 

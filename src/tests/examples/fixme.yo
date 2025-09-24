@@ -1,20 +1,22 @@
 open import "std/libc/stdio.yo";
 
-Box :: ref struct
-  (*) : i32,
+Option :: (fn(compt(T) : Type) -> compt(Type))
+  enum
+    Some(value: T),
+    None
+;
 
+List :: ref struct
+  value : i32,
+  next : Option(Self),
+  
   dispose :: ((fn(self : Self)-> unit) {
-    printf("Disposing Box with value %d\n", self.(*));
+    printf("Disposing List with value %d\n", self.value);
   })
 ;
 
 main :: (fn() -> i32) {
-  b := Box(3);
-
-  a := { b };
-  a.b = Box(4);
-
-  c := { b };
+  a := List(3, .None);
 
   return 0;
 };

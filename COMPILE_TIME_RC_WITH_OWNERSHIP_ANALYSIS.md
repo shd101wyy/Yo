@@ -2,7 +2,7 @@
 
 Inspired by the [Lobster programming language](https://aardappel.github.io/lobster/memory_management.html).
 
-We consider each heap allocated ARC value to have a unique owner.
+We consider each heap allocated ARC value to have a unique owner. Its reference counter starts at 1.
 
 ```rust
 Point :: ref struct(x : i32, y : i32);

@@ -104,9 +104,7 @@ export function addFunctionSignatureToSelfTypeModule({
         (el) => el.label === label
       );
       if (index >= 0) {
-        throw new Error(
-          `Function ${label} already exists in type ${typeToString(SelfType)}`
-        );
+        return env; // No need to update. Don't throw error.
       } else {
         // Add new element
         SelfType.module.elements.push(moduleElement);
@@ -182,6 +180,10 @@ export function addFunctionCodeToSelfTypeModule({
   return nextEnv;
 }
 
+export const DisposeFnSignature = "(fn(self : Self) -> unit)";
+export const DropFnSignature = "(fn(self : Self) -> unit)";
+export const DupFnSignature = "(fn(self : Self) -> Self)";
+
 /**
  * Generate ___dispose function code for a struct type
  */
@@ -189,7 +191,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   signature: string;
   code: string;
 } {
-  const signature = "(fn(self : Self) -> unit)";
+  const signature = DisposeFnSignature;
   if (!isARCType(structType)) {
     // return null; // no need to generate ___dispose function
     return { signature, code: `(${signature} ())` };
@@ -234,7 +236,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   signature: string;
   code: string;
 } {
-  const signature = "(fn(self : Self) -> unit)";
+  const signature = DropFnSignature;
   const destructurings = structType.elements
     .filter(
       (element) =>
@@ -273,7 +275,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   signature: string;
   code: string;
 } {
-  const signature = "(fn(self : Self) -> Self)";
+  const signature = DupFnSignature;
   const destructurings = structType.elements
     .filter(
       (element) =>
@@ -321,44 +323,18 @@ export function addARCFunctionsToStructType({
   typeOfType(structType); // Ensure no invalid recursive type
 
   // Auto-generate ___drop and ___dup function if it's needed
-  const { signature: disposeFunctionSignature, code: disposeFunctionCode } =
+  const { code: disposeFunctionCode } =
     generateDisposeFunctionCodeForStructType(structType);
-  const { signature: dropFunctionSignature, code: dropFunctionCode } =
+  const { code: dropFunctionCode } =
     generateDropFunctionCodeForStructType(structType);
-  const { signature: dupFUnctionSignature, code: dupFunctionCode } =
+  const { code: dupFunctionCode } =
     generateDupFunctionCodeForStructType(structType);
 
-  // NOTE: We need to add signature to the struct module first, to support recursive calls
-  // Like
-  //    List :: ref struct
-  //      head : i32,
-  //      tail : Self // ___dispose will need to call tail.___drop()
-  //    ;
-  addFunctionSignatureToSelfTypeModule({
-    label: BuiltinFunctions.___dispose[0]!,
-    functionSignature: disposeFunctionSignature,
-    SelfType: structType,
-    env,
-    context,
-  });
-  addFunctionSignatureToSelfTypeModule({
-    label: BuiltinFunctions.___drop[0]!,
-    functionSignature: dropFunctionSignature,
-    SelfType: structType,
-    env,
-    context,
-  });
-  addFunctionSignatureToSelfTypeModule({
-    label: BuiltinFunctions.___dup[0]!,
-    functionSignature: dupFUnctionSignature,
-    SelfType: structType,
-    env,
-    context,
-  });
+  /// console.log("struct dispose: ", disposeFunctionCode);
+  /// console.log("struct drop: ", dropFunctionCode);
+  /// console.log("struct dup: ", dupFunctionCode);
 
-  /// console.log("dispose: ", disposeFunctionCode);
-  /// console.log("drop: ", dropFunctionCode);
-  /// console.log("dup: ", dupFunctionCode);
+  addARCFunctionSignaturesToStructType({ structType, env, context });
 
   // Add ___dispose function
   env = addFunctionCodeToSelfTypeModule({
@@ -388,6 +364,329 @@ export function addARCFunctionsToStructType({
   });
 
   return env;
+}
+
+export function addARCFunctionSignaturesToStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}) {
+  // NOTE: We need to add signature to the struct module first, to support recursive calls
+  // Like
+  //    List :: ref struct
+  //      head : i32,
+  //      tail : Self // ___dispose will need to call tail.___drop()
+  //    ;
+  addFunctionSignatureToSelfTypeModule({
+    label: BuiltinFunctions.___dispose[0]!,
+    functionSignature: DisposeFnSignature,
+    SelfType: structType,
+    env,
+    context,
+  });
+  addFunctionSignatureToSelfTypeModule({
+    label: BuiltinFunctions.___drop[0]!,
+    functionSignature: DropFnSignature,
+    SelfType: structType,
+    env,
+    context,
+  });
+  addFunctionSignatureToSelfTypeModule({
+    label: BuiltinFunctions.___dup[0]!,
+    functionSignature: DupFnSignature,
+    SelfType: structType,
+    env,
+    context,
+  });
+}
+
+/**
+ * Generate ___dispose function code for an enum type
+ */
+/*
+function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
+  signature: string;
+  code: string;
+} {
+  const signature = DisposeFnSignature;
+  if (!isARCType(enumType)) {
+    return { signature, code: `(${signature} ())` };
+  }
+
+  const hasDisposeFunction = enumType.module.elements.some(
+    (element) => element.label === BuiltinFunctions.dispose[0]
+  );
+
+  const variantsWithARCTypes = enumType.variants.filter(
+    (variant) =>
+      variant.elements &&
+      variant.elements.some((element) => typeContainsARCType(element.type))
+  );
+
+  if (!variantsWithARCTypes.length && !hasDisposeFunction) {
+    return { signature, code: `(${signature} ())` };
+  }
+
+  const matchCases = variantsWithARCTypes
+    .map((variant) => {
+      const destructurings = variant
+        .elements!.filter(
+          (element) =>
+            !element.isCompileTimeOnly && typeContainsARCType(element.type)
+        )
+        .map((element) => element.label);
+
+      const paramList = variant
+        .elements!.map((element) => element.label)
+        .join(", ");
+      const dropStatements = destructurings
+        .map((label) => `      (${BuiltinFunctions.___drop[0]!})(${label});`)
+        .join("\n");
+
+      return `.${variant.name}(${paramList}) => {
+${dropStatements}
+    }`;
+    })
+    .join(",\n    ");
+
+  const defaultCase =
+    variantsWithARCTypes.length === enumType.variants.length
+      ? ""
+      : ",\n    _ => ()";
+
+  return {
+    signature,
+    code: `(${signature} { // ___dispose
+      ${hasDisposeFunction ? "Self.dispose(self);" : ""}
+      match(self,
+        ${matchCases}${defaultCase}
+      );
+      return ();
+  })`,
+  };
+}
+*/
+
+/**
+ * Generate ___drop function code for an enum type
+ */
+function generateDropFunctionCodeForEnumType(enumType: EnumType): {
+  signature: string;
+  code: string;
+} {
+  const signature = DropFnSignature;
+
+  const variantsWithARCTypes = enumType.variants.filter(
+    (variant) =>
+      variant.elements &&
+      variant.elements.some((element) => typeContainsARCType(element.type))
+  );
+
+  const decrRcExpr = isARCType(enumType)
+    ? `
+  ${BuiltinFunctions.__yo_decr_rc[0]!}(self, Self.___dispose);`
+    : "";
+
+  const dropVariantsExpr = isARCType(enumType)
+    ? ""
+    : variantsWithARCTypes.length
+      ? `
+  match(self,
+    ${variantsWithARCTypes
+      .map((variant) => {
+        const destructurings = variant
+          .elements!.filter(
+            (element) =>
+              !element.isCompileTimeOnly && typeContainsARCType(element.type)
+          )
+          .map((element) => element.label);
+
+        const paramList = variant
+          .elements!.map((element) => element.label)
+          .join(", ");
+        const dropStatements = destructurings
+          .map((label) => `      (${BuiltinFunctions.___drop[0]!})(${label});`)
+          .join("\n");
+
+        return `.${variant.name}(${paramList}) => {
+${dropStatements}
+    }`;
+      })
+      .join(",\n    ")}${
+      variantsWithARCTypes.length === enumType.variants.length
+        ? ""
+        : ",\n    _ => ()"
+    }
+  );`
+      : "";
+
+  return {
+    signature,
+    code: `(${signature} { // ___drop
+  ${dropVariantsExpr}
+  ${decrRcExpr}
+  return ();
+})`,
+  };
+}
+
+/**
+ * Generate ___dup function code for an enum type
+ */
+function generateDupFunctionCodeForEnumType(enumType: EnumType): {
+  signature: string;
+  code: string;
+} {
+  const signature = DupFnSignature;
+
+  const variantsWithARCTypes = enumType.variants.filter(
+    (variant) =>
+      variant.elements &&
+      variant.elements.some((element) => typeContainsARCType(element.type))
+  );
+
+  const incrRcExpr = isARCType(enumType)
+    ? `
+  ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
+    : "";
+
+  const dupVariantsExpr = isARCType(enumType)
+    ? ""
+    : variantsWithARCTypes.length
+      ? `
+  match(self,
+    ${variantsWithARCTypes
+      .map((variant) => {
+        const destructurings = variant
+          .elements!.filter(
+            (element) =>
+              !element.isCompileTimeOnly && typeContainsARCType(element.type)
+          )
+          .map((element) => element.label);
+
+        const paramList = variant
+          .elements!.map((element) => element.label)
+          .join(", ");
+        const dupStatements = destructurings
+          .map((label) => `      (${BuiltinFunctions.___dup[0]!})(${label});`)
+          .join("\n");
+
+        return `.${variant.name}(${paramList}) => {
+${dupStatements}
+    }`;
+      })
+      .join(",\n    ")}${
+      variantsWithARCTypes.length === enumType.variants.length
+        ? ""
+        : ",\n    _ => ()"
+    }
+  );`
+      : "";
+
+  return {
+    signature,
+    code: `(${signature} {  // ___dup
+  ${dupVariantsExpr}
+  ${incrRcExpr}
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+})`,
+  };
+}
+
+/**
+ * Helper function to add ARC-related functions (___drop, ___dup, ___dispose) to an enum type
+ * This should be called after all enum variants are processed and the enum type is complete
+ */
+export function addARCFunctionsToEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  typeOfType(enumType); // Ensure no invalid recursive type
+
+  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
+  // const { code: disposeFunctionCode } =
+  //   generateDisposeFunctionCodeForEnumType(enumType);
+  const { code: dropFunctionCode } =
+    generateDropFunctionCodeForEnumType(enumType);
+  const { code: dupFunctionCode } =
+    generateDupFunctionCodeForEnumType(enumType);
+
+  /// console.log("enum dispose: ", disposeFunctionCode);
+  /// console.log("enum drop: ", dropFunctionCode);
+  /// console.log("enum dup: ", dupFunctionCode);
+
+  addARCFunctionSignaturesToEnumType({ enumType, env, context });
+
+  // Add ___dispose function
+  // env = addFunctionCodeToSelfTypeModule({
+  //   label: BuiltinFunctions.___dispose[0]!,
+  //   functionCode: disposeFunctionCode,
+  //   SelfType: enumType,
+  //   env,
+  //   context,
+  // });
+
+  // Add ___drop function to the enum type module elements
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___drop[0]!,
+    functionCode: dropFunctionCode,
+    SelfType: enumType,
+    env,
+    context,
+  });
+
+  // Add ___dup function to the enum type module elements
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___dup[0]!,
+    functionCode: dupFunctionCode,
+    SelfType: enumType,
+    env,
+    context,
+  });
+
+  return env;
+}
+
+export function addARCFunctionSignaturesToEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}) {
+  // Add function signatures to the enum module first, to support recursive calls
+  addFunctionSignatureToSelfTypeModule({
+    label: BuiltinFunctions.___dispose[0]!,
+    functionSignature: DisposeFnSignature,
+    SelfType: enumType,
+    env,
+    context,
+  });
+  addFunctionSignatureToSelfTypeModule({
+    label: BuiltinFunctions.___drop[0]!,
+    functionSignature: DropFnSignature,
+    SelfType: enumType,
+    env,
+    context,
+  });
+  addFunctionSignatureToSelfTypeModule({
+    label: BuiltinFunctions.___dup[0]!,
+    functionSignature: DupFnSignature,
+    SelfType: enumType,
+    env,
+    context,
+  });
 }
 
 /**
