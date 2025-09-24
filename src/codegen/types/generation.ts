@@ -45,6 +45,8 @@ typedef struct {
   atomic_size_t ref_count;
   uint8_t gc_flags;  // GC state flags (white/gray/black, tracked, etc.)
   struct yo_gc_object* gc_next;  // Next object in GC tracking list (only used if YO_GC_TRACKED is set)
+  void (*dispose_fn)(void*);  // Dispose function for this object type
+  void (*traverse_fn)(void*, void (*visit)(void*));  // Traversal function for GC marking
 } yo_ref_header_t;
 `);
 
