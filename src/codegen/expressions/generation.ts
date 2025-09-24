@@ -200,6 +200,14 @@ function generateFuncCall(
     return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
+  // __yo_gc_collect - trigger garbage collection
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
+    if (expr.args.length !== 0) {
+      return `// Error: __yo_gc_collect requires exactly 0 arguments`;
+    }
+    return `__yo_gc_collect()`;
+  }
+
   // dyn() - dynamic dispatch constructor
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
     return generateDynCall(expr, indent, context);

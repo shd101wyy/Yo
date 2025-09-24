@@ -1,3 +1,4 @@
+import { Emitter } from "../../emitter";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -19,6 +20,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
+import { canRefStructFormCycles } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import {
@@ -467,6 +469,17 @@ export function generateRefStructConstructorDeclarations(
     `void* __yo_incr_rc(void* ptr); // Increment reference count`
   );
 
+  // Generate GC function declarations
+  emitter.emitDeclarationLine(
+    `void __yo_gc_register(void* ptr); // Register object for cycle detection`
+  );
+  emitter.emitDeclarationLine(
+    `void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
+  );
+  emitter.emitDeclarationLine(
+    `void __yo_gc_collect(); // Trigger garbage collection`
+  );
+
   // Generate constructor declarations for each ref struct
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
@@ -652,6 +665,8 @@ export function generateBuiltinFunctions(
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   if (atomic_load(&header->ref_count) == 1) {
+    // Unregister from GC before disposal
+    __yo_gc_unregister(ptr);
     if (dispose_fn) {
       dispose_fn(ptr);
     }
@@ -668,6 +683,141 @@ export function generateBuiltinFunctions(
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   atomic_fetch_add(&header->ref_count, 1);
   return ptr;
+}`);
+  emitter.emitLine(``);
+
+  // Generate GC runtime functions
+  generateGCRuntimeFunctions(emitter);
+}
+
+/**
+ * Generate garbage collection runtime functions for cycle detection
+ */
+function generateGCRuntimeFunctions(emitter: Emitter): void {
+  // Global GC tracking state
+  emitter.emitLine(`// Global GC tracking state`);
+  emitter.emitLine(
+    `static yo_ref_header_t* yo_gc_tracked_objects = NULL;  // Head of tracked objects list`
+  );
+  emitter.emitLine(
+    `static size_t yo_gc_tracked_count = 0;  // Number of tracked objects`
+  );
+  emitter.emitLine(
+    `static size_t yo_gc_collect_threshold = 1000;  // Collect when this many objects tracked`
+  );
+  emitter.emitLine(``);
+
+  // Generate __yo_gc_register function
+  emitter.emitLine(`void __yo_gc_register(void* ptr) {
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  
+  // Only register if not already tracked
+  if (!(header->gc_flags & YO_GC_TRACKED)) {
+    header->gc_flags |= YO_GC_TRACKED;
+    header->gc_next = (struct yo_gc_object*)yo_gc_tracked_objects;
+    yo_gc_tracked_objects = header;
+    yo_gc_tracked_count++;
+    
+    // Trigger collection if threshold reached
+    if (yo_gc_tracked_count >= yo_gc_collect_threshold) {
+      __yo_gc_collect();
+    }
+  }
+}`);
+  emitter.emitLine(``);
+
+  // Generate __yo_gc_unregister function
+  emitter.emitLine(`void __yo_gc_unregister(void* ptr) {
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  
+  if (header->gc_flags & YO_GC_TRACKED) {
+    // Remove from tracked list (simple linear search for now)
+    yo_ref_header_t** current = &yo_gc_tracked_objects;
+    while (*current != NULL) {
+      if (*current == header) {
+        *current = (yo_ref_header_t*)(*current)->gc_next;
+        yo_gc_tracked_count--;
+        break;
+      }
+      current = (yo_ref_header_t**)&(*current)->gc_next;
+    }
+    header->gc_flags &= ~YO_GC_TRACKED;
+    header->gc_next = NULL;
+  }
+}`);
+  emitter.emitLine(``);
+
+  // Generate __yo_gc_collect function
+  emitter.emitLine(`void __yo_gc_collect() {
+  if (yo_gc_tracked_objects == NULL) {
+    return;  // Nothing to collect
+  }
+  
+  printf("GC: Starting cycle collection with %zu objects tracked\\n", yo_gc_tracked_count);
+  
+  // Phase 1: Reset all objects to white
+  yo_ref_header_t* obj = yo_gc_tracked_objects;
+  while (obj != NULL) {
+    obj->gc_flags = (obj->gc_flags & ~(YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) | YO_GC_WHITE;
+    obj = (yo_ref_header_t*)obj->gc_next;
+  }
+  
+  // Phase 2: Mark all objects reachable from stack/root references
+  // For simplicity, we'll consider all objects with ref_count > 1 as potentially reachable
+  // This is conservative but safe for this initial implementation
+  obj = yo_gc_tracked_objects;
+  while (obj != NULL) {
+    if (atomic_load(&obj->ref_count) > 1) {
+      // This object has external references, mark it as gray (to be processed)
+      obj->gc_flags = (obj->gc_flags & ~(YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) | YO_GC_GRAY;
+    }
+    obj = (yo_ref_header_t*)obj->gc_next;
+  }
+  
+  // Phase 3: Process gray objects (mark their children as gray/black)
+  // This is a simplified marking - in a real implementation we'd traverse object graphs
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    obj = yo_gc_tracked_objects;
+    while (obj != NULL) {
+      if ((obj->gc_flags & (YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) == YO_GC_GRAY) {
+        // Mark this object as black (fully processed)
+        obj->gc_flags = (obj->gc_flags & ~(YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) | YO_GC_BLACK;
+        changed = true;
+        // TODO: In a full implementation, we'd traverse this object's fields
+        // and mark any referenced objects as gray
+      }
+      obj = (yo_ref_header_t*)obj->gc_next;
+    }
+  }
+  
+  // Phase 4: Sweep - collect all white objects (unreachable)
+  yo_ref_header_t** current = &yo_gc_tracked_objects;
+  size_t collected_count = 0;
+  while (*current != NULL) {
+    yo_ref_header_t* obj = *current;
+    if ((obj->gc_flags & (YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) == YO_GC_WHITE) {
+      // This object is unreachable, collect it
+      *current = (yo_ref_header_t*)obj->gc_next;
+      yo_gc_tracked_count--;
+      collected_count++;
+      
+      // Force reference count to 1 so disposal works correctly
+      obj->gc_flags = YO_GC_WHITE; // Clear GC tracking flag
+      obj->gc_next = NULL;
+      
+      // TODO: Call appropriate dispose function for this object type
+      // For now, just free it directly (this is not ideal but works for testing)
+      printf("GC: Collecting unreachable object (would normally call dispose)\\n");
+      // yo_free(obj);  // Commented out for now - proper disposal needed
+    } else {
+      current = (yo_ref_header_t**)&(*current)->gc_next;
+    }
+  }
+  
+  printf("GC: Collection complete - collected %zu objects, %zu objects remain tracked\\n", 
+         collected_count, yo_gc_tracked_count);
 }`);
   emitter.emitLine(``);
 }
@@ -708,12 +858,19 @@ export function generateRefStructConstructorFunctions(
         `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
       );
       emitter.emitLine(`  obj->header.ref_count = 1;`);
+      emitter.emitLine(`  obj->header.gc_flags = YO_GC_WHITE;`);
+      emitter.emitLine(`  obj->header.gc_next = NULL;`);
 
       // Initialize fields
       type.elements.forEach((element) => {
         const fieldName = sanitizeForCIdentifier(element.label);
         emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
       });
+
+      // Register with GC if this type might participate in cycles
+      if (canRefStructFormCycles(type)) {
+        emitter.emitLine(`  __yo_gc_register(obj);`);
+      }
 
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);

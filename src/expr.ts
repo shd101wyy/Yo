@@ -808,6 +808,9 @@ export const BuiltinFunctions = {
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
   __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheARCValue to be true. This is useful for implementing ___dup function.
 
+  // Garbage collection for cycle detection
+  __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
+
   // Dynamic dispatch ARC functions
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
   __yo_dyn_dup: ["__yo_dyn_dup"], // dup the dyn object with wrapped object
@@ -816,6 +819,7 @@ export const BuiltinFunctions = {
   __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
   __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
 
+  // ARC functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary

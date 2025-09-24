@@ -51,6 +51,7 @@ import {
   evaluateYoExprListCons,
   evaluateYoExprListLength,
 } from "./builtins/expr_list_fns";
+import { evaluateYoGcCollect } from "./builtins/gc";
 import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
@@ -510,6 +511,9 @@ ${exprToString(expr)}`,
       ) {
         // __yo_closure_dup
         return evaluateYoClosureDup({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
+        // __yo_gc_collect
+        return evaluateYoGcCollect({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.quote)) {
         // metaprogramming
         // quote

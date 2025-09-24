@@ -23,6 +23,7 @@ import {
   ModuleType,
   MutPtrType,
   MutRefType,
+  SliceType,
   SomeType,
   StructType,
   TupleElement,
@@ -40,6 +41,7 @@ import {
   isComptFloatType,
   isComptIntType,
   isComptStringType,
+  isDynType,
   isEnumType,
   isExprListType,
   isExprType,
@@ -56,6 +58,7 @@ import {
   isModuleType,
   isMutPtrType,
   isMutRefType,
+  isSliceType,
   isSomeType,
   isStructType,
   isStructTypeWithReferenceSemantics,
@@ -1303,4 +1306,164 @@ Please consider using a pointer or reference to this type instead, like:
       },
     ]);
   }
+}
+
+/**
+ * Check if a ref struct type could potentially form cycles.
+ * This is used to determine which ref struct types need GC tracking.
+ *
+ * A ref struct can form cycles if:
+ * 1. It contains a direct or indirect reference to itself
+ * 2. It references other ref struct types that could reference back to it
+ *
+ * This uses a depth-first search with cycle detection to avoid infinite recursion.
+ */
+export function canRefStructFormCycles(
+  type: StructType,
+  visitedTypes = new Set<string>()
+): boolean {
+  // Only ref structs can form cycles through reference counting
+  if (!type.isReferenceSemantics) {
+    return false;
+  }
+
+  // Avoid infinite recursion by tracking visited types
+  if (visitedTypes.has(type.id)) {
+    return true; // We found a cycle back to a type we're already analyzing
+  }
+
+  visitedTypes.add(type.id);
+
+  try {
+    // Check all fields in the struct
+    for (const element of type.elements) {
+      if (typeCanReferenceCyclicRefStruct(element.type, type, visitedTypes)) {
+        return true;
+      }
+    }
+
+    return false;
+  } finally {
+    visitedTypes.delete(type.id); // Clean up for other paths
+  }
+}
+
+/**
+ * Helper function to check if a type can reference back to a cyclic ref struct.
+ * This traverses through containers (enums, arrays, etc.) to find ref struct references.
+ */
+function typeCanReferenceCyclicRefStruct(
+  type: Type,
+  originalRefStruct: StructType,
+  visitedTypes: Set<string>
+): boolean {
+  // If this type is the same as the original ref struct, we have a direct self-reference
+  if (isStructType(type) && type.id === originalRefStruct.id) {
+    return true;
+  }
+
+  // If this is a different ref struct, check if it could form cycles with the original
+  if (isStructType(type) && type.isReferenceSemantics) {
+    return canRefStructFormCycles(type, new Set(visitedTypes));
+  }
+
+  // Check through enum variants
+  if (isEnumType(type)) {
+    for (const variant of type.variants) {
+      if (variant.elements) {
+        for (const element of variant.elements) {
+          if (
+            typeCanReferenceCyclicRefStruct(
+              element.type,
+              originalRefStruct,
+              visitedTypes
+            )
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  // Check through arrays
+  if (isArrayType(type)) {
+    return typeCanReferenceCyclicRefStruct(
+      type.elementType,
+      originalRefStruct,
+      visitedTypes
+    );
+  }
+
+  // Check through slices
+  if (isSliceType(type)) {
+    return typeCanReferenceCyclicRefStruct(
+      (type as SliceType).elementType,
+      originalRefStruct,
+      visitedTypes
+    );
+  }
+
+  // Check through tuples
+  if (isTupleType(type)) {
+    for (const element of type.elements) {
+      if (
+        typeCanReferenceCyclicRefStruct(
+          element.type,
+          originalRefStruct,
+          visitedTypes
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // Check through unions
+  if (isUnionType(type)) {
+    for (const element of type.elements) {
+      if (
+        typeCanReferenceCyclicRefStruct(
+          element.type,
+          originalRefStruct,
+          visitedTypes
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // Check through closures - they can capture ref struct types
+  if (isClosureType(type)) {
+    return true;
+  }
+
+  // Check through dynamic types - they can contain ref struct types
+  if (isDynType(type)) {
+    return true;
+  }
+
+  // MutPtr and MutRef are raw pointers/references - they don't participate in ARC
+  // so they don't form reference counting cycles, but they could be part of
+  // ownership cycles if the pointed-to type is a ref struct
+  // For now, we'll consider them as potential cycle participants for safety
+  if (isMutPtrType(type)) {
+    return typeCanReferenceCyclicRefStruct(
+      (type as MutPtrType).type,
+      originalRefStruct,
+      visitedTypes
+    );
+  }
+
+  if (isMutRefType(type)) {
+    return typeCanReferenceCyclicRefStruct(
+      (type as MutRefType).type,
+      originalRefStruct,
+      visitedTypes
+    );
+  }
+
+  // Other types (primitives, functions, etc.) cannot form cycles
+  return false;
 }

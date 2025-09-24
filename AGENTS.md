@@ -13,7 +13,7 @@ Do not use `npm` command, only use `bun` command.
 
 Never hardcode any typescript or yo when you are trying to solve a problem.
 
-You can run the command `bun run src/yo-cli.ts src/tests/examples/fixme.yo --emit-c --skip-c-compiler` on any `.yo` file to test its C code generation.
+You can run the command `bun run src/yo-cli.ts src/tests/examples/fixme.yo --emit-c --skip-c-compiler` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
 You can ignore the editor erros for the `.yo` files, because the vscode extension might not use the updated Yo language grammar or evaluator/compiler code.
 

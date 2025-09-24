@@ -30,13 +30,17 @@ List :: ref struct
   })
 ;
 
-main :: (fn() -> i32) {
+form_cycle :: (fn() -> unit) {
   a := List(3, .None);
   b := List(5, .None);
 
   a.next = .Some(b);
   b.next = .Some(a); // Create a cycle
+};
 
+main :: (fn() -> i32) {
+  form_cycle(); // create cycle
+  __yo_gc_collect(); // manually trigger the GC collection
   return 0;
 };
 
