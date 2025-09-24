@@ -64,7 +64,22 @@ typedef struct {
   // Generate slice struct types
   generateSliceStructDeclarations(context);
 
-  // First pass: Generate struct declarations
+  // Generate types in dependency order: enums first, then structs, then others
+  // This handles circular dependencies where structs contain enums by value
+
+  // First pass: Generate enum declarations (they can be used by value in structs)
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (typeContainsSomeType(type)) {
+      continue; // Skip types that contain `SomeType` as they are not concrete types
+    }
+
+    if (isEnumType(type)) {
+      generateEnumDeclaration(type, cName, context);
+    }
+  }
+
+  // Second pass: Generate struct and other type declarations
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
@@ -79,12 +94,11 @@ typedef struct {
       generateDynDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
-    } else if (isEnumType(type)) {
-      generateEnumDeclaration(type, cName, context);
     } else if (isTupleType(type)) {
       // For tuples, we can generate a struct-like declaration
       generateTupleDeclaration(type, cName, context);
     }
+    // Note: isEnumType is handled in the first pass above
   }
 }
 

@@ -756,7 +756,7 @@ export function evaluateBeginExpression({
 
   // Clean up variablesActuallyNeedingDrop by removing variables in tempVariablesToConsume
   const variablesActuallyNeedingDropFiltered: Variable[] = [];
-  for (let i = variablesActuallyNeedingDrop.length - 1; i >= 0; i--) {
+  for (let i = 0; i < variablesActuallyNeedingDrop.length; i++) {
     const variable = variablesActuallyNeedingDrop[i]!;
     if (tempVariablesToConsume[variable.name]) {
       // Set the variable as consumed at the recorded token
