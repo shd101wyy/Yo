@@ -649,24 +649,24 @@ export function generateBuiltinFunctions(
 
   // Generate __yo_decr_rc function
   emitter.emitLine(`void __yo_decr_rc(void* ptr, void (*dispose_fn)(void*)) {
-  if (!ptr) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
-  if (header->ref_count == 1) {
+  
+  if (atomic_load(&header->ref_count) == 1) {
     if (dispose_fn) {
       dispose_fn(ptr);
     }
     yo_free(ptr);
+    return;
   } else {
-    header->ref_count--;
+    atomic_fetch_sub(&header->ref_count, 1);
   }
 }`);
   emitter.emitLine(``);
 
   // Generate __yo_incr_rc function
   emitter.emitLine(`void* __yo_incr_rc(void* ptr) {
-  if (!ptr) return ptr;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
-  header->ref_count++;
+  atomic_fetch_add(&header->ref_count, 1);
   return ptr;
 }`);
   emitter.emitLine(``);

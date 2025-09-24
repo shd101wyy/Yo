@@ -33,7 +33,7 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
   context.emitter
     .emitDeclarationLine(`// Reference counter header for ref structs and ref enums
 typedef struct {
-  size_t ref_count;
+  atomic_size_t ref_count;
 } yo_ref_header_t;
 `);
 
