@@ -1445,23 +1445,9 @@ function typeCanReferenceCyclicRefStruct(
   }
 
   // MutPtr and MutRef are raw pointers/references - they don't participate in ARC
-  // so they don't form reference counting cycles, but they could be part of
-  // ownership cycles if the pointed-to type is a ref struct
-  // For now, we'll consider them as potential cycle participants for safety
-  if (isMutPtrType(type)) {
-    return typeCanReferenceCyclicRefStruct(
-      (type as MutPtrType).type,
-      originalRefStruct,
-      visitedTypes
-    );
-  }
-
-  if (isMutRefType(type)) {
-    return typeCanReferenceCyclicRefStruct(
-      (type as MutRefType).type,
-      originalRefStruct,
-      visitedTypes
-    );
+  // so they don't form reference counting cycles.
+  if (isMutPtrType(type) || isMutRefType(type)) {
+    return false;
   }
 
   // Other types (primitives, functions, etc.) cannot form cycles

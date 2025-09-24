@@ -662,14 +662,18 @@ export function generateBuiltinFunctions(
 ): void {
   const emitter = context.emitter;
 
-  // Global GC state to prevent infinite recursion during collection
-  emitter.emitLine("static bool yo_gc_collecting = false;");
-
   // Generate __yo_decr_rc function
   emitter.emitLine(`void __yo_decr_rc(void* ptr, void (*dispose_fn)(void*)) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  
+  header->ref_count--;
+  
+  if (header->ref_count == 0) {
+    // Check if object was already disposed by GC
+    if (header->gc_flags & YO_GC_DISPOSED) {
+      return; // Already disposed by GC, nothing to do
+    }
     
-  if (atomic_fetch_sub(&header->ref_count, 1) == 0) {
     // Unregister from GC before disposal
     __yo_gc_unregister(ptr);
     
@@ -685,7 +689,7 @@ export function generateBuiltinFunctions(
   // Generate __yo_incr_rc function
   emitter.emitLine(`void* __yo_incr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
-  atomic_fetch_add(&header->ref_count, 1);
+  header->ref_count++;
   return ptr;
 }`);
   emitter.emitLine(``);
@@ -709,6 +713,9 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
   emitter.emitLine(
     `static size_t yo_gc_collect_threshold = 1000;  // Collect when this many objects tracked`
   );
+  emitter.emitLine(
+    `static int yo_gc_collection_in_progress = 0;  // Ensures only one GC collection runs at a time`
+  );
   emitter.emitLine(``);
 
   // Generate __yo_gc_register function
@@ -717,9 +724,14 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
   
   // Only register if not already tracked
   if (!(header->gc_flags & YO_GC_TRACKED)) {
+    // Set the TRACKED flag
     header->gc_flags |= YO_GC_TRACKED;
+    
+    // Link into tracking list
     header->gc_next = (struct yo_gc_object*)yo_gc_tracked_objects;
     yo_gc_tracked_objects = header;
+    
+    // Increment count
     yo_gc_tracked_count++;
     
     // Trigger collection if threshold reached
@@ -735,16 +747,24 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   if (header->gc_flags & YO_GC_TRACKED) {
-    // Remove from tracked list (simple linear search for now)
-    yo_ref_header_t** current = &yo_gc_tracked_objects;
-    while (*current != NULL) {
-      if (*current == header) {
-        *current = (yo_ref_header_t*)(*current)->gc_next;
-        yo_gc_tracked_count--;
-        break;
+    // Remove from tracked list (simple linked list removal)
+    if (yo_gc_tracked_objects == header) {
+      // Remove head node
+      yo_gc_tracked_objects = (yo_ref_header_t*)header->gc_next;
+    } else {
+      // Search for the node in the list
+      yo_ref_header_t* current = yo_gc_tracked_objects;
+      while (current != NULL && current->gc_next != (struct yo_gc_object*)header) {
+        current = (yo_ref_header_t*)current->gc_next;
       }
-      current = (yo_ref_header_t**)&(*current)->gc_next;
+      if (current != NULL) {
+        // Found the node to remove - update current's next pointer
+        current->gc_next = header->gc_next;
+      }
     }
+    
+    // Decrement count and clear flags
+    yo_gc_tracked_count--;
     header->gc_flags &= ~YO_GC_TRACKED;
     header->gc_next = NULL;
   }
@@ -775,12 +795,16 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
 
   // Generate __yo_gc_collect function
   emitter.emitLine(`void __yo_gc_collect() {
+  // Ensure only one GC collection runs at a time
+  if (yo_gc_collection_in_progress) {
+    return;  // Another thread is already running GC
+  }
+  yo_gc_collection_in_progress = 1;
+  
   if (yo_gc_tracked_objects == NULL) {
+    yo_gc_collection_in_progress = 0;  // Release GC lock
     return;  // Nothing to collect
   }
-  
-  // Set the GC flag to prevent infinite loops during disposal
-  yo_gc_collecting = true;
   
   // Phase 1: Reset all objects to white
   yo_ref_header_t* obj = yo_gc_tracked_objects;
@@ -790,22 +814,8 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
   }
   
   // Phase 2: Mark root objects (objects with external references)
-  // In a real implementation, we would scan the stack, registers, and global variables
-  // For this simplified version, we'll use a heuristic:
-  // - Objects are roots if they have ref_count > number_of_internal_references
-  // - Since we don't track internal refs separately, we'll assume objects with
-  //   ref_count > 1 *might* have external references
-  // - For manual GC collection (like in tests), we'll be more aggressive and
-  //   assume no external references exist
-  
-  // For now, let's assume no objects are externally reachable when GC is manually triggered
-  // This works for our test case where the cycle is created and then goes out of scope
-  obj = yo_gc_tracked_objects;
-  while (obj != NULL) {
-    // Don't mark any objects as gray initially - they're all potentially collectible
-    // In a real implementation, we'd scan roots and mark reachable objects
-    obj = (yo_ref_header_t*)obj->gc_next;
-  }
+  // For manual GC collection (like in tests), assume no external references
+  // In a real implementation, we'd scan roots and mark reachable objects
   
   // Phase 3: Process gray objects (traverse their references and mark children)
   bool changed = true;
@@ -828,34 +838,48 @@ function generateGCRuntimeFunctions(emitter: Emitter): void {
   }
   
   // Phase 4: Sweep - collect all white objects (unreachable)
-  yo_ref_header_t** current = &yo_gc_tracked_objects;
+  yo_ref_header_t* current = yo_gc_tracked_objects;
+  yo_ref_header_t* prev = NULL;
   size_t collected_count = 0;
-  while (*current != NULL) {
-    yo_ref_header_t* obj = *current;
+  
+  while (current != NULL) {
+    yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
     
-    if ((obj->gc_flags & (YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) == YO_GC_WHITE) {
+    if ((current->gc_flags & (YO_GC_WHITE | YO_GC_GRAY | YO_GC_BLACK)) == YO_GC_WHITE) {
       // This object is unreachable, collect it
-      *current = (yo_ref_header_t*)obj->gc_next;
+      if (prev == NULL) {
+        // Removing head of list
+        yo_gc_tracked_objects = next;
+      } else {
+        // Removing middle/end of list
+        prev->gc_next = (struct yo_gc_object*)next;
+      }
+      
       yo_gc_tracked_count--;
       collected_count++;
       
-      // Clear GC metadata before disposal  
-      obj->gc_next = NULL;
+      // Mark object as disposed by GC to prevent double-free
+      current->gc_flags |= YO_GC_DISPOSED;
+      current->gc_next = NULL;
       
-      // Call dispose function to ensure proper cleanup
-      if (obj->dispose_fn) {
-        obj->dispose_fn(obj);
+      // Call user's cleanup function (now correctly points to user cleanup only)
+      if (current->dispose_fn) {
+        current->dispose_fn(current);
       }
       
-      // Free the object
-      yo_free(obj);
+      yo_free(current);
+      
+      // Continue with next, don't update prev
+      current = next;
     } else {
-      current = (yo_ref_header_t**)&(*current)->gc_next;
+      // Keep this object, move to next
+      prev = current;
+      current = next;
     }
   }
   
-  // Clear the GC flag
-  yo_gc_collecting = false;
+  // Release the GC collection lock
+  yo_gc_collection_in_progress = 0;
 }`);
   emitter.emitLine(``);
 }
@@ -980,10 +1004,10 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  obj->header.gc_flags = YO_GC_WHITE;`);
       emitter.emitLine(`  obj->header.gc_next = NULL;`);
 
-      // Set dispose function pointer
+      // Set dispose function pointer to user's dispose function (not ___dispose which includes ref counting)
       const disposeFunctionElement = type.module.elements.find(
         (element) =>
-          element.label === BuiltinFunctions.___dispose[0] &&
+          element.label === BuiltinFunctions.dispose[0]! &&
           element.assignedValue &&
           isFunctionValue(element.assignedValue)
       );

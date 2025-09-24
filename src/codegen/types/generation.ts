@@ -37,12 +37,13 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
 #define YO_GC_GRAY  0x01  // Visited but children not processed 
 #define YO_GC_BLACK 0x02  // Fully processed
 #define YO_GC_TRACKED 0x04  // Object is tracked by GC (might participate in cycles)
+#define YO_GC_DISPOSED 0x08  // Object has been disposed by GC (prevents double-free)
 
 // Forward declaration of GC object for linked list
 struct yo_gc_object;
 
 typedef struct {
-  atomic_size_t ref_count;
+  size_t ref_count;
   uint8_t gc_flags;  // GC state flags (white/gray/black, tracked, etc.)
   struct yo_gc_object* gc_next;  // Next object in GC tracking list (only used if YO_GC_TRACKED is set)
   void (*dispose_fn)(void*);  // Dispose function for this object type

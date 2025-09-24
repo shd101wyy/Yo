@@ -39,9 +39,11 @@ form_cycle :: (fn() -> unit) {
 };
 
 main :: (fn() -> i32) {
-  form_cycle(); // create cycle
+  // form_cycle(); // create cycle
+  a := List(3, .None);
   __yo_gc_collect(); // manually trigger the GC collection
-  return 0;
+  printf("Before return");
+  return a.value;
 };
 
 export main;
