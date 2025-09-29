@@ -13,7 +13,6 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -420,10 +419,7 @@ export function synthesizeTypes(
         given.env = givenEnv;
       }
     }
-  } else if (
-    (isMutRefType(expected.type) && isMutRefType(given.type)) ||
-    (isMutPtrType(expected.type) && isMutPtrType(given.type))
-  ) {
+  } else if (isMutPtrType(expected.type) && isMutPtrType(given.type)) {
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
         type: expected.type.type,

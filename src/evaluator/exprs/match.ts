@@ -17,14 +17,11 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   createMutPtrType,
-  createMutRefType,
   EnumType,
   isEnumType,
   isFunctionTypeAndReturnsComptValue,
   isMutPtrType,
-  isMutRefType,
   MutPtrType,
-  MutRefType,
   Type,
   TypeTag,
   typeToString,
@@ -93,11 +90,11 @@ export function evaluateMatch({
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType: TypeTag.MutPtr | TypeTag.MutRef | undefined = undefined;
+  let ptrOrRefType: TypeTag.MutPtr | undefined = undefined;
 
   let enumType: Type;
 
-  if (isMutPtrType(scrutineeType) || isMutRefType(scrutineeType)) {
+  if (isMutPtrType(scrutineeType)) {
     enumType = scrutineeType.type;
     ptrOrRefType = scrutineeType.tag;
   } else {
@@ -234,12 +231,10 @@ export function evaluateMatch({
         pathCollection: [],
       };
 
-      let variableType: EnumType | MutPtrType | MutRefType = newEnumType;
+      let variableType: EnumType | MutPtrType = newEnumType;
       if (ptrOrRefType) {
         if (ptrOrRefType === TypeTag.MutPtr) {
           variableType = createMutPtrType(newEnumType);
-        } else if (ptrOrRefType === TypeTag.MutRef) {
-          variableType = createMutRefType(newEnumType);
         }
       }
 

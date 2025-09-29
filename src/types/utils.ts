@@ -8,7 +8,7 @@ import { ValueTag } from "../value-tag";
 import {
   createF64Type,
   createI32Type,
-  createMutRefType,
+  createMutPtrType,
   createSliceType,
   createU8Type,
 } from "./creators";
@@ -22,7 +22,6 @@ import {
   ModuleElement,
   ModuleType,
   MutPtrType,
-  MutRefType,
   SliceType,
   SomeType,
   StructType,
@@ -57,7 +56,6 @@ import {
   isIsizeType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isObjectType,
   isSliceType,
   isSomeType,
@@ -94,74 +92,6 @@ export function typeRequiresComptModifier(type?: Type): boolean {
 
 export function typeProhibitsComptModifier(type?: Type): boolean {
   return isCCompatibleType(type);
-}
-
-/**
- * Check if a type contains 2nd class reference.
- */
-export function typeContains2ndClassReference(
-  type?: Type,
-  checkedTypes: Type[] = []
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  if (checkedTypes.includes(type)) {
-    return false;
-  } else {
-    checkedTypes.push(type);
-  }
-
-  // Check if the type is a reference type
-  if (isMutRefType(type)) {
-    return true;
-  }
-
-  // Check if the type is a ClosureType - Fn and FnMut contain references
-  if (isClosureType(type)) {
-    return false; // It's now all FnMove, which doesn't contain references.
-    // return true;
-    /*
-    const closureType = type as ClosureType;
-    const closureKind = closureType.callType.closureKind;
-    // FnMove doesn't contain references (takes ownership), but Fn and FnMut do
-    return closureKind === "Fn" || closureKind === "FnMut";
-    */
-  }
-
-  // Recursively check for references in complex types
-  switch (type.tag) {
-    case TypeTag.Array:
-      return typeContains2ndClassReference(
-        (type as ArrayType).elementType,
-        checkedTypes
-      );
-    case TypeTag.Tuple:
-      return (type as TupleType).elements.some((element) =>
-        typeContains2ndClassReference(element.type, checkedTypes)
-      );
-    case TypeTag.Struct:
-      return (type as StructType).elements.some((element) =>
-        typeContains2ndClassReference(element.type, checkedTypes)
-      );
-    case TypeTag.Enum:
-      return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) =>
-          typeContains2ndClassReference(param.type, checkedTypes)
-        )
-      );
-    case TypeTag.Union:
-      return (type as UnionType).elements.some((element) =>
-        typeContains2ndClassReference(element.type, checkedTypes)
-      );
-    case TypeTag.Module:
-      return (type as ModuleType).elements.some((element) =>
-        typeContains2ndClassReference(element.type, checkedTypes)
-      );
-    default:
-      return false; // For other types, no references are present
-  }
 }
 
 /**
@@ -273,11 +203,7 @@ export function typeContainsSomeType(
         typeContainsSomeType(element.type, checkedTypes)
       );
     case TypeTag.MutPtr:
-    case TypeTag.MutRef:
-      return typeContainsSomeType(
-        (type as MutPtrType | MutRefType).type,
-        checkedTypes
-      );
+      return typeContainsSomeType((type as MutPtrType).type, checkedTypes);
     default:
       return false; // For other types, no SomeType is present
   }
@@ -317,8 +243,7 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         (t as ModuleType).elements.forEach((element) => helper(element.type));
         break;
       case TypeTag.MutPtr:
-      case TypeTag.MutRef:
-        helper((t as MutPtrType | MutRefType).type);
+        helper((t as MutPtrType).type);
         break;
       default:
         break; // For other types, do nothing
@@ -506,8 +431,8 @@ export function convertComptTypeToRuntimeType(
       }
     }
 
-    // Convert the compt_string to &([u8]);
-    return createMutRefType(createSliceType(createU8Type()));
+    // Convert the compt_string to *([u8]);
+    return createMutPtrType(createSliceType(createU8Type()));
   } else {
     // No change
     return type;
@@ -976,11 +901,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       return `*(${typeToString(mutPtrType.type, visited)})`;
     }
 
-    case TypeTag.MutRef: {
-      const mutRefType = type as MutRefType;
-      return `&(${typeToString(mutRefType.type)})`;
-    }
-
     case TypeTag.Expr: {
       return "Expr";
     }
@@ -1217,7 +1137,7 @@ export function getAlignmentOfType(type: Type): number | null {
     return maxAlign;
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBytes(); // Functions are treated as pointers, so pointer-aligned
-  } else if (isMutPtrType(type) || isMutRefType(type)) {
+  } else if (isMutPtrType(type)) {
     return getTargetPointerSizeBytes(); // Pointer and reference types are pointer-aligned
   }
 
@@ -1285,7 +1205,7 @@ export function getSizeOfType(type: Type): number | null {
     return getUnionType(type);
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBits(); // Functions are treated as pointers, so return pointer size
-  } else if (isMutPtrType(type) || isMutRefType(type)) {
+  } else if (isMutPtrType(type)) {
     return getTargetPointerSizeBits(); // Pointer and reference types have pointer size
   }
 
@@ -1446,7 +1366,7 @@ function typeCanReferenceCyclicRefStruct(
 
   // MutPtr and MutRef are raw pointers/references - they don't participate in ARC
   // so they don't form reference counting cycles.
-  if (isMutPtrType(type) || isMutRefType(type)) {
+  if (isMutPtrType(type)) {
     return false;
   }
 

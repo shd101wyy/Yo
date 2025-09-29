@@ -1,4 +1,3 @@
-import { Borrowing } from "../borrow";
 import { Environment } from "../env";
 import { YoError } from "../error";
 import { Expr, PathCollection } from "../expr";
@@ -69,11 +68,6 @@ export interface EvaluatorContext {
    * The innermost module that this function call is inside.
    */
   ModuleType?: ModuleType;
-
-  /**
-   * The borrowings.
-   */
-  borrowings: Borrowing[];
 
   /**
    * Whether we are currently evaluating a closure call type.

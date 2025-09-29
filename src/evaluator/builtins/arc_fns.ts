@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -44,9 +43,6 @@ export function evaluateYoDecrRc({
     });
   }
   env = evaluatedArgExpr.$.env;
-
-  // Check if the drop argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
 
   // Evaluate the second argument (dispose function) if provided
   const disposeFnExpr = expr.args[1];
@@ -112,9 +108,6 @@ export function evaluateYoIncrRc({
   }
   env = evaluatedArgExpr.$.env;
 
-  // Check if the drop argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
-
   expr.$ = {
     env,
     type: VUnit.type,
@@ -153,9 +146,6 @@ export function evaluateIsUniquelyOwned({
     });
   }
   env = evaluatedArgExpr.$.env;
-
-  // Check if the drop argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
 
   expr.$ = {
     env,
@@ -247,9 +237,6 @@ export function evaluateYoDynVtableDrop({
   }
   env = evaluatedArgExpr.$.env;
 
-  // Check if the argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
-
   expr.$ = {
     env,
     type: VUnit.type,
@@ -292,9 +279,6 @@ export function evaluateYoDynVtableDup({
     });
   }
   env = evaluatedArgExpr.$.env;
-
-  // Check if the argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
 
   expr.$ = {
     env,
@@ -339,9 +323,6 @@ export function evaluateYoClosureDrop({
   }
   env = evaluatedArgExpr.$.env;
 
-  // Check if the argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
-
   expr.$ = {
     env,
     type: VUnit.type,
@@ -384,9 +365,6 @@ export function evaluateYoClosureDup({
     });
   }
   env = evaluatedArgExpr.$.env;
-
-  // Check if the argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
 
   expr.$ = {
     env,

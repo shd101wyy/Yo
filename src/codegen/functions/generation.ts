@@ -342,11 +342,6 @@ export function generateFunctionBody(
         // Check if the last expression has control flow (like return statements)
         const hasControlFlow = lastExpr.$?.controlFlow;
 
-        // Special case: check if it's a borrow expression which might contain returns
-        const isBorrowExpression =
-          exprIsFunctionCall(lastExpr) &&
-          exprIsFunctionCallOf(lastExpr, BuiltinKeywords.borrow);
-
         // Check if last expr is unit - either by type or by being a tuple() call with no args
         const isLastExprUnit =
           isUnitType(lastExpr.$?.type) ||
@@ -355,15 +350,11 @@ export function generateFunctionBody(
             lastExpr.args.length === 0);
         const prevExpr = args.length > 1 ? args[args.length - 2] : null;
         const prevExprHasControlFlow = prevExpr?.$?.controlFlow;
-        const prevIsBorrow =
-          prevExpr &&
-          exprIsFunctionCall(prevExpr) &&
-          exprIsFunctionCallOf(prevExpr, BuiltinKeywords.borrow);
 
-        if (isLastExprUnit && (prevExprHasControlFlow || prevIsBorrow)) {
+        if (isLastExprUnit && prevExprHasControlFlow) {
           // Don't generate return for unit if previous expression has control flow or is borrow
           // Skip generating anything - the control flow already happened in the previous expression
-        } else if (hasControlFlow || isBorrowExpression) {
+        } else if (hasControlFlow) {
           // If the expression has control flow or is a borrow, just generate it without adding a return
           const exprCode = generateExpr(lastExpr, indent, context);
           if (exprCode) {

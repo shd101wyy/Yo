@@ -8,7 +8,6 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isStructType,
   isUnionType,
   ModuleType,
@@ -586,10 +585,7 @@ export function getMethodsByNameFromEnv(
 
   // Automatically dereference if it's pointer/reference type
   let dereferencedReceiverType = receiverType;
-  while (
-    isMutPtrType(dereferencedReceiverType) ||
-    isMutRefType(dereferencedReceiverType)
-  ) {
+  while (isMutPtrType(dereferencedReceiverType)) {
     dereferencedReceiverType = dereferencedReceiverType.type;
   }
 

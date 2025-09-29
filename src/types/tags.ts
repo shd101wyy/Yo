@@ -71,9 +71,8 @@ export enum TypeTag {
   // Module
   Module = "Module",
 
-  // Pointer & Reference
+  // Pointer
   MutPtr = "MutPtr",
-  MutRef = "MutRef",
 
   // Dynamic Dispatch Type
   Dyn = "Dyn",

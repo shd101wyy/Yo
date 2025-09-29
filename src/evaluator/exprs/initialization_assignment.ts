@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -13,7 +12,6 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   prohibitDynamicSizedType,
-  typeContains2ndClassReference,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -211,18 +209,6 @@ ${exprToString(expr)}`,
 ${exprToString(expr)}`,
       });
     }
-
-    // Check if the rhsType contains reference
-    if (typeContains2ndClassReference(rhsType)) {
-      throw formatErrorMessage({
-        token: rhs.token,
-        errorMessage: `Assigning reference to variable is not allowed:
-${typeToString(rhsType)}`,
-      });
-    }
-
-    // Check the borrowings
-    checkBorrowings(context.borrowings, rhs);
 
     // Add .typeName info if necessary
     const rhsValue = rhs.$?.value;

@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
@@ -23,7 +22,6 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -101,15 +99,6 @@ export function evaluateFunctionCall({
         },
       });
       func = functionToCall;
-
-      // Check borrowings
-      // NOTE: This is necessary for function like array accessing element by index
-      // for example:
-      //   xs := [1, 2, 3];
-      //   borrow &(xs), xs_ref => {
-      //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
-      //   }
-      checkBorrowings(context.borrowings, functionToCall);
 
       // Check if . property access for module method call
       if (!functionToCall.$?.type) {
@@ -317,15 +306,6 @@ export function evaluateFunctionCall({
           },
         });
         func = functionToCall;
-
-        // Check borrowings
-        // NOTE: This is necessary for function like array accessing element by index
-        // for example:
-        //   xs := [1, 2, 3];
-        //   borrow &(xs), xs_ref => {
-        //     first_element := xs(0); // here `xs` is already borrowed, so we cannot use it.
-        //   }
-        checkBorrowings(context.borrowings, functionToCall);
 
         if (!functionToCall.$) {
           throw formatErrorMessage({
@@ -660,8 +640,7 @@ export function evaluateFunctionCall({
         // array
         isArrayType(functionToCall.type) ||
         // slice
-        ((isMutPtrType(functionToCall.type) ||
-          isMutRefType(functionToCall.type)) &&
+        (isMutPtrType(functionToCall.type) &&
           isSliceType(functionToCall.type.type))
       ) {
         try {
@@ -1168,8 +1147,7 @@ ${functionsWithMatchingTypes
     // array
     else if (
       isArrayType(functionToCall.type) ||
-      ((isMutPtrType(functionToCall.type) ||
-        isMutRefType(functionToCall.type)) &&
+      (isMutPtrType(functionToCall.type) &&
         isSliceType(functionToCall.type.type))
     ) {
       const { value, index, type, callerEnv } =

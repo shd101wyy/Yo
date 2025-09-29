@@ -63,14 +63,13 @@ import {
   evaluateYoTypeToString,
 } from "./builtins/type_fns";
 import { evaluateVaStart } from "./builtins/va_start";
+import { evaluateAddressCall } from "./calls/address";
 import { evaluateFunctionCall } from "./calls/function";
 import { evaluateRawPointerCall } from "./calls/pointer";
-import { evaluateReferenceCall } from "./calls/reference";
 import { EvaluatorContext } from "./context";
 import { evaluateAssignment } from "./exprs/assignment";
 import { evaluateBeginExpression } from "./exprs/begin";
 import { evaluateBinding } from "./exprs/binding";
-import { evaluateBorrow } from "./exprs/borrow";
 import { evaluateCInclude } from "./exprs/c_include";
 import { evaluateCond } from "./exprs/cond";
 import { evaluateExtern } from "./exprs/extern";
@@ -394,9 +393,6 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.open)) {
         // open
         return evaluateOpen({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
-        // borrow
-        return evaluateBorrow({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
         // * raw pointer
         return evaluateRawPointerCall({
@@ -404,9 +400,9 @@ ${exprToString(expr)}`,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1)) {
-        // & reference (with or without region)
-        return evaluateReferenceCall({
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.AddressOf, 1)) {
+        // & to create pointer value
+        return evaluateAddressCall({
           expr,
           env,
           context: { ...context },
@@ -795,7 +791,6 @@ ${exprToString(expr)}`,
         isExecuting: true, // We're executing the main program
         expectedType: undefined,
         SelfType: undefined,
-        borrowings: [],
         evaluateExpression: this.evaluateExpression.bind(this),
         loadModule: this.loadModule.bind(this),
       },

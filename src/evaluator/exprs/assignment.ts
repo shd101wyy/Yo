@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import {
   Environment,
   getVariablesFromEnv,
@@ -557,8 +556,6 @@ export function evaluateAssignment({
       value: variable.isCompileTimeOnly ? rhsValue : undefined,
       pathCollection: [[variableName]],
     };
-    // Check the borrowings
-    checkBorrowings(context.borrowings, lhs);
 
     if (!isMutatingDefinedVariable) {
       expr.$ = {
@@ -601,9 +598,6 @@ export function evaluateAssignment({
         errorMessage: `Failed to evaluate left-hand side of assignment: ${exprToString(lhs)}`,
       });
     }
-
-    // Check the borrowings
-    checkBorrowings(context.borrowings, evaluatedLhs);
 
     // Track variable usage for closure kind checking
     if (context.isEvaluatingFunctionBody && evaluatedLhs.$.pathCollection) {

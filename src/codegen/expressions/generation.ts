@@ -20,7 +20,6 @@ import {
   isEnumType,
   isFunctionType,
   isMutPtrType,
-  isMutRefType,
   isObjectType,
   isSliceType,
   isStructType,
@@ -211,129 +210,6 @@ function generateFuncCall(
   // dyn() - dynamic dispatch constructor
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
     return generateDynCall(expr, indent, context);
-  }
-
-  // borrow - handle this first before other expressions
-  if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
-    const firstExpr = expr.args[0];
-    const secondExpr = expr.args[1];
-
-    if (!firstExpr || !secondExpr) {
-      return `// Error: borrow requires two arguments`;
-    }
-
-    // Extract borrowed value expressions (can be single value or tuple)
-    const borrowedValueExprs: Expr[] = [];
-    if (
-      exprIsFunctionCall(firstExpr) &&
-      exprIsFunctionCallOf(firstExpr, BuiltinKeywords.tuple)
-    ) {
-      borrowedValueExprs.push(...firstExpr.args);
-    } else {
-      borrowedValueExprs.push(firstExpr);
-    }
-
-    // Extract lambda expression - should be of form: parameter => body or (param1, param2) => body
-    if (
-      !exprIsFunctionCall(secondExpr) ||
-      !exprIsFunctionCallOf(secondExpr, "=>", 2)
-    ) {
-      return `// Error: Expected lambda expression (=>) as second argument to borrow`;
-    }
-
-    const borrowBindingExprs: Expr[] = [];
-    const lambdaParamsExpr = secondExpr.args[0]!;
-    if (
-      exprIsFunctionCall(lambdaParamsExpr) &&
-      exprIsFunctionCallOf(lambdaParamsExpr, BuiltinKeywords.tuple)
-    ) {
-      borrowBindingExprs.push(...lambdaParamsExpr.args);
-    } else {
-      borrowBindingExprs.push(lambdaParamsExpr);
-    }
-    const lambdaBody = secondExpr.args[1]!;
-
-    if (borrowedValueExprs.length !== borrowBindingExprs.length) {
-      return `// Error: Borrowed ${borrowedValueExprs.length} references, but lambda has ${borrowBindingExprs.length} parameters`;
-    }
-
-    // Check if this borrow expression returns a value
-    const borrowReturnType = expr.$?.type;
-    const tempVar = expr.$?.variableName;
-    const isReturningValue =
-      borrowReturnType && !isUnitType(borrowReturnType) && tempVar;
-
-    // Generate a borrow block
-    const tempVariableName = expr.$?.variableName;
-    const valueType = expr.$?.type;
-
-    if (tempVariableName && valueType) {
-      // Declare temp variable for the borrow result
-      if (!isUnitType(valueType)) {
-        context.emitter.emitLine(
-          `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
-        );
-      }
-    }
-
-    context.emitter.emitLine(`${indent}{ // borrow block`);
-
-    // Generate reference declarations for each borrowed value
-    for (let i = 0; i < borrowedValueExprs.length; i++) {
-      const borrowedExpr = borrowedValueExprs[i]!;
-      const bindingExpr = borrowBindingExprs[i]!;
-
-      if (!exprIsAtom(bindingExpr)) {
-        context.emitter.emitLine(
-          `${indent}  // Error: Expected identifier for borrow binding`
-        );
-        continue;
-      }
-
-      const bindingName = bindingExpr.token.value;
-      const borrowedCode = generateExpr(borrowedExpr, indent + "  ", context);
-
-      // Get the actual type from the borrowed expression
-      const borrowedType = borrowedExpr.$?.type;
-      if (borrowedType) {
-        // Generate reference variable with the correct type
-        const typeStr = getTypeString(borrowedType, context);
-        context.emitter.emitLine(
-          `${indent}  ${typeStr} ${bindingName} = ${borrowedCode};`
-        );
-      } else {
-        // Fallback if no type information available
-        context.emitter.emitLine(
-          `${indent}  // Error: No type information for borrowed expression`
-        );
-      }
-    }
-
-    // Generate the lambda body
-    if (lambdaBody) {
-      const bodyCode = generateExpr(lambdaBody, indent + "  ", context);
-      if (bodyCode) {
-        // Check if the lambda body has control flow (like return statements)
-        const hasControlFlow = lambdaBody.$?.controlFlow;
-
-        if (hasControlFlow) {
-          // If lambda has control flow (return), just execute it without assignment
-          context.emitter.emitLine(`${indent}  ${bodyCode};`);
-        } else if (isReturningValue) {
-          // If borrow returns a value and no control flow, assign the lambda result to the temp variable
-          context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
-        } else {
-          // If borrow doesn't return a value, just execute the lambda body
-          context.emitter.emitLine(`${indent}  ${bodyCode};`);
-        }
-      }
-    }
-
-    context.emitter.emitLine(`${indent}} // end borrow block`);
-
-    // Return the temp variable name if this borrow returns a value and has no control flow
-    const hasControlFlow = lambdaBody?.$?.controlFlow;
-    return isReturningValue && !hasControlFlow ? tempVar! : "";
   }
 
   // return
@@ -851,11 +727,8 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
     return generateMatchExpression(expr, indent, context);
   }
-  // ptr or ref value
-  else if (
-    exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1) ||
-    exprIsFunctionCallOf(expr, BuiltinKeywords.MutRef, 1)
-  ) {
+  // ptr value
+  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
     const type = expr.$?.type;
     if (!type) {
       return `// Error: No type information for pointer/reference expression ${exprToString(expr)}\n`;
@@ -1024,12 +897,6 @@ function generateFuncCall(
       }
     }
   }
-  // borrow
-  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.borrow)) {
-    // This case should not be reached since borrow is handled at the top
-    return `// Error: borrow should be handled at top of generateFuncCall`;
-  }
-
   // recur
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
@@ -2214,7 +2081,7 @@ function generateFieldAccess(
       return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
     }
     // Check if the object is pointer or reference
-    else if (isMutPtrType(objectType) || isMutRefType(objectType)) {
+    else if (isMutPtrType(objectType)) {
       if (fieldName === "*") {
         // Regular dereference for pointers/references
         return `*(${objectCode})`; // Dereference the pointer/reference
@@ -2222,7 +2089,7 @@ function generateFieldAccess(
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;
         let currentType: Type = objectType;
-        while (isMutPtrType(currentType) || isMutRefType(currentType)) {
+        while (isMutPtrType(currentType)) {
           dereferenceLevel++;
           currentType = currentType.type;
         }
@@ -2452,14 +2319,10 @@ function generateMatchExpression(
 
   // Check if it's a pointer/reference type OR reference semantics type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType:
-    | TypeTag.MutPtr
-    | TypeTag.MutRef
-    | "ref_semantics"
-    | undefined = undefined;
+  let ptrOrRefType: TypeTag.MutPtr | "ref_semantics" | undefined = undefined;
 
   let enumType: Type;
-  if (isMutPtrType(matchValueType) || isMutRefType(matchValueType)) {
+  if (isMutPtrType(matchValueType)) {
     enumType = matchValueType.type;
     ptrOrRefType = matchValueType.tag;
   } else if (isObjectType(matchValueType)) {

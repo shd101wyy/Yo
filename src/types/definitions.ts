@@ -499,15 +499,6 @@ export interface MutPtrType extends Type {
   type: Type;
 }
 
-export interface MutRefType extends Type {
-  tag: TypeTag.MutRef;
-  id: TypeTag.MutRef;
-  /**
-   * The type of the reference.
-   */
-  type: Type;
-}
-
 /**
  * ClosureType represents a closure with simplified syntax:
  *

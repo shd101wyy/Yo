@@ -16,7 +16,6 @@ import {
   ModuleElement,
   ModuleType,
   MutPtrType,
-  MutRefType,
   SliceType,
   SomeType,
   StructType,
@@ -441,14 +440,6 @@ export function createMutPtrType(type: Type): MutPtrType {
   return {
     id: TypeTag.MutPtr,
     tag: TypeTag.MutPtr,
-    type,
-  };
-}
-
-export function createMutRefType(type: Type): MutRefType {
-  return {
-    id: TypeTag.MutRef,
-    tag: TypeTag.MutRef,
     type,
   };
 }

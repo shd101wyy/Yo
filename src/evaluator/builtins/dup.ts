@@ -1,4 +1,3 @@
-import { checkBorrowings } from "../../borrow";
 import {
   Environment,
   getVariablesFromEnv,
@@ -149,9 +148,6 @@ export function evaluateDup({
     });
   }
   env = evaluatedArgExpr.$.env;
-
-  // Check if the dup argument is already borrowed
-  checkBorrowings(context.borrowings, evaluatedArgExpr);
 
   // Check if there is `.___dup` method available to call or if it's a tuple needing dup
   if (

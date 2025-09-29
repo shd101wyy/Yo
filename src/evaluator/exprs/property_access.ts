@@ -17,7 +17,6 @@ import {
   isEnumType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -171,20 +170,6 @@ export function evaluatePropertyAccess({
         type: baseType,
         value: undefined,
         originType: pointerType, // Set origin type to the pointer type to track mutability path
-        isAccessingProperty: true,
-        pathCollection: [],
-      };
-      propertyExpr.$ = expr.$;
-      return expr;
-    } else if (isMutRefType(objectExpr.$?.type)) {
-      const refType = objectExpr.$.type;
-      const baseType = refType.type;
-
-      expr.$ = {
-        env,
-        type: baseType,
-        value: undefined,
-        originType: refType, // Set origin type to the reference type to track mutability path
         isAccessingProperty: true,
         pathCollection: [],
       };
@@ -344,7 +329,7 @@ export function evaluatePropertyAccess({
   const originalObjectType = objectExpr.$?.type; // Capture before dereferencing
 
   // QUESTION: Should we allow only one round here? Like zig.
-  while (objectType && (isMutPtrType(objectType) || isMutRefType(objectType))) {
+  while (objectType && isMutPtrType(objectType)) {
     // Dereference the pointer or reference type
     objectType = objectType.type;
   }

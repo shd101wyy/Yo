@@ -20,7 +20,6 @@ import {
   isFunctionType,
   isModuleType,
   isMutPtrType,
-  isMutRefType,
   isPrimitiveType,
   isSliceType,
   isSomeType,
@@ -105,12 +104,12 @@ export function areTypesCompatible(
   }
 
   // compt_string can be converted to
-  // - &([u8])  u8 slice
+  // - *([u8])  u8 slice
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
   if (
     (isComptStringType(expected.type) ||
-      (isMutRefType(expected.type) && // &([u8])
+      (isMutPtrType(expected.type) && // *([u8])
         isSliceType(expected.type.type) &&
         isU8Type(expected.type.type.elementType)) ||
       (isMutPtrType(expected.type) && // *(u8) or *(char)
@@ -426,15 +425,6 @@ export function areTypesCompatible(
   // *
   if (isMutPtrType(expected.type) && isMutPtrType(given.type)) {
     // Mut pointers must have the same type
-    return areTypesCompatible(
-      { type: expected.type.type, env: expected.env },
-      { type: given.type.type, env: given.env }
-    );
-  }
-
-  // &
-  if (isMutRefType(expected.type) && isMutRefType(given.type)) {
-    // Mut references must have the same type
     return areTypesCompatible(
       { type: expected.type.type, env: expected.env },
       { type: given.type.type, env: given.env }

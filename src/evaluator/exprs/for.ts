@@ -12,11 +12,9 @@ import {
 } from "../../expr";
 import {
   createMutPtrType,
-  createMutRefType,
   createUsizeType,
   isArrayType,
   isMutPtrType,
-  isMutRefType,
   isSliceType,
   isUnitType,
   TypeTag,
@@ -83,7 +81,7 @@ export function evaluateFor({
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  if (isMutPtrType(itemsType) || isMutRefType(itemsType)) {
+  if (isMutPtrType(itemsType)) {
     itemsType = itemsType.type; // Dereference one level
   }
 
@@ -98,20 +96,17 @@ export function evaluateFor({
 
   let elementVariableExpr: Expr | undefined;
   let elementIndexExpr: Expr | undefined;
-  let itemPtrOrRefType: TypeTag.MutPtr | TypeTag.MutRef | undefined = undefined;
+  let itemPtrOrRefType: TypeTag.MutPtr | undefined = undefined;
 
   if (exprIsAtom(bindingExpr)) {
     elementVariableExpr = bindingExpr;
   } else if (
     exprIsFunctionCall(bindingExpr) &&
-    (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr) ||
-      exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef))
+    exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr)
   ) {
     elementVariableExpr = bindingExpr.args[0];
     if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutPtr)) {
       itemPtrOrRefType = TypeTag.MutPtr;
-    } else if (exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.MutRef)) {
-      itemPtrOrRefType = TypeTag.MutRef;
     }
   } else {
     if (!exprIsFunctionCallOf(bindingExpr, BuiltinKeywords.tuple)) {
@@ -125,15 +120,10 @@ export function evaluateFor({
 
     if (
       exprIsFunctionCall(elementVariableExpr) &&
-      (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr) ||
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef))
+      exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr)
     ) {
       if (exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutPtr)) {
         itemPtrOrRefType = TypeTag.MutPtr;
-      } else if (
-        exprIsFunctionCallOf(elementVariableExpr, BuiltinKeywords.MutRef)
-      ) {
-        itemPtrOrRefType = TypeTag.MutRef;
       }
 
       elementVariableExpr = elementVariableExpr.args[0];
@@ -175,8 +165,6 @@ export function evaluateFor({
   if (itemPtrOrRefType) {
     if (itemPtrOrRefType === TypeTag.MutPtr) {
       itemType = createMutPtrType(itemType);
-    } else if (itemPtrOrRefType === TypeTag.MutRef) {
-      itemType = createMutRefType(itemType);
     }
   }
 

@@ -31,12 +31,7 @@ import {
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import { Token } from "../../token";
-import {
-  areTypesCompatible,
-  isClosureType,
-  typeContains2ndClassReference,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible, isClosureType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { synthesizeTypes } from "../types/synthesizer";
@@ -509,50 +504,6 @@ export function evaluateBeginExpression({
   }
 
   const returnType = lastExpr.$.type;
-  if (typeContains2ndClassReference(returnType)) {
-    // Check the path
-    const pathCollection = lastExpr.$.pathCollection;
-    for (let i = 0; i < pathCollection.length; i++) {
-      const path = pathCollection[i]!;
-      const variableName = path[0]!;
-      if (variableName) {
-        const variables = getVariablesFromEnv(env, variableName);
-        if (!variables.length) {
-          throw formatErrorMessage({
-            token: lastExpr.token,
-            errorMessage: `Invalid path detected. It could be a bug of the compiler.`,
-          });
-        }
-        const variable = variables[variables.length - 1]!;
-        if (
-          // Check if the variable name is a local variable
-          variable.frameLevel === env.frames.length - 1 &&
-          !variable.isCreatedFromDestructuringAtomVariable
-        ) {
-          // If the variable is a local variable, we cannot return a reference to it
-          throw formatErrorMessage({
-            token: lastExpr.token,
-            errorMessage: `Cannot return value containing reference to the local variable "${variableName}".`,
-          });
-        }
-        // QUESTION: Why do we add this before?
-        /*
-        else if (
-          // Otherwise, expect it to be reference type.
-          !(isMutRefType(variable.type) || isRefType(variable.type))
-        ) {
-          // If the variable is not a reference type, we cannot return a reference to it
-          throw formatErrorMessage({
-            token: lastExpr.token,
-            errorMessage: `Cannot return value containing reference to the variable "${variableName}" of type "${typeToString(
-              variable.type
-            )}". Expected reference type.`,
-          });
-        }
-        */
-      }
-    }
-  }
 
   // Check if return type is compatible
   if (lastExpr.$.controlFlow === "return") {
