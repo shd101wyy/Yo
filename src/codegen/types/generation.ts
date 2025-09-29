@@ -75,11 +75,11 @@ static inline size_t yo_get_thread_id(void) {
 #define BRC_BIASED_COUNTER_MASK    ((1U << BRC_BIASED_COUNTER_BITS) - 1)
 #define BRC_BIASED_COUNTER_SHIFT   0
 
-#define BRC_GC_FLAGS_BITS          5   // GC flags in biased word (owner thread access)
+#define BRC_GC_FLAGS_BITS          2   // GC flags in biased word (owner thread access)
 #define BRC_GC_FLAGS_MASK          ((1U << BRC_GC_FLAGS_BITS) - 1)
 #define BRC_GC_FLAGS_SHIFT         14
 
-#define BRC_BIASED_RESERVED_BITS   13  // Reserved space in biased word
+#define BRC_BIASED_RESERVED_BITS   16  // Reserved space in biased word (increased from 13)
 #define BRC_BIASED_RESERVED_SHIFT  (BRC_GC_FLAGS_SHIFT + BRC_GC_FLAGS_BITS)
 
 // Shared word bit fields (32 bits, atomic)
@@ -88,7 +88,7 @@ static inline size_t yo_get_thread_id(void) {
 #define BRC_SHARED_COUNTER_SHIFT   0
 #define BRC_SHARED_COUNTER_SIGN_BIT (1U << (BRC_SHARED_COUNTER_BITS - 1))
 
-#define BRC_FLAGS_BITS             2   // BRC flags in shared word
+#define BRC_FLAGS_BITS             2   // BRC flags in shared word 
 #define BRC_FLAGS_MASK             ((1U << BRC_FLAGS_BITS) - 1)
 #define BRC_FLAGS_SHIFT            14
 
@@ -96,16 +96,16 @@ static inline size_t yo_get_thread_id(void) {
 #define BRC_SHARED_RESERVED_SHIFT  (BRC_FLAGS_SHIFT + BRC_FLAGS_BITS)
 
 // BRC and GC flag definitions
-// BRC flags (bits 0-1 of shared flags field) - atomic access required
+// BRC flags (bits 14-15 of shared word) - atomic access required
 #define BRC_FLAG_MERGED            0x1  // Object has been merged from biased to shared state
-#define BRC_FLAG_QUEUED            0x2  // Object is queued for processing by owner thread
 
 // Convenience aliases for common flag combinations
 #define BRC_NO_BIAS                0x0  // Object is biased (default state)
 #define BRC_UNBIASED               BRC_FLAG_MERGED  // Object is unbiased (merged/shared)
 
-// GC flags (bits 0-4 of biased GC flags field) - owner thread access only
+// GC flags (bits 0-1 of biased GC flags field) - owner thread access only
 #define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
+#define YO_GC_RESERVED             0x02  // Reserved GC flag for future use
 
 // Biased word manipulation macros (non-atomic, owner thread only)
 #define BRC_GET_BIASED_COUNTER(biased_word) \
@@ -193,12 +193,12 @@ typedef struct {
   
   // Biased word format (32 bits):
   // Bits 0-13:   Biased counter (14 bits) - non-atomic access by owner thread only
-  // Bits 14-18:  GC flags (5 bits) - non-atomic access by owner thread only  
-  // Bits 19-31:  Reserved (13 bits) - for future use
+  // Bits 14-15:  GC flags (2 bits) - non-atomic access by owner thread only  
+  // Bits 16-31:  Reserved (16 bits) - for future use
   
   // Shared word format (32 bits):
   // Bits 0-13:   Shared counter (14 bits) - atomic access, can be negative (signed)
-  // Bits 14-15:  BRC flags (2 bits) - merged, queued (atomic access)
+  // Bits 14-15:  BRC flags (2 bits) - merged (bit 0), reserved (bit 1) (atomic access)
   // Bits 16-31:  Reserved (16 bits) - for future use
   
   // GC object management fields

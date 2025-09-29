@@ -471,11 +471,6 @@ export function generateRefStructConstructorDeclarations(
     `void* __yo_incr_rc(void* ptr); // Increment reference count`
   );
 
-  // Generate BRC helper function declarations
-  emitter.emitDeclarationLine(
-    `static void __yo_brc_queue_object(void* ptr, size_t owner_tid); // Queue object to owner thread`
-  );
-
   // Generate GC function declarations
   emitter.emitDeclarationLine(
     `void __yo_gc_register(void* ptr); // Register object for cycle detection`
@@ -708,7 +703,6 @@ export function generateBuiltinFunctions(
   } else {
     // SLOW DECREMENT (Non-owner access) - atomic shared_word access
     uint32_t old_shared_word, new_shared_word;
-    int first_time_queued = 0;
     
     do {
       old_shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
@@ -717,18 +711,15 @@ export function generateBuiltinFunctions(
       
       new_shared_word = BRC_SET_SHARED_COUNTER(old_shared_word, shared_counter);
       
-      if (shared_counter < 0) { // Counter went negative
-        if (!BRC_HAS_FLAG(old_shared_word, BRC_FLAG_QUEUED)) {
-          first_time_queued = 1;
-          new_shared_word = BRC_SET_FLAG(new_shared_word, BRC_FLAG_QUEUED); // Set queued flag
-        }
+      if (shared_counter < 0) { // Counter went negative - this should not happen in Yo!
+        // Abort immediately - this indicates a compiler bug or unsafe FFI usage
+        fprintf(stderr, "BRC Error: Shared counter went negative (%d) for object %p. This should never happen in Yo!\\n", 
+                shared_counter, ptr);
+        abort();
       }
     } while (!atomic_compare_exchange_weak_explicit(&header->shared_word, &old_shared_word, new_shared_word, memory_order_acq_rel, memory_order_relaxed));
     
-    if (first_time_queued) {
-      // Queue object to owner thread (add to owner's tracked objects list)
-      __yo_brc_queue_object(ptr, owner_tid);
-    } else if (BRC_HAS_FLAG(new_shared_word, BRC_FLAG_MERGED) && BRC_GET_SHARED_COUNTER(new_shared_word) == 0) {
+    if (BRC_HAS_FLAG(new_shared_word, BRC_FLAG_MERGED) && BRC_GET_SHARED_COUNTER(new_shared_word) == 0) {
       // Counters are merged and shared counter is zero - deallocate
       __yo_gc_unregister(ptr);
       if (dispose_fn) {
@@ -785,33 +776,6 @@ static _Atomic(int) yo_threads_paused_count = ATOMIC_VAR_INIT(0);  // Count of t
 static _Atomic(int) yo_total_thread_count = ATOMIC_VAR_INIT(0);  // Total number of registered threads
 static YO_THREAD_SYNC_TYPE yo_gc_pause_mutex = YO_THREAD_SYNC_INIT;  // For GC pause coordination
 static YO_COND_TYPE yo_gc_pause_cond = YO_COND_INIT;  // Condition for GC pause synchronization
-
-// BRC helper function to queue objects to owner thread
-static void __yo_brc_queue_object(void* ptr, size_t owner_tid) {
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
-  
-  // If already queued (gc_next is not NULL), no need to queue again
-  if (header->gc_next != NULL) {
-    return;
-  }
-  
-  // Find the owner thread's GC state and add object to its tracked list
-  yo_mutex_lock(&yo_thread_list_mutex);
-  yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
-  while (thread_gc != NULL) {
-    if (thread_gc->thread_id == owner_tid) {
-      // Add to owner thread's tracked objects (this serves as the QueuedObjects list)
-      header->gc_next = thread_gc->tracked_objects;
-      thread_gc->tracked_objects = header;
-      thread_gc->tracked_count++;
-      break;
-    }
-    thread_gc = thread_gc->next;
-  }
-  yo_mutex_unlock(&yo_thread_list_mutex);
-}
-
-
 
 // Initialize thread-local GC state (called automatically on first GC operation)
 static void yo_init_thread_gc() {
@@ -1025,71 +989,10 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
       continue; // This thread has no tracked objects
     }
     
-    // Phase 1: BRC explicit merge - handle queued objects during stop-the-world
-    yo_ref_header_t* current = head;
-    yo_ref_header_t* prev = NULL;
+    // No explicit merge phase needed - negative counters abort immediately
+    // All objects in tracked list have valid biased counters that can be processed normally
     
-    while (current != NULL) {
-      yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
-      
-      // Check if this object is queued for explicit merge (non-atomic since STW)
-      uint32_t shared_word = atomic_load_explicit(&current->shared_word, memory_order_relaxed);
-      if (BRC_HAS_FLAG(shared_word, BRC_FLAG_QUEUED)) {
-        // Perform explicit merge using split words (safe during STW)
-        uint32_t biased_word = current->biased_word;  // Non-atomic read (STW)
-        uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
-        
-        // Merge counters: add biased_counter to shared_counter
-        int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
-        int32_t merged_counter = shared_counter + biased_counter;
-        
-        // Update shared word with merged counter and clear queued flag, set merged flag
-        uint32_t new_shared_word = BRC_SET_SHARED_COUNTER(shared_word, merged_counter);
-        new_shared_word = BRC_SET_FLAG(new_shared_word, BRC_FLAG_MERGED);
-        new_shared_word = BRC_CLEAR_FLAG(new_shared_word, BRC_FLAG_QUEUED);
-        atomic_store_explicit(&current->shared_word, new_shared_word, memory_order_relaxed);
-        
-        // Clear biased counter since it's now merged
-        current->biased_word = BRC_SET_BIASED_COUNTER(biased_word, 0);
-        
-        if (merged_counter == 0) {
-          // Object can be deallocated immediately
-          if (current->dispose_fn) {
-            current->dispose_fn(current);
-          }
-          yo_free(current);
-          
-          // Remove from tracking list
-          if (prev == NULL) {
-            thread_gc->tracked_objects = next;
-            head = next; // Update head pointer
-          } else {
-            prev->gc_next = next;
-          }
-          thread_gc->tracked_count--;
-          total_collected++;
-          
-          // Continue with next, don't update prev
-          current = next;
-          continue;
-        } else {
-          // Give up ownership since counters are merged
-          current->owner_thread_id = 0;
-        }
-      }
-      
-      prev = current;
-      current = next;
-    }
-    
-    // Update head after potential removals in explicit merge
-    head = thread_gc->tracked_objects;
-    if (head == NULL) {
-      thread_gc = thread_gc->next;
-      continue; // No objects left after explicit merge
-    }
-    
-    // Phase 2: Trial deletion - temporarily remove internal references
+    // Phase 1: Trial deletion - temporarily remove internal references
     yo_ref_header_t* obj = head;
     while (obj != NULL) {
       if (obj->traverse_fn) {
@@ -1098,7 +1001,7 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
       obj = (yo_ref_header_t*)obj->gc_next;
     }
     
-    // Phase 3: Identify and collect unreachable cycles
+    // Phase 2: Identify and collect unreachable cycles
     yo_ref_header_t* current = head;
     yo_ref_header_t* prev = NULL;
     
