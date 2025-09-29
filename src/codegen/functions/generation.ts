@@ -790,6 +790,10 @@ static void yo_init_thread_gc() {
   // Add to global thread list
   yo_mutex_lock(&yo_thread_list_mutex);
   yo_current_thread_gc->next = yo_all_thread_gcs;
+  yo_current_thread_gc->prev = NULL;
+  if (yo_all_thread_gcs != NULL) {
+    yo_all_thread_gcs->prev = yo_current_thread_gc;
+  }
   yo_all_thread_gcs = yo_current_thread_gc;
   atomic_fetch_add_explicit(&yo_total_thread_count, 1, memory_order_relaxed);
   yo_mutex_unlock(&yo_thread_list_mutex);
@@ -1142,20 +1146,16 @@ void __yo_cleanup_thread_gc() {
     }
   }
   
-  // Remove current thread from global list
-  yo_thread_gc_state_t* prev = NULL;
-  thread_gc = yo_all_thread_gcs;
-  while (thread_gc != NULL) {
-    if (thread_gc == yo_current_thread_gc) {
-      if (prev == NULL) {
-        yo_all_thread_gcs = thread_gc->next;
-      } else {
-        prev->next = thread_gc->next;
-      }
-      break;
-    }
-    prev = thread_gc;
-    thread_gc = thread_gc->next;
+  // Remove current thread from global list (O(1) operation with doubly-linked list)
+  if (yo_current_thread_gc->prev != NULL) {
+    yo_current_thread_gc->prev->next = yo_current_thread_gc->next;
+  } else {
+    // We're the head of the list
+    yo_all_thread_gcs = yo_current_thread_gc->next;
+  }
+  
+  if (yo_current_thread_gc->next != NULL) {
+    yo_current_thread_gc->next->prev = yo_current_thread_gc->prev;
   }
   
   atomic_fetch_sub_explicit(&yo_total_thread_count, 1, memory_order_relaxed);

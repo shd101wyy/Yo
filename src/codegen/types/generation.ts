@@ -183,6 +183,7 @@ typedef struct yo_thread_gc_state {
   size_t thread_id;                          // Thread identifier
   _Atomic(int) gc_paused;                    // Flag indicating if this thread is paused for GC
   struct yo_thread_gc_state* next;           // Next thread in global thread list
+  struct yo_thread_gc_state* prev;           // Previous thread in global thread list (for O(1) removal)
 } yo_thread_gc_state_t;
 
 typedef struct {
