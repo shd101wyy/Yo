@@ -29,22 +29,59 @@ import {
  * Generate type declarations for all collected types
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
-  // Always generate common reference counter header for ref structs and ref enums
+  // Always generate atomic reference counter header for ref structs and ref enums
   context.emitter
-    .emitDeclarationLine(`// Reference counter header for ref structs and ref enums
-// GC flags for QuickJS-style cycle detection
-#define YO_GC_TRACKED 0x01  // Object is tracked by GC (might participate in cycles)
-#define YO_GC_DISPOSED 0x02  // Object has been disposed by GC (prevents double-free)
+    .emitDeclarationLine(`// Atomic reference counter header for ref structs and ref enums
+// Per-thread GC with stop-the-world collection for better scalability
+#define YO_GC_TRACKED     0x01  // Object is tracked by GC (might participate in cycles)  
+#define YO_GC_DISPOSED    0x02  // Object has been disposed by GC (prevents double-free)
+#define YO_GC_SCANNING    0x04  // Object is being scanned by GC (trial deletion phase)
+#define YO_GC_MARKED      0x08  // Object marked during GC trial deletion
+#define YO_GC_DISPOSING   0x10  // Object is currently being disposed (prevents races)
 
 // Forward declaration of GC object for linked list
 struct yo_gc_object;
 
+// Thread synchronization for stop-the-world GC
+#ifndef YO_THREAD_SYNC_TYPE
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+  #include <pthread.h>
+  #define YO_THREAD_SYNC_TYPE pthread_mutex_t
+  #define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
+  #define YO_COND_TYPE pthread_cond_t
+  #define YO_COND_INIT PTHREAD_COND_INITIALIZER
+  #define yo_mutex_lock(m) pthread_mutex_lock(m)
+  #define yo_mutex_unlock(m) pthread_mutex_unlock(m)
+  #define yo_cond_wait(c, m) pthread_cond_wait(c, m)
+  #define yo_cond_broadcast(c) pthread_cond_broadcast(c)
+#elif defined(_WIN32)
+  #include <windows.h>
+  #define YO_THREAD_SYNC_TYPE CRITICAL_SECTION
+  #define YO_COND_TYPE CONDITION_VARIABLE
+  #define yo_mutex_lock(m) EnterCriticalSection(m)
+  #define yo_mutex_unlock(m) LeaveCriticalSection(m)
+  #define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
+  #define yo_cond_broadcast(c) WakeAllConditionVariable(c)
+#else
+  #error "Unsupported platform for threading"
+#endif
+#endif
+
+// Per-thread GC state
+typedef struct yo_thread_gc_state {
+  struct yo_ref_header_t* tracked_objects;    // Head of this thread's tracked objects list
+  size_t tracked_count;                       // Number of objects tracked by this thread
+  size_t thread_id;                          // Thread identifier
+  _Atomic(int) gc_paused;                    // Flag indicating if this thread is paused for GC
+  struct yo_thread_gc_state* next;           // Next thread in global thread list
+} yo_thread_gc_state_t;
+
 typedef struct {
-  size_t ref_count;
-  uint8_t gc_flags;  // GC state flags (tracked, disposed, etc.)
-  struct yo_gc_object* gc_next;  // Next object in GC tracking list (only used if YO_GC_TRACKED is set)
-  void (*dispose_fn)(void*);  // Dispose function for this object type
-  void (*traverse_fn)(void*, void (*visit)(void*));  // Traversal function for GC marking
+  _Atomic(size_t) ref_count;                             // Atomic reference count for thread safety
+  _Atomic(uint8_t) gc_flags;                             // GC state flags (atomic for thread safety)
+  struct yo_gc_object* gc_next;                          // Next object in thread-local GC tracking list
+  void (*dispose_fn)(void*);                             // Dispose function for this object type (immutable after construction)
+  void (*traverse_fn)(void*, void (*visit)(void*));     // Traversal function for GC marking (immutable after construction)
 } yo_ref_header_t;
 `);
 

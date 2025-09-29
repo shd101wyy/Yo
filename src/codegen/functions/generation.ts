@@ -655,228 +655,489 @@ export function generateClosureVtableDeclarations(
 }
 
 /**
- * Generate builtin function implementations
+ * Generate builtin function implementations with atomic reference counting
  */
 export function generateBuiltinFunctions(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
-  // Generate __yo_decr_rc function
+  // Generate atomic __yo_decr_rc function with proper memory ordering
   emitter.emitLine(`void __yo_decr_rc(void* ptr, void (*dispose_fn)(void*)) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
-  header->ref_count--;
+  // Atomic decrement with acquire-release semantics
+  // This ensures that all previous writes to the object are visible
+  // to any thread that observes the final reference count of 0
+  size_t old_count = atomic_fetch_sub_explicit(&header->ref_count, 1, memory_order_acq_rel);
   
-  if (header->ref_count == 0) {
-    // Check if object was already disposed by GC
-    if (header->gc_flags & YO_GC_DISPOSED) {
+  if (old_count == 1) {
+    // We were the last reference - safe to dispose
+    // But first check if object was already disposed by GC
+    uint8_t flags = atomic_load_explicit(&header->gc_flags, memory_order_acquire);
+    if (flags & YO_GC_DISPOSED) {
       return; // Already disposed by GC, nothing to do
     }
     
-    // Unregister from GC before disposal
+    // Atomically mark as disposing to prevent concurrent disposal
+    uint8_t expected = flags;
+    while (!atomic_compare_exchange_weak_explicit(&header->gc_flags, 
+                                                  &expected, 
+                                                  expected | YO_GC_DISPOSING, 
+                                                  memory_order_acq_rel, 
+                                                  memory_order_relaxed)) {
+      // CAS failed, reload flags and check if already disposing/disposed
+      if (expected & (YO_GC_DISPOSED | YO_GC_DISPOSING)) {
+        return; // Another thread is disposing or has disposed
+      }
+    }
+    
+    // Unregister from GC before disposal (must be done atomically)
     __yo_gc_unregister(ptr);
     
     // dispose_fn should always be provided and not NULL
-    dispose_fn(ptr);
+    if (dispose_fn) {
+      dispose_fn(ptr);
+    }
 
     yo_free(ptr);
     return;
   }
-}`);
-  emitter.emitLine(``);
+  
+  // Sanity check: old_count should never be 0 here (would indicate over-decrement)
+  if (old_count == 0) {
+    // This should never happen - indicates a bug in reference counting
+    // In debug builds, we could abort here
+    #ifdef DEBUG
+    abort();
+    #endif
+  }
+}
 
-  // Generate __yo_incr_rc function
-  emitter.emitLine(`void* __yo_incr_rc(void* ptr) {
+void* __yo_incr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
-  header->ref_count++;
+  
+  // Atomic increment with relaxed ordering
+  // Relaxed is sufficient because increment operations don't require
+  // synchronization with other memory operations - we're just increasing
+  // the count to keep the object alive longer
+  size_t old_count = atomic_fetch_add_explicit(&header->ref_count, 1, memory_order_relaxed);
+  
+  // Sanity check: ensure we're not incrementing a disposed object
+  if (old_count == 0) {
+    // This should never happen - indicates use-after-free
+    #ifdef DEBUG
+    abort();
+    #endif
+    return ptr; // Return anyway to avoid crash in release builds
+  }
+  
   return ptr;
 }`);
-  emitter.emitLine(``);
 
-  // Generate GC runtime functions
-  generateGCRuntimeFunctions(emitter);
+  // Generate thread-safe GC runtime functions
+  generateAtomicGCRuntimeFunctions(emitter);
 }
 
 /**
- * Generate garbage collection runtime functions for cycle detection
+ * Generate per-thread garbage collection runtime functions with stop-the-world collection
  */
-function generateGCRuntimeFunctions(emitter: Emitter): void {
-  // Global GC tracking state
-  emitter.emitLine(`// Global GC tracking state`);
-  emitter.emitLine(
-    `static yo_ref_header_t* yo_gc_tracked_objects = NULL;  // Head of tracked objects list`
-  );
-  emitter.emitLine(
-    `static size_t yo_gc_tracked_count = 0;  // Number of tracked objects`
-  );
-  emitter.emitLine(
-    `static size_t yo_gc_collect_threshold = 1000;  // Collect when this many objects tracked`
-  );
-  emitter.emitLine(
-    `static int yo_gc_collection_in_progress = 0;  // Ensures only one GC collection runs at a time`
-  );
-  emitter.emitLine(``);
+function generateAtomicGCRuntimeFunctions(emitter: Emitter): void {
+  // Per-thread GC tracking state
+  emitter.emitLine(`// Per-thread GC tracking state for better scalability
+static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
+static yo_thread_gc_state_t* yo_all_thread_gcs = NULL;  // Global list of all thread GC states
+static YO_THREAD_SYNC_TYPE yo_thread_list_mutex = YO_THREAD_SYNC_INIT;  // Protects thread list
+static _Atomic(size_t) yo_gc_collect_threshold = ATOMIC_VAR_INIT(1000);  // Collect when this many objects tracked
+static _Atomic(int) yo_gc_collection_in_progress = ATOMIC_VAR_INIT(0);  // Prevents concurrent GC collections
+static _Atomic(int) yo_threads_paused_count = ATOMIC_VAR_INIT(0);  // Count of threads paused for GC
+static _Atomic(int) yo_total_thread_count = ATOMIC_VAR_INIT(0);  // Total number of registered threads
+static YO_THREAD_SYNC_TYPE yo_gc_pause_mutex = YO_THREAD_SYNC_INIT;  // For GC pause coordination
+static YO_COND_TYPE yo_gc_pause_cond = YO_COND_INIT;  // Condition for GC pause synchronization
 
-  // Generate __yo_gc_register function
+// Initialize thread-local GC state (called automatically on first GC operation)
+static void yo_init_thread_gc() {
+  if (yo_current_thread_gc != NULL) return;  // Already initialized
+
+  yo_current_thread_gc = (yo_thread_gc_state_t*)yo_malloc(sizeof(yo_thread_gc_state_t));
+  yo_current_thread_gc->tracked_objects = NULL;
+  yo_current_thread_gc->tracked_count = 0;
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+  yo_current_thread_gc->thread_id = (size_t)pthread_self();  // Use pthread_self as thread ID on POSIX
+#elif defined(_WIN32)
+  yo_current_thread_gc->thread_id = (size_t)GetCurrentThreadId();  // Use GetCurrentThreadId on Windows
+#else
+  yo_current_thread_gc->thread_id = 0;  // Fallback for unsupported platforms
+#endif
+  atomic_store_explicit(&yo_current_thread_gc->gc_paused, 0, memory_order_relaxed);
+
+  // Add to global thread list
+  yo_mutex_lock(&yo_thread_list_mutex);
+  yo_current_thread_gc->next = yo_all_thread_gcs;
+  yo_all_thread_gcs = yo_current_thread_gc;
+  atomic_fetch_add_explicit(&yo_total_thread_count, 1, memory_order_relaxed);
+  yo_mutex_unlock(&yo_thread_list_mutex);
+}`);
+
+  // Generate per-thread __yo_gc_register and __yo_gc_unregister functions
   emitter.emitLine(`void __yo_gc_register(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
-  // Only register if not already tracked
-  if (!(header->gc_flags & YO_GC_TRACKED)) {
-    // Set the TRACKED flag
-    header->gc_flags |= YO_GC_TRACKED;
-    
-    // Link into tracking list
-    header->gc_next = (struct yo_gc_object*)yo_gc_tracked_objects;
-    yo_gc_tracked_objects = header;
-    
-    // Increment count
-    yo_gc_tracked_count++;
-    
-    // Trigger collection if threshold reached
-    if (yo_gc_tracked_count >= yo_gc_collect_threshold) {
-      __yo_gc_collect();
-    }
+  // Initialize thread GC state if needed
+  if (yo_current_thread_gc == NULL) {
+    yo_init_thread_gc();
   }
-}`);
-  emitter.emitLine(``);
+  
+  // Check if already tracked
+  uint8_t current_flags = atomic_load_explicit(&header->gc_flags, memory_order_relaxed);
+  if (current_flags & YO_GC_TRACKED) {
+    return; // Already tracked
+  }
+  
+  // Set the TRACKED flag atomically
+  atomic_fetch_or_explicit(&header->gc_flags, YO_GC_TRACKED, memory_order_relaxed);
+  
+  // Add to thread-local tracking list (no synchronization needed)
+  header->gc_next = (struct yo_gc_object*)yo_current_thread_gc->tracked_objects;
+  yo_current_thread_gc->tracked_objects = header;
+  yo_current_thread_gc->tracked_count++;
+  
+  // Check if we should trigger GC based on thread-local count
+  size_t threshold = atomic_load_explicit(&yo_gc_collect_threshold, memory_order_relaxed);
+  if (yo_current_thread_gc->tracked_count >= threshold) {
+    __yo_gc_collect();
+  }
+}
 
-  // Generate __yo_gc_unregister function
-  emitter.emitLine(`void __yo_gc_unregister(void* ptr) {
+void __yo_gc_unregister(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
-  if (header->gc_flags & YO_GC_TRACKED) {
-    // Remove from tracked list (simple linked list removal)
-    if (yo_gc_tracked_objects == header) {
-      // Remove head node
-      yo_gc_tracked_objects = (yo_ref_header_t*)header->gc_next;
-    } else {
-      // Search for the node in the list
-      yo_ref_header_t* current = yo_gc_tracked_objects;
-      while (current != NULL && current->gc_next != (struct yo_gc_object*)header) {
-        current = (yo_ref_header_t*)current->gc_next;
-      }
-      if (current != NULL) {
-        // Found the node to remove - update current's next pointer
-        current->gc_next = header->gc_next;
-      }
-    }
-    
-    // Decrement count and clear flags
-    yo_gc_tracked_count--;
-    header->gc_flags &= ~YO_GC_TRACKED;
-    header->gc_next = NULL;
-  }
-}`);
-  emitter.emitLine(``);
-
-  // Generate helper functions for QuickJS-style cycle detection
-  emitter.emitLine(
-    `// Helper function to temporarily decrement references during trial deletion`
-  );
-  emitter.emitLine(`static void trial_decref_visitor(void* ptr) {`);
-  emitter.emitLine(`  if (ptr == NULL) return;`);
-  emitter.emitLine(``);
-  emitter.emitLine(`  yo_ref_header_t* header = (yo_ref_header_t*)ptr;`);
-  emitter.emitLine(``);
-  emitter.emitLine(`  // Only decrement if object is being tested for cycles`);
-  emitter.emitLine(`  if (header->gc_flags & YO_GC_TRACKED) {`);
-  emitter.emitLine(`    header->ref_count--;`);
-  emitter.emitLine(`  }`);
-  emitter.emitLine(`}`);
-  emitter.emitLine(``);
-
-  emitter.emitLine(
-    `// Helper function to restore references after trial deletion`
-  );
-  emitter.emitLine(`static void restore_refcount_visitor(void* ptr) {`);
-  emitter.emitLine(`  if (ptr == NULL) return;`);
-  emitter.emitLine(``);
-  emitter.emitLine(`  yo_ref_header_t* header = (yo_ref_header_t*)ptr;`);
-  emitter.emitLine(``);
-  emitter.emitLine(`  // Only increment if object was part of cycle test`);
-  emitter.emitLine(`  if (header->gc_flags & YO_GC_TRACKED) {`);
-  emitter.emitLine(`    header->ref_count++;`);
-  emitter.emitLine(`  }`);
-  emitter.emitLine(`}`);
-  emitter.emitLine(``);
-
-  // Generate __yo_gc_collect function (QuickJS-style cycle detection)
-  emitter.emitLine(`void __yo_gc_collect() {
-  // Ensure only one GC collection runs at a time
-  if (yo_gc_collection_in_progress) {
-    return;  // Another thread is already running GC
-  }
-  yo_gc_collection_in_progress = 1;
-  
-  if (yo_gc_tracked_objects == NULL) {
-    yo_gc_collection_in_progress = 0;  // Release GC lock
-    return;  // Nothing to collect
+  // If no thread GC state, object can't be tracked
+  if (yo_current_thread_gc == NULL) {
+    return;
   }
   
-  // QuickJS-style cycle detection algorithm
-  // Phase 1: Trial deletion - temporarily remove internal references
-  yo_ref_header_t* obj = yo_gc_tracked_objects;
-  while (obj != NULL) {
-    // For each tracked object, temporarily decrement ref counts of all objects it references
-    if (obj->traverse_fn) {
-      obj->traverse_fn(obj, trial_decref_visitor);
-    }
-    obj = (yo_ref_header_t*)obj->gc_next;
+  // Check if tracked
+  uint8_t current_flags = atomic_load_explicit(&header->gc_flags, memory_order_relaxed);
+  if (!(current_flags & YO_GC_TRACKED)) {
+    return; // Not tracked
   }
   
-  // Phase 2: Identify unreachable cycles
-  // Objects with ref_count == 0 after trial deletion are only referenced by cycle members
-  yo_ref_header_t* current = yo_gc_tracked_objects;
+  // Remove from thread-local tracking list (no synchronization needed)
+  yo_ref_header_t* current = yo_current_thread_gc->tracked_objects;
   yo_ref_header_t* prev = NULL;
-  size_t collected_count = 0;
   
   while (current != NULL) {
-    yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
-    
-    if (current->ref_count == 0) {
-      // This object is only referenced by other objects in the cycle - collect it
+    if (current == header) {
+      // Found the node to remove
       if (prev == NULL) {
-        // Removing head of list
-        yo_gc_tracked_objects = next;
+        // Removing head node
+        yo_current_thread_gc->tracked_objects = (yo_ref_header_t*)current->gc_next;
       } else {
-        // Removing middle/end of list
-        prev->gc_next = (struct yo_gc_object*)next;
+        // Removing middle/tail node
+        prev->gc_next = current->gc_next;
       }
       
-      yo_gc_tracked_count--;
-      collected_count++;
-      
-      // Mark object as disposed by GC to prevent double-free
-      current->gc_flags |= YO_GC_DISPOSED;
+      // Clear the node's flags and pointers
       current->gc_next = NULL;
+      atomic_fetch_and_explicit(&current->gc_flags, ~YO_GC_TRACKED, memory_order_relaxed);
+      yo_current_thread_gc->tracked_count--;
+      break;
+    }
+    
+    prev = current;
+    current = (yo_ref_header_t*)current->gc_next;
+  }
+}`);
+
+  // Generate stop-the-world coordination functions
+  emitter.emitLine(`// Stop-the-world GC coordination
+static void yo_gc_pause_all_threads() {
+  yo_mutex_lock(&yo_thread_list_mutex);
+  
+  // Signal all threads to pause for GC
+  yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
+  int expected_pauses = 0;
+  
+  while (thread_gc != NULL) {
+    if (thread_gc != yo_current_thread_gc) {  // Don't pause the GC thread
+      atomic_store_explicit(&thread_gc->gc_paused, 1, memory_order_release);
+      expected_pauses++;
+    }
+    thread_gc = thread_gc->next;
+  }
+  
+  yo_mutex_unlock(&yo_thread_list_mutex);
+  
+  // Wait for all threads to acknowledge pause
+  yo_mutex_lock(&yo_gc_pause_mutex);
+  while (atomic_load_explicit(&yo_threads_paused_count, memory_order_acquire) < expected_pauses) {
+    yo_cond_wait(&yo_gc_pause_cond, &yo_gc_pause_mutex);
+  }
+  yo_mutex_unlock(&yo_gc_pause_mutex);
+}
+
+static void yo_gc_resume_all_threads() {
+  yo_mutex_lock(&yo_thread_list_mutex);
+  
+  // Signal all threads to resume
+  yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
+  while (thread_gc != NULL) {
+    atomic_store_explicit(&thread_gc->gc_paused, 0, memory_order_release);
+    thread_gc = thread_gc->next;
+  }
+  
+  yo_mutex_unlock(&yo_thread_list_mutex);
+  
+  // Reset pause counter
+  atomic_store_explicit(&yo_threads_paused_count, 0, memory_order_release);
+  yo_cond_broadcast(&yo_gc_pause_cond);
+}
+
+static void yo_gc_check_pause() {
+  if (yo_current_thread_gc != NULL) {
+    int should_pause = atomic_load_explicit(&yo_current_thread_gc->gc_paused, memory_order_acquire);
+    if (should_pause) {
+      // Acknowledge pause and wait for resume
+      yo_mutex_lock(&yo_gc_pause_mutex);
+      atomic_fetch_add_explicit(&yo_threads_paused_count, 1, memory_order_acq_rel);
+      yo_cond_broadcast(&yo_gc_pause_cond);
       
-      // Call user's cleanup function
+      // Wait until resume signal
+      while (atomic_load_explicit(&yo_current_thread_gc->gc_paused, memory_order_acquire)) {
+        yo_cond_wait(&yo_gc_pause_cond, &yo_gc_pause_mutex);
+      }
+      
+      yo_mutex_unlock(&yo_gc_pause_mutex);
+    }
+  }
+}`);
+
+  // Generate helper functions for QuickJS-style cycle detection
+  emitter.emitLine(`// Helper function to decrement references during trial deletion
+static void per_thread_trial_decref_visitor(void* ptr) {
+  if (ptr == NULL) return;
+
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+
+  // Only decrement if object is being tested for cycles and not disposing
+  uint8_t flags = atomic_load_explicit(&header->gc_flags, memory_order_relaxed);
+  if ((flags & YO_GC_SCANNING) && !(flags & (YO_GC_DISPOSING | YO_GC_DISPOSED))) {
+    // Safe to use non-atomic decrement since we're in stop-the-world phase
+    size_t current = atomic_load_explicit(&header->ref_count, memory_order_relaxed);
+    atomic_store_explicit(&header->ref_count, current - 1, memory_order_relaxed);
+  }
+}
+
+// Helper function to restore references after trial deletion
+static void per_thread_restore_refcount_visitor(void* ptr) {
+  if (ptr == NULL) return;
+
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+
+  // Only increment if object was part of cycle test
+  uint8_t flags = atomic_load_explicit(&header->gc_flags, memory_order_relaxed);
+  if (flags & YO_GC_SCANNING) {
+    // Safe to use non-atomic increment since we're in stop-the-world phase
+    size_t current = atomic_load_explicit(&header->ref_count, memory_order_relaxed);
+    atomic_store_explicit(&header->ref_count, current + 1, memory_order_relaxed);
+  }
+}`);
+
+  // Generate stop-the-world GC collection
+  emitter.emitLine(`void __yo_gc_collect() {
+  // Atomic test-and-set to prevent concurrent GC collections
+  int expected_not_running = 0;
+  if (!atomic_compare_exchange_strong_explicit(&yo_gc_collection_in_progress, 
+                                               &expected_not_running, 
+                                               1, 
+                                               memory_order_acq_rel, 
+                                               memory_order_relaxed)) {
+    return;  // Another thread is already running GC
+  }
+  
+  // Stop the world - pause all other threads
+  yo_gc_pause_all_threads();
+  
+  size_t total_collected = 0;
+  
+  // Collect from all thread-local GC lists
+  yo_mutex_lock(&yo_thread_list_mutex);
+  yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
+  
+  while (thread_gc != NULL) {
+    yo_ref_header_t* head = thread_gc->tracked_objects;
+    if (head == NULL) {
+      thread_gc = thread_gc->next;
+      continue; // This thread has no tracked objects
+    }
+    
+    // Phase 1: Mark all tracked objects in this thread as being scanned
+    yo_ref_header_t* obj = head;
+    while (obj != NULL) {
+      atomic_fetch_or_explicit(&obj->gc_flags, YO_GC_SCANNING, memory_order_relaxed);
+      obj = (yo_ref_header_t*)obj->gc_next;
+    }
+    
+    // Phase 2: Trial deletion - temporarily remove internal references
+    obj = head;
+    while (obj != NULL) {
+      uint8_t flags = atomic_load_explicit(&obj->gc_flags, memory_order_relaxed);
+      if ((flags & YO_GC_SCANNING) && !(flags & (YO_GC_DISPOSING | YO_GC_DISPOSED))) {
+        if (obj->traverse_fn) {
+          obj->traverse_fn(obj, per_thread_trial_decref_visitor);
+        }
+      }
+      obj = (yo_ref_header_t*)obj->gc_next;
+    }
+    
+    // Phase 3: Identify and collect unreachable cycles
+    yo_ref_header_t* current = head;
+    yo_ref_header_t* prev = NULL;
+    
+    while (current != NULL) {
+      yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
+      
+      size_t ref_count = atomic_load_explicit(&current->ref_count, memory_order_relaxed);
+      uint8_t flags = atomic_load_explicit(&current->gc_flags, memory_order_relaxed);
+      
+      if (ref_count == 0 && (flags & YO_GC_SCANNING) && 
+          !(flags & (YO_GC_DISPOSING | YO_GC_DISPOSED))) {
+        // This object is only referenced by other objects in the cycle - collect it
+        
+        // Remove from thread's tracking list
+        if (prev == NULL) {
+          // Removing head of list
+          thread_gc->tracked_objects = next;
+        } else {
+          // Removing middle/end of list
+          prev->gc_next = (struct yo_gc_object*)next;
+        }
+        
+        thread_gc->tracked_count--;
+        total_collected++;
+        
+        // Mark as disposed to prevent double-free
+        atomic_fetch_or_explicit(&current->gc_flags, YO_GC_DISPOSED, memory_order_relaxed);
+        
+        // Call user's cleanup function
+        if (current->dispose_fn) {
+          current->dispose_fn(current);
+        }
+        
+        yo_free(current);
+        
+        // Continue with next, don't update prev
+        current = next;
+      } else {
+        // This object has external references - restore its internal reference counts
+        if (current->traverse_fn) {
+          current->traverse_fn(current, per_thread_restore_refcount_visitor);
+        }
+        
+        // Clear scanning flag
+        atomic_fetch_and_explicit(&current->gc_flags, ~YO_GC_SCANNING, memory_order_relaxed);
+        
+        // Keep this object, move to next
+        prev = current;
+        current = next;
+      }
+    }
+    
+    thread_gc = thread_gc->next;
+  }
+  
+  yo_mutex_unlock(&yo_thread_list_mutex);
+  
+  // Resume all threads
+  yo_gc_resume_all_threads();
+  
+  // Release the GC collection lock
+  atomic_store_explicit(&yo_gc_collection_in_progress, 0, memory_order_release);
+}`);
+
+  // Generate thread cleanup function for when threads die
+  emitter.emitLine(`// Called when a thread is about to exit to merge its GC state
+void __yo_cleanup_thread_gc() {
+  if (yo_current_thread_gc == NULL) {
+    return; // No GC state to clean up
+  }
+  
+  yo_mutex_lock(&yo_thread_list_mutex);
+  
+  // Find a main/long-lived thread to merge objects to, or distribute among remaining threads
+  yo_thread_gc_state_t* target_thread = NULL;
+  yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
+  
+  // Try to find the main thread (usually the first one, with smallest thread ID)
+  size_t min_thread_id = SIZE_MAX;
+  while (thread_gc != NULL) {
+    if (thread_gc != yo_current_thread_gc && thread_gc->thread_id < min_thread_id) {
+      min_thread_id = thread_gc->thread_id;
+      target_thread = thread_gc;
+    }
+    thread_gc = thread_gc->next;
+  }
+  
+  // If we have objects to transfer and found a target thread
+  if (target_thread != NULL && yo_current_thread_gc->tracked_objects != NULL) {
+    // Transfer all tracked objects to target thread
+    yo_ref_header_t* current = yo_current_thread_gc->tracked_objects;
+    yo_ref_header_t* last = NULL;
+    
+    // Find the end of our list
+    while (current != NULL) {
+      last = current;
+      current = (yo_ref_header_t*)current->gc_next;
+    }
+    
+    if (last != NULL) {
+      // Append our list to target thread's list
+      last->gc_next = (struct yo_gc_object*)target_thread->tracked_objects;
+      target_thread->tracked_objects = yo_current_thread_gc->tracked_objects;
+      target_thread->tracked_count += yo_current_thread_gc->tracked_count;
+    }
+  } else if (yo_current_thread_gc->tracked_objects != NULL) {
+    // No target thread found - force immediate collection of our objects
+    // This is a safety measure to prevent memory leaks
+    yo_ref_header_t* current = yo_current_thread_gc->tracked_objects;
+    while (current != NULL) {
+      yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
+      
+      // Force dispose the object
       if (current->dispose_fn) {
         current->dispose_fn(current);
       }
-      
       yo_free(current);
       
-      // Continue with next, don't update prev
-      current = next;
-    } else {
-      // This object has external references - restore its internal reference counts
-      if (current->traverse_fn) {
-        current->traverse_fn(current, restore_refcount_visitor);
-      }
-      
-      // Keep this object, move to next
-      prev = current;
       current = next;
     }
   }
   
-  // Release the GC collection lock
-  yo_gc_collection_in_progress = 0;
+  // Remove current thread from global list
+  yo_thread_gc_state_t* prev = NULL;
+  thread_gc = yo_all_thread_gcs;
+  while (thread_gc != NULL) {
+    if (thread_gc == yo_current_thread_gc) {
+      if (prev == NULL) {
+        yo_all_thread_gcs = thread_gc->next;
+      } else {
+        prev->next = thread_gc->next;
+      }
+      break;
+    }
+    prev = thread_gc;
+    thread_gc = thread_gc->next;
+  }
+  
+  atomic_fetch_sub_explicit(&yo_total_thread_count, 1, memory_order_relaxed);
+  
+  yo_mutex_unlock(&yo_thread_list_mutex);
+  
+  // Free the thread GC state
+  yo_free(yo_current_thread_gc);
+  yo_current_thread_gc = NULL;
 }`);
-  emitter.emitLine(``);
 }
 
 /**
@@ -995,9 +1256,11 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
       );
-      emitter.emitLine(`  obj->header.ref_count = 1;`);
       emitter.emitLine(
-        `  obj->header.gc_flags = 0;  // Initialize with no flags`
+        `  atomic_store_explicit(&obj->header.ref_count, 1, memory_order_relaxed);`
+      );
+      emitter.emitLine(
+        `  atomic_store_explicit(&obj->header.gc_flags, 0, memory_order_relaxed);  // Initialize with no flags`
       );
       emitter.emitLine(`  obj->header.gc_next = NULL;`);
 
@@ -1132,7 +1395,9 @@ export function generateClosureConstructorFunctions(
         emitter.emitLine(
           `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
         );
-        emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(
+          `  atomic_store_explicit(&obj->header.ref_count, 1, memory_order_relaxed);`
+        );
         emitter.emitLine(`  obj->data = data;`);
 
         // Set vtable function pointers directly
@@ -1173,7 +1438,9 @@ export function generateClosureConstructorFunctions(
         emitter.emitLine(
           `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
         );
-        emitter.emitLine(`  obj->header.ref_count = 1;`);
+        emitter.emitLine(
+          `  atomic_store_explicit(&obj->header.ref_count, 1, memory_order_relaxed);`
+        );
         emitter.emitLine(`  obj->data = data;`);
 
         // Set vtable function pointers directly
@@ -1270,7 +1537,9 @@ export function generateDynConstructorFunctions(
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
       );
-      emitter.emitLine(`  obj->header.ref_count = 1;`);
+      emitter.emitLine(
+        `  atomic_store_explicit(&obj->header.ref_count, 1, memory_order_relaxed);`
+      );
 
       emitter.emitLine(`  va_list args;`);
       emitter.emitLine(`  va_start(args, dispose_fn);`);
