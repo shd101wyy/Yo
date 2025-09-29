@@ -23,7 +23,7 @@ test_while_drop_with_break_nested :: (fn() -> i32) {
   (x : LinearI32) = 42;
 
   while some_condition(), {
-    drop(x); // allowed, because the `cond` expr below always break.
+    ___drop(x); // allowed, because the `cond` expr below always break.
     cond
       some_condition() => break,
       true => break
@@ -37,7 +37,7 @@ test_while_drop_with_return_nested :: (fn() -> i32) {
   (x : LinearI32) = 42;
 
   while some_condition(), {
-    drop(x); // allowed, because the `cond` expr below always returns.
+    ___drop(x); // allowed, because the `cond` expr below always returns.
     cond(
       some_condition() => {
         return 0;
@@ -128,7 +128,7 @@ test_while_with_break :: (fn(flag: boolean) -> i32) {
   while flag, 
     cond
       some_condition() => {
-        drop(x);
+        ___drop(x);
         break;
       },
       true => ()
@@ -156,7 +156,7 @@ test_while_with_return :: (fn(flag: boolean) -> i32) {
   while flag,
     cond
       some_condition() => {
-        drop(x);
+        ___drop(x);
         return 16;
       },
       true => ()
@@ -233,7 +233,7 @@ test_nested_cond_in_while :: (fn(flag: boolean) -> i32) {
       some_condition() => {
         cond
           some_condition() => {
-            drop(x);
+            ___drop(x);
             break;
           },
           true => continue
@@ -322,7 +322,7 @@ test_complex_nested :: (fn(flag: boolean, shape: Shape) -> i32) {
       (choice == 1) => {
         match(shape,
           .Circle => {
-            drop(x);
+            ___drop(x);
             break;
           },
           .Square => {

@@ -2,7 +2,7 @@ Clone :: (fn(compt(Self): Type) -> compt(Module))
   module
     Self := Self,
     clone :
-      fn(self: &(Self)) -> Self
+      fn(self: *(Self)) -> Self
 ;
 
 given(Point) :: struct
@@ -10,7 +10,7 @@ given(Point) :: struct
   y : i32,
 
   // Type method to implement Clone
-  clone :: (fn(self: &(Self)) -> Self)
+  clone :: (fn(self: *(Self)) -> Self)
     Self(x: self.x, y: self.y)
 ;
 SelfType :: Point.Self;
@@ -19,11 +19,11 @@ CloneI32 :: Clone(i32);
 (compt(I32Clone) : Clone(i32)) = impl {
   Self :: i32;
 
-  clone :: (fn(self: &(Self)) -> Self)
+  clone :: (fn(self: *(Self)) -> Self)
     self.*
   ;
 
-  copy :: (fn(self: &(Self)) -> Self)
+  copy :: (fn(self: *(Self)) -> Self)
     self.*
   ;
 
@@ -37,7 +37,7 @@ Point.clone(&(Point(1, 2))); // This should also work, we can clone a Point usin
 
 
 some_func :: (fn( forall(Self : Type ), 
-                self : &(Self),
+                self : *(Self),
                 using(CloneMethod : Clone(Self))
               ) -> unit)
   CloneMethod.clone(self)

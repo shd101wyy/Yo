@@ -945,7 +945,7 @@ method := (fn(s: S)-> {
 
 SomeInterface := fn(Self: Type)->
   interface {
-    (method: (self: &(Self))-> unit) =
+    (method: (self: *(Self))-> unit) =
       fn()-> println("Trait method")
   }
 
@@ -1340,7 +1340,7 @@ forall ((A: Type) <: Show,
 // show.yo
 defn Show(Self: Type): Interface,
   interface {
-    show: (fn(self: &(Self))-> String)
+    show: (fn(self: *(Self))-> String)
   };
 
 impl Show(i32), {
@@ -1766,12 +1766,12 @@ Interface works similarly to the Trait in Rust.
 ```rust
 defn Summary(Self: Type): Interface,
   interface {
-    summarize: (fn(self: &(Self))-> String)
+    summarize: (fn(self: *(Self))-> String)
   };
 
 defn Display(fn(self: Type) <: (Summary & SomeOtherClass)): Interface,
   interface {
-    display: (fn(self: &(Self))-> String)
+    display: (fn(self: *(Self))-> String)
   };
 
 NewsArticle := {
@@ -1883,7 +1883,7 @@ Use `!(Interface)` to exclude an interface.
 ```rust
 defn Summary(fn(self: Type) <: (Show & !(Eq))),
   interface {
-    summarize: (fn(self: &(Self))-> String);
+    summarize: (fn(self: *(Self))-> String);
   };
 // This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
 ```
@@ -1895,7 +1895,7 @@ Use `?(Interface)` to make a trait optional.
 ```rust
 defn Summary(fn(self: Type) <: ?(Show)),
   interface {
-    summarize: (fn(self: &(Self))-> String);
+    summarize: (fn(self: *(Self))-> String);
   };
 // This trait `Summary` can implement for `Type` that implements `Show` or not.
 ```
@@ -1908,7 +1908,7 @@ This is useful for resolving conflicts when implementing multiple classes for th
 // id.yo
 defn Id(Self: Type),
   interface {
-    id: (fn(self: &(Self))-> Self)
+    id: (fn(self: *(Self))-> Self)
   };
 
 { Id }
@@ -2121,7 +2121,7 @@ constant_ptr_to_i32 := &!(i32_val); // ptr_to_i32: &!(i32)
 ```rust
 defn Animal(Self: Type): Interface,
   interface {
-    speak: (fn(self: &(Self))-> unit)
+    speak: (fn(self: *(Self))-> unit)
   };
 
 Dog := type {};
@@ -2424,7 +2424,7 @@ Test := import("./test.yo"); // Import everything from test.yo and put it in the
 ```rust
 defn Shape(Self: Type): Interface,
   interface {
-    area: (fn(self: &(Self))-> f32)
+    area: (fn(self: *(Self))-> f32)
   };
 
 Circle = type .Circle {

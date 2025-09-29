@@ -609,76 +609,18 @@ s2 := s; // s2 and s point to the same object.
 //   1 | 2 | 3 | 4 | ...
 //    ^ Singleton Type
 
-// Reference and Pointer
-// Yo uses * for pointer
-// Yo uses & for reference
+// Pointer
+// Yo uses * for pointer type
+// Yo uses & for pointer value
 x := 1;
 y := 2;
 swap ::
-  (fn(a: &(i32), b: &(i32)) -> unit) {
+  (fn(a: *(i32), b: *(i32)) -> unit) {
   tmp := a.*; // dereference the pointer
   a.* = b.*;
   b.* = tmp;
 };
 swap(&(x), &(y));
-
-// 2nd-class reference:
-// Rule 1.0, let's say fucntion parameter is not local variable, then:
-// - 1) Reference can only happen in the call site.
-//   - 1.1) It cannot be stored in a variable or data structure.
-//   - 1.2) Reference to local variable cannot be returned from the block.
-// - 2) Path to a value never appears twice in the function arguments. Path uniqueness, to guarantee One Reference Only (ORO).
-//    - If a function returns a reference, then we need to continue checking it
-//      eg: f1(f2(ref1), ref2);
-//          if f2 returns another reference (this reference will be sure to contain ref1), then we need to check the paths of ref1 and ref2.
-//          if f2 doesn't return a reference, then we don't need to check the paths of ref1 and ref2.
-
-x := 12;
-x_ref := &(x); // error: Violate the Rule 1.1
-
-y := {
-  x := 12;
-  &(x) // error: Violate the Rule 1.2
-}
-
-(fn(some_ref: &(i32)) -> unit) {
-  x := some_ref;      // Not allowed! Violate the Rule 1.1
-  return some_ref;    // Allowed
-  // or
-  return ( value: some_ref ); // Allowed
-}
-
-(fn(container: &(Container), some_ref: &(i32)) -> unit) {
-  container.x = some_ref; // Not allowed!
-                          // Why? Because it is hard to compare the lifetime of container and some_ref.
-                          // container might live longer than some_ref.
-}
-
-
-// You can use the `borrow` function to use the reference value in a new scope
-borrow &(x), x_ref => {
-  // `x` is not allowed to be used here
-  x_ref.* = 13;
-}
-
-// Iterator
-to_iter_mut ::
-  (fn(forall(T: Type, length: usize) arr: &(Array(T, length)))-> Iter)
-  return Iter
-    data: arr, // allow to assign reference in this case because it's the last expression
-    index: 0
-;
-
-arr := ["Hello".to_string(), "world".to_string(), "!".to_string()];
-borrow &(arr).to_iter_mut(), iter => {
-  // arr is not allowed to be used here
-  // iter: Iter(&(String))
-  borrow iter.next(), v => {
-    // iter is not allowed to be used here
-    // v: Option(&(String))
-    // ...
-  }
-};
 
 // do notation
 // allows us to use `<-`, `<=`, `<<=` inside a block
@@ -710,10 +652,6 @@ match some_ptr,
   },
   .None => std.println("Memory allocation failed");
 free(some_ptr); // free the memory
-
-// cast reference to pointer using `as` function
-x := 12;
-// ptr := &(x) `as` *(i32);
 
 // Control flow
 /// cond

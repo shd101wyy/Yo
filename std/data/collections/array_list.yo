@@ -77,7 +77,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     /**
      * Add an element to the end of the ArrayList
      */
-    push :: ((fn(self: &(Self), value: T) -> Result(unit, ArrayListError))
+    push :: ((fn(self: *(Self), value: T) -> Result(unit, ArrayListError))
       // Check if we need to grow
       cond
         (self.len >= self.capacity) => {
@@ -118,7 +118,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     /**
      * Remove and return the last element
      */
-    pop :: ((fn(self: &(Self)) -> Option(T))
+    pop :: ((fn(self: *(Self)) -> Option(T))
       cond
         (self.len == (0).as(usize)) => .None,
         true => {
@@ -138,7 +138,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      * Get an element by index (bounds checked)
      */
     /*
-    get :: ((fn(self: &(Self), index: usize) -> Result(Option(&(T)), ArrayListError))
+    get :: ((fn(self: *(Self), index: usize) -> Result(Option(&(T)), ArrayListError))
       cond
         (index >= self.len) => .Error(.IndexOutOfBounds(index: index, len: self.len)),
         true =>
@@ -154,7 +154,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     /**
      * Clear all elements but keep capacity
      */
-    clear :: ((fn(self: &(Self)) -> unit) {
+    clear :: ((fn(self: *(Self)) -> unit) {
       // TODO: Call destructors for elements if T has drop method
       self.len = (0).as(usize);
     }),
