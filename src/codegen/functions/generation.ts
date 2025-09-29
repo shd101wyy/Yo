@@ -939,12 +939,23 @@ static void per_thread_trial_decref_visitor(void* ptr) {
 
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
 
-  // Safe to modify biased_word non-atomically since we're in stop-the-world phase
-  // For BRC, we decrement the biased counter during trial deletion to test if object is only referenced internally
+  // Safe to modify non-atomically since we're in stop-the-world phase
   uint32_t biased_word = header->biased_word;
   uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+  
   if (biased_counter > 0) {
+    // Decrement biased counter and set flag to remember we did this
     header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter - 1);
+    header->biased_word = YO_GC_SET_FLAG(header->biased_word, YO_GC_TRIAL_DECREMENTED);
+  } else {
+    // Biased counter is 0, decrement shared counter instead
+    uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_relaxed);  // Non-atomic is safe in STW
+    int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
+    if (shared_counter > 0) {
+      uint32_t new_shared_word = BRC_SET_SHARED_COUNTER(shared_word, shared_counter - 1);
+      atomic_store_explicit(&header->shared_word, new_shared_word, memory_order_relaxed);  // Non-atomic is safe in STW
+    }
+    // Don't set YO_GC_TRIAL_DECREMENTED flag - this means we decremented shared counter
   }
 }
 
@@ -954,11 +965,21 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
 
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
 
-  // Safe to modify biased_word non-atomically since we're in stop-the-world phase
-  // Restore the biased counter that was decremented during trial deletion
+  // Safe to modify non-atomically since we're in stop-the-world phase
   uint32_t biased_word = header->biased_word;
-  uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
-  header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter + 1);
+  
+  if (YO_GC_HAS_FLAG(biased_word, YO_GC_TRIAL_DECREMENTED)) {
+    // We decremented biased counter during trial - restore it and clear flag
+    uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+    header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter + 1);
+    header->biased_word = YO_GC_CLEAR_FLAG(header->biased_word, YO_GC_TRIAL_DECREMENTED);
+  } else {
+    // We decremented shared counter during trial - restore it
+    uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_relaxed);  // Non-atomic is safe in STW
+    int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
+    uint32_t new_shared_word = BRC_SET_SHARED_COUNTER(shared_word, shared_counter + 1);
+    atomic_store_explicit(&header->shared_word, new_shared_word, memory_order_relaxed);  // Non-atomic is safe in STW
+  }
 }`);
 
   // Generate stop-the-world GC collection

@@ -75,7 +75,7 @@ typedef struct {
 ### GC Flags Integration
 GC flags are placed in the biased word for true non-atomic performance:
 - **YO_GC_TRACKED** (0x01): Object is tracked by GC (might participate in cycles)
-- **YO_GC_RESERVED** (0x02): Reserved GC flag for future use
+- **YO_GC_TRIAL_DECREMENTED** (0x02): Biased counter was decremented during trial deletion (vs shared counter)
 
 These flags achieve true non-atomic access since they're only accessed by:
 - Owner thread during normal operation (direct memory access)

@@ -105,7 +105,7 @@ static inline size_t yo_get_thread_id(void) {
 
 // GC flags (bits 0-1 of biased GC flags field) - owner thread access only
 #define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
-#define YO_GC_RESERVED             0x02  // Reserved GC flag for future use
+#define YO_GC_TRIAL_DECREMENTED    0x02  // Biased counter was decremented during trial deletion (vs shared counter)
 
 // Biased word manipulation macros (non-atomic, owner thread only)
 #define BRC_GET_BIASED_COUNTER(biased_word) \
