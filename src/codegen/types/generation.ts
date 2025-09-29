@@ -105,11 +105,7 @@ static inline size_t yo_get_thread_id(void) {
 #define BRC_UNBIASED               BRC_FLAG_MERGED  // Object is unbiased (merged/shared)
 
 // GC flags (bits 0-4 of biased GC flags field) - owner thread access only
-#define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)  
-#define YO_GC_DISPOSED             0x02  // Object has been disposed by GC (prevents double-free)
-#define YO_GC_SCANNING             0x04  // Object is being scanned by GC (trial deletion phase)
-#define YO_GC_MARKED               0x08  // Object marked during GC trial deletion
-#define YO_GC_DISPOSING            0x10  // Object is currently being disposed (prevents races)
+#define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
 
 // Biased word manipulation macros (non-atomic, owner thread only)
 #define BRC_GET_BIASED_COUNTER(biased_word) \

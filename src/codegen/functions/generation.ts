@@ -475,9 +475,6 @@ export function generateRefStructConstructorDeclarations(
   emitter.emitDeclarationLine(
     `static void __yo_brc_queue_object(void* ptr, size_t owner_tid); // Queue object to owner thread`
   );
-  emitter.emitDeclarationLine(
-    `static void __yo_brc_explicit_merge(); // BRC explicit merge operation`
-  );
 
   // Generate GC function declarations
   emitter.emitDeclarationLine(
@@ -814,67 +811,7 @@ static void __yo_brc_queue_object(void* ptr, size_t owner_tid) {
   yo_mutex_unlock(&yo_thread_list_mutex);
 }
 
-// BRC explicit merge operation (called periodically by each thread)
-static void __yo_brc_explicit_merge() {
-  if (yo_current_thread_gc == NULL) {
-    return; // No GC state for this thread
-  }
-  
-  size_t current_thread_id = yo_get_thread_id();
-  
-  // Process all objects in this thread's tracked list (QueuedObjects)
-  yo_ref_header_t* current = yo_current_thread_gc->tracked_objects;
-  yo_ref_header_t* prev = NULL;
-  
-  while (current != NULL) {
-    yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
-    
-    // Check if this object is queued and owned by current thread
-    uint32_t shared_word = atomic_load_explicit(&current->shared_word, memory_order_acquire);
-    if (BRC_HAS_FLAG(shared_word, BRC_FLAG_QUEUED) /* && (current->owner_thread_id == current_thread_id) */) {
-      // Perform explicit merge using split words (following paper's algorithm)
-      uint32_t biased_word = current->biased_word;  // Non-atomic read (we're the owner)
-      uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
-      
-      uint32_t old_shared_word, new_shared_word;
-      do {
-        old_shared_word = atomic_load_explicit(&current->shared_word, memory_order_acquire);
-        
-        // Merge counters: add biased_counter to shared_counter
-        int32_t shared_counter = BRC_GET_SHARED_COUNTER(old_shared_word);
-        int32_t merged_counter = shared_counter + biased_counter;
-        
-        new_shared_word = BRC_SET_SHARED_COUNTER(old_shared_word, merged_counter);
-        new_shared_word = BRC_SET_FLAG(new_shared_word, BRC_FLAG_MERGED);
-      } while (!atomic_compare_exchange_weak_explicit(&current->shared_word, &old_shared_word, new_shared_word, memory_order_acq_rel, memory_order_relaxed));
-      
-      int32_t merged_counter = BRC_GET_SHARED_COUNTER(new_shared_word);
-      if (merged_counter == 0) {
-        // Object can be deallocated
-        if (current->dispose_fn) {
-          current->dispose_fn(current);
-        }
-        yo_free(current);
-        
-        // Remove from tracking list
-        if (prev == NULL) {
-          yo_current_thread_gc->tracked_objects = (yo_ref_header_t*)next;
-        } else {
-          prev->gc_next = next;
-        }
-        yo_current_thread_gc->tracked_count--;
-      } else {
-        // Give up ownership
-        current->owner_thread_id = 0;
-        prev = current;
-      }
-    } else {
-      prev = current;
-    }
-    
-    current = next;
-  }
-}
+
 
 // Initialize thread-local GC state (called automatically on first GC operation)
 static void yo_init_thread_gc() {
@@ -1038,15 +975,12 @@ static void per_thread_trial_decref_visitor(void* ptr) {
 
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
 
-  // Only decrement if object is being tested for cycles and not disposing
+  // Safe to modify biased_word non-atomically since we're in stop-the-world phase
+  // For BRC, we decrement the biased counter during trial deletion to test if object is only referenced internally
   uint32_t biased_word = header->biased_word;
-  if (YO_GC_HAS_FLAG(biased_word, YO_GC_SCANNING) && !YO_GC_HAS_FLAG(biased_word, YO_GC_DISPOSING | YO_GC_DISPOSED)) {
-    // Safe to modify biased_word non-atomically since we're in stop-the-world phase
-    // For BRC, we decrement the biased counter during trial deletion to test if object is only referenced internally
-    uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
-    if (biased_counter > 0) {
-      header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter - 1);
-    }
+  uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+  if (biased_counter > 0) {
+    header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter - 1);
   }
 }
 
@@ -1056,14 +990,11 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
 
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
 
-  // Only increment if object was part of cycle test
+  // Safe to modify biased_word non-atomically since we're in stop-the-world phase
+  // Restore the biased counter that was decremented during trial deletion
   uint32_t biased_word = header->biased_word;
-  if (YO_GC_HAS_FLAG(biased_word, YO_GC_SCANNING)) {
-    // Safe to modify biased_word non-atomically since we're in stop-the-world phase
-    // Restore the biased counter that was decremented during trial deletion
-    uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
-    header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter + 1);
-  }
+  uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+  header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter + 1);
 }`);
 
   // Generate stop-the-world GC collection
@@ -1094,23 +1025,75 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
       continue; // This thread has no tracked objects
     }
     
-    // Phase 1: Mark all tracked objects in this thread as being scanned
-    yo_ref_header_t* obj = head;
-    while (obj != NULL) {
-      // Set SCANNING flag (non-atomic since we're in stop-the-world phase)
-      obj->biased_word = YO_GC_SET_FLAG(obj->biased_word, YO_GC_SCANNING);
+    // Phase 1: BRC explicit merge - handle queued objects during stop-the-world
+    yo_ref_header_t* current = head;
+    yo_ref_header_t* prev = NULL;
+    
+    while (current != NULL) {
+      yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
       
-      obj = (yo_ref_header_t*)obj->gc_next;
+      // Check if this object is queued for explicit merge (non-atomic since STW)
+      uint32_t shared_word = atomic_load_explicit(&current->shared_word, memory_order_relaxed);
+      if (BRC_HAS_FLAG(shared_word, BRC_FLAG_QUEUED)) {
+        // Perform explicit merge using split words (safe during STW)
+        uint32_t biased_word = current->biased_word;  // Non-atomic read (STW)
+        uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+        
+        // Merge counters: add biased_counter to shared_counter
+        int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
+        int32_t merged_counter = shared_counter + biased_counter;
+        
+        // Update shared word with merged counter and clear queued flag, set merged flag
+        uint32_t new_shared_word = BRC_SET_SHARED_COUNTER(shared_word, merged_counter);
+        new_shared_word = BRC_SET_FLAG(new_shared_word, BRC_FLAG_MERGED);
+        new_shared_word = BRC_CLEAR_FLAG(new_shared_word, BRC_FLAG_QUEUED);
+        atomic_store_explicit(&current->shared_word, new_shared_word, memory_order_relaxed);
+        
+        // Clear biased counter since it's now merged
+        current->biased_word = BRC_SET_BIASED_COUNTER(biased_word, 0);
+        
+        if (merged_counter == 0) {
+          // Object can be deallocated immediately
+          if (current->dispose_fn) {
+            current->dispose_fn(current);
+          }
+          yo_free(current);
+          
+          // Remove from tracking list
+          if (prev == NULL) {
+            thread_gc->tracked_objects = next;
+            head = next; // Update head pointer
+          } else {
+            prev->gc_next = next;
+          }
+          thread_gc->tracked_count--;
+          total_collected++;
+          
+          // Continue with next, don't update prev
+          current = next;
+          continue;
+        } else {
+          // Give up ownership since counters are merged
+          current->owner_thread_id = 0;
+        }
+      }
+      
+      prev = current;
+      current = next;
+    }
+    
+    // Update head after potential removals in explicit merge
+    head = thread_gc->tracked_objects;
+    if (head == NULL) {
+      thread_gc = thread_gc->next;
+      continue; // No objects left after explicit merge
     }
     
     // Phase 2: Trial deletion - temporarily remove internal references
-    obj = head;
+    yo_ref_header_t* obj = head;
     while (obj != NULL) {
-      uint32_t biased_word = obj->biased_word;
-      if (YO_GC_HAS_FLAG(biased_word, YO_GC_SCANNING) && !YO_GC_HAS_FLAG(biased_word, YO_GC_DISPOSING | YO_GC_DISPOSED)) {
-        if (obj->traverse_fn) {
-          obj->traverse_fn(obj, per_thread_trial_decref_visitor);
-        }
+      if (obj->traverse_fn) {
+        obj->traverse_fn(obj, per_thread_trial_decref_visitor);
       }
       obj = (yo_ref_header_t*)obj->gc_next;
     }
@@ -1129,8 +1112,7 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
       int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
       int32_t total_refs = biased_counter + shared_counter;
       
-      if (total_refs <= 0 && YO_GC_HAS_FLAG(biased_word, YO_GC_SCANNING) && 
-          !YO_GC_HAS_FLAG(biased_word, YO_GC_DISPOSING | YO_GC_DISPOSED)) {
+      if (total_refs <= 0) {
         // This object is only referenced by other objects in the cycle - collect it
         
         // Remove from thread's tracking list
@@ -1144,9 +1126,6 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
         
         thread_gc->tracked_count--;
         total_collected++;
-        
-        // Mark as disposed to prevent double-free (non-atomic since STW)
-        current->biased_word = YO_GC_SET_FLAG(current->biased_word, YO_GC_DISPOSED);
         
         // Call user's cleanup function
         if (current->dispose_fn) {
@@ -1162,9 +1141,6 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
         if (current->traverse_fn) {
           current->traverse_fn(current, per_thread_restore_refcount_visitor);
         }
-        
-        // Clear scanning flag (non-atomic since STW)
-        current->biased_word = YO_GC_CLEAR_FLAG(current->biased_word, YO_GC_SCANNING);
         
         // Keep this object, move to next
         prev = current;
