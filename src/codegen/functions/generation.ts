@@ -1041,12 +1041,12 @@ static void per_thread_trial_decref_visitor(void* ptr) {
   // Only decrement if object is being tested for cycles and not disposing
   uint32_t biased_word = header->biased_word;
   if (YO_GC_HAS_FLAG(biased_word, YO_GC_SCANNING) && !YO_GC_HAS_FLAG(biased_word, YO_GC_DISPOSING | YO_GC_DISPOSED)) {
-    // Safe to modify both words since we're in stop-the-world phase
-    // For BRC, we decrement the shared counter during trial deletion
-    uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_relaxed);
-    int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
-    uint32_t new_shared_word = BRC_SET_SHARED_COUNTER(shared_word, shared_counter - 1);
-    atomic_store_explicit(&header->shared_word, new_shared_word, memory_order_relaxed);
+    // Safe to modify biased_word non-atomically since we're in stop-the-world phase
+    // For BRC, we decrement the biased counter during trial deletion to test if object is only referenced internally
+    uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+    if (biased_counter > 0) {
+      header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter - 1);
+    }
   }
 }
 
@@ -1059,12 +1059,10 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
   // Only increment if object was part of cycle test
   uint32_t biased_word = header->biased_word;
   if (YO_GC_HAS_FLAG(biased_word, YO_GC_SCANNING)) {
-    // Safe to modify both words since we're in stop-the-world phase
-    // Restore the shared counter that was decremented during trial deletion
-    uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_relaxed);
-    int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
-    uint32_t new_shared_word = BRC_SET_SHARED_COUNTER(shared_word, shared_counter + 1);
-    atomic_store_explicit(&header->shared_word, new_shared_word, memory_order_relaxed);
+    // Safe to modify biased_word non-atomically since we're in stop-the-world phase
+    // Restore the biased counter that was decremented during trial deletion
+    uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+    header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter + 1);
   }
 }`);
 
