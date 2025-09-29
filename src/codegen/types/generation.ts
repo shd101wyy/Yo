@@ -153,7 +153,17 @@ static inline size_t yo_get_thread_id(void) {
 
 // Thread synchronization for stop-the-world GC
 #ifndef YO_THREAD_SYNC_TYPE
-#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#if defined(_WIN32)
+  // Windows: Use C11 threads.h for better compatibility
+  #include <threads.h>
+  #define YO_THREAD_SYNC_TYPE mtx_t
+  #define YO_COND_TYPE cnd_t
+  #define yo_mutex_lock(m) mtx_lock(m)
+  #define yo_mutex_unlock(m) mtx_unlock(m)
+  #define yo_cond_wait(c, m) cnd_wait(c, m)
+  #define yo_cond_broadcast(c) cnd_broadcast(c)
+#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+  // Unix-like systems: Use pthreads (more reliable, especially on macOS)
   #include <pthread.h>
   #define YO_THREAD_SYNC_TYPE pthread_mutex_t
   #define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
@@ -163,14 +173,6 @@ static inline size_t yo_get_thread_id(void) {
   #define yo_mutex_unlock(m) pthread_mutex_unlock(m)
   #define yo_cond_wait(c, m) pthread_cond_wait(c, m)
   #define yo_cond_broadcast(c) pthread_cond_broadcast(c)
-#elif defined(_WIN32)
-  #include <windows.h>
-  #define YO_THREAD_SYNC_TYPE CRITICAL_SECTION
-  #define YO_COND_TYPE CONDITION_VARIABLE
-  #define yo_mutex_lock(m) EnterCriticalSection(m)
-  #define yo_mutex_unlock(m) LeaveCriticalSection(m)
-  #define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
-  #define yo_cond_broadcast(c) WakeAllConditionVariable(c)
 #else
   #error "Unsupported platform for threading"
 #endif

@@ -481,6 +481,12 @@ export function generateRefStructConstructorDeclarations(
   emitter.emitDeclarationLine(
     `void __yo_gc_collect(); // Trigger garbage collection`
   );
+  emitter.emitDeclarationLine(
+    `void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
+  );
+  emitter.emitDeclarationLine(
+    `static void yo_init_process_cleanup(void); // Initialize process cleanup`
+  );
 
   // Generate constructor declarations for each ref struct
   for (const typeId in context.types) {
@@ -769,17 +775,76 @@ function generateAtomicGCRuntimeFunctions(emitter: Emitter): void {
   emitter.emitLine(`// Per-thread GC tracking state for better scalability
 static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
 static yo_thread_gc_state_t* yo_all_thread_gcs = NULL;  // Global list of all thread GC states
+#if defined(_WIN32)
+// Windows: C11 threads - no static initializers available
+static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;  // Protects thread list
+static YO_THREAD_SYNC_TYPE yo_gc_pause_mutex;  // For GC pause coordination
+static YO_COND_TYPE yo_gc_pause_cond;  // Condition for GC pause synchronization
+#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+// Unix-like: pthreads with static initializers
 static YO_THREAD_SYNC_TYPE yo_thread_list_mutex = YO_THREAD_SYNC_INIT;  // Protects thread list
+static YO_THREAD_SYNC_TYPE yo_gc_pause_mutex = YO_THREAD_SYNC_INIT;  // For GC pause coordination
+static YO_COND_TYPE yo_gc_pause_cond = YO_COND_INIT;  // Condition for GC pause synchronization
+#endif
 static _Atomic(size_t) yo_gc_collect_threshold = ATOMIC_VAR_INIT(1000);  // Collect when this many objects tracked
 static _Atomic(int) yo_gc_collection_in_progress = ATOMIC_VAR_INIT(0);  // Prevents concurrent GC collections
 static _Atomic(int) yo_threads_paused_count = ATOMIC_VAR_INIT(0);  // Count of threads paused for GC
 static _Atomic(int) yo_total_thread_count = ATOMIC_VAR_INIT(0);  // Total number of registered threads
-static YO_THREAD_SYNC_TYPE yo_gc_pause_mutex = YO_THREAD_SYNC_INIT;  // For GC pause coordination
-static YO_COND_TYPE yo_gc_pause_cond = YO_COND_INIT;  // Condition for GC pause synchronization
+
+// Thread cleanup infrastructure - automatically call __yo_cleanup_thread_gc when threads exit
+#if defined(_WIN32)
+// Windows: Use C11 threads.h TSS (Thread-Specific Storage)
+static tss_t yo_thread_cleanup_key;
+static once_flag yo_thread_cleanup_once = ONCE_FLAG_INIT;
+
+// Called automatically when a thread exits (via TSS destructor)
+static void yo_thread_cleanup_destructor(void* value) {
+  if (value != NULL) {
+    __yo_cleanup_thread_gc();
+  }
+}
+
+// Initialize TSS key for thread cleanup (called once)
+static void yo_init_thread_cleanup_key(void) {
+  tss_create(&yo_thread_cleanup_key, yo_thread_cleanup_destructor);
+}
+#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+// Unix-like systems: Use pthreads
+static pthread_key_t yo_thread_cleanup_key = (pthread_key_t)(-1);
+static pthread_once_t yo_thread_cleanup_once = PTHREAD_ONCE_INIT;
+
+// Called automatically when a thread exits (via pthread key destructor)
+static void yo_pthread_cleanup(void* value) {
+  if (value != NULL) {
+    __yo_cleanup_thread_gc();
+  }
+}
+
+// Initialize pthread key for thread cleanup (called once)
+static void yo_init_thread_cleanup_key(void) {
+  pthread_key_create(&yo_thread_cleanup_key, yo_pthread_cleanup);
+}
+#endif
 
 // Initialize thread-local GC state (called automatically on first GC operation)
 static void yo_init_thread_gc() {
   if (yo_current_thread_gc != NULL) return;  // Already initialized
+
+  // Initialize thread cleanup infrastructure
+#if defined(_WIN32)
+  call_once(&yo_thread_cleanup_once, yo_init_thread_cleanup_key);
+  // Set a non-NULL value for this thread so the destructor gets called
+  tss_set(yo_thread_cleanup_key, (void*)1);
+#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+  pthread_once(&yo_thread_cleanup_once, yo_init_thread_cleanup_key);
+  // Set a non-NULL value for this thread so the destructor gets called
+  if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_setspecific(yo_thread_cleanup_key, (void*)1);
+  }
+#endif
+  
+  // Initialize process cleanup on first thread init (usually main thread)
+  yo_init_process_cleanup();
 
   yo_current_thread_gc = (yo_thread_gc_state_t*)yo_malloc(sizeof(yo_thread_gc_state_t));
   yo_current_thread_gc->tracked_objects = NULL;
@@ -1165,6 +1230,46 @@ void __yo_cleanup_thread_gc() {
   // Free the thread GC state
   yo_free(yo_current_thread_gc);
   yo_current_thread_gc = NULL;
+}
+
+// Process cleanup - clean up remaining threads and resources
+static void yo_process_cleanup(void) {
+  // Clean up the main thread's GC state
+  __yo_cleanup_thread_gc();
+  
+  // Clean up thread cleanup key
+#if defined(_WIN32)
+  tss_delete(yo_thread_cleanup_key);
+#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+  if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_key_delete(yo_thread_cleanup_key);
+  }
+#endif
+
+  // Clean up mutexes and condition variables
+#if defined(_WIN32)
+  mtx_destroy(&yo_thread_list_mutex);
+  mtx_destroy(&yo_gc_pause_mutex);
+  cnd_destroy(&yo_gc_pause_cond);
+#endif
+  // Unix systems with static initializers don't need explicit cleanup
+}
+
+// Initialize process cleanup (call this from main or constructor)
+static void yo_init_process_cleanup(void) {
+  static bool cleanup_initialized = false;
+  if (cleanup_initialized) return;
+  cleanup_initialized = true;
+  
+  // Initialize mutexes and condition variables (only needed on Windows)
+#if defined(_WIN32)
+  mtx_init(&yo_thread_list_mutex, mtx_plain);
+  mtx_init(&yo_gc_pause_mutex, mtx_plain);
+  cnd_init(&yo_gc_pause_cond);
+#endif
+  // Unix systems use static initializers, no need to initialize explicitly
+  
+  atexit(yo_process_cleanup);
 }`);
 }
 
