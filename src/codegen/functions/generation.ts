@@ -63,7 +63,7 @@ export function generateFunctionDeclarations(
   }
   emitter.emitDeclarationLine("");
 
-  // Generate constructor functions for ref structs
+  // Generate constructor functions for objects
   emitter.emitDeclarationLine(`/// Ref struct constructors`);
   generateRefStructConstructorDeclarations(context);
   emitter.emitDeclarationLine("");
@@ -191,7 +191,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate builtin functions first
   generateBuiltinFunctions(context);
 
-  // Generate ref struct constructor functions
+  // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
   // Generate closure constructor and ARC functions
@@ -456,7 +456,7 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 }
 
 /**
- * Generate constructor function declarations for ref structs
+ * Generate constructor function declarations for objects
  */
 export function generateRefStructConstructorDeclarations(
   context: FunctionGenerationContext
@@ -488,7 +488,7 @@ export function generateRefStructConstructorDeclarations(
     `static void yo_init_process_cleanup(void); // Initialize process cleanup`
   );
 
-  // Generate constructor declarations for each ref struct
+  // Generate constructor declarations for each object
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
@@ -1274,7 +1274,7 @@ static void yo_init_process_cleanup(void) {
 }
 
 /**
- * Generate traversal functions for ref structs (used by GC for marking)
+ * Generate traversal functions for objects (used by GC for marking)
  */
 function generateRefStructTraversalFunctions(
   context: FunctionGenerationContext
@@ -1306,7 +1306,7 @@ function generateRefStructTraversalFunctions(
         const fieldType = element.type;
 
         if (isStructType(fieldType) && fieldType.isReferenceSemantics) {
-          // This field is a direct reference to another ref struct
+          // This field is a direct reference to another object
           emitter.emitLine(`  if (obj->${fieldName}) {`);
           emitter.emitLine(`    visit(obj->${fieldName});`);
           emitter.emitLine(`  }`);
@@ -1352,17 +1352,17 @@ function generateRefStructTraversalFunctions(
 }
 
 /**
- * Generate constructor function implementations for ref structs and ref enums
+ * Generate constructor function implementations for objects and ref enums
  */
 export function generateRefStructConstructorFunctions(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
-  // First, generate traversal functions for each ref struct type
+  // First, generate traversal functions for each object type
   generateRefStructTraversalFunctions(context);
 
-  // Generate constructor implementations for each ref struct
+  // Generate constructor implementations for each object
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {

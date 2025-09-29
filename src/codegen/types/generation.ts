@@ -29,9 +29,9 @@ import {
  * Generate type declarations for all collected types
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
-  // Always generate atomic reference counter header for ref structs and ref enums
+  // Always generate atomic reference counter header for objects and ref enums
   context.emitter
-    .emitDeclarationLine(`// Biased Reference Counting (BRC) header for ref structs and ref enums
+    .emitDeclarationLine(`// Biased Reference Counting (BRC) header for objects and ref enums
 // Per-thread GC with stop-the-world collection for better scalability
 
 // Fast thread ID function using platform-specific inline assembly (inspired by Python/mimalloc)
@@ -406,7 +406,7 @@ export function generateStructDeclaration(
   const emitter = context.emitter;
 
   if (structType.isReferenceSemantics) {
-    // For ref struct, generate a struct with the common reference header
+    // For object, generate a struct with the common reference header
     emitter.emitDeclarationLine(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
     );

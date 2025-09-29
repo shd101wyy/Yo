@@ -39,16 +39,24 @@ export function evaluateStructType({
   context: EvaluatorContext;
   isReferenceSemantics?: boolean;
 }): FuncCallExpr {
-  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
+  const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
+  const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
+
+  if (!isStructKeyword && !isObjectKeyword) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "struct", got:\n${exprToString(expr)}`,
+      errorMessage: `Expected "struct" or "object", got:\n${exprToString(expr)}`,
     });
   }
 
+  // For 'object' keyword, always use reference semantics
+  const finalIsReferenceSemantics = isObjectKeyword
+    ? true
+    : isReferenceSemantics;
+
   // Create structType with empty elements
   // This is used as the SelfType for the following evaluations.
-  const structType = createStructType(env, isReferenceSemantics);
+  const structType = createStructType(env, finalIsReferenceSemantics);
   addARCFunctionSignaturesToStructType({ structType, env, context });
 
   // Evaluate the elements

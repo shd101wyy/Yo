@@ -14,7 +14,7 @@ import {
   areTypesCompatible,
   isDynType,
   isModuleType,
-  isStructTypeWithReferenceSemantics,
+  isObjectType,
   ModuleType,
   typeToString,
 } from "../../types";
@@ -72,13 +72,13 @@ export function evaluateDynValue({
   // if (!isARCType(valueType)) {
   //   throw formatErrorMessage({
   //     token: valueExpr.token,
-  //     errorMessage: `'dyn' can only be used with types that support reference counting (ref struct, Dyn, or Closure types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+  //     errorMessage: `'dyn' can only be used with types that support reference counting (object, Dyn, or Closure types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
   //   });
   // }
-  if (!isStructTypeWithReferenceSemantics(valueType)) {
+  if (!isObjectType(valueType)) {
     throw formatErrorMessage({
       token: valueExpr.token,
-      errorMessage: `'${BuiltinKeywords.dyn}' can only be used with types that have reference semantics (ref struct types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+      errorMessage: `'${BuiltinKeywords.dyn}' can only be used with types that have reference semantics (object types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
     });
   }
 

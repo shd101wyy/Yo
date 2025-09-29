@@ -55,7 +55,7 @@ export function synthesizeTypes(
   },
   checkedTypePairs: { expected: Type; given: Type }[] = []
 ): { expectedEnv: Environment; givenEnv: Environment } {
-  // Prevent circular checks for `ref struct` and similar recursive types
+  // Prevent circular checks for `object` and similar recursive types
   if (
     checkedTypePairs.find(
       (pair) => pair.expected === expected.type && pair.given === given.type

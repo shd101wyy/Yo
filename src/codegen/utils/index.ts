@@ -9,9 +9,9 @@ import {
   isFunctionSpecializable,
   isMutPtrType,
   isMutRefType,
+  isObjectType,
   isSliceType,
   isStructType,
-  isStructTypeWithReferenceSemantics,
   SliceType,
   Type,
   TypeId,
@@ -84,10 +84,10 @@ export function sanitizeForCIdentifier(str: string): string {
 
 /**
  * Check if a type should avoid const qualifier even when not mutable
- * This is needed for ref struct types that need to support reference counting operations
+ * This is needed for object types that need to support reference counting operations
  */
 export function shouldAvoidConst(type: Type): boolean {
-  return isStructTypeWithReferenceSemantics(type);
+  return isObjectType(type);
 }
 
 /**

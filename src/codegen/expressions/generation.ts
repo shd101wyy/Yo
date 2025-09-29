@@ -21,9 +21,9 @@ import {
   isFunctionType,
   isMutPtrType,
   isMutRefType,
+  isObjectType,
   isSliceType,
   isStructType,
-  isStructTypeWithReferenceSemantics,
   isTupleType,
   isUnionType,
   isUnitType,
@@ -451,8 +451,7 @@ function generateFuncCall(
         }
 
         // Use -> for ref types (which are pointers), . for regular types
-        const memberAccessOp =
-          rhsType && isStructTypeWithReferenceSemantics(rhsType) ? "->" : ".";
+        const memberAccessOp = rhsType && isObjectType(rhsType) ? "->" : ".";
 
         context.emitter.emitLine(
           `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
@@ -1395,7 +1394,7 @@ function generateFuncCall(
           labels.length === runtimeArgExprs.length
         ) {
           if (structType.isReferenceSemantics) {
-            // For ref struct, call the constructor function
+            // For object, call the constructor function
             const argsList = runtimeArgExprs
               .map((arg) => generateExpr(arg, indent, context))
               .join(", ");
@@ -1918,7 +1917,7 @@ function generateComptValue(
       }
 
       if (type.isReferenceSemantics) {
-        // For ref struct compile-time values, use constructor function
+        // For object compile-time values, use constructor function
         const fieldValues = value.elements.map((element) =>
           generateComptValue(element, context)
         );
@@ -2260,8 +2259,8 @@ function generateFieldAccess(
       return `${objectCode}->vtable.${sanitizeForCIdentifier(fieldName)}`;
     } else {
       // For C structs and unions, access fields directly
-      // Check if this is a reference-counted type (ref struct or ref enum)
-      if (isStructTypeWithReferenceSemantics(objectType)) {
+      // Check if this is a reference-counted type (object)
+      if (isObjectType(objectType)) {
         // For ref types (pointers), access field directly: ptr->field
         return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
       } else {
@@ -2463,7 +2462,7 @@ function generateMatchExpression(
   if (isMutPtrType(matchValueType) || isMutRefType(matchValueType)) {
     enumType = matchValueType.type;
     ptrOrRefType = matchValueType.tag;
-  } else if (isStructTypeWithReferenceSemantics(matchValueType)) {
+  } else if (isObjectType(matchValueType)) {
     // ref enum types are represented as pointers in C
     enumType = matchValueType;
     ptrOrRefType = "ref_semantics";

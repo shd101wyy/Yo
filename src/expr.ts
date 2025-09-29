@@ -412,6 +412,7 @@ export const BuiltinKeywords = {
   type: ["type"],
   match: ["match"],
   struct: ["struct"],
+  object: ["object"],
   enum: ["enum"],
   union: ["union"],
   module: ["module"],
@@ -823,7 +824,7 @@ export const BuiltinFunctions = {
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
-  dispose: ["dispose"], // Destructor to run when a ref struct/enum is dropped
+  dispose: ["dispose"], // Destructor to run when an object is dropped
 
   /// Others
   __yo_noop: ["__yo_noop"],

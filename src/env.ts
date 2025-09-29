@@ -74,7 +74,7 @@ export interface Variable {
    * Whether the variable is owning the ARC value or borrowing the ARC value.
    * This is only relevant for types that are managed by ARC.
    * eg:
-   *     Point :: ref struct(x : i32, y : i32);
+   *     Point :: object(x : i32, y : i32);
    *     p1 := Point(3, 4);  // temp_var holds the result of Point(3, 4)
    *                         // temp_var : isOwningTheARCValue: true
    *                         // p1       : isOwningTheARCValue: false
@@ -88,7 +88,7 @@ export interface Variable {
    * then this field holds the name of that variable.
    * This is only relevant for types that are managed by ARC.
    * eg:
-   *     Point :: ref struct(x : i32, y : i32);
+   *     Point :: object(x : i32, y : i32);
    *     p1 := Point(3, 4);  // temp_var holds the result of Point(3, 4)
    *                         // temp_var : isBorrowingTheARCValueOfVariableName: undefined
    *                         // p1       : isBorrowingTheARCValueOfVariableName: temp_var

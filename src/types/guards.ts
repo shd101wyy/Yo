@@ -151,7 +151,7 @@ export function isStructType(type?: Type): type is StructType {
   return type?.tag === TypeTag.Struct;
 }
 
-export function isStructTypeWithReferenceSemantics(
+export function isObjectType(
   type?: Type
 ): type is StructType & { isReferenceSemantics: true } {
   return (
@@ -242,7 +242,7 @@ export function isDynType(type?: Type): type is DynType {
  */
 export function isARCType(type?: Type): boolean {
   return (
-    isStructTypeWithReferenceSemantics(type) ||
+    isObjectType(type) ||
     isDynType(type) || // All Dyn types are reference semantics
     isClosureType(type) // All closures are reference semantics
   );

@@ -239,7 +239,7 @@ export interface StructType extends Type {
 
   /**
    * Whether this struct uses reference semantics.
-   * true for "ref struct(...)", false for "struct(...)"
+   * true for "object(...)", false for "struct(...)"
    */
   isReferenceSemantics: boolean;
 

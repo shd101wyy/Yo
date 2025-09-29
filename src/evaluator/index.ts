@@ -91,7 +91,7 @@ import { evaluateDynType } from "./types/dyn";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
 import { evaluateModuleType } from "./types/module";
-import { evaluateRefType } from "./types/ref";
+import { evaluateObjectType } from "./types/object";
 import { evaluateSliceType } from "./types/slice";
 import { evaluateStructType } from "./types/struct";
 import { evaluateTupleType } from "./types/tuple";
@@ -319,16 +319,16 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
         // dyn
         return evaluateDynValue({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ref)) {
-        // ref struct or ref enum - reference semantics
-        return evaluateRefType({
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
+        // struct
+        return evaluateStructType({
           expr,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
-        // struct
-        return evaluateStructType({
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.object)) {
+        // object (reference semantics struct)
+        return evaluateObjectType({
           expr,
           env,
           context: { ...context },

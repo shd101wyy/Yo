@@ -23,10 +23,10 @@ import {
   isModuleType,
   isMutPtrType,
   isMutRefType,
+  isObjectType,
   isPrimitiveType,
   isSomeType,
   isStructType,
-  isStructTypeWithReferenceSemantics,
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
@@ -50,7 +50,7 @@ function determineTypeUniverse(
    *
    * But `ref` is allowed.
    *
-   *   Recursive :: ref struct
+   *   Recursive :: object
    *     next : Self
    *   ;
    */
@@ -71,7 +71,7 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
       });
     }
 
-    if (isStructTypeWithReferenceSemantics(type)) {
+    if (isObjectType(type)) {
       continue;
     }
 

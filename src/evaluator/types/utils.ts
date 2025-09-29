@@ -378,7 +378,7 @@ export function addARCFunctionSignaturesToStructType({
 }) {
   // NOTE: We need to add signature to the struct module first, to support recursive calls
   // Like
-  //    List :: ref struct
+  //    List :: object
   //      head : i32,
   //      tail : Self // ___dispose will need to call tail.___drop()
   //    ;

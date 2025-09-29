@@ -58,10 +58,10 @@ import {
   isModuleType,
   isMutPtrType,
   isMutRefType,
+  isObjectType,
   isSliceType,
   isSomeType,
   isStructType,
-  isStructTypeWithReferenceSemantics,
   isTupleType,
   isTypeHierarchyType,
   isU16Type,
@@ -165,7 +165,7 @@ export function typeContains2ndClassReference(
 }
 
 /**
- * Check if the type contains `ref struct`
+ * Check if the type contains `object`
  * @param type
  */
 export function typeContainsARCType(
@@ -469,7 +469,7 @@ export function convertComptTypeToRuntimeType(
     return type;
   } else if (isStructType(type)) {
     // To prevent circular reference issues
-    if (isStructTypeWithReferenceSemantics(type)) {
+    if (isObjectType(type)) {
       return type;
     }
 
@@ -875,7 +875,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return structType.typeName;
       }
 
-      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "ref " : ""}struct(${structType.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
+      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "object" : "struct"}(${structType.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -1309,12 +1309,12 @@ Please consider using a pointer or reference to this type instead, like:
 }
 
 /**
- * Check if a ref struct type could potentially form cycles.
- * This is used to determine which ref struct types need GC tracking.
+ * Check if a object type could potentially form cycles.
+ * This is used to determine which object types need GC tracking.
  *
- * A ref struct can form cycles if:
+ * A object can form cycles if:
  * 1. It contains a direct or indirect reference to itself
- * 2. It references other ref struct types that could reference back to it
+ * 2. It references other object types that could reference back to it
  *
  * This uses a depth-first search with cycle detection to avoid infinite recursion.
  */
@@ -1322,7 +1322,7 @@ export function canRefStructFormCycles(
   type: StructType,
   visitedTypes = new Set<string>()
 ): boolean {
-  // Only ref structs can form cycles through reference counting
+  // Only objects can form cycles through reference counting
   if (!type.isReferenceSemantics) {
     return false;
   }
@@ -1349,20 +1349,20 @@ export function canRefStructFormCycles(
 }
 
 /**
- * Helper function to check if a type can reference back to a cyclic ref struct.
- * This traverses through containers (enums, arrays, etc.) to find ref struct references.
+ * Helper function to check if a type can reference back to a cyclic object.
+ * This traverses through containers (enums, arrays, etc.) to find object references.
  */
 function typeCanReferenceCyclicRefStruct(
   type: Type,
   originalRefStruct: StructType,
   visitedTypes: Set<string>
 ): boolean {
-  // If this type is the same as the original ref struct, we have a direct self-reference
+  // If this type is the same as the original object, we have a direct self-reference
   if (isStructType(type) && type.id === originalRefStruct.id) {
     return true;
   }
 
-  // If this is a different ref struct, check if it could form cycles with the original
+  // If this is a different object, check if it could form cycles with the original
   if (isStructType(type) && type.isReferenceSemantics) {
     return canRefStructFormCycles(type, new Set(visitedTypes));
   }
@@ -1434,12 +1434,12 @@ function typeCanReferenceCyclicRefStruct(
     }
   }
 
-  // Check through closures - they can capture ref struct types
+  // Check through closures - they can capture object types
   if (isClosureType(type)) {
     return true;
   }
 
-  // Check through dynamic types - they can contain ref struct types
+  // Check through dynamic types - they can contain object types
   if (isDynType(type)) {
     return true;
   }
