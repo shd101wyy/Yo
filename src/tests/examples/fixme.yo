@@ -1,19 +1,31 @@
+open import "std";
 open import "std/libc/stdio.yo";
 
-say :: (fn(s : *(u8)) -> i32) {
+ThreadMethods :: impl {
+  (wait) :: (fn(forall(T: Type), thread: Thread(T)) -> T)
+    __yo_thread_wait(thread)
+  ;
+
+  export
+    wait
+  ;
+};
+
+say :: (fn(s : *(u8), val: i32) -> i32) {
   printf("%s\n", s);
-  return 16;
+  return val;
 };
 
 main :: (fn() -> i32) {
-  t1 := spawn say("world"); // say("world") runs in parallel thread
-  t2 := spawn say("hello");
+  t1 := spawn say("world", 16); // say("world") runs in parallel thread
+  t2 := spawn say("hello", 18);
   
-  // result := __yo_thread_wait(t);
-  // printf("result: %d\n", result);
-  // return result;
+  t1_result := t1.wait();
+  t2_result := t2.wait();
+  result := (t1_result + t2_result);
 
-  return 0;
+  printf("result: %d\n", result);
+  return result;
 };
 
 export main;

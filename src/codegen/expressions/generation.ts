@@ -279,11 +279,33 @@ function generateFuncCall(
             return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)${argCode})`;
           }
         } else {
-          // Multiple arguments - create argument struct (this would need more complex handling)
-          const argsCode = funcCallArg.args
-            .map((arg) => generateExpr(arg, indent, context))
+          // Multiple arguments - create argument struct to hold all parameters
+          const args = funcCallArg.args;
+          const argCodes = args.map((arg) =>
+            generateExpr(arg, indent, context)
+          );
+
+          // Create a temporary struct to hold all arguments
+          const structMembers = args
+            .map((arg, index) => {
+              const argType = arg.$?.type;
+              if (argType) {
+                const argTypeStr = getTypeString(argType, context);
+                return `${argTypeStr} arg${index}`;
+              } else {
+                return `void* arg${index}`;
+              }
+            })
+            .join("; ");
+
+          const structValues = argCodes
+            .map((code, index) => `arg${index}: ${code}`)
             .join(", ");
-          return `// Error: Multiple argument spawn not yet implemented: ${argsCode}`;
+
+          // Generate the struct literal
+          const argsStruct = `(struct { ${structMembers}; }){ ${structValues} }`;
+
+          return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)&${argsStruct})`;
         }
       } else {
         return `// Error: spawn function call missing type information`;

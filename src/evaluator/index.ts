@@ -72,6 +72,7 @@ import { evaluateVaStart } from "./builtins/va_start";
 import { evaluateAddressCall } from "./calls/address";
 import { evaluateFunctionCall } from "./calls/function";
 import { evaluateRawPointerCall } from "./calls/pointer";
+import { evaluateThreadCall } from "./calls/thread";
 import { EvaluatorContext } from "./context";
 import { evaluateAssignment } from "./exprs/assignment";
 import { evaluateBeginExpression } from "./exprs/begin";
@@ -438,6 +439,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
         // Slice type
         return evaluateSliceType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Thread)) {
+        // Thread type
+        return evaluateThreadCall({
           expr,
           env,
           context: { ...context },

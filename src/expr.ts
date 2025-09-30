@@ -457,6 +457,7 @@ export const BuiltinKeywords = {
   Tuple: ["Tuple"],
   Array: ["Array"],
   Slice: ["Slice"],
+  Thread: ["Thread"],
   Type: ["Type"],
   Module: ["Module"],
 
