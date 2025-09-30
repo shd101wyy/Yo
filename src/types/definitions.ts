@@ -528,7 +528,7 @@ export interface ClosureType extends Type {
   captureType: StructType | undefined;
 
   /**
-   * The module that contains the closure's ARC functions (___dispose, ___drop, ___dup).
+   * The module that contains the closure's ARC functions (___drop, ___dup).
    * Similar to DynType's module property.
    */
   module: ModuleType;
@@ -557,7 +557,7 @@ export interface DynType extends Type {
 
   /**
    * The module of the dyn type, which contains
-   * the ARC methods (___dup, ___drop, ___dispose) for the dyn wrapper itself.
+   * the ARC methods (___dup, ___drop) for the dyn wrapper itself.
    * These operate on the dyn object, not the wrapped object.
    */
   module: ModuleType;
@@ -591,4 +591,16 @@ export interface ThreadType extends Type {
    * This corresponds to the return type of the function passed to spawn.
    */
   returnType: Type;
+
+  /**
+   * The module associated with this thread type.
+   * Contains ARC functions (___dup, ___drop) and other thread-related functions.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the thread type is created.
+   * The env is also useful to show the frame level at which the thread is defined.
+   */
+  env: Environment;
 }

@@ -24,6 +24,7 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
+  isThreadType,
   isTupleType,
   isTypeHierarchyType,
   isU8Type,
@@ -465,6 +466,15 @@ export function areTypesCompatible(
       }
     }
     return true;
+  }
+
+  if (isThreadType(expected.type) && isThreadType(given.type)) {
+    // Thread types are compatible if their return types are compatible
+    return areTypesCompatible(
+      { type: expected.type.returnType, env: expected.env },
+      { type: given.type.returnType, env: given.env },
+      isMethodReceiver
+    );
   }
 
   // Meet SomeType,

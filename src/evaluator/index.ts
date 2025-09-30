@@ -57,8 +57,13 @@ import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
-import { evaluateSpawn, evaluateThreadWait } from "./builtins/spawn";
 import { evaluateThe } from "./builtins/the";
+import {
+  evaluateSpawn,
+  evaluateThreadWait,
+  evaluateYoThreadDrop,
+  evaluateYoThreadDup,
+} from "./builtins/thread_fns";
 import {
   evaluateYoAreTypesCompatible,
   evaluateYoTypeToString,
@@ -516,6 +521,14 @@ ${exprToString(expr)}`,
       ) {
         // __yo_closure_dup
         return evaluateYoClosureDup({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_drop)
+      ) {
+        // __yo_thread_drop
+        return evaluateYoThreadDrop({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_dup)) {
+        // __yo_thread_dup
+        return evaluateYoThreadDup({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
         // __yo_gc_collect
         return evaluateYoGcCollect({ expr, env, context: { ...context } });

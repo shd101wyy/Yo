@@ -4,11 +4,15 @@ import {
   attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
+  Expr,
+  exprToString,
   FuncCallExpr,
 } from "../../expr";
 import { createThreadType } from "../../types/creators";
 import { isThreadType } from "../../types/guards";
+import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
+import { addARCFunctionsToThreadType } from "../types/utils";
 
 /**
  * Evaluates the spawn builtin function.
@@ -54,7 +58,14 @@ export function evaluateSpawn({
   env = evaluatedExpr.$.env;
 
   // Create Thread type based on the result type
-  const threadType = createThreadType(evaluatedExpr.$.type);
+  const threadType = createThreadType(evaluatedExpr.$.type, env);
+
+  // Add ARC functions to the thread type
+  env = addARCFunctionsToThreadType({
+    threadType,
+    env,
+    context: { ...context },
+  });
 
   // Set the evaluation result - spawn returns a Thread(T)
   // The actual thread spawning will be handled in the C code generation phase
@@ -134,5 +145,91 @@ export function evaluateThreadWait({
 
   attachTempVariableToExpr(expr, true);
 
+  return expr;
+}
+
+/**
+ * Evaluates __yo_thread_drop builtin function.
+ * Just evaluates the argument and returns unit.
+ */
+export function evaluateYoThreadDrop({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_thread_drop[0]!]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = context.evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_thread_drop[0]!}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Evaluates __yo_thread_dup builtin function.
+ * Just evaluates the argument and returns unit.
+ */
+export function evaluateYoThreadDup({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_thread_dup[0]!]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = context.evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_thread_dup[0]!}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
   return expr;
 }

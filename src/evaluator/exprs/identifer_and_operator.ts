@@ -39,6 +39,7 @@ import {
   isEnumType,
   isFunctionType,
   isStructType,
+  isThreadType,
   isUnionType,
   TypeTag,
 } from "../../types";
@@ -453,7 +454,8 @@ export function evaluateIdentifierAndOperator({
       isEnumType(context.SelfType) ||
       isUnionType(context.SelfType) ||
       isDynType(context.SelfType) ||
-      isClosureType(context.SelfType))
+      isClosureType(context.SelfType) ||
+      isThreadType(context.SelfType))
   ) {
     const typeValue = createTypeValue(context.SelfType);
 

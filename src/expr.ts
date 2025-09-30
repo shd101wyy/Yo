@@ -823,6 +823,10 @@ export const BuiltinFunctions = {
   __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
   __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
 
+  // Thread ARC functions
+  __yo_thread_drop: ["__yo_thread_drop"], // drop thread object and handle cleanup
+  __yo_thread_dup: ["__yo_thread_dup"], // dup thread object with proper reference counting
+
   // ARC functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
