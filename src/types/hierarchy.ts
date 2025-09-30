@@ -11,6 +11,7 @@ import {
 } from "./definitions";
 import {
   isArrayType,
+  isChanType,
   isClosureType,
   isComptFloatType,
   isComptIntType,
@@ -198,6 +199,8 @@ export function typeOfType(
     return createType0(type);
   } else if (isThreadType(type)) {
     // Thread types are level 0 types, but we need to import the guard
+    return createType0(type);
+  } else if (isChanType(type)) {
     return createType0(type);
   } else {
     throw new Error(`Unknown type tag: ${type}`);

@@ -1,6 +1,6 @@
 open import "std";
 open import "std/libc/stdio.yo";
-
+/*
 MyBox :: object
   (*) : i32,
 
@@ -8,22 +8,18 @@ MyBox :: object
     printf("Disposing MyBox with value: %d\n", self.(*));
   })
 ;
-
-say :: (fn(s : *(u8), val: MyBox) -> i32) {
-  printf("%s\n", s);
-  return val.*;
-};
+*/
 
 main :: (fn() -> i32) {
-  t1 := spawn say("world", MyBox(16));
-  t2 := spawn say("hello", MyBox(18));
-  
-  t1_result := t1.wait();
-  t2_result := t2.wait();
-  result := (t1_result + t2_result);
+  ch := chan(i32, 2);
 
-  printf("result: %d\n", result);
-  return result;
+  __yo_chan_send(ch, 1);
+  __yo_chan_send(ch, 2);
+
+  printf("%d\n", __yo_chan_recv(ch)); // 1
+  printf("%d\n", __yo_chan_recv(ch)); // 2
+
+  return 0;
 };
 
 export main;

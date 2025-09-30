@@ -5,6 +5,7 @@ import { hashString, randomId } from "../utils";
 import { createTypeValue, Value, valueToString } from "../value";
 import {
   ArrayType,
+  ChanType,
   ClosureType,
   DynType,
   EnumType,
@@ -640,4 +641,50 @@ export function createThreadType(
   threadType.module.elements.push(selfElement);
 
   return threadType;
+}
+
+export function createChanType(
+  elementType: Type,
+  bufferSize: Value,
+  env: Environment
+): ChanType {
+  const module = createModuleType(env);
+
+  const chanType: ChanType = {
+    id: `chan_${elementType.id}_${hashString(valueToString(bufferSize))}`,
+    tag: TypeTag.Chan,
+    elementType,
+    bufferSize,
+    module,
+    env,
+  };
+
+  // Add "Self" to channel type module, similar to other ARC types
+  const typeValue = createTypeValue(chanType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    assignedValue: typeValue,
+    label: "Self",
+    isCompileTimeOnly: true,
+    isImplicit: true,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+      labelExpr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+      typeExpr: undefined,
+      defaultValueExpr: undefined,
+      assignedValueExpr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+    },
+  };
+  chanType.module.elements.push(selfElement);
+
+  return chanType;
 }

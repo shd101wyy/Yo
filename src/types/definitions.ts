@@ -604,3 +604,49 @@ export interface ThreadType extends Type {
    */
   env: Environment;
 }
+
+/**
+ * ChanType represents a Go-like channel for communication between threads.
+ *
+ * Examples:
+ * - Chan(i32, 0): An unbuffered channel that sends/receives i32 values
+ * - Chan(string, 10): A buffered channel with capacity 10 that sends/receives string values
+ * - Chan(MyStruct, 1): A buffered channel with capacity 1 for custom structs
+ *
+ * Usage:
+ * ```yo
+ * unbuffered := chan(i32);           // Creates Chan(i32, 0)
+ * buffered := chan(string, 10);      // Creates Chan(string, 10)
+ * channel_send(ch, value);           // Send value to channel
+ * result := channel_recv(ch);        // Receive value from channel
+ * ```
+ */
+export interface ChanType extends Type {
+  tag: TypeTag.Chan;
+
+  /**
+   * The type of values that can be sent/received through this channel.
+   */
+  elementType: Type;
+
+  /**
+   * The buffer size of the channel.
+   * - 0: Unbuffered channel (synchronous send/receive)
+   * - >0: Buffered channel with the specified capacity
+   *
+   * This is a compile-time known usize compatible value, similar to ArrayType.length.
+   */
+  bufferSize: Value;
+
+  /**
+   * The module associated with this channel type.
+   * Contains ARC functions (___dup, ___drop) and channel-related functions.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the channel type is created.
+   * The env is also useful to show the frame level at which the channel is defined.
+   */
+  env: Environment;
+}

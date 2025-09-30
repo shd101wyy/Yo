@@ -1,5 +1,6 @@
 import {
   ArrayType,
+  ChanType,
   ClosureType,
   DynType,
   EnumType,
@@ -241,7 +242,8 @@ export function isARCType(type?: Type): boolean {
     isObjectType(type) ||
     isDynType(type) || // All Dyn types are reference semantics
     isClosureType(type) || // All closures are reference semantics
-    isThreadType(type) // All threads are reference semantics
+    isThreadType(type) || // All threads are reference semantics
+    isChanType(type) // All channels are reference semantics
   );
 }
 
@@ -332,6 +334,10 @@ export function isVoidType(type?: Type): type is VoidType {
 
 export function isThreadType(type?: Type): type is ThreadType {
   return type?.tag === TypeTag.Thread;
+}
+
+export function isChanType(type?: Type): type is ChanType {
+  return type?.tag === TypeTag.Chan;
 }
 
 // Helper function to check if a type is a C compatible type

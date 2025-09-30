@@ -458,6 +458,7 @@ export const BuiltinKeywords = {
   Array: ["Array"],
   Slice: ["Slice"],
   Thread: ["Thread"],
+  Chan: ["Chan"],
   Type: ["Type"],
   Module: ["Module"],
 
@@ -493,6 +494,12 @@ export const BuiltinFunctions = {
   // Concurrency related functions
   spawn: ["spawn"],
   __yo_thread_wait: ["__yo_thread_wait"],
+
+  // Channel related functions
+  chan: ["chan"],
+  __yo_chan_send: ["__yo_chan_send"],
+  __yo_chan_recv: ["__yo_chan_recv"],
+  __yo_chan_close: ["__yo_chan_close"],
 
   // Pointer related functions
   __yo_ptr_cast: ["__yo_ptr_cast"],
@@ -827,6 +834,10 @@ export const BuiltinFunctions = {
   // Thread ARC functions
   __yo_thread_drop: ["__yo_thread_drop"], // drop thread object and handle cleanup
   __yo_thread_dup: ["__yo_thread_dup"], // dup thread object with proper reference counting
+
+  // Channel ARC functions
+  __yo_chan_drop: ["__yo_chan_drop"], // drop channel object and handle cleanup
+  __yo_chan_dup: ["__yo_chan_dup"], // dup channel object with proper reference counting
 
   // ARC functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned

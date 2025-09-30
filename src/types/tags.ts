@@ -83,4 +83,5 @@ export enum TypeTag {
 
   // Concurrency
   Thread = "Thread",
+  Chan = "Chan",
 }

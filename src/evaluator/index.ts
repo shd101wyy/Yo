@@ -29,6 +29,12 @@ import {
   evaluateYoIncrRc,
   evaluateYoRcOwn,
 } from "./builtins/arc_fns";
+import {
+  evaluateChan,
+  evaluateYoChanClose,
+  evaluateYoChanRecv,
+  evaluateYoChanSend,
+} from "./builtins/channel_fns";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
@@ -92,6 +98,7 @@ import { evaluateSubtypeOf } from "./exprs/subtype_of";
 import { evaluateTypeOf } from "./exprs/typeof";
 import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
+import { evaluateChanType } from "./types/channel";
 import { evaluateClosureType } from "./types/closure";
 import { evaluateDynType } from "./types/dyn";
 import { evaluateEnumType } from "./types/enum";
@@ -397,6 +404,15 @@ ${exprToString(expr)}`,
       ) {
         // __yo_thread_wait
         return evaluateThreadWait({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_send)) {
+        // __yo_chan_send
+        return evaluateYoChanSend({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_recv)) {
+        // __yo_chan_recv
+        return evaluateYoChanRecv({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_close)) {
+        // __yo_chan_close
+        return evaluateYoChanClose({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return evaluateImport({
@@ -446,6 +462,20 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Thread)) {
         // Thread type
         return evaluateThreadCall({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Chan)) {
+        // Chan type
+        return evaluateChanType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.chan)) {
+        // chan function
+        return evaluateChan({
           expr,
           env,
           context: { ...context },
