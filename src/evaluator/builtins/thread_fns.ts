@@ -40,13 +40,21 @@ export function evaluateSpawn({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.spawn, 1);
 
   const functionCallExpr = expr.args[0]!;
+  if (!exprIsFunctionCall(functionCallExpr)) {
+    throw formatErrorMessage({
+      token: functionCallExpr.token,
+      errorMessage: `Expected a function call expression inside spawn, got:\n${exprToString(
+        functionCallExpr
+      )}`,
+    });
+  }
 
   // Evaluate the function call expression to get its return type
   // We need to evaluate this to determine what Thread(T) type to return
   const evaluatedExpr = context.evaluateExpression({
     expr: functionCallExpr,
     env,
-    context: { ...context },
+    context: { ...context, isSpawningFunctionCall: env },
   });
 
   if (!evaluatedExpr.$) {
@@ -79,7 +87,6 @@ export function evaluateSpawn({
       errorMessage: `Cannot spawn a function that returns a compile-time-only value.`,
     });
   }
-
   env = evaluatedExpr.$.env;
 
   // Create Thread type based on the result type
@@ -168,7 +175,9 @@ export function evaluateThreadWait({
     pathCollection: [],
   };
 
-  attachTempVariableToExpr(expr, true);
+  // QUESTION: We probably shouldn't call attachTempVariableToExpr here,
+  // .wait on a thread is the same as accessing a field of a struct.
+  // attachTempVariableToExpr(expr, true);
 
   return expr;
 }

@@ -24,6 +24,7 @@ import {
   exprToString,
   FuncCallExpr,
   PathCollection,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
 import { generateExprFromCode } from "../../parser";
@@ -271,6 +272,15 @@ export function checkIfFunctionParameterMatchesArgument({
           expectedType: { type: parameterType, env: calleeEnv },
         },
       });
+
+      if (
+        context.isSpawningFunctionCall &&
+        context.isSpawningFunctionCall.frames.length + 1 ===
+          callerEnv.frames.length
+      ) {
+        setExprAsNeedsToCallDup(evaluatedArgExpr, { ...context });
+      }
+
       if (evaluatedArgExpr.$?.env) {
         callerEnv = evaluatedArgExpr.$?.env;
       }

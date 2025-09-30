@@ -70,10 +70,10 @@ export interface EvaluatorContext {
   ModuleType?: ModuleType;
 
   /**
-   * Whether we are currently evaluating a closure call type.
-   * This is used to restrict FnMove/FnMut/Fn usage to only within Closure types.
+   * Whether we are spawning a function call in a separate thread.
+   * If yes, when we process the function call args, we need to call ___dup on them.
    */
-  isEvaluatingClosureCallType?: boolean;
+  isSpawningFunctionCall?: Environment;
 
   /**
    * Whether we are currently evaluating a function type definition.
