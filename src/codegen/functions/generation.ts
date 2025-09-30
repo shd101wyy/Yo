@@ -17,12 +17,18 @@ import {
   isEnumType,
   isFunctionType,
   isStructType,
+  isThreadType,
+  isUnionType,
   isUnitType,
+  ModuleType,
+  StructType,
+  ThreadType,
   typeContainsSomeType,
   TypeTag,
   typeToString,
+  UnionType,
 } from "../../types";
-import { canRefStructFormCycles } from "../../types/utils";
+import { canRefStructFormCycles, typeContainsARCType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import {
@@ -876,8 +882,55 @@ ${getResultBody}
 
     // Generate dispose function for this thread type
     const disposeFnName = `yo_thread_dispose_${signatureStr}`;
+
+    // Generate drop calls for reference-counted parameters
+    const dropCalls = parameterTypes
+      .map((paramType, index) => {
+        if (typeContainsARCType(paramType)) {
+          // Check all types that have a module property for ___drop function
+          let moduleToCheck: ModuleType | undefined;
+
+          if (isStructType(paramType)) {
+            moduleToCheck = (paramType as StructType).module;
+          } else if (isEnumType(paramType)) {
+            moduleToCheck = (paramType as EnumType).module;
+          } else if (isUnionType(paramType)) {
+            moduleToCheck = (paramType as UnionType).module;
+          } else if (isClosureType(paramType)) {
+            moduleToCheck = (paramType as ClosureType).module;
+          } else if (isDynType(paramType)) {
+            moduleToCheck = (paramType as DynType).module;
+          } else if (isThreadType(paramType)) {
+            moduleToCheck = (paramType as ThreadType).module;
+          }
+
+          if (moduleToCheck) {
+            const dropFunction = moduleToCheck.elements.find(
+              (element) => element.label === BuiltinFunctions.___drop[0]
+            );
+            if (
+              dropFunction &&
+              dropFunction.assignedValue &&
+              isFunctionValue(dropFunction.assignedValue)
+            ) {
+              const dropFunctionValue = dropFunction.assignedValue;
+              const dropFunctionCName =
+                context.functions[dropFunctionValue.funcId]?.cName;
+              if (dropFunctionCName) {
+                return `  ${dropFunctionCName}(data->arg${index});\n`;
+              }
+            }
+          }
+        }
+        return "";
+      })
+      .filter((call) => call !== "")
+      .join("");
+
     emitter.emitLine(`static void ${disposeFnName}(void* self) {
   ${structName}* data = (${structName}*)self;
+
+${dropCalls}
   yo_free(data);
 }
 `);
