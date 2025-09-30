@@ -2081,8 +2081,62 @@ function generateChannelFunctions(context: FunctionGenerationContext): void {
   // Generate channel functions for each collected channel type
   for (const { type: chanType, cName } of channelTypes) {
     const elementTypeStr = getTypeString(chanType.elementType, context);
-    const safeCName = sanitizeForCIdentifier(cName);
+    // Use cName directly - it should already be a valid C identifier without * suffix
+    const safeCName = cName;
 
+    // Find the Option type for the element type - this should already be collected
+    // Look for Option(elementType) in the context types using typeName
+    // Use the original Yo type name, not the C type name, for matching
+    const elementYoTypeName = typeToString(chanType.elementType);
+    let optionReturnTypeStr = `/* Option(${elementTypeStr}) type not found */`;
+    let noneTag = 0; // Default fallback
+    let someTag = 1; // Default fallback
+    const expectedOptionTypeName = `Option(${elementYoTypeName})`;
+
+    console.log(
+      `DEBUG: Looking for Option type with elementTypeStr: "${elementTypeStr}"`
+    );
+    console.log(`DEBUG: Element Yo type name: "${elementYoTypeName}"`);
+    console.log(`DEBUG: Expected Option typeName: "${expectedOptionTypeName}"`);
+
+    for (const typeId in context.types) {
+      const typeEntry = context.types[typeId]!;
+      if (isEnumType(typeEntry.type)) {
+        const enumType = typeEntry.type;
+        console.log(
+          `DEBUG: Found enum type with typeName: "${enumType.typeName}", variants: ${enumType.variants.map((v) => v.name).join(", ")}`
+        );
+        console.log(
+          `DEBUG: Comparing "${enumType.typeName}" === "${expectedOptionTypeName}": ${enumType.typeName === expectedOptionTypeName}`
+        );
+
+        // Use typeName for exact matching - this is more reliable
+        if (enumType.typeName === expectedOptionTypeName) {
+          console.log(
+            `DEBUG: Found matching Option type: ${enumType.typeName} with cName: ${typeEntry.cName}`
+          );
+          optionReturnTypeStr = typeEntry.cName;
+
+          // Find the tag values for None and Some variants
+          const noneVariantIndex = enumType.variants.findIndex(
+            (v) => v.name === "None"
+          );
+          const someVariantIndex = enumType.variants.findIndex(
+            (v) => v.name === "Some"
+          );
+
+          console.log(
+            `DEBUG: None variant index: ${noneVariantIndex}, Some variant index: ${someVariantIndex}`
+          );
+
+          // Update the tag values
+          noneTag = noneVariantIndex;
+          someTag = someVariantIndex;
+
+          break;
+        }
+      }
+    }
     emitter.emitLine(`// Channel functions for ${cName}
 
 ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
@@ -2176,17 +2230,17 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 `);
 
     // Channel receive function
-    emitter.emitLine(`${elementTypeStr} __yo_chan_recv_${safeCName}(${cName}* chan) {
-  ${elementTypeStr} result;
-  memset(&result, 0, sizeof(result)); // Initialize to zero
+    emitter.emitLine(`${optionReturnTypeStr} __yo_chan_recv_${safeCName}(${cName}* chan) {
+  ${optionReturnTypeStr} result;
+  memset(&result, 0, sizeof(result)); // Initialize to zero (None case)
 
   if (!chan) {
-    return result; // Return zero-initialized value for null channel
+    return result; // Return None for null channel
   }
 
   if (chan->capacity == 0) {
     // Unbuffered channel - synchronous receive (not implemented for simplicity)
-    // For now, just return zero value
+    // For now, just return None
     return result;
   }
 
@@ -2202,9 +2256,16 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
   if (chan->size > 0) {
     // Get value from buffer
-    result = chan->buffer[chan->head];
+    ${elementTypeStr} value = chan->buffer[chan->head];
     chan->head = (chan->head + 1) % chan->capacity;
     chan->size--;
+    
+    // Construct Some(value)
+    result.tag = ${someTag}; // SOME variant
+    result.data.Some.value = value;
+  } else {
+    // No data available - return None
+    result.tag = ${noneTag}; // NONE variant
   }
 
 #if defined(_WIN32)

@@ -274,6 +274,19 @@ export function getTypeString(
     case TypeTag.Thread:
       // Thread handles are ARC objects - return pointer type
       return "yo_thread_t*";
+
+    // Channel type
+    case TypeTag.Chan: {
+      // Use the registered C type name
+      const cTypeName = context.types[type.id]?.cName;
+      if (!cTypeName) {
+        throw new Error(
+          `No C type name found for channel ${typeToString(type)}`
+        );
+      }
+      // Channel types are reference-counted, so return pointer type
+      return `${cTypeName}*`;
+    }
   }
 
   if (isMutPtrType(type)) {

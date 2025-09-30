@@ -32,3 +32,5 @@ Read `LEARN_YO_IN_10_MINUTES.yo` to understand the syntax.
 If you havent changed the code, don't ask me to run `bun test ...`
 
 When you are working on the C codegen. Do not call `emitter.emitLine` multiple times when you can just use `emitter.emitLine( multi-line string )`
+
+Don't add unnecessary comments to the code.

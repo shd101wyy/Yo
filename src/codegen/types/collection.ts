@@ -1,10 +1,12 @@
 import { Expr, ExprTag } from "../../expr";
 import {
   ArrayType,
+  ChanType,
   ClosureType,
   DynType,
   FunctionType,
   isArrayType,
+  isChanType,
   isClosureType,
   isDynType,
   isEnumType,
@@ -133,10 +135,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isTupleType(type) ||
     isClosureType(type) ||
     isDynType(type) ||
-    isThreadType(type)
+    isThreadType(type) ||
+    isChanType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
-    const cTypeName = isThreadType(type) ? `yo_thread_t` : `yo_${type.id}`;
+    const cTypeName = isThreadType(type)
+      ? `yo_thread_t`
+      : isChanType(type)
+        ? `yo_chan_${sanitizeForCIdentifier(getTypeString((type as ChanType).elementType, context))}_t`
+        : `yo_${type.id}`;
     context.types[type.id] = {
       type,
       cName: cTypeName,
@@ -231,6 +238,13 @@ export function collectType(type: Type, context: CodeGenContext): void {
       for (const moduleType of dynType.moduleTypes) {
         collectType(moduleType, context);
       }
+    }
+
+    // For channel types, collect the element type
+    if (isChanType(type)) {
+      const chanType = type as ChanType;
+      // Recursively collect the element type
+      collectType(chanType.elementType, context);
     }
   }
   // Check if it's array types

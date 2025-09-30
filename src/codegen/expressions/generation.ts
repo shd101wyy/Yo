@@ -377,14 +377,18 @@ function generateFuncCall(
       return `// Error: chan() missing type information`;
     }
 
-    const chanTypeStr = getTypeString(chanType, context);
+    const chanTypeCName = context.types[chanType.id]?.cName;
+    if (!chanTypeCName) {
+      return `// Error: chan() channel type not found in context`;
+    }
+
     let capacity = "0";
 
     if (capacityArg) {
       capacity = generateExpr(capacityArg, indent, context);
     }
 
-    return `__yo_chan_create_${sanitizeForCIdentifier(chanTypeStr)}(${capacity})`;
+    return `__yo_chan_create_${chanTypeCName}(${capacity})`;
   }
 
   // __yo_chan_send - send value to channel
@@ -404,8 +408,11 @@ function generateFuncCall(
       return `// Error: __yo_chan_send channel argument missing type information`;
     }
 
-    const chanTypeStr = getTypeString(chanType, context);
-    return `__yo_chan_send_${sanitizeForCIdentifier(chanTypeStr)}(${chanCode}, ${valueCode})`;
+    const chanTypeCName = context.types[chanType.id]?.cName;
+    if (!chanTypeCName) {
+      return `// Error: __yo_chan_send channel type not found in context`;
+    }
+    return `__yo_chan_send_${chanTypeCName}(${chanCode}, ${valueCode})`;
   }
 
   // __yo_chan_recv - receive value from channel
@@ -423,8 +430,12 @@ function generateFuncCall(
       return `// Error: __yo_chan_recv channel argument missing type information`;
     }
 
-    const chanTypeStr = getTypeString(chanType, context);
-    return `__yo_chan_recv_${sanitizeForCIdentifier(chanTypeStr)}(${chanCode})`;
+    const chanTypeCName = context.types[chanType.id]?.cName;
+    if (!chanTypeCName) {
+      return `// Error: __yo_chan_recv channel type not found in context`;
+    }
+
+    return `__yo_chan_recv_${chanTypeCName}(${chanCode})`;
   }
 
   // __yo_chan_close - close channel
@@ -442,8 +453,11 @@ function generateFuncCall(
       return `// Error: __yo_chan_close channel argument missing type information`;
     }
 
-    const chanTypeStr = getTypeString(chanType, context);
-    return `__yo_chan_close_${sanitizeForCIdentifier(chanTypeStr)}(${chanCode})`;
+    const chanTypeCName = context.types[chanType.id]?.cName;
+    if (!chanTypeCName) {
+      return `// Error: __yo_chan_close channel type not found in context`;
+    }
+    return `__yo_chan_close_${chanTypeCName}(${chanCode})`;
   }
 
   // dyn() - dynamic dispatch constructor
@@ -1341,18 +1355,85 @@ function generateFuncCall(
             }
           }
         } else {
-          // Might be extern function, a built-in, or a function parameter
+          // Check if this is a channel extern function that should be treated as built-in
           const externFunction = context.externFunctions[functionType.id];
           if (externFunction) {
-            // Generate extern function call
-            const cFuncName = externFunction.cName;
+            const funcName = externFunction.cName;
 
-            // Handle deferred drop expressions if they exist
-            if (expr.$?.deferredDropExpressions) {
-              generateDeferredDropExpressions(expr, indent, context);
+            // Redirect channel extern functions to built-in handlers
+            if (funcName === "__yo_chan_send") {
+              // Handle as built-in __yo_chan_send
+              const chanArg = expr.args[0];
+              const valueArg = expr.args[1];
+
+              if (!chanArg || !valueArg) {
+                return `// Error: __yo_chan_send requires exactly 2 arguments (channel, value)`;
+              }
+
+              const chanCode = generateExpr(chanArg, indent, context);
+              const valueCode = generateExpr(valueArg, indent, context);
+              const chanType = chanArg.$?.type;
+
+              if (!chanType) {
+                return `// Error: __yo_chan_send channel argument missing type information`;
+              }
+
+              const chanTypeCName = context.types[chanType.id]?.cName;
+              if (!chanTypeCName) {
+                return `// Error: __yo_chan_send channel type not found in context`;
+              }
+              return `__yo_chan_send_${chanTypeCName}(${chanCode}, ${valueCode})`;
+            } else if (funcName === "__yo_chan_recv") {
+              // Handle as built-in __yo_chan_recv
+              const chanArg = expr.args[0];
+
+              if (!chanArg) {
+                return `// Error: __yo_chan_recv requires exactly 1 argument (channel)`;
+              }
+
+              const chanCode = generateExpr(chanArg, indent, context);
+              const chanType = chanArg.$?.type;
+
+              if (!chanType) {
+                return `// Error: __yo_chan_recv channel argument missing type information`;
+              }
+
+              const chanTypeCName = context.types[chanType.id]?.cName;
+              if (!chanTypeCName) {
+                return `// Error: __yo_chan_recv channel type not found in context`;
+              }
+              return `__yo_chan_recv_${chanTypeCName}(${chanCode})`;
+            } else if (funcName === "__yo_chan_close") {
+              // Handle as built-in __yo_chan_close
+              const chanArg = expr.args[0];
+
+              if (!chanArg) {
+                return `// Error: __yo_chan_close requires exactly 1 argument (channel)`;
+              }
+
+              const chanCode = generateExpr(chanArg, indent, context);
+              const chanType = chanArg.$?.type;
+
+              if (!chanType) {
+                return `// Error: __yo_chan_close channel argument missing type information`;
+              }
+
+              const chanTypeCName = context.types[chanType.id]?.cName;
+              if (!chanTypeCName) {
+                return `// Error: __yo_chan_close channel type not found in context`;
+              }
+              return `__yo_chan_close_${chanTypeCName}(${chanCode})`;
+            } else {
+              // Generate regular extern function call
+              const cFuncName = externFunction.cName;
+
+              // Handle deferred drop expressions if they exist
+              if (expr.$?.deferredDropExpressions) {
+                generateDeferredDropExpressions(expr, indent, context);
+              }
+
+              return `${cFuncName}(${argsList})`;
             }
-
-            return `${cFuncName}(${argsList})`;
           } else {
             // Function parameter call (e.g., callback(x))
             const funcCode = generateExpr(expr.func, indent, context);
