@@ -201,6 +201,16 @@ export function typeContainsSomeType(
       return (type as UnionType).elements.some((element) =>
         typeContainsSomeType(element.type, checkedTypes)
       );
+    case TypeTag.Function: {
+      const functionType = type as FunctionType;
+      return (
+        functionType.forallParameters.length > 0 ||
+        functionType.parameters.some((parameter) =>
+          typeContainsSomeType(parameter.type, checkedTypes)
+        ) ||
+        typeContainsSomeType(functionType.return.type, checkedTypes)
+      );
+    }
     case TypeTag.Module:
       return (type as ModuleType).elements.some((element) =>
         typeContainsSomeType(element.type, checkedTypes)

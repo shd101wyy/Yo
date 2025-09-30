@@ -72,8 +72,8 @@ export function generateFunctionDeclarations(
   emitter.emitDeclarationLine("");
 
   // Generate constructor functions for objects
-  emitter.emitDeclarationLine(`/// Ref struct constructors`);
-  generateRefStructConstructorDeclarations(context);
+  emitter.emitDeclarationLine(`/// Object constructors`);
+  generateObjectConstructorDeclarations(context);
   emitter.emitDeclarationLine("");
 
   // Generate constructor functions for closures
@@ -460,7 +460,7 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 /**
  * Generate constructor function declarations for objects
  */
-export function generateRefStructConstructorDeclarations(
+export function generateObjectConstructorDeclarations(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;

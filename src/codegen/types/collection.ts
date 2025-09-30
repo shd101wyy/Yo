@@ -15,6 +15,7 @@ import {
   isUnionType,
   SliceType,
   Type,
+  typeContainsSomeType,
   TypeTag,
 } from "../../types";
 import {
@@ -118,6 +119,11 @@ export function collectTypesFromExpr(
 export function collectType(type: Type, context: CodeGenContext): void {
   if (context.types[type.id]) {
     return; // Already collected this type
+  }
+
+  // Skip collecting any types that contain SomeType (generic type parameters)
+  if (typeContainsSomeType(type)) {
+    return;
   }
 
   if (

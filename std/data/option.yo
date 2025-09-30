@@ -1,7 +1,14 @@
 Option :: (fn(compt(T) : Type) -> compt(Type))
   enum
     Some(value: T),
-    None
+    None,
+
+    unwrap :: ((fn(self : Self) -> T)
+      match(self,
+        .Some(value) => value,
+        .None => panic("Called unwrap on a None value")
+      )
+    )
 ;
 
 // Alias of the Option type

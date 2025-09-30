@@ -1,5 +1,5 @@
 import { Expr, exprIsAtom, exprIsFunctionCall } from "../../expr";
-import { isFunctionType } from "../../types";
+import { isFunctionType, typeContainsSomeType } from "../../types";
 import {
   isClosureValue,
   isFunctionValue,
@@ -61,6 +61,11 @@ export function findFunctionCallsInExpr(
 
     if (isFunctionType(functionType)) {
       if (isFunctionValue(functionValue)) {
+        // Skip collecting functions that have generic types
+        if (typeContainsSomeType(functionValue.type)) {
+          return;
+        }
+
         if (context.functions[functionValue.funcId]) {
           // Already collected this function
           // return;
@@ -97,6 +102,11 @@ export function findFunctionCallsInExpr(
   const functionValue = expr.$?.value;
   if (isFunctionType(functionType)) {
     if (isFunctionValue(functionValue)) {
+      // Skip collecting functions that have generic types
+      if (typeContainsSomeType(functionValue.type)) {
+        return;
+      }
+
       if (context.functions[functionValue.funcId]) {
         // Already collected this function
         return;
@@ -115,6 +125,12 @@ export function findFunctionCallsInExpr(
   // expr might be a closure value
   else if (functionValue && isClosureValue(functionValue)) {
     const closureFunctionValue = functionValue.functionValue;
+
+    // Skip collecting functions that have generic types
+    if (typeContainsSomeType(closureFunctionValue.type)) {
+      return;
+    }
+
     if (context.functions[closureFunctionValue.funcId]) {
       // Already collected this function
       return;

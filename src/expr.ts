@@ -814,6 +814,9 @@ export const BuiltinFunctions = {
   // C language related
   c_include: ["c_include"],
 
+  // Error handling
+  panic: ["panic"],
+
   // ARC related
   is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)

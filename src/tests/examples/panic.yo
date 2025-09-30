@@ -1,0 +1,27 @@
+open import "std/libc/stdio.yo";
+
+Option :: (fn(compt(T) : Type) -> compt(Type))
+  enum
+    Some(value: T),
+    None,
+
+    unwrap :: ((fn(self : Self) -> T)
+      match(self,
+        .Some(value) => value,
+        .None => panic("Called unwrap on a None value")
+      )
+    )
+;
+
+main :: (fn() -> i32) {
+  opt1 := Option(i32).Some(42);
+  x := opt1.unwrap(); // This shouldn't panic
+  printf("opt1.unwrap() %d\n", x);
+
+  opt2 := Option(i32).None;
+  y := opt2.unwrap(); // This should panic
+
+  return 0;
+};
+
+export main;

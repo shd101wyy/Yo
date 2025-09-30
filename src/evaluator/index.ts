@@ -60,6 +60,7 @@ import { evaluateYoGcCollect } from "./builtins/gc";
 import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
+import { evaluatePanic } from "./builtins/panic";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
 import { evaluateThe } from "./builtins/the";
@@ -502,6 +503,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_print)) {
         // compt_print
         return evaluateComptPrint({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
+        // panic
+        return evaluatePanic({
           expr,
           env,
           context: { ...context },
