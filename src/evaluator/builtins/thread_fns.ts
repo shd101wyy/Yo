@@ -5,11 +5,12 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
+  exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
 import { createThreadType } from "../../types/creators";
-import { isThreadType } from "../../types/guards";
+import { isFunctionType, isThreadType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { addARCFunctionsToThreadType } from "../types/utils";
@@ -52,6 +53,30 @@ export function evaluateSpawn({
     throw formatErrorMessage({
       token: functionCallExpr.token,
       errorMessage: `Failed to evaluate expression.`,
+    });
+  }
+
+  if (!exprIsFunctionCall(evaluatedExpr)) {
+    throw formatErrorMessage({
+      token: functionCallExpr.token,
+      errorMessage: `Expected a function call expression inside spawn, got:\n${exprToString(
+        functionCallExpr
+      )}`,
+    });
+  }
+
+  if (!isFunctionType(evaluatedExpr.func.$?.type)) {
+    throw formatErrorMessage({
+      token: evaluatedExpr.func.token,
+      errorMessage: `Expected a function type for the called function, got ${evaluatedExpr.func.$?.type.tag}`,
+    });
+  }
+
+  const functionType = evaluatedExpr.func.$.type;
+  if (functionType.return.isCompileTimeOnly) {
+    throw formatErrorMessage({
+      token: functionCallExpr.token,
+      errorMessage: `Cannot spawn a function that returns a compile-time-only value.`,
     });
   }
 

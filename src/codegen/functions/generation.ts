@@ -17,9 +17,7 @@ import {
   isEnumType,
   isFunctionType,
   isStructType,
-  isThreadType,
   isUnitType,
-  ThreadType,
   typeContainsSomeType,
   TypeTag,
   typeToString,
@@ -446,6 +444,9 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     // Generate the specialized function body
     generateFunction(functionValue, cFunctionName, context);
   }
+
+  // Generate monomorphized thread wrapper functions after all expressions have been processed
+  generateThreadWrapperFunctions(context);
 }
 
 /**
@@ -758,98 +759,174 @@ void* __yo_incr_rc(void* ptr) {
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(emitter);
-
-  // Generate monomorphized thread wrapper functions
-  generateThreadWrapperFunctions(context);
 }
 
 /**
- * Generate specialized thread data structures and vtables for different thread types
+ * Generate specialized thread data structures and vtables for different spawned function signatures
  */
-function generateThreadWrapperFunctions(
-  context: FunctionGenerationContext
-): void {
+function generateThreadWrapperFunctions(context: CodeGenContext): void {
   const emitter = context.emitter;
 
-  // Generate specialized thread data structures for each Thread type we encounter
-  const threadTypes = new Set<string>();
+  // First, generate function declarations
+  emitter.emitDeclarationLine(`/// Thread constructor declarations`);
+  const generatedDeclarationSignatures = new Set<string>();
 
-  // Look through all types to find Thread types
-  for (const typeEntry of Object.values(context.types)) {
-    const type = typeEntry.type;
-    if (isThreadType(type)) {
-      const threadType = type as ThreadType;
-      const returnType = threadType.returnType;
-      const returnTypeStr = getTypeString(returnType, context);
-      const normalizedTypeName = sanitizeForCIdentifier(returnTypeStr);
+  for (const [, functionType] of context.spawnedFunctionSignatures) {
+    const paramTypeStrs = functionType.parameters.map((param) =>
+      sanitizeForCIdentifier(getTypeString(param.type, context))
+    );
+    const returnTypeStr = sanitizeForCIdentifier(
+      getTypeString(functionType.return.type, context)
+    );
+    const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
 
-      if (threadTypes.has(normalizedTypeName)) {
-        continue; // Already generated
-      }
-      threadTypes.add(normalizedTypeName);
+    if (generatedDeclarationSignatures.has(signatureStr)) {
+      continue;
+    }
+    generatedDeclarationSignatures.add(signatureStr);
 
-      // Generate specialized thread data structure
-      const structName = `yo_thread_data_${normalizedTypeName}_t`;
-      const resultField = isUnitType(returnType)
-        ? ""
-        : `  ${returnTypeStr} result;                     // Typed result storage\n`;
-      emitter.emitLine(`typedef struct ${structName} {
+    // Generate declaration for thread constructor
+    const paramDecls = functionType.parameters
+      .map((param, index) => {
+        const paramTypeStr = getTypeString(param.type, context);
+        return `${paramTypeStr} arg${index}`;
+      })
+      .join(", ");
+
+    const constructorName = `__yo_new_yo_thread_${signatureStr}_t`;
+    emitter.emitDeclarationLine(
+      `yo_thread_t* ${constructorName}(void* func${
+        paramDecls ? `, ${paramDecls}` : ""
+      }); // Thread constructor for ${signatureStr}`
+    );
+  }
+  emitter.emitDeclarationLine("");
+
+  // Generate specialized thread data structures for each spawned function signature
+  const generatedSignatures = new Set<string>();
+
+  // Look through all spawned function signatures
+  for (const [, functionType] of context.spawnedFunctionSignatures) {
+    const returnType = functionType.return.type;
+    const paramTypeStrs = functionType.parameters.map((param) =>
+      sanitizeForCIdentifier(getTypeString(param.type, context))
+    );
+    const returnTypeStr = sanitizeForCIdentifier(
+      getTypeString(returnType, context)
+    );
+    const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
+
+    if (generatedSignatures.has(signatureStr)) {
+      continue; // Already generated
+    }
+    generatedSignatures.add(signatureStr);
+
+    // Generate specialized thread data structure with individual parameter fields
+    const structName = `yo_thread_data_${signatureStr}_t`;
+    const resultField = isUnitType(returnType)
+      ? ""
+      : `  ${getTypeString(returnType, context)} result;                     // Typed result storage\n`;
+
+    const paramFields = functionType.parameters
+      .map((param, index) => {
+        const paramTypeStr = getTypeString(param.type, context);
+        return `  ${paramTypeStr} arg${index};                           // Parameter ${index}\n`;
+      })
+      .join("");
+
+    emitter.emitLine(`typedef struct ${structName} {
   yo_thread_data_base_t base;              // Base thread data
-  void (*function)(void*);                 // Function to execute
-  void* args;                              // Function arguments
-${resultField}} ${structName};
+  void* function;                          // Function to execute
+${paramFields}${resultField}} ${structName};
 `);
 
-      // Generate execute function for this thread type
-      const executeFnName = `yo_thread_execute_${normalizedTypeName}`;
-      const executeBody = isUnitType(returnType)
-        ? `  void (*func_void)(void*) = (void (*)(void*))data->function;
-  func_void(data->args);`
-        : `  ${returnTypeStr} (*func)(void*) = (${returnTypeStr} (*)(void*))data->function;
-  data->result = func(data->args);`;
+    // Generate execute function for this thread type that properly unpacks arguments
+    const executeFnName = `yo_thread_execute_${signatureStr}`;
 
-      emitter.emitLine(`static void ${executeFnName}(void* self) {
+    // Create proper function signature and argument unpacking
+    const paramTypesStr = functionType.parameters
+      .map((param) => getTypeString(param.type, context))
+      .join(", ");
+
+    let executeBody: string;
+    if (functionType.parameters.length === 0) {
+      // No parameters
+      executeBody = isUnitType(returnType)
+        ? `  void (*func)(void) = (void (*)(void))data->function;
+  func();`
+        : `  ${getTypeString(returnType, context)} (*func)(void) = (${getTypeString(returnType, context)} (*)(void))data->function;
+  data->result = func();`;
+    } else {
+      // Has parameters - call function directly with stored arguments
+      const argsList = functionType.parameters
+        .map((_, index) => `data->arg${index}`)
+        .join(", ");
+
+      executeBody = isUnitType(returnType)
+        ? `  void (*func)(${paramTypesStr}) = (void (*)(${paramTypesStr}))data->function;
+  func(${argsList});`
+        : `  ${getTypeString(returnType, context)} (*func)(${paramTypesStr}) = (${getTypeString(returnType, context)} (*)(${paramTypesStr}))data->function;
+  data->result = func(${argsList});`;
+    }
+
+    emitter.emitLine(`static void ${executeFnName}(void* self) {
   ${structName}* data = (${structName}*)self;
 ${executeBody}
 }
 `);
 
-      // Generate get_result function for this thread type
-      const getResultFnName = `yo_thread_get_result_${normalizedTypeName}`;
-      const getResultBody = isUnitType(returnType)
-        ? `  return NULL; // Unit type has no result`
-        : `  return &data->result;`;
+    // Generate get_result function for this thread type
+    const getResultFnName = `yo_thread_get_result_${signatureStr}`;
+    const getResultBody = isUnitType(returnType)
+      ? `  return NULL; // Unit type has no result`
+      : `  return &data->result;`;
 
-      emitter.emitLine(`static void* ${getResultFnName}(void* self) {
+    emitter.emitLine(`static void* ${getResultFnName}(void* self) {
   ${structName}* data = (${structName}*)self;
 ${getResultBody}
 }
 `);
 
-      // Generate dispose function for this thread type
-      const disposeFnName = `yo_thread_dispose_${normalizedTypeName}`;
-      emitter.emitLine(`static void ${disposeFnName}(void* self) {
+    // Generate dispose function for this thread type
+    const disposeFnName = `yo_thread_dispose_${signatureStr}`;
+    emitter.emitLine(`static void ${disposeFnName}(void* self) {
   ${structName}* data = (${structName}*)self;
   yo_free(data);
 }
 `);
 
-      // Generate vtable for this thread type
-      const vtableName = `yo_thread_vtable_${normalizedTypeName}`;
-      emitter.emitLine(`static yo_thread_data_vtable_t ${vtableName} = {
+    // Generate vtable for this thread type
+    const vtableName = `yo_thread_vtable_${signatureStr}`;
+    emitter.emitLine(`static yo_thread_data_vtable_t ${vtableName} = {
   .execute_fn = ${executeFnName},
   .get_result_fn = ${getResultFnName},
   .dispose_fn = ${disposeFnName}
 };
 `);
 
-      // Generate constructor function for this thread type
-      const constructorName = `__yo_new_yo_thread_${normalizedTypeName}_t`;
-      const resultInit = isUnitType(returnType)
-        ? ""
-        : `  memset(&data->result, 0, sizeof(data->result)); // Initialize result\n`;
+    // Generate constructor function for this thread type
+    const constructorName = `__yo_new_yo_thread_${signatureStr}_t`;
+    const resultInit = isUnitType(returnType)
+      ? ""
+      : `  memset(&data->result, 0, sizeof(data->result)); // Initialize result\n`;
 
-      emitter.emitLine(`yo_thread_t* ${constructorName}(void (*func)(void*), void* args) {
+    // Generate constructor parameter list
+    const constructorParams = [
+      "void* func",
+      ...functionType.parameters.map((param, index) => {
+        const paramTypeStr = getTypeString(param.type, context);
+        return `${paramTypeStr} arg${index}`;
+      }),
+    ].join(", ");
+
+    // Generate parameter assignments
+    const paramAssignments = functionType.parameters
+      .map((param, index) => {
+        return `  data->arg${index} = arg${index};\n`;
+      })
+      .join("");
+
+    emitter.emitLine(`yo_thread_t* ${constructorName}(${constructorParams}) {
   // Allocate thread object with ARC header
   yo_thread_t* thread = (yo_thread_t*)yo_malloc(sizeof(yo_thread_t));
   
@@ -867,8 +944,7 @@ ${getResultBody}
   data->base.vtable = &${vtableName};
   atomic_store_explicit(&data->base.joined, 0, memory_order_relaxed);
   data->function = func;
-  data->args = args;
-${resultInit}  
+${paramAssignments}${resultInit}  
   thread->data = (yo_thread_data_base_t*)data;
   
   // Create the actual system thread
@@ -891,7 +967,6 @@ ${resultInit}
   return thread;
 }
 `);
-    }
   }
 }
 

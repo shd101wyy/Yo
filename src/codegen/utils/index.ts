@@ -50,6 +50,12 @@ export interface CodeGenContext {
   sliceStructTypes: Map<string, { elementType: string }>;
 
   /**
+   * Spawned function signatures that need thread wrapper generation
+   * Maps function type id to function type
+   */
+  spawnedFunctionSignatures: Map<TypeId, FunctionType>;
+
+  /**
    * track the current function being generated for recur
    */
   currentFunctionName: string;

@@ -239,9 +239,13 @@ function generateFuncCall(
     if (exprIsFunctionCall(funcCallArg)) {
       const funcCode = generateExpr(funcCallArg.func, indent, context);
       const returnType = funcCallArg.$?.type;
+      const functionType = funcCallArg.func.$?.type;
 
-      if (returnType) {
-        // Create the Thread type and register it in the context to ensure wrapper functions are generated
+      if (returnType && isFunctionType(functionType)) {
+        // Register the spawned function signature for thread wrapper generation
+        context.spawnedFunctionSignatures.set(functionType.id, functionType);
+
+        // Create the Thread type and register it in the context
         const threadType = createThreadType(returnType);
         const threadTypeId = `thread_${sanitizeForCIdentifier(getTypeString(returnType, context))}`;
         if (!context.types[threadTypeId]) {
@@ -251,64 +255,26 @@ function generateFuncCall(
           };
         }
 
-        // Determine the specialized thread constructor based on return type
-        const returnTypeStr = getTypeString(returnType, context);
-        const normalizedTypeName = sanitizeForCIdentifier(returnTypeStr);
-        const threadConstructor = `__yo_new_yo_thread_${normalizedTypeName}_t`;
+        // Generate unique constructor name based on function signature (not just return type)
+        const paramTypeStrs = functionType.parameters.map((param) =>
+          sanitizeForCIdentifier(getTypeString(param.type, context))
+        );
+        const returnTypeStr = sanitizeForCIdentifier(
+          getTypeString(returnType, context)
+        );
+        const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
+        const threadConstructor = `__yo_new_yo_thread_${signatureStr}_t`;
 
-        // Handle arguments properly - create a struct to pass arguments
-        if (funcCallArg.args.length === 0) {
-          // No arguments
-          return `${threadConstructor}((void(*)(void*))${funcCode}, NULL)`;
-        } else if (funcCallArg.args.length === 1) {
-          // Single argument - pass directly
-          const argCode = generateExpr(funcCallArg.args[0]!, indent, context);
-          const argType = funcCallArg.args[0]!.$?.type;
+        // Generate function call with direct arguments
+        const argCodes = funcCallArg.args.map((arg) =>
+          generateExpr(arg, indent, context)
+        );
 
-          // For string literals and simple values, pass them directly without creating struct wrappers
-          if (
-            argType &&
-            (argType.tag === TypeTag.ComptString ||
-              (isMutPtrType(argType) && argType.type.tag === TypeTag.U8))
-          ) {
-            return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)${argCode})`;
-          } else if (argType) {
-            const argTypeStr = getTypeString(argType, context);
-            return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)&(${argTypeStr}){${argCode}})`;
-          } else {
-            return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)${argCode})`;
-          }
-        } else {
-          // Multiple arguments - create argument struct to hold all parameters
-          const args = funcCallArg.args;
-          const argCodes = args.map((arg) =>
-            generateExpr(arg, indent, context)
-          );
-
-          // Create a temporary struct to hold all arguments
-          const structMembers = args
-            .map((arg, index) => {
-              const argType = arg.$?.type;
-              if (argType) {
-                const argTypeStr = getTypeString(argType, context);
-                return `${argTypeStr} arg${index}`;
-              } else {
-                return `void* arg${index}`;
-              }
-            })
-            .join("; ");
-
-          const structValues = argCodes
-            .map((code, index) => `arg${index}: ${code}`)
-            .join(", ");
-
-          // Generate the struct literal
-          const argsStruct = `(struct { ${structMembers}; }){ ${structValues} }`;
-
-          return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)&${argsStruct})`;
-        }
+        // Call constructor with function pointer and individual arguments
+        const allArgs = [`(void*)${funcCode}`, ...argCodes].join(", ");
+        return `${threadConstructor}(${allArgs})`;
       } else {
-        return `// Error: spawn function call missing type information`;
+        return `// Error: spawn function call missing type information or function type`;
       }
     }
     return `// Error: spawn argument must be a function call`;
@@ -747,31 +713,6 @@ function generateFuncCall(
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {
-    // Add debugging for method calls that should not be field access
-    const objectExpr = expr.args[0];
-    const fieldExpr = expr.args[1];
-    if (objectExpr && fieldExpr && exprIsAtom(fieldExpr)) {
-      const fieldName = fieldExpr.token.value;
-      if (fieldName.startsWith("___")) {
-        console.log("DEBUG: Field access to method:", fieldName);
-        console.log(
-          "DEBUG: Object expr type:",
-          objectExpr.$?.type ? typeToString(objectExpr.$.type) : "no type"
-        );
-        console.log(
-          "DEBUG: Object expr value:",
-          objectExpr.$?.value ? valueToString(objectExpr.$.value) : "no value"
-        );
-        console.log(
-          "DEBUG: Field expr type:",
-          fieldExpr.$?.type ? typeToString(fieldExpr.$.type) : "no type"
-        );
-        console.log(
-          "DEBUG: Field expr value:",
-          fieldExpr.$?.value ? valueToString(fieldExpr.$.value) : "no value"
-        );
-      }
-    }
     return generateFieldAccess(expr, indent, context);
   }
   // begin
