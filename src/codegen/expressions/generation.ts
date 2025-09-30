@@ -242,8 +242,20 @@ function generateFuncCall(
       const functionType = funcCallArg.func.$?.type;
 
       if (returnType && isFunctionType(functionType)) {
+        // Generate signature string based on parameter types + return type
+        const paramTypeStrs = functionType.parameters.map((param) =>
+          sanitizeForCIdentifier(getTypeString(param.type, context))
+        );
+        const returnTypeStr = sanitizeForCIdentifier(
+          getTypeString(returnType, context)
+        );
+        const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
+
         // Register the spawned function signature for thread wrapper generation
-        context.spawnedFunctionSignatures.set(functionType.id, functionType);
+        context.spawnedFunctionSignatures.set(signatureStr, {
+          parameterTypes: functionType.parameters.map((p) => p.type),
+          returnType: returnType,
+        });
 
         // Create the Thread type and register it in the context
         const threadType = createThreadType(returnType);
@@ -255,14 +267,7 @@ function generateFuncCall(
           };
         }
 
-        // Generate unique constructor name based on function signature (not just return type)
-        const paramTypeStrs = functionType.parameters.map((param) =>
-          sanitizeForCIdentifier(getTypeString(param.type, context))
-        );
-        const returnTypeStr = sanitizeForCIdentifier(
-          getTypeString(returnType, context)
-        );
-        const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
+        // Use the signature string for constructor name generation
         const threadConstructor = `__yo_new_yo_thread_${signatureStr}_t`;
 
         // Generate function call with direct arguments

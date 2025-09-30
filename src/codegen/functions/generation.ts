@@ -771,14 +771,8 @@ function generateThreadWrapperFunctions(context: CodeGenContext): void {
   emitter.emitDeclarationLine(`/// Thread constructor declarations`);
   const generatedDeclarationSignatures = new Set<string>();
 
-  for (const [, functionType] of context.spawnedFunctionSignatures) {
-    const paramTypeStrs = functionType.parameters.map((param) =>
-      sanitizeForCIdentifier(getTypeString(param.type, context))
-    );
-    const returnTypeStr = sanitizeForCIdentifier(
-      getTypeString(functionType.return.type, context)
-    );
-    const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
+  for (const [signatureStr, signature] of context.spawnedFunctionSignatures) {
+    const { parameterTypes } = signature;
 
     if (generatedDeclarationSignatures.has(signatureStr)) {
       continue;
@@ -786,9 +780,9 @@ function generateThreadWrapperFunctions(context: CodeGenContext): void {
     generatedDeclarationSignatures.add(signatureStr);
 
     // Generate declaration for thread constructor
-    const paramDecls = functionType.parameters
-      .map((param, index) => {
-        const paramTypeStr = getTypeString(param.type, context);
+    const paramDecls = parameterTypes
+      .map((paramType, index) => {
+        const paramTypeStr = getTypeString(paramType, context);
         return `${paramTypeStr} arg${index}`;
       })
       .join(", ");
@@ -806,15 +800,8 @@ function generateThreadWrapperFunctions(context: CodeGenContext): void {
   const generatedSignatures = new Set<string>();
 
   // Look through all spawned function signatures
-  for (const [, functionType] of context.spawnedFunctionSignatures) {
-    const returnType = functionType.return.type;
-    const paramTypeStrs = functionType.parameters.map((param) =>
-      sanitizeForCIdentifier(getTypeString(param.type, context))
-    );
-    const returnTypeStr = sanitizeForCIdentifier(
-      getTypeString(returnType, context)
-    );
-    const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
+  for (const [signatureStr, signature] of context.spawnedFunctionSignatures) {
+    const { parameterTypes, returnType } = signature;
 
     if (generatedSignatures.has(signatureStr)) {
       continue; // Already generated
@@ -827,9 +814,9 @@ function generateThreadWrapperFunctions(context: CodeGenContext): void {
       ? ""
       : `  ${getTypeString(returnType, context)} result;                     // Typed result storage\n`;
 
-    const paramFields = functionType.parameters
-      .map((param, index) => {
-        const paramTypeStr = getTypeString(param.type, context);
+    const paramFields = parameterTypes
+      .map((paramType, index) => {
+        const paramTypeStr = getTypeString(paramType, context);
         return `  ${paramTypeStr} arg${index};                           // Parameter ${index}\n`;
       })
       .join("");
@@ -844,12 +831,12 @@ ${paramFields}${resultField}} ${structName};
     const executeFnName = `yo_thread_execute_${signatureStr}`;
 
     // Create proper function signature and argument unpacking
-    const paramTypesStr = functionType.parameters
-      .map((param) => getTypeString(param.type, context))
+    const paramTypesStr = parameterTypes
+      .map((paramType) => getTypeString(paramType, context))
       .join(", ");
 
     let executeBody: string;
-    if (functionType.parameters.length === 0) {
+    if (parameterTypes.length === 0) {
       // No parameters
       executeBody = isUnitType(returnType)
         ? `  void (*func)(void) = (void (*)(void))data->function;
@@ -858,7 +845,7 @@ ${paramFields}${resultField}} ${structName};
   data->result = func();`;
     } else {
       // Has parameters - call function directly with stored arguments
-      const argsList = functionType.parameters
+      const argsList = parameterTypes
         .map((_, index) => `data->arg${index}`)
         .join(", ");
 
@@ -913,15 +900,15 @@ ${getResultBody}
     // Generate constructor parameter list
     const constructorParams = [
       "void* func",
-      ...functionType.parameters.map((param, index) => {
-        const paramTypeStr = getTypeString(param.type, context);
+      ...parameterTypes.map((paramType, index) => {
+        const paramTypeStr = getTypeString(paramType, context);
         return `${paramTypeStr} arg${index}`;
       }),
     ].join(", ");
 
     // Generate parameter assignments
-    const paramAssignments = functionType.parameters
-      .map((param, index) => {
+    const paramAssignments = parameterTypes
+      .map((_, index) => {
         return `  data->arg${index} = arg${index};\n`;
       })
       .join("");

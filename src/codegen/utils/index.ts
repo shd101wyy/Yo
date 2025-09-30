@@ -51,9 +51,12 @@ export interface CodeGenContext {
 
   /**
    * Spawned function signatures that need thread wrapper generation
-   * Maps function type id to function type
+   * Maps signature string (based on parameter types + return type) to the signature info
    */
-  spawnedFunctionSignatures: Map<TypeId, FunctionType>;
+  spawnedFunctionSignatures: Map<
+    string,
+    { parameterTypes: Type[]; returnType: Type }
+  >;
 
   /**
    * track the current function being generated for recur
