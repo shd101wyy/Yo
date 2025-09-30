@@ -9,6 +9,7 @@ import {
   SliceType,
   SomeType,
   StructType,
+  ThreadType,
   TupleType,
   Type,
   TypeHierarchyType,
@@ -239,7 +240,8 @@ export function isARCType(type?: Type): boolean {
   return (
     isObjectType(type) ||
     isDynType(type) || // All Dyn types are reference semantics
-    isClosureType(type) // All closures are reference semantics
+    isClosureType(type) || // All closures are reference semantics
+    isThreadType(type) // All threads are reference semantics
   );
 }
 
@@ -326,6 +328,10 @@ export function isLongDoubleType(type?: Type): boolean {
 
 export function isVoidType(type?: Type): type is VoidType {
   return type?.tag === TypeTag.Void;
+}
+
+export function isThreadType(type?: Type): type is ThreadType {
+  return type?.tag === TypeTag.Thread;
 }
 
 // Helper function to check if a type is a C compatible type

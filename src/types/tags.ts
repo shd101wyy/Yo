@@ -80,4 +80,7 @@ export enum TypeTag {
   // Expr (for macro/metaprogramming)
   Expr = "Expr",
   ExprList = "ExprList",
+
+  // Concurrency
+  Thread = "Thread",
 }

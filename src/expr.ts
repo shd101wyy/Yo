@@ -489,6 +489,10 @@ export const BuiltinFunctions = {
   the: ["the"],
   do: ["do"],
 
+  // Concurrency related functions
+  spawn: ["spawn"],
+  __yo_thread_wait: ["__yo_thread_wait"],
+
   // Pointer related functions
   __yo_ptr_cast: ["__yo_ptr_cast"],
   __yo_mut_ptr_cast: ["__yo_mut_ptr_cast"],

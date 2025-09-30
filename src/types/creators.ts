@@ -19,6 +19,7 @@ import {
   SliceType,
   SomeType,
   StructType,
+  ThreadType,
   TupleElement,
   TupleType,
   Type,
@@ -587,4 +588,14 @@ export function createDynType(
   module.elements.push(selfElement);
 
   return dynType;
+}
+
+export function createThreadType(returnType: Type): ThreadType {
+  const threadType: ThreadType = {
+    id: `thread_${returnType.id}`,
+    tag: TypeTag.Thread,
+    returnType,
+  };
+
+  return threadType;
 }

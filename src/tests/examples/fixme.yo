@@ -1,16 +1,19 @@
 open import "std/libc/stdio.yo";
 
-Box :: object
-  (*) : i32,
-  
-  dispose :: ((fn(self : Self)-> unit) {
-    printf("Disposing Box with value %d\n", self.*);
-  })
-;
+say :: (fn(s : *(u8)) -> i32) {
+  printf("%s\n", s);
+  return 16;
+};
 
 main :: (fn() -> i32) {
-  x := Box(3);
-  return x.*;
+  t := spawn say("world"); // say("world") runs in parallel thread
+  say("hello");
+  
+  // result := __yo_thread_wait(t);
+  // printf("result: %d\n", result);
+  // return result;
+
+  return 0;
 };
 
 export main;

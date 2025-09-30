@@ -17,7 +17,9 @@ import {
   isEnumType,
   isFunctionType,
   isStructType,
+  isThreadType,
   isUnitType,
+  ThreadType,
   typeContainsSomeType,
   TypeTag,
   typeToString,
@@ -756,6 +758,142 @@ void* __yo_incr_rc(void* ptr) {
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(emitter);
+
+  // Generate monomorphized thread wrapper functions
+  generateThreadWrapperFunctions(context);
+}
+
+/**
+ * Generate specialized thread data structures and vtables for different thread types
+ */
+function generateThreadWrapperFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate specialized thread data structures for each Thread type we encounter
+  const threadTypes = new Set<string>();
+
+  // Look through all types to find Thread types
+  for (const typeEntry of Object.values(context.types)) {
+    const type = typeEntry.type;
+    if (isThreadType(type)) {
+      const threadType = type as ThreadType;
+      const returnType = threadType.returnType;
+      const returnTypeStr = getTypeString(returnType, context);
+      const normalizedTypeName = sanitizeForCIdentifier(returnTypeStr);
+
+      if (threadTypes.has(normalizedTypeName)) {
+        continue; // Already generated
+      }
+      threadTypes.add(normalizedTypeName);
+
+      // Generate specialized thread data structure
+      const structName = `yo_thread_data_${normalizedTypeName}_t`;
+      const resultField = isUnitType(returnType)
+        ? ""
+        : `  ${returnTypeStr} result;                     // Typed result storage\n`;
+      emitter.emitLine(`typedef struct ${structName} {
+  yo_thread_data_base_t base;              // Base thread data
+  void (*function)(void*);                 // Function to execute
+  void* args;                              // Function arguments
+${resultField}} ${structName};
+`);
+
+      // Generate execute function for this thread type
+      const executeFnName = `yo_thread_execute_${normalizedTypeName}`;
+      const executeBody = isUnitType(returnType)
+        ? `  void (*func_void)(void*) = (void (*)(void*))data->function;
+  func_void(data->args);`
+        : `  ${returnTypeStr} (*func)(void*) = (${returnTypeStr} (*)(void*))data->function;
+  data->result = func(data->args);`;
+
+      emitter.emitLine(`static void ${executeFnName}(void* self) {
+  ${structName}* data = (${structName}*)self;
+${executeBody}
+}
+`);
+
+      // Generate get_result function for this thread type
+      const getResultFnName = `yo_thread_get_result_${normalizedTypeName}`;
+      const getResultBody = isUnitType(returnType)
+        ? `  return NULL; // Unit type has no result`
+        : `  return &data->result;`;
+
+      emitter.emitLine(`static void* ${getResultFnName}(void* self) {
+  ${structName}* data = (${structName}*)self;
+${getResultBody}
+}
+`);
+
+      // Generate dispose function for this thread type
+      const disposeFnName = `yo_thread_dispose_${normalizedTypeName}`;
+      emitter.emitLine(`static void ${disposeFnName}(void* self) {
+  ${structName}* data = (${structName}*)self;
+  yo_free(data);
+}
+`);
+
+      // Generate vtable for this thread type
+      const vtableName = `yo_thread_vtable_${normalizedTypeName}`;
+      emitter.emitLine(`static yo_thread_data_vtable_t ${vtableName} = {
+  .execute_fn = ${executeFnName},
+  .get_result_fn = ${getResultFnName},
+  .dispose_fn = ${disposeFnName}
+};
+`);
+
+      // Generate constructor function for this thread type
+      const constructorName = `__yo_new_yo_thread_${normalizedTypeName}_t`;
+      const resultInit = isUnitType(returnType)
+        ? ""
+        : `  memset(&data->result, 0, sizeof(data->result)); // Initialize result\n`;
+
+      emitter.emitLine(`yo_thread_t* ${constructorName}(void (*func)(void*), void* args) {
+  // Allocate thread object with ARC header
+  yo_thread_t* thread = (yo_thread_t*)yo_malloc(sizeof(yo_thread_t));
+  
+  // Initialize ARC header (BRC)
+  size_t current_thread_id = yo_get_thread_id();
+  thread->header.owner_thread_id = current_thread_id;
+  thread->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1); // Start with 1 reference
+  atomic_store_explicit(&thread->header.shared_word, 0, memory_order_relaxed);
+  thread->header.gc_next = NULL;
+  thread->header.dispose_fn = __yo_dispose_yo_thread_t;
+  thread->header.traverse_fn = NULL; // Threads don't contain other managed objects
+  
+  // Allocate specialized thread data
+  ${structName}* data = (${structName}*)yo_malloc(sizeof(${structName}));
+  data->base.vtable = &${vtableName};
+  atomic_store_explicit(&data->base.completed, 0, memory_order_relaxed);
+  atomic_store_explicit(&data->base.joined, 0, memory_order_relaxed);
+  data->function = func;
+  data->args = args;
+${resultInit}  
+  thread->data = (yo_thread_data_base_t*)data;
+  
+  // Create the actual system thread
+#if defined(_WIN32)
+  thread->handle = CreateThread(NULL, 0, yo_thread_wrapper, thread->data, 0, &thread->thread_id);
+  if (thread->handle == NULL) {
+    yo_free(data);
+    yo_free(thread);
+    return NULL;
+  }
+#else
+  int result = pthread_create(&thread->handle, NULL, yo_thread_wrapper, thread->data);
+  if (result != 0) {
+    yo_free(data);
+    yo_free(thread);
+    return NULL;
+  }
+#endif
+  
+  return thread;
+}
+`);
+    }
+  }
 }
 
 /**
@@ -1261,6 +1399,74 @@ static void yo_init_process_cleanup(void) {
   // Unix systems use static initializers, no need to initialize explicitly
   
   atexit(yo_process_cleanup);
+}
+
+// Thread function implementations
+#if defined(_WIN32)
+DWORD WINAPI yo_thread_wrapper(LPVOID param) {
+#else
+void* yo_thread_wrapper(void* param) {
+#endif
+  yo_thread_data_base_t* data = (yo_thread_data_base_t*)param;
+  
+  // Call the execute function via vtable - this will call the appropriate
+  // monomorphized function for the specific thread type
+  data->vtable->execute_fn(data);
+  
+  // Mark as completed
+  atomic_store_explicit(&data->completed, 1, memory_order_release);
+  
+#if defined(_WIN32)
+  return 0;
+#else
+  return NULL;
+#endif
+}
+
+// Specialized thread constructors are generated above in generateThreadWrapperFunctions()
+
+void* yo_thread_wait(yo_thread_t* thread) {
+  if (thread == NULL) return NULL;
+  
+  // Check if already joined
+  int already_joined = atomic_exchange_explicit(&thread->data->joined, 1, memory_order_acq_rel);
+  if (already_joined) {
+    // Already joined, get result via vtable
+    return thread->data->vtable->get_result_fn(thread->data);
+  }
+  
+  // Wait for thread completion
+#if defined(_WIN32)
+  WaitForSingleObject(thread->handle, INFINITE);
+  CloseHandle(thread->handle);
+#else
+  pthread_join(thread->handle, NULL);
+#endif
+  
+  // Get the result via vtable (properly typed)
+  return thread->data->vtable->get_result_fn(thread->data);
+}
+
+void __yo_dispose_yo_thread_t(void* self) {
+  yo_thread_t* thread = (yo_thread_t*)self;
+  if (thread == NULL) return;
+  
+  // The thread handle should already be cleaned up by yo_thread_wait
+  // If not joined, we should join it here to avoid resource leaks
+  if (thread->data != NULL) {
+    int was_joined = atomic_load_explicit(&thread->data->joined, memory_order_acquire);
+    if (!was_joined) {
+#if defined(_WIN32)
+      WaitForSingleObject(thread->handle, INFINITE);
+      CloseHandle(thread->handle);
+#else
+      pthread_join(thread->handle, NULL);
+#endif
+    }
+    
+    // Clean up thread data via vtable
+    thread->data->vtable->dispose_fn(thread->data);
+  }
 }`);
 }
 

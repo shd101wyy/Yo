@@ -57,6 +57,7 @@ import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
+import { evaluateSpawn, evaluateThreadWait } from "./builtins/spawn";
 import { evaluateThe } from "./builtins/the";
 import {
   evaluateYoAreTypesCompatible,
@@ -382,6 +383,14 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.spawn)) {
+        // spawn
+        return evaluateSpawn({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_wait)
+      ) {
+        // __yo_thread_wait
+        return evaluateThreadWait({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return evaluateImport({

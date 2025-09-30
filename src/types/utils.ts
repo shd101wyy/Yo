@@ -25,6 +25,7 @@ import {
   SliceType,
   SomeType,
   StructType,
+  ThreadType,
   TupleElement,
   TupleType,
   Type,
@@ -60,6 +61,7 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
+  isThreadType,
   isTupleType,
   isTypeHierarchyType,
   isU16Type,
@@ -204,6 +206,11 @@ export function typeContainsSomeType(
       );
     case TypeTag.MutPtr:
       return typeContainsSomeType((type as MutPtrType).type, checkedTypes);
+    case TypeTag.Thread:
+      return typeContainsSomeType(
+        (type as ThreadType).returnType,
+        checkedTypes
+      );
     default:
       return false; // For other types, no SomeType is present
   }
@@ -244,6 +251,9 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         break;
       case TypeTag.MutPtr:
         helper((t as MutPtrType).type);
+        break;
+      case TypeTag.Thread:
+        helper((t as ThreadType).returnType);
         break;
       default:
         break; // For other types, do nothing
@@ -330,6 +340,8 @@ export function typeRequiresInference(type?: Type): boolean {
         typeRequiresInference(closureType.callType)
       );
     }
+    case TypeTag.Thread:
+      return typeRequiresInference((type as ThreadType).returnType);
     default:
       return false; // For other types, no unknown values are present
   }
@@ -433,6 +445,10 @@ export function convertComptTypeToRuntimeType(
 
     // Convert the compt_string to *([u8]);
     return createMutPtrType(createSliceType(createU8Type()));
+  } else if (isThreadType(type)) {
+    // Convert the return type and update the thread type
+    type.returnType = convertComptTypeToRuntimeType(type.returnType);
+    return type;
   } else {
     // No change
     return type;
@@ -913,6 +929,11 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         .join(", ")})`;
     }
 
+    case TypeTag.Thread: {
+      const threadType = type as ThreadType;
+      return `Thread(${typeToString(threadType.returnType, visited)})`;
+    }
+
     default: {
       return `${type.tag}`;
     }
@@ -1139,6 +1160,8 @@ export function getAlignmentOfType(type: Type): number | null {
     return getTargetPointerSizeBytes(); // Functions are treated as pointers, so pointer-aligned
   } else if (isMutPtrType(type)) {
     return getTargetPointerSizeBytes(); // Pointer and reference types are pointer-aligned
+  } else if (isThreadType(type)) {
+    return getTargetPointerSizeBytes(); // Thread handles are pointer-aligned
   }
 
   return null;
@@ -1207,6 +1230,8 @@ export function getSizeOfType(type: Type): number | null {
     return getTargetPointerSizeBits(); // Functions are treated as pointers, so return pointer size
   } else if (isMutPtrType(type)) {
     return getTargetPointerSizeBits(); // Pointer and reference types have pointer size
+  } else if (isThreadType(type)) {
+    return getTargetPointerSizeBits(); // Thread handles have pointer size (opaque handle)
   }
 
   return null;
@@ -1367,6 +1392,11 @@ function typeCanReferenceCyclicRefStruct(
   // MutPtr and MutRef are raw pointers/references - they don't participate in ARC
   // so they don't form reference counting cycles.
   if (isMutPtrType(type)) {
+    return false;
+  }
+
+  // Thread handles are opaque runtime objects - they don't participate in ARC cycles
+  if (isThreadType(type)) {
     return false;
   }
 

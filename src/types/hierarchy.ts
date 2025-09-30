@@ -26,6 +26,7 @@ import {
   isPrimitiveType,
   isSomeType,
   isStructType,
+  isThreadType,
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
@@ -194,6 +195,9 @@ export function typeOfType(
   } else if (isMutPtrType(type)) {
     // Pointer type hierarchy logic
     // Raw pointers are now level 0 types
+    return createType0(type);
+  } else if (isThreadType(type)) {
+    // Thread types are level 0 types, but we need to import the guard
     return createType0(type);
   } else {
     throw new Error(`Unknown type tag: ${type}`);

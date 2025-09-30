@@ -134,7 +134,8 @@ export function getTypeString(
       return "int64_t";
     case TypeTag.ComptFloat:
       return "double"; // For compt_float, we can use double
-    // TODO: compt_string
+    case TypeTag.ComptString:
+      return "uint8_t*"; // For compt_string, we use C string (char* or uint8_t*)
 
     case TypeTag.Char:
       return "char"; // C char type
@@ -259,6 +260,11 @@ export function getTypeString(
     case TypeTag.SomeType:
       // In dynamic dispatch contexts, Self should be void*
       return "void*";
+
+    // Thread type (threading handle)
+    case TypeTag.Thread:
+      // Thread handles are ARC objects - return pointer type
+      return "yo_thread_t*";
   }
 
   if (isMutPtrType(type)) {

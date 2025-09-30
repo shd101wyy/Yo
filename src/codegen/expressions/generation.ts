@@ -14,6 +14,7 @@ import {
 import {
   ArrayType,
   ClosureType,
+  createThreadType,
   isArrayType,
   isClosureType,
   isDynType,
@@ -205,6 +206,88 @@ function generateFuncCall(
       return `// Error: __yo_gc_collect requires exactly 0 arguments`;
     }
     return `__yo_gc_collect()`;
+  }
+
+  // spawn - spawn a function call in a new thread
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.spawn)) {
+    const funcCallArg = expr.args[0];
+    if (!funcCallArg) {
+      return `// Error: spawn requires exactly 1 argument (function call)`;
+    }
+
+    // The argument should be a function call expression
+    if (exprIsFunctionCall(funcCallArg)) {
+      const funcCode = generateExpr(funcCallArg.func, indent, context);
+      const returnType = funcCallArg.$?.type;
+
+      if (returnType) {
+        // Create the Thread type and register it in the context to ensure wrapper functions are generated
+        const threadType = createThreadType(returnType);
+        const threadTypeId = `thread_${sanitizeForCIdentifier(getTypeString(returnType, context))}`;
+        if (!context.types[threadTypeId]) {
+          context.types[threadTypeId] = {
+            type: threadType,
+            cName: `yo_thread_t`, // Thread types all use the same base C type
+          };
+        }
+
+        // Determine the specialized thread constructor based on return type
+        const returnTypeStr = getTypeString(returnType, context);
+        const normalizedTypeName = sanitizeForCIdentifier(returnTypeStr);
+        const threadConstructor = `__yo_new_yo_thread_${normalizedTypeName}_t`;
+
+        // Handle arguments properly - create a struct to pass arguments
+        if (funcCallArg.args.length === 0) {
+          // No arguments
+          return `${threadConstructor}((void(*)(void*))${funcCode}, NULL)`;
+        } else if (funcCallArg.args.length === 1) {
+          // Single argument - pass directly
+          const argCode = generateExpr(funcCallArg.args[0]!, indent, context);
+          const argType = funcCallArg.args[0]!.$?.type;
+
+          // For string literals and simple values, pass them directly without creating struct wrappers
+          if (
+            argType &&
+            (argType.tag === TypeTag.ComptString ||
+              (isMutPtrType(argType) && argType.type.tag === TypeTag.U8))
+          ) {
+            return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)${argCode})`;
+          } else if (argType) {
+            const argTypeStr = getTypeString(argType, context);
+            return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)&(${argTypeStr}){${argCode}})`;
+          } else {
+            return `${threadConstructor}((void(*)(void*))${funcCode}, (void*)${argCode})`;
+          }
+        } else {
+          // Multiple arguments - create argument struct (this would need more complex handling)
+          const argsCode = funcCallArg.args
+            .map((arg) => generateExpr(arg, indent, context))
+            .join(", ");
+          return `// Error: Multiple argument spawn not yet implemented: ${argsCode}`;
+        }
+      } else {
+        return `// Error: spawn function call missing type information`;
+      }
+    }
+    return `// Error: spawn argument must be a function call`;
+  }
+
+  // __yo_thread_wait - wait for thread completion and get result
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_wait)) {
+    const threadArg = expr.args[0];
+    if (!threadArg) {
+      return `// Error: __yo_thread_wait requires exactly 1 argument (thread handle)`;
+    }
+
+    const threadCode = generateExpr(threadArg, indent, context);
+    const returnType = expr.$?.type;
+
+    if (returnType) {
+      const returnTypeStr = getTypeString(returnType, context);
+      return `*((${returnTypeStr}*)yo_thread_wait(${threadCode}))`;
+    } else {
+      return `yo_thread_wait(${threadCode})`;
+    }
   }
 
   // dyn() - dynamic dispatch constructor
