@@ -1,17 +1,18 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
-import { createChanType } from "../../types";
-import { isChanType } from "../../types/guards";
+import { createChanType, createUsizeType } from "../../types";
+import { isUsizeType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { createComptIntValue, isTypeValue } from "../../value";
+import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { addARCFunctionsToChanType } from "../types/utils";
 
 /**
  * Evaluates the chan builtin function.
@@ -77,13 +78,18 @@ export function evaluateChan({
   const elementType = evaluatedElementTypeExpr.$.value.value;
 
   // Handle buffer size - default to 0 if not provided
-  let bufferSizeValue;
   if (bufferSizeExpr) {
     // Evaluate buffer size expression
     const evaluatedBufferSizeExpr = context.evaluateExpression({
       expr: bufferSizeExpr,
       env,
-      context: { ...context },
+      context: {
+        ...context,
+        expectedType: {
+          type: createUsizeType(),
+          env,
+        },
+      },
     });
 
     if (!evaluatedBufferSizeExpr.$) {
@@ -96,27 +102,27 @@ export function evaluateChan({
     }
     env = evaluatedBufferSizeExpr.$.env;
 
-    // The buffer size must be a compile-time value (we need the actual Value, not just the type)
-    if (!evaluatedBufferSizeExpr.$.value) {
+    if (!isUsizeType(evaluatedBufferSizeExpr.$.type)) {
       throw formatErrorMessage({
         token: bufferSizeExpr.token,
-        errorMessage: `chan() expects a compile-time known buffer size, but got a runtime value:\n${exprToString(
+        errorMessage: `chan() expects a usize type for its second argument (buffer size), but got ${evaluatedBufferSizeExpr.$.type.tag}:\n${exprToString(
           bufferSizeExpr
         )}`,
       });
     }
-
-    bufferSizeValue = evaluatedBufferSizeExpr.$.value;
-  } else {
-    // Default to buffer size 0 (unbuffered channel)
-    bufferSizeValue = createComptIntValue(0);
   }
 
-  // Create the channel type
-  const chanType = createChanType(elementType, bufferSizeValue, env);
+  // Create the channel type (buffer size is stored in the value, not type)
+  const chanType = createChanType(elementType, env);
+  env = addARCFunctionsToChanType({
+    chanType,
+    env,
+    context: { ...context },
+  });
 
   // chan() creates a runtime channel value, not a type value
   // The actual channel will be allocated and initialized in the C code generation phase
+  // Buffer size (if provided) will be handled during C codegen by checking the second argument
   expr.$ = {
     env,
     type: chanType,
@@ -124,21 +130,16 @@ export function evaluateChan({
     pathCollection: [],
   };
 
+  attachTempVariableToExpr(expr, true);
+
   return expr;
 }
 
 /**
- * Evaluates the __yo_chan_send builtin function.
- *
- * __yo_chan_send sends a value through a channel.
- *
- * Example: __yo_chan_send(my_chan, value)
- * Returns: unit (successful send)
- *
- * This is a low-level placeholder implementation. The actual channel operations
- * will be implemented during the C code generation phase.
+ * Evaluates __yo_chan_drop builtin function.
+ * Just evaluates the argument and returns unit.
  */
-export function evaluateYoChanSend({
+export function evaluateYoChanDrop({
   expr,
   env,
   context,
@@ -147,72 +148,41 @@ export function evaluateYoChanSend({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_chan_send, 2);
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_chan_drop[0]!]);
 
-  const channelExpr = expr.args[0]!;
-  const valueExpr = expr.args[1]!;
-
-  // Evaluate the channel expression
-  const evaluatedChannelExpr = context.evaluateExpression({
-    expr: channelExpr,
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = context.evaluateExpression({
+    expr: argExpr,
     env,
-    context: { ...context },
+    context: {
+      ...context,
+    },
   });
 
-  if (!evaluatedChannelExpr.$) {
+  if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
-      token: channelExpr.token,
-      errorMessage: `Failed to evaluate channel expression for __yo_chan_send.`,
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_chan_drop[0]!}":\n${exprToString(
+        argExpr
+      )}`,
     });
   }
-  env = evaluatedChannelExpr.$.env;
+  env = evaluatedArgExpr.$.env;
 
-  // Verify it's a channel type
-  if (!isChanType(evaluatedChannelExpr.$.type)) {
-    throw formatErrorMessage({
-      token: channelExpr.token,
-      errorMessage: `Expected Chan type for first argument, got ${evaluatedChannelExpr.$.type.tag}`,
-    });
-  }
-
-  // Evaluate the value expression
-  const evaluatedValueExpr = context.evaluateExpression({
-    expr: valueExpr,
-    env,
-    context: { ...context },
-  });
-
-  if (!evaluatedValueExpr.$) {
-    throw formatErrorMessage({
-      token: valueExpr.token,
-      errorMessage: `Failed to evaluate value expression for __yo_chan_send.`,
-    });
-  }
-
-  setExprAsNeedsToCallDup(evaluatedValueExpr, { ...context });
-
-  env = evaluatedValueExpr.$.env;
-
-  // __yo_chan_send returns unit
   expr.$ = {
     env,
     type: VUnit.type,
-    value: undefined, // Runtime value
+    value: VUnit,
     pathCollection: [],
   };
-
   return expr;
 }
 
 /**
- * Evaluates the __yo_chan_recv builtin function.
- *
- * __yo_chan_recv receives a value from a channel (blocking).
- *
- * Example: __yo_chan_recv(my_chan)
- * Returns: ElementType (the received value)
+ * Evaluates __yo_chan_dup builtin function.
+ * Just evaluates the argument and returns unit.
  */
-export function evaluateYoChanRecv({
+export function evaluateYoChanDup({
   expr,
   env,
   context,
@@ -221,99 +191,32 @@ export function evaluateYoChanRecv({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_chan_recv, 1);
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_chan_dup[0]!]);
 
-  const channelExpr = expr.args[0]!;
-
-  // Evaluate the channel expression
-  const evaluatedChannelExpr = context.evaluateExpression({
-    expr: channelExpr,
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = context.evaluateExpression({
+    expr: argExpr,
     env,
-    context: { ...context },
+    context: {
+      ...context,
+    },
   });
 
-  if (!evaluatedChannelExpr.$) {
+  if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
-      token: channelExpr.token,
-      errorMessage: `Failed to evaluate channel expression for __yo_chan_recv.`,
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_chan_dup[0]!}":\n${exprToString(
+        argExpr
+      )}`,
     });
   }
-  env = evaluatedChannelExpr.$.env;
+  env = evaluatedArgExpr.$.env;
 
-  // Verify it's a channel type and extract the element type
-  if (!isChanType(evaluatedChannelExpr.$.type)) {
-    throw formatErrorMessage({
-      token: channelExpr.token,
-      errorMessage: `Expected Chan type, got ${evaluatedChannelExpr.$.type.tag}`,
-    });
-  }
-
-  // For Chan(ElementType, BufferSize), __yo_chan_recv should return ElementType
-  const channelType = evaluatedChannelExpr.$.type;
-  const elementType = channelType.elementType;
-
-  // __yo_chan_recv returns the element type of the channel
-  expr.$ = {
-    env,
-    type: elementType,
-    value: undefined, // Runtime value
-    pathCollection: [],
-  };
-
-  return expr;
-}
-
-/**
- * Evaluates the __yo_chan_close builtin function.
- *
- * __yo_chan_close closes a channel.
- *
- * Example: __yo_chan_close(my_chan)
- * Returns: unit
- */
-export function evaluateYoChanClose({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_chan_close, 1);
-
-  const channelExpr = expr.args[0]!;
-
-  // Evaluate the channel expression
-  const evaluatedChannelExpr = context.evaluateExpression({
-    expr: channelExpr,
-    env,
-    context: { ...context },
-  });
-
-  if (!evaluatedChannelExpr.$) {
-    throw formatErrorMessage({
-      token: channelExpr.token,
-      errorMessage: `Failed to evaluate channel expression for __yo_chan_close.`,
-    });
-  }
-  env = evaluatedChannelExpr.$.env;
-
-  // Verify it's a channel type
-  if (!isChanType(evaluatedChannelExpr.$.type)) {
-    throw formatErrorMessage({
-      token: channelExpr.token,
-      errorMessage: `Expected Chan type, got ${evaluatedChannelExpr.$.type.tag}`,
-    });
-  }
-
-  // __yo_chan_close returns unit
   expr.$ = {
     env,
     type: VUnit.type,
-    value: undefined, // Runtime value
+    value: VUnit,
     pathCollection: [],
   };
-
   return expr;
 }

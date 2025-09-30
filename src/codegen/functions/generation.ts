@@ -8,10 +8,12 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
+  ChanType,
   ClosureType,
   DynType,
   EnumType,
   FunctionType,
+  isChanType,
   isClosureType,
   isDynType,
   isEnumType,
@@ -765,6 +767,9 @@ void* __yo_incr_rc(void* ptr) {
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(emitter);
+
+  // Generate channel function implementations
+  generateChannelFunctions(context);
 }
 
 /**
@@ -2050,5 +2055,193 @@ export function generateDynConstructorFunctions(
       emitter.emitLine(``);
       emitter.emitLine(``);
     }
+  }
+}
+
+/**
+ * Generate channel function implementations for all collected channel types
+ */
+function generateChannelFunctions(context: FunctionGenerationContext): void {
+  const emitter = context.emitter;
+
+  // Collect all channel types from the context
+  const channelTypes: Array<{ type: ChanType; cName: string }> = [];
+
+  for (const typeId in context.types) {
+    const typeEntry = context.types[typeId]!;
+    if (isChanType(typeEntry.type)) {
+      channelTypes.push({ type: typeEntry.type, cName: typeEntry.cName });
+    }
+  }
+
+  if (channelTypes.length === 0) {
+    return; // No channel types to generate
+  }
+
+  // Generate channel functions for each collected channel type
+  for (const { type: chanType, cName } of channelTypes) {
+    const elementTypeStr = getTypeString(chanType.elementType, context);
+    const safeCName = sanitizeForCIdentifier(cName);
+
+    emitter.emitLine(`// Channel functions for ${cName}
+
+${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
+  ${cName}* chan = (${cName}*)yo_malloc(sizeof(${cName}));
+  if (!chan) return NULL;
+
+  // Initialize reference counting header
+  chan->header.owner_thread_id = yo_get_thread_id();
+  chan->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);
+  atomic_store_explicit(&chan->header.shared_word, 0, memory_order_relaxed);
+  chan->header.gc_next = NULL;
+  chan->header.dispose_fn = NULL;
+  chan->header.traverse_fn = NULL;
+
+  // Initialize channel fields
+  chan->capacity = capacity;
+  chan->size = 0;
+  chan->head = 0;
+  chan->tail = 0;
+  atomic_store_explicit(&chan->closed, 0, memory_order_relaxed);
+
+  if (capacity > 0) {
+    chan->buffer = (${elementTypeStr}*)yo_malloc(sizeof(${elementTypeStr}) * capacity);
+    if (!chan->buffer) {
+      yo_free(chan);
+      return NULL;
+    }
+  } else {
+    chan->buffer = NULL;
+  }
+
+  // Initialize synchronization primitives
+#if defined(_WIN32)
+  chan->mutex = CreateMutex(NULL, FALSE, NULL);
+  chan->send_semaphore = CreateSemaphore(NULL, (LONG)capacity, (LONG)capacity, NULL);
+  chan->recv_semaphore = CreateSemaphore(NULL, 0, (LONG)capacity, NULL);
+#else
+  pthread_mutex_init(&chan->mutex, NULL);
+  pthread_cond_init(&chan->send_cond, NULL);
+  pthread_cond_init(&chan->recv_cond, NULL);
+#endif
+
+  return chan;
+}
+`);
+
+    // Channel send function
+    emitter.emitLine(`void __yo_chan_send_${safeCName}(${cName}* chan, ${elementTypeStr} value) {
+  if (!chan || atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    return; // Channel is null or closed
+  }
+
+  if (chan->capacity == 0) {
+    // Unbuffered channel - synchronous send (not implemented for simplicity)
+    // For now, just return - in a full implementation, this would block until recv
+    return;
+  }
+
+#if defined(_WIN32)
+  WaitForSingleObject(chan->send_semaphore, INFINITE); // Wait for space
+  WaitForSingleObject(chan->mutex, INFINITE);
+#else
+  pthread_mutex_lock(&chan->mutex);
+  while (chan->size >= chan->capacity && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    pthread_cond_wait(&chan->send_cond, &chan->mutex);
+  }
+#endif
+
+  if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+#if defined(_WIN32)
+    ReleaseMutex(chan->mutex);
+#else
+    pthread_mutex_unlock(&chan->mutex);
+#endif
+    return;
+  }
+
+  // Add value to buffer
+  chan->buffer[chan->tail] = value;
+  chan->tail = (chan->tail + 1) % chan->capacity;
+  chan->size++;
+
+#if defined(_WIN32)
+  ReleaseMutex(chan->mutex);
+  ReleaseSemaphore(chan->recv_semaphore, 1, NULL); // Signal recv
+#else
+  pthread_cond_signal(&chan->recv_cond);
+  pthread_mutex_unlock(&chan->mutex);
+#endif
+}
+`);
+
+    // Channel receive function
+    emitter.emitLine(`${elementTypeStr} __yo_chan_recv_${safeCName}(${cName}* chan) {
+  ${elementTypeStr} result;
+  memset(&result, 0, sizeof(result)); // Initialize to zero
+
+  if (!chan) {
+    return result; // Return zero-initialized value for null channel
+  }
+
+  if (chan->capacity == 0) {
+    // Unbuffered channel - synchronous receive (not implemented for simplicity)
+    // For now, just return zero value
+    return result;
+  }
+
+#if defined(_WIN32)
+  WaitForSingleObject(chan->recv_semaphore, INFINITE); // Wait for data
+  WaitForSingleObject(chan->mutex, INFINITE);
+#else
+  pthread_mutex_lock(&chan->mutex);
+  while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    pthread_cond_wait(&chan->recv_cond, &chan->mutex);
+  }
+#endif
+
+  if (chan->size > 0) {
+    // Get value from buffer
+    result = chan->buffer[chan->head];
+    chan->head = (chan->head + 1) % chan->capacity;
+    chan->size--;
+  }
+
+#if defined(_WIN32)
+  ReleaseMutex(chan->mutex);
+  ReleaseSemaphore(chan->send_semaphore, 1, NULL); // Signal send
+#else
+  pthread_cond_signal(&chan->send_cond);
+  pthread_mutex_unlock(&chan->mutex);
+#endif
+
+  return result;
+}
+`);
+
+    // Channel close function
+    emitter.emitLine(`void __yo_chan_close_${safeCName}(${cName}* chan) {
+  if (!chan) return;
+
+#if defined(_WIN32)
+  WaitForSingleObject(chan->mutex, INFINITE);
+#else
+  pthread_mutex_lock(&chan->mutex);
+#endif
+
+  atomic_store_explicit(&chan->closed, 1, memory_order_release);
+
+#if defined(_WIN32)
+  ReleaseMutex(chan->mutex);
+  // Wake up all waiting threads
+  ReleaseSemaphore(chan->send_semaphore, (LONG)chan->capacity, NULL);
+  ReleaseSemaphore(chan->recv_semaphore, (LONG)chan->capacity, NULL);
+#else
+  pthread_cond_broadcast(&chan->send_cond);
+  pthread_cond_broadcast(&chan->recv_cond);
+  pthread_mutex_unlock(&chan->mutex);
+#endif
+}
+`);
   }
 }

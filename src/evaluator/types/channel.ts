@@ -10,9 +10,10 @@ import { addARCFunctionsToChanType } from "./utils";
  * Evaluate a Chan type constructor call
  * For example:
  *
- * ChanType :: Chan(i32, 0);    // unbuffered channel of i32
- * ChanType :: Chan(String, 10); // buffered channel of String with buffer size 10
- * chan_var: Chan(i32, 0) := chan(i32, 0);
+ * ChanType :: Chan(i32);       // channel of i32 (buffer size not part of type)
+ * ChanType :: Chan(String);    // channel of String
+ * chan_var: Chan(i32) := chan(i32);      // unbuffered channel
+ * chan_var: Chan(i32) := chan(i32, 10);  // buffered channel (same type)
  */
 export function evaluateChanType({
   expr,
@@ -23,16 +24,16 @@ export function evaluateChanType({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  // Chan type constructor expects exactly 2 arguments (element type and buffer size)
-  if (expr.args.length !== 2) {
+  // Chan type constructor expects exactly 1 argument (element type)
+  // Buffer size is not part of the type (following Go's design)
+  if (expr.args.length !== 1) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Chan type constructor expects exactly 2 arguments, got ${expr.args.length}. Usage: Chan(ElementType, BufferSize)`,
+      errorMessage: `Chan type constructor expects exactly 1 argument, got ${expr.args.length}. Usage: Chan(ElementType)`,
     });
   }
 
   const elementTypeExpr = expr.args[0]!;
-  const bufferSizeExpr = expr.args[1]!;
 
   // Evaluate element type expression
   const evaluatedElementTypeExpr = context.evaluateExpression({
@@ -63,43 +64,14 @@ export function evaluateChanType({
 
   const elementType = evaluatedElementTypeExpr.$.value.value;
 
-  // Evaluate buffer size expression
-  const evaluatedBufferSizeExpr = context.evaluateExpression({
-    expr: bufferSizeExpr,
-    env,
-    context: { ...context },
-  });
-
-  if (!evaluatedBufferSizeExpr.$) {
-    throw formatErrorMessage({
-      token: bufferSizeExpr.token,
-      errorMessage: `Failed to evaluate the buffer size expression for Chan:\n${exprToString(
-        bufferSizeExpr
-      )}`,
-    });
-  }
-  env = evaluatedBufferSizeExpr.$.env;
-
-  // The buffer size must be a compile-time value
-  if (!evaluatedBufferSizeExpr.$.value) {
-    throw formatErrorMessage({
-      token: bufferSizeExpr.token,
-      errorMessage: `Chan type constructor expects a compile-time known buffer size, but got a runtime value:\n${exprToString(
-        bufferSizeExpr
-      )}`,
-    });
-  }
-
-  const bufferSizeValue = evaluatedBufferSizeExpr.$.value;
-
-  // Create the Chan type
-  const chanType = createChanType(elementType, bufferSizeValue, env);
+  // Create the Chan type (buffer size is not part of the type, following Go's design)
+  const chanType = createChanType(elementType, env);
 
   // Add ARC functions to the channel type
   env = addARCFunctionsToChanType({
     chanType,
     env,
-    context,
+    context: { ...context },
   });
 
   const typeValueForChan = createTypeValue(chanType);

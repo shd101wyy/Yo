@@ -1,8 +1,10 @@
 import {
+  ChanType,
   ClosureType,
   DynType,
   EnumType,
   FunctionType,
+  isChanType,
   isClosureType,
   isDynType,
   isEnumType,
@@ -315,6 +317,8 @@ void* yo_thread_wrapper(void* param);
     } else if (isTupleType(type)) {
       // For tuples, we can generate a struct-like declaration
       generateTupleDeclaration(type, cName, context);
+    } else if (isChanType(type)) {
+      generateChanDeclaration(type, cName, context);
     }
     // Note: isEnumType is handled in the first pass above
   }
@@ -731,6 +735,61 @@ export function generateDynDeclaration(
   );
   emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
   emitter.emitDeclarationLine(`  void* data; // Actual object data`);
+  emitter.emitDeclarationLine(`} ${cName};`);
+  emitter.emitDeclarationLine(""); // Add blank line for readability
+}
+
+/**
+ * Generate a channel declaration for buffered/unbuffered channels
+ */
+export function generateChanDeclaration(
+  chanType: ChanType,
+  cName: string,
+  context: CodeGenContext
+): void {
+  const emitter = context.emitter;
+  const elementTypeStr = getTypeString(chanType.elementType, context);
+
+  emitter.emitDeclarationLine(
+    `typedef struct { // ${chanType.typeName || "Chan"} : ${typeToString(chanType)} (reference counted)`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_ref_header_t header; // Reference count header`
+  );
+
+  // Core channel fields
+  emitter.emitDeclarationLine(
+    `  ${elementTypeStr}* buffer; // Buffer for elements`
+  );
+  emitter.emitDeclarationLine(
+    `  size_t capacity; // Maximum number of elements`
+  );
+  emitter.emitDeclarationLine(`  size_t size; // Current number of elements`);
+  emitter.emitDeclarationLine(`  size_t head; // Index of first element`);
+  emitter.emitDeclarationLine(
+    `  size_t tail; // Index where next element will be added`
+  );
+  emitter.emitDeclarationLine(`  _Atomic(int) closed; // Channel closed flag`);
+
+  // Synchronization for thread safety
+  emitter.emitDeclarationLine(`#if defined(_WIN32)`);
+  emitter.emitDeclarationLine(`  HANDLE mutex; // Windows mutex`);
+  emitter.emitDeclarationLine(
+    `  HANDLE send_semaphore; // Semaphore for send operations`
+  );
+  emitter.emitDeclarationLine(
+    `  HANDLE recv_semaphore; // Semaphore for receive operations`
+  );
+  emitter.emitDeclarationLine(`#else`);
+  emitter.emitDeclarationLine(`  pthread_mutex_t mutex; // POSIX mutex`);
+  emitter.emitDeclarationLine(
+    `  pthread_cond_t send_cond; // Condition for send operations`
+  );
+  emitter.emitDeclarationLine(
+    `  pthread_cond_t recv_cond; // Condition for receive operations`
+  );
+  emitter.emitDeclarationLine(`#endif`);
+
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }

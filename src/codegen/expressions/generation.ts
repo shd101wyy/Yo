@@ -220,6 +220,26 @@ function generateFuncCall(
     return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
+  // __yo_chan_drop - call dispose function then __yo_decr_rc on channel
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_drop)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_chan_drop requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `__yo_decr_rc((void*)(${selfCode}), NULL)`;
+  }
+
+  // __yo_chan_dup - call __yo_incr_rc on channel
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_dup)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_chan_dup requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `__yo_incr_rc((void*)(${selfCode}))`;
+  }
+
   // __yo_gc_collect - trigger garbage collection
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
     if (expr.args.length !== 0) {
@@ -301,6 +321,89 @@ function generateFuncCall(
     } else {
       return `yo_thread_wait(${threadCode})`;
     }
+  }
+
+  // chan() - create a new channel
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.chan)) {
+    const elementTypeArg = expr.args[0];
+    const capacityArg = expr.args[1];
+
+    if (!elementTypeArg) {
+      return `// Error: chan() requires at least 1 argument (element type)`;
+    }
+
+    const chanType = expr.$?.type;
+    if (!chanType) {
+      return `// Error: chan() missing type information`;
+    }
+
+    const chanTypeStr = getTypeString(chanType, context);
+    let capacity = "0";
+
+    if (capacityArg) {
+      capacity = generateExpr(capacityArg, indent, context);
+    }
+
+    return `__yo_chan_create_${sanitizeForCIdentifier(chanTypeStr)}(${capacity})`;
+  }
+
+  // __yo_chan_send - send value to channel
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_send)) {
+    const chanArg = expr.args[0];
+    const valueArg = expr.args[1];
+
+    if (!chanArg || !valueArg) {
+      return `// Error: __yo_chan_send requires exactly 2 arguments (channel, value)`;
+    }
+
+    const chanCode = generateExpr(chanArg, indent, context);
+    const valueCode = generateExpr(valueArg, indent, context);
+    const chanType = chanArg.$?.type;
+
+    if (!chanType) {
+      return `// Error: __yo_chan_send channel argument missing type information`;
+    }
+
+    const chanTypeStr = getTypeString(chanType, context);
+    return `__yo_chan_send_${sanitizeForCIdentifier(chanTypeStr)}(${chanCode}, ${valueCode})`;
+  }
+
+  // __yo_chan_recv - receive value from channel
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_recv)) {
+    const chanArg = expr.args[0];
+
+    if (!chanArg) {
+      return `// Error: __yo_chan_recv requires exactly 1 argument (channel)`;
+    }
+
+    const chanCode = generateExpr(chanArg, indent, context);
+    const chanType = chanArg.$?.type;
+
+    if (!chanType) {
+      return `// Error: __yo_chan_recv channel argument missing type information`;
+    }
+
+    const chanTypeStr = getTypeString(chanType, context);
+    return `__yo_chan_recv_${sanitizeForCIdentifier(chanTypeStr)}(${chanCode})`;
+  }
+
+  // __yo_chan_close - close channel
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_close)) {
+    const chanArg = expr.args[0];
+
+    if (!chanArg) {
+      return `// Error: __yo_chan_close requires exactly 1 argument (channel)`;
+    }
+
+    const chanCode = generateExpr(chanArg, indent, context);
+    const chanType = chanArg.$?.type;
+
+    if (!chanType) {
+      return `// Error: __yo_chan_close channel argument missing type information`;
+    }
+
+    const chanTypeStr = getTypeString(chanType, context);
+    return `__yo_chan_close_${sanitizeForCIdentifier(chanTypeStr)}(${chanCode})`;
   }
 
   // dyn() - dynamic dispatch constructor

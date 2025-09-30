@@ -349,10 +349,7 @@ export function typeRequiresInference(type?: Type): boolean {
     case TypeTag.Thread:
       return typeRequiresInference((type as ThreadType).returnType);
     case TypeTag.Chan:
-      return (
-        isUnknownValue((type as ChanType).bufferSize) ||
-        typeRequiresInference((type as ChanType).elementType)
-      );
+      return typeRequiresInference((type as ChanType).elementType);
     default:
       return false; // For other types, no unknown values are present
   }
@@ -947,7 +944,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.Chan: {
       const chanType = type as ChanType;
-      return `Chan(${typeToString(chanType.elementType, visited)}, ${valueToString(chanType.bufferSize)})`;
+      return `Chan(${typeToString(chanType.elementType, visited)})`;
     }
 
     default: {

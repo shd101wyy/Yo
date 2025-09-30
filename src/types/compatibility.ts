@@ -8,6 +8,7 @@ import { ClosureType, FunctionType, ModuleElement, Type } from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
+  isChanType,
   isCharType,
   isClosureType,
   isComptFloatType,
@@ -473,6 +474,15 @@ export function areTypesCompatible(
     return areTypesCompatible(
       { type: expected.type.returnType, env: expected.env },
       { type: given.type.returnType, env: given.env },
+      isMethodReceiver
+    );
+  }
+
+  if (isChanType(expected.type) && isChanType(given.type)) {
+    // Chan types are compatible if their element types are compatible
+    return areTypesCompatible(
+      { type: expected.type.elementType, env: expected.env },
+      { type: given.type.elementType, env: given.env },
       isMethodReceiver
     );
   }

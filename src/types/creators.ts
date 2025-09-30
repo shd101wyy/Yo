@@ -643,18 +643,13 @@ export function createThreadType(
   return threadType;
 }
 
-export function createChanType(
-  elementType: Type,
-  bufferSize: Value,
-  env: Environment
-): ChanType {
+export function createChanType(elementType: Type, env: Environment): ChanType {
   const module = createModuleType(env);
 
   const chanType: ChanType = {
-    id: `chan_${elementType.id}_${hashString(valueToString(bufferSize))}`,
+    id: `chan_${elementType.id}`,
     tag: TypeTag.Chan,
     elementType,
-    bufferSize,
     module,
     env,
   };

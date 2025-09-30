@@ -1,14 +1,14 @@
 open import "std";
 open import "std/libc/stdio.yo";
-/*
-MyBox :: object
-  (*) : i32,
 
-  dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.(*));
-  })
+extern "Yo",
+  __yo_chan_send :
+    fn(forall(T: Type), ch : Chan(T), value : T) -> unit,
+  __yo_chan_recv :
+    fn(forall(T: Type), ch : Chan(T)) -> Option(T),
+  __yo_chan_close :
+    fn(forall(T: Type), ch : Chan(T)) -> unit
 ;
-*/
 
 main :: (fn() -> i32) {
   ch := chan(i32, 2);

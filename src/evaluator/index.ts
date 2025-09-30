@@ -31,9 +31,8 @@ import {
 } from "./builtins/arc_fns";
 import {
   evaluateChan,
-  evaluateYoChanClose,
-  evaluateYoChanRecv,
-  evaluateYoChanSend,
+  evaluateYoChanDrop,
+  evaluateYoChanDup,
 } from "./builtins/channel_fns";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
@@ -214,10 +213,10 @@ export default class Evaluator {
           });
         }
         case TokenType.Integer: {
-          return evaluateIntegerLiteral(expr, env);
+          return evaluateIntegerLiteral(expr, env, { ...context });
         }
         case TokenType.Float: {
-          return evaluateFloatLiteral(expr, env);
+          return evaluateFloatLiteral(expr, env, { ...context });
         }
         case TokenType.String: {
           return evaluateStringLiteral(expr, env);
@@ -404,15 +403,12 @@ ${exprToString(expr)}`,
       ) {
         // __yo_thread_wait
         return evaluateThreadWait({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_send)) {
-        // __yo_chan_send
-        return evaluateYoChanSend({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_recv)) {
-        // __yo_chan_recv
-        return evaluateYoChanRecv({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_close)) {
-        // __yo_chan_close
-        return evaluateYoChanClose({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_drop)) {
+        // __yo_chan_drop
+        return evaluateYoChanDrop({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_dup)) {
+        // __yo_chan_dup
+        return evaluateYoChanDup({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return evaluateImport({
