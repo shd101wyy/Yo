@@ -1,0 +1,21 @@
+open import "std";
+open import "std/libc/stdio.yo";
+
+say :: (fn(s : *(u8), val: i32) -> i32) {
+  printf("%s\n", s);
+  return val;
+};
+
+main :: (fn() -> i32) {
+  t1 := spawn say("world", 16); // say("world") runs in parallel thread
+  t2 := spawn say("hello", 18);
+  
+  t1_result := t1.wait();
+  t2_result := t2.wait();
+  result := (t1_result + t2_result);
+
+  printf("result: %d\n", result);
+  return result;
+};
+
+export main;
