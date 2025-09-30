@@ -865,7 +865,6 @@ ${getResultBody}
   // Allocate specialized thread data
   ${structName}* data = (${structName}*)yo_malloc(sizeof(${structName}));
   data->base.vtable = &${vtableName};
-  atomic_store_explicit(&data->base.completed, 0, memory_order_relaxed);
   atomic_store_explicit(&data->base.joined, 0, memory_order_relaxed);
   data->function = func;
   data->args = args;
@@ -1412,9 +1411,6 @@ void* yo_thread_wrapper(void* param) {
   // Call the execute function via vtable - this will call the appropriate
   // monomorphized function for the specific thread type
   data->vtable->execute_fn(data);
-  
-  // Mark as completed
-  atomic_store_explicit(&data->completed, 1, memory_order_release);
   
 #if defined(_WIN32)
   return 0;

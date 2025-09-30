@@ -225,7 +225,6 @@ typedef struct yo_thread_data_vtable {
 
 typedef struct yo_thread_data_base {
   yo_thread_data_vtable_t* vtable;             // Vtable for dynamic dispatch
-  _Atomic(int) completed;                      // Flag indicating if thread has completed
   _Atomic(int) joined;                         // Flag indicating if thread has been joined
 } yo_thread_data_base_t;
 
