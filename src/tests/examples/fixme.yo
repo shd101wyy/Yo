@@ -1,26 +1,22 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
-MyBox :: object
-  (*) : i32,
 
-  dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.*);
-  })
-;
-
-test :: (fn() -> unit) {
-  ch := chan(MyBox); // unbuffered channel
-  spawn ((fn(ch : Chan(MyBox))-> unit){
-    ch.send(MyBox(16)); // blocks until the value is received
-  })(ch);
-
-  printf("%d\n", ch.recv().unwrap().*); // blocks until a value is sent
-};
-
+// Pointer arithmetic example
 main :: (fn() -> i32) {
-  test();
-  __yo_gc_collect(); // otherwise when main finishes, we won't collect the MyBox created in the thread.
+  ptr := GlobalAllocator.malloc(sizeof(i32) * 2).unwrap().cast(*(i32));
+
+  ptr.* = 1;
+
+  next_ptr := (ptr + 1);
+  next_ptr.* = 2;
+  // (ptr + 1).* = 2;
+
+  printf("First: %d\n", ptr.*);
+  // printf("Second: %d\n", (ptr + 1).*);
+  printf("Second: %d\n", next_ptr.*);
+
+  GlobalAllocator.free(.Some(ptr.cast(*(void))));
   return 0;
 };
 

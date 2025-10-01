@@ -72,6 +72,7 @@ import {
 } from "./builtins/thread_fns";
 import {
   evaluateYoAreTypesCompatible,
+  evaluateYoTypeContainsArcType,
   evaluateYoTypeToString,
 } from "./builtins/type_fns";
 import { evaluateVaStart } from "./builtins/va_start";
@@ -801,6 +802,19 @@ ${exprToString(expr)}`,
       ) {
         // __yo_are_types_compatible
         return evaluateYoAreTypesCompatible({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_type_contains_arc_type,
+          1
+        )
+      ) {
+        // __yo_type_contains_arc_type
+        return evaluateYoTypeContainsArcType({
           expr,
           env,
           context: { ...context },

@@ -7,13 +7,12 @@
  * - Type safety
  * - RAII for automatic cleanup
  */
-open import "../../modules/allocator.yo";
+{ GlobalAllocator, AllocError } :: import "../../modules/allocator.yo";
 open import "../option.yo";
 open import "../result.yo";
 open import "../primitives";
-open import "../allocators/c_allocator.yo";
 
-allocator := CAllocator();
+{ malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 
 /**
  * ArrayList error types
@@ -51,25 +50,20 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     /**
      * Create an ArrayList with a specific initial capacity
      */
-    with_capacity :: ((fn(capacity: usize) -> Result(Self, ArrayListError))
+    with_capacity :: ((fn(capacity: usize) -> Self)
       cond 
         (capacity == (0).as(usize)) => 
-          .Ok(Self.new()),
+          Self.new(),
         true => {
-          ptr_result := &(allocator).alloc(T, capacity);
+          ptr_result := malloc(sizeof(T) * capacity);
           match(ptr_result,
-            .Ok(some_ptr) =>
-              match(some_ptr,
-                .Some(ptr) =>
-                  .Ok(Self(
-                    ptr: .Some(ptr),
-                    len: (0).as(usize),
-                    capacity: capacity
-                  )),
-                .None => .Error(.AllocError(.OutOfMemory))
+            .Some(ptr) =>
+              Self(
+                ptr: .Some(ptr.cast(*(T))),
+                len: (0).as(usize),
+                capacity: capacity
               ),
-            .Error(err) =>
-              .Error(.AllocError(err))
+            .None => panic("malloc returned None")
           )
         }
     ),
@@ -88,24 +82,20 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           
           // Allocate or reallocate
           some_ptr := self.ptr;
-          new_ptr_result := match some_ptr,
-            .None => &(allocator).alloc(T, new_capacity),
-            .Some(ptr) => &(allocator).realloc(some_ptr, new_capacity);
+          new_some_ptr := match some_ptr,
+            .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
+            .Some(ptr) => GlobalAllocator.realloc(some_ptr, new_capacity);
           
-          match(new_ptr_result,
-            .Ok(some_ptr) =>
-              match(some_ptr,
-                .Some(ptr) => {
-                  self.ptr = .Some ptr;
-                  self.capacity = new_capacity;
-                  // Now add the element
-                  // TODO: Implement pointer arithmetic and dereferencing
-                  self.len = (self.len + (1).as(usize));
-                  .Ok(())
-                },
-                .None => .Error(.AllocError(.OutOfMemory))
-              ),
-            .Error(err) => .Error(.AllocError(err))
+          match(new_some_ptr,
+            .Some(ptr) => {
+              self.ptr = .Some(ptr.cast(*(T)));
+              self.capacity = new_capacity;
+              // Now add the element
+              // TODO: Implement pointer arithmetic and dereferencing
+              self.len = (self.len + (1).as(usize));
+              .Ok(())
+            },
+            .None => .Error(.AllocError(.OutOfMemory))
           )
         },
         true => {
@@ -151,11 +141,25 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     ),
     */
 
+    _free_elements :: ((fn(self : Self) -> unit)
+      cond(
+        T.contains_arc_type() => {
+          i := (0).as(usize);
+          ptr := self.ptr.unwrap();
+          while i < self.len, i = (i + 1), {
+            ptr := (ptr + i);
+            element := ptr.*;
+          };
+        },
+        true => ()
+      )
+    ),
+
     /**
      * Clear all elements but keep capacity
      */
-    clear :: ((fn(self: *(Self)) -> unit) {
-      // TODO: Call destructors for elements if T has drop method
+    clear :: ((fn(self: Self) -> unit) {
+      self._free_elements();
       self.len = (0).as(usize);
     }),
 
@@ -163,18 +167,17 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      * RAII destructor - automatically called when ArrayList goes out of scope
      * For `object`, this is called when the reference count drops to zero
      */
-    drop :: ((fn(self: Self) -> unit) {
-      // TODO: Call destructors for all elements if T has drop method
+    dispose :: ((fn(self: Self) -> unit) {
       some_ptr := self.ptr;
       match(some_ptr,
         .Some(ptr) => {
-          &(allocator).dealloc(ptr);
+          self._free_elements();
+          GlobalAllocator.free(.Some(ptr.cast(*(void))));
         },
         .None => ()
       );
       return ();
-    }
-    )
+    })
   );
 
 export

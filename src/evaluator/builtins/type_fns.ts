@@ -10,6 +10,7 @@ import {
   areTypesCompatible,
   createComptStringType,
   isTypeHierarchyType,
+  typeContainsARCType,
   typeToString,
 } from "../../types";
 import {
@@ -144,5 +145,67 @@ export function evaluateYoAreTypesCompatible({
     value: booleanValue,
     pathCollection: [],
   };
+  return expr;
+}
+
+export function evaluateYoTypeContainsArcType({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_type_contains_arc_type,
+    1
+  );
+
+  const arg = context.evaluateExpression({
+    expr: expr.args[0]!,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!arg.$) {
+    throw formatErrorMessage({
+      token: arg.token,
+      errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+        arg
+      )}`,
+    });
+  }
+  if (!isTypeHierarchyType(arg.$.type)) {
+    throw formatErrorMessage({
+      token: arg.token,
+      errorMessage: `Expected TypeHierarchy type for "${expr.func.token.value}" argument, got:\n${exprToString(
+        arg
+      )}`,
+    });
+  }
+  const typeValue = arg.$.value;
+  if (!typeValue || !isTypeValue(typeValue)) {
+    throw formatErrorMessage({
+      token: arg.token,
+      errorMessage: `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
+        arg
+      )}`,
+    });
+  }
+
+  const flag = typeContainsARCType(typeValue.value);
+  const value = createBooleanValue(flag);
+
+  expr.$ = {
+    env: arg.$.env,
+    type: value.type,
+    value: value,
+    pathCollection: [],
+    isAccessingProperty: false,
+  };
+
   return expr;
 }

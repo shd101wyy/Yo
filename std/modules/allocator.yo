@@ -73,5 +73,44 @@ CustomAllocator :: module(
 
 Allocator :: *(Dyn(CustomAllocator));
 
+// Global Allocator
+// We are using mimalloc if that's available
+extern "Yo",
+  yo_malloc : 
+    fn(size: usize) -> ?*(void),
+  yo_calloc :
+    fn(nmemb: usize, size: usize) -> ?*(void),
+  yo_realloc :
+    fn(ptr : ?*(void), size : usize) -> ?*(void),
+  yo_free :
+    fn(ptr : ?*(void)) -> unit,
+  yo_aligned_alloc :
+    fn(alignment : usize, size : usize) -> ?*(void)
+;
 
-export size_would_overflow, CustomAllocator, Allocator, Layout, layout_of, AllocError;
+GlobalAllocator :: impl {
+  malloc :: yo_malloc;
+  calloc :: yo_calloc;
+  realloc :: yo_realloc;
+  free :: yo_free;
+  aligned_alloc :: yo_aligned_alloc;
+
+  export
+    malloc,
+    calloc,
+    realloc,
+    free,
+    aligned_alloc
+  ;
+};
+
+export
+  size_would_overflow,
+  CustomAllocator,
+  Allocator,
+  Layout,
+  layout_of,
+  AllocError,
+
+  GlobalAllocator
+;

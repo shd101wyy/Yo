@@ -778,7 +778,8 @@ export const BuiltinFunctions = {
 
   // Type related functions
   __yo_type_to_string: ["__yo_type_to_string"],
-  __yo_type_is_type0: ["__yo_type_is_type0"],
+  // __yo_type_is_type0: ["__yo_type_is_type0"],
+  __yo_type_contains_arc_type: ["__yo_type_contains_arc_type"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
 
   // Operator related functions

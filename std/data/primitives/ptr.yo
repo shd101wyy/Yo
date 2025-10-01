@@ -6,8 +6,6 @@
 extern "Yo",
   __yo_ptr_cast :
     fn(forall(Source: Type), source : *(Source), compt(Target) : Type) -> Target,
-  __yo_ptr_unchecked_deref :
-    fn(forall(T: Type), v : *(T)) -> T,
 
   // Pointer arithmetic operations
   __yo_ptr_add :
@@ -82,11 +80,6 @@ PtrMethods :: impl {
   cast :: (fn(forall(Source: Type), source: *(Source), compt(Target): Type) -> Target)
     __yo_ptr_cast(source, Target)
   ;
-
-  // Unchecked dereference of a pointer
-  unchecked_deref :: (fn(forall(T: Type), v: *(T)) -> T)
-    __yo_ptr_unchecked_deref(v)
-  ;
   
   export 
     (+),
@@ -98,8 +91,7 @@ PtrMethods :: impl {
     (<=),
     (>),
     (>=),
-    cast,
-    unchecked_deref;
+    cast
 };
 
 // Nullable pointer
