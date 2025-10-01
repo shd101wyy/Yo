@@ -503,7 +503,15 @@ export const BuiltinFunctions = {
 
   // Pointer related functions
   __yo_ptr_cast: ["__yo_ptr_cast"],
-  __yo_mut_ptr_cast: ["__yo_mut_ptr_cast"],
+  __yo_ptr_add: ["__yo_ptr_add"],
+  __yo_ptr_sub: ["__yo_ptr_sub"],
+  __yo_ptr_diff: ["__yo_ptr_diff"],
+  __yo_ptr_eq: ["__yo_ptr_eq"],
+  __yo_ptr_neq: ["__yo_ptr_neq"],
+  __yo_ptr_lt: ["__yo_ptr_lt"],
+  __yo_ptr_lte: ["__yo_ptr_lte"],
+  __yo_ptr_gt: ["__yo_ptr_gt"],
+  __yo_ptr_gte: ["__yo_ptr_gte"],
 
   // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],

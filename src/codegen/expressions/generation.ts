@@ -201,6 +201,129 @@ function generateFuncCall(
     return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
+  // __yo_ptr_cast - pointer type cast
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_cast)) {
+    const ptrArg = expr.args[0];
+    if (!ptrArg) {
+      return `// Error: __yo_ptr_cast requires at least 1 argument`;
+    }
+    const ptrCode = generateExpr(ptrArg, indent, context);
+    const targetType = expr.$?.type;
+    if (targetType) {
+      const targetTypeStr = getTypeString(targetType, context);
+      return `((${targetTypeStr})(${ptrCode}))`;
+    }
+    return `// Error: __yo_ptr_cast missing target type information`;
+  }
+
+  // __yo_ptr_add - pointer arithmetic addition
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)) {
+    const ptrArg = expr.args[0];
+    const offsetArg = expr.args[1];
+    if (!ptrArg || !offsetArg) {
+      return `// Error: __yo_ptr_add requires exactly 2 arguments`;
+    }
+    const ptrCode = generateExpr(ptrArg, indent, context);
+    const offsetCode = generateExpr(offsetArg, indent, context);
+    return `(${ptrCode} + ${offsetCode})`;
+  }
+
+  // __yo_ptr_sub - pointer arithmetic subtraction
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)) {
+    const ptrArg = expr.args[0];
+    const offsetArg = expr.args[1];
+    if (!ptrArg || !offsetArg) {
+      return `// Error: __yo_ptr_sub requires exactly 2 arguments`;
+    }
+    const ptrCode = generateExpr(ptrArg, indent, context);
+    const offsetCode = generateExpr(offsetArg, indent, context);
+    return `(${ptrCode} - ${offsetCode})`;
+  }
+
+  // __yo_ptr_diff - pointer difference
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_diff)) {
+    const ptr1Arg = expr.args[0];
+    const ptr2Arg = expr.args[1];
+    if (!ptr1Arg || !ptr2Arg) {
+      return `// Error: __yo_ptr_diff requires exactly 2 arguments`;
+    }
+    const ptr1Code = generateExpr(ptr1Arg, indent, context);
+    const ptr2Code = generateExpr(ptr2Arg, indent, context);
+    return `(${ptr1Code} - ${ptr2Code})`;
+  }
+
+  // __yo_ptr_eq - pointer equality comparison
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_eq)) {
+    const ptr1Arg = expr.args[0];
+    const ptr2Arg = expr.args[1];
+    if (!ptr1Arg || !ptr2Arg) {
+      return `// Error: __yo_ptr_eq requires exactly 2 arguments`;
+    }
+    const ptr1Code = generateExpr(ptr1Arg, indent, context);
+    const ptr2Code = generateExpr(ptr2Arg, indent, context);
+    return `(${ptr1Code} == ${ptr2Code})`;
+  }
+
+  // __yo_ptr_neq - pointer inequality comparison
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_neq)) {
+    const ptr1Arg = expr.args[0];
+    const ptr2Arg = expr.args[1];
+    if (!ptr1Arg || !ptr2Arg) {
+      return `// Error: __yo_ptr_neq requires exactly 2 arguments`;
+    }
+    const ptr1Code = generateExpr(ptr1Arg, indent, context);
+    const ptr2Code = generateExpr(ptr2Arg, indent, context);
+    return `(${ptr1Code} != ${ptr2Code})`;
+  }
+
+  // __yo_ptr_lt - pointer less than comparison
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_lt)) {
+    const ptr1Arg = expr.args[0];
+    const ptr2Arg = expr.args[1];
+    if (!ptr1Arg || !ptr2Arg) {
+      return `// Error: __yo_ptr_lt requires exactly 2 arguments`;
+    }
+    const ptr1Code = generateExpr(ptr1Arg, indent, context);
+    const ptr2Code = generateExpr(ptr2Arg, indent, context);
+    return `(${ptr1Code} < ${ptr2Code})`;
+  }
+
+  // __yo_ptr_lte - pointer less than or equal comparison
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_lte)) {
+    const ptr1Arg = expr.args[0];
+    const ptr2Arg = expr.args[1];
+    if (!ptr1Arg || !ptr2Arg) {
+      return `// Error: __yo_ptr_lte requires exactly 2 arguments`;
+    }
+    const ptr1Code = generateExpr(ptr1Arg, indent, context);
+    const ptr2Code = generateExpr(ptr2Arg, indent, context);
+    return `(${ptr1Code} <= ${ptr2Code})`;
+  }
+
+  // __yo_ptr_gt - pointer greater than comparison
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_gt)) {
+    const ptr1Arg = expr.args[0];
+    const ptr2Arg = expr.args[1];
+    if (!ptr1Arg || !ptr2Arg) {
+      return `// Error: __yo_ptr_gt requires exactly 2 arguments`;
+    }
+    const ptr1Code = generateExpr(ptr1Arg, indent, context);
+    const ptr2Code = generateExpr(ptr2Arg, indent, context);
+    return `(${ptr1Code} > ${ptr2Code})`;
+  }
+
+  // __yo_ptr_gte - pointer greater than or equal comparison
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_gte)) {
+    const ptr1Arg = expr.args[0];
+    const ptr2Arg = expr.args[1];
+    if (!ptr1Arg || !ptr2Arg) {
+      return `// Error: __yo_ptr_gte requires exactly 2 arguments`;
+    }
+    const ptr1Code = generateExpr(ptr1Arg, indent, context);
+    const ptr2Code = generateExpr(ptr2Arg, indent, context);
+    return `(${ptr1Code} >= ${ptr2Code})`;
+  }
+
   // __yo_thread_drop - call dispose function then __yo_decr_rc on thread
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_drop)) {
     const selfArg = expr.args[0];
@@ -1320,6 +1443,43 @@ function generateFuncCall(
           }
         });
         const argsList = args.join(", ");
+
+        // Check if this is an extern "yo" function - handle these first before regular function values
+        if (functionType.isExtern === "yo" && functionType.externName) {
+          const externFuncName = functionType.externName;
+
+          if (isUnitType(functionType.return.type)) {
+            // If the function returns unit, just call it without assignment
+            context.emitter.emitLine(
+              `${indent}${externFuncName}(${argsList});`
+            );
+
+            // Handle deferred drop expressions if they exist
+            if (expr.$?.deferredDropExpressions) {
+              generateDeferredDropExpressions(expr, indent, context);
+            }
+
+            return ""; // No return value
+          } else {
+            // If it returns a value, return the call directly or assign to temp variable
+            const tempVar = expr.$?.variableName;
+            if (tempVar) {
+              context.emitter.emitLine(
+                `${indent}${getTypeString(functionType.return.type, context)} ${tempVar} = ${externFuncName}(${argsList});`
+              );
+
+              // Handle deferred drop expressions if they exist
+              if (expr.$?.deferredDropExpressions) {
+                generateDeferredDropExpressions(expr, indent, context);
+              }
+
+              return tempVar;
+            } else {
+              // No temp variable, return the call expression directly
+              return `${externFuncName}(${argsList})`;
+            }
+          }
+        }
 
         if (isFunctionValue(functionValue)) {
           // Check if it's function vaue whose body only contains Yo operator
@@ -2655,33 +2815,45 @@ function generateMatchExpression(
 
     // Find which variant is the null case and which is the pointer case
     let nullCase: { caseBody: Expr } | null = null;
-    let pointerCase: { caseBody: Expr; variantName: string } | null = null;
+    let pointerCase: {
+      caseBody: Expr;
+      variantName: string;
+      casePattern: Expr;
+    } | null = null;
 
     for (const caseExpr of caseExprs) {
       if (
         exprIsFunctionCall(caseExpr) &&
         exprIsFunctionCallOf(caseExpr, "=>", 2)
       ) {
-        const caseValue = caseExpr.args[0];
-        const caseBody = caseExpr.args[1];
+        const caseValue = caseExpr.args[0]!; // .None, .Some(ptr)
+        const caseBody = caseExpr.args[1]!;
 
         if (
           caseValue &&
           caseBody &&
           exprIsFunctionCall(caseValue) &&
-          exprIsFunctionCallOf(caseValue, ".", 1)
+          exprIsFunctionCallOf(caseValue, ".") // Destructuring pattern like .None
         ) {
-          const variantName = caseValue.args[0]!.token.value;
-
-          // Find the variant in the enum type
-          const variant = enumType.variants.find((v) => v.name === variantName);
-          if (variant) {
-            if (!variant.elements || variant.elements.length === 0) {
-              // This is the null case
-              nullCase = { caseBody };
-            } else if (variant.elements.length === 1) {
-              // This is the pointer case
-              pointerCase = { caseBody, variantName };
+          nullCase = { caseBody };
+        } else {
+          // Destructuring pattern like .Some(value)
+          // Handle destructuring pattern
+          const variantExpr = (caseValue as FuncCallExpr).func;
+          // Check if variant is a field access like .Some
+          if (
+            variantExpr &&
+            exprIsFunctionCall(variantExpr) &&
+            exprIsFunctionCallOf(variantExpr, ".")
+          ) {
+            const variantNameExpr = variantExpr.args[0]!;
+            if (variantNameExpr && exprIsAtom(variantNameExpr)) {
+              const variantName = variantNameExpr.token.value;
+              pointerCase = {
+                caseBody,
+                variantName,
+                casePattern: caseValue,
+              };
             }
           }
         }
@@ -2694,16 +2866,37 @@ function generateMatchExpression(
     );
 
     if (pointerCase) {
+      // For nullable pointer optimization with destructuring pattern like .Some(value),
+      // we need to bind the destructured variable to the pointer value
+      if (
+        exprIsFunctionCall(pointerCase.casePattern) &&
+        pointerCase.casePattern.args.length > 0
+      ) {
+        // Destructuring pattern: .Some(value)
+        const destructuredVar = pointerCase.casePattern.args[0];
+        if (destructuredVar && exprIsAtom(destructuredVar)) {
+          const varName = destructuredVar.token.value;
+          const varType = nullablePointerType;
+          // Declare and bind the destructured variable to the pointer
+          context.emitter.emitLine(
+            `${indent}  ${getTypeString(varType, context)} ${varName} = ${matchedValueCode};`
+          );
+        }
+      }
+
       const bodyCode = generateExpr(
         pointerCase.caseBody,
         indent + "  ",
         context
       );
       if (!isUnit && tempVariableName) {
+        // For nullable pointer match, the body returns the actual value
+        // If bodyCode is empty or just returns the matched value itself, use the matched value
+        const resultCode = bodyCode || matchedValueCode;
         context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${bodyCode};`
+          `${indent}  ${tempVariableName} = ${resultCode};`
         );
-      } else {
+      } else if (bodyCode) {
         context.emitter.emitLine(`${indent}  ${bodyCode};`);
       }
     }

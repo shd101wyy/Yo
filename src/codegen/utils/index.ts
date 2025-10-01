@@ -11,6 +11,7 @@ import {
   isObjectType,
   isSliceType,
   isStructType,
+  MutPtrType,
   SliceType,
   Type,
   TypeId,
@@ -115,6 +116,10 @@ export function getTypeString(
   switch (type.tag) {
     case TypeTag.Unit:
       return "void";
+    case TypeTag.Void:
+      // Void is an opaque/DST type in Yo - it can only exist behind a pointer
+      // When used directly (which shouldn't happen), we'll use void for C
+      return "void";
     case TypeTag.Boolean:
       return "bool";
     case TypeTag.Usize:
@@ -175,6 +180,17 @@ export function getTypeString(
     case TypeTag.Struct:
     case TypeTag.Union:
     case TypeTag.Enum: {
+      // Check if this enum can be optimized as a nullable pointer
+      if (type.tag === TypeTag.Enum) {
+        const nullablePointerType = canOptimizeAsNullablePointer(
+          type as EnumType
+        );
+        if (nullablePointerType) {
+          // Return the pointer type directly without looking up in context.types
+          return getTypeString(nullablePointerType, context);
+        }
+      }
+
       const cTypeName = context.types[type.id]?.cName;
       if (!cTypeName) {
         throw new Error(
@@ -292,35 +308,37 @@ export function getTypeString(
       // Channel types are reference-counted, so return pointer type
       return `${cTypeName}*`;
     }
-  }
 
-  if (isMutPtrType(type)) {
-    const baseType = type.type;
-    const isMutable = isMutPtrType(type);
+    // Pointer type (mutable or immutable)
+    case TypeTag.MutPtr: {
+      const ptrType = type as MutPtrType;
+      const baseType = ptrType.type;
+      const isMutable = isMutPtrType(type);
 
-    // Special handling for pointer-to-slice: in Rust-like semantics,
-    // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
-    if (isSliceType(baseType)) {
-      const sliceType = baseType as SliceType;
-      const elementTypeString = getTypeString(sliceType.elementType, context);
-      const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
+      // Special handling for pointer-to-slice: in Rust-like semantics,
+      // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
+      if (isSliceType(baseType)) {
+        const sliceType = baseType as SliceType;
+        const elementTypeString = getTypeString(sliceType.elementType, context);
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
 
-      // Register the slice type if not already registered
-      if (!context.sliceStructTypes.has(sliceTypeName)) {
-        context.sliceStructTypes.set(sliceTypeName, {
-          elementType: elementTypeString,
-        });
+        // Register the slice type if not already registered
+        if (!context.sliceStructTypes.has(sliceTypeName)) {
+          context.sliceStructTypes.set(sliceTypeName, {
+            elementType: elementTypeString,
+          });
+        }
+
+        // Return the slice struct type directly, not a pointer to it
+        return sliceTypeName;
       }
 
-      // Return the slice struct type directly, not a pointer to it
-      return sliceTypeName;
-    }
-
-    const baseTypeStr = getTypeString(baseType, context);
-    if (isMutable) {
-      return `${baseTypeStr}*`; // Mutable pointer
-    } else {
-      return `${baseTypeStr}* const`; // Immutable pointer
+      const baseTypeStr = getTypeString(baseType, context);
+      if (isMutable) {
+        return `${baseTypeStr}*`; // Mutable pointer
+      } else {
+        return `${baseTypeStr}* const`; // Immutable pointer
+      }
     }
   }
 

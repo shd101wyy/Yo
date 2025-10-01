@@ -289,9 +289,15 @@ void* yo_thread_wrapper(void* param);
         `typedef struct ${cName}_struct ${cName}; // Forward declaration`
       );
     } else if (isEnumType(type)) {
-      context.emitter.emitDeclarationLine(
-        `typedef struct ${cName}_struct ${cName}; // Forward declaration`
-      );
+      // Skip forward declaration for enums optimized as nullable pointers or simple enums
+      // since they don't use the struct form
+      const nullablePointerType = canOptimizeAsNullablePointer(type);
+      const simpleEnumOptimizable = canOptimizeAsSimpleEnum(type);
+      if (!nullablePointerType && !simpleEnumOptimizable) {
+        context.emitter.emitDeclarationLine(
+          `typedef struct ${cName}_struct ${cName}; // Forward declaration`
+        );
+      }
     }
   }
 

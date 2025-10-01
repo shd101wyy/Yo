@@ -58,6 +58,18 @@ export interface Type {
   isExtern?: ExternLanguage;
 
   /**
+   * The name of the type in the extern language.
+   * eg:
+   *
+   *   extern "Yo",
+   *     say :: (fn() -> unit)
+   *   ;
+   *
+   * "say" is the extern name of the function "say".
+   */
+  externName?: string;
+
+  /**
    * C header file to include when using this type.
    * Only applicable for extern "c" types.
    */

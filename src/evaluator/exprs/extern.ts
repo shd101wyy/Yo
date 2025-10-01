@@ -99,6 +99,7 @@ export function evaluateExtern({
 
     // Set the isExtern for the element type
     element.type.isExtern = language;
+    element.type.externName = element.label;
 
     // Expect element to be compile-time only
     if (!element.isCompileTimeOnly) {
