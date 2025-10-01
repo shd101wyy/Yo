@@ -1006,6 +1006,7 @@ ${dropCalls}
   thread->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1); // Start with 1 reference
   atomic_store_explicit(&thread->header.shared_word, 0, memory_order_relaxed);
   thread->header.gc_next = NULL;
+  thread->header.gc_prev = NULL;
   thread->header.dispose_fn = __yo_dispose_yo_thread_t;
   thread->header.traverse_fn = NULL; // Threads don't contain other managed objects
   thread->thread_id = 0; // Will be set by the thread wrapper when it starts
@@ -1168,8 +1169,12 @@ static void yo_init_thread_gc() {
   // Set the TRACKED flag (non-atomic update since we're the owner)
   header->biased_word = YO_GC_SET_FLAG(biased_word, YO_GC_TRACKED);
   
-  // Add to thread-local tracking list (no synchronization needed)
+  // Add to thread-local tracking list (doubly-linked, no synchronization needed)
   header->gc_next = yo_current_thread_gc->tracked_objects;
+  header->gc_prev = NULL;
+  if (yo_current_thread_gc->tracked_objects != NULL) {
+    yo_current_thread_gc->tracked_objects->gc_prev = header;
+  }
   yo_current_thread_gc->tracked_objects = header;
   yo_current_thread_gc->tracked_count++;
   
@@ -1194,34 +1199,21 @@ void __yo_gc_unregister(void* ptr) {
     return; // Not tracked
   }
   
-  // Remove from thread-local tracking list (no synchronization needed)
-  yo_ref_header_t* current = yo_current_thread_gc->tracked_objects;
-  yo_ref_header_t* prev = NULL;
-  
-  while (current != NULL) {
-    if (current == header) {
-      // Found the node to remove
-      if (prev == NULL) {
-        // Removing head node
-        yo_current_thread_gc->tracked_objects = (yo_ref_header_t*)current->gc_next;
-      } else {
-        // Removing middle/tail node
-        prev->gc_next = current->gc_next;
-      }
-      
-      // Clear the node's flags and pointers
-      current->gc_next = NULL;
-      
-      // Clear TRACKED flag (non-atomic since we're the owner or during STW)
-      current->biased_word = YO_GC_CLEAR_FLAG(current->biased_word, YO_GC_TRACKED);
-      
-      yo_current_thread_gc->tracked_count--;
-      break;
-    }
-    
-    prev = current;
-    current = (yo_ref_header_t*)current->gc_next;
+  // Remove from thread-local tracking list using doubly-linked pointers (O(1) deletion)
+  if (header->gc_prev != NULL) {
+    // Not the head node - update previous node's next pointer
+    header->gc_prev->gc_next = header->gc_next;
+  } else {
+    // Head node - update thread's tracked_objects pointer
+    yo_current_thread_gc->tracked_objects = (yo_ref_header_t*)header->gc_next;
   }
+  
+  if (header->gc_next != NULL) {
+    // Update next node's prev pointer (works for both head and non-head removal)
+    header->gc_next->gc_prev = header->gc_prev;
+  }
+
+  yo_current_thread_gc->tracked_count--;
 }`);
 
   // Generate BRC queue function for handling queued objects
@@ -1259,6 +1251,10 @@ static void __yo_brc_queue_object(void* ptr, size_t owner_tid) {
   
   // Add to owner thread's tracked objects (this serves as the QueuedObjects list)
   header->gc_next = thread_gc->tracked_objects;
+  header->gc_prev = NULL;
+  if (thread_gc->tracked_objects != NULL) {
+    thread_gc->tracked_objects->gc_prev = header;
+  }
   thread_gc->tracked_objects = header;
   thread_gc->tracked_count++;
   
@@ -2066,9 +2062,17 @@ export function generateClosureConstructorFunctions(
         emitter.emitLine(
           `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
         );
+        emitter.emitLine(`  obj->header.owner_thread_id = yo_get_thread_id();`);
         emitter.emitLine(
-          `  atomic_store_explicit(&obj->header.ref_count, 1, memory_order_relaxed);`
+          `  obj->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
         );
+        emitter.emitLine(
+          `  atomic_store_explicit(&obj->header.shared_word, 0, memory_order_relaxed);`
+        );
+        emitter.emitLine(`  obj->header.gc_next = NULL;`);
+        emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+        emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+        emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
         emitter.emitLine(`  obj->data = data;`);
 
         // Set vtable function pointers directly
@@ -2109,9 +2113,17 @@ export function generateClosureConstructorFunctions(
         emitter.emitLine(
           `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
         );
+        emitter.emitLine(`  obj->header.owner_thread_id = yo_get_thread_id();`);
         emitter.emitLine(
-          `  atomic_store_explicit(&obj->header.ref_count, 1, memory_order_relaxed);`
+          `  obj->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
         );
+        emitter.emitLine(
+          `  atomic_store_explicit(&obj->header.shared_word, 0, memory_order_relaxed);`
+        );
+        emitter.emitLine(`  obj->header.gc_next = NULL;`);
+        emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+        emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+        emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
         emitter.emitLine(`  obj->data = data;`);
 
         // Set vtable function pointers directly
@@ -2211,7 +2223,7 @@ export function generateDynConstructorFunctions(
       emitter.emitLine(
         `  // Initialize BRC fields for split design with current thread as owner`
       );
-      emitter.emitLine(`  obj->header.thread_id = yo_get_thread_id();`);
+      emitter.emitLine(`  obj->header.owner_thread_id = yo_get_thread_id();`);
       emitter.emitLine(
         `  // Initialize biased_word: 1 biased reference (non-atomic)`
       );
@@ -2224,6 +2236,10 @@ export function generateDynConstructorFunctions(
       emitter.emitLine(
         `  atomic_store_explicit(&obj->header.shared_word, BRC_SET_FLAGS(0, BRC_NO_BIAS), memory_order_relaxed);`
       );
+      emitter.emitLine(`  obj->header.gc_next = NULL;`);
+      emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+      emitter.emitLine(`  obj->header.dispose_fn = dispose_fn;`);
+      emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
 
       emitter.emitLine(`  va_list args;`);
       emitter.emitLine(`  va_start(args, dispose_fn);`);
@@ -2363,6 +2379,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   chan->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);
   atomic_store_explicit(&chan->header.shared_word, 0, memory_order_relaxed);
   chan->header.gc_next = NULL;
+  chan->header.gc_prev = NULL;
   chan->header.dispose_fn = __yo_dispose_${safeCName};
   chan->header.traverse_fn = NULL;
 

@@ -194,17 +194,11 @@ static inline size_t yo_get_thread_id(void) {
 #endif
 #endif
 
-// Per-thread GC state
-typedef struct yo_thread_gc_state {
-  struct yo_ref_header_t* tracked_objects;    // Head of this thread's tracked objects list
-  size_t tracked_count;                       // Number of objects tracked by this thread
-  size_t thread_id;                          // Thread identifier
-  _Atomic(int) gc_paused;                    // Flag indicating if this thread is paused for GC
-  struct yo_thread_gc_state* next;           // Next thread in global thread list
-  struct yo_thread_gc_state* prev;           // Previous thread in global thread list (for O(1) removal)
-} yo_thread_gc_state_t;
+// Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
+typedef struct yo_thread_gc_state yo_thread_gc_state_t;
 
-typedef struct {
+// Reference counting header - must be defined before yo_thread_gc_state_t
+typedef struct yo_ref_header_t {
   // Biased Reference Counting fields
   size_t owner_thread_id;                                // Thread ID that owns this object (0 = no owner/shared)
   uint32_t biased_word;                                 // Biased counter + GC flags (non-atomic, owner thread only)
@@ -217,14 +211,25 @@ typedef struct {
   
   // Shared word format (32 bits):
   // Bits 0-13:   Shared counter (14 bits) - atomic access, can be negative (signed)
-  // Bits 14-15:  BRC flags (2 bits) - merged (bit 0), reserved (bit 1) (atomic access)
+  // Bits 14-15:  BRC flags (2 bits) - merged (bit 0), queued (bit 1) (atomic access)
   // Bits 16-31:  Reserved (16 bits) - for future use
   
-  // GC object management fields
+  // GC object management fields (doubly-linked list for O(1) deletion)
   struct yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
+  struct yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
   void (*dispose_fn)(void*);                             // Dispose function for this object type (immutable after construction)
   void (*traverse_fn)(void*, void (*visit)(void*));     // Traversal function for GC marking (immutable after construction)
 } yo_ref_header_t;
+
+// Per-thread GC state - defined after yo_ref_header_t so it can use complete type
+struct yo_thread_gc_state {
+  yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
+  size_t tracked_count;                      // Number of objects tracked by this thread
+  size_t thread_id;                          // Thread identifier
+  _Atomic(int) gc_paused;                    // Flag indicating if this thread is paused for GC
+  yo_thread_gc_state_t* next;                // Next thread in global thread list
+  yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
+};
 
 // Thread type definitions for spawn/thread_wait functionality
 // Include platform-specific thread headers
