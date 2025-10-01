@@ -36,3 +36,5 @@ When you are working on the C codegen. Do not call `emitter.emitLine` multiple t
 Don't add unnecessary comments to the code.
 
 For understanding the compile-time reference counting ownership model, please read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` document.
+
+For understanding the biased reference counting implementation, please read `BIASED_REFERENCE_COUNTING.md` document.

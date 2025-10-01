@@ -67,7 +67,7 @@ export class ModuleManager {
 
   public compileModule(
     modulePath: string,
-    { emitC }: { emitC?: boolean } = {}
+    { emitC, debugBrc }: { emitC?: boolean; debugBrc?: boolean } = {}
   ) {
     console.log(`= Compiling module ${modulePath}`);
     const { moduleValue, moduleError } = this.loadModule(modulePath);
@@ -81,7 +81,7 @@ export class ModuleManager {
       throw new Error(`Module data not found for ${modulePath}`);
     }
 
-    this.codeGenratorC.compileModule(modulePath, moduleValue);
+    this.codeGenratorC.compileModule(modulePath, moduleValue, { debugBrc });
     if (emitC) {
       console.log(this.codeGenratorC.print());
     }

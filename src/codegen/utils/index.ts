@@ -77,6 +77,11 @@ export interface CodeGenContext {
    * Emitter for generating C code
    */
   emitter: Emitter;
+
+  /**
+   * Enable debug logging for Biased Reference Counting operations
+   */
+  debugBrc: boolean;
 }
 
 /**

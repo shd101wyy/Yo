@@ -494,6 +494,9 @@ export function generateObjectConstructorDeclarations(
   emitter.emitDeclarationLine(
     `static void yo_init_process_cleanup(void); // Initialize process cleanup`
   );
+  emitter.emitDeclarationLine(
+    `static void __yo_brc_queue_object(void* ptr, size_t owner_tid); // Queue object to owner thread for BRC`
+  );
 
   // Generate dispose function declarations for channel types (forward declarations)
   for (const typeId in context.types) {
@@ -698,6 +701,7 @@ export function generateBuiltinFunctions(
     // FAST DECREMENT (Owner access) - non-atomic biased_word access
     uint32_t biased_word = header->biased_word;
     uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+    BRC_DEBUG("FastDecr: ptr=%p, tid=%zu, biased=%u->%u\\n", ptr, current_thread_id, biased_counter, biased_counter - 1);
     header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter - 1);
     
     if (biased_counter - 1 > 0) {
@@ -713,6 +717,7 @@ export function generateBuiltinFunctions(
     
     if (BRC_GET_SHARED_COUNTER(new_shared_word) == 0) {
       // No shared references - deallocate
+      BRC_DEBUG("FastDecr: Deallocating ptr=%p (biased=0, shared=0)\\n", ptr);
       __yo_gc_unregister(ptr);
       if (dispose_fn) {
         dispose_fn(ptr);
@@ -720,29 +725,38 @@ export function generateBuiltinFunctions(
       yo_free(ptr);
     } else {
       // Give up ownership - object becomes shared
+      BRC_DEBUG("FastDecr: Giving up ownership ptr=%p (biased=0, shared=%d)\\n", ptr, BRC_GET_SHARED_COUNTER(new_shared_word));
       header->owner_thread_id = 0;
     }
     
   } else {
     // SLOW DECREMENT (Non-owner access) - atomic shared_word access
     uint32_t old_shared_word, new_shared_word;
+    bool was_queued_before, is_queued_now;
     
     do {
       old_shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
       int32_t shared_counter = BRC_GET_SHARED_COUNTER(old_shared_word);
+      BRC_DEBUG("SlowDecr: ptr=%p, tid=%zu (owner=%zu), shared=%d->%d\\n", ptr, current_thread_id, owner_tid, shared_counter, shared_counter - 1);
       shared_counter--; // Decrement shared counter
       
       new_shared_word = BRC_SET_SHARED_COUNTER(old_shared_word, shared_counter);
       
-      if (shared_counter < 0) { // Counter went negative - this should not happen in Yo!
-        // Abort immediately - this indicates a compiler bug or unsafe FFI usage
-        fprintf(stderr, "BRC Error: Shared counter went negative (%d) for object %p. This should never happen in Yo!\\n", 
-                shared_counter, ptr);
-        abort();
+      // If counter went negative, set queued flag
+      if (shared_counter < 0) {
+        new_shared_word = BRC_SET_FLAG(new_shared_word, BRC_FLAG_QUEUED);
       }
     } while (!atomic_compare_exchange_weak_explicit(&header->shared_word, &old_shared_word, new_shared_word, memory_order_acq_rel, memory_order_relaxed));
     
-    if (BRC_HAS_FLAG(new_shared_word, BRC_FLAG_MERGED) && BRC_GET_SHARED_COUNTER(new_shared_word) == 0) {
+    // Check if queued flag was just set (first time)
+    was_queued_before = BRC_HAS_FLAG(old_shared_word, BRC_FLAG_QUEUED);
+    is_queued_now = BRC_HAS_FLAG(new_shared_word, BRC_FLAG_QUEUED);
+    
+    if (!was_queued_before && is_queued_now) {
+      // Queued flag was just set - queue the object to owner thread
+      BRC_DEBUG("SlowDecr: Queueing ptr=%p to owner tid=%zu (shared=%d)\\n", ptr, owner_tid, BRC_GET_SHARED_COUNTER(new_shared_word));
+      __yo_brc_queue_object(ptr, owner_tid);
+    } else if (BRC_HAS_FLAG(new_shared_word, BRC_FLAG_MERGED) && BRC_GET_SHARED_COUNTER(new_shared_word) == 0) {
       // Counters are merged and shared counter is zero - deallocate
       __yo_gc_unregister(ptr);
       if (dispose_fn) {
@@ -765,6 +779,7 @@ void* __yo_incr_rc(void* ptr) {
     // FAST INCREMENT (Owner access) - non-atomic biased_word access
     uint32_t biased_word = header->biased_word;
     uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+    BRC_DEBUG("FastIncr: ptr=%p, tid=%zu, biased=%u->%u\\n", ptr, current_thread_id, biased_counter, biased_counter + 1);
     header->biased_word = BRC_SET_BIASED_COUNTER(biased_word, biased_counter + 1); // Non-atomic!
   } else {
     // SLOW INCREMENT (Non-owner access) - atomic shared_word access
@@ -772,6 +787,7 @@ void* __yo_incr_rc(void* ptr) {
     do {
       old_shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
       int32_t shared_counter = BRC_GET_SHARED_COUNTER(old_shared_word);
+      BRC_DEBUG("SlowIncr: ptr=%p, tid=%zu (owner=%zu), shared=%d->%d\\n", ptr, current_thread_id, owner_tid, shared_counter, shared_counter + 1);
       shared_counter++; // Increment shared counter
       new_shared_word = BRC_SET_SHARED_COUNTER(old_shared_word, shared_counter);
     } while (!atomic_compare_exchange_weak_explicit(&header->shared_word, &old_shared_word, new_shared_word, memory_order_acq_rel, memory_order_relaxed));
@@ -992,6 +1008,7 @@ ${dropCalls}
   thread->header.gc_next = NULL;
   thread->header.dispose_fn = __yo_dispose_yo_thread_t;
   thread->header.traverse_fn = NULL; // Threads don't contain other managed objects
+  thread->thread_id = 0; // Will be set by the thread wrapper when it starts
   
   // Allocate specialized thread data
   ${structName}* data = (${structName}*)yo_malloc(sizeof(${structName}));
@@ -1001,14 +1018,19 @@ ${dropCalls}
 ${paramAssignments}${resultInit}  
   thread->data = (yo_thread_data_base_t*)data;
   
+  // Store a back-pointer to the thread object in the data so wrapper can access it
+  data->base.thread_object = thread;
+  
   // Create the actual system thread
 #if defined(_WIN32)
-  thread->handle = CreateThread(NULL, 0, yo_thread_wrapper, thread->data, 0, &thread->thread_id);
+  DWORD win_thread_id;
+  thread->handle = CreateThread(NULL, 0, yo_thread_wrapper, thread->data, 0, &win_thread_id);
   if (thread->handle == NULL) {
     yo_free(data);
     yo_free(thread);
     return NULL;
   }
+  thread->thread_id = (size_t)win_thread_id; // Store thread ID
 #else
   int result = pthread_create(&thread->handle, NULL, yo_thread_wrapper, thread->data);
   if (result != 0) {
@@ -1016,6 +1038,7 @@ ${paramAssignments}${resultInit}
     yo_free(thread);
     return NULL;
   }
+  // thread_id will be set by the wrapper function using yo_get_thread_id()
 #endif
   
   return thread;
@@ -1134,6 +1157,8 @@ static void yo_init_thread_gc() {
     yo_init_thread_gc();
   }
   
+  BRC_DEBUG("GC Register: ptr=%p, tid=%zu\\\\n", ptr, yo_get_thread_id());
+  
   // Check if already tracked (non-atomic since we're the owner or during STW)
   uint32_t biased_word = header->biased_word;
   if (YO_GC_HAS_FLAG(biased_word, YO_GC_TRACKED)) {
@@ -1197,6 +1222,47 @@ void __yo_gc_unregister(void* ptr) {
     prev = current;
     current = (yo_ref_header_t*)current->gc_next;
   }
+}`);
+
+  // Generate BRC queue function for handling queued objects
+  emitter.emitLine(`// BRC helper function to queue objects to owner thread
+static void __yo_brc_queue_object(void* ptr, size_t owner_tid) {
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  
+  // If already queued (gc_next is not NULL), no need to queue again
+  if (header->gc_next != NULL) {
+    return;
+  }
+  
+  // Find the owner thread's GC state and add object to its tracked list
+  yo_mutex_lock(&yo_thread_list_mutex);
+  yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
+  while (thread_gc != NULL) {
+    if (thread_gc->thread_id == owner_tid) {
+      break;
+    }
+    thread_gc = thread_gc->next;
+  }
+  
+  // If owner thread's GC state doesn't exist, initialize it
+  if (thread_gc == NULL) {
+    thread_gc = (yo_thread_gc_state_t*)yo_malloc(sizeof(yo_thread_gc_state_t));
+    thread_gc->thread_id = owner_tid;
+    thread_gc->tracked_objects = NULL;
+    thread_gc->tracked_count = 0;
+    thread_gc->next = yo_all_thread_gcs;
+    yo_all_thread_gcs = thread_gc;
+#ifdef YO_DEBUG_BRC
+    fprintf(stderr, "BRC: QueueObj: Initialized GC state for owner tid=%zu\\n", owner_tid);
+#endif
+  }
+  
+  // Add to owner thread's tracked objects (this serves as the QueuedObjects list)
+  header->gc_next = thread_gc->tracked_objects;
+  thread_gc->tracked_objects = header;
+  thread_gc->tracked_count++;
+  
+  yo_mutex_unlock(&yo_thread_list_mutex);
 }`);
 
   // Generate stop-the-world coordination functions
@@ -1324,6 +1390,8 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
     return;  // Another thread is already running GC
   }
   
+  BRC_DEBUG("GC: Starting collection\\n");
+  
   // Stop the world - pause all other threads
   yo_gc_pause_all_threads();
   
@@ -1335,13 +1403,79 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
   
   while (thread_gc != NULL) {
     yo_ref_header_t* head = thread_gc->tracked_objects;
+    BRC_DEBUG("GC: Processing thread tid=%zu, tracked_count=%zu\\\\n", thread_gc->thread_id, thread_gc->tracked_count);
     if (head == NULL) {
       thread_gc = thread_gc->next;
       continue; // This thread has no tracked objects
     }
     
-    // No explicit merge phase needed - negative counters abort immediately
-    // All objects in tracked list have valid biased counters that can be processed normally
+    // Phase 0: BRC explicit merge - handle queued objects during stop-the-world
+    yo_ref_header_t* merge_obj = head;
+    yo_ref_header_t* merge_prev = NULL;
+    
+    while (merge_obj != NULL) {
+      yo_ref_header_t* merge_next = (yo_ref_header_t*)merge_obj->gc_next;
+      
+      // Check if this object is queued for explicit merge (non-atomic since STW)
+      uint32_t shared_word = atomic_load_explicit(&merge_obj->shared_word, memory_order_relaxed);
+      if (BRC_HAS_FLAG(shared_word, BRC_FLAG_QUEUED)) {
+        // Perform explicit merge using split words (safe during STW)
+        uint32_t biased_word = merge_obj->biased_word;  // Non-atomic read (STW)
+        uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+        
+        // Merge counters: add biased_counter to shared_counter
+        int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
+        int32_t merged_counter = shared_counter + biased_counter;
+        
+        BRC_DEBUG("GC ExplicitMerge: ptr=%p, biased=%u, shared=%d, merged=%d\\n", merge_obj, biased_counter, shared_counter, merged_counter);
+        
+        // Update shared word with merged counter and clear queued flag, set merged flag
+        uint32_t new_shared_word = BRC_SET_SHARED_COUNTER(shared_word, merged_counter);
+        new_shared_word = BRC_SET_FLAG(new_shared_word, BRC_FLAG_MERGED);
+        new_shared_word = BRC_CLEAR_FLAG(new_shared_word, BRC_FLAG_QUEUED);
+        atomic_store_explicit(&merge_obj->shared_word, new_shared_word, memory_order_relaxed);
+        
+        // Clear biased counter since it's now merged
+        merge_obj->biased_word = BRC_SET_BIASED_COUNTER(biased_word, 0);
+        
+        if (merged_counter == 0) {
+          // Object can be deallocated immediately
+          BRC_DEBUG("GC ExplicitMerge: Deallocating ptr=%p (merged=0)\\n", merge_obj);
+          if (merge_obj->dispose_fn) {
+            merge_obj->dispose_fn(merge_obj);
+          }
+          yo_free(merge_obj);
+          
+          // Remove from tracking list
+          if (merge_prev == NULL) {
+            thread_gc->tracked_objects = merge_next;
+            head = merge_next; // Update head pointer
+          } else {
+            merge_prev->gc_next = merge_next;
+          }
+          thread_gc->tracked_count--;
+          total_collected++;
+          
+          // Continue with next, don't update prev
+          merge_obj = merge_next;
+          continue;
+        } else {
+          // Give up ownership since counters are merged
+          BRC_DEBUG("GC ExplicitMerge: Giving up ownership ptr=%p (merged=%d)\\n", merge_obj, merged_counter);
+          merge_obj->owner_thread_id = 0;
+        }
+      }
+      
+      merge_prev = merge_obj;
+      merge_obj = merge_next;
+    }
+    
+    // Update head after potential removals in explicit merge
+    head = thread_gc->tracked_objects;
+    if (head == NULL) {
+      thread_gc = thread_gc->next;
+      continue; // No objects left after explicit merge
+    }
     
     // Phase 1: Trial deletion - temporarily remove internal references
     yo_ref_header_t* obj = head;
@@ -1541,6 +1675,13 @@ void* yo_thread_wrapper(void* param) {
 #endif
   yo_thread_data_base_t* data = (yo_thread_data_base_t*)param;
   
+  // Set the thread ID in the thread object (for POSIX systems)
+#if !defined(_WIN32)
+  if (data->thread_object != NULL) {
+    data->thread_object->thread_id = yo_get_thread_id();
+  }
+#endif
+  
   // Call the execute function via vtable - this will call the appropriate
   // monomorphized function for the specific thread type
   data->vtable->execute_fn(data);
@@ -1553,6 +1694,59 @@ void* yo_thread_wrapper(void* param) {
 }
 
 // Specialized thread constructors are generated above in generateThreadWrapperFunctions()
+
+// Helper function to clean up a joined thread's GC state
+static void yo_cleanup_joined_thread_gc(size_t joined_thread_id) {
+  yo_mutex_lock(&yo_thread_list_mutex);
+  yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
+  while (thread_gc != NULL) {
+    if (thread_gc->thread_id == joined_thread_id) {
+      BRC_DEBUG("ThreadCleanup: Found joined thread GC state tid=%zu, transferring objects\\n", joined_thread_id);
+      // Found the joined thread's GC state - merge its objects to current thread
+      if (thread_gc->tracked_objects != NULL) {
+        // Initialize current thread's GC state if needed
+        if (yo_current_thread_gc == NULL) {
+          yo_mutex_unlock(&yo_thread_list_mutex);
+          yo_init_thread_gc();
+          yo_mutex_lock(&yo_thread_list_mutex);
+        }
+        
+        // Find the end of the joined thread's list
+        yo_ref_header_t* current = thread_gc->tracked_objects;
+        yo_ref_header_t* last = NULL;
+        while (current != NULL) {
+          last = current;
+          current = (yo_ref_header_t*)current->gc_next;
+        }
+        
+        if (last != NULL) {
+          // Append joined thread's list to current thread's list
+          last->gc_next = yo_current_thread_gc->tracked_objects;
+          yo_current_thread_gc->tracked_objects = thread_gc->tracked_objects;
+          yo_current_thread_gc->tracked_count += thread_gc->tracked_count;
+        }
+      }
+      
+      // Remove from global thread list
+      if (thread_gc->prev != NULL) {
+        thread_gc->prev->next = thread_gc->next;
+      } else {
+        yo_all_thread_gcs = thread_gc->next;
+      }
+      
+      if (thread_gc->next != NULL) {
+        thread_gc->next->prev = thread_gc->prev;
+      }
+      
+      atomic_fetch_sub_explicit(&yo_total_thread_count, 1, memory_order_relaxed);
+      BRC_DEBUG("ThreadCleanup: Removed joined thread GC state tid=%zu from global list\\n", joined_thread_id);
+      yo_free(thread_gc);
+      break;
+    }
+    thread_gc = thread_gc->next;
+  }
+  yo_mutex_unlock(&yo_thread_list_mutex);
+}
 
 void* yo_thread_wait(yo_thread_t* thread) {
   if (thread == NULL) return NULL;
@@ -1571,6 +1765,9 @@ void* yo_thread_wait(yo_thread_t* thread) {
 #else
   pthread_join(thread->handle, NULL);
 #endif
+  
+  // Clean up the joined thread's GC state
+  yo_cleanup_joined_thread_gc(thread->thread_id);
   
   // Get the result via vtable (properly typed)
   return thread->data->vtable->get_result_fn(thread->data);
@@ -1591,6 +1788,8 @@ void __yo_dispose_yo_thread_t(void* self) {
 #else
       pthread_join(thread->handle, NULL);
 #endif
+      // Clean up the joined thread's GC state
+      yo_cleanup_joined_thread_gc(thread->thread_id);
     }
     
     // Clean up thread data via vtable
@@ -1718,6 +1917,9 @@ export function generateRefStructConstructorFunctions(
       // Initialize BRC fields for split design
       emitter.emitLine(
         `  obj->header.owner_thread_id = yo_get_thread_id();  // Set current thread as owner`
+      );
+      emitter.emitLine(
+        `  BRC_DEBUG("ObjCreate: ptr=%p, tid=%zu, biased=1, shared=0\\n", obj, obj->header.owner_thread_id);`
       );
       emitter.emitLine(
         `  // Initialize biased_word: 1 biased reference, GC flags (non-atomic)`

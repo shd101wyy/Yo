@@ -40,10 +40,17 @@ export class CodeGenerator {
        * Skip the C compiler compilation.
        */
       skipCCompiler?: boolean;
+      /**
+       * Enable debug logging for Biased Reference Counting operations.
+       */
+      debugBrc?: boolean;
     }
   ): void {
     if (!options.skipCodegen) {
-      this.moduleManager.compileModule(modulePath, { emitC: options.emitC });
+      this.moduleManager.compileModule(modulePath, {
+        emitC: options.emitC,
+        debugBrc: options.debugBrc,
+      });
 
       // Get the generated C code
       const compiledCode = this.moduleManager.getGeneratedCode();

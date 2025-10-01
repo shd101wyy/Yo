@@ -26,8 +26,13 @@ export class CodeGeneratorC {
    * Compile a module to C code
    * @param modulePath
    * @param moduleValue
+   * @param options
    */
-  public compileModule(modulePath: string, moduleValue: ModuleValue): void {
+  public compileModule(
+    modulePath: string,
+    moduleValue: ModuleValue,
+    options: { debugBrc?: boolean } = {}
+  ): void {
     this.emitter.emitDeclarationLine(`\n// Module ${modulePath}`);
     this.emitter.emitDeclarationLine(
       `// Module ID: ${generateModuleId(modulePath)}`
@@ -53,6 +58,7 @@ export class CodeGeneratorC {
         "<stdio.h>",
         "<string.h>",
       ]),
+      debugBrc: options.debugBrc ?? false,
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)

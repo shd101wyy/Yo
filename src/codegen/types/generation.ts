@@ -32,9 +32,22 @@ import {
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
   // Always generate atomic reference counter header for objects and ref enums
+  const debugBrcDefine = context.debugBrc
+    ? "#define YO_DEBUG_BRC 1"
+    : "// #define YO_DEBUG_BRC 1";
+
   context.emitter
     .emitDeclarationLine(`// Biased Reference Counting (BRC) header for objects and ref enums
 // Per-thread GC with stop-the-world collection for better scalability
+
+// Debug flag for BRC operations - use --debug-brc flag to enable
+${debugBrcDefine}
+
+#ifdef YO_DEBUG_BRC
+  #define BRC_DEBUG(...) fprintf(stderr, "BRC: " __VA_ARGS__)
+#else
+  #define BRC_DEBUG(...)
+#endif
 
 // Fast thread ID function using platform-specific inline assembly (inspired by Python/mimalloc)
 static inline size_t yo_get_thread_id(void) {
@@ -100,6 +113,7 @@ static inline size_t yo_get_thread_id(void) {
 // BRC and GC flag definitions
 // BRC flags (bits 14-15 of shared word) - atomic access required
 #define BRC_FLAG_MERGED            0x1  // Object has been merged from biased to shared state
+#define BRC_FLAG_QUEUED            0x2  // Object has been queued to owner thread (shared counter went negative)
 
 // Convenience aliases for common flag combinations
 #define BRC_NO_BIAS                0x0  // Object is biased (default state)
@@ -226,18 +240,19 @@ typedef struct yo_thread_data_vtable {
 } yo_thread_data_vtable_t;
 
 typedef struct yo_thread_data_base {
-  yo_thread_data_vtable_t* vtable;             // Vtable for dynamic dispatch
-  _Atomic(int) joined;                         // Flag indicating if thread has been joined
+  yo_thread_data_vtable_t* vtable;             // VTable for polymorphic thread operations
+  _Atomic(int) joined;                         // Whether the thread has been joined (1 = joined, 0 = not joined)
+  struct yo_thread* thread_object;             // Back-pointer to the yo_thread_t object
 } yo_thread_data_base_t;
 
 typedef struct yo_thread {
   yo_ref_header_t header;                      // Reference count header (ARC type)
 #if defined(_WIN32)
   HANDLE handle;                               // Windows thread handle
-  DWORD thread_id;                             // Windows thread ID
 #else
   pthread_t handle;                            // POSIX thread handle
 #endif
+  size_t thread_id;                            // Thread ID (for GC tracking)
   yo_thread_data_base_t* data;                 // Thread execution data (base type)
 } yo_thread_t;
 

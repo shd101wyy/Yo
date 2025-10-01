@@ -100,12 +100,12 @@ static inline size_t yo_get_thread_id(void) {
 ```
 
 ### Abort on Negative Counter
-Instead of queueing objects when shared counter goes negative, Yo aborts immediately:
-- If `shared_counter < 0`: Call `abort()` with error message
-- This indicates a compiler bug or unsafe FFI usage
-- Yo's compile-time ownership analysis should prevent this scenario
+Yo follows the paper's algorithm for handling negative shared counters:
+- If `shared_counter < 0`: Set the `queued` flag and queue the object to the owner thread
+- The owner thread will perform explicit merge during the next GC cycle
+- This handles cross-thread reference patterns correctly without aborting
 
-This eliminates the need for queue management and provides fail-fast behavior.
+The queued objects are processed during stop-the-world GC phases.
 
 ## Invariant Description
   - Must be zero or higher
@@ -114,16 +114,16 @@ This eliminates the need for queue management and provides fail-fast behavior.
   - Must be zero or higher
   - When it reaches 0, owner unbiases object, implicitly merging counters
 - I3: shared = (references added - references removed) by non-owners
-  - **In Yo: Should never be negative** due to compile-time ownership analysis
-  - Original BRC paper allows negative values for general C++ programs
-  - Yo's static analysis ensures increment always precedes decrement
-  - If negative, indicates compiler bug or unsafe FFI usage
+  - **Can be negative** when decrements happen before increments in cross-thread scenarios
+  - Negative values trigger the `queued` flag and object is added to owner's queue
+  - Owner performs explicit merge during GC to resolve negative counters
 - I4: Owner only gives up ownership when it merges counters, namely:
   - When biased reaches zero (implicit merge)
   - Or when the owner finds the object in its `QueuedObjects` list (explicit merge)
-- I5: Object cannot have negative shared counter in valid Yo programs
-  - If shared counter goes negative, abort immediately (fail-fast)
-  - Indicates compiler bug or unsafe FFI usage
+- I5: Queued flag indicates object needs explicit merge
+  - Set when shared counter goes negative
+  - Owner thread processes queued objects during GC stop-the-world phase
+  - Explicit merge combines biased and shared counters, clears queue flag
 
 ## Algorithm Comparison
 
@@ -307,14 +307,16 @@ procedure SlowDecrement(obj)
     new := old
     new.counter -= 1
     
-    // In Yo: This should never happen due to compile-time ownership analysis
-    // Abort immediately if it does happen (fail-fast for debugging)
+    // If counter went negative, set queued flag (Yo follows paper's algorithm)
     if new.counter < 0 then
-      Abort("BRC Error: Shared counter went negative - compiler bug or unsafe FFI")
+      new.queued := True
     end if
   while !CAS(&obj.shared_word, old, new) // Atomic decrement of shared counter
 
-  if new.merged == True and new.counter == 0 then // Counters are merged and shared counter is zero
+  // Check if queued flag was just set (first time)
+  if old.queued != new.queued then
+    Queue(obj)  // Queue to owner thread for explicit merge
+  else if new.merged == True and new.counter == 0 then // Counters are merged and shared counter is zero
     Deallocate(obj)
   end if
 end procedure
@@ -322,12 +324,13 @@ end procedure
 
 ### BRC Operations Summary
 
-Yo's implementation focuses on the core BRC operations:
+Yo's implementation follows the BRC paper's algorithm:
 - **Increment**: Fast path for owner thread, slow atomic path for non-owners
 - **Decrement**: Fast path for owner thread, slow atomic path for non-owners  
-- **Abort on Error**: Immediate termination if shared counter goes negative
+- **Queue on Negative**: When shared counter goes negative, set queued flag and add to owner's queue
+- **Explicit Merge**: During GC, owner processes queued objects and merges counters
 
-The explicit merge and queue operations from the original paper are not needed since Yo's compile-time analysis prevents negative counter scenarios.
+The explicit merge and queue operations ensure correctness for all cross-thread reference patterns.
 
 ## Summary
 
