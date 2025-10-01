@@ -56,7 +56,16 @@ When to call `___dup` to increase the reference count?
    };
    ```
 
-2. Passing to `struct`, `enum`, `union`, `array`, `dyn`, `closure` constructors.
+
+   ```rust
+   p1 := Point(3, 4);
+   {
+     p2 := Point(4, 5);
+     p1 = p2; // Will call ___dup on p2, because p1 is not on the top frame of the environment.
+   };
+   ```
+
+2. Passing to `struct`, `enum`, `union`, `array`, `dyn`, `closure`, `thread` constructors. Pass to `chan` send function.
 
    ```rust
    p1 := Point(3, 4); // temp_var owns the Point(3, 4)

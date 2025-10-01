@@ -1,4 +1,3 @@
-import { Emitter } from "../../emitter";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -198,6 +197,12 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
   // Generate builtin functions first
   generateBuiltinFunctions(context);
+
+  // Generate thread-safe GC runtime functions
+  generateAtomicGCRuntimeFunctions(context);
+
+  // Generate channel function implementations
+  generateChannelFunctions(context);
 
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
@@ -490,6 +495,16 @@ export function generateObjectConstructorDeclarations(
     `static void yo_init_process_cleanup(void); // Initialize process cleanup`
   );
 
+  // Generate dispose function declarations for channel types (forward declarations)
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (isChanType(type)) {
+      emitter.emitDeclarationLine(
+        `void __yo_dispose_${cName}(void* ptr); // Channel dispose function`
+      );
+    }
+  }
+
   // Generate constructor declarations for each object
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
@@ -764,12 +779,6 @@ void* __yo_incr_rc(void* ptr) {
   
   return ptr;
 }`);
-
-  // Generate thread-safe GC runtime functions
-  generateAtomicGCRuntimeFunctions(emitter);
-
-  // Generate channel function implementations
-  generateChannelFunctions(context);
 }
 
 /**
@@ -1018,7 +1027,11 @@ ${paramAssignments}${resultInit}
 /**
  * Generate per-thread garbage collection runtime functions with stop-the-world collection
  */
-function generateAtomicGCRuntimeFunctions(emitter: Emitter): void {
+function generateAtomicGCRuntimeFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
   // Per-thread GC tracking state
   emitter.emitLine(`// Per-thread GC tracking state for better scalability
 static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
@@ -2148,7 +2161,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   chan->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);
   atomic_store_explicit(&chan->header.shared_word, 0, memory_order_relaxed);
   chan->header.gc_next = NULL;
-  chan->header.dispose_fn = NULL;
+  chan->header.dispose_fn = __yo_dispose_${safeCName};
   chan->header.traverse_fn = NULL;
 
   // Initialize channel fields
@@ -2170,9 +2183,9 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
   // Initialize synchronization primitives
 #if defined(_WIN32)
-  chan->mutex = CreateMutex(NULL, FALSE, NULL);
-  chan->send_semaphore = CreateSemaphore(NULL, (LONG)capacity, (LONG)capacity, NULL);
-  chan->recv_semaphore = CreateSemaphore(NULL, 0, (LONG)capacity, NULL);
+  InitializeCriticalSection(&chan->mutex);
+  InitializeConditionVariable(&chan->send_cond);
+  InitializeConditionVariable(&chan->recv_cond);
 #else
   pthread_mutex_init(&chan->mutex, NULL);
   pthread_cond_init(&chan->send_cond, NULL);
@@ -2192,14 +2205,14 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   if (chan->capacity == 0) {
     // Unbuffered channel - synchronous send (rendezvous)
 #if defined(_WIN32)
-    WaitForSingleObject(chan->mutex, INFINITE);
+    EnterCriticalSection(&chan->mutex);
 #else
     pthread_mutex_lock(&chan->mutex);
 #endif
 
     if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
 #if defined(_WIN32)
-      ReleaseMutex(chan->mutex);
+      LeaveCriticalSection(&chan->mutex);
 #else
       pthread_mutex_unlock(&chan->mutex);
 #endif
@@ -2215,12 +2228,14 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     chan->buffer[0] = value;
     chan->size = 1; // Mark that a value is ready
 
-    // Signal receiver that data is available
+    // Signal receiver that data is available and wait for handoff
 #if defined(_WIN32)
-    ReleaseSemaphore(chan->recv_semaphore, 1, NULL);
+    WakeConditionVariable(&chan->recv_cond);
     // Wait for receiver to take the value
-    ReleaseMutex(chan->mutex);
-    WaitForSingleObject(chan->send_semaphore, INFINITE);
+    while (chan->size > 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+      SleepConditionVariableCS(&chan->send_cond, &chan->mutex, INFINITE);
+    }
+    LeaveCriticalSection(&chan->mutex);
 #else
     pthread_cond_signal(&chan->recv_cond);
     // Wait for receiver to take the value
@@ -2233,8 +2248,10 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   }
 
 #if defined(_WIN32)
-  WaitForSingleObject(chan->send_semaphore, INFINITE); // Wait for space
-  WaitForSingleObject(chan->mutex, INFINITE);
+  EnterCriticalSection(&chan->mutex);
+  while (chan->size >= chan->capacity && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    SleepConditionVariableCS(&chan->send_cond, &chan->mutex, INFINITE);
+  }
 #else
   pthread_mutex_lock(&chan->mutex);
   while (chan->size >= chan->capacity && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
@@ -2244,7 +2261,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
   if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
 #if defined(_WIN32)
-    ReleaseMutex(chan->mutex);
+    LeaveCriticalSection(&chan->mutex);
 #else
     pthread_mutex_unlock(&chan->mutex);
 #endif
@@ -2257,8 +2274,8 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   chan->size++;
 
 #if defined(_WIN32)
-  ReleaseMutex(chan->mutex);
-  ReleaseSemaphore(chan->recv_semaphore, 1, NULL); // Signal recv
+  WakeConditionVariable(&chan->recv_cond);
+  LeaveCriticalSection(&chan->mutex);
 #else
   pthread_cond_signal(&chan->recv_cond);
   pthread_mutex_unlock(&chan->mutex);
@@ -2278,8 +2295,11 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   if (chan->capacity == 0) {
     // Unbuffered channel - synchronous receive (rendezvous)
 #if defined(_WIN32)
-    WaitForSingleObject(chan->recv_semaphore, INFINITE); // Wait for sender
-    WaitForSingleObject(chan->mutex, INFINITE);
+    EnterCriticalSection(&chan->mutex);
+    // Wait for sender to provide data
+    while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+      SleepConditionVariableCS(&chan->recv_cond, &chan->mutex, INFINITE);
+    }
 #else
     pthread_mutex_lock(&chan->mutex);
     // Wait for sender to provide data
@@ -2299,8 +2319,8 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
       // Signal sender that value has been taken
 #if defined(_WIN32)
-      ReleaseMutex(chan->mutex);
-      ReleaseSemaphore(chan->send_semaphore, 1, NULL);
+      WakeConditionVariable(&chan->send_cond);
+      LeaveCriticalSection(&chan->mutex);
 #else
       pthread_cond_signal(&chan->send_cond);
       pthread_mutex_unlock(&chan->mutex);
@@ -2309,7 +2329,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       // Channel closed, return None
       result.tag = ${noneTag}; // NONE variant
 #if defined(_WIN32)
-      ReleaseMutex(chan->mutex);
+      LeaveCriticalSection(&chan->mutex);
 #else
       pthread_mutex_unlock(&chan->mutex);
 #endif
@@ -2319,8 +2339,10 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   }
 
 #if defined(_WIN32)
-  WaitForSingleObject(chan->recv_semaphore, INFINITE); // Wait for data
-  WaitForSingleObject(chan->mutex, INFINITE);
+  EnterCriticalSection(&chan->mutex);
+  while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    SleepConditionVariableCS(&chan->recv_cond, &chan->mutex, INFINITE);
+  }
 #else
   pthread_mutex_lock(&chan->mutex);
   while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
@@ -2343,8 +2365,8 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   }
 
 #if defined(_WIN32)
-  ReleaseMutex(chan->mutex);
-  ReleaseSemaphore(chan->send_semaphore, 1, NULL); // Signal send
+  WakeConditionVariable(&chan->send_cond);
+  LeaveCriticalSection(&chan->mutex);
 #else
   pthread_cond_signal(&chan->send_cond);
   pthread_mutex_unlock(&chan->mutex);
@@ -2359,7 +2381,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   if (!chan) return;
 
 #if defined(_WIN32)
-  WaitForSingleObject(chan->mutex, INFINITE);
+  EnterCriticalSection(&chan->mutex);
 #else
   pthread_mutex_lock(&chan->mutex);
 #endif
@@ -2367,14 +2389,39 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   atomic_store_explicit(&chan->closed, 1, memory_order_release);
 
 #if defined(_WIN32)
-  ReleaseMutex(chan->mutex);
-  // Wake up all waiting threads
-  ReleaseSemaphore(chan->send_semaphore, (LONG)chan->capacity, NULL);
-  ReleaseSemaphore(chan->recv_semaphore, (LONG)chan->capacity, NULL);
+  WakeAllConditionVariable(&chan->send_cond);
+  WakeAllConditionVariable(&chan->recv_cond);
+  LeaveCriticalSection(&chan->mutex);
 #else
   pthread_cond_broadcast(&chan->send_cond);
   pthread_cond_broadcast(&chan->recv_cond);
   pthread_mutex_unlock(&chan->mutex);
+#endif
+}
+`);
+
+    // Channel dispose function
+    emitter.emitLine(`void __yo_dispose_${safeCName}(void* ptr) {
+  ${cName}* chan = (${cName}*)ptr;
+  if (!chan) return;
+
+  // Close the channel first to wake any waiting threads
+  __yo_chan_close_${safeCName}(chan);
+
+  // Free the buffer if allocated
+  if (chan->buffer != NULL) {
+    yo_free(chan->buffer);
+    chan->buffer = NULL;
+  }
+
+  // Destroy synchronization primitives
+#if defined(_WIN32)
+  DeleteCriticalSection(&chan->mutex);
+  // Condition variables don't need explicit cleanup on Windows
+#else
+  pthread_mutex_destroy(&chan->mutex);
+  pthread_cond_destroy(&chan->send_cond);
+  pthread_cond_destroy(&chan->recv_cond);
 #endif
 }
 `);

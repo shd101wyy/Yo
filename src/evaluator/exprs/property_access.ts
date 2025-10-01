@@ -1,6 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCallOf,
@@ -407,6 +408,9 @@ export function evaluatePropertyAccess({
           }
           expr.$.value = values?.[index];
         }
+
+        attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
+
         return expr;
       } else if (isValidVariableName(propertyExpr)) {
         const label = propertyExpr.token.value;
@@ -469,6 +473,9 @@ export function evaluatePropertyAccess({
               expr.$.value = value;
             }
           }
+
+          attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
+
           return expr;
         }
       }

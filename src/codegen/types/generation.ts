@@ -773,12 +773,14 @@ export function generateChanDeclaration(
 
   // Synchronization for thread safety
   emitter.emitDeclarationLine(`#if defined(_WIN32)`);
-  emitter.emitDeclarationLine(`  HANDLE mutex; // Windows mutex`);
   emitter.emitDeclarationLine(
-    `  HANDLE send_semaphore; // Semaphore for send operations`
+    `  CRITICAL_SECTION mutex; // Windows critical section`
   );
   emitter.emitDeclarationLine(
-    `  HANDLE recv_semaphore; // Semaphore for receive operations`
+    `  CONDITION_VARIABLE send_cond; // Condition for send operations`
+  );
+  emitter.emitDeclarationLine(
+    `  CONDITION_VARIABLE recv_cond; // Condition for receive operations`
   );
   emitter.emitDeclarationLine(`#else`);
   emitter.emitDeclarationLine(`  pthread_mutex_t mutex; // POSIX mutex`);
