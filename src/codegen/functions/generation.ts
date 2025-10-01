@@ -2190,8 +2190,45 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   }
 
   if (chan->capacity == 0) {
-    // Unbuffered channel - synchronous send (not implemented for simplicity)
-    // For now, just return - in a full implementation, this would block until recv
+    // Unbuffered channel - synchronous send (rendezvous)
+#if defined(_WIN32)
+    WaitForSingleObject(chan->mutex, INFINITE);
+#else
+    pthread_mutex_lock(&chan->mutex);
+#endif
+
+    if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+#if defined(_WIN32)
+      ReleaseMutex(chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+      return;
+    }
+
+    // Allocate temporary storage for the value if not already allocated
+    if (chan->buffer == NULL) {
+      chan->buffer = (${elementTypeStr}*)yo_malloc(sizeof(${elementTypeStr}));
+    }
+    
+    // Store the value
+    chan->buffer[0] = value;
+    chan->size = 1; // Mark that a value is ready
+
+    // Signal receiver that data is available
+#if defined(_WIN32)
+    ReleaseSemaphore(chan->recv_semaphore, 1, NULL);
+    // Wait for receiver to take the value
+    ReleaseMutex(chan->mutex);
+    WaitForSingleObject(chan->send_semaphore, INFINITE);
+#else
+    pthread_cond_signal(&chan->recv_cond);
+    // Wait for receiver to take the value
+    while (chan->size > 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+      pthread_cond_wait(&chan->send_cond, &chan->mutex);
+    }
+    pthread_mutex_unlock(&chan->mutex);
+#endif
     return;
   }
 
@@ -2239,8 +2276,45 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   }
 
   if (chan->capacity == 0) {
-    // Unbuffered channel - synchronous receive (not implemented for simplicity)
-    // For now, just return None
+    // Unbuffered channel - synchronous receive (rendezvous)
+#if defined(_WIN32)
+    WaitForSingleObject(chan->recv_semaphore, INFINITE); // Wait for sender
+    WaitForSingleObject(chan->mutex, INFINITE);
+#else
+    pthread_mutex_lock(&chan->mutex);
+    // Wait for sender to provide data
+    while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+      pthread_cond_wait(&chan->recv_cond, &chan->mutex);
+    }
+#endif
+
+    if (chan->size > 0 && chan->buffer != NULL) {
+      // Get the value
+      ${elementTypeStr} value = chan->buffer[0];
+      chan->size = 0; // Mark that value has been taken
+      
+      // Construct Some(value)
+      result.tag = ${someTag}; // SOME variant
+      result.data.Some.value = value;
+
+      // Signal sender that value has been taken
+#if defined(_WIN32)
+      ReleaseMutex(chan->mutex);
+      ReleaseSemaphore(chan->send_semaphore, 1, NULL);
+#else
+      pthread_cond_signal(&chan->send_cond);
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+    } else {
+      // Channel closed, return None
+      result.tag = ${noneTag}; // NONE variant
+#if defined(_WIN32)
+      ReleaseMutex(chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+    }
+    
     return result;
   }
 

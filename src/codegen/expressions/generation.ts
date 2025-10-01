@@ -337,7 +337,19 @@ function generateFuncCall(
 
         // Call constructor with function pointer and individual arguments
         const allArgs = [`(void*)${funcCode}`, ...argCodes].join(", ");
-        return `${threadConstructor}(${allArgs})`;
+        const threadConstructorCall = `${threadConstructor}(${allArgs})`;
+
+        // If this spawn expression has a variable name assigned, generate the assignment
+        const variableName = expr.$?.variableName;
+        if (variableName) {
+          const threadTypeCName = `yo_thread_t*`;
+          context.emitter.emitLine(
+            `${indent}${threadTypeCName} ${variableName} = ${threadConstructorCall};`
+          );
+          return variableName;
+        }
+
+        return threadConstructorCall;
       } else {
         return `// Error: spawn function call missing type information or function type`;
       }
