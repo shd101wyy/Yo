@@ -31,6 +31,18 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_op_bit_left_shift, // <<
   ...BuiltinFunctions.__yo_op_bit_right_shift, // >>
 
+  // Pointer operations
+  ...BuiltinFunctions.__yo_ptr_cast, // __yo_ptr_cast
+  ...BuiltinFunctions.__yo_ptr_add, // __yo_ptr_add
+  ...BuiltinFunctions.__yo_ptr_sub, // __yo_ptr_sub
+  ...BuiltinFunctions.__yo_ptr_diff, // __yo_ptr_diff
+  ...BuiltinFunctions.__yo_ptr_eq, // __yo_ptr_eq
+  ...BuiltinFunctions.__yo_ptr_neq, // __yo_ptr_neq
+  ...BuiltinFunctions.__yo_ptr_lt, // __yo_ptr_lt
+  ...BuiltinFunctions.__yo_ptr_lte, // __yo_ptr_lte
+  ...BuiltinFunctions.__yo_ptr_gt, // __yo_ptr_gt
+  ...BuiltinFunctions.__yo_ptr_gte, // __yo_ptr_gte
+
   // Others
   ...BuiltinFunctions.__yo_noop, // __yo_noop
   ...BuiltinFunctions.__yo_return_self, // __yo_return_self

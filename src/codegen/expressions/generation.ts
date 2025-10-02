@@ -11,6 +11,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { TypeValue } from "../../type-value";
 import {
   ArrayType,
   ClosureType,
@@ -199,129 +200,6 @@ function generateFuncCall(
     }
     const selfCode = generateExpr(selfArg, indent, context);
     return `__yo_incr_rc((void*)(${selfCode}))`;
-  }
-
-  // __yo_ptr_cast - pointer type cast
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_cast)) {
-    const ptrArg = expr.args[0];
-    if (!ptrArg) {
-      return `// Error: __yo_ptr_cast requires at least 1 argument`;
-    }
-    const ptrCode = generateExpr(ptrArg, indent, context);
-    const targetType = expr.$?.type;
-    if (targetType) {
-      const targetTypeStr = getTypeString(targetType, context);
-      return `((${targetTypeStr})(${ptrCode}))`;
-    }
-    return `// Error: __yo_ptr_cast missing target type information`;
-  }
-
-  // __yo_ptr_add - pointer arithmetic addition
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)) {
-    const ptrArg = expr.args[0];
-    const offsetArg = expr.args[1];
-    if (!ptrArg || !offsetArg) {
-      return `// Error: __yo_ptr_add requires exactly 2 arguments`;
-    }
-    const ptrCode = generateExpr(ptrArg, indent, context);
-    const offsetCode = generateExpr(offsetArg, indent, context);
-    return `(${ptrCode} + ${offsetCode})`;
-  }
-
-  // __yo_ptr_sub - pointer arithmetic subtraction
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)) {
-    const ptrArg = expr.args[0];
-    const offsetArg = expr.args[1];
-    if (!ptrArg || !offsetArg) {
-      return `// Error: __yo_ptr_sub requires exactly 2 arguments`;
-    }
-    const ptrCode = generateExpr(ptrArg, indent, context);
-    const offsetCode = generateExpr(offsetArg, indent, context);
-    return `(${ptrCode} - ${offsetCode})`;
-  }
-
-  // __yo_ptr_diff - pointer difference
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_diff)) {
-    const ptr1Arg = expr.args[0];
-    const ptr2Arg = expr.args[1];
-    if (!ptr1Arg || !ptr2Arg) {
-      return `// Error: __yo_ptr_diff requires exactly 2 arguments`;
-    }
-    const ptr1Code = generateExpr(ptr1Arg, indent, context);
-    const ptr2Code = generateExpr(ptr2Arg, indent, context);
-    return `(${ptr1Code} - ${ptr2Code})`;
-  }
-
-  // __yo_ptr_eq - pointer equality comparison
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_eq)) {
-    const ptr1Arg = expr.args[0];
-    const ptr2Arg = expr.args[1];
-    if (!ptr1Arg || !ptr2Arg) {
-      return `// Error: __yo_ptr_eq requires exactly 2 arguments`;
-    }
-    const ptr1Code = generateExpr(ptr1Arg, indent, context);
-    const ptr2Code = generateExpr(ptr2Arg, indent, context);
-    return `(${ptr1Code} == ${ptr2Code})`;
-  }
-
-  // __yo_ptr_neq - pointer inequality comparison
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_neq)) {
-    const ptr1Arg = expr.args[0];
-    const ptr2Arg = expr.args[1];
-    if (!ptr1Arg || !ptr2Arg) {
-      return `// Error: __yo_ptr_neq requires exactly 2 arguments`;
-    }
-    const ptr1Code = generateExpr(ptr1Arg, indent, context);
-    const ptr2Code = generateExpr(ptr2Arg, indent, context);
-    return `(${ptr1Code} != ${ptr2Code})`;
-  }
-
-  // __yo_ptr_lt - pointer less than comparison
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_lt)) {
-    const ptr1Arg = expr.args[0];
-    const ptr2Arg = expr.args[1];
-    if (!ptr1Arg || !ptr2Arg) {
-      return `// Error: __yo_ptr_lt requires exactly 2 arguments`;
-    }
-    const ptr1Code = generateExpr(ptr1Arg, indent, context);
-    const ptr2Code = generateExpr(ptr2Arg, indent, context);
-    return `(${ptr1Code} < ${ptr2Code})`;
-  }
-
-  // __yo_ptr_lte - pointer less than or equal comparison
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_lte)) {
-    const ptr1Arg = expr.args[0];
-    const ptr2Arg = expr.args[1];
-    if (!ptr1Arg || !ptr2Arg) {
-      return `// Error: __yo_ptr_lte requires exactly 2 arguments`;
-    }
-    const ptr1Code = generateExpr(ptr1Arg, indent, context);
-    const ptr2Code = generateExpr(ptr2Arg, indent, context);
-    return `(${ptr1Code} <= ${ptr2Code})`;
-  }
-
-  // __yo_ptr_gt - pointer greater than comparison
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_gt)) {
-    const ptr1Arg = expr.args[0];
-    const ptr2Arg = expr.args[1];
-    if (!ptr1Arg || !ptr2Arg) {
-      return `// Error: __yo_ptr_gt requires exactly 2 arguments`;
-    }
-    const ptr1Code = generateExpr(ptr1Arg, indent, context);
-    const ptr2Code = generateExpr(ptr2Arg, indent, context);
-    return `(${ptr1Code} > ${ptr2Code})`;
-  }
-
-  // __yo_ptr_gte - pointer greater than or equal comparison
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_gte)) {
-    const ptr1Arg = expr.args[0];
-    const ptr2Arg = expr.args[1];
-    if (!ptr1Arg || !ptr2Arg) {
-      return `// Error: __yo_ptr_gte requires exactly 2 arguments`;
-    }
-    const ptr1Code = generateExpr(ptr1Arg, indent, context);
-    const ptr2Code = generateExpr(ptr2Arg, indent, context);
-    return `(${ptr1Code} >= ${ptr2Code})`;
   }
 
   // __yo_thread_drop - call dispose function then __yo_decr_rc on thread
@@ -1303,7 +1181,12 @@ function generateFuncCall(
         return generateExpr(arg, indent, context);
       });
 
-      return generateYoInlineFunctionCall(expr.func.token.value, args);
+      return generateYoInlineFunctionCall(
+        expr.func.token.value,
+        args,
+        expr,
+        context
+      );
     }
   }
   // while loop
@@ -1343,6 +1226,7 @@ function generateFuncCall(
     const functionValue = expr.func.$?.value;
     if (isFunctionType(functionType)) {
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+
       if (runtimeArgExprs) {
         // Check if this is a method call on a dyn object
         let isDynMethodCall = false;
@@ -1448,7 +1332,14 @@ function generateFuncCall(
         if (functionType.isExtern === "yo" && functionType.externName) {
           const externFuncName = functionType.externName;
 
-          if (isUnitType(functionType.return.type)) {
+          if (BuiltinYoInlineFunctions.includes(externFuncName)) {
+            return generateYoInlineFunctionCall(
+              externFuncName,
+              args,
+              expr,
+              context
+            );
+          } else if (isUnitType(functionType.return.type)) {
             // If the function returns unit, just call it without assignment
             context.emitter.emitLine(
               `${indent}${externFuncName}(${argsList});`
@@ -1486,7 +1377,12 @@ function generateFuncCall(
           const operatorFunctionName =
             isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(functionValue);
           if (operatorFunctionName) {
-            return generateYoInlineFunctionCall(operatorFunctionName, args);
+            return generateYoInlineFunctionCall(
+              operatorFunctionName,
+              args,
+              expr,
+              context
+            );
           }
 
           // Get new function type, which might be specialized.
@@ -3167,7 +3063,9 @@ export function generateReturnStatement(
  */
 function generateYoInlineFunctionCall(
   functionName: string,
-  args: string[]
+  args: string[],
+  expr: FuncCallExpr,
+  context: CodeGenContext
 ): string {
   // +
   if (BuiltinFunctions.__yo_op_add.includes(functionName)) {
@@ -3271,6 +3169,49 @@ function generateYoInlineFunctionCall(
       disposeFnArg = `(void(*)(void*))${args[1]}`;
     }
     return `__yo_decr_rc((void*)(${args[0]!}), ${disposeFnArg})`;
+  }
+  // __yo_ptr_cast
+  else if (BuiltinFunctions.__yo_ptr_cast.includes(functionName)) {
+    const typeValueArg = expr.args[expr.args.length - 1]!;
+    const typeValue = typeValueArg.$?.value as TypeValue;
+    const targetCType = getTypeString(typeValue.value, context);
+    return `((${targetCType})(${args[0]!}))`;
+  }
+  // __yo_ptr_add
+  else if (BuiltinFunctions.__yo_ptr_add.includes(functionName)) {
+    return `(${args[0]!} + ${args[1]!})`;
+  }
+  // __yo_ptr_sub
+  else if (BuiltinFunctions.__yo_ptr_sub.includes(functionName)) {
+    return `(${args[0]!} - ${args[1]!})`;
+  }
+  // __yo_ptr_diff
+  else if (BuiltinFunctions.__yo_ptr_diff.includes(functionName)) {
+    return `(${args[0]!} - ${args[1]!})`;
+  }
+  // __yo_ptr_eq
+  else if (BuiltinFunctions.__yo_ptr_eq.includes(functionName)) {
+    return `(${args[0]!} == ${args[1]!})`;
+  }
+  // __yo_ptr_neq
+  else if (BuiltinFunctions.__yo_ptr_neq.includes(functionName)) {
+    return `(${args[0]!} != ${args[1]!})`;
+  }
+  // __yo_ptr_lt
+  else if (BuiltinFunctions.__yo_ptr_lt.includes(functionName)) {
+    return `(${args[0]!} < ${args[1]!})`;
+  }
+  // __yo_ptr_lte
+  else if (BuiltinFunctions.__yo_ptr_lte.includes(functionName)) {
+    return `(${args[0]!} <= ${args[1]!})`;
+  }
+  // __yo_ptr_gt
+  else if (BuiltinFunctions.__yo_ptr_gt.includes(functionName)) {
+    return `(${args[0]!} > ${args[1]!})`;
+  }
+  // __yo_ptr_gte
+  else if (BuiltinFunctions.__yo_ptr_gte.includes(functionName)) {
+    return `(${args[0]!} >= ${args[1]!})`;
   }
   // Handle other operators that are not defined in Yo
   else {
