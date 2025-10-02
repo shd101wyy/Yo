@@ -11,6 +11,7 @@ mkShell rec {
     # llvmPackages_14.llvm
     clang
     mimalloc
+    gdb
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc

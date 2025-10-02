@@ -798,7 +798,9 @@ void* __yo_incr_rc(void* ptr) {
 
   // Generate cooperative task scheduler runtime
   emitter.emitLine(`
-// Cooperative Task Scheduler Runtime
+// Cooperative Task Scheduler Runtime using setjmp/longjmp
+#include <setjmp.h>
+
 typedef struct yo_task yo_task_t;
 typedef struct yo_task_queue yo_task_queue_t;
 
@@ -810,11 +812,60 @@ typedef enum {
   YO_TASK_COMPLETED   // Finished execution
 } yo_task_state_t;
 
-// Task structure
+// Stack size for each task (64KB default, can be tuned)
+#define YO_TASK_STACK_SIZE (64 * 1024)
+
+// Forward declarations
+static yo_task_t* __yo_task_dequeue(void);
+static void __yo_task_entry(void);
+
+// Minimal assembly: switch stack and call a function (x86_64 only for now)
+// This is the ONLY place we use assembly - just to bootstrap onto new stack
+#if defined(__x86_64__)
+static void __yo_switch_to_stack(void* stack_top, void (*func)(void*), void* arg) {
+  __asm__ volatile(
+    "movq %0, %%rsp\\n"       // Switch to new stack
+    "movq %2, %%rdi\\n"       // First argument (System V ABI)
+    "callq *%1\\n"            // Call function
+    :
+    : "r"(stack_top), "r"(func), "r"(arg)
+    : "rsp", "rdi", "memory"
+  );
+}
+
+// Switch to task stack and longjmp to saved context
+// This is needed to resume tasks without creating new stack frames
+static void __yo_switch_stack_and_longjmp(void* stack_top, jmp_buf* env) {
+  // Reserve 128 bytes below stack_top for red zone and call frame
+  // We do this in assembly to avoid using local variables after switching stacks
+  
+  __asm__ volatile(
+    "movq %0, %%rax\\n"              // Load stack_top into rax
+    "subq $128, %%rax\\n"            // Reserve 128 bytes for red zone
+    "movq %%rax, %%rsp\\n"           // Switch to task's stack
+    "movq %1, %%rdi\\n"              // First argument: jmp_buf pointer  
+    "movl $1, %%esi\\n"              // Second argument: return value 1
+    "call longjmp@PLT\\n"            // Call longjmp via PLT (PIC-safe, noreturn)
+    :
+    : "r"(stack_top), "r"(env)
+    : "rsp", "rdi", "rsi", "rax", "memory"
+  );
+  __builtin_unreachable();  // Tell compiler this never returns
+}
+#else
+#error "Cooperative scheduler requires x86_64 architecture (for now)"
+#endif
+
+// Task structure with context switching support
 struct yo_task {
   void (*func)(void*);           // Function to execute
   void* data;                    // Task-specific data
   yo_task_state_t state;         // Current state
+  void* wait_channel;            // Channel this task is waiting on (NULL if not waiting)
+  jmp_buf context;               // Saved execution context (setjmp/longjmp)
+  char* stack;                   // Separate stack for this task
+  size_t stack_size;             // Size of allocated stack
+  bool context_initialized;      // Whether context has been set up
   yo_task_t* next;               // Next task in queue
 };
 
@@ -825,29 +876,100 @@ struct yo_task_queue {
   size_t count;
 };
 
-// Global task scheduler state
+// Global task scheduler state (single-threaded, no locks needed!)
 static yo_task_queue_t yo_task_ready_queue = {NULL, NULL, 0};
+static yo_task_queue_t yo_task_blocked_queue = {NULL, NULL, 0};
 static yo_task_t* yo_task_current = NULL;
 static size_t yo_task_max_threads = 0;
-static YO_THREAD_SYNC_TYPE yo_task_mutex;
 static bool yo_task_scheduler_initialized = false;
+static jmp_buf yo_task_main_context;  // Context to return to when all tasks blocked
+static bool yo_task_main_context_set = false;
+static yo_task_t* yo_task_to_cleanup = NULL; // Task that needs cleanup after context switch
+
+// Helper function to clean up a completed task
+// This is called after we've switched away from the task's stack
+static void __yo_cleanup_completed_task(yo_task_t* task) {
+  if (!task) return;
+  fprintf(stderr, "[CLEANUP] Freeing stack=%p of task=%p\\n", task->stack, task);
+  if (task->stack) {
+    yo_free(task->stack);
+  }
+  yo_free(task);
+  fprintf(stderr, "[CLEANUP] Task cleanup complete\\n");
+}
+
+// Bootstrap function - called on new stack to initialize task context
+// This runs on the task's stack, so setjmp will save the right stack pointer
+static void __yo_task_bootstrap(void* arg) {
+  yo_task_t* task = (yo_task_t*)arg;
+  fprintf(stderr, "[TASK] Bootstrap: task=%p on its own stack\\n", task);
+  
+  // Save context on the task's stack
+  // When we longjmp to this context later, we'll skip past this and start executing
+  if (setjmp(task->context) == 0) {
+    // First time: mark as initialized
+    task->context_initialized = true;
+    fprintf(stderr, "[TASK] Context saved, task ready to execute\\n");
+    // Don't return to scheduler - continue to execute the task!
+  } else {
+    // Resumed via longjmp - check if there's a completed task to clean up
+    if (yo_task_to_cleanup) {
+      __yo_cleanup_completed_task(yo_task_to_cleanup);
+      yo_task_to_cleanup = NULL;
+    }
+  }
+  
+  // Execution continues here both:
+  // 1. First time after setjmp (falls through)
+  // 2. When resumed via longjmp (jumps here)
+  fprintf(stderr, "[TASK] Task=%p starting execution\\n", task);
+  
+  // Execute the actual task function
+  task->func(task->data);
+  fprintf(stderr, "[TASK] Task=%p completed execution\\n", task);
+  
+  // Task completed - we need to switch away BEFORE freeing our stack!
+  task->state = YO_TASK_COMPLETED;
+  yo_task_current = NULL;
+  
+  // Mark this task for cleanup (it will be cleaned up after we switch away)
+  yo_task_to_cleanup = task;
+  
+  // Get next task or prepare to return to main
+  yo_task_t* next = __yo_task_dequeue();
+  if (next) {
+    yo_task_current = next;
+    next->state = YO_TASK_RUNNING;
+    fprintf(stderr, "[TASK] Completed, switching to next=%p\\n", next);
+    
+    if (next->context_initialized) {
+      // Resume blocked task - just longjmp, it will restore the correct stack
+      longjmp(next->context, 1);
+    } else {
+      // First time running next task
+      char* stack_top = next->stack + next->stack_size;
+      stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
+      __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
+    }
+  } else if (yo_task_main_context_set) {
+    fprintf(stderr, "[TASK] Completed, no more tasks, returning to main\\n");
+    longjmp(yo_task_main_context, 1);
+  }
+  
+  // Should not reach here
+  fprintf(stderr, "Error: Task bootstrap reached end\\n");
+  abort();
+}
 
 // Initialize task scheduler
 static void __yo_task_scheduler_init(void) {
   if (!yo_task_scheduler_initialized) {
-#if defined(_WIN32)
-    InitializeCriticalSection(&yo_task_mutex);
-#else
-    pthread_mutex_init(&yo_task_mutex, NULL);
-#endif
     yo_task_scheduler_initialized = true;
   }
 }
 
-// Enqueue a task to the ready queue
+// Enqueue a task to the ready queue (single-threaded, no locks needed)
 static void __yo_task_enqueue(yo_task_t* task) {
-  YO_THREAD_SYNC_LOCK(&yo_task_mutex);
-  
   task->next = NULL;
   if (yo_task_ready_queue.tail) {
     yo_task_ready_queue.tail->next = task;
@@ -856,14 +978,10 @@ static void __yo_task_enqueue(yo_task_t* task) {
   }
   yo_task_ready_queue.tail = task;
   yo_task_ready_queue.count++;
-  
-  YO_THREAD_SYNC_UNLOCK(&yo_task_mutex);
 }
 
-// Dequeue a task from the ready queue
+// Dequeue a task from the ready queue (single-threaded, no locks needed)
 static yo_task_t* __yo_task_dequeue(void) {
-  YO_THREAD_SYNC_LOCK(&yo_task_mutex);
-  
   yo_task_t* task = yo_task_ready_queue.head;
   if (task) {
     yo_task_ready_queue.head = task->next;
@@ -872,10 +990,95 @@ static yo_task_t* __yo_task_dequeue(void) {
     }
     yo_task_ready_queue.count--;
   }
-  
-  YO_THREAD_SYNC_UNLOCK(&yo_task_mutex);
   return task;
 }
+
+// Enqueue a task to the blocked queue
+static void __yo_task_block(yo_task_t* task, void* channel) {
+  task->state = YO_TASK_BLOCKED;
+  task->wait_channel = channel;
+  task->next = NULL;
+  if (yo_task_blocked_queue.tail) {
+    yo_task_blocked_queue.tail->next = task;
+  } else {
+    yo_task_blocked_queue.head = task;
+  }
+  yo_task_blocked_queue.tail = task;
+  yo_task_blocked_queue.count++;
+}
+
+// Wake up tasks waiting on a specific channel
+static void __yo_task_wakeup(void* channel) {
+  fprintf(stderr, "[WAKEUP] Waking tasks on channel=%p\\n", channel);
+  yo_task_t* task = yo_task_blocked_queue.head;
+  yo_task_t* prev = NULL;
+  
+  while (task != NULL) {
+    yo_task_t* next = task->next;
+    
+    if (task->wait_channel == channel) {
+      fprintf(stderr, "[WAKEUP] Moving task=%p to ready queue\\n", task);
+      // Remove from blocked queue
+      if (prev == NULL) {
+        yo_task_blocked_queue.head = next;
+      } else {
+        prev->next = next;
+      }
+      if (yo_task_blocked_queue.tail == task) {
+        yo_task_blocked_queue.tail = prev;
+      }
+      yo_task_blocked_queue.count--;
+      
+      // Add to ready queue
+      task->state = YO_TASK_READY;
+      task->wait_channel = NULL;
+      __yo_task_enqueue(task);
+      
+      // Don't update prev since we removed this node
+      task = next;
+    } else {
+      prev = task;
+      task = next;
+    }
+  }
+}
+
+// Wake up only ONE task waiting on a specific channel (for rendezvous)
+static void __yo_task_wakeup_one(void* channel) {
+  fprintf(stderr, "[WAKEUP_ONE] Waking one task on channel=%p\\n", channel);
+  yo_task_t* task = yo_task_blocked_queue.head;
+  yo_task_t* prev = NULL;
+  
+  while (task != NULL) {
+    yo_task_t* next = task->next;
+    
+    if (task->wait_channel == channel) {
+      fprintf(stderr, "[WAKEUP_ONE] Moving task=%p to ready queue\\n", task);
+      // Remove from blocked queue
+      if (prev == NULL) {
+        yo_task_blocked_queue.head = next;
+      } else {
+        prev->next = next;
+      }
+      if (yo_task_blocked_queue.tail == task) {
+        yo_task_blocked_queue.tail = prev;
+      }
+      yo_task_blocked_queue.count--;
+      
+      // Add to ready queue
+      task->state = YO_TASK_READY;
+      task->wait_channel = NULL;
+      __yo_task_enqueue(task);
+      
+      // Only wake one task, then stop
+      return;
+    } else {
+      prev = task;
+      task = next;
+    }
+  }
+}
+
 
 // Set maximum number of threads for task scheduler
 void __yo_concurrency_set_maximum_threads(size_t num) {
@@ -883,36 +1086,155 @@ void __yo_concurrency_set_maximum_threads(size_t num) {
   yo_task_max_threads = num;
 }
 
-// Run the task scheduler (cooperative)
-// This should be called by channel operations when they would block
-static void __yo_task_yield(void) {
+// Switch to the next ready task (cooperative context switch)
+static void __yo_task_switch(void) {
   if (!yo_task_scheduler_initialized) {
     return;
   }
   
-  // If current task is blocked, try to run another task
-  if (yo_task_current && yo_task_current->state == YO_TASK_BLOCKED) {
-    yo_task_t* next_task = __yo_task_dequeue();
-    if (next_task) {
-      next_task->state = YO_TASK_RUNNING;
-      yo_task_t* prev_task = yo_task_current;
-      yo_task_current = next_task;
-      
-      // Execute the next task
-      next_task->func(next_task->data);
-      
-      // Mark as completed
-      next_task->state = YO_TASK_COMPLETED;
-      yo_free(next_task);
-      
-      // Restore previous task if it's not completed
-      if (prev_task && prev_task->state != YO_TASK_COMPLETED) {
-        yo_task_current = prev_task;
+  yo_task_t* next = __yo_task_dequeue();
+  if (!next) {
+    // No tasks ready, nothing to switch to
+    return;
+  }
+  
+  yo_task_t* prev = yo_task_current;
+  fprintf(stderr, "[SWITCH] prev=%p, next=%p, next->initialized=%d\\n", 
+          prev, next, next->context_initialized);
+  yo_task_current = next;
+  next->state = YO_TASK_RUNNING;
+  
+  if (prev && prev->state == YO_TASK_RUNNING) {
+    // Current task is still running (yielding voluntarily)
+    prev->state = YO_TASK_READY;
+    __yo_task_enqueue(prev);
+    
+    // Save current context and switch to next task
+    fprintf(stderr, "[SWITCH] Saving context and switching\\n");
+    if (setjmp(prev->context) == 0) {
+      // Context saved, now jump to next task
+      if (next->context_initialized) {
+        fprintf(stderr, "[SWITCH] Resuming next=%p\\n", next);
+        longjmp(next->context, 1);
       } else {
-        yo_task_current = NULL;
+        // First time - need to initialize this task's context on its stack
+        fprintf(stderr, "[SWITCH] Initializing next=%p on its stack\\n", next);
+        char* stack_top = next->stack + next->stack_size;
+        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL); // 16-byte align
+        __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
       }
     }
+    // Returns here when this task is resumed
+    fprintf(stderr, "[SWITCH] Task=%p resumed\\n", yo_task_current);
+  } else {
+    // Current task is blocked or completed, just switch to next
+    if (next->context_initialized) {
+      fprintf(stderr, "[SWITCH] Resuming next=%p (no prev)\\n", next);
+      longjmp(next->context, 1);
+    } else {
+      // First time running
+      fprintf(stderr, "[SWITCH] Initializing next=%p on its stack (no prev)\\n", next);
+      char* stack_top = next->stack + next->stack_size;
+      stack_top = (char*)((uintptr_t)stack_top & ~0xFUL); // 16-byte align
+      __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
+    }
   }
+}
+
+// Yield to allow other tasks to run (cooperative) - like Go's runtime.Gosched()
+// This is the core primitive that all blocking operations should use
+void __yo_task_yield(void) {
+  if (!yo_task_scheduler_initialized || !yo_task_current) {
+    return; // Not in a task context, nothing to yield
+  }
+    yo_task_t* current = yo_task_current;
+  fprintf(stderr, "[YIELD] Task=%p yielding\\n", current);
+  
+  // Save current context
+  if (setjmp(current->context) == 0) {
+    // Context saved, get next task
+    yo_task_t* next = __yo_task_dequeue();
+    if (next) {
+      // Put current task back in ready queue
+      current->state = YO_TASK_READY;
+      __yo_task_enqueue(current);
+      
+      // Switch to next task
+      yo_task_current = next;
+      next->state = YO_TASK_RUNNING;
+      fprintf(stderr, "[YIELD] Switching to next=%p\\n", next);
+      
+      if (next->context_initialized) {
+        longjmp(next->context, 1);
+      } else {
+        // First time running next task
+        char* stack_top = next->stack + next->stack_size;
+        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
+        __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
+      }
+    } else {
+      // No other tasks ready, just continue running current task
+      fprintf(stderr, "[YIELD] No other tasks, continuing\\n");
+    }
+  }
+  // Returns here when resumed
+  fprintf(stderr, "[YIELD] Task=%p resumed\\n", yo_task_current);
+}
+
+// Block current task on a channel and yield to another task
+// This is a specialized version of yield that also marks the task as blocked
+static void __yo_task_block_and_yield(void* channel) {
+  if (!yo_task_scheduler_initialized || !yo_task_current) {
+    return;
+  }
+  
+  yo_task_t* current = yo_task_current;
+  fprintf(stderr, "[BLOCK] Blocking task=%p on channel=%p\\n", current, channel);
+  
+  // Save current context before blocking
+  if (setjmp(current->context) == 0) {
+    // Mark task as blocked and move to blocked queue
+    __yo_task_block(current, channel);
+    
+    // Get next ready task
+    yo_task_t* next = __yo_task_dequeue();
+    if (next) {
+      yo_task_current = next;
+      next->state = YO_TASK_RUNNING;
+      fprintf(stderr, "[BLOCK] Switching to next=%p\\n", next);
+      
+      if (next->context_initialized) {
+        // Resume blocked task - must switch stack first!
+        char* stack_top = next->stack + next->stack_size;
+        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
+        __yo_switch_stack_and_longjmp(stack_top, &next->context);
+      } else {
+        // First time running next task
+        char* stack_top = next->stack + next->stack_size;
+        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
+        __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
+      }
+    } else {
+      // No ready tasks - return to main context
+      yo_task_current = NULL;
+      if (yo_task_main_context_set) {
+        fprintf(stderr, "[BLOCK] No ready tasks, returning to main\\n");
+        longjmp(yo_task_main_context, 1);
+      }
+      // If no main context, we're deadlocked - but let the channel code handle it
+    }
+  } else {
+    // Resumed via longjmp - check if there's a completed task to clean up
+    fprintf(stderr, "[BLOCK] Task=%p resumed after blocking (setjmp returned 1)\\n", yo_task_current);
+    if (yo_task_to_cleanup) {
+      __yo_cleanup_completed_task(yo_task_to_cleanup);
+      yo_task_to_cleanup = NULL;
+    }
+    fprintf(stderr, "[BLOCK] About to return from __yo_task_block_and_yield\\n");
+  }
+  
+  // Returns here when unblocked and resumed
+  fprintf(stderr, "[BLOCK] Returned from setjmp/longjmp, task=%p\\n", yo_task_current);
 }
 `);
 }
@@ -979,6 +1301,7 @@ ${paramFields}} ${structName};
 `);
 
     // Generate task execution function
+    // Note: We ignore the return value since spawned tasks are fire-and-forget
     const executeFnName = `__yo_task_execute_${signatureStr}`;
     const paramTypesStr = parameterTypes
       .map((paramType) => getTypeString(paramType, context))
@@ -986,14 +1309,16 @@ ${paramFields}} ${structName};
 
     let executeBody: string;
     if (parameterTypes.length === 0) {
+      // Call function and explicitly ignore return value with (void) cast
       executeBody = `  void (*func)(void) = (void (*)(void))data->function;
-  func();`;
+  (void)func();  // Explicitly ignore return value`;
     } else {
       const argsList = parameterTypes
         .map((_, index) => `data->arg${index}`)
         .join(", ");
+      // Call function and explicitly ignore return value with (void) cast
       executeBody = `  void (*func)(${paramTypesStr}) = (void (*)(${paramTypesStr}))data->function;
-  func(${argsList});`;
+  (void)func(${argsList});  // Explicitly ignore return value`;
     }
 
     emitter.emitLine(`static void ${executeFnName}(void* task_data) {
@@ -1032,20 +1357,19 @@ ${paramAssignments}
   task->func = ${executeFnName};
   task->data = data;
   task->state = YO_TASK_READY;
+  task->wait_channel = NULL;
   task->next = NULL;
+  task->stack = NULL;
+  task->stack_size = 0;
+  task->context_initialized = false;
   
-  // If no current task, run immediately
-  if (!yo_task_current) {
-    task->state = YO_TASK_RUNNING;
-    yo_task_current = task;
-    task->func(task->data);
-    task->state = YO_TASK_COMPLETED;
-    yo_free(task);
-    yo_task_current = NULL;
-  } else {
-    // Enqueue for later execution
-    __yo_task_enqueue(task);
-  }
+  // Allocate separate stack for this task
+  task->stack = (char*)yo_malloc(YO_TASK_STACK_SIZE);
+  task->stack_size = YO_TASK_STACK_SIZE;
+  
+  // Always enqueue tasks - they will be run cooperatively
+  // This ensures that 'go' returns immediately and doesn't block
+  __yo_task_enqueue(task);
 }
 `);
   }
@@ -1394,7 +1718,7 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
   // Stop the world - pause all other threads
   yo_gc_pause_all_threads();
   
-  size_t total_collected = 0;
+  size_t total_collected __attribute__((unused)) = 0;
   
   // Collect from all thread-local GC lists
   yo_mutex_lock(&yo_thread_list_mutex);
@@ -2424,8 +2748,68 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     return; // Channel is null or closed
   }
 
-  if (chan->capacity == 0) {
-    // Unbuffered channel - synchronous send (rendezvous)
+    if (chan->capacity == 0) {
+      // Unbuffered channel - synchronous send (rendezvous)
+      
+      // For cooperative task scheduler: block and switch to another task
+      if (yo_task_scheduler_initialized && yo_task_current) {
+        
+retry_send:  // Label for retrying after being woken up
+        
+#if defined(_WIN32)
+        EnterCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_lock(&chan->mutex);
+#endif
+
+        if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+#if defined(_WIN32)
+          LeaveCriticalSection(&chan->mutex);
+#else
+          pthread_mutex_unlock(&chan->mutex);
+#endif
+          return;
+        }
+
+        // Check if another sender is already active
+        if (chan->size > 0) {
+#if defined(_WIN32)
+          LeaveCriticalSection(&chan->mutex);
+#else
+          pthread_mutex_unlock(&chan->mutex);
+#endif
+          // Another sender is active, block and wait for our turn
+          __yo_task_block_and_yield(chan);
+          
+          // When resumed, try again from the beginning (using goto to avoid recursion)
+          goto retry_send;
+        }
+
+        // Now we can send (size == 0, no other sender)
+        // Allocate temporary storage for the value if not already allocated
+        if (chan->buffer == NULL) {
+          chan->buffer = (${elementTypeStr}*)yo_malloc(sizeof(${elementTypeStr}));
+        }
+        
+        // Store the value
+        chan->buffer[0] = value;
+        chan->size = 1; // Mark that a value is ready
+
+#if defined(_WIN32)
+        LeaveCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_unlock(&chan->mutex);
+#endif
+
+        // Wake up ONE receiver task (not all tasks!)
+        __yo_task_wakeup_one(chan);
+        
+        // Block this task until receiver takes our value (receiver will set size back to 0)
+        __yo_task_block_and_yield(chan);
+        
+        // When we resume, the receiver has taken our value - just return
+        return;
+      }    // Fall back to pthread blocking for non-task contexts
 #if defined(_WIN32)
     EnterCriticalSection(&chan->mutex);
 #else
@@ -2469,6 +2853,62 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     return;
   }
 
+  // Buffered channel
+  if (yo_task_scheduler_initialized && yo_task_current) {
+    // Cooperative multitasking: check if buffer is full
+    bool buffer_full = false;
+    
+#if defined(_WIN32)
+    EnterCriticalSection(&chan->mutex);
+#else
+    pthread_mutex_lock(&chan->mutex);
+#endif
+    
+    buffer_full = (chan->size >= chan->capacity);
+    
+    if (buffer_full && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+      // Block and switch to another task
+      __yo_task_block_and_yield(chan);
+      
+      // When resumed, try again
+#if defined(_WIN32)
+      EnterCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_lock(&chan->mutex);
+#endif
+    }
+
+    if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+      return;
+    }
+
+    // Add value to buffer
+    chan->buffer[chan->tail] = value;
+    chan->tail = (chan->tail + 1) % chan->capacity;
+    chan->size++;
+
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+
+    // Wake up any tasks waiting to receive
+    __yo_task_wakeup(chan);
+    return;
+  }
+
+  // Fall back to pthread blocking for non-task contexts
 #if defined(_WIN32)
   EnterCriticalSection(&chan->mutex);
   while (chan->size >= chan->capacity && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
@@ -2516,6 +2956,172 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
   if (chan->capacity == 0) {
     // Unbuffered channel - synchronous receive (rendezvous)
+    
+    // For cooperative task scheduler: check if data is available, otherwise process tasks
+    if (yo_task_scheduler_initialized) {
+#if defined(_WIN32)
+      EnterCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_lock(&chan->mutex);
+#endif
+      
+      // Check if data is available (from a blocked sender)
+      if (chan->size > 0 && chan->buffer != NULL) {
+        // Data is available! Take it and wake the sender
+        ${elementTypeStr} value = chan->buffer[0];
+        chan->size = 0; // Mark that value has been taken
+        
+        // Construct Some(value)
+        result.tag = ${someTag}; // SOME variant
+        result.data.Some.value = value;
+
+#if defined(_WIN32)
+        LeaveCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_unlock(&chan->mutex);
+#endif
+
+        // Wake up the ONE sender task that was blocked
+        __yo_task_wakeup_one(chan);
+        
+        return result;
+      }
+      
+      // No data available yet
+      bool in_task = (yo_task_current != NULL);
+      
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+        
+      if (in_task) {
+        // We're in a task, block and switch to another task
+        __yo_task_block_and_yield(chan);
+        
+        // When resumed, data should be available - take it
+#if defined(_WIN32)
+        EnterCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_lock(&chan->mutex);
+#endif
+
+        if (chan->size > 0 && chan->buffer != NULL) {
+          ${elementTypeStr} value = chan->buffer[0];
+          chan->size = 0;
+          result.tag = ${someTag};
+          result.data.Some.value = value;
+        } else {
+          result.tag = ${noneTag};
+        }
+
+#if defined(_WIN32)
+        LeaveCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_unlock(&chan->mutex);
+#endif
+
+        __yo_task_wakeup(chan);
+        return result;
+      } else {
+        // We're not in a task (e.g., main thread), run tasks until one sends
+        
+        // Before starting the task loop, wake one blocked task (could be a sender waiting to send)
+        __yo_task_wakeup_one(chan);
+        
+        yo_task_main_context_set = true;
+        
+        if (setjmp(yo_task_main_context) == 0) {
+          // First time through - start the task execution loop
+        } else {
+          // Returned here from a task via longjmp
+          // Check if there's a completed task to clean up
+          if (yo_task_to_cleanup) {
+            __yo_cleanup_completed_task(yo_task_to_cleanup);
+            yo_task_to_cleanup = NULL;
+          }
+        }
+        
+        // Run tasks until data is available or all block
+        // This runs both the first time AND after returning from longjmp
+        while (true) {
+          yo_task_t* task = __yo_task_dequeue();
+          if (!task) {
+            // No ready tasks - check if we have data or deadlock
+#if defined(_WIN32)
+            EnterCriticalSection(&chan->mutex);
+#else
+            pthread_mutex_lock(&chan->mutex);
+#endif
+            bool has_data = (chan->size > 0);
+            bool has_blocked = (yo_task_blocked_queue.count > 0);
+#if defined(_WIN32)
+            LeaveCriticalSection(&chan->mutex);
+#else
+            pthread_mutex_unlock(&chan->mutex);
+#endif
+          
+            if (has_data) {
+              break; // Data appeared, exit loop
+            }
+          
+            if (has_blocked) {
+              fprintf(stderr, "Deadlock: all tasks blocked, no data\\n");
+              exit(1);
+            }
+            
+            break; // No tasks, nothing to do
+          }
+        
+          task->state = YO_TASK_RUNNING;
+          yo_task_current = task;
+        
+          if (!task->context_initialized) {
+            // First time running - switch to task's stack and call bootstrap
+            char* stack_top = task->stack + task->stack_size;
+            stack_top = (char*)((uintptr_t)stack_top & ~0xFUL); // 16-byte align
+            __yo_switch_to_stack(stack_top, __yo_task_bootstrap, task);
+          } else {
+            // Task was previously blocked, resume it by longjmp
+            longjmp(task->context, 1);
+          }
+          
+          // Should never reach here - tasks return via longjmp to yo_task_main_context
+          abort();
+        }
+        yo_task_main_context_set = false;
+        
+        // Try to receive data one more time
+#if defined(_WIN32)
+        EnterCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_lock(&chan->mutex);
+#endif
+
+        if (chan->size > 0 && chan->buffer != NULL) {
+          ${elementTypeStr} value = chan->buffer[0];
+          chan->size = 0;
+          result.tag = ${someTag};
+          result.data.Some.value = value;
+          fprintf(stderr, "[MAIN] Received value=%d\\n", value);
+        } else {
+          result.tag = ${noneTag};
+          fprintf(stderr, "[MAIN] No data available, returning None\\n");
+        }
+
+#if defined(_WIN32)
+        LeaveCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_unlock(&chan->mutex);
+#endif
+
+        __yo_task_wakeup_one(chan);  // Only wake ONE sender
+        return result;
+      }
+    }
+    
+    // Fall back to pthread blocking for non-task contexts
 #if defined(_WIN32)
     EnterCriticalSection(&chan->mutex);
     // Wait for sender to provide data
@@ -2560,6 +3166,58 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     return result;
   }
 
+  // Buffered channel
+  if (yo_task_scheduler_initialized && yo_task_current) {
+#if defined(_WIN32)
+    EnterCriticalSection(&chan->mutex);
+#else
+    pthread_mutex_lock(&chan->mutex);
+#endif
+    
+    // Check if buffer is empty
+    if (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+      // Buffer empty, block and switch to another task
+      __yo_task_block_and_yield(chan);
+      
+      // When resumed, try again
+#if defined(_WIN32)
+      EnterCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_lock(&chan->mutex);
+#endif
+    }
+
+    if (chan->size > 0) {
+      // Get value from buffer
+      ${elementTypeStr} value = chan->buffer[chan->head];
+      chan->head = (chan->head + 1) % chan->capacity;
+      chan->size--;
+      
+      // Construct Some(value)
+      result.tag = ${someTag}; // SOME variant
+      result.data.Some.value = value;
+    } else {
+      // No data available - return None
+      result.tag = ${noneTag}; // NONE variant
+    }
+
+#if defined(_WIN32)
+    LeaveCriticalSection(&chan->mutex);
+#else
+    pthread_mutex_unlock(&chan->mutex);
+#endif
+
+    // Wake up any tasks waiting to send
+    __yo_task_wakeup(chan);
+    return result;
+  }
+
+  // Fall back to pthread blocking for non-task contexts
 #if defined(_WIN32)
   EnterCriticalSection(&chan->mutex);
   while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
