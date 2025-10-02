@@ -1,10 +1,54 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
+extern "yo",
+  __yo_concurrency_set_maximum_threads :
+    fn(num: usize) -> unit
+;
+
+say :: (fn(s : *(u8), val: i32, ch: Chan(i32)) -> i32) {
+  printf("%s\n", s);
+  ch.send(val);
+  printf("thread %u sent %i\n", thread_id(), val);
+  return val;
+};
 
 // Pointer arithmetic example
 main :: (fn() -> i32) {
-  printf("%u %u\n", thread_id(), thread_id());
+  /*
+  __yo_concurrency_set_maximum_threads(1); // Set maximum 1 thread for "go" tasks
+
+  ch := chan(i32); // unbuffered channel
+
+  // say("world") and say("hello") should run on the same thread
+  go say("world", 16, ch);
+  go say("hello", 18, ch);
+
+  t1_result := ch.recv().unwrap();
+  printf("thread %u received %d\n", thread_id(), t1_result);
+  // It should print
+  // "thread ? sent 16"
+
+  t2_result := ch.recv().unwrap();
+  printf("thread %u received %d\n", thread_id(), t2_result);
+  // It should print
+  // "thread ? sent 18"
+
+  result := (t1_result + t2_result);
+
+  printf("result: %d\n", result);
+  */
+  ch := chan(i32, 2); // buffered channel with capacity 2
+
+  printf("before send\n");
+  ch.send(1); // doesn't block
+  ch.send(2); // doesn't block
+
+  printf("before recv\n");
+  v1 := ch.recv().unwrap(); // receives 1
+  printf("%d\n", v1);
+  printf("%d\n", ch.recv().unwrap()); // receives 2
+
   return 0;
 };
 

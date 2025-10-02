@@ -62,7 +62,10 @@ export function findFunctionCallsInExpr(
     if (isFunctionType(functionType)) {
       if (isFunctionValue(functionValue)) {
         // Skip collecting functions that have generic types
-        if (typeContainsSomeType(functionValue.type)) {
+        if (
+          typeContainsSomeType(functionValue.type) &&
+          !functionValue.specializedType
+        ) {
           return;
         }
 
@@ -91,6 +94,9 @@ export function findFunctionCallsInExpr(
       }
     }
 
+    // Recursively check the function call itself
+    findFunctionCallsInExpr(expr.func, context);
+
     // Recursively check the function call arguments
     for (const arg of expr.args) {
       findFunctionCallsInExpr(arg, context);
@@ -103,7 +109,10 @@ export function findFunctionCallsInExpr(
   if (isFunctionType(functionType)) {
     if (isFunctionValue(functionValue)) {
       // Skip collecting functions that have generic types
-      if (typeContainsSomeType(functionValue.type)) {
+      if (
+        typeContainsSomeType(functionValue.type) &&
+        !functionValue.specializedFunctionCaches
+      ) {
         return;
       }
 
@@ -127,7 +136,10 @@ export function findFunctionCallsInExpr(
     const closureFunctionValue = functionValue.functionValue;
 
     // Skip collecting functions that have generic types
-    if (typeContainsSomeType(closureFunctionValue.type)) {
+    if (
+      typeContainsSomeType(closureFunctionValue.type) &&
+      !closureFunctionValue.specializedType
+    ) {
       return;
     }
 

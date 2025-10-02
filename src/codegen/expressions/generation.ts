@@ -15,7 +15,6 @@ import { TypeValue } from "../../type-value";
 import {
   ArrayType,
   ClosureType,
-  createThreadType,
   isArrayType,
   isClosureType,
   isDynType,
@@ -289,91 +288,58 @@ function generateFuncCall(
     return `(*((${returnTypeStr}*)NULL))`; // This will never execute but has the right type
   }
 
-  // spawn - spawn a function call in a new thread
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.spawn)) {
+  // go - spawn a function call as a cooperative task
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
     const funcCallArg = expr.args[0];
     if (!funcCallArg) {
-      return `// Error: spawn requires exactly 1 argument (function call)`;
+      return `// Error: go requires exactly 1 argument (function call)`;
     }
 
-    // The argument should be a function call expression
     if (exprIsFunctionCall(funcCallArg)) {
       const funcCode = generateExpr(funcCallArg.func, indent, context);
-      const returnType = funcCallArg.$?.type;
       const functionType = funcCallArg.func.$?.type;
 
-      if (returnType && isFunctionType(functionType)) {
-        // Generate signature string based on parameter types + return type
+      if (isFunctionType(functionType)) {
         const paramTypeStrs = functionType.parameters.map((param) =>
           sanitizeForCIdentifier(getTypeString(param.type, context))
         );
         const returnTypeStr = sanitizeForCIdentifier(
-          getTypeString(returnType, context)
+          getTypeString(functionType.return.type, context)
         );
         const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
 
-        // Register the spawned function signature for thread wrapper generation
         context.spawnedFunctionSignatures.set(signatureStr, {
           parameterTypes: functionType.parameters.map((p) => p.type),
-          returnType: returnType,
+          returnType: functionType.return.type,
         });
 
-        // Create the Thread type and register it in the context
-        const threadType = createThreadType(returnType);
-        const threadTypeId = `thread_${sanitizeForCIdentifier(getTypeString(returnType, context))}`;
-        if (!context.types[threadTypeId]) {
-          context.types[threadTypeId] = {
-            type: threadType,
-            cName: `yo_thread_t`, // Thread types all use the same base C type
-          };
-        }
-
-        // Use the signature string for constructor name generation
-        const threadConstructor = `__yo_new_yo_thread_${signatureStr}_t`;
-
-        // Generate function call with direct arguments
         const argCodes = funcCallArg.args.map((arg) =>
           generateExpr(arg, indent, context)
         );
 
-        // Call constructor with function pointer and individual arguments
         const allArgs = [`(void*)${funcCode}`, ...argCodes].join(", ");
-        const threadConstructorCall = `${threadConstructor}(${allArgs})`;
-
-        // If this spawn expression has a variable name assigned, generate the assignment
-        const variableName = expr.$?.variableName;
-        if (variableName) {
-          const threadTypeCName = `yo_thread_t*`;
-          context.emitter.emitLine(
-            `${indent}${threadTypeCName} ${variableName} = ${threadConstructorCall};`
-          );
-          return variableName;
-        }
-
-        return threadConstructorCall;
+        return `__yo_task_spawn_${signatureStr}(${allArgs})`;
       } else {
-        return `// Error: spawn function call missing type information or function type`;
+        return `// Error: go function call missing function type`;
       }
     }
-    return `// Error: spawn argument must be a function call`;
+    return `// Error: go argument must be a function call`;
   }
 
-  // __yo_thread_wait - wait for thread completion and get result
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_wait)) {
-    const threadArg = expr.args[0];
-    if (!threadArg) {
-      return `// Error: __yo_thread_wait requires exactly 1 argument (thread handle)`;
+  // __yo_concurrency_set_maximum_threads - set maximum number of threads for task scheduler
+  if (
+    exprIsFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_concurrency_set_maximum_threads
+    )
+  ) {
+    const numArg = expr.args[0];
+    if (!numArg) {
+      return `// Error: __yo_concurrency_set_maximum_threads requires exactly 1 argument`;
     }
 
-    const threadCode = generateExpr(threadArg, indent, context);
-    const returnType = expr.$?.type;
-
-    if (returnType) {
-      const returnTypeStr = getTypeString(returnType, context);
-      return `*((${returnTypeStr}*)yo_thread_wait(${threadCode}))`;
-    } else {
-      return `yo_thread_wait(${threadCode})`;
-    }
+    const numCode = generateExpr(numArg, indent, context);
+    return `__yo_concurrency_set_maximum_threads(${numCode})`;
   }
 
   // chan() - create a new channel
@@ -1352,23 +1318,7 @@ function generateFuncCall(
 
             return ""; // No return value
           } else {
-            // If it returns a value, return the call directly or assign to temp variable
-            const tempVar = expr.$?.variableName;
-            if (tempVar) {
-              context.emitter.emitLine(
-                `${indent}${getTypeString(functionType.return.type, context)} ${tempVar} = ${externFuncName}(${argsList});`
-              );
-
-              // Handle deferred drop expressions if they exist
-              if (expr.$?.deferredDropExpressions) {
-                generateDeferredDropExpressions(expr, indent, context);
-              }
-
-              return tempVar;
-            } else {
-              // No temp variable, return the call expression directly
-              return `${externFuncName}(${argsList})`;
-            }
+            return `${externFuncName}(${argsList})`;
           }
         }
 
@@ -1407,7 +1357,7 @@ function generateFuncCall(
               const tempVar = expr.$?.variableName;
               if (tempVar) {
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(functionType.return.type, context)} ${tempVar} = ${cFuncName}(${argsList});`
+                  `${indent}${getTypeString(functionValue.specializedType?.return.type ?? functionType.return.type, context)} ${tempVar} = ${cFuncName}(${argsList});`
                 );
 
                 // Handle deferred drop expressions if they exist
@@ -1418,7 +1368,7 @@ function generateFuncCall(
                 return tempVar; // Return the temp variable name
               } else {
                 // Error: regular function call returns non-unit type but no temp variable assigned
-                return `// Error: Regular function call returns ${getTypeString(functionType.return.type, context)} but no temp variable assigned`;
+                return `// Error: Regular function call returns ${getTypeString(functionValue.specializedType?.return.type ?? functionType.return.type, context)} but no temp variable assigned`;
               }
             }
           }
@@ -1855,6 +1805,10 @@ function generateFuncCall(
       const indexCode = generateExpr(expr.args[0]!, indent, context);
       return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
     }
+  }
+
+  if (exprIsFunctionCall(expr)) {
+    throw new Error(`Unhandled function call: ${exprToString(expr)}`);
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;

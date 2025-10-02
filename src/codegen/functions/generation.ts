@@ -18,18 +18,12 @@ import {
   isEnumType,
   isFunctionType,
   isStructType,
-  isThreadType,
-  isUnionType,
   isUnitType,
-  ModuleType,
-  StructType,
-  ThreadType,
   typeContainsSomeType,
   TypeTag,
   typeToString,
-  UnionType,
 } from "../../types";
-import { canRefStructFormCycles, typeContainsARCType } from "../../types/utils";
+import { canRefStructFormCycles } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import {
@@ -349,8 +343,11 @@ export function generateFunctionBody(
       generateDeferredDropExpressions(expr, indent, context);
 
       if (lastExpr && isUnitType(functionType.return.type)) {
-        // For unit/void functions, just generate the expression but don't return
-        generateExpr(lastExpr, indent, context);
+        // For unit/void functions, generate the expression as a statement
+        const exprCode = generateExpr(lastExpr, indent, context);
+        if (exprCode) {
+          emitter.emitLine(`${indent}${exprCode};`);
+        }
       } else if (lastExpr) {
         // Check if the last expression has control flow (like return statements)
         const hasControlFlow = lastExpr.$?.controlFlow;
@@ -393,8 +390,11 @@ export function generateFunctionBody(
 
     // Single expression function body
     if (isUnitType(functionType.return.type)) {
-      // For unit/void functions, just generate the expression
-      generateExpr(expr, indent, context);
+      // For unit/void functions, generate the expression as a statement
+      const exprCode = generateExpr(expr, indent, context);
+      if (exprCode) {
+        emitter.emitLine(`${indent}${exprCode};`);
+      }
     } else {
       // For other functions, return the expression
       generateReturnStatement(expr, indent, context);
@@ -795,16 +795,136 @@ void* __yo_incr_rc(void* ptr) {
   
   return ptr;
 }`);
+
+  // Generate cooperative task scheduler runtime
+  emitter.emitLine(`
+// Cooperative Task Scheduler Runtime
+typedef struct yo_task yo_task_t;
+typedef struct yo_task_queue yo_task_queue_t;
+
+// Task state
+typedef enum {
+  YO_TASK_READY,      // Ready to run
+  YO_TASK_RUNNING,    // Currently running
+  YO_TASK_BLOCKED,    // Blocked on channel operation
+  YO_TASK_COMPLETED   // Finished execution
+} yo_task_state_t;
+
+// Task structure
+struct yo_task {
+  void (*func)(void*);           // Function to execute
+  void* data;                    // Task-specific data
+  yo_task_state_t state;         // Current state
+  yo_task_t* next;               // Next task in queue
+};
+
+// Task queue (simple linked list for now)
+struct yo_task_queue {
+  yo_task_t* head;
+  yo_task_t* tail;
+  size_t count;
+};
+
+// Global task scheduler state
+static yo_task_queue_t yo_task_ready_queue = {NULL, NULL, 0};
+static yo_task_t* yo_task_current = NULL;
+static size_t yo_task_max_threads = 0;
+static YO_THREAD_SYNC_TYPE yo_task_mutex;
+static bool yo_task_scheduler_initialized = false;
+
+// Initialize task scheduler
+static void __yo_task_scheduler_init(void) {
+  if (!yo_task_scheduler_initialized) {
+#if defined(_WIN32)
+    InitializeCriticalSection(&yo_task_mutex);
+#else
+    pthread_mutex_init(&yo_task_mutex, NULL);
+#endif
+    yo_task_scheduler_initialized = true;
+  }
+}
+
+// Enqueue a task to the ready queue
+static void __yo_task_enqueue(yo_task_t* task) {
+  YO_THREAD_SYNC_LOCK(&yo_task_mutex);
+  
+  task->next = NULL;
+  if (yo_task_ready_queue.tail) {
+    yo_task_ready_queue.tail->next = task;
+  } else {
+    yo_task_ready_queue.head = task;
+  }
+  yo_task_ready_queue.tail = task;
+  yo_task_ready_queue.count++;
+  
+  YO_THREAD_SYNC_UNLOCK(&yo_task_mutex);
+}
+
+// Dequeue a task from the ready queue
+static yo_task_t* __yo_task_dequeue(void) {
+  YO_THREAD_SYNC_LOCK(&yo_task_mutex);
+  
+  yo_task_t* task = yo_task_ready_queue.head;
+  if (task) {
+    yo_task_ready_queue.head = task->next;
+    if (!yo_task_ready_queue.head) {
+      yo_task_ready_queue.tail = NULL;
+    }
+    yo_task_ready_queue.count--;
+  }
+  
+  YO_THREAD_SYNC_UNLOCK(&yo_task_mutex);
+  return task;
+}
+
+// Set maximum number of threads for task scheduler
+void __yo_concurrency_set_maximum_threads(size_t num) {
+  __yo_task_scheduler_init();
+  yo_task_max_threads = num;
+}
+
+// Run the task scheduler (cooperative)
+// This should be called by channel operations when they would block
+static void __yo_task_yield(void) {
+  if (!yo_task_scheduler_initialized) {
+    return;
+  }
+  
+  // If current task is blocked, try to run another task
+  if (yo_task_current && yo_task_current->state == YO_TASK_BLOCKED) {
+    yo_task_t* next_task = __yo_task_dequeue();
+    if (next_task) {
+      next_task->state = YO_TASK_RUNNING;
+      yo_task_t* prev_task = yo_task_current;
+      yo_task_current = next_task;
+      
+      // Execute the next task
+      next_task->func(next_task->data);
+      
+      // Mark as completed
+      next_task->state = YO_TASK_COMPLETED;
+      yo_free(next_task);
+      
+      // Restore previous task if it's not completed
+      if (prev_task && prev_task->state != YO_TASK_COMPLETED) {
+        yo_task_current = prev_task;
+      } else {
+        yo_task_current = NULL;
+      }
+    }
+  }
+}
+`);
 }
 
 /**
- * Generate specialized thread data structures and vtables for different spawned function signatures
+ * Generate specialized task spawn functions for cooperative multitasking
  */
 function generateThreadWrapperFunctions(context: CodeGenContext): void {
   const emitter = context.emitter;
 
-  // First, generate function declarations
-  emitter.emitDeclarationLine(`/// Thread constructor declarations`);
+  // Generate task spawn function declarations
+  emitter.emitDeclarationLine(`/// Task spawn function declarations`);
   const generatedDeclarationSignatures = new Set<string>();
 
   for (const [signatureStr, signature] of context.spawnedFunctionSignatures) {
@@ -815,7 +935,7 @@ function generateThreadWrapperFunctions(context: CodeGenContext): void {
     }
     generatedDeclarationSignatures.add(signatureStr);
 
-    // Generate declaration for thread constructor
+    // Generate declaration for task spawn function
     const paramDecls = parameterTypes
       .map((paramType, index) => {
         const paramTypeStr = getTypeString(paramType, context);
@@ -823,164 +943,68 @@ function generateThreadWrapperFunctions(context: CodeGenContext): void {
       })
       .join(", ");
 
-    const constructorName = `__yo_new_yo_thread_${signatureStr}_t`;
+    const spawnFunctionName = `__yo_task_spawn_${signatureStr}`;
     emitter.emitDeclarationLine(
-      `yo_thread_t* ${constructorName}(void* func${
+      `void ${spawnFunctionName}(void* func${
         paramDecls ? `, ${paramDecls}` : ""
-      }); // Thread constructor for ${signatureStr}`
+      }); // Task spawn function for ${signatureStr}`
     );
   }
   emitter.emitDeclarationLine("");
 
-  // Generate specialized thread data structures for each spawned function signature
+  // Generate task data structures and spawn functions
   const generatedSignatures = new Set<string>();
 
-  // Look through all spawned function signatures
   for (const [signatureStr, signature] of context.spawnedFunctionSignatures) {
-    const { parameterTypes, returnType } = signature;
+    const { parameterTypes } = signature;
 
     if (generatedSignatures.has(signatureStr)) {
-      continue; // Already generated
+      continue;
     }
     generatedSignatures.add(signatureStr);
 
-    // Generate specialized thread data structure with individual parameter fields
-    const structName = `yo_thread_data_${signatureStr}_t`;
-    const resultField = isUnitType(returnType)
-      ? ""
-      : `  ${getTypeString(returnType, context)} result;                     // Typed result storage\n`;
+    // Generate task data structure
+    const structName = `yo_task_data_${signatureStr}_t`;
 
     const paramFields = parameterTypes
       .map((paramType, index) => {
         const paramTypeStr = getTypeString(paramType, context);
-        return `  ${paramTypeStr} arg${index};                           // Parameter ${index}\n`;
+        return `  ${paramTypeStr} arg${index};\n`;
       })
       .join("");
 
     emitter.emitLine(`typedef struct ${structName} {
-  yo_thread_data_base_t base;              // Base thread data
-  void* function;                          // Function to execute
-${paramFields}${resultField}} ${structName};
+  void* function;
+${paramFields}} ${structName};
 `);
 
-    // Generate execute function for this thread type that properly unpacks arguments
-    const executeFnName = `yo_thread_execute_${signatureStr}`;
-
-    // Create proper function signature and argument unpacking
+    // Generate task execution function
+    const executeFnName = `__yo_task_execute_${signatureStr}`;
     const paramTypesStr = parameterTypes
       .map((paramType) => getTypeString(paramType, context))
       .join(", ");
 
     let executeBody: string;
     if (parameterTypes.length === 0) {
-      // No parameters
-      executeBody = isUnitType(returnType)
-        ? `  void (*func)(void) = (void (*)(void))data->function;
-  func();`
-        : `  ${getTypeString(returnType, context)} (*func)(void) = (${getTypeString(returnType, context)} (*)(void))data->function;
-  data->result = func();`;
+      executeBody = `  void (*func)(void) = (void (*)(void))data->function;
+  func();`;
     } else {
-      // Has parameters - call function directly with stored arguments
       const argsList = parameterTypes
         .map((_, index) => `data->arg${index}`)
         .join(", ");
-
-      executeBody = isUnitType(returnType)
-        ? `  void (*func)(${paramTypesStr}) = (void (*)(${paramTypesStr}))data->function;
-  func(${argsList});`
-        : `  ${getTypeString(returnType, context)} (*func)(${paramTypesStr}) = (${getTypeString(returnType, context)} (*)(${paramTypesStr}))data->function;
-  data->result = func(${argsList});`;
+      executeBody = `  void (*func)(${paramTypesStr}) = (void (*)(${paramTypesStr}))data->function;
+  func(${argsList});`;
     }
 
-    emitter.emitLine(`static void ${executeFnName}(void* self) {
-  ${structName}* data = (${structName}*)self;
+    emitter.emitLine(`static void ${executeFnName}(void* task_data) {
+  ${structName}* data = (${structName}*)task_data;
 ${executeBody}
-}
-`);
-
-    // Generate get_result function for this thread type
-    const getResultFnName = `yo_thread_get_result_${signatureStr}`;
-    const getResultBody = isUnitType(returnType)
-      ? `  return NULL; // Unit type has no result`
-      : `  return &data->result;`;
-
-    emitter.emitLine(`static void* ${getResultFnName}(void* self) {
-  ${structName}* data = (${structName}*)self;
-${getResultBody}
-}
-`);
-
-    // Generate dispose function for this thread type
-    const disposeFnName = `yo_thread_dispose_${signatureStr}`;
-
-    // Generate drop calls for reference-counted parameters
-    const dropCalls = parameterTypes
-      .map((paramType, index) => {
-        if (typeContainsARCType(paramType)) {
-          // Check all types that have a module property for ___drop function
-          let moduleToCheck: ModuleType | undefined;
-
-          if (isStructType(paramType)) {
-            moduleToCheck = (paramType as StructType).module;
-          } else if (isEnumType(paramType)) {
-            moduleToCheck = (paramType as EnumType).module;
-          } else if (isUnionType(paramType)) {
-            moduleToCheck = (paramType as UnionType).module;
-          } else if (isClosureType(paramType)) {
-            moduleToCheck = (paramType as ClosureType).module;
-          } else if (isDynType(paramType)) {
-            moduleToCheck = (paramType as DynType).module;
-          } else if (isThreadType(paramType)) {
-            moduleToCheck = (paramType as ThreadType).module;
-          }
-
-          if (moduleToCheck) {
-            const dropFunction = moduleToCheck.elements.find(
-              (element) => element.label === BuiltinFunctions.___drop[0]
-            );
-            if (
-              dropFunction &&
-              dropFunction.assignedValue &&
-              isFunctionValue(dropFunction.assignedValue)
-            ) {
-              const dropFunctionValue = dropFunction.assignedValue;
-              const dropFunctionCName =
-                context.functions[dropFunctionValue.funcId]?.cName;
-              if (dropFunctionCName) {
-                return `  ${dropFunctionCName}(data->arg${index});\n`;
-              }
-            }
-          }
-        }
-        return "";
-      })
-      .filter((call) => call !== "")
-      .join("");
-
-    emitter.emitLine(`static void ${disposeFnName}(void* self) {
-  ${structName}* data = (${structName}*)self;
-
-${dropCalls}
   yo_free(data);
 }
 `);
 
-    // Generate vtable for this thread type
-    const vtableName = `yo_thread_vtable_${signatureStr}`;
-    emitter.emitLine(`static yo_thread_data_vtable_t ${vtableName} = {
-  .execute_fn = ${executeFnName},
-  .get_result_fn = ${getResultFnName},
-  .dispose_fn = ${disposeFnName}
-};
-`);
-
-    // Generate constructor function for this thread type
-    const constructorName = `__yo_new_yo_thread_${signatureStr}_t`;
-    const resultInit = isUnitType(returnType)
-      ? ""
-      : `  memset(&data->result, 0, sizeof(data->result)); // Initialize result\n`;
-
-    // Generate constructor parameter list
+    // Generate task spawn function
+    const spawnFunctionName = `__yo_task_spawn_${signatureStr}`;
     const constructorParams = [
       "void* func",
       ...parameterTypes.map((paramType, index) => {
@@ -989,60 +1013,39 @@ ${dropCalls}
       }),
     ].join(", ");
 
-    // Generate parameter assignments
     const paramAssignments = parameterTypes
       .map((_, index) => {
         return `  data->arg${index} = arg${index};\n`;
       })
       .join("");
 
-    emitter.emitLine(`yo_thread_t* ${constructorName}(${constructorParams}) {
-  // Allocate thread object with ARC header
-  yo_thread_t* thread = (yo_thread_t*)yo_malloc(sizeof(yo_thread_t));
+    emitter.emitLine(`void ${spawnFunctionName}(${constructorParams}) {
+  __yo_task_scheduler_init();
   
-  // Initialize ARC header (BRC)
-  size_t current_thread_id = yo_get_thread_id();
-  thread->header.owner_thread_id = current_thread_id;
-  thread->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1); // Start with 1 reference
-  atomic_store_explicit(&thread->header.shared_word, 0, memory_order_relaxed);
-  thread->header.gc_next = NULL;
-  thread->header.gc_prev = NULL;
-  thread->header.dispose_fn = __yo_dispose_yo_thread_t;
-  thread->header.traverse_fn = NULL; // Threads don't contain other managed objects
-  thread->thread_id = 0; // Will be set by the thread wrapper when it starts
-  
-  // Allocate specialized thread data
+  // Allocate task data
   ${structName}* data = (${structName}*)yo_malloc(sizeof(${structName}));
-  data->base.vtable = &${vtableName};
-  atomic_store_explicit(&data->base.joined, 0, memory_order_relaxed);
   data->function = func;
-${paramAssignments}${resultInit}  
-  thread->data = (yo_thread_data_base_t*)data;
+${paramAssignments}
   
-  // Store a back-pointer to the thread object in the data so wrapper can access it
-  data->base.thread_object = thread;
+  // Create task
+  yo_task_t* task = (yo_task_t*)yo_malloc(sizeof(yo_task_t));
+  task->func = ${executeFnName};
+  task->data = data;
+  task->state = YO_TASK_READY;
+  task->next = NULL;
   
-  // Create the actual system thread
-#if defined(_WIN32)
-  DWORD win_thread_id;
-  thread->handle = CreateThread(NULL, 0, yo_thread_wrapper, thread->data, 0, &win_thread_id);
-  if (thread->handle == NULL) {
-    yo_free(data);
-    yo_free(thread);
-    return NULL;
+  // If no current task, run immediately
+  if (!yo_task_current) {
+    task->state = YO_TASK_RUNNING;
+    yo_task_current = task;
+    task->func(task->data);
+    task->state = YO_TASK_COMPLETED;
+    yo_free(task);
+    yo_task_current = NULL;
+  } else {
+    // Enqueue for later execution
+    __yo_task_enqueue(task);
   }
-  thread->thread_id = (size_t)win_thread_id; // Store thread ID
-#else
-  int result = pthread_create(&thread->handle, NULL, yo_thread_wrapper, thread->data);
-  if (result != 0) {
-    yo_free(data);
-    yo_free(thread);
-    return NULL;
-  }
-  // thread_id will be set by the wrapper function using yo_get_thread_id()
-#endif
-  
-  return thread;
 }
 `);
   }

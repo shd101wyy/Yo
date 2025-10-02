@@ -1601,10 +1601,11 @@ function createSpecializedFunctionInline({
     env: specializedEnv,
     context: {
       ...context,
-      expectedType: {
-        type: functionType.return.type,
-        env: specializedEnv,
-      },
+      // expectedType: { // NOTE: Using functionType.return.type as expected type is wrong if it contains SomeType.
+      // QUESTION: Should we call resolveSomeTypeInType here?
+      //   type: functionType.return.type,
+      //   env: specializedEnv,
+      // },
       isEvaluatingFunctionBody: {
         type: functionType,
         value: originalFunction,
@@ -1621,6 +1622,8 @@ function createSpecializedFunctionInline({
       errorMessage: `Failed to evaluate function body for specialization.`,
     });
   }
+
+  const specializedReturnType = specializedBody.$.type;
 
   // Create signature for the specialized function
   const compileTimeSignatureParts: string[] = [];
@@ -1687,7 +1690,7 @@ function createSpecializedFunctionInline({
     variadicParameter: undefined, // QUESTION: Is this right?
     return_: {
       ...functionType.return,
-      type: specializedBody.$.type,
+      type: specializedReturnType,
     },
     parametersFrame: specializedEnv.frames[specializedEnv.frames.length - 1]!, // QUESTION: This could be wrong
     env: functionType.env,

@@ -63,10 +63,9 @@ import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluatePanic } from "./builtins/panic";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
+import { evaluateGo, evaluateTaskSetMaximumThreads } from "./builtins/task_fns";
 import { evaluateThe } from "./builtins/the";
 import {
-  evaluateSpawn,
-  evaluateThreadWait,
   evaluateYoThreadDrop,
   evaluateYoThreadDup,
 } from "./builtins/thread_fns";
@@ -397,14 +396,21 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.spawn)) {
-        // spawn
-        return evaluateSpawn({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
+        // go
+        return evaluateGo({ expr, env, context: { ...context } });
       } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_wait)
+        exprIsFunctionCallOf(
+          expr,
+          BuiltinFunctions.__yo_concurrency_set_maximum_threads
+        )
       ) {
-        // __yo_thread_wait
-        return evaluateThreadWait({ expr, env, context: { ...context } });
+        // __yo_concurrency_set_maximum_threads
+        return evaluateTaskSetMaximumThreads({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_drop)) {
         // __yo_chan_drop
         return evaluateYoChanDrop({ expr, env, context: { ...context } });

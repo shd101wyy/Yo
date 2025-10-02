@@ -173,6 +173,8 @@ static inline size_t yo_get_thread_id(void) {
   // Windows: Use C11 threads.h for better compatibility
   #include <threads.h>
   #define YO_THREAD_SYNC_TYPE mtx_t
+  #define YO_THREAD_SYNC_LOCK(m) mtx_lock(m)
+  #define YO_THREAD_SYNC_UNLOCK(m) mtx_unlock(m)
   #define YO_COND_TYPE cnd_t
   #define yo_mutex_lock(m) mtx_lock(m)
   #define yo_mutex_unlock(m) mtx_unlock(m)
@@ -183,6 +185,8 @@ static inline size_t yo_get_thread_id(void) {
   #include <pthread.h>
   #define YO_THREAD_SYNC_TYPE pthread_mutex_t
   #define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
+  #define YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
+  #define YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
   #define YO_COND_TYPE pthread_cond_t
   #define YO_COND_INIT PTHREAD_COND_INITIALIZER
   #define yo_mutex_lock(m) pthread_mutex_lock(m)

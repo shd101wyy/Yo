@@ -492,8 +492,10 @@ export const BuiltinFunctions = {
   do: ["do"],
 
   // Concurrency related functions
-  spawn: ["spawn"],
-  __yo_thread_wait: ["__yo_thread_wait"],
+  go: ["go"],
+  __yo_concurrency_set_maximum_threads: [
+    "__yo_concurrency_set_maximum_threads",
+  ],
 
   // Channel related functions
   chan: ["chan"],

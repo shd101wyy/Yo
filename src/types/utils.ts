@@ -3,7 +3,12 @@ import { formatErrorMessages } from "../error";
 import { exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
-import { isNumberValue, isUnknownValue, valueToString } from "../value";
+import {
+  isNumberValue,
+  isTypeValue,
+  isUnknownValue,
+  valueToString,
+} from "../value";
 import { ValueTag } from "../value-tag";
 import {
   createF64Type,
@@ -37,6 +42,7 @@ import {
   isArrayType,
   isBooleanType,
   isCCompatibleType,
+  isChanType,
   isCharType,
   isClosureType,
   isComptFloatType,
@@ -1425,4 +1431,109 @@ function typeCanReferenceCyclicRefStruct(
 
   // Other types (primitives, functions, etc.) cannot form cycles
   return false;
+}
+
+/**
+ * This function will replace the SomeType with the resolved type from the environment.
+ * The resolved type has to be a concrete type (not SomeType).
+ * If it cannot be resolved, we throw error.
+ * @param type
+ * @param env
+ */
+export function resolveSomeTypeInType(
+  type: Type,
+  env: Environment,
+  checkedTypes: Set<Type> = new Set()
+): Type {
+  if (checkedTypes.has(type)) {
+    return type;
+  }
+
+  if (isSomeType(type)) {
+    const typeName = type.name;
+    const variables = getVariablesFromEnv(env, typeName);
+    const variable = variables[variables.length - 1];
+    if (!variable) {
+      throw new Error(`Unresolved SomeType: ${typeName}`);
+    } else if (!isTypeValue(variable.value)) {
+      throw new Error(`Variable is not a type: ${typeName}`);
+    } else {
+      const resolvedType = variable.value.value;
+      checkedTypes.add(type);
+      return resolveSomeTypeInType(resolvedType, env);
+    }
+  } else if (isStructType(type)) {
+    // To prevent circular reference issues
+    /// if (isObjectType(type)) {
+    ///   return type;
+    /// }
+    type.elements = type.elements.map((element) => {
+      return {
+        ...element,
+        type: resolveSomeTypeInType(element.type, env),
+      };
+    });
+  } else if (isEnumType(type)) {
+    type.variants = type.variants.map((variant) => {
+      if (variant.elements) {
+        variant.elements = variant.elements.map((param) => {
+          return {
+            ...param,
+            type: resolveSomeTypeInType(param.type, env),
+          };
+        });
+      }
+      return variant;
+    });
+  } else if (isUnionType(type)) {
+    type.elements = type.elements.map((element) => {
+      return {
+        ...element,
+        type: resolveSomeTypeInType(element.type, env),
+      };
+    });
+  } else if (isArrayType(type)) {
+    type.elementType = resolveSomeTypeInType(type.elementType, env);
+  } else if (isSliceType(type)) {
+    type.elementType = resolveSomeTypeInType(type.elementType, env);
+  } else if (isTupleType(type)) {
+    type.elements = type.elements.map((element) => {
+      return {
+        ...element,
+        type: resolveSomeTypeInType(element.type, env),
+      };
+    });
+  } else if (isMutPtrType(type)) {
+    type.type = resolveSomeTypeInType(type.type, env);
+  } else if (isFunctionType(type)) {
+    type.parameters = type.parameters.map((param) => {
+      return {
+        ...param,
+        type: resolveSomeTypeInType(param.type, env),
+      };
+    });
+    type.return.type = resolveSomeTypeInType(type.return.type, env);
+    type.implicitParameters = type.implicitParameters.map((param) => {
+      return {
+        ...param,
+        type: resolveSomeTypeInType(param.type, env),
+      };
+    });
+    type.forallParameters = type.forallParameters.map((param) => {
+      return {
+        ...param,
+        type: resolveSomeTypeInType(param.type, env),
+      };
+    });
+  } else if (isClosureType(type)) {
+    type.callType = resolveSomeTypeInType(
+      type.callType,
+      env
+    ) as FunctionType & { isClosure: true };
+  } else if (isChanType(type)) {
+    type.elementType = resolveSomeTypeInType(type.elementType, env);
+  }
+
+  checkedTypes.add(type);
+  return type;
 }

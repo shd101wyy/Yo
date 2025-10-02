@@ -51,7 +51,7 @@ export interface CodeGenContext {
   sliceStructTypes: Map<string, { elementType: string }>;
 
   /**
-   * Spawned function signatures that need thread wrapper generation
+   * Spawned function signatures that need task wrapper generation for cooperative multitasking
    * Maps signature string (based on parameter types + return type) to the signature info
    */
   spawnedFunctionSignatures: Map<
@@ -191,10 +191,28 @@ export function getTypeString(
         }
       }
 
+      let kind: "tuple" | "struct" | "union" | "enum";
+      switch (type.tag) {
+        case TypeTag.Tuple:
+          kind = "tuple";
+          break;
+        case TypeTag.Struct:
+          kind = "struct";
+          break;
+        case TypeTag.Union:
+          kind = "union";
+          break;
+        case TypeTag.Enum:
+          kind = "enum";
+          break;
+        default:
+          throw new Error("Unreachable");
+      }
+
       const cTypeName = context.types[type.id]?.cName;
       if (!cTypeName) {
         throw new Error(
-          `No C type name found for struct ${typeToString(type)}`
+          `No C type name found for ${kind} ${typeToString(type)}`
         );
       }
 
