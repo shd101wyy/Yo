@@ -4,23 +4,23 @@ open import "std/libc/stdio.yo";
 
 // Pointer arithmetic example
 main :: (fn() -> i32) {
-  // ptr := GlobalAllocator.malloc(sizeof(i32) * 2).unwrap().cast(*(i32));
+  ptr := GlobalAllocator.malloc(sizeof(i32) * 2).unwrap().cast(*(i32));
 
-  some_ptr := GlobalAllocator.malloc(sizeof(i32) * 2);
-  unwrapped := some_ptr.unwrap();
-  ptr := unwrapped.cast(*(i32));
+  // some_ptr := GlobalAllocator.malloc(sizeof(i32) * 2);
+  // unwrapped := some_ptr.unwrap();
+  // ptr := unwrapped.cast(*(i32));
 
-  // ptr.* = 1;
-// 
+  ptr.* = 1;
+
   // next_ptr := (ptr + 1);
   // next_ptr.* = 2;
-  // // (ptr + 1).* = 2;
-// 
-  // printf("First: %d\n", ptr.*);
-  // // printf("Second: %d\n", (ptr + 1).*);
+  (ptr + 1).* = 2;
+ 
+  printf("First: %d\n", ptr.*);
+  printf("Second: %d\n", (ptr + 1).*);
   // printf("Second: %d\n", next_ptr.*);
 // 
-  // GlobalAllocator.free(.Some(ptr.cast(*(void))));
+  GlobalAllocator.free(.Some(ptr));
   return 0;
 };
 

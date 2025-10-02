@@ -99,6 +99,9 @@ export function collectTypesFromExpr(
 
   switch (expr.tag) {
     case ExprTag.FuncCall:
+      // Collect types from the function expression itself (for chained calls)
+      collectTypesFromExpr(expr.func, context);
+
       // Collect types from function arguments
       for (const arg of expr.args) {
         collectTypesFromExpr(arg, context);
