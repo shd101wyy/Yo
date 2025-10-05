@@ -2994,28 +2994,13 @@ function generateChannelFunctions(context: FunctionGenerationContext): void {
     let someTag = 1; // Default fallback
     const expectedOptionTypeName = `Option(${elementYoTypeName})`;
 
-    console.log(
-      `DEBUG: Looking for Option type with elementTypeStr: "${elementTypeStr}"`
-    );
-    console.log(`DEBUG: Element Yo type name: "${elementYoTypeName}"`);
-    console.log(`DEBUG: Expected Option typeName: "${expectedOptionTypeName}"`);
-
     for (const typeId in context.types) {
       const typeEntry = context.types[typeId]!;
       if (isEnumType(typeEntry.type)) {
         const enumType = typeEntry.type;
-        console.log(
-          `DEBUG: Found enum type with typeName: "${enumType.typeName}", variants: ${enumType.variants.map((v) => v.name).join(", ")}`
-        );
-        console.log(
-          `DEBUG: Comparing "${enumType.typeName}" === "${expectedOptionTypeName}": ${enumType.typeName === expectedOptionTypeName}`
-        );
 
         // Use typeName for exact matching - this is more reliable
         if (enumType.typeName === expectedOptionTypeName) {
-          console.log(
-            `DEBUG: Found matching Option type: ${enumType.typeName} with cName: ${typeEntry.cName}`
-          );
           optionReturnTypeStr = typeEntry.cName;
 
           // Find the tag values for None and Some variants
@@ -3024,10 +3009,6 @@ function generateChannelFunctions(context: FunctionGenerationContext): void {
           );
           const someVariantIndex = enumType.variants.findIndex(
             (v) => v.name === "Some"
-          );
-
-          console.log(
-            `DEBUG: None variant index: ${noneVariantIndex}, Some variant index: ${someVariantIndex}`
           );
 
           // Update the tag values

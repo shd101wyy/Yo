@@ -276,18 +276,6 @@ function generateFuncCall(
       return `// Error: async missing evaluated closure`;
     }
 
-    // DEBUG: Check what we have
-    console.log(
-      "DEBUG CODEGEN: evaluatedClosure.$ has capturedVariableDupExpressions:",
-      evaluatedClosure.$?.capturedVariableDupExpressions ? "YES" : "NO"
-    );
-    if (evaluatedClosure.$?.capturedVariableDupExpressions) {
-      console.log(
-        "DEBUG CODEGEN: capturedVariableDupExpressions count:",
-        evaluatedClosure.$.capturedVariableDupExpressions.length
-      );
-    }
-
     // Generate the closure creation code (with dup expressions for captured variables)
     const closureCode = generateExpr(evaluatedClosure, indent, context);
     const closureType = evaluatedClosure.$.type;

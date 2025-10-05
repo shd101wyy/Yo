@@ -4,7 +4,6 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   ExprTag,
-  exprToString,
   FuncCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
@@ -111,21 +110,6 @@ export function evaluateAsync({
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Failed to evaluate closure for async.`,
-    });
-  }
-
-  // DEBUG: Check if capturedVariableDupExpressions is set
-  console.log(
-    "DEBUG: evaluatedClosure has capturedVariableDupExpressions:",
-    evaluatedClosure.$.capturedVariableDupExpressions ? "YES" : "NO"
-  );
-  if (evaluatedClosure.$.capturedVariableDupExpressions) {
-    console.log(
-      "DEBUG: capturedVariableDupExpressions count:",
-      evaluatedClosure.$.capturedVariableDupExpressions.length
-    );
-    evaluatedClosure.$.capturedVariableDupExpressions.forEach((dupExpr, i) => {
-      console.log(`DEBUG: dupExpr[${i}]:`, exprToString(dupExpr));
     });
   }
 
