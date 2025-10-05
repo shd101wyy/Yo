@@ -481,7 +481,8 @@ Got:      "${paramName}"`,
         const variable = env.frames[info.frameLevel]?.variables.find(
           (v) => v.name === name
         );
-        if (variable) {
+        if (variable && !variable.isCompileTimeOnly) {
+          // Only capture the runtime variables
           functionValue.capturedVariables.set(name, {
             ...info,
             value: variable.value,

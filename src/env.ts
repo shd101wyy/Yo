@@ -406,7 +406,8 @@ export function popEnvFrame(
         unconsumedVariables.map((variable) => {
           return {
             token: variable.token,
-            errorMessage: `Variable "${variable.name}" was not consumed. It is supposed to be consumed before going out of scope.`,
+            errorMessage: `Variable "${variable.name}" was not consumed. It is supposed to be consumed before going out of scope.
+Typeof "${variable.name}": ${typeToString(variable.type)}`,
           };
         })
       );
@@ -474,6 +475,25 @@ export function printEnvVarNames(env: Environment) {
         isConsumed: !!variable.consumedAtToken,
       }));
     })
+  );
+}
+
+export function printEnvFrame(frame: Frame) {
+  console.log(
+    frame.variables.map((variable) => ({
+      id: variable.id,
+      name: variable.name,
+      type: typeToString(variable.type),
+      typeId: variable.type.id,
+      value: valueToString(variable.value),
+      isCompileTimeOnly: variable.isCompileTimeOnly,
+      isImplicit: variable.isImplicit,
+      isUndefined: !variable.initializedAtToken,
+      isOwningTheARCValue: !!variable.isOwningTheARCValue,
+      isBorrowingTheARCValueOfVariable:
+        variable.isBorrowingTheARCValueOfVariable?.name,
+      isConsumed: !!variable.consumedAtToken,
+    }))
   );
 }
 

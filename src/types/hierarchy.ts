@@ -2,7 +2,6 @@ import { formatErrorMessage } from "../error";
 import { Token } from "../token";
 import { createType0, createTypeHierarchy } from "./creators";
 import {
-  ClosureType,
   FunctionParameter,
   ModuleType,
   TupleElement,
@@ -143,6 +142,11 @@ export function typeOfType(
     // All functions are now level 0 types
     return createType0(type);
   } else if (isClosureType(type)) {
+    // FIXME: The captureType is now wrong in some ClosureType
+    // if (type.captureType) {
+    //   console.log(typeToString(type.captureType));
+    // }
+    /*
     // The type universe of a closure is determined by its capture type
     const closureType = type as ClosureType;
     if (closureType.captureType) {
@@ -151,6 +155,9 @@ export function typeOfType(
       // If no capture type, it's a level 0 type (no captures)
       return createType0(type);
     }
+    */
+    // All closures are now level 0 types
+    return createType0(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.elementType, checkedTupleElements);

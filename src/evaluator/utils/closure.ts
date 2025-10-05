@@ -131,22 +131,24 @@ export function createCaptureTypeAndValue({
       // Create elements from captured variables
       const captureElements: TupleElement[] = Array.from(
         capturedVariablesWithValues.entries()
-      ).map(([varName, captureInfo]) => ({
-        label: varName,
-        type: captureInfo.type,
-        isCompileTimeOnly: false, // Captured variables are runtime values
-        isImplicit: false,
-        assignedValue: undefined,
-        exprs: {
-          expr: {
-            tag: ExprTag.Atom,
-            token: captureInfo.token,
-          }, // Create a proper atom expression from the token
-          labelExpr: undefined,
-          typeExpr: undefined,
-          defaultValueExpr: undefined,
-        },
-      }));
+      ).map(([varName, captureInfo]) => {
+        return {
+          label: varName,
+          type: captureInfo.type,
+          isCompileTimeOnly: false, // Captured variables are runtime values
+          isImplicit: false,
+          assignedValue: undefined,
+          exprs: {
+            expr: {
+              tag: ExprTag.Atom,
+              token: captureInfo.token,
+            }, // Create a proper atom expression from the token
+            labelExpr: undefined,
+            typeExpr: undefined,
+            defaultValueExpr: undefined,
+          },
+        };
+      });
 
       // Add the elements to the struct type
       inferredCaptureType.elements = captureElements;

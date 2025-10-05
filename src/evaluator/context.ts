@@ -313,27 +313,18 @@ export function trackVariableUsage(
     return;
   }
 
-  /*
-  // For Fn closures, only allow read access to outer scope variables
-  if (functionType.closureKind === "Fn" && usageType !== "read") {
-    throw formatErrorMessages([
-      {
-        token,
-        errorMessage: `Cannot ${usageType === "write" ? "modify" : "consume"} outer scope variable "${variableName}" in Fn closure. Fn closures can only read (borrow immutably) from outer scope.`,
-      },
-    ]);
+  // Get the variable from the specified frame level
+  const variable = evaluationEnv.frames[frameLevel]?.variables.find(
+    (v) => v.name === variableName
+  );
+  if (!variable) {
+    return;
   }
 
-  // For FnMut closures, allow read and write but not ownership transfer
-  if (functionType.closureKind === "FnMut" && usageType === "own") {
-    throw formatErrorMessages([
-      {
-        token,
-        errorMessage: `Cannot consume outer scope variable "${variableName}" in FnMut closure. FnMut closures can only borrow (read/write) from outer scope.`,
-      },
-    ]);
+  if (variable.isCompileTimeOnly) {
+    // Don't track compile-time only variables
+    return;
   }
-  */
 
   // Track the variable usage
   if (!context.isEvaluatingFunctionBody.capturedVariables) {
