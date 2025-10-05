@@ -76,24 +76,24 @@ Allocator :: *(Dyn(CustomAllocator));
 // Global Allocator
 // We are using mimalloc if that's available
 extern "Yo",
-  yo_malloc : 
+  __yo_malloc : 
     fn(size: usize) -> ?*(void),
-  yo_calloc :
+  __yo_calloc :
     fn(nmemb: usize, size: usize) -> ?*(void),
-  yo_realloc :
+  __yo_realloc :
     fn(ptr : ?*(void), size : usize) -> ?*(void),
-  yo_free :
+  __yo_free :
     fn(ptr : ?*(void)) -> unit,
-  yo_aligned_alloc :
+  __yo_aligned_alloc :
     fn(alignment : usize, size : usize) -> ?*(void)
 ;
 
 GlobalAllocator :: impl {
-  malloc :: yo_malloc;
-  calloc :: yo_calloc;
-  realloc :: yo_realloc;
-  free :: yo_free;
-  aligned_alloc :: yo_aligned_alloc;
+  malloc :: __yo_malloc;
+  calloc :: __yo_calloc;
+  realloc :: __yo_realloc;
+  free :: __yo_free;
+  aligned_alloc :: __yo_aligned_alloc;
 
   export
     malloc,

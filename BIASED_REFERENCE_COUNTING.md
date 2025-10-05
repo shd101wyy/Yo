@@ -85,7 +85,7 @@ These flags achieve true non-atomic access since they're only accessed by:
 Yo uses optimized inline assembly for thread ID retrieval (inspired by Python/mimalloc):
 
 ```c
-static inline size_t yo_get_thread_id(void) {
+static inline size_t __yo_get_thread_id(void) {
     uintptr_t tid;
 #if defined(__x86_64__)
     __asm__("movq %%fs:0, %0" : "=r" (tid));  // x86_64 Linux, BSD uses FS

@@ -63,7 +63,7 @@ ${debugConcurrencyDefine}
 #endif
 
 // Fast thread ID function using platform-specific inline assembly (inspired by Python/mimalloc)
-static inline size_t yo_get_thread_id(void) {
+static inline size_t __yo_get_thread_id(void) {
     uintptr_t tid;
 #if defined(_MSC_VER) && defined(_M_X64)
     tid = __readgsqword(48);

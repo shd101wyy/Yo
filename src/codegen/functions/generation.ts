@@ -732,7 +732,7 @@ export function generateBuiltinFunctions(
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   // Get current thread ID for BRC logic using fast inline assembly
-  size_t current_thread_id = yo_get_thread_id();
+  size_t current_thread_id = __yo_get_thread_id();
   
   size_t owner_tid = header->owner_thread_id;
   
@@ -761,7 +761,7 @@ export function generateBuiltinFunctions(
       if (dispose_fn) {
         dispose_fn(ptr);
       }
-      yo_free(ptr);
+      __yo_free(ptr);
     } else {
       // Give up ownership - object becomes shared
       BRC_DEBUG("FastDecr: Giving up ownership ptr=%p (biased=0, shared=%d)\\n", ptr, BRC_GET_SHARED_COUNTER(new_shared_word));
@@ -801,7 +801,7 @@ export function generateBuiltinFunctions(
       if (dispose_fn) {
         dispose_fn(ptr);
       }
-      yo_free(ptr);
+      __yo_free(ptr);
     }
   }
 }
@@ -810,7 +810,7 @@ void* __yo_incr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   // Get current thread ID for BRC logic using fast inline assembly
-  size_t current_thread_id = yo_get_thread_id();
+  size_t current_thread_id = __yo_get_thread_id();
   
   size_t owner_tid = header->owner_thread_id;
   
@@ -840,6 +840,31 @@ void* __yo_incr_rc(void* ptr) {
 // Cooperative Task Scheduler Runtime using setjmp/longjmp
 // Note: _FORTIFY_SOURCE=0 is defined before includes to disable fortification checks
 #include <setjmp.h>
+
+// Thread support
+#ifdef _WIN32
+  #include <windows.h>
+  #include <process.h>
+  typedef HANDLE yo_thread_handle_t;
+  typedef DWORD yo_thread_id_t;
+  typedef CRITICAL_SECTION yo_mutex_t;
+  #define YO_MUTEX_INIT(m) InitializeCriticalSection(m)
+  #define YO_MUTEX_DESTROY(m) DeleteCriticalSection(m)
+  #define YO_MUTEX_LOCK(m) EnterCriticalSection(m)
+  #define YO_MUTEX_UNLOCK(m) LeaveCriticalSection(m)
+  #define YO_THREAD_ID() ((yo_thread_id_t)GetCurrentThreadId())
+#else
+  #include <pthread.h>
+  #include <unistd.h>
+  typedef pthread_t yo_thread_handle_t;
+  typedef pthread_t yo_thread_id_t;
+  typedef pthread_mutex_t yo_mutex_t;
+  #define YO_MUTEX_INIT(m) pthread_mutex_init(m, NULL)
+  #define YO_MUTEX_DESTROY(m) pthread_mutex_destroy(m)
+  #define YO_MUTEX_LOCK(m) pthread_mutex_lock(m)
+  #define YO_MUTEX_UNLOCK(m) pthread_mutex_unlock(m)
+  #define YO_THREAD_ID() ((yo_thread_id_t)pthread_self())
+#endif
 
 typedef struct yo_task yo_task_t;
 typedef struct yo_task_queue yo_task_queue_t;
@@ -909,22 +934,36 @@ struct yo_task {
   yo_task_t* next;               // Next task in queue
 };
 
-// Task queue (simple linked list for now)
+// Task queue (simple linked list)
 struct yo_task_queue {
   yo_task_t* head;
   yo_task_t* tail;
   size_t count;
 };
 
-// Global task scheduler state (single-threaded, no locks needed!)
+// Worker thread structure
+typedef struct {
+  yo_thread_handle_t handle;
+  yo_thread_id_t id;
+  bool active;
+} yo_worker_thread_t;
+
+// Global task scheduler state
 static yo_task_queue_t yo_task_ready_queue = {NULL, NULL, 0};
 static yo_task_queue_t yo_task_blocked_queue = {NULL, NULL, 0};
-static yo_task_t* yo_task_current = NULL;
+static _Atomic(yo_task_t*) yo_task_current = NULL;  // Thread-local via TLS would be better
 static size_t yo_task_max_threads = 0;
 static bool yo_task_scheduler_initialized = false;
-static jmp_buf yo_task_main_context;  // Context to return to when all tasks blocked
+static jmp_buf yo_task_main_context;
 static bool yo_task_main_context_set = false;
-static yo_task_t* yo_task_to_cleanup = NULL; // Task that needs cleanup after context switch
+static yo_task_t* yo_task_to_cleanup = NULL;
+
+// Thread pool state
+static yo_worker_thread_t* yo_worker_threads = NULL;
+static size_t yo_worker_thread_count = 0;
+static _Atomic bool yo_worker_shutdown = false;
+static yo_mutex_t yo_task_queue_mutex;
+static bool yo_task_queue_mutex_initialized = false;
 
 // Helper function to clean up a completed task
 // This is called after we've switched away from the task's stack
@@ -932,9 +971,9 @@ static void __yo_cleanup_completed_task(yo_task_t* task) {
   if (!task) return;
   CONCURRENCY_DEBUG("[CLEANUP] Freeing stack=%p of task=%p\\n", task->stack, task);
   if (task->stack) {
-    yo_free(task->stack);
+    __yo_free(task->stack);
   }
-  yo_free(task);
+  __yo_free(task);
   CONCURRENCY_DEBUG("[CLEANUP] Task cleanup complete\\n");
 }
 
@@ -1049,6 +1088,10 @@ static void __yo_task_block(yo_task_t* task, void* channel) {
 
 // Wake up tasks waiting on a specific channel
 static void __yo_task_wakeup(void* channel) {
+  if (yo_task_queue_mutex_initialized) {
+    YO_MUTEX_LOCK(&yo_task_queue_mutex);
+  }
+  
   CONCURRENCY_DEBUG("[WAKEUP] Waking tasks on channel=%p\\n", channel);
   yo_task_t* task = yo_task_blocked_queue.head;
   yo_task_t* prev = NULL;
@@ -1081,10 +1124,18 @@ static void __yo_task_wakeup(void* channel) {
       task = next;
     }
   }
+  
+  if (yo_task_queue_mutex_initialized) {
+    YO_MUTEX_UNLOCK(&yo_task_queue_mutex);
+  }
 }
 
 // Wake up only ONE task waiting on a specific channel (for rendezvous)
 static void __yo_task_wakeup_one(void* channel) {
+  if (yo_task_queue_mutex_initialized) {
+    YO_MUTEX_LOCK(&yo_task_queue_mutex);
+  }
+  
   CONCURRENCY_DEBUG("[WAKEUP_ONE] Waking one task on channel=%p\\n", channel);
   yo_task_t* task = yo_task_blocked_queue.head;
   yo_task_t* prev = NULL;
@@ -1110,6 +1161,9 @@ static void __yo_task_wakeup_one(void* channel) {
       task->wait_channel = NULL;
       __yo_task_enqueue(task);
       
+      if (yo_task_queue_mutex_initialized) {
+        YO_MUTEX_UNLOCK(&yo_task_queue_mutex);
+      }
       // Only wake one task, then stop
       return;
     } else {
@@ -1117,13 +1171,129 @@ static void __yo_task_wakeup_one(void* channel) {
       task = next;
     }
   }
+  
+  if (yo_task_queue_mutex_initialized) {
+    YO_MUTEX_UNLOCK(&yo_task_queue_mutex);
+  }
 }
 
+
+// Worker thread function - runs tasks from the ready queue
+#ifdef _WIN32
+static unsigned __stdcall __yo_worker_thread_func(void* arg) {
+#else
+static void* __yo_worker_thread_func(void* arg) {
+#endif
+  yo_thread_id_t thread_id = YO_THREAD_ID();
+  CONCURRENCY_DEBUG("[WORKER] Thread %lu started\\n", (unsigned long)thread_id);
+  
+  while (!atomic_load(&yo_worker_shutdown)) {
+    YO_MUTEX_LOCK(&yo_task_queue_mutex);
+    yo_task_t* task = __yo_task_dequeue();
+    YO_MUTEX_UNLOCK(&yo_task_queue_mutex);
+    
+    if (task) {
+      CONCURRENCY_DEBUG("[WORKER] Thread %lu executing task=%p\\n", (unsigned long)thread_id, task);
+      
+      // Set as current task (thread-local would be better)
+      yo_task_current = task;
+      task->state = YO_TASK_RUNNING;
+      
+      // Execute the task
+      if (!task->context_initialized) {
+        // First time running - call the function directly
+        task->func(task->data);
+        task->state = YO_TASK_COMPLETED;
+        
+        // Clean up the task
+        if (task->stack) {
+          __yo_free(task->stack);
+          task->stack = NULL;
+        }
+        __yo_free(task);
+      } else {
+        // Resume from saved context
+        char* stack_top = task->stack + task->stack_size;
+        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
+        
+        // Use setjmp to save return point, then longjmp to task
+        if (setjmp(yo_task_main_context) == 0) {
+          __yo_switch_stack_and_longjmp(stack_top, &task->context);
+        }
+        
+        // Returned from task - check if it completed
+        if (task->state == YO_TASK_COMPLETED) {
+          if (task->stack) {
+            __yo_free(task->stack);
+            task->stack = NULL;
+          }
+          __yo_free(task);
+        }
+      }
+      
+      yo_task_current = NULL;
+    } else {
+      // No tasks available, sleep briefly
+      #ifdef _WIN32
+      Sleep(1);
+      #else
+      usleep(1000);  // 1ms
+      #endif
+    }
+  }
+  
+  CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
+  #ifdef _WIN32
+  return 0;
+  #else
+  return NULL;
+  #endif
+}
+
+// Initialize thread pool
+static void __yo_thread_pool_init(size_t num_threads) {
+  if (num_threads <= 1 || yo_worker_thread_count > 0) {
+    return;  // Already initialized or single-threaded
+  }
+  
+  CONCURRENCY_DEBUG("[POOL] Initializing %zu worker threads\\n", num_threads);
+  
+  // Initialize mutex if needed
+  if (!yo_task_queue_mutex_initialized) {
+    YO_MUTEX_INIT(&yo_task_queue_mutex);
+    yo_task_queue_mutex_initialized = true;
+  }
+  
+  // Allocate worker thread array
+  yo_worker_threads = (yo_worker_thread_t*)__yo_malloc(sizeof(yo_worker_thread_t) * num_threads);
+  yo_worker_thread_count = num_threads;
+  atomic_store(&yo_worker_shutdown, false);
+  
+  // Spawn worker threads
+  for (size_t i = 0; i < num_threads; i++) {
+    yo_worker_threads[i].active = true;
+    
+    #ifdef _WIN32
+    yo_worker_threads[i].handle = (HANDLE)_beginthreadex(
+      NULL, 0, __yo_worker_thread_func, NULL, 0, NULL
+    );
+    #else
+    pthread_create(&yo_worker_threads[i].handle, NULL, __yo_worker_thread_func, NULL);
+    #endif
+    
+    CONCURRENCY_DEBUG("[POOL] Spawned worker thread %zu\\n", i);
+  }
+}
 
 // Set maximum number of threads for task scheduler
 void __yo_concurrency_set_maximum_threads(size_t num) {
   __yo_task_scheduler_init();
   yo_task_max_threads = num;
+  
+  // Initialize thread pool if num > 1
+  if (num > 1) {
+    __yo_thread_pool_init(num);
+  }
 }
 
 // Switch to the next ready task (cooperative context switch)
@@ -1230,6 +1400,53 @@ void __yo_task_wait_all(void) {
   
   CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for all tasks to complete\\n");
   
+  // If using thread pool, wait for all tasks to complete then join threads
+  if (yo_worker_thread_count > 0) {
+    CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for thread pool to finish\\n");
+    
+    // Wait until all tasks are done (both ready and blocked queues empty)
+    while (true) {
+      YO_MUTEX_LOCK(&yo_task_queue_mutex);
+      size_t total_tasks = yo_task_ready_queue.count + yo_task_blocked_queue.count;
+      YO_MUTEX_UNLOCK(&yo_task_queue_mutex);
+      
+      if (total_tasks == 0) {
+        break;
+      }
+      
+      // Sleep briefly to avoid busy waiting
+      #ifdef _WIN32
+      Sleep(1);
+      #else
+      usleep(1000);  // 1ms
+      #endif
+    }
+    
+    // Signal workers to shutdown
+    atomic_store(&yo_worker_shutdown, true);
+    
+    // Join all worker threads
+    for (size_t i = 0; i < yo_worker_thread_count; i++) {
+      if (yo_worker_threads[i].active) {
+        #ifdef _WIN32
+        WaitForSingleObject(yo_worker_threads[i].handle, INFINITE);
+        CloseHandle(yo_worker_threads[i].handle);
+        #else
+        pthread_join(yo_worker_threads[i].handle, NULL);
+        #endif
+      }
+    }
+    
+    // Clean up thread pool
+    __yo_free(yo_worker_threads);
+    yo_worker_threads = NULL;
+    yo_worker_thread_count = 0;
+    
+    CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
+    return;
+  }
+  
+  // Single-threaded cooperative scheduling (original implementation)
   // Save main context so tasks can return here
   yo_task_main_context_set = true;
   
@@ -1423,7 +1640,7 @@ ${paramFields}} ${structName};
     emitter.emitLine(`static void ${executeFnName}(void* task_data) {
   ${structName}* data = (${structName}*)task_data;
 ${executeBody}
-  yo_free(data);
+  __yo_free(data);
 }
 `);
 
@@ -1447,12 +1664,12 @@ ${executeBody}
   __yo_task_scheduler_init();
   
   // Allocate task data
-  ${structName}* data = (${structName}*)yo_malloc(sizeof(${structName}));
+  ${structName}* data = (${structName}*)__yo_malloc(sizeof(${structName}));
   data->function = func;
 ${paramAssignments}
   
   // Create task
-  yo_task_t* task = (yo_task_t*)yo_malloc(sizeof(yo_task_t));
+  yo_task_t* task = (yo_task_t*)__yo_malloc(sizeof(yo_task_t));
   task->func = ${executeFnName};
   task->data = data;
   task->state = YO_TASK_READY;
@@ -1463,12 +1680,17 @@ ${paramAssignments}
   task->context_initialized = false;
   
   // Allocate separate stack for this task
-  task->stack = (char*)yo_malloc(YO_TASK_STACK_SIZE);
+  task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
   task->stack_size = YO_TASK_STACK_SIZE;
   
-  // Always enqueue tasks - they will be run cooperatively
-  // This ensures that 'go' returns immediately and doesn't block
+  // Enqueue task to ready queue (thread-safe)
+  if (yo_task_queue_mutex_initialized) {
+    YO_MUTEX_LOCK(&yo_task_queue_mutex);
+  }
   __yo_task_enqueue(task);
+  if (yo_task_queue_mutex_initialized) {
+    YO_MUTEX_UNLOCK(&yo_task_queue_mutex);
+  }
 }
 `);
   }
@@ -1557,10 +1779,10 @@ static void yo_init_thread_gc() {
   // Initialize process cleanup on first thread init (usually main thread)
   yo_init_process_cleanup();
 
-  yo_current_thread_gc = (yo_thread_gc_state_t*)yo_malloc(sizeof(yo_thread_gc_state_t));
+  yo_current_thread_gc = (yo_thread_gc_state_t*)__yo_malloc(sizeof(yo_thread_gc_state_t));
   yo_current_thread_gc->tracked_objects = NULL;
   yo_current_thread_gc->tracked_count = 0;
-  yo_current_thread_gc->thread_id = yo_get_thread_id();  // Use fast thread ID function
+  yo_current_thread_gc->thread_id = __yo_get_thread_id();  // Use fast thread ID function
   atomic_store_explicit(&yo_current_thread_gc->gc_paused, 0, memory_order_relaxed);
 
   // Add to global thread list
@@ -1584,7 +1806,7 @@ static void yo_init_thread_gc() {
     yo_init_thread_gc();
   }
   
-  BRC_DEBUG("GC Register: ptr=%p, tid=%zu\\\\n", ptr, yo_get_thread_id());
+  BRC_DEBUG("GC Register: ptr=%p, tid=%zu\\\\n", ptr, __yo_get_thread_id());
   
   // Check if already tracked (non-atomic since we're the owner or during STW)
   uint32_t biased_word = header->biased_word;
@@ -1664,14 +1886,14 @@ static void __yo_brc_queue_object(void* ptr, size_t owner_tid) {
   
   // If owner thread's GC state doesn't exist, initialize it
   if (thread_gc == NULL) {
-    thread_gc = (yo_thread_gc_state_t*)yo_malloc(sizeof(yo_thread_gc_state_t));
+    thread_gc = (yo_thread_gc_state_t*)__yo_malloc(sizeof(yo_thread_gc_state_t));
     thread_gc->thread_id = owner_tid;
     thread_gc->tracked_objects = NULL;
     thread_gc->tracked_count = 0;
     thread_gc->next = yo_all_thread_gcs;
     yo_all_thread_gcs = thread_gc;
 #ifdef YO_DEBUG_BRC
-    fprintf(stderr, "BRC: QueueObj: Initialized GC state for owner tid=%zu\\n", owner_tid);
+    BRC_DEBUG("BRC: QueueObj: Initialized GC state for owner tid=%zu\\n", owner_tid);
 #endif
   }
   
@@ -1866,7 +2088,7 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
           if (merge_obj->dispose_fn) {
             merge_obj->dispose_fn(merge_obj);
           }
-          yo_free(merge_obj);
+          __yo_free(merge_obj);
           
           // Remove from tracking list
           if (merge_prev == NULL) {
@@ -1942,7 +2164,7 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
           current->dispose_fn(current);
         }
         
-        yo_free(current);
+        __yo_free(current);
         
         // Continue with next, don't update prev
         current = next;
@@ -2022,7 +2244,7 @@ void __yo_cleanup_thread_gc() {
       if (current->dispose_fn) {
         current->dispose_fn(current);
       }
-      yo_free(current);
+      __yo_free(current);
       
       current = next;
     }
@@ -2045,7 +2267,7 @@ void __yo_cleanup_thread_gc() {
   yo_mutex_unlock(&yo_thread_list_mutex);
   
   // Free the thread GC state
-  yo_free(yo_current_thread_gc);
+  __yo_free(yo_current_thread_gc);
   yo_current_thread_gc = NULL;
 }
 
@@ -2100,7 +2322,7 @@ void* yo_thread_wrapper(void* param) {
   // Set the thread ID in the thread object (for POSIX systems)
 #if !defined(_WIN32)
   if (data->thread_object != NULL) {
-    data->thread_object->thread_id = yo_get_thread_id();
+    data->thread_object->thread_id = __yo_get_thread_id();
   }
 #endif
   
@@ -2162,7 +2384,7 @@ static void yo_cleanup_joined_thread_gc(size_t joined_thread_id) {
       
       atomic_fetch_sub_explicit(&yo_total_thread_count, 1, memory_order_relaxed);
       BRC_DEBUG("ThreadCleanup: Removed joined thread GC state tid=%zu from global list\\n", joined_thread_id);
-      yo_free(thread_gc);
+      __yo_free(thread_gc);
       break;
     }
     thread_gc = thread_gc->next;
@@ -2334,11 +2556,11 @@ export function generateRefStructConstructorFunctions(
 
       emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
+        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
       );
       // Initialize BRC fields for split design
       emitter.emitLine(
-        `  obj->header.owner_thread_id = yo_get_thread_id();  // Set current thread as owner`
+        `  obj->header.owner_thread_id = __yo_get_thread_id();  // Set current thread as owner`
       );
       emitter.emitLine(
         `  BRC_DEBUG("ObjCreate: ptr=%p, tid=%zu, biased=1, shared=0\\n", obj, obj->header.owner_thread_id);`
@@ -2465,7 +2687,7 @@ export function generateClosureConstructorFunctions(
           : `${cName}_capture`; // fallback
 
         emitter.emitLine(
-          `  ${captureTypeName}* captureData = yo_malloc(sizeof(${captureTypeName}));`
+          `  ${captureTypeName}* captureData = __yo_malloc(sizeof(${captureTypeName}));`
         );
 
         // Initialize capture fields
@@ -2486,9 +2708,11 @@ export function generateClosureConstructorFunctions(
           `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
         );
         emitter.emitLine(
-          `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
+          `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
         );
-        emitter.emitLine(`  obj->header.owner_thread_id = yo_get_thread_id();`);
+        emitter.emitLine(
+          `  obj->header.owner_thread_id = __yo_get_thread_id();`
+        );
         emitter.emitLine(
           `  obj->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
         );
@@ -2537,9 +2761,11 @@ export function generateClosureConstructorFunctions(
           `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
         );
         emitter.emitLine(
-          `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
+          `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
         );
-        emitter.emitLine(`  obj->header.owner_thread_id = yo_get_thread_id();`);
+        emitter.emitLine(
+          `  obj->header.owner_thread_id = __yo_get_thread_id();`
+        );
         emitter.emitLine(
           `  obj->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
         );
@@ -2591,19 +2817,19 @@ export function generateClosureConstructorFunctions(
             emitter.emitLine(
               `    ${dropFunctionCName}(*(${captureTypeName}*)self->data);`
             );
-            emitter.emitLine(`    yo_free(self->data);`);
+            emitter.emitLine(`    __yo_free(self->data);`);
             emitter.emitLine(`  }`);
           } else {
             emitter.emitLine(
               `  // No C function name found for capture type drop function`
             );
-            emitter.emitLine(`  if (self->data) { yo_free(self->data); }`);
+            emitter.emitLine(`  if (self->data) { __yo_free(self->data); }`);
           }
         } else {
           emitter.emitLine(
             `  // No drop function found in capture type module`
           );
-          emitter.emitLine(`  if (self->data) { yo_free(self->data); }`);
+          emitter.emitLine(`  if (self->data) { __yo_free(self->data); }`);
         }
       } else {
         // No captures, nothing to dispose
@@ -2644,12 +2870,12 @@ export function generateDynConstructorFunctions(
         `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...) {`
       );
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)yo_malloc(sizeof(${cName}));`
+        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
       );
       emitter.emitLine(
         `  // Initialize BRC fields for split design with current thread as owner`
       );
-      emitter.emitLine(`  obj->header.owner_thread_id = yo_get_thread_id();`);
+      emitter.emitLine(`  obj->header.owner_thread_id = __yo_get_thread_id();`);
       emitter.emitLine(
         `  // Initialize biased_word: 1 biased reference (non-atomic)`
       );
@@ -2797,11 +3023,11 @@ function generateChannelFunctions(context: FunctionGenerationContext): void {
     emitter.emitLine(`// Channel functions for ${cName}
 
 ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
-  ${cName}* chan = (${cName}*)yo_malloc(sizeof(${cName}));
+  ${cName}* chan = (${cName}*)__yo_malloc(sizeof(${cName}));
   if (!chan) return NULL;
 
   // Initialize reference counting header
-  chan->header.owner_thread_id = yo_get_thread_id();
+  chan->header.owner_thread_id = __yo_get_thread_id();
   chan->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);
   atomic_store_explicit(&chan->header.shared_word, 0, memory_order_relaxed);
   chan->header.gc_next = NULL;
@@ -2817,9 +3043,9 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   atomic_store_explicit(&chan->closed, 0, memory_order_relaxed);
 
   if (capacity > 0) {
-    chan->buffer = (${elementTypeStr}*)yo_malloc(sizeof(${elementTypeStr}) * capacity);
+    chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}) * capacity);
     if (!chan->buffer) {
-      yo_free(chan);
+      __yo_free(chan);
       return NULL;
     }
   } else {
@@ -2887,7 +3113,7 @@ retry_send:  // Label for retrying after being woken up
         // Now we can send (size == 0, no other sender)
         // Allocate temporary storage for the value if not already allocated
         if (chan->buffer == NULL) {
-          chan->buffer = (${elementTypeStr}*)yo_malloc(sizeof(${elementTypeStr}));
+          chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
         }
         
         // Store the value
@@ -2926,7 +3152,7 @@ retry_send:  // Label for retrying after being woken up
 
     // Allocate temporary storage for the value if not already allocated
     if (chan->buffer == NULL) {
-      chan->buffer = (${elementTypeStr}*)yo_malloc(sizeof(${elementTypeStr}));
+      chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
     }
     
     // Store the value
@@ -3203,10 +3429,10 @@ retry_send:  // Label for retrying after being woken up
           chan->size = 0;
           result.tag = ${someTag};
           result.data.Some.value = value;
-          fprintf(stderr, "[MAIN] Received value=%d\\n", value);
+          CONCURRENCY_DEBUG("[MAIN] Received value=%d\\n", value);
         } else {
           result.tag = ${noneTag};
-          fprintf(stderr, "[MAIN] No data available, returning None\\n");
+          CONCURRENCY_DEBUG("[MAIN] No data available, returning None\\n");
         }
 
 #if defined(_WIN32)
@@ -3389,7 +3615,7 @@ retry_send:  // Label for retrying after being woken up
 
   // Free the buffer if allocated
   if (chan->buffer != NULL) {
-    yo_free(chan->buffer);
+    __yo_free(chan->buffer);
     chan->buffer = NULL;
   }
 

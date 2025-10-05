@@ -17,25 +17,25 @@ Yo includes mimalloc as a git submodule in `vendor/mimalloc/`. The Yo compiler a
 #ifdef __has_include
   #if __has_include(<mimalloc.h>)
     #include <mimalloc.h>
-    #define yo_malloc mi_malloc
-    #define yo_calloc mi_calloc
-    #define yo_realloc mi_realloc
-    #define yo_free mi_free
-    #define yo_aligned_alloc mi_aligned_alloc
+    #define __yo_malloc mi_malloc
+    #define __yo_calloc mi_calloc
+    #define __yo_realloc mi_realloc
+    #define __yo_free mi_free
+    #define __yo_aligned_alloc mi_aligned_alloc
   #else
-    #define yo_malloc malloc
-    #define yo_calloc calloc
-    #define yo_realloc realloc
-    #define yo_free free
-    #define yo_aligned_alloc aligned_alloc
+    #define __yo_malloc malloc
+    #define __yo_calloc calloc
+    #define __yo_realloc realloc
+    #define __yo_free free
+    #define __yo_aligned_alloc aligned_alloc
   #endif
 #else
   // Fallback for older compilers without __has_include
-  #define yo_malloc malloc
-  #define yo_calloc calloc
-  #define yo_realloc realloc
-  #define yo_free free
-  #define yo_aligned_alloc aligned_alloc
+  #define __yo_malloc malloc
+  #define __yo_calloc calloc
+  #define __yo_realloc realloc
+  #define __yo_free free
+  #define __yo_aligned_alloc aligned_alloc
 #endif
 ```
 
@@ -88,7 +88,7 @@ The fallback mechanism ensures Yo programs compile and run correctly even when:
 
 The Yo compiler (`yo-cli`) automatically:
 
-1. Generates C code with `yo_malloc`/`yo_free` calls
+1. Generates C code with `__yo_malloc`/`__yo_free` calls
 2. Checks if `vendor/mimalloc/src/static.c` exists
 3. If found: includes mimalloc source and headers in compilation
 4. If not found: warns but continues with fallback to system malloc
