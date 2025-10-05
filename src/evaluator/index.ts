@@ -39,6 +39,10 @@ import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
+import {
+  evaluateGo,
+  evaluateTaskSetMaximumThreads,
+} from "./builtins/concurrency_fns";
 import { evaluateDrop } from "./builtins/drop";
 import { evaluateDup } from "./builtins/dup";
 import {
@@ -63,7 +67,6 @@ import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluatePanic } from "./builtins/panic";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
-import { evaluateGo, evaluateTaskSetMaximumThreads } from "./builtins/task_fns";
 import { evaluateThe } from "./builtins/the";
 import {
   evaluateYoAreTypesCompatible,

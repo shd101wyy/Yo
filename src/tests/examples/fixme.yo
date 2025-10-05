@@ -1,6 +1,21 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
+main :: (fn() -> unit) {
+  printf("Hello, world\n");
+
+  // say2 is a closure;
+  x := 18;
+  say2 := (fn(s : *(u8), ch: Chan(i32)) => i32) {
+    printf("%s\n", s);
+    ch.send(x);
+    printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
+    return x;
+  };
+};
+export main;
+
+/*
 say :: (fn(s : *(u8), val: i32, ch: Chan(i32)) -> i32) {
   printf("%s\n", s);
   ch.send(val);
@@ -17,8 +32,17 @@ main :: (fn() -> i32) {
   
   ch := chan(i32); // unbuffered channel
 
-  // say("world") and say("hello") will run in parallel on different threads
-  go say("world", 16, ch);
+  // say2 is a closure;
+  x := 18;
+  say2 := (fn(s : *(u8), ch: Chan(i32)) => i32) {
+    printf("%s\n", s);
+    ch.send(x);
+    printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
+    return x;
+  };
+
+  // say2("world") and say("hello") will run in parallel on different threads
+  go say2("world", ch);
   go say("hello", 18, ch);
 
   t1_result := ch.recv().unwrap();
@@ -38,3 +62,4 @@ main :: (fn() -> i32) {
 };
 
 export main;
+*/

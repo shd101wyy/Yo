@@ -122,7 +122,7 @@ export function generateFunctionPrototype(
     // Find the closure type that uses this function type
     const closureTypeEntry = Object.values(context.types).find(
       (t) =>
-        t.type.tag === TypeTag.Closure &&
+        isClosureType(t.type) &&
         (t.type as ClosureType).callType === functionType
     );
 
@@ -230,35 +230,51 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 /**
  * Generate a main() wrapper that calls yo_user_main() and then __yo_task_wait_all()
  * This ensures all cooperative tasks complete before the program exits
+ * REQUIREMENT: main function must return unit (void)
  */
 function generateMainWrapper(context: FunctionGenerationContext): void {
   const emitter = context.emitter;
 
   // Check if user defined a main function
   let hasMain = false;
+  let mainFunctionValue: FunctionValue | null = null;
   for (const funcId in context.functions) {
-    const { cName } = context.functions[funcId]!;
+    const { cName, value } = context.functions[funcId]!;
     if (cName === "yo_user_main") {
       hasMain = true;
+      mainFunctionValue = value;
       break;
     }
   }
 
-  if (!hasMain) {
+  if (!hasMain || !mainFunctionValue) {
     return; // No main function, nothing to wrap
   }
 
+  // REQUIREMENT: main must return unit
+  const returnType = mainFunctionValue.type.return.type;
+  const returnsUnit = isUnitType(returnType);
+
+  if (!returnsUnit) {
+    throw new Error(
+      `main function must return unit, but it returns ${typeToString(returnType)}. ` +
+        `Use 'main :: (fn() -> unit)' instead. ` +
+        `For exit codes, use 'exit(code)' from std/libc/stdlib.yo`
+    );
+  }
+
+  // Main returns unit - generate wrapper that always returns 0
   emitter.emitLine(`
 // Main wrapper - automatically calls __yo_task_wait_all() on exit
 int main(void) {
-  int result = yo_user_main();
+  yo_user_main();
   
   // Wait for all cooperative tasks to complete before exiting
   if (yo_task_scheduler_initialized) {
     __yo_task_wait_all();
   }
   
-  return result;
+  return 0;
 }
 `);
 }
@@ -310,7 +326,7 @@ export function generateFunction(
       const captureType = closureType.captureType;
       (context as FunctionGenerationContext).currentClosureType = closureType;
 
-      if (captureType && captureType.tag === TypeTag.Struct) {
+      if (captureType && isStructType(captureType)) {
         // Extract field names as captured variables
         // Store the frame level separately
         const captureFrameLevel = captureType.env.frames.length - 1;

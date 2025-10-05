@@ -7,7 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isFunctionType } from "../../types/guards";
+import { isClosureType, isFunctionType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
@@ -68,14 +68,20 @@ export function evaluateGo({
     });
   }
 
-  if (!isFunctionType(evaluatedExpr.func.$?.type)) {
+  if (
+    !isFunctionType(evaluatedExpr.func.$?.type) &&
+    !isClosureType(evaluatedExpr.func.$?.type)
+  ) {
     throw formatErrorMessage({
       token: evaluatedExpr.func.token,
       errorMessage: `Expected a function type for the called function, got ${evaluatedExpr.func.$?.type.tag}`,
     });
   }
 
-  const functionType = evaluatedExpr.func.$.type;
+  const functionType = isFunctionType(evaluatedExpr.func.$.type)
+    ? evaluatedExpr.func.$.type
+    : evaluatedExpr.func.$.type.callType;
+
   if (functionType.return.isCompileTimeOnly) {
     throw formatErrorMessage({
       token: functionCallExpr.token,
