@@ -83,6 +83,11 @@ export interface CodeGenContext {
    * Enable debug logging for Biased Reference Counting operations
    */
   debugBrc: boolean;
+
+  /**
+   * Enable debug logging for cooperative task scheduler operations
+   */
+  debugConcurrency: boolean;
 }
 
 /**

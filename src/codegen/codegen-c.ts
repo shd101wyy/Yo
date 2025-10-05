@@ -31,7 +31,7 @@ export class CodeGeneratorC {
   public compileModule(
     modulePath: string,
     moduleValue: ModuleValue,
-    options: { debugBrc?: boolean } = {}
+    options: { debugBrc?: boolean; debugConcurrency?: boolean } = {}
   ): void {
     this.emitter.emitDeclarationLine(`\n// Module ${modulePath}`);
     this.emitter.emitDeclarationLine(
@@ -59,6 +59,7 @@ export class CodeGeneratorC {
         "<string.h>",
       ]),
       debugBrc: options.debugBrc ?? false,
+      debugConcurrency: options.debugConcurrency ?? false,
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)

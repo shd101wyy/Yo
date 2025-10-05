@@ -891,26 +891,26 @@ static yo_task_t* yo_task_to_cleanup = NULL; // Task that needs cleanup after co
 // This is called after we've switched away from the task's stack
 static void __yo_cleanup_completed_task(yo_task_t* task) {
   if (!task) return;
-  fprintf(stderr, "[CLEANUP] Freeing stack=%p of task=%p\\n", task->stack, task);
+  CONCURRENCY_DEBUG("[CLEANUP] Freeing stack=%p of task=%p\\n", task->stack, task);
   if (task->stack) {
     yo_free(task->stack);
   }
   yo_free(task);
-  fprintf(stderr, "[CLEANUP] Task cleanup complete\\n");
+  CONCURRENCY_DEBUG("[CLEANUP] Task cleanup complete\\n");
 }
 
 // Bootstrap function - called on new stack to initialize task context
 // This runs on the task's stack, so setjmp will save the right stack pointer
 static void __yo_task_bootstrap(void* arg) {
   yo_task_t* task = (yo_task_t*)arg;
-  fprintf(stderr, "[TASK] Bootstrap: task=%p on its own stack\\n", task);
+  CONCURRENCY_DEBUG("[TASK] Bootstrap: task=%p on its own stack\\n", task);
   
   // Save context on the task's stack
   // When we longjmp to this context later, we'll skip past this and start executing
   if (setjmp(task->context) == 0) {
     // First time: mark as initialized
     task->context_initialized = true;
-    fprintf(stderr, "[TASK] Context saved, task ready to execute\\n");
+    CONCURRENCY_DEBUG("[TASK] Context saved, task ready to execute\\n");
     // Don't return to scheduler - continue to execute the task!
   } else {
     // Resumed via longjmp - check if there's a completed task to clean up
@@ -923,11 +923,11 @@ static void __yo_task_bootstrap(void* arg) {
   // Execution continues here both:
   // 1. First time after setjmp (falls through)
   // 2. When resumed via longjmp (jumps here)
-  fprintf(stderr, "[TASK] Task=%p starting execution\\n", task);
+  CONCURRENCY_DEBUG("[TASK] Task=%p starting execution\\n", task);
   
   // Execute the actual task function
   task->func(task->data);
-  fprintf(stderr, "[TASK] Task=%p completed execution\\n", task);
+  CONCURRENCY_DEBUG("[TASK] Task=%p completed execution\\n", task);
   
   // Task completed - we need to switch away BEFORE freeing our stack!
   task->state = YO_TASK_COMPLETED;
@@ -941,7 +941,7 @@ static void __yo_task_bootstrap(void* arg) {
   if (next) {
     yo_task_current = next;
     next->state = YO_TASK_RUNNING;
-    fprintf(stderr, "[TASK] Completed, switching to next=%p\\n", next);
+    CONCURRENCY_DEBUG("[TASK] Completed, switching to next=%p\\n", next);
     
     if (next->context_initialized) {
       // Resume blocked task - just longjmp, it will restore the correct stack
@@ -953,12 +953,12 @@ static void __yo_task_bootstrap(void* arg) {
       __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
     }
   } else if (yo_task_main_context_set) {
-    fprintf(stderr, "[TASK] Completed, no more tasks, returning to main\\n");
+    CONCURRENCY_DEBUG("[TASK] Completed, no more tasks, returning to main\\n");
     longjmp(yo_task_main_context, 1);
   }
   
   // Should not reach here
-  fprintf(stderr, "Error: Task bootstrap reached end\\n");
+  CONCURRENCY_DEBUG("Error: Task bootstrap reached end\\n");
   abort();
 }
 
@@ -1010,7 +1010,7 @@ static void __yo_task_block(yo_task_t* task, void* channel) {
 
 // Wake up tasks waiting on a specific channel
 static void __yo_task_wakeup(void* channel) {
-  fprintf(stderr, "[WAKEUP] Waking tasks on channel=%p\\n", channel);
+  CONCURRENCY_DEBUG("[WAKEUP] Waking tasks on channel=%p\\n", channel);
   yo_task_t* task = yo_task_blocked_queue.head;
   yo_task_t* prev = NULL;
   
@@ -1018,7 +1018,7 @@ static void __yo_task_wakeup(void* channel) {
     yo_task_t* next = task->next;
     
     if (task->wait_channel == channel) {
-      fprintf(stderr, "[WAKEUP] Moving task=%p to ready queue\\n", task);
+      CONCURRENCY_DEBUG("[WAKEUP] Moving task=%p to ready queue\\n", task);
       // Remove from blocked queue
       if (prev == NULL) {
         yo_task_blocked_queue.head = next;
@@ -1046,7 +1046,7 @@ static void __yo_task_wakeup(void* channel) {
 
 // Wake up only ONE task waiting on a specific channel (for rendezvous)
 static void __yo_task_wakeup_one(void* channel) {
-  fprintf(stderr, "[WAKEUP_ONE] Waking one task on channel=%p\\n", channel);
+  CONCURRENCY_DEBUG("[WAKEUP_ONE] Waking one task on channel=%p\\n", channel);
   yo_task_t* task = yo_task_blocked_queue.head;
   yo_task_t* prev = NULL;
   
@@ -1054,7 +1054,7 @@ static void __yo_task_wakeup_one(void* channel) {
     yo_task_t* next = task->next;
     
     if (task->wait_channel == channel) {
-      fprintf(stderr, "[WAKEUP_ONE] Moving task=%p to ready queue\\n", task);
+      CONCURRENCY_DEBUG("[WAKEUP_ONE] Moving task=%p to ready queue\\n", task);
       // Remove from blocked queue
       if (prev == NULL) {
         yo_task_blocked_queue.head = next;
@@ -1100,7 +1100,7 @@ static void __yo_task_switch(void) {
   }
   
   yo_task_t* prev = yo_task_current;
-  fprintf(stderr, "[SWITCH] prev=%p, next=%p, next->initialized=%d\\n", 
+  CONCURRENCY_DEBUG("[SWITCH] prev=%p, next=%p, next->initialized=%d\\n", 
           prev, next, next->context_initialized);
   yo_task_current = next;
   next->state = YO_TASK_RUNNING;
@@ -1111,30 +1111,30 @@ static void __yo_task_switch(void) {
     __yo_task_enqueue(prev);
     
     // Save current context and switch to next task
-    fprintf(stderr, "[SWITCH] Saving context and switching\\n");
+    CONCURRENCY_DEBUG("[SWITCH] Saving context and switching\\n");
     if (setjmp(prev->context) == 0) {
       // Context saved, now jump to next task
       if (next->context_initialized) {
-        fprintf(stderr, "[SWITCH] Resuming next=%p\\n", next);
+        CONCURRENCY_DEBUG("[SWITCH] Resuming next=%p\\n", next);
         longjmp(next->context, 1);
       } else {
         // First time - need to initialize this task's context on its stack
-        fprintf(stderr, "[SWITCH] Initializing next=%p on its stack\\n", next);
+        CONCURRENCY_DEBUG("[SWITCH] Initializing next=%p on its stack\\n", next);
         char* stack_top = next->stack + next->stack_size;
         stack_top = (char*)((uintptr_t)stack_top & ~0xFUL); // 16-byte align
         __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
       }
     }
     // Returns here when this task is resumed
-    fprintf(stderr, "[SWITCH] Task=%p resumed\\n", yo_task_current);
+    CONCURRENCY_DEBUG("[SWITCH] Task=%p resumed\\n", yo_task_current);
   } else {
     // Current task is blocked or completed, just switch to next
     if (next->context_initialized) {
-      fprintf(stderr, "[SWITCH] Resuming next=%p (no prev)\\n", next);
+      CONCURRENCY_DEBUG("[SWITCH] Resuming next=%p (no prev)\\n", next);
       longjmp(next->context, 1);
     } else {
       // First time running
-      fprintf(stderr, "[SWITCH] Initializing next=%p on its stack (no prev)\\n", next);
+      CONCURRENCY_DEBUG("[SWITCH] Initializing next=%p on its stack (no prev)\\n", next);
       char* stack_top = next->stack + next->stack_size;
       stack_top = (char*)((uintptr_t)stack_top & ~0xFUL); // 16-byte align
       __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
@@ -1149,7 +1149,7 @@ void __yo_task_yield(void) {
     return; // Not in a task context, nothing to yield
   }
     yo_task_t* current = yo_task_current;
-  fprintf(stderr, "[YIELD] Task=%p yielding\\n", current);
+  CONCURRENCY_DEBUG("[YIELD] Task=%p yielding\\n", current);
   
   // Save current context
   if (setjmp(current->context) == 0) {
@@ -1163,7 +1163,7 @@ void __yo_task_yield(void) {
       // Switch to next task
       yo_task_current = next;
       next->state = YO_TASK_RUNNING;
-      fprintf(stderr, "[YIELD] Switching to next=%p\\n", next);
+      CONCURRENCY_DEBUG("[YIELD] Switching to next=%p\\n", next);
       
       if (next->context_initialized) {
         longjmp(next->context, 1);
@@ -1175,11 +1175,11 @@ void __yo_task_yield(void) {
       }
     } else {
       // No other tasks ready, just continue running current task
-      fprintf(stderr, "[YIELD] No other tasks, continuing\\n");
+      CONCURRENCY_DEBUG("[YIELD] No other tasks, continuing\\n");
     }
   }
   // Returns here when resumed
-  fprintf(stderr, "[YIELD] Task=%p resumed\\n", yo_task_current);
+  CONCURRENCY_DEBUG("[YIELD] Task=%p resumed\\n", yo_task_current);
 }
 
 // Wait for all spawned tasks to complete
@@ -1189,17 +1189,17 @@ void __yo_task_wait_all(void) {
     return; // No tasks to wait for
   }
   
-  fprintf(stderr, "[WAIT_ALL] Waiting for all tasks to complete\\n");
+  CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for all tasks to complete\\n");
   
   // Save main context so tasks can return here
   yo_task_main_context_set = true;
   
   if (setjmp(yo_task_main_context) == 0) {
     // First time - start running tasks
-    fprintf(stderr, "[WAIT_ALL] Starting task execution\\n");
+    CONCURRENCY_DEBUG("[WAIT_ALL] Starting task execution\\n");
   } else {
     // Returned from a task - check for cleanup
-    fprintf(stderr, "[WAIT_ALL] Returned from task\\n");
+    CONCURRENCY_DEBUG("[WAIT_ALL] Returned from task\\n");
     if (yo_task_to_cleanup) {
       __yo_cleanup_completed_task(yo_task_to_cleanup);
       yo_task_to_cleanup = NULL;
@@ -1212,13 +1212,13 @@ void __yo_task_wait_all(void) {
     if (!task) {
       // No more ready tasks
       if (yo_task_blocked_queue.count > 0) {
-        fprintf(stderr, "[WAIT_ALL] Warning: %zu tasks still blocked\\n", yo_task_blocked_queue.count);
+        CONCURRENCY_DEBUG("[WAIT_ALL] Warning: %zu tasks still blocked\\n", yo_task_blocked_queue.count);
       }
-      fprintf(stderr, "[WAIT_ALL] All tasks completed\\n");
+      CONCURRENCY_DEBUG("[WAIT_ALL] All tasks completed\\n");
       break;
     }
     
-    fprintf(stderr, "[WAIT_ALL] Running task=%p\\n", task);
+    CONCURRENCY_DEBUG("[WAIT_ALL] Running task=%p\\n", task);
     task->state = YO_TASK_RUNNING;
     yo_task_current = task;
     
@@ -1233,12 +1233,12 @@ void __yo_task_wait_all(void) {
     }
     
     // Should never reach here
-    fprintf(stderr, "[WAIT_ALL] ERROR: Reached unreachable code\\n");
+    CONCURRENCY_DEBUG("[WAIT_ALL] ERROR: Reached unreachable code\\n");
     abort();
   }
   
   yo_task_main_context_set = false;
-  fprintf(stderr, "[WAIT_ALL] Done\\n");
+  CONCURRENCY_DEBUG("[WAIT_ALL] Done\\n");
 }
 
 // Block current task on a channel and yield to another task
@@ -1249,7 +1249,7 @@ static void __yo_task_block_and_yield(void* channel) {
   }
   
   yo_task_t* current = yo_task_current;
-  fprintf(stderr, "[BLOCK] Blocking task=%p on channel=%p\\n", current, channel);
+  CONCURRENCY_DEBUG("[BLOCK] Blocking task=%p on channel=%p\\n", current, channel);
   
   // Save current context before blocking
   if (setjmp(current->context) == 0) {
@@ -1261,7 +1261,7 @@ static void __yo_task_block_and_yield(void* channel) {
     if (next) {
       yo_task_current = next;
       next->state = YO_TASK_RUNNING;
-      fprintf(stderr, "[BLOCK] Switching to next=%p\\n", next);
+      CONCURRENCY_DEBUG("[BLOCK] Switching to next=%p\\n", next);
       
       if (next->context_initialized) {
         // Resume blocked task - must switch stack first!
@@ -1278,23 +1278,23 @@ static void __yo_task_block_and_yield(void* channel) {
       // No ready tasks - return to main context
       yo_task_current = NULL;
       if (yo_task_main_context_set) {
-        fprintf(stderr, "[BLOCK] No ready tasks, returning to main\\n");
+        CONCURRENCY_DEBUG("[BLOCK] No ready tasks, returning to main\\n");
         longjmp(yo_task_main_context, 1);
       }
       // If no main context, we're deadlocked - but let the channel code handle it
     }
   } else {
     // Resumed via longjmp - check if there's a completed task to clean up
-    fprintf(stderr, "[BLOCK] Task=%p resumed after blocking (setjmp returned 1)\\n", yo_task_current);
+    CONCURRENCY_DEBUG("[BLOCK] Task=%p resumed after blocking (setjmp returned 1)\\n", yo_task_current);
     if (yo_task_to_cleanup) {
       __yo_cleanup_completed_task(yo_task_to_cleanup);
       yo_task_to_cleanup = NULL;
     }
-    fprintf(stderr, "[BLOCK] About to return from __yo_task_block_and_yield\\n");
+    CONCURRENCY_DEBUG("[BLOCK] About to return from __yo_task_block_and_yield\\n");
   }
   
   // Returns here when unblocked and resumed
-  fprintf(stderr, "[BLOCK] Returned from setjmp/longjmp, task=%p\\n", yo_task_current);
+  CONCURRENCY_DEBUG("[BLOCK] Returned from setjmp/longjmp, task=%p\\n", yo_task_current);
 }
 `);
 }

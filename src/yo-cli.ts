@@ -70,6 +70,12 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: false,
   })
+  .option("debug-concurrency", {
+    describe: "Enable debug logging for cooperative task scheduler operations.",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
   .option("extern", {
     describe: "External C files to link with. eg: --extern extern1.c extern2.c",
     type: "array",
@@ -107,6 +113,7 @@ yo run <script>                  Run a script defined in 'yo.json'
         skipCodegen: argv.skipCodegen,
         skipCCompiler: argv.skipCCompiler,
         debugBrc: argv.debugBrc,
+        debugConcurrency: argv.debugConcurrency,
       });
     }
   )

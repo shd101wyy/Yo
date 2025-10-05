@@ -36,6 +36,10 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
     ? "#define YO_DEBUG_BRC 1"
     : "// #define YO_DEBUG_BRC 1";
 
+  const debugConcurrencyDefine = context.debugConcurrency
+    ? "#define YO_DEBUG_CONCURRENCY 1"
+    : "// #define YO_DEBUG_CONCURRENCY 1";
+
   context.emitter
     .emitDeclarationLine(`// Biased Reference Counting (BRC) header for objects and ref enums
 // Per-thread GC with stop-the-world collection for better scalability
@@ -47,6 +51,15 @@ ${debugBrcDefine}
   #define BRC_DEBUG(...) fprintf(stderr, "BRC: " __VA_ARGS__)
 #else
   #define BRC_DEBUG(...)
+#endif
+
+// Debug flag for concurrency operations - use --debug-concurrency flag to enable
+${debugConcurrencyDefine}
+
+#ifdef YO_DEBUG_CONCURRENCY
+  #define CONCURRENCY_DEBUG(...) fprintf(stderr, __VA_ARGS__)
+#else
+  #define CONCURRENCY_DEBUG(...)
 #endif
 
 // Fast thread ID function using platform-specific inline assembly (inspired by Python/mimalloc)
