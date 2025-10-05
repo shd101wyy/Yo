@@ -97,8 +97,8 @@ export function collectTypesFromExpr(
   }
 
   // For async expressions, also collect types from the evaluated closure call
-  if (expr.$ && expr.$.evaluatedClosureCall) {
-    collectTypesFromExpr(expr.$.evaluatedClosureCall, context);
+  if (expr.$ && expr.$.evaluatedClosure) {
+    collectTypesFromExpr(expr.$.evaluatedClosure, context);
   }
 
   switch (expr.tag) {

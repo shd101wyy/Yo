@@ -4,6 +4,7 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   ExprTag,
+  exprToString,
   FuncCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
@@ -113,28 +114,18 @@ export function evaluateAsync({
     });
   }
 
-  // Step 6: Create a call to the closure: closure()
-  const closureCall: FuncCallExpr = {
-    tag: ExprTag.FuncCall,
-    token: PlaceholderToken,
-    func: evaluatedClosure,
-    args: [], // No arguments
-  };
-
-  // Step 7: Evaluate the closure call to create the closure value
-  const evaluatedCall = context.evaluateExpression({
-    expr: closureCall,
-    env: evaluatedClosure.$.env,
-    context: {
-      ...context,
-      isSpawningFunctionCall: evaluatedClosure.$.env,
-    },
-  });
-
-  if (!evaluatedCall.$) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Failed to evaluate async closure call.`,
+  // DEBUG: Check if capturedVariableDupExpressions is set
+  console.log(
+    "DEBUG: evaluatedClosure has capturedVariableDupExpressions:",
+    evaluatedClosure.$.capturedVariableDupExpressions ? "YES" : "NO"
+  );
+  if (evaluatedClosure.$.capturedVariableDupExpressions) {
+    console.log(
+      "DEBUG: capturedVariableDupExpressions count:",
+      evaluatedClosure.$.capturedVariableDupExpressions.length
+    );
+    evaluatedClosure.$.capturedVariableDupExpressions.forEach((dupExpr, i) => {
+      console.log(`DEBUG: dupExpr[${i}]:`, exprToString(dupExpr));
     });
   }
 
@@ -144,14 +135,13 @@ export function evaluateAsync({
   // If we use evaluatedClosure.$.env, those variables are already marked as consumed
   // and won't be included in the deferred drops.
 
-  // Store the closure call in the async expression for codegen
   expr.$ = {
     env, // Use original env, NOT evaluatedClosure.$.env or evaluatedCall.$.env
     type: VUnit.type,
     value: undefined, // Runtime value, not compile-time
     pathCollection: [],
-    // Store the evaluated closure call for codegen to use
-    evaluatedClosureCall: evaluatedCall,
+    // Store the UNevaluated closure call for codegen to use (it has the dup expressions)
+    evaluatedClosure: evaluatedClosure,
   };
 
   return expr;

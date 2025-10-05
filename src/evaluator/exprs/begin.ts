@@ -214,9 +214,9 @@ function searchRecursively(
       searchRecursively(arg, dupCalls);
     }
 
-    if (expr.$?.evaluatedClosureCall) {
+    if (expr.$?.evaluatedClosure) {
       // Also search in the evaluated closure call for async expressions
-      searchRecursively(expr.$.evaluatedClosureCall, dupCalls);
+      searchRecursively(expr.$.evaluatedClosure, dupCalls);
     }
   }
 }

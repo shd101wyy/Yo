@@ -201,9 +201,9 @@ export interface EvaluatedExprData {
    * For async expressions, this contains the evaluated closure call that wraps
    * the async body. Used by C codegen to generate the task spawn code.
    *
-   * Example: For `async say("hello")`, this contains the evaluated closure call `(fn() => unit) { say("hello") }()`
+   * Example: For `async say("hello")`, this contains the evaluated closure call `(fn() => unit) { say("hello") }`
    */
-  evaluatedClosureCall?: Expr;
+  evaluatedClosure?: Expr;
 }
 
 export type AtomExpr = {

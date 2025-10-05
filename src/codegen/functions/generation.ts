@@ -2707,6 +2707,8 @@ export function generateClosureConstructorFunctions(
         );
 
         // Initialize capture fields
+        // The caller is responsible for duplicating ARC types before passing them
+        // so we can directly assign the parameters here
         captureType.elements.forEach((element) => {
           const fieldName = sanitizeForCIdentifier(element.label);
           emitter.emitLine(`  captureData->${fieldName} = ${fieldName};`);

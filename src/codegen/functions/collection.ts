@@ -52,8 +52,8 @@ export function findFunctionCallsInExpr(
   context: CodeGenContext
 ): void {
   // For async expressions, also collect functions from the evaluated closure call
-  if (expr.$ && expr.$.evaluatedClosureCall) {
-    findFunctionCallsInExpr(expr.$.evaluatedClosureCall, context);
+  if (expr.$ && expr.$.evaluatedClosure) {
+    findFunctionCallsInExpr(expr.$.evaluatedClosure, context);
   }
 
   if (exprIsFunctionCall(expr)) {

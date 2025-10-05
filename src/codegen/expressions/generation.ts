@@ -270,41 +270,49 @@ function generateFuncCall(
 
   // async - spawn any expression as a cooperative task by wrapping it in a closure
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
-    // The evaluator has already wrapped the expression in a closure call
-    // and stored it in expr.$.evaluatedClosureCall
-    const closureCallArg = expr.$?.evaluatedClosureCall;
-    if (!closureCallArg) {
-      return `// Error: async missing evaluated closure call`;
+    // The evaluator has already created the closure and stored it in expr.$.evaluatedClosure
+    const evaluatedClosure = expr.$?.evaluatedClosure;
+    if (!evaluatedClosure || !evaluatedClosure.$) {
+      return `// Error: async missing evaluated closure`;
     }
 
-    // Generate the closure call which will spawn the task
-    if (exprIsFunctionCall(closureCallArg)) {
-      const closureCode = generateExpr(closureCallArg.func, indent, context);
-      const closureType = closureCallArg.func.$?.type;
+    // DEBUG: Check what we have
+    console.log(
+      "DEBUG CODEGEN: evaluatedClosure.$ has capturedVariableDupExpressions:",
+      evaluatedClosure.$?.capturedVariableDupExpressions ? "YES" : "NO"
+    );
+    if (evaluatedClosure.$?.capturedVariableDupExpressions) {
+      console.log(
+        "DEBUG CODEGEN: capturedVariableDupExpressions count:",
+        evaluatedClosure.$.capturedVariableDupExpressions.length
+      );
+    }
 
-      if (isClosureType(closureType)) {
-        // Generate spawn code for closure
-        // The closure is a () => unit closure, so it has no args
-        const closureTypeCName = context.types[closureType.id]?.cName;
-        if (!closureTypeCName) {
-          return `// Error: async closure type not found in context`;
-        }
+    // Generate the closure creation code (with dup expressions for captured variables)
+    const closureCode = generateExpr(evaluatedClosure, indent, context);
+    const closureType = evaluatedClosure.$.type;
 
-        // Create a wrapper function signature for this specific closure type
-        const signatureStr = `closure_${closureTypeCName}_to_unit`;
-
-        context.spawnedClosureSignatures =
-          context.spawnedClosureSignatures || new Map();
-        context.spawnedClosureSignatures.set(signatureStr, {
-          closureType: closureType,
-        });
-
-        return `__yo_task_spawn_${signatureStr}(${closureCode})`;
-      } else {
-        return `// Error: async argument must be a closure call after evaluation`;
+    if (isClosureType(closureType)) {
+      // Generate spawn code for closure
+      // The closure is a () => unit closure, so it has no args
+      const closureTypeCName = context.types[closureType.id]?.cName;
+      if (!closureTypeCName) {
+        return `// Error: async closure type not found in context`;
       }
+
+      // Create a wrapper function signature for this specific closure type
+      const signatureStr = `closure_${closureTypeCName}_to_unit`;
+
+      context.spawnedClosureSignatures =
+        context.spawnedClosureSignatures || new Map();
+      context.spawnedClosureSignatures.set(signatureStr, {
+        closureType: closureType,
+      });
+
+      return `__yo_task_spawn_${signatureStr}(${closureCode})`;
+    } else {
+      return `// Error: async argument must be a closure after evaluation`;
     }
-    return `// Error: async argument must be evaluated to a closure call`;
   }
 
   // __yo_concurrency_set_maximum_threads - set maximum number of threads for task scheduler
