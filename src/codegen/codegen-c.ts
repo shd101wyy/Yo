@@ -46,6 +46,7 @@ export class CodeGeneratorC {
       arrayStructTypes: new Map(),
       sliceStructTypes: new Map(),
       spawnedFunctionSignatures: new Map(),
+      spawnedClosureSignatures: new Map(),
       currentFunctionName: "",
       emitter: this.emitter,
       cIncludes: new Set([

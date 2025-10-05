@@ -51,6 +51,11 @@ export function findFunctionCallsInExpr(
   expr: Expr,
   context: CodeGenContext
 ): void {
+  // For async expressions, also collect functions from the evaluated closure call
+  if (expr.$ && expr.$.evaluatedClosureCall) {
+    findFunctionCallsInExpr(expr.$.evaluatedClosureCall, context);
+  }
+
   if (exprIsFunctionCall(expr)) {
     const functionType = expr.func.$?.type;
     const functionValue = expr.func.$?.value;

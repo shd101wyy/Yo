@@ -213,6 +213,11 @@ function searchRecursively(
     for (const arg of expr.args) {
       searchRecursively(arg, dupCalls);
     }
+
+    if (expr.$?.evaluatedClosureCall) {
+      // Also search in the evaluated closure call for async expressions
+      searchRecursively(expr.$.evaluatedClosureCall, dupCalls);
+    }
   }
 }
 

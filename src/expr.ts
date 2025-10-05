@@ -196,6 +196,14 @@ export interface EvaluatedExprData {
    * Example: If a variable `x: MyBox` needs dropping, this would contain the expression `___drop(x)`
    */
   deferredDropExpressions?: Expr[];
+
+  /**
+   * For async expressions, this contains the evaluated closure call that wraps
+   * the async body. Used by C codegen to generate the task spawn code.
+   *
+   * Example: For `async say("hello")`, this contains the evaluated closure call `(fn() => unit) { say("hello") }()`
+   */
+  evaluatedClosureCall?: Expr;
 }
 
 export type AtomExpr = {
@@ -492,7 +500,7 @@ export const BuiltinFunctions = {
   do: ["do"],
 
   // Concurrency related functions
-  go: ["go"],
+  async: ["async"],
   __yo_concurrency_set_maximum_threads: [
     "__yo_concurrency_set_maximum_threads",
   ],

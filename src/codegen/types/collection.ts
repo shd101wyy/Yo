@@ -96,6 +96,11 @@ export function collectTypesFromExpr(
     collectType(expr.$.type, context);
   }
 
+  // For async expressions, also collect types from the evaluated closure call
+  if (expr.$ && expr.$.evaluatedClosureCall) {
+    collectTypesFromExpr(expr.$.evaluatedClosureCall, context);
+  }
+
   switch (expr.tag) {
     case ExprTag.FuncCall:
       // Collect types from the function expression itself (for chained calls)
@@ -211,10 +216,12 @@ export function collectType(type: Type, context: CodeGenContext): void {
     // For closures, also collect the call type and capture type functions
     if (isClosureType(type)) {
       const closureType = type as ClosureType;
-      // Don't collect the capture type itself - it will be generated inline
-      // But DO collect functions from the capture type's module (___drop, ___dispose, etc.)
+      // Collect the capture type - it needs to be registered for function signatures
       if (closureType.captureType && isStructType(closureType.captureType)) {
         const captureStructType = closureType.captureType;
+        // Collect the capture struct type itself
+        collectType(captureStructType, context);
+        // Also collect functions from the capture type's module (___drop, ___dispose, etc.)
         for (const element of captureStructType.module.elements) {
           if (element.assignedValue && isFunctionValue(element.assignedValue)) {
             const functionValue = element.assignedValue;

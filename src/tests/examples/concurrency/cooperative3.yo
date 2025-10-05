@@ -10,13 +10,13 @@ say :: (fn(s : *(u8), val: i32, ch: Chan(i32)) -> i32) {
 
 // Pointer arithmetic example
 main :: (fn() -> i32) {
-  Concurrency.set_maximum_threads(2); // Set maximum 2 thread for "go" tasks
+  Concurrency.set_maximum_threads(2); // Set maximum 2 thread for async tasks
 
   ch := chan(i32); // unbuffered channel
 
   // say("world") and say("hello") should run on the same thread
-  go say("world", 16, ch);
-  go say("hello", 18, ch);
+  async say("world", 16, ch);
+  async say("hello", 18, ch);
 
   t1_result := ch.recv().unwrap();
   printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);

@@ -268,42 +268,43 @@ function generateFuncCall(
     return `(*((${returnTypeStr}*)NULL))`; // This will never execute but has the right type
   }
 
-  // go - spawn a function call as a cooperative task
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
-    const funcCallArg = expr.args[0];
-    if (!funcCallArg) {
-      return `// Error: go requires exactly 1 argument (function call)`;
+  // async - spawn any expression as a cooperative task by wrapping it in a closure
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    // The evaluator has already wrapped the expression in a closure call
+    // and stored it in expr.$.evaluatedClosureCall
+    const closureCallArg = expr.$?.evaluatedClosureCall;
+    if (!closureCallArg) {
+      return `// Error: async missing evaluated closure call`;
     }
 
-    if (exprIsFunctionCall(funcCallArg)) {
-      const funcCode = generateExpr(funcCallArg.func, indent, context);
-      const functionType = funcCallArg.func.$?.type;
+    // Generate the closure call which will spawn the task
+    if (exprIsFunctionCall(closureCallArg)) {
+      const closureCode = generateExpr(closureCallArg.func, indent, context);
+      const closureType = closureCallArg.func.$?.type;
 
-      if (isFunctionType(functionType)) {
-        const paramTypeStrs = functionType.parameters.map((param) =>
-          sanitizeForCIdentifier(getTypeString(param.type, context))
-        );
-        const returnTypeStr = sanitizeForCIdentifier(
-          getTypeString(functionType.return.type, context)
-        );
-        const signatureStr = `fn_${paramTypeStrs.join("_")}_to_${returnTypeStr}`;
+      if (isClosureType(closureType)) {
+        // Generate spawn code for closure
+        // The closure is a () => unit closure, so it has no args
+        const closureTypeCName = context.types[closureType.id]?.cName;
+        if (!closureTypeCName) {
+          return `// Error: async closure type not found in context`;
+        }
 
-        context.spawnedFunctionSignatures.set(signatureStr, {
-          parameterTypes: functionType.parameters.map((p) => p.type),
-          returnType: functionType.return.type,
+        // Create a wrapper function signature for this specific closure type
+        const signatureStr = `closure_${closureTypeCName}_to_unit`;
+
+        context.spawnedClosureSignatures =
+          context.spawnedClosureSignatures || new Map();
+        context.spawnedClosureSignatures.set(signatureStr, {
+          closureType: closureType,
         });
 
-        const argCodes = funcCallArg.args.map((arg) =>
-          generateExpr(arg, indent, context)
-        );
-
-        const allArgs = [`(void*)${funcCode}`, ...argCodes].join(", ");
-        return `__yo_task_spawn_${signatureStr}(${allArgs})`;
+        return `__yo_task_spawn_${signatureStr}(${closureCode})`;
       } else {
-        return `// Error: go function call missing function type`;
+        return `// Error: async argument must be a closure call after evaluation`;
       }
     }
-    return `// Error: go argument must be a function call`;
+    return `// Error: async argument must be evaluated to a closure call`;
   }
 
   // __yo_concurrency_set_maximum_threads - set maximum number of threads for task scheduler

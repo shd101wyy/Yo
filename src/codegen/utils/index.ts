@@ -60,6 +60,12 @@ export interface CodeGenContext {
   >;
 
   /**
+   * Spawned closure signatures that need task wrapper generation for cooperative multitasking
+   * Maps signature string to the closure type
+   */
+  spawnedClosureSignatures: Map<string, { closureType: Type }>;
+
+  /**
    * track the current function being generated for recur
    */
   currentFunctionName: string;

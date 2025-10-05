@@ -1712,6 +1712,115 @@ ${paramAssignments}
 }
 `);
   }
+
+  // Generate task spawn functions for closures (async keyword)
+  emitter.emitDeclarationLine(
+    `/// Task spawn function declarations for closures`
+  );
+  const generatedClosureDeclarationSignatures = new Set<string>();
+
+  for (const [signatureStr, signature] of context.spawnedClosureSignatures) {
+    if (generatedClosureDeclarationSignatures.has(signatureStr)) {
+      continue;
+    }
+    generatedClosureDeclarationSignatures.add(signatureStr);
+
+    const { closureType } = signature;
+    const closureTypeCName = context.types[closureType.id]?.cName;
+    if (!closureTypeCName) {
+      continue;
+    }
+
+    const spawnFunctionName = `__yo_task_spawn_${signatureStr}`;
+    emitter.emitDeclarationLine(
+      `void ${spawnFunctionName}(${closureTypeCName}* closure); // Task spawn function for closure ${signatureStr}`
+    );
+  }
+  emitter.emitDeclarationLine("");
+
+  // Generate closure task spawn implementations
+  const generatedClosureSignatures = new Set<string>();
+
+  for (const [signatureStr, signature] of context.spawnedClosureSignatures) {
+    if (generatedClosureSignatures.has(signatureStr)) {
+      continue;
+    }
+    generatedClosureSignatures.add(signatureStr);
+
+    const { closureType } = signature;
+    const closureTypeCName = context.types[closureType.id]?.cName;
+    if (!closureTypeCName) {
+      continue;
+    }
+
+    // Generate task data structure for closure
+    const structName = `yo_task_data_${signatureStr}_t`;
+    emitter.emitLine(`typedef struct ${structName} {
+  ${closureTypeCName}* closure;
+} ${structName};
+`);
+
+    // Generate task execution function for closure
+    const executeFnName = `__yo_task_execute_${signatureStr}`;
+    emitter.emitLine(`static void ${executeFnName}(void* task_data) {
+  ${structName}* data = (${structName}*)task_data;
+  ${closureTypeCName}* closure = data->closure;
+  
+  // Call the closure: closure->vtable.call(closure)
+  (void)closure->vtable.call(closure);  // Explicitly ignore return value
+  
+  // Drop the closure (decrement reference count)
+  __yo_decr_rc(closure, (void(*)(void*))closure->vtable.dispose);
+  
+  __yo_free(data);
+}
+`);
+
+    // Generate task spawn function for closure
+    const spawnFunctionName = `__yo_task_spawn_${signatureStr}`;
+    emitter.emitLine(`void ${spawnFunctionName}(${closureTypeCName}* closure) {
+  __yo_task_scheduler_init();
+  
+  // Auto-initialize thread pool with hardware threads if not already done
+  if (yo_worker_thread_count == 0) {
+    __yo_concurrency_set_maximum_threads(0);  // 0 = use hardware threads
+  }
+  
+  // Increment reference count for the closure since it will be used by the task
+  __yo_incr_rc(closure);
+  
+  // Allocate task data
+  ${structName}* data = (${structName}*)__yo_malloc(sizeof(${structName}));
+  data->closure = closure;
+  
+  // Create task
+  yo_task_t* task = (yo_task_t*)__yo_malloc(sizeof(yo_task_t));
+  task->func = ${executeFnName};
+  task->data = data;
+  task->state = YO_TASK_READY;
+  task->wait_channel = NULL;
+  task->next = NULL;
+  task->context_initialized = false;
+  
+  // Allocate separate stack for cooperative scheduling
+  task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
+  task->stack_size = YO_TASK_STACK_SIZE;
+  
+  // Distribute task to worker thread round-robin
+  if (yo_worker_thread_count > 0) {
+    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % yo_worker_thread_count;
+    CONCURRENCY_DEBUG("[SPAWN] Assigning closure task=%p to worker %zu\\n", task, worker_idx);
+    __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
+  } else {
+    CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
+    __yo_free(task->stack);
+    __yo_free(task);
+    __yo_free(data);
+    __yo_decr_rc(closure, (void(*)(void*))closure->vtable.dispose);
+  }
+}
+`);
+  }
 }
 
 /**

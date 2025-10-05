@@ -3,28 +3,28 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  exprIsFunctionCall,
-  exprToString,
+  ExprTag,
   FuncCallExpr,
 } from "../../expr";
-import { isClosureType, isFunctionType } from "../../types/guards";
+import { PlaceholderToken } from "../../token";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
 /**
- * Evaluates the go builtin function.
+ * Evaluates the async builtin function.
  *
- * go takes a function call expression and executes it as a cooperative task,
- * returning unit.
+ * async takes any expression and wraps it in an anonymous closure that runs asynchronously.
+ * The expression is wrapped as: (fn() => unit) { expr; }()
  *
  * Examples:
- * - go say("hello", 18, ch) -> unit
- * - go compute(42) -> unit
+ * - async say("hello", 18, ch);
+ * - async { x := compute(42); process(x); };
+ * - async x.method();
  *
  * @param params - The evaluation parameters
- * @returns The function call expression with unit type
+ * @returns The expression with unit type, containing the wrapped closure
  */
-export function evaluateGo({
+export function evaluateAsync({
   expr,
   env,
   context,
@@ -33,69 +33,121 @@ export function evaluateGo({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.go, 1);
+  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.async, 1);
 
-  const functionCallExpr = expr.args[0]!;
-  if (!exprIsFunctionCall(functionCallExpr)) {
-    throw formatErrorMessage({
-      token: functionCallExpr.token,
-      errorMessage: `Expected a function call expression inside go, got:\n${exprToString(
-        functionCallExpr
-      )}`,
-    });
-  }
+  const bodyExpr = expr.args[0]!;
 
-  // Evaluate the function call expression to check if it's valid
-  const evaluatedExpr = context.evaluateExpression({
-    expr: functionCallExpr,
+  // Create an anonymous closure that wraps the expression:
+  // (fn() => unit) { bodyExpr; }()
+
+  // Step 1: Create the function signature: fn()
+  const fnSignature: FuncCallExpr = {
+    tag: ExprTag.FuncCall,
+    token: PlaceholderToken,
+    func: {
+      tag: ExprTag.Atom,
+      token: { ...PlaceholderToken, value: "fn" },
+    },
+    args: [], // No parameters
+  };
+
+  // Step 2: Create the closure type signature: fn() => unit
+  const closureTypeSignature: FuncCallExpr = {
+    tag: ExprTag.FuncCall,
+    token: PlaceholderToken,
+    func: {
+      tag: ExprTag.Atom,
+      token: { ...PlaceholderToken, value: "=>" },
+    },
+    args: [
+      fnSignature,
+      {
+        tag: ExprTag.Atom,
+        token: { ...PlaceholderToken, value: "unit" },
+      },
+    ],
+  };
+
+  // Step 3: Wrap bodyExpr in a begin block that returns unit: begin(bodyExpr, ())
+  const beginBlock: FuncCallExpr = {
+    tag: ExprTag.FuncCall,
+    token: PlaceholderToken,
+    func: {
+      tag: ExprTag.Atom,
+      token: { ...PlaceholderToken, value: "begin" },
+    },
+    args: [
+      bodyExpr, // The expression to execute asynchronously
+      {
+        tag: ExprTag.FuncCall,
+        token: PlaceholderToken,
+        func: {
+          tag: ExprTag.Atom,
+          token: { ...PlaceholderToken, value: "tuple" },
+        },
+        args: [], // Empty tuple = unit
+      },
+    ],
+  };
+
+  // Step 4: Create the closure implementation by calling the closure type with the body
+  // (fn() => unit)(begin(bodyExpr, ()))
+  const closureImpl: FuncCallExpr = {
+    tag: ExprTag.FuncCall,
+    token: PlaceholderToken,
+    func: closureTypeSignature, // Call the closure type
+    args: [beginBlock], // Pass the begin block as the closure body
+  };
+
+  // Step 5: Evaluate the closure implementation to create the closure value
+  const evaluatedClosure = context.evaluateExpression({
+    expr: closureImpl,
     env,
-    context: { ...context, isSpawningFunctionCall: env },
+    context: { ...context },
   });
 
-  if (!evaluatedExpr.$) {
+  if (!evaluatedClosure.$) {
     throw formatErrorMessage({
-      token: functionCallExpr.token,
-      errorMessage: `Failed to evaluate expression.`,
+      token: expr.token,
+      errorMessage: `Failed to evaluate closure for async.`,
     });
   }
 
-  if (!exprIsFunctionCall(evaluatedExpr)) {
+  // Step 6: Create a call to the closure: closure()
+  const closureCall: FuncCallExpr = {
+    tag: ExprTag.FuncCall,
+    token: PlaceholderToken,
+    func: evaluatedClosure,
+    args: [], // No arguments
+  };
+
+  // Step 7: Evaluate the closure call to create the closure value
+  const evaluatedCall = context.evaluateExpression({
+    expr: closureCall,
+    env: evaluatedClosure.$.env,
+    context: {
+      ...context,
+      isSpawningFunctionCall: evaluatedClosure.$.env,
+    },
+  });
+
+  if (!evaluatedCall.$) {
     throw formatErrorMessage({
-      token: functionCallExpr.token,
-      errorMessage: `Expected a function call expression inside go, got:\n${exprToString(
-        functionCallExpr
-      )}`,
+      token: expr.token,
+      errorMessage: `Failed to evaluate async closure call.`,
     });
   }
 
-  if (
-    !isFunctionType(evaluatedExpr.func.$?.type) &&
-    !isClosureType(evaluatedExpr.func.$?.type)
-  ) {
-    throw formatErrorMessage({
-      token: evaluatedExpr.func.token,
-      errorMessage: `Expected a function type for the called function, got ${evaluatedExpr.func.$?.type.tag}`,
-    });
-  }
+  env = evaluatedCall.$.env;
 
-  const functionType = isFunctionType(evaluatedExpr.func.$.type)
-    ? evaluatedExpr.func.$.type
-    : evaluatedExpr.func.$.type.callType;
-
-  if (functionType.return.isCompileTimeOnly) {
-    throw formatErrorMessage({
-      token: functionCallExpr.token,
-      errorMessage: `Cannot spawn a task for a function that returns a compile-time-only value.`,
-    });
-  }
-  env = evaluatedExpr.$.env;
-
-  // go always returns unit
+  // Store the closure call in the async expression for codegen
   expr.$ = {
     env,
     type: VUnit.type,
     value: undefined, // Runtime value, not compile-time
     pathCollection: [],
+    // Store the evaluated closure call for codegen to use
+    evaluatedClosureCall: evaluatedCall,
   };
 
   return expr;

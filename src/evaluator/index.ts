@@ -40,7 +40,7 @@ import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import {
-  evaluateGo,
+  evaluateAsync,
   evaluateTaskSetMaximumThreads,
 } from "./builtins/concurrency_fns";
 import { evaluateDrop } from "./builtins/drop";
@@ -394,9 +394,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
-        // go
-        return evaluateGo({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+        // async
+        return evaluateAsync({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(
           expr,

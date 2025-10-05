@@ -40,7 +40,7 @@ Yo implements a **hybrid M:N threading model** that combines OS-level parallelis
 - Each worker has its own task queue (thread affinity)
 
 ### 2. **Cooperative Tasks**
-- Spawned with `go function(args)`
+- Spawned with `async function(args)`
 - Distributed round-robin to worker threads
 - Run cooperatively within each worker using setjmp/longjmp
 - Each task has its own 64KB stack
@@ -66,10 +66,10 @@ Concurrency.get_thread_id() -> u64
 ### Task Spawning
 ```yo
 // Spawn a task on a worker thread (non-blocking)
-go function(args...)
+async function(args...)
 
 // Example:
-go say("hello", 42, channel)
+async say("hello", 42, channel)
 ```
 
 ### Channels
@@ -91,7 +91,7 @@ result := ch.recv()  // Returns Option(Type)
 
 ### Task Lifecycle
 
-1. **Spawn**: `go func()` creates a task and assigns it to a worker (round-robin)
+1. **Spawn**: `async func()` creates a task and assigns it to a worker (round-robin)
 2. **Schedule**: Worker dequeues task from its ready queue
 3. **Execute**: Task runs cooperatively on its own stack
 4. **Block**: Task blocks on channel → saves context → worker switches to next task
@@ -121,7 +121,7 @@ Workers run in parallel across CPU cores:
 ch := chan(i32)  // capacity = 0
 
 // Sender blocks until receiver is ready
-go { ch.send(42) }  // Blocks in task context
+async ((fn()-> unit){ ch.send(42) })()  // Blocks in task context
 
 // Receiver blocks until sender is ready
 value := ch.recv()  // Blocks (pthread if main, cooperative if task)
@@ -277,10 +277,10 @@ main :: (fn() -> i32) {
   ch := chan(i32)  // Unbuffered channel
   
   // Spawn 4 tasks (distributed round-robin to 2 workers)
-  go worker(1, ch)  // → Worker 0
-  go worker(2, ch)  // → Worker 1
-  go worker(3, ch)  // → Worker 0
-  go worker(4, ch)  // → Worker 1
+  async worker(1, ch)  // → Worker 0
+  async worker(2, ch)  // → Worker 1
+  async worker(3, ch)  // → Worker 0
+  async worker(4, ch)  // → Worker 1
   
   // Main thread receives results
   for i in 0..4 {

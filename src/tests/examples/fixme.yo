@@ -1,22 +1,6 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
-main :: (fn() -> unit) {
-  printf("Hello, world\n");
-
-  // say2 is a closure;
-  x := 18;
-  say2 := (fn(s : *(u8)/*, ch: Chan(i32)*/) => i32) {
-    printf("%s\n", s);
-    // ch.send(x);
-    printf("thread %zu\n", Concurrency.get_thread_id());
-    // printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
-    return x;
-  };
-};
-export main;
-
-/*
 say :: (fn(s : *(u8), val: i32, ch: Chan(i32)) -> i32) {
   printf("%s\n", s);
   ch.send(val);
@@ -25,7 +9,7 @@ say :: (fn(s : *(u8), val: i32, ch: Chan(i32)) -> i32) {
 };
 
 // Pointer arithmetic example
-main :: (fn() -> i32) {
+main :: (fn() -> unit) {
   // Auto-detect hardware threads (no need to call set_maximum_threads)
   hw_threads := Concurrency.get_hardware_threads();
   printf("Hardware threads available: %zu\n", hw_threads);
@@ -34,17 +18,17 @@ main :: (fn() -> i32) {
   ch := chan(i32); // unbuffered channel
 
   // say2 is a closure;
-  x := 18;
-  say2 := (fn(s : *(u8), ch: Chan(i32)) => i32) {
-    printf("%s\n", s);
-    ch.send(x);
-    printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
-    return x;
-  };
+  // x := 18;
+  // say2 := (fn(s : *(u8), ch: Chan(i32)) => i32) {
+  //   printf("%s\n", s);
+  //   ch.send(x);
+  //   printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
+  //   return x;
+  // };
 
   // say2("world") and say("hello") will run in parallel on different threads
-  go say2("world", ch);
-  go say("hello", 18, ch);
+  async say("world", 16, ch);
+  async say("hello", 18, ch);
 
   t1_result := ch.recv().unwrap();
   printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
@@ -58,9 +42,6 @@ main :: (fn() -> i32) {
 
   result := (t1_result + t2_result);
   printf("result: %d\n", result);
-
-  return 0;
 };
 
 export main;
-*/
