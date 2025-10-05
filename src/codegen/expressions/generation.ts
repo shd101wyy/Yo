@@ -1938,13 +1938,17 @@ function generateDynCall(
  * Generate C code for an atom expression - extracted from original codegen-c.ts
  */
 function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
-  // Handle control flow atoms first (before checking computed values)
+  // Handle control flow atoms first (before checking computed values or variable names)
   if (expr.token.value === "continue") {
     return "continue";
   }
 
   if (expr.token.value === "break") {
     return "break";
+  }
+
+  if (expr.token.value === "return") {
+    return "return";
   }
 
   // Check if we're in a closure function and this variable is captured
@@ -3048,9 +3052,10 @@ function generateSelectExpression(
   const tempVar = expr.$.variableName;
   const valueType = expr.$.type;
   const isUnit = valueType && isUnitType(valueType);
+  const hasControlFlow = expr.$.controlFlow !== undefined;
 
-  // For unit types, don't declare a temporary variable
-  if (!isUnit && tempVar) {
+  // For unit types or control flow, don't declare a temporary variable
+  if (!isUnit && !hasControlFlow && tempVar) {
     const varType = getTypeString(valueType, context);
     context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
   }
@@ -3089,7 +3094,16 @@ function generateSelectExpression(
           const arg = beginArgs[j]!;
           const argCode = generateExpr(arg, indent + "  ", context);
           if (argCode) {
-            if (j === beginArgs.length - 1 && !isUnit && tempVar) {
+            // Check for control flow statements
+            if (
+              argCode === "continue" ||
+              argCode === "break" ||
+              (exprIsFunctionCall(arg) &&
+                exprIsFunctionCallOf(arg, BuiltinKeywords.return)) ||
+              argCode.includes("return")
+            ) {
+              context.emitter.emitLine(`${indent}  ${argCode};`);
+            } else if (j === beginArgs.length - 1 && !isUnit && tempVar) {
               context.emitter.emitLine(`${indent}  ${tempVar} = ${argCode};`);
             } else {
               context.emitter.emitLine(`${indent}  ${argCode};`);
@@ -3099,7 +3113,16 @@ function generateSelectExpression(
       } else {
         const bodyCode = generateExpr(bodyExpr, indent + "  ", context);
         if (bodyCode) {
-          if (!isUnit && tempVar) {
+          // Check for control flow statements
+          if (
+            bodyCode === "continue" ||
+            bodyCode === "break" ||
+            (exprIsFunctionCall(bodyExpr) &&
+              exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.return)) ||
+            bodyCode.includes("return")
+          ) {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          } else if (!isUnit && tempVar) {
             context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
           } else {
             context.emitter.emitLine(`${indent}  ${bodyCode};`);
@@ -3144,7 +3167,16 @@ function generateSelectExpression(
           const arg = beginArgs[j]!;
           const argCode = generateExpr(arg, indent + "  ", context);
           if (argCode) {
-            if (j === beginArgs.length - 1 && !isUnit && tempVar) {
+            // Check for control flow statements
+            if (
+              argCode === "continue" ||
+              argCode === "break" ||
+              (exprIsFunctionCall(arg) &&
+                exprIsFunctionCallOf(arg, BuiltinKeywords.return)) ||
+              argCode.includes("return")
+            ) {
+              context.emitter.emitLine(`${indent}  ${argCode};`);
+            } else if (j === beginArgs.length - 1 && !isUnit && tempVar) {
               context.emitter.emitLine(`${indent}  ${tempVar} = ${argCode};`);
             } else {
               context.emitter.emitLine(`${indent}  ${argCode};`);
@@ -3154,7 +3186,16 @@ function generateSelectExpression(
       } else {
         const bodyCode = generateExpr(bodyExpr, indent + "  ", context);
         if (bodyCode) {
-          if (!isUnit && tempVar) {
+          // Check for control flow statements
+          if (
+            bodyCode === "continue" ||
+            bodyCode === "break" ||
+            (exprIsFunctionCall(bodyExpr) &&
+              exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.return)) ||
+            bodyCode.includes("return")
+          ) {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          } else if (!isUnit && tempVar) {
             context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
           } else {
             context.emitter.emitLine(`${indent}  ${bodyCode};`);
@@ -3196,7 +3237,9 @@ function generateSelectExpression(
         `${indent}${ifKeyword} (1) { // receive case from ${channelCode}`
       );
 
+      // Generate the receive operation and optional variable assignment
       if (varName) {
+        // Generate: Type varName = __yo_chan_recv_...(...);
         const recvCode = generateExpr(recvExpr, indent + "  ", context);
         const recvType = recvExpr.$?.type;
         if (recvType) {
@@ -3206,6 +3249,7 @@ function generateSelectExpression(
           );
         }
       } else {
+        // Generate receive without assignment
         context.emitter.emitLine(
           `${indent}  ${generateExpr(recvExpr, indent + "  ", context)};`
         );
@@ -3221,7 +3265,16 @@ function generateSelectExpression(
           const arg = beginArgs[j]!;
           const argCode = generateExpr(arg, indent + "  ", context);
           if (argCode) {
-            if (j === beginArgs.length - 1 && !isUnit && tempVar) {
+            // Check for control flow statements
+            if (
+              argCode === "continue" ||
+              argCode === "break" ||
+              (exprIsFunctionCall(arg) &&
+                exprIsFunctionCallOf(arg, BuiltinKeywords.return)) ||
+              argCode.includes("return")
+            ) {
+              context.emitter.emitLine(`${indent}  ${argCode};`);
+            } else if (j === beginArgs.length - 1 && !isUnit && tempVar) {
               context.emitter.emitLine(`${indent}  ${tempVar} = ${argCode};`);
             } else {
               context.emitter.emitLine(`${indent}  ${argCode};`);
@@ -3231,7 +3284,16 @@ function generateSelectExpression(
       } else {
         const bodyCode = generateExpr(bodyExpr, indent + "  ", context);
         if (bodyCode) {
-          if (!isUnit && tempVar) {
+          // Check for control flow statements
+          if (
+            bodyCode === "continue" ||
+            bodyCode === "break" ||
+            (exprIsFunctionCall(bodyExpr) &&
+              exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.return)) ||
+            bodyCode.includes("return")
+          ) {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          } else if (!isUnit && tempVar) {
             context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
           } else {
             context.emitter.emitLine(`${indent}  ${bodyCode};`);
