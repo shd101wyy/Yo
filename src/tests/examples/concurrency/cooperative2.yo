@@ -1,7 +1,6 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
-
 test1 :: (fn()-> unit) {
   printf("begin test1\n");
   Concurrency.yield();
@@ -23,22 +22,21 @@ main :: (fn() -> i32) {
   Concurrency.set_maximum_threads(1); // Set maximum 1 thread for "go" tasks
 
   printf("start main\n");
-  go test1();
+  test1();
   go test2();
   printf("end main\n");
 
-  Concurrency.wait_all(); // Wait for all spawned tasks to complete
+  Concurrency.wait_all(); // is now called automatically on main exit!
 
   // Expected to print:
   // start main
-  // end main
   // begin test1
-  // begin test2
   // middle test1
-  // middle test2
   // end test1
+  // end main
+  // begin test2
+  // middle test2
   // end test2
-
   return 0;
 };
 
