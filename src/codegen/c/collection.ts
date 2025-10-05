@@ -26,6 +26,14 @@ export function collectCIncludes(context: CodeGenContext): void {
  * Emit C include headers
  */
 export function emitCIncludes(context: CodeGenContext): void {
+  // Disable fortification to allow longjmp across task stacks in cooperative multithreading
+  // Must be defined before any system headers are included
+  context.emitter.emitHeaderLine(`#ifdef _FORTIFY_SOURCE`);
+  context.emitter.emitHeaderLine(`#undef _FORTIFY_SOURCE`);
+  context.emitter.emitHeaderLine(`#endif`);
+  context.emitter.emitHeaderLine(`#define _FORTIFY_SOURCE 0`);
+  context.emitter.emitHeaderLine(``);
+
   for (const include of context.cIncludes) {
     context.emitter.emitHeaderLine(`#include ${include}`);
   }

@@ -6,17 +6,55 @@ extern "yo",
     fn(num: usize) -> unit
 ;
 
+/*
 say :: (fn(s : *(u8), val: i32, ch: Chan(i32)) -> i32) {
   printf("%s\n", s);
   ch.send(val);
   printf("thread %u sent %i\n", thread_id(), val);
   return val;
 };
+*/
+
+test1 :: (fn()-> unit) {
+  printf("begin test1\n");
+  __yo_task_yield();
+  printf("middle test1\n");
+  __yo_task_yield();
+  printf("end test1\n");
+};
+
+test2 :: (fn()-> unit) {
+  printf("begin test2\n");
+  __yo_task_yield();
+  printf("middle test2\n");
+  __yo_task_yield();
+  printf("end test2\n");
+};
 
 // Pointer arithmetic example
 main :: (fn() -> i32) {
   __yo_concurrency_set_maximum_threads(1); // Set maximum 1 thread for "go" tasks
 
+  printf("start main\n");
+  test1();
+  go test2();
+  printf("end main\n");
+
+  __yo_task_wait_all(); // Wait for all spawned tasks to complete
+
+  // Expected to print:
+  // start main
+  // begin test1
+  // middle test1
+  // end test1
+  // end main
+  // begin test2
+  // middle test2
+  // end test2
+
+
+
+  /*
   ch := chan(i32); // unbuffered channel
 
   // say("world") and say("hello") should run on the same thread
@@ -34,8 +72,8 @@ main :: (fn() -> i32) {
   // "thread ? sent 18"
 
   result := (t1_result + t2_result);
-
   printf("result: %d\n", result);
+  */
 
   /*
   ch := chan(i32, 2); // buffered channel with capacity 2

@@ -1,0 +1,49 @@
+open import "std";
+open import "std/libc/stdio.yo";
+
+extern "yo",
+  __yo_concurrency_set_maximum_threads :
+    fn(num: usize) -> unit
+;
+
+test1 :: (fn()-> unit) {
+  printf("begin test1\n");
+  __yo_task_yield();
+  printf("middle test1\n");
+  __yo_task_yield();
+  printf("end test1\n");
+};
+
+test2 :: (fn()-> unit) {
+  printf("begin test2\n");
+  __yo_task_yield();
+  printf("middle test2\n");
+  __yo_task_yield();
+  printf("end test2\n");
+};
+
+// Pointer arithmetic example
+main :: (fn() -> i32) {
+  __yo_concurrency_set_maximum_threads(1); // Set maximum 1 thread for "go" tasks
+
+  printf("start main\n");
+  go test1();
+  go test2();
+  printf("end main\n");
+
+  __yo_task_wait_all(); // Wait for all spawned tasks to complete
+
+  // Expected to print:
+  // start main
+  // end main
+  // begin test1
+  // begin test2
+  // middle test1
+  // middle test2
+  // end test1
+  // end test2
+
+  return 0;
+};
+
+export main;

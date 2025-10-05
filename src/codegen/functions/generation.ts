@@ -799,6 +799,7 @@ void* __yo_incr_rc(void* ptr) {
   // Generate cooperative task scheduler runtime
   emitter.emitLine(`
 // Cooperative Task Scheduler Runtime using setjmp/longjmp
+// Note: _FORTIFY_SOURCE=0 is defined before includes to disable fortification checks
 #include <setjmp.h>
 
 typedef struct yo_task yo_task_t;
@@ -1179,6 +1180,65 @@ void __yo_task_yield(void) {
   }
   // Returns here when resumed
   fprintf(stderr, "[YIELD] Task=%p resumed\\n", yo_task_current);
+}
+
+// Wait for all spawned tasks to complete
+// This should be called from the main thread to run all pending tasks
+void __yo_task_wait_all(void) {
+  if (!yo_task_scheduler_initialized) {
+    return; // No tasks to wait for
+  }
+  
+  fprintf(stderr, "[WAIT_ALL] Waiting for all tasks to complete\\n");
+  
+  // Save main context so tasks can return here
+  yo_task_main_context_set = true;
+  
+  if (setjmp(yo_task_main_context) == 0) {
+    // First time - start running tasks
+    fprintf(stderr, "[WAIT_ALL] Starting task execution\\n");
+  } else {
+    // Returned from a task - check for cleanup
+    fprintf(stderr, "[WAIT_ALL] Returned from task\\n");
+    if (yo_task_to_cleanup) {
+      __yo_cleanup_completed_task(yo_task_to_cleanup);
+      yo_task_to_cleanup = NULL;
+    }
+  }
+  
+  // Run tasks until all complete
+  while (true) {
+    yo_task_t* task = __yo_task_dequeue();
+    if (!task) {
+      // No more ready tasks
+      if (yo_task_blocked_queue.count > 0) {
+        fprintf(stderr, "[WAIT_ALL] Warning: %zu tasks still blocked\\n", yo_task_blocked_queue.count);
+      }
+      fprintf(stderr, "[WAIT_ALL] All tasks completed\\n");
+      break;
+    }
+    
+    fprintf(stderr, "[WAIT_ALL] Running task=%p\\n", task);
+    task->state = YO_TASK_RUNNING;
+    yo_task_current = task;
+    
+    if (!task->context_initialized) {
+      // First time - bootstrap on task's stack
+      char* stack_top = task->stack + task->stack_size;
+      stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
+      __yo_switch_to_stack(stack_top, __yo_task_bootstrap, task);
+    } else {
+      // Resume blocked task
+      longjmp(task->context, 1);
+    }
+    
+    // Should never reach here
+    fprintf(stderr, "[WAIT_ALL] ERROR: Reached unreachable code\\n");
+    abort();
+  }
+  
+  yo_task_main_context_set = false;
+  fprintf(stderr, "[WAIT_ALL] Done\\n");
 }
 
 // Block current task on a channel and yield to another task
