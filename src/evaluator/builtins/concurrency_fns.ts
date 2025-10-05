@@ -138,11 +138,14 @@ export function evaluateAsync({
     });
   }
 
-  env = evaluatedCall.$.env;
+  // DO NOT update env with evaluatedCall.$.env
+  // The closure value is being passed to async which takes ownership
+  // If we update env, the closure will be tracked for cleanup in the current scope
+  // but it's already been transferred to the async task spawner
 
   // Store the closure call in the async expression for codegen
   expr.$ = {
-    env,
+    env, // Use the original env, not evaluatedCall.$.env
     type: VUnit.type,
     value: undefined, // Runtime value, not compile-time
     pathCollection: [],

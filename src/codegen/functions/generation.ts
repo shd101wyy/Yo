@@ -20,7 +20,6 @@ import {
   isStructType,
   isUnitType,
   typeContainsSomeType,
-  TypeTag,
   typeToString,
 } from "../../types";
 import { canRefStructFormCycles } from "../../types/utils";
@@ -311,12 +310,30 @@ export function generateFunction(
   const previousClosureType = (context as FunctionGenerationContext)
     .currentClosureType;
   if (functionType.isClosure) {
-    // This is a closure function - find the closure type to get capture info
-    const closureTypeEntry = Object.values(context.types).find(
-      (t) =>
-        t.type.tag === TypeTag.Closure &&
-        (t.type as ClosureType).callType === functionType
-    );
+    // This is a closure function - find the closure type by matching the function being generated
+    // The closure's callType points to the same function value (by funcId)
+    // We need to find the STRUCT VARIANT closure type (with captures), not the basetype
+    const closureTypeEntry = Object.values(context.types).find((t) => {
+      if (!isClosureType(t.type)) return false;
+      const closureType = t.type;
+
+      // Skip basetype closures without captures - look for struct variants
+      if (!closureType.captureType) return false;
+
+      // Find the function entry for this closure's callType
+      // The callType's function value should have the same funcId as the function we're generating
+      for (const funcEntry of Object.values(context.functions)) {
+        const entryFunctionType =
+          funcEntry.value.specializedType ?? funcEntry.value.type;
+        if (
+          entryFunctionType === closureType.callType &&
+          funcEntry.value.funcId === functionValue.funcId
+        ) {
+          return true;
+        }
+      }
+      return false;
+    });
 
     if (
       closureTypeEntry &&
@@ -1786,8 +1803,9 @@ ${paramAssignments}
     __yo_concurrency_set_maximum_threads(0);  // 0 = use hardware threads
   }
   
-  // Increment reference count for the closure since it will be used by the task
-  __yo_incr_rc(closure);
+  // NOTE: We use move semantics here - the closure ownership is transferred to the task
+  // The closure is created with RC=1, and we pass that reference to the task
+  // No need to increment RC since we're transferring ownership
   
   // Allocate task data
   ${structName}* data = (${structName}*)__yo_malloc(sizeof(${structName}));
@@ -1816,6 +1834,7 @@ ${paramAssignments}
     __yo_free(task->stack);
     __yo_free(task);
     __yo_free(data);
+    // On error, decrement the reference we received since we won't use it
     __yo_decr_rc(closure, (void(*)(void*))closure->vtable.dispose);
   }
 }
