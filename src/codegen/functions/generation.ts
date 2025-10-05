@@ -910,6 +910,22 @@ typedef enum {
   YO_TASK_COMPLETED   // Finished execution
 } yo_task_state_t;
 
+// Select case information
+typedef struct yo_select_case {
+  void* channel;              // Channel for this case
+  bool is_send;               // true = send, false = receive
+  void* value_ptr;            // For send: pointer to value, for recv: pointer to store result
+  int case_index;             // Which case this is (for switch statement)
+} yo_select_case_t;
+
+// Select state for a task blocked in select
+typedef struct {
+  yo_select_case_t* cases;    // Array of select cases
+  int num_cases;              // Number of cases
+  int ready_case;             // Which case is ready (-1 if none)
+  bool has_default;           // Whether there's a default case
+} yo_select_state_t;
+
 // Stack size for each task (64KB default, can be tuned)
 #define YO_TASK_STACK_SIZE (64 * 1024)
 
@@ -960,11 +976,13 @@ struct yo_task {
   void* data;                    // Task-specific data
   yo_task_state_t state;         // Current state
   void* wait_channel;            // Channel this task is waiting on (NULL if not waiting)
+  yo_select_state_t* select_state; // Select state if blocked in select (NULL otherwise)
   jmp_buf context;               // Saved execution context (setjmp/longjmp)
   char* stack;                   // Separate stack for this task
   size_t stack_size;             // Size of allocated stack
   bool context_initialized;      // Whether context has been set up
-  yo_task_t* next;               // Next task in queue
+  yo_task_t* next;               // Next task in queue (for ready/blocked queues)
+  yo_task_t* next_wait;          // Next task in channel wait queue
 };
 
 // Task queue (simple linked list)
@@ -1455,6 +1473,65 @@ void __yo_concurrency_set_maximum_threads(size_t num) {
 
 // Yield is no longer used with per-thread queues - tasks run cooperatively within each worker
 // Blocking/wakeup happens via __yo_task_block_and_yield which is called by channel operations
+
+// Yield control to allow other tasks to run (like Go's runtime.Gosched)
+// This allows a task to voluntarily give up the CPU to other tasks on the same worker
+void __yo_task_yield(void) {
+  if (!yo_task_scheduler_initialized || !yo_task_current) {
+    return; // Not in a task context
+  }
+  
+  yo_worker_thread_t* worker = yo_task_current_worker;
+  if (!worker) {
+    return;
+  }
+  
+  yo_task_t* current = yo_task_current;
+  
+  // Save current task context
+  if (setjmp(current->context) != 0) {
+    // Resumed after yield
+    return;
+  }
+  
+  // Move current task to back of ready queue to give others a chance
+  YO_MUTEX_LOCK(&worker->queue_mutex);
+  current->state = YO_TASK_READY;
+  
+  // Re-enqueue at the end
+  if (worker->ready_queue.tail) {
+    worker->ready_queue.tail->next = current;
+  } else {
+    worker->ready_queue.head = current;
+  }
+  worker->ready_queue.tail = current;
+  current->next = NULL;
+  worker->ready_queue.count++;
+  
+  YO_MUTEX_UNLOCK(&worker->queue_mutex);
+  
+  // Get next ready task from this worker's queue
+  yo_task_t* next = __yo_task_dequeue_from_worker(worker);
+  if (next) {
+    yo_task_current = next;
+    next->state = YO_TASK_RUNNING;
+    
+    if (next->context_initialized) {
+      // Resume next task
+      longjmp(next->context, 1);
+    } else {
+      // First time running next task
+      char* stack_top = next->stack + next->stack_size;
+      stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
+      __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
+    }
+  } else {
+    // No ready tasks - return to worker's main context
+    if (yo_task_main_context_set) {
+      longjmp(yo_task_main_context, 1);
+    }
+  }
+}
 
 // Wait for all spawned tasks to complete
 // This should be called from the main thread to run all pending tasks
@@ -2980,6 +3057,7 @@ function generateChannelFunctions(context: FunctionGenerationContext): void {
   }
 
   // Generate channel functions for each collected channel type
+  let isFirstChannelType = true;
   for (const { type: chanType, cName } of channelTypes) {
     const elementTypeStr = getTypeString(chanType.elementType, context);
     // Use cName directly - it should already be a valid C identifier without * suffix
@@ -3019,7 +3097,61 @@ function generateChannelFunctions(context: FunctionGenerationContext): void {
         }
       }
     }
-    emitter.emitLine(`// Channel functions for ${cName}
+    emitter.emitLine(`// Channel wait queue operations (operate on head/tail pointers directly)
+
+// Add task to channel's wait queue
+static void __yo_chan_wait_queue_add(yo_task_t** head, yo_task_t** tail, yo_task_t* task) {
+  task->next_wait = NULL;
+  if (*tail) {
+    (*tail)->next_wait = task;
+  } else {
+    *head = task;
+  }
+  *tail = task;
+}
+
+// Remove task from channel's wait queue
+static bool __yo_chan_wait_queue_remove(yo_task_t** head, yo_task_t** tail, yo_task_t* task) {
+  yo_task_t* curr = *head;
+  yo_task_t* prev = NULL;
+  
+  while (curr) {
+    if (curr == task) {
+      if (prev) {
+        prev->next_wait = curr->next_wait;
+      } else {
+        *head = curr->next_wait;
+      }
+      if (*tail == curr) {
+        *tail = prev;
+      }
+      return true;
+    }
+    prev = curr;
+    curr = curr->next_wait;
+  }
+  return false;
+}
+
+// Pop first task from channel's wait queue
+static yo_task_t* __yo_chan_wait_queue_pop(yo_task_t** head, yo_task_t** tail) {
+  yo_task_t* task = *head;
+  if (task) {
+    *head = task->next_wait;
+    if (!*head) {
+      *tail = NULL;
+    }
+    task->next_wait = NULL;
+  }
+  return task;
+}
+
+// Check if wait queue is empty
+static bool __yo_chan_wait_queue_empty(yo_task_t* head) {
+  return head == NULL;
+}
+
+// Channel functions for ${cName}
 
 ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   ${cName}* chan = (${cName}*)__yo_malloc(sizeof(${cName}));
@@ -3040,6 +3172,12 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   chan->head = 0;
   chan->tail = 0;
   atomic_store_explicit(&chan->closed, 0, memory_order_relaxed);
+  
+  // Initialize wait queues for select support (using head/tail pointers directly)
+  chan->send_queue_head = NULL;
+  chan->send_queue_tail = NULL;
+  chan->recv_queue_head = NULL;
+  chan->recv_queue_tail = NULL;
 
   if (capacity > 0) {
     chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}) * capacity);
@@ -3069,84 +3207,95 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     // Channel send function
     emitter.emitLine(`void __yo_chan_send_${safeCName}(${cName}* chan, ${elementTypeStr} value) {
   if (!chan || atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-    return; // Channel is null or closed
+    return;
   }
 
-    if (chan->capacity == 0) {
-      // Unbuffered channel - synchronous send (rendezvous)
+  if (chan->capacity == 0) {
+    // Unbuffered channel - direct handoff using wait queues
+    
+    if (yo_task_scheduler_initialized && yo_task_current) {
+      // Task context - use wait queues and park
       
-      // For cooperative task scheduler: block and switch to another task
-      if (yo_task_scheduler_initialized && yo_task_current) {
-        
-retry_send:  // Label for retrying after being woken up
-        
 #if defined(_WIN32)
-        EnterCriticalSection(&chan->mutex);
+      EnterCriticalSection(&chan->mutex);
 #else
-        pthread_mutex_lock(&chan->mutex);
+      pthread_mutex_lock(&chan->mutex);
 #endif
 
-        if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-#if defined(_WIN32)
-          LeaveCriticalSection(&chan->mutex);
-#else
-          pthread_mutex_unlock(&chan->mutex);
-#endif
-          return;
-        }
-
-        // Check if another sender is already active
-        if (chan->size > 0) {
-#if defined(_WIN32)
-          LeaveCriticalSection(&chan->mutex);
-#else
-          pthread_mutex_unlock(&chan->mutex);
-#endif
-          // Another sender is active, block and wait for our turn
-          __yo_task_block_and_yield(chan);
-          
-          // When resumed, try again from the beginning (using goto to avoid recursion)
-          goto retry_send;
-        }
-
-        // Now we can send (size == 0, no other sender)
-        // Allocate temporary storage for the value if not already allocated
-        if (chan->buffer == NULL) {
-          chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
-        }
-        
-        // Store the value
-        chan->buffer[0] = value;
-        chan->size = 1; // Mark that a value is ready
-
+      if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
 #if defined(_WIN32)
         LeaveCriticalSection(&chan->mutex);
 #else
         pthread_mutex_unlock(&chan->mutex);
 #endif
-
-        // Signal any pthread-blocked receiver (like main thread) that data is available
-#if defined(_WIN32)
-        WakeConditionVariable(&chan->recv_cond);
-#else
-        pthread_cond_signal(&chan->recv_cond);
-#endif
-
-        // Wake up ONE receiver task (not all tasks!)
-        __yo_task_wakeup_one(chan);
-        
-        // Block this task until receiver takes our value (receiver will set size back to 0)
-        __yo_task_block_and_yield(chan);
-        
-        CONCURRENCY_DEBUG("[SEND] Task=%p resumed from blocking, about to wake next sender\\n", yo_task_current);
-        
-        // When we resume, the receiver has taken our value
-        // Wake up next sender waiting for their turn (use global wakeup since we might not have current worker set)
-        __yo_task_wakeup_one_global(chan);
-        
-        CONCURRENCY_DEBUG("[SEND] Task=%p completed send, returning\\n", yo_task_current);
         return;
-      }    // Fall back to pthread blocking for non-task contexts
+      }
+
+      // Check if receiver is waiting
+      if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
+        // Receiver waiting - direct handoff
+        yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
+        
+        if (receiver->select_state != NULL) {
+          // Receiver is in select - find which case matches this channel
+          for (int i = 0; i < receiver->select_state->num_cases; i++) {
+            if (receiver->select_state->cases[i].channel == chan && 
+                !receiver->select_state->cases[i].is_send) {
+              // This is the receive case - store value
+              *(${elementTypeStr}*)receiver->select_state->cases[i].value_ptr = value;
+              receiver->select_state->ready_case = i;
+              break;
+            }
+          }
+        } else {
+          // Regular receive - store value in channel buffer
+          if (chan->buffer == NULL) {
+            chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
+          }
+          chan->buffer[0] = value;
+          chan->size = 1;
+        }
+        
+#if defined(_WIN32)
+        LeaveCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_unlock(&chan->mutex);
+#endif
+        
+        // Wake the receiver
+        __yo_task_wakeup_one_global(chan);
+        return;
+      }
+      
+      // No receiver waiting - must park
+      __yo_chan_wait_queue_add(&chan->send_queue_head, &chan->send_queue_tail, yo_task_current);
+      yo_task_current->wait_channel = chan;
+      
+      // Store value in temporary buffer for receiver to pick up
+      if (chan->buffer == NULL) {
+        chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
+      }
+      chan->buffer[0] = value;
+      chan->size = 1;
+      
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+      
+      // Park this task (save context and switch to next)
+      if (setjmp(yo_task_current->context) == 0) {
+        yo_task_current->state = YO_TASK_BLOCKED;
+        // Let scheduler switch to next task
+        __yo_task_yield();
+      }
+      
+      // Resumed - receiver took the value
+      return;
+    }
+    
+    // Non-task context - use pthread primitives
 #if defined(_WIN32)
     EnterCriticalSection(&chan->mutex);
 #else
@@ -3162,26 +3311,21 @@ retry_send:  // Label for retrying after being woken up
       return;
     }
 
-    // Allocate temporary storage for the value if not already allocated
     if (chan->buffer == NULL) {
       chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
     }
     
-    // Store the value
     chan->buffer[0] = value;
-    chan->size = 1; // Mark that a value is ready
+    chan->size = 1;
 
-    // Signal receiver that data is available and wait for handoff
 #if defined(_WIN32)
     WakeConditionVariable(&chan->recv_cond);
-    // Wait for receiver to take the value
     while (chan->size > 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
       SleepConditionVariableCS(&chan->send_cond, &chan->mutex, INFINITE);
     }
     LeaveCriticalSection(&chan->mutex);
 #else
     pthread_cond_signal(&chan->recv_cond);
-    // Wait for receiver to take the value
     while (chan->size > 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
       pthread_cond_wait(&chan->send_cond, &chan->mutex);
     }
@@ -3292,105 +3436,141 @@ retry_send:  // Label for retrying after being woken up
   }
 
   if (chan->capacity == 0) {
-    // Unbuffered channel - synchronous receive (rendezvous)
+    // Unbuffered channel - direct handoff using wait queues
     
-    // For cooperative task scheduler: check if data is available, otherwise process tasks
-    if (yo_task_scheduler_initialized) {
+    if (yo_task_scheduler_initialized && yo_task_current) {
+      // Task context - use wait queues and park
+      
 #if defined(_WIN32)
       EnterCriticalSection(&chan->mutex);
 #else
       pthread_mutex_lock(&chan->mutex);
 #endif
       
-      // Check if data is available (from a blocked sender)
-      if (chan->size > 0 && chan->buffer != NULL) {
-        // Data is available! Take it and wake the sender
-        ${elementTypeStr} value = chan->buffer[0];
-        chan->size = 0; // Mark that value has been taken
-        
-        // Construct Some(value)
-        result.tag = ${someTag}; // SOME variant
-        result.data.Some.value = value;
-
+      if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+        result.tag = ${noneTag};
 #if defined(_WIN32)
         LeaveCriticalSection(&chan->mutex);
 #else
         pthread_mutex_unlock(&chan->mutex);
 #endif
-
-        // Wake up the ONE sender task that was blocked
-        __yo_task_wakeup_one(chan);
-        
         return result;
       }
       
-      // No data available yet
-      bool in_task = (yo_task_current != NULL);
+      // Check if sender is waiting
+      if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
+        // Sender waiting - take value directly
+        yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
+        
+        // Value is in buffer (sender put it there)
+        if (chan->size > 0 && chan->buffer != NULL) {
+          result.tag = ${someTag};
+          result.data.Some.value = chan->buffer[0];
+          chan->size = 0;
+        } else {
+          result.tag = ${noneTag};
+        }
+        
+#if defined(_WIN32)
+        LeaveCriticalSection(&chan->mutex);
+#else
+        pthread_mutex_unlock(&chan->mutex);
+#endif
+        
+        // Wake the sender
+        __yo_task_wakeup_one_global(chan);
+        return result;
+      }
+      
+      // Check if value is available from non-task sender
+      if (chan->size > 0 && chan->buffer != NULL) {
+        result.tag = ${someTag};
+        result.data.Some.value = chan->buffer[0];
+        chan->size = 0;
+
+#if defined(_WIN32)
+        LeaveCriticalSection(&chan->mutex);
+        WakeConditionVariable(&chan->send_cond);
+#else
+        pthread_mutex_unlock(&chan->mutex);
+        pthread_cond_signal(&chan->send_cond);
+#endif
+        
+        __yo_task_wakeup_one_global(chan);
+        return result;
+      }
+      
+      // No sender waiting - must park
+      __yo_chan_wait_queue_add(&chan->recv_queue_head, &chan->recv_queue_tail, yo_task_current);
+      yo_task_current->wait_channel = chan;
       
 #if defined(_WIN32)
       LeaveCriticalSection(&chan->mutex);
 #else
       pthread_mutex_unlock(&chan->mutex);
 #endif
-        
-      if (in_task) {
-        // We're in a task, block and switch to another task
-        __yo_task_block_and_yield(chan);
-        
-        // When resumed, data should be available - take it
+      
+      // Park this task (save context and switch to next)
+      if (setjmp(yo_task_current->context) == 0) {
+        yo_task_current->state = YO_TASK_BLOCKED;
+        __yo_task_yield();
+      }
+      
+      // Resumed - value should be available
 #if defined(_WIN32)
-        EnterCriticalSection(&chan->mutex);
+      EnterCriticalSection(&chan->mutex);
 #else
-        pthread_mutex_lock(&chan->mutex);
+      pthread_mutex_lock(&chan->mutex);
 #endif
 
+      if (yo_task_current->select_state != NULL) {
+        // We were in select - value was written to select state
+        for (int i = 0; i < yo_task_current->select_state->num_cases; i++) {
+          if (yo_task_current->select_state->cases[i].channel == chan && 
+              !yo_task_current->select_state->cases[i].is_send) {
+            result.tag = ${someTag};
+            result.data.Some.value = *(${elementTypeStr}*)yo_task_current->select_state->cases[i].value_ptr;
+            break;
+          }
+        }
+      } else {
+        // Regular receive - value in buffer
         if (chan->size > 0 && chan->buffer != NULL) {
-          ${elementTypeStr} value = chan->buffer[0];
-          chan->size = 0;
           result.tag = ${someTag};
-          result.data.Some.value = value;
+          result.data.Some.value = chan->buffer[0];
+          chan->size = 0;
         } else {
           result.tag = ${noneTag};
         }
+      }
 
 #if defined(_WIN32)
-        LeaveCriticalSection(&chan->mutex);
+      LeaveCriticalSection(&chan->mutex);
 #else
-        pthread_mutex_unlock(&chan->mutex);
+      pthread_mutex_unlock(&chan->mutex);
 #endif
 
-        __yo_task_wakeup(chan);
-        return result;
-      }
-      
-      // Not in a task - fall through to pthread blocking below
+      return result;
     }
     
-    // Fall back to pthread blocking for non-task contexts
+    // Non-task context - use pthread primitives
 #if defined(_WIN32)
     EnterCriticalSection(&chan->mutex);
-    // Wait for sender to provide data
     while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
       SleepConditionVariableCS(&chan->recv_cond, &chan->mutex, INFINITE);
     }
 #else
     pthread_mutex_lock(&chan->mutex);
-    // Wait for sender to provide data
     while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
       pthread_cond_wait(&chan->recv_cond, &chan->mutex);
     }
 #endif
 
     if (chan->size > 0 && chan->buffer != NULL) {
-      // Get the value
-      ${elementTypeStr} value = chan->buffer[0];
-      chan->size = 0; // Mark that value has been taken
-      
-      // Construct Some(value)
-      result.tag = ${someTag}; // SOME variant
-      result.data.Some.value = value;
+      result.tag = ${someTag};
+      result.data.Some.value = chan->buffer[0];
+      chan->size = 0;
 
-      // Signal sender that value has been taken
 #if defined(_WIN32)
       WakeConditionVariable(&chan->send_cond);
       LeaveCriticalSection(&chan->mutex);
@@ -3399,11 +3579,9 @@ retry_send:  // Label for retrying after being woken up
       pthread_mutex_unlock(&chan->mutex);
 #endif
 
-      // Also wake up any task-blocked senders across all workers
       __yo_task_wakeup_one_global(chan);
     } else {
-      // Channel closed, return None
-      result.tag = ${noneTag}; // NONE variant
+      result.tag = ${noneTag};
 #if defined(_WIN32)
       LeaveCriticalSection(&chan->mutex);
 #else
@@ -3504,6 +3682,308 @@ retry_send:  // Label for retrying after being woken up
 }
 `);
 
+    // Generic select runtime function (works for all channel types)
+    if (isFirstChannelType) {
+      emitter.emitLine(`
+// Go-style select implementation
+int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
+  if (!yo_task_scheduler_initialized || !yo_task_current) {
+    // Not in task context - cannot use select
+    return -1;
+  }
+  
+  // PHASE 1: Lock all channels and poll for ready cases
+  // TODO: Sort channels by address to avoid deadlock (for now, lock in order)
+  for (int i = 0; i < num_cases; i++) {
+    void* chan_ptr = cases[i].channel;
+    if (chan_ptr) {
+#if defined(_WIN32)
+      // For type-erased channel, we need to know the actual type
+      // For now, assume all channels have same mutex layout
+      EnterCriticalSection(&((${cName}*)chan_ptr)->mutex);
+#else
+      pthread_mutex_lock(&((${cName}*)chan_ptr)->mutex);
+#endif
+    }
+  }
+  
+  // Poll each case to see if ready
+  int ready_case = -1;
+  for (int i = 0; i < num_cases && ready_case < 0; i++) {
+    ${cName}* chan = (${cName}*)cases[i].channel;
+    if (!chan) continue;
+    
+    if (cases[i].is_send) {
+      // Send case - ready if receiver waiting or buffer has space
+      if (chan->capacity == 0) {
+        // Unbuffered - ready if receiver in queue
+        if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
+          ready_case = i;
+        }
+      } else {
+        // Buffered - ready if space available
+        if (chan->size < chan->capacity) {
+          ready_case = i;
+        }
+      }
+    } else {
+      // Receive case - ready if sender waiting or buffer has data
+      if (chan->capacity == 0) {
+        // Unbuffered - ready if sender in queue or value available
+        if (!__yo_chan_wait_queue_empty(chan->send_queue_head) || chan->size > 0) {
+          ready_case = i;
+        }
+      } else {
+        // Buffered - ready if data available
+        if (chan->size > 0) {
+          ready_case = i;
+        }
+      }
+    }
+  }
+  
+  // If case is ready, perform operation and return
+  if (ready_case >= 0) {
+    ${cName}* chan = (${cName}*)cases[ready_case].channel;
+    
+    if (cases[ready_case].is_send) {
+      // Perform send
+      ${elementTypeStr} value = *(${elementTypeStr}*)cases[ready_case].value_ptr;
+      
+      if (chan->capacity == 0) {
+        // Unbuffered send - dequeue receiver and handoff
+        if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
+          yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
+          
+          // Write value to receiver's buffer
+          if (receiver->select_state) {
+            for (int j = 0; j < receiver->select_state->num_cases; j++) {
+              if (receiver->select_state->cases[j].channel == chan && 
+                  !receiver->select_state->cases[j].is_send) {
+                *(${elementTypeStr}*)receiver->select_state->cases[j].value_ptr = value;
+                receiver->select_state->ready_case = j;
+                break;
+              }
+            }
+          } else {
+            if (!chan->buffer) chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
+            chan->buffer[0] = value;
+            chan->size = 1;
+          }
+          
+          // Unlock all before waking
+          for (int i = 0; i < num_cases; i++) {
+            if (cases[i].channel) {
+#if defined(_WIN32)
+              LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+              pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+            }
+          }
+          
+          __yo_task_wakeup_one_global(chan);
+          return ready_case;
+        }
+      } else {
+        // Buffered send
+        chan->buffer[chan->tail] = value;
+        chan->tail = (chan->tail + 1) % chan->capacity;
+        chan->size++;
+        
+        // Wake waiting receiver if any
+        if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
+          yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
+          
+          // Unlock all before waking
+          for (int i = 0; i < num_cases; i++) {
+            if (cases[i].channel) {
+#if defined(_WIN32)
+              LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+              pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+            }
+          }
+          
+          __yo_task_wakeup_one_global(chan);
+          return ready_case;
+        }
+      }
+    } else {
+      // Perform receive
+      if (chan->capacity == 0) {
+        // Unbuffered recv - dequeue sender and take value
+        if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
+          yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
+          
+          if (chan->size > 0 && chan->buffer) {
+            *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[0];
+            chan->size = 0;
+          }
+          
+          // Unlock all before waking
+          for (int i = 0; i < num_cases; i++) {
+            if (cases[i].channel) {
+#if defined(_WIN32)
+              LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+              pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+            }
+          }
+          
+          __yo_task_wakeup_one_global(chan);
+          return ready_case;
+        } else if (chan->size > 0 && chan->buffer) {
+          // Value from non-task sender
+          *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[0];
+          chan->size = 0;
+        }
+      } else {
+        // Buffered recv
+        if (chan->size > 0) {
+          *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[chan->head];
+          chan->head = (chan->head + 1) % chan->capacity;
+          chan->size--;
+          
+          // Wake waiting sender if any
+          if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
+            yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
+            
+            // Unlock all before waking
+            for (int i = 0; i < num_cases; i++) {
+              if (cases[i].channel) {
+#if defined(_WIN32)
+                LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+                pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+              }
+            }
+            
+            __yo_task_wakeup_one_global(chan);
+            return ready_case;
+          }
+        }
+      }
+    }
+    
+    // Unlock all channels
+    for (int i = 0; i < num_cases; i++) {
+      if (cases[i].channel) {
+#if defined(_WIN32)
+        LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+        pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+      }
+    }
+    
+    return ready_case;
+  }
+  
+  // If has default and nothing ready, return -1 for default
+  if (has_default) {
+    for (int i = 0; i < num_cases; i++) {
+      if (cases[i].channel) {
+#if defined(_WIN32)
+        LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+        pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+      }
+    }
+    return -1;
+  }
+  
+  // PHASE 2: No ready cases, no default - register and park
+  
+  // Allocate select state
+  yo_select_state_t* state = (yo_select_state_t*)__yo_malloc(sizeof(yo_select_state_t));
+  state->cases = cases;
+  state->num_cases = num_cases;
+  state->ready_case = -1;
+  state->has_default = has_default;
+  yo_task_current->select_state = state;
+  
+  // Register with all channel wait queues
+  for (int i = 0; i < num_cases; i++) {
+    ${cName}* chan = (${cName}*)cases[i].channel;
+    if (!chan) continue;
+    
+    if (cases[i].is_send) {
+      __yo_chan_wait_queue_add(&chan->send_queue_head, &chan->send_queue_tail, yo_task_current);
+    } else {
+      __yo_chan_wait_queue_add(&chan->recv_queue_head, &chan->recv_queue_tail, yo_task_current);
+    }
+  }
+  
+  // Unlock all channels
+  for (int i = 0; i < num_cases; i++) {
+    if (cases[i].channel) {
+#if defined(_WIN32)
+      LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+      pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+    }
+  }
+  
+  // Park the task
+  if (setjmp(yo_task_current->context) == 0) {
+    yo_task_current->state = YO_TASK_BLOCKED;
+    yo_task_current->wait_channel = NULL; // Waiting on multiple channels
+    __yo_task_yield();
+  }
+  
+  // ===== RESUMED - one channel is ready =====
+  
+  ready_case = state->ready_case;
+  
+  // Lock all channels again
+  for (int i = 0; i < num_cases; i++) {
+    if (cases[i].channel) {
+#if defined(_WIN32)
+      EnterCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+      pthread_mutex_lock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+    }
+  }
+  
+  // Dequeue from all wait queues
+  for (int i = 0; i < num_cases; i++) {
+    ${cName}* chan = (${cName}*)cases[i].channel;
+    if (!chan) continue;
+    
+    if (cases[i].is_send) {
+      __yo_chan_wait_queue_remove(&chan->send_queue_head, &chan->send_queue_tail, yo_task_current);
+    } else {
+      __yo_chan_wait_queue_remove(&chan->recv_queue_head, &chan->recv_queue_tail, yo_task_current);
+    }
+  }
+  
+  // Unlock all channels
+  for (int i = 0; i < num_cases; i++) {
+    if (cases[i].channel) {
+#if defined(_WIN32)
+      LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+#else
+      pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+#endif
+    }
+  }
+  
+  // Free select state
+  __yo_free(state);
+  yo_task_current->select_state = NULL;
+  
+  return ready_case;
+}
+`);
+    }
+
     // Channel close function
     emitter.emitLine(`void __yo_chan_close_${safeCName}(${cName}* chan) {
   if (!chan) return;
@@ -3553,5 +4033,7 @@ retry_send:  // Label for retrying after being woken up
 #endif
 }
 `);
+
+    isFirstChannelType = false;
   }
 }

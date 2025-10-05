@@ -251,6 +251,13 @@ struct yo_thread_gc_state {
 };
 `);
 
+  // Forward declarations for task and queue types (used by channel types)
+  context.emitter.emitDeclarationLine("typedef struct yo_task yo_task_t;");
+  context.emitter.emitDeclarationLine(
+    "typedef struct yo_task_queue yo_task_queue_t;"
+  );
+  context.emitter.emitDeclarationLine("");
+
   // Forward declarations - generate struct and enum forward declarations first
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
@@ -791,6 +798,20 @@ export function generateChanDeclaration(
     `  pthread_cond_t recv_cond; // Condition for receive operations`
   );
   emitter.emitDeclarationLine(`#endif`);
+
+  // Wait queues for select support (Go-style) - just head pointers
+  emitter.emitDeclarationLine(
+    `  yo_task_t* send_queue_head; // Head of tasks waiting to send`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_task_t* send_queue_tail; // Tail of tasks waiting to send`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_task_t* recv_queue_head; // Head of tasks waiting to receive`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_task_t* recv_queue_tail; // Tail of tasks waiting to receive`
+  );
 
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability

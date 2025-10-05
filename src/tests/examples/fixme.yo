@@ -15,10 +15,10 @@ fibonacci :: (fn(ch : Chan(i32), quit : Chan(i32)) -> unit) {
       (q := <-(quit)) => {
         printf("quit %d\n", q);
         return;
-      },
+      }/*,
       _ => {
         printf("default\n");
-      }
+      }*/
     ));
 };
 
@@ -35,7 +35,10 @@ main :: (fn() -> unit) {
     };
     quit <- 0;
   };
-  fibonacci(ch, quit);
+
+  async {
+    fibonacci(ch, quit);
+  };
 };
 
 export main;
