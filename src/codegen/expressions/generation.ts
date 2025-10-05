@@ -911,6 +911,10 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
     return generateMatchExpression(expr, indent, context);
   }
+  // select
+  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.select)) {
+    return generateSelectExpression(expr, indent, context);
+  }
   // ptr value
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
     const type = expr.$?.type;
@@ -3026,6 +3030,222 @@ function generateMatchExpression(
 
   context.emitter.emitLine(`${indent}}`);
   return isUnit ? "" : (tempVariableName ?? ""); // Return the temp variable name
+}
+
+/**
+ * Generate a select expression for channel operations (similar to Go's select statement)
+ */
+function generateSelectExpression(
+  expr: FuncCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  // Check if the select expression has been evaluated
+  if (!expr.$) {
+    return '/* "select" expression is not evaluated */';
+  }
+
+  const tempVar = expr.$.variableName;
+  const valueType = expr.$.type;
+  const isUnit = valueType && isUnitType(valueType);
+
+  // For unit types, don't declare a temporary variable
+  if (!isUnit && tempVar) {
+    const varType = getTypeString(valueType, context);
+    context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
+  }
+
+  const cases = expr.args;
+
+  // Generate a simple sequential if-else structure for now
+  // In a full implementation, this would use non-blocking channel operations
+  // and potentially a randomized case selection
+
+  let firstCase = true;
+  for (let i = 0; i < cases.length; i++) {
+    const caseStmt = cases[i];
+    if (
+      !exprIsFunctionCall(caseStmt) ||
+      !exprIsFunctionCallOf(caseStmt, "=>", 2)
+    ) {
+      continue;
+    }
+
+    const caseExpr = caseStmt.args[0]!;
+    const bodyExpr = caseStmt.args[1]!;
+
+    // Handle default case
+    if (exprIsAtom(caseExpr) && caseExpr.token.value === "_") {
+      context.emitter.emitLine(`${indent}else {`);
+      context.emitter.emitLine(`${indent}  // default case`);
+
+      // Generate body
+      if (
+        exprIsFunctionCall(bodyExpr) &&
+        exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
+      ) {
+        const beginArgs = bodyExpr.args;
+        for (let j = 0; j < beginArgs.length; j++) {
+          const arg = beginArgs[j]!;
+          const argCode = generateExpr(arg, indent + "  ", context);
+          if (argCode) {
+            if (j === beginArgs.length - 1 && !isUnit && tempVar) {
+              context.emitter.emitLine(`${indent}  ${tempVar} = ${argCode};`);
+            } else {
+              context.emitter.emitLine(`${indent}  ${argCode};`);
+            }
+          }
+        }
+      } else {
+        const bodyCode = generateExpr(bodyExpr, indent + "  ", context);
+        if (bodyCode) {
+          if (!isUnit && tempVar) {
+            context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
+          } else {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          }
+        }
+      }
+
+      context.emitter.emitLine(`${indent}}`);
+      continue;
+    }
+
+    // Handle send case: (ch <- val)
+    if (
+      exprIsFunctionCall(caseExpr) &&
+      exprIsFunctionCallOf(caseExpr, "<-", 2)
+    ) {
+      const channelExpr = caseExpr.args[0]!;
+      const valueExpr = caseExpr.args[1]!;
+
+      const channelCode = generateExpr(channelExpr, indent, context);
+      const valueCode = generateExpr(valueExpr, indent, context);
+
+      const ifKeyword = firstCase ? "if" : "else if";
+      firstCase = false;
+
+      // TODO: Use non-blocking send operation
+      // For now, just execute the send
+      context.emitter.emitLine(
+        `${indent}${ifKeyword} (1) { // send case: ${channelCode} <- ${valueCode}`
+      );
+      context.emitter.emitLine(
+        `${indent}  ${generateExpr(caseExpr, indent + "  ", context)};`
+      );
+
+      // Generate body
+      if (
+        exprIsFunctionCall(bodyExpr) &&
+        exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
+      ) {
+        const beginArgs = bodyExpr.args;
+        for (let j = 0; j < beginArgs.length; j++) {
+          const arg = beginArgs[j]!;
+          const argCode = generateExpr(arg, indent + "  ", context);
+          if (argCode) {
+            if (j === beginArgs.length - 1 && !isUnit && tempVar) {
+              context.emitter.emitLine(`${indent}  ${tempVar} = ${argCode};`);
+            } else {
+              context.emitter.emitLine(`${indent}  ${argCode};`);
+            }
+          }
+        }
+      } else {
+        const bodyCode = generateExpr(bodyExpr, indent + "  ", context);
+        if (bodyCode) {
+          if (!isUnit && tempVar) {
+            context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
+          } else {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          }
+        }
+      }
+
+      context.emitter.emitLine(`${indent}}`);
+      continue;
+    }
+
+    // Handle receive case: (<-(ch)) or (var := (<-(ch)))
+    if (
+      (exprIsFunctionCall(caseExpr) &&
+        exprIsFunctionCallOf(caseExpr, "<-", 1)) ||
+      (exprIsFunctionCall(caseExpr) && exprIsFunctionCallOf(caseExpr, ":=", 2))
+    ) {
+      const ifKeyword = firstCase ? "if" : "else if";
+      firstCase = false;
+
+      let recvExpr: Expr;
+      let varName: string | undefined;
+
+      if (exprIsFunctionCallOf(caseExpr, ":=", 2)) {
+        // (var := (<-(ch)))
+        varName = caseExpr.args[0]!.token.value;
+        recvExpr = caseExpr.args[1]!;
+      } else {
+        // (<-(ch))
+        recvExpr = caseExpr;
+      }
+
+      const channelExpr = (recvExpr as FuncCallExpr).args[0]!;
+      const channelCode = generateExpr(channelExpr, indent, context);
+
+      // TODO: Use non-blocking receive operation
+      // For now, just execute the receive
+      context.emitter.emitLine(
+        `${indent}${ifKeyword} (1) { // receive case from ${channelCode}`
+      );
+
+      if (varName) {
+        const recvCode = generateExpr(recvExpr, indent + "  ", context);
+        const recvType = recvExpr.$?.type;
+        if (recvType) {
+          const recvTypeStr = getTypeString(recvType, context);
+          context.emitter.emitLine(
+            `${indent}  ${recvTypeStr} ${varName} = ${recvCode};`
+          );
+        }
+      } else {
+        context.emitter.emitLine(
+          `${indent}  ${generateExpr(recvExpr, indent + "  ", context)};`
+        );
+      }
+
+      // Generate body
+      if (
+        exprIsFunctionCall(bodyExpr) &&
+        exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
+      ) {
+        const beginArgs = bodyExpr.args;
+        for (let j = 0; j < beginArgs.length; j++) {
+          const arg = beginArgs[j]!;
+          const argCode = generateExpr(arg, indent + "  ", context);
+          if (argCode) {
+            if (j === beginArgs.length - 1 && !isUnit && tempVar) {
+              context.emitter.emitLine(`${indent}  ${tempVar} = ${argCode};`);
+            } else {
+              context.emitter.emitLine(`${indent}  ${argCode};`);
+            }
+          }
+        }
+      } else {
+        const bodyCode = generateExpr(bodyExpr, indent + "  ", context);
+        if (bodyCode) {
+          if (!isUnit && tempVar) {
+            context.emitter.emitLine(`${indent}  ${tempVar} = ${bodyCode};`);
+          } else {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          }
+        }
+      }
+
+      context.emitter.emitLine(`${indent}}`);
+      continue;
+    }
+  }
+
+  // For unit types, return empty string; for others, return temp variable
+  return isUnit ? "" : (tempVar ?? "");
 }
 
 /**

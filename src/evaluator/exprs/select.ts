@@ -148,76 +148,42 @@ Supported patterns:
     parsedCases.push({ caseExpr, bodyExpr, caseKind, caseEnv });
   }
 
-  // For select, we don't actually execute the case expressions (channel operations)
-  // We only need to validate them for type-checking purposes
-  // The actual channel operations will be generated in the codegen phase
-
-  // Validate case expressions by evaluating their components (but not the operations themselves)
-  for (const { caseExpr, caseKind, caseEnv } of parsedCases) {
-    if (caseKind === "send") {
-      // For send: (ch <- val), validate both channel and value
-      const sendExpr = caseExpr as FuncCallExpr;
-      const channelExpr = sendExpr.args[0]!;
-      const valueExpr = sendExpr.args[1]!;
-
-      const evaluatedChannelExpr = context.evaluateExpression({
-        expr: channelExpr,
-        env: caseEnv,
-        context: { ...context },
-      });
-
-      if (!evaluatedChannelExpr.$) {
-        throw formatErrorMessage({
-          token: channelExpr.token,
-          errorMessage: `Failed to evaluate channel expression in send case: ${exprToString(channelExpr)}`,
-        });
-      }
-
-      const evaluatedValueExpr = context.evaluateExpression({
-        expr: valueExpr,
-        env: evaluatedChannelExpr.$.env,
-        context: { ...context },
-      });
-
-      if (!evaluatedValueExpr.$) {
-        throw formatErrorMessage({
-          token: valueExpr.token,
-          errorMessage: `Failed to evaluate value expression in send case: ${exprToString(valueExpr)}`,
-        });
-      }
-    } else if (caseKind === "receive" || caseKind === "receive_assign") {
-      // For receive: (<-(ch)) or (var := (<-(ch))), validate the channel
-      let recvExpr: FuncCallExpr;
-      if (caseKind === "receive_assign") {
-        const assignExpr = caseExpr as FuncCallExpr;
-        recvExpr = assignExpr.args[1]! as FuncCallExpr; // Get the receive operation from assignment
-      } else {
-        recvExpr = caseExpr as FuncCallExpr;
-      }
-
-      const channelExpr = recvExpr.args[0]!;
-      const evaluatedChannelExpr = context.evaluateExpression({
-        expr: channelExpr,
-        env: caseEnv,
-        context: { ...context },
-      });
-
-      if (!evaluatedChannelExpr.$) {
-        throw formatErrorMessage({
-          token: channelExpr.token,
-          errorMessage: `Failed to evaluate channel expression in receive case: ${exprToString(channelExpr)}`,
-        });
-      }
-    }
-    // Default case needs no validation
-  }
-
+  // Evaluate all case expressions to validate them and handle variable assignments
   const evaluatedCases: Array<{
     caseExpr: Expr;
     bodyExpr: Expr;
     caseKind: "send" | "receive" | "receive_assign" | "default";
     caseEnv: Environment;
-  }> = parsedCases;
+  }> = [];
+
+  for (const { caseExpr, bodyExpr, caseKind, caseEnv } of parsedCases) {
+    let updatedCaseEnv = caseEnv;
+
+    if (caseKind !== "default") {
+      // Evaluate the case expression (send, receive, or receive_assign)
+      const evaluatedCaseExpr = context.evaluateExpression({
+        expr: caseExpr,
+        env: updatedCaseEnv,
+        context: { ...context },
+      });
+
+      if (!evaluatedCaseExpr.$) {
+        throw formatErrorMessage({
+          token: caseExpr.token,
+          errorMessage: `Failed to evaluate select case expression: ${exprToString(caseExpr)}`,
+        });
+      }
+
+      updatedCaseEnv = evaluatedCaseExpr.$.env;
+    }
+
+    evaluatedCases.push({
+      caseExpr,
+      bodyExpr,
+      caseKind,
+      caseEnv: updatedCaseEnv,
+    });
+  }
 
   // Evaluate all case bodies
   const bodies: Expr[] = [];
