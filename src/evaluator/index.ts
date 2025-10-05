@@ -92,6 +92,7 @@ import { evaluateMatch } from "./exprs/match";
 import { evaluateOpen } from "./exprs/open";
 import { evaluatePropertyAccess } from "./exprs/property_access";
 import { evaluateRecur } from "./exprs/recur";
+import { evaluateSelect } from "./exprs/select";
 import { evaluateSubtypeOf } from "./exprs/subtype_of";
 import { evaluateTypeOf } from "./exprs/typeof";
 import { evaluateWhile } from "./exprs/while";
@@ -314,6 +315,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
         // match
         return evaluateMatch({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.select)) {
+        // select
+        return evaluateSelect({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
         // tuple
         return evaluateTupleValue({ expr, env, context: { ...context } });

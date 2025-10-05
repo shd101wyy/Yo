@@ -182,6 +182,10 @@ export function evaluateWhile({
       });
     }
 
+    // Check if the body contains runtime values (e.g., from select statements)
+    // If so, we should not continue evaluating the loop at compile-time
+    const bodyHasRuntimeValue = evaluatedBodyExpr.$.value === undefined;
+
     // update the env
     env = evaluatedBodyExpr.$.env;
 
@@ -202,6 +206,23 @@ export function evaluateWhile({
       }
       // Update environment with step evaluation
       env = evaluatedStepExpr.$.env;
+    }
+
+    // If the condition is compile-time true AND the body has runtime values,
+    // we should stop compile-time evaluation to avoid infinite loops
+    if (
+      isBooleanValue(conditionValue) &&
+      conditionValue.value === true &&
+      bodyHasRuntimeValue
+    ) {
+      // The loop will run at runtime, but we can't evaluate it at compile-time
+      expr.$ = {
+        env: env,
+        pathCollection: [],
+        type: VUnit.type,
+        value: undefined, // Runtime value
+      };
+      return expr;
     }
 
     if (isBooleanValue(conditionValue) && conditionValue.value === true) {

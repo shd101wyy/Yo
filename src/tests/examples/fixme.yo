@@ -16,6 +16,9 @@ fibonacci :: (fn(ch : Chan(i32), quit : Chan(i32)) -> unit) {
       // (v := <-(quit)) => {
         printf("quit\n");
         return;
+      },
+      _ => {
+        printf("default\n");
       }
     ));
 };
@@ -26,7 +29,7 @@ main :: (fn() -> unit) {
   quit := chan(i32); // unbuffered channel
 
   async {
-    i = 0;
+    i := 0;
     while i < 10, i = (i + 1), {
       value := <-(ch).unwrap();
       printf("%d\n", value);

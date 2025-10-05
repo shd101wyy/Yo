@@ -419,6 +419,7 @@ export const BuiltinKeywords = {
   cond: ["cond"],
   type: ["type"],
   match: ["match"],
+  select: ["select"],
   struct: ["struct"],
   object: ["object"],
   enum: ["enum"],
