@@ -222,6 +222,45 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Generate the function body
     generateFunction(value, cName, context);
   }
+
+  // Generate main wrapper if user defined a main function
+  generateMainWrapper(context);
+}
+
+/**
+ * Generate a main() wrapper that calls yo_user_main() and then __yo_task_wait_all()
+ * This ensures all cooperative tasks complete before the program exits
+ */
+function generateMainWrapper(context: FunctionGenerationContext): void {
+  const emitter = context.emitter;
+
+  // Check if user defined a main function
+  let hasMain = false;
+  for (const funcId in context.functions) {
+    const { cName } = context.functions[funcId]!;
+    if (cName === "yo_user_main") {
+      hasMain = true;
+      break;
+    }
+  }
+
+  if (!hasMain) {
+    return; // No main function, nothing to wrap
+  }
+
+  emitter.emitLine(`
+// Main wrapper - automatically calls __yo_task_wait_all() on exit
+int main(void) {
+  int result = yo_user_main();
+  
+  // Wait for all cooperative tasks to complete before exiting
+  if (yo_task_scheduler_initialized) {
+    __yo_task_wait_all();
+  }
+  
+  return result;
+}
+`);
 }
 
 /**

@@ -24,11 +24,12 @@ export function collectRequiredFunctions(
     if (isFunctionValue(value)) {
       const label = element.label;
 
-      // Exported functions keep their original names (especially main)
+      // Exported functions keep their original names (except main)
       if (label === "main") {
+        // Rename user's main to yo_user_main - we'll wrap it
         context.functions[value.funcId] = {
           value,
-          cName: "main",
+          cName: "yo_user_main",
         };
       } else {
         context.functions[value.funcId] = {
