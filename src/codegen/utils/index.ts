@@ -314,11 +314,6 @@ export function getTypeString(
       // In dynamic dispatch contexts, Self should be void*
       return "void*";
 
-    // Thread type (threading handle)
-    case TypeTag.Thread:
-      // Thread handles are ARC objects - return pointer type
-      return "yo_thread_t*";
-
     // Channel type
     case TypeTag.Chan: {
       // Use the registered C type name

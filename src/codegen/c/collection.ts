@@ -34,6 +34,12 @@ export function emitCIncludes(context: CodeGenContext): void {
   context.emitter.emitHeaderLine(`#define _FORTIFY_SOURCE 0`);
   context.emitter.emitHeaderLine(``);
 
+  // Enable POSIX extensions for usleep and other functions
+  context.emitter.emitHeaderLine(`#ifndef _WIN32`);
+  context.emitter.emitHeaderLine(`#define _DEFAULT_SOURCE`);
+  context.emitter.emitHeaderLine(`#endif`);
+  context.emitter.emitHeaderLine(``);
+
   for (const include of context.cIncludes) {
     context.emitter.emitHeaderLine(`#include ${include}`);
   }
