@@ -138,14 +138,15 @@ export function evaluateAsync({
     });
   }
 
-  // DO NOT update env with evaluatedCall.$.env
-  // The closure value is being passed to async which takes ownership
-  // If we update env, the closure will be tracked for cleanup in the current scope
-  // but it's already been transferred to the async task spawner
+  // DO NOT update env here!
+  // The deferred drop logic needs to see box1 and box2 in the environment
+  // so it can generate drop calls for them in the capture struct's drop function.
+  // If we use evaluatedClosure.$.env, those variables are already marked as consumed
+  // and won't be included in the deferred drops.
 
   // Store the closure call in the async expression for codegen
   expr.$ = {
-    env, // Use the original env, not evaluatedCall.$.env
+    env, // Use original env, NOT evaluatedClosure.$.env or evaluatedCall.$.env
     type: VUnit.type,
     value: undefined, // Runtime value, not compile-time
     pathCollection: [],

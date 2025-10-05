@@ -1192,10 +1192,32 @@ function generateFuncCall(
         const args = runtimeArgExprs.map((arg, index) => {
           // First, check if this argument needs a temporary variable
           if (arg.$?.variableName && arg.$?.type) {
+            // Check if this variable is a captured variable in the current closure
+            const functionContext = context as FunctionGenerationContext;
+            const isCapturedVariable =
+              functionContext.currentClosureCaptures &&
+              functionContext.currentClosureCaptures.includes(
+                arg.$.variableName
+              ) &&
+              exprIsAtom(arg) &&
+              arg.$.env &&
+              functionContext.currentClosureCaptureFrameLevel !== undefined &&
+              checkVariableIsClosureCaptured(
+                arg.token.value,
+                arg.$.env,
+                functionContext.currentClosureCaptureFrameLevel
+              );
+
             // Generate the argument expression and declare it as a temp variable
             const argCode = generateExpr(arg, indent, context);
-            if (argCode && argCode !== arg.$.variableName) {
-              // Only emit declaration if the expression doesn't already handle it
+            if (
+              argCode &&
+              argCode !== arg.$.variableName &&
+              !isCapturedVariable
+            ) {
+              // Only emit declaration if:
+              // 1. The expression doesn't already handle it
+              // 2. It's not a captured variable (those are accessed inline from closure_context->data)
               const varTypeAndName = getVariableTypeString(
                 arg.$.type,
                 arg.$.variableName,
@@ -1235,7 +1257,9 @@ function generateFuncCall(
               // For all other methods (wrapped object methods), pass the wrapped object data
               return `${arg.$.variableName}->data`;
             } else {
-              return arg.$.variableName;
+              // If this is a captured variable, use the generated code (inline access)
+              // Otherwise use the variable name
+              return isCapturedVariable ? argCode : arg.$.variableName;
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
@@ -1473,12 +1497,34 @@ function generateFuncCall(
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
       if (runtimeArgExprs) {
         // First, handle arguments that need temporary variables
+        const functionContext = context as FunctionGenerationContext;
         for (const arg of runtimeArgExprs) {
           if (arg.$?.variableName && arg.$?.type) {
+            // Check if this variable is a captured variable in the current closure
+            const isCapturedVariable =
+              functionContext.currentClosureCaptures &&
+              functionContext.currentClosureCaptures.includes(
+                arg.$.variableName
+              ) &&
+              exprIsAtom(arg) &&
+              arg.$.env &&
+              functionContext.currentClosureCaptureFrameLevel !== undefined &&
+              checkVariableIsClosureCaptured(
+                arg.token.value,
+                arg.$.env,
+                functionContext.currentClosureCaptureFrameLevel
+              );
+
             // Generate the argument expression and declare it as a temp variable
             const argCode = generateExpr(arg, indent, context);
-            if (argCode && argCode !== arg.$.variableName) {
-              // Only emit declaration if the expression doesn't already handle it
+            if (
+              argCode &&
+              argCode !== arg.$.variableName &&
+              !isCapturedVariable
+            ) {
+              // Only emit declaration if:
+              // 1. The expression doesn't already handle it
+              // 2. It's not a captured variable (those are accessed inline from closure_context->data)
               const varTypeAndName = getVariableTypeString(
                 arg.$.type,
                 arg.$.variableName,
@@ -1495,7 +1541,27 @@ function generateFuncCall(
         const closureCode = generateExpr(expr.func, indent, context);
         const args = runtimeArgExprs.map((arg) => {
           if (arg.$?.variableName && arg.$?.type) {
-            return arg.$.variableName;
+            // Check if this is a captured variable - if so, use the full access expression
+            const isCapturedVariable =
+              functionContext.currentClosureCaptures &&
+              functionContext.currentClosureCaptures.includes(
+                arg.$.variableName
+              ) &&
+              exprIsAtom(arg) &&
+              arg.$.env &&
+              functionContext.currentClosureCaptureFrameLevel !== undefined &&
+              checkVariableIsClosureCaptured(
+                arg.token.value,
+                arg.$.env,
+                functionContext.currentClosureCaptureFrameLevel
+              );
+
+            if (isCapturedVariable) {
+              // Return the inline access expression
+              return generateExpr(arg, indent, context);
+            } else {
+              return arg.$.variableName;
+            }
           } else {
             return generateExpr(arg, indent, context);
           }
