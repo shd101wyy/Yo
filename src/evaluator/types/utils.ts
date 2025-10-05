@@ -15,7 +15,6 @@ import {
   isFunctionType,
   ModuleElement,
   StructType,
-  ThreadType,
   typeContainsARCType,
   typeOfType,
   typeToString,
@@ -28,13 +27,7 @@ import { EvaluatorContext } from "../context";
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType:
-    | StructType
-    | EnumType
-    | DynType
-    | ClosureType
-    | ThreadType
-    | ChanType,
+  SelfType: StructType | EnumType | DynType | ClosureType | ChanType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -74,13 +67,7 @@ export function addFunctionSignatureToSelfTypeModule({
    * Function code string, like (fn()-> unit)
    */
   functionSignature: string;
-  SelfType:
-    | StructType
-    | EnumType
-    | DynType
-    | ClosureType
-    | ThreadType
-    | ChanType;
+  SelfType: StructType | EnumType | DynType | ClosureType | ChanType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -145,13 +132,7 @@ export function addFunctionCodeToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType:
-    | StructType
-    | EnumType
-    | DynType
-    | ClosureType
-    | ThreadType
-    | ChanType;
+  SelfType: StructType | EnumType | DynType | ClosureType | ChanType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -840,71 +821,6 @@ function generateDupFunctionCodeForClosureType(
   // This builtin function handles the closure reference counting properly
   return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_closureType)}
     ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
-    return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
-  })`;
-}
-
-/**
- * Add ARC functions (___dup, ___drop) to a thread type's module.
- * These functions operate on the thread object itself.
- */
-export function addARCFunctionsToThreadType({
-  threadType,
-  env,
-  context,
-}: {
-  threadType: ThreadType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  // Generate ARC functions for the thread
-  const dropFunctionCode = generateDropFunctionCodeForThreadType(threadType);
-  const dupFunctionCode = generateDupFunctionCodeForThreadType(threadType);
-
-  // Add ___dup function to the thread type module elements
-  if (dupFunctionCode) {
-    env = addFunctionCodeToSelfTypeModule({
-      label: BuiltinFunctions.___dup[0]!,
-      functionCode: dupFunctionCode,
-      SelfType: threadType,
-      env,
-      context,
-    });
-  }
-
-  // Add ___drop function to the thread type module elements
-  if (dropFunctionCode) {
-    env = addFunctionCodeToSelfTypeModule({
-      label: BuiltinFunctions.___drop[0]!,
-      functionCode: dropFunctionCode,
-      SelfType: threadType,
-      env,
-      context,
-    });
-  }
-
-  return env;
-}
-
-/**
- * Generate ___drop function code for a thread type
- */
-function generateDropFunctionCodeForThreadType(threadType: ThreadType): string {
-  // For thread types, drop should use __yo_thread_drop
-  // This builtin function handles thread cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(threadType)}
-    ${BuiltinFunctions.__yo_thread_drop[0]!}(self);
-  })`;
-}
-
-/**
- * Generate ___dup function code for a thread type
- */
-function generateDupFunctionCodeForThreadType(threadType: ThreadType): string {
-  // For thread types, dup should use __yo_thread_dup
-  // This builtin function handles the thread reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(threadType)}
-    ${BuiltinFunctions.__yo_thread_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
 }

@@ -582,42 +582,6 @@ export interface DynType extends Type {
 }
 
 /**
- * ThreadType represents a spawned thread with a specific return type.
- *
- * Examples:
- * - Thread(unit): A thread that returns unit (no value)
- * - Thread(i32): A thread that returns an i32 value
- * - Thread(String): A thread that returns a String value
- *
- * Usage:
- * ```yo
- * t := spawn some_function(); // Returns Thread(ReturnTypeOfSomeFunction)
- * result := __yo_thread_wait(t); // Get the result when the thread completes
- * ```
- */
-export interface ThreadType extends Type {
-  tag: TypeTag.Thread;
-
-  /**
-   * The type of value that this thread will return when completed.
-   * This corresponds to the return type of the function passed to spawn.
-   */
-  returnType: Type;
-
-  /**
-   * The module associated with this thread type.
-   * Contains ARC functions (___dup, ___drop) and other thread-related functions.
-   */
-  module: ModuleType;
-
-  /**
-   * The env when the thread type is created.
-   * The env is also useful to show the frame level at which the thread is defined.
-   */
-  env: Environment;
-}
-
-/**
  * ChanType represents a Go-like channel for communication between threads.
  * Following Go's design, the buffer size is not part of the type - it's a runtime property.
  *

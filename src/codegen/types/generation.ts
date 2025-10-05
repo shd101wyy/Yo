@@ -180,6 +180,8 @@ static inline size_t __yo_get_thread_id(void) {
 #define YO_GC_SET_FLAG(biased_word, flag)    BRC_SET_GC_FLAGS(biased_word, BRC_GET_GC_FLAGS(biased_word) | (flag))
 #define YO_GC_CLEAR_FLAG(biased_word, flag)  BRC_SET_GC_FLAGS(biased_word, BRC_GET_GC_FLAGS(biased_word) & ~(flag))
 
+// Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
+
 // Thread synchronization for stop-the-world GC
 #ifndef YO_THREAD_SYNC_TYPE
 #if defined(_WIN32)
@@ -247,51 +249,6 @@ struct yo_thread_gc_state {
   yo_thread_gc_state_t* next;                // Next thread in global thread list
   yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
 };
-
-// Thread type definitions for spawn/thread_wait functionality
-// Include platform-specific thread headers
-#if defined(_WIN32)
-#include <windows.h>
-#endif
-
-// Base thread data structure with vtable for dynamic dispatch
-typedef struct yo_thread_data_vtable {
-  void (*execute_fn)(void* self);              // Execute the thread function
-  void* (*get_result_fn)(void* self);          // Get the result (properly typed)
-  void (*dispose_fn)(void* self);              // Clean up thread data
-} yo_thread_data_vtable_t;
-
-typedef struct yo_thread_data_base {
-  yo_thread_data_vtable_t* vtable;             // VTable for polymorphic thread operations
-  _Atomic(int) joined;                         // Whether the thread has been joined (1 = joined, 0 = not joined)
-  struct yo_thread* thread_object;             // Back-pointer to the yo_thread_t object
-} yo_thread_data_base_t;
-
-typedef struct yo_thread {
-  yo_ref_header_t header;                      // Reference count header (ARC type)
-#if defined(_WIN32)
-  HANDLE handle;                               // Windows thread handle
-#else
-  pthread_t handle;                            // POSIX thread handle
-#endif
-  size_t thread_id;                            // Thread ID (for GC tracking)
-  yo_thread_data_base_t* data;                 // Thread execution data (base type)
-} yo_thread_t;
-
-// Thread function prototypes
-yo_thread_t* yo_thread_spawn(void (*func)(void*), void* args, size_t result_size);
-void* yo_thread_wait(yo_thread_t* thread);
-void yo_thread_cleanup(yo_thread_t* thread);
-
-// ARC functions for Thread type (will be specialized for each thread type)
-void __yo_dispose_yo_thread_t(void* self);
-
-// Thread wrapper function for proper result handling
-#if defined(_WIN32)
-DWORD WINAPI yo_thread_wrapper(LPVOID param);
-#else
-void* yo_thread_wrapper(void* param);
-#endif
 `);
 
   // Forward declarations - generate struct and enum forward declarations first

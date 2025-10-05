@@ -201,26 +201,6 @@ function generateFuncCall(
     return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
-  // __yo_thread_drop - call dispose function then __yo_decr_rc on thread
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_thread_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_decr_rc((void*)(${selfCode}), __yo_dispose_yo_thread_t)`;
-  }
-
-  // __yo_thread_dup - call __yo_incr_rc on thread
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_thread_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc((void*)(${selfCode}))`;
-  }
-
   // __yo_chan_drop - call dispose function then __yo_decr_rc on channel
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_drop)) {
     const selfArg = expr.args[0];

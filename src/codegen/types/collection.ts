@@ -12,7 +12,6 @@ import {
   isEnumType,
   isMutPtrType,
   isStructType,
-  isThreadType,
   isTupleType,
   isUnionType,
   SliceType,
@@ -138,15 +137,12 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isTupleType(type) ||
     isClosureType(type) ||
     isDynType(type) ||
-    isThreadType(type) ||
     isChanType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
-    const cTypeName = isThreadType(type)
-      ? `yo_thread_t`
-      : isChanType(type)
-        ? `yo_chan_${sanitizeForCIdentifier(getTypeString((type as ChanType).elementType, context))}_t`
-        : `yo_${type.id}`;
+    const cTypeName = isChanType(type)
+      ? `yo_chan_${sanitizeForCIdentifier(getTypeString((type as ChanType).elementType, context))}_t`
+      : `yo_${type.id}`;
     context.types[type.id] = {
       type,
       cName: cTypeName,

@@ -20,7 +20,6 @@ import {
   SliceType,
   SomeType,
   StructType,
-  ThreadType,
   TupleElement,
   TupleType,
   Type,
@@ -589,58 +588,6 @@ export function createDynType(
   module.elements.push(selfElement);
 
   return dynType;
-}
-
-export function createThreadType(
-  returnType: Type,
-  env?: Environment
-): ThreadType {
-  // Create a minimal environment if none provided (for code generation phase)
-  const threadEnv = env || {
-    frames: [],
-    functionDeclarationFrameLevel: 0,
-    freeVariables: [],
-    modulePath: "thread",
-    inputString: "",
-  };
-  const module = createModuleType(threadEnv);
-
-  const threadType: ThreadType = {
-    id: `thread_${returnType.id}`,
-    tag: TypeTag.Thread,
-    returnType,
-    module,
-    env: threadEnv,
-  };
-
-  // Add "Self" to thread type module, similar to closure type
-  const typeValue = createTypeValue(threadType);
-  const selfElement: ModuleElement = {
-    type: typeValue.type,
-    assignedValue: typeValue,
-    label: "Self",
-    isCompileTimeOnly: true,
-    isImplicit: true,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-      labelExpr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-      typeExpr: undefined,
-      defaultValueExpr: undefined,
-      assignedValueExpr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  threadType.module.elements.push(selfElement);
-
-  return threadType;
 }
 
 export function createChanType(elementType: Type, env: Environment): ChanType {

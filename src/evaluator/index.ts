@@ -66,10 +66,6 @@ import { evaluateSizeOf } from "./builtins/sizeof";
 import { evaluateGo, evaluateTaskSetMaximumThreads } from "./builtins/task_fns";
 import { evaluateThe } from "./builtins/the";
 import {
-  evaluateYoThreadDrop,
-  evaluateYoThreadDup,
-} from "./builtins/thread_fns";
-import {
   evaluateYoAreTypesCompatible,
   evaluateYoTypeContainsArcType,
   evaluateYoTypeToString,
@@ -78,7 +74,6 @@ import { evaluateVaStart } from "./builtins/va_start";
 import { evaluateAddressCall } from "./calls/address";
 import { evaluateFunctionCall } from "./calls/function";
 import { evaluateRawPointerCall } from "./calls/pointer";
-import { evaluateThreadCall } from "./calls/thread";
 import { EvaluatorContext } from "./context";
 import { evaluateAssignment } from "./exprs/assignment";
 import { evaluateBeginExpression } from "./exprs/begin";
@@ -463,13 +458,6 @@ ${exprToString(expr)}`,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Thread)) {
-        // Thread type
-        return evaluateThreadCall({
-          expr,
-          env,
-          context: { ...context },
-        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Chan)) {
         // Chan type
         return evaluateChanType({
@@ -570,14 +558,6 @@ ${exprToString(expr)}`,
       ) {
         // __yo_closure_dup
         return evaluateYoClosureDup({ expr, env, context: { ...context } });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_drop)
-      ) {
-        // __yo_thread_drop
-        return evaluateYoThreadDrop({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_dup)) {
-        // __yo_thread_dup
-        return evaluateYoThreadDup({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
         // __yo_gc_collect
         return evaluateYoGcCollect({ expr, env, context: { ...context } });

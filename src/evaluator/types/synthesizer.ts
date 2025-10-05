@@ -17,7 +17,6 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
-  isThreadType,
   isTupleType,
   isTypeHierarchyType,
   Type,
@@ -499,21 +498,6 @@ export function synthesizeTypes(
       },
       {
         type: given.type.elementType,
-        env: given.env,
-      },
-      checkedTypePairs
-    );
-    expected.env = expectedEnv;
-    given.env = givenEnv;
-  } else if (isThreadType(expected.type) && isThreadType(given.type)) {
-    // Synthesize the return types of the threads
-    const { expectedEnv, givenEnv } = synthesizeTypes(
-      {
-        type: expected.type.returnType,
-        env: expected.env,
-      },
-      {
-        type: given.type.returnType,
         env: given.env,
       },
       checkedTypePairs

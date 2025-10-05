@@ -845,10 +845,6 @@ export const BuiltinFunctions = {
   __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
   __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
 
-  // Thread ARC functions
-  __yo_thread_drop: ["__yo_thread_drop"], // drop thread object and handle cleanup
-  __yo_thread_dup: ["__yo_thread_dup"], // dup thread object with proper reference counting
-
   // Channel ARC functions
   __yo_chan_drop: ["__yo_chan_drop"], // drop channel object and handle cleanup
   __yo_chan_dup: ["__yo_chan_dup"], // dup channel object with proper reference counting
