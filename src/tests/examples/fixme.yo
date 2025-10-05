@@ -1,58 +1,39 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
-MyBox :: object
-  (*) : i32,
-
-  dispose :: (fn(self: Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.*);
-  };
-;
-
-say :: (fn(s : *(u8), box: MyBox, ch: Chan(i32)) -> i32) {
-  val := box.*;
-  printf("%s\n", s);
-  ch.send(val);
-  printf("thread %zu sent %i\n", Concurrency.get_thread_id(), val);
-  return val;
+fibonacci :: (fn(ch : Chan(i32), quit : Chan(i32)) -> unit) {
+  x := 0;
+  y := 1;
+  while(true,
+    select(
+      (ch <- x) => {
+        temp := x;
+        x = y;
+        y = (temp + y);
+      },
+      <-(quit) => {
+      // TODO: Support
+      // (v := <-(quit)) => {
+        printf("quit\n");
+        return;
+      }
+    ));
 };
 
 // Pointer arithmetic example
 main :: (fn() -> unit) {
-  // Auto-detect hardware threads (no need to call set_maximum_threads)
-  hw_threads := Concurrency.get_hardware_threads();
-  printf("Hardware threads available: %zu\n", hw_threads);
-  // Will automatically use all hardware threads for parallel execution
-  
   ch := chan(i32); // unbuffered channel
+  quit := chan(i32); // unbuffered channel
 
-  // say2 is a closure;
-  x := 18;
-  say2 := (fn(s : *(u8), ch: Chan(i32)) => i32) {
-    printf("%s\n", s);
-    ch.send(x);
-    printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
-    return x;
+  async {
+    i = 0;
+    while i < 10, i = (i + 1), {
+      value := <-(ch).unwrap();
+      printf("%d\n", value);
+    };
+    quit <- 0;
   };
-
-  box1 := MyBox(16);
-
-  // say2("world") and say("hello") will run in parallel on different threads
-  async { say2("world", ch); };
-  async { say("hello", box1, ch); };
-
-  t1_result := ch.recv().unwrap();
-  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
-  // It should print
-  // "thread ? sent 16"
-
-  t2_result := ch.recv().unwrap();
-  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t2_result);
-  // It should print
-  // "thread ? sent 18"
-
-  result := (t1_result + t2_result);
-  printf("result: %d\n", result);
+  fibonacci(ch, quit);
 };
 
 export main;

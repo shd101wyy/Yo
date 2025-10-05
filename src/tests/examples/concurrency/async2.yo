@@ -12,7 +12,7 @@ MyBox :: object
 say :: (fn(s : *(u8), box: MyBox, ch: Chan(i32)) -> i32) {
   val := box.*;
   printf("%s\n", s);
-  ch.send(val);
+  ch <- val;
   printf("thread %zu sent %i\n", Concurrency.get_thread_id(), val);
   return val;
 };
@@ -30,7 +30,7 @@ main :: (fn() -> unit) {
   x := 18;
   say2 := (fn(s : *(u8), ch: Chan(i32)) => i32) {
     printf("%s\n", s);
-    ch.send(x);
+    ch <- x;
     printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
     return x;
   };
@@ -41,12 +41,12 @@ main :: (fn() -> unit) {
   async { say2("world", ch); };
   async { say("hello", box1, ch); };
 
-  t1_result := ch.recv().unwrap();
+  t1_result := <-(ch).unwrap();
   printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
   // It should print
   // "thread ? sent 16"
 
-  t2_result := ch.recv().unwrap();
+  t2_result := <-(ch).unwrap();
   printf("thread %zu received %d\n", Concurrency.get_thread_id(), t2_result);
   // It should print
   // "thread ? sent 18"

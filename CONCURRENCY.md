@@ -81,10 +81,10 @@ ch := chan(Type)
 ch := chan(Type, capacity)
 
 // Send value (blocks if unbuffered and no receiver)
-ch.send(value)
+ch <- value
 
 // Receive value (blocks if no sender)
-result := ch.recv()  // Returns Option(Type)
+result := <-(ch)  // Returns Option(Type)
 ```
 
 ## Execution Model
@@ -121,10 +121,10 @@ Workers run in parallel across CPU cores:
 ch := chan(i32)  // capacity = 0
 
 // Sender blocks until receiver is ready
-async ((fn()-> unit){ ch.send(42) })()  // Blocks in task context
+async ((fn()-> unit){ ch <- 42 })()  // Blocks in task context
 
 // Receiver blocks until sender is ready
-value := ch.recv()  // Blocks (pthread if main, cooperative if task)
+value := <-(ch)  // Blocks (pthread if main, cooperative if task)
 ```
 
 ### Buffered Channels
@@ -132,10 +132,10 @@ value := ch.recv()  // Blocks (pthread if main, cooperative if task)
 ch := chan(i32, 10)  // capacity = 10
 
 // Sender blocks only if buffer is full
-ch.send(42)  // Non-blocking if buffer has space
+ch <- 42  // Non-blocking if buffer has space
 
 // Receiver blocks only if buffer is empty
-value := ch.recv()  // Non-blocking if buffer has data
+value := <-(ch)  // Non-blocking if buffer has data
 ```
 
 ### Cross-Thread Communication
@@ -284,7 +284,7 @@ main :: (fn() -> i32) {
   
   // Main thread receives results
   for i in 0..4 {
-    value := ch.recv().unwrap()
+    value := <-(ch).unwrap()
     printf("Received: %d\n", value)
   }
   
@@ -293,7 +293,7 @@ main :: (fn() -> i32) {
 
 worker :: (fn(id: i32, ch: Chan(i32)) -> Unit) {
   printf("Worker %d on thread %zu\n", id, Concurrency.get_thread_id())
-  ch.send(id * 10)
+  ch <- (id * 10)
 }
 ```
 

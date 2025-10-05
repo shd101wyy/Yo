@@ -7,7 +7,7 @@ import {
   ModuleValue,
 } from "../../value";
 import { collectType } from "../types";
-import { CodeGenContext } from "../utils";
+import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
 
 /**
  * First pass: collect all functions that need to be generated
@@ -34,7 +34,7 @@ export function collectRequiredFunctions(
       } else {
         context.functions[value.funcId] = {
           value,
-          cName: value.funcId,
+          cName: sanitizeForCIdentifier(value.funcId),
         };
       }
 
@@ -83,7 +83,7 @@ export function findFunctionCallsInExpr(
           // Collect the function if it's not already collected
           context.functions[functionValue.funcId] = {
             value: functionValue,
-            cName: functionValue.funcId, // Use the function id as the C name
+            cName: sanitizeForCIdentifier(functionValue.funcId), // Use the function id as the C name
           };
 
           // Recursively collect functions called by this function
@@ -129,7 +129,7 @@ export function findFunctionCallsInExpr(
         // Collect the function if it's not already collected
         context.functions[functionValue.funcId] = {
           value: functionValue,
-          cName: functionValue.funcId, // Use the function id as the C name
+          cName: sanitizeForCIdentifier(functionValue.funcId), // Use the function id as the C name
         };
 
         // Recursively collect functions called by this function
@@ -156,7 +156,7 @@ export function findFunctionCallsInExpr(
       // Collect the closure's function if it's not already collected
       context.functions[closureFunctionValue.funcId] = {
         value: closureFunctionValue,
-        cName: closureFunctionValue.funcId, // Use the function id as the C name
+        cName: sanitizeForCIdentifier(closureFunctionValue.funcId), // Use the function id as the C name
       };
 
       // Recursively collect functions called by this closure function

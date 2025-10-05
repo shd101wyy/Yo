@@ -10,29 +10,42 @@ extern "Yo",
 ;
 
 ChanMethods :: impl {
+  /*
   (send) :: (fn(forall(T: Type), ch : Chan(T), value : T) -> unit)
+    __yo_chan_send(ch, value)
+  ;
+  */
+  (<-) :: (fn(forall(T: Type), ch : Chan(T), value : T) -> unit)
     __yo_chan_send(ch, value)
   ;
 
   /*
+  // NOTE: The code below has problem for codegen
   (recv) :: (fn(forall(T: Type), ch : Chan(T)) -> Option(T)) {
     result := __yo_chan_recv(ch);
     return result;
   };
   */
+  /*
+  // NOTE: This doesn't have problem
   (recv) :: (fn(forall(T: Type), ch : Chan(T)) -> Option(T))
     __yo_chan_recv(ch)
   ;
+  */
 
   (close) :: (fn(forall(T: Type), ch : Chan(T)) -> unit)
     __yo_chan_close(ch)
   ;
 
   export
-    send,
-    recv,
+    (<-),
     close
   ;
 };
 
-export ChanMethods;
+// recv as operator
+(<-) :: (fn(forall(T: Type), ch : Chan(T)) -> Option(T))
+  __yo_chan_recv(ch)
+;
+
+export ChanMethods, (<-);
