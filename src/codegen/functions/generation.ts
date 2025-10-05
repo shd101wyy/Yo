@@ -1356,6 +1356,22 @@ static void* __yo_worker_thread_func(void* arg) {
   #endif
 }
 
+// Get number of hardware threads available
+size_t __yo_concurrency_get_hardware_threads(void) {
+  #ifdef _WIN32
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  return (size_t)sysinfo.dwNumberOfProcessors;
+  #else
+  // Use sysconf on POSIX systems
+  long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+  if (nprocs < 1) {
+    return 1;  // Fallback to 1 if detection fails
+  }
+  return (size_t)nprocs;
+  #endif
+}
+
 // Initialize thread pool
 static void __yo_thread_pool_init(size_t num_threads) {
   if (num_threads < 1 || yo_worker_thread_count > 0) {
@@ -1392,6 +1408,12 @@ static void __yo_thread_pool_init(size_t num_threads) {
 // Set maximum number of threads for task scheduler
 void __yo_concurrency_set_maximum_threads(size_t num) {
   __yo_task_scheduler_init();
+  
+  // If num is 0, use hardware thread count
+  if (num == 0) {
+    num = __yo_concurrency_get_hardware_threads();
+  }
+  
   yo_task_max_threads = num;
   
   // Always initialize thread pool (even for num=1)
@@ -1636,6 +1658,11 @@ ${executeBody}
 
     emitter.emitLine(`void ${spawnFunctionName}(${constructorParams}) {
   __yo_task_scheduler_init();
+  
+  // Auto-initialize thread pool with hardware threads if not already done
+  if (yo_worker_thread_count == 0) {
+    __yo_concurrency_set_maximum_threads(0);  // 0 = use hardware threads
+  }
   
   // Allocate task data
   ${structName}* data = (${structName}*)__yo_malloc(sizeof(${structName}));

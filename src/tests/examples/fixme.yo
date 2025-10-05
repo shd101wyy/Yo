@@ -10,11 +10,14 @@ say :: (fn(s : *(u8), val: i32, ch: Chan(i32)) -> i32) {
 
 // Pointer arithmetic example
 main :: (fn() -> i32) {
-  Concurrency.set_maximum_threads(1); // Set maximum 1 thread for "go" tasks
-
+  // Auto-detect hardware threads (no need to call set_maximum_threads)
+  hw_threads := Concurrency.get_hardware_threads();
+  printf("Hardware threads available: %zu\n", hw_threads);
+  // Will automatically use all hardware threads for parallel execution
+  
   ch := chan(i32); // unbuffered channel
 
-  // say("world") and say("hello") should run on the same thread
+  // say("world") and say("hello") will run in parallel on different threads
   go say("world", 16, ch);
   go say("hello", 18, ch);
 
