@@ -337,12 +337,5 @@ void __yo_task_wait_all(void) {
     CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
   }
 }
-
-// Spawn a simple unit task (void -> void)
-void __yo_task_spawn_unit_function(void (*func)(void)) {
-  // This is a placeholder - actual spawning will be done by generated code
-  // that creates proper task structures with continuations
-  CONCURRENCY_DEBUG("[SPAWN] Warning: __yo_task_spawn_unit_function called but not implemented for stackless\\n");
-}
 `);
 }

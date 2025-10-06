@@ -1,44 +1,16 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
-fibonacci :: (fn(ch : Chan(i32), quit : Chan(i32)) -> unit) {
-  x := 0;
-  y := 1;
-
-  while(true,
-    select(
-      (ch <- x) => {
-        temp := x;
-        x = y;
-        y = (temp + y);
-      },
-      (q := <-(quit)) => {
-        printf("quit %d\n", q);
-        return;
-      }/*,
-      _ => {
-        printf("default\n");
-      }*/
-    ));
-};
-
-// Pointer arithmetic example
 main :: (fn() -> unit) {
-  ch := chan(i32); // unbuffered channel
-  quit := chan(i32); // unbuffered channel
-
+  ch := chan(i32);
+  
   async {
-    i := 0;
-    while i < 10, i = (i + 1), {
-      value := <-(ch).unwrap();
-      printf("%d\n", value);
-    };
-    quit <- 0;
+    x := 1;
+    ch <- (x + 2);
   };
-
-  async {
-    fibonacci(ch, quit);
-  };
+  
+  value := <-(ch).unwrap();
+  printf("value=%d\n", value);
 };
 
 export main;

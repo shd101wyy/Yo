@@ -30,6 +30,7 @@ import {
   generateExpr,
   generateReturnStatement,
 } from "../expressions";
+import { generateStacklessRuntime } from "../stackless-runtime";
 import {
   CodeGenContext,
   getTypeString,
@@ -195,6 +196,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
   // Generate builtin functions first
   generateBuiltinFunctions(context);
+
+  // Generate stackless coroutine runtime
+  generateStacklessRuntime(context.emitter);
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
@@ -873,803 +877,6 @@ void* __yo_incr_rc(void* ptr) {
   
   return ptr;
 }`);
-
-  // Generate cooperative task scheduler runtime
-  emitter.emitLine(`
-// Cooperative Task Scheduler Runtime using setjmp/longjmp
-// Note: _FORTIFY_SOURCE=0 is defined before includes to disable fortification checks
-#include <setjmp.h>
-
-// Thread support
-#ifdef _WIN32
-  #include <windows.h>
-  #include <process.h>
-  typedef HANDLE yo_thread_handle_t;
-  typedef DWORD yo_thread_id_t;
-  typedef CRITICAL_SECTION yo_mutex_t;
-  #define YO_MUTEX_INIT(m) InitializeCriticalSection(m)
-  #define YO_MUTEX_DESTROY(m) DeleteCriticalSection(m)
-  #define YO_MUTEX_LOCK(m) EnterCriticalSection(m)
-  #define YO_MUTEX_UNLOCK(m) LeaveCriticalSection(m)
-  #define YO_THREAD_ID() ((yo_thread_id_t)GetCurrentThreadId())
-#else
-  #include <pthread.h>
-  #include <unistd.h>
-  typedef pthread_t yo_thread_handle_t;
-  typedef pthread_t yo_thread_id_t;
-  typedef pthread_mutex_t yo_mutex_t;
-  #define YO_MUTEX_INIT(m) pthread_mutex_init(m, NULL)
-  #define YO_MUTEX_DESTROY(m) pthread_mutex_destroy(m)
-  #define YO_MUTEX_LOCK(m) pthread_mutex_lock(m)
-  #define YO_MUTEX_UNLOCK(m) pthread_mutex_unlock(m)
-  #define YO_THREAD_ID() ((yo_thread_id_t)pthread_self())
-#endif
-
-typedef struct yo_task yo_task_t;
-typedef struct yo_task_queue yo_task_queue_t;
-
-// Task state
-typedef enum {
-  YO_TASK_READY,      // Ready to run
-  YO_TASK_RUNNING,    // Currently running
-  YO_TASK_BLOCKED,    // Blocked on channel operation
-  YO_TASK_COMPLETED   // Finished execution
-} yo_task_state_t;
-
-// Select case information
-typedef struct yo_select_case {
-  void* channel;              // Channel for this case
-  bool is_send;               // true = send, false = receive
-  void* value_ptr;            // For send: pointer to value, for recv: pointer to store result
-  int case_index;             // Which case this is (for switch statement)
-} yo_select_case_t;
-
-// Select state for a task blocked in select
-typedef struct {
-  yo_select_case_t* cases;    // Array of select cases
-  int num_cases;              // Number of cases
-  int ready_case;             // Which case is ready (-1 if none)
-  bool has_default;           // Whether there's a default case
-} yo_select_state_t;
-
-// Stack size for each task (64KB default, can be tuned)
-#define YO_TASK_STACK_SIZE (64 * 1024)
-
-// Forward declarations
-static yo_task_t* __yo_task_dequeue(void);
-static void __yo_task_entry(void);
-
-// Minimal assembly: switch stack and call a function (x86_64 only for now)
-// This is the ONLY place we use assembly - just to bootstrap onto new stack
-#if defined(__x86_64__)
-static void __yo_switch_to_stack(void* stack_top, void (*func)(void*), void* arg) {
-  __asm__ volatile(
-    "movq %0, %%rsp\\n"       // Switch to new stack
-    "movq %2, %%rdi\\n"       // First argument (System V ABI)
-    "callq *%1\\n"            // Call function
-    :
-    : "r"(stack_top), "r"(func), "r"(arg)
-    : "rsp", "rdi", "memory"
-  );
-}
-
-// Switch to task stack and longjmp to saved context
-// This is needed to resume tasks without creating new stack frames
-static void __yo_switch_stack_and_longjmp(void* stack_top, jmp_buf* env) {
-  // Reserve 128 bytes below stack_top for red zone and call frame
-  // We do this in assembly to avoid using local variables after switching stacks
-  
-  __asm__ volatile(
-    "movq %0, %%rax\\n"              // Load stack_top into rax
-    "subq $128, %%rax\\n"            // Reserve 128 bytes for red zone
-    "movq %%rax, %%rsp\\n"           // Switch to task's stack
-    "movq %1, %%rdi\\n"              // First argument: jmp_buf pointer  
-    "movl $1, %%esi\\n"              // Second argument: return value 1
-    "call longjmp@PLT\\n"            // Call longjmp via PLT (PIC-safe, noreturn)
-    :
-    : "r"(stack_top), "r"(env)
-    : "rsp", "rdi", "rsi", "rax", "memory"
-  );
-  __builtin_unreachable();  // Tell compiler this never returns
-}
-#else
-#error "Cooperative scheduler requires x86_64 architecture (for now)"
-#endif
-
-// Task structure with context switching support
-struct yo_task {
-  void (*func)(void*);           // Function to execute
-  void* data;                    // Task-specific data
-  yo_task_state_t state;         // Current state
-  void* wait_channel;            // Channel this task is waiting on (NULL if not waiting)
-  yo_select_state_t* select_state; // Select state if blocked in select (NULL otherwise)
-  jmp_buf context;               // Saved execution context (setjmp/longjmp)
-  char* stack;                   // Separate stack for this task
-  size_t stack_size;             // Size of allocated stack
-  bool context_initialized;      // Whether context has been set up
-  yo_task_t* next;               // Next task in queue (for ready/blocked queues)
-  yo_task_t* next_wait;          // Next task in channel wait queue
-};
-
-// Task queue (simple linked list)
-struct yo_task_queue {
-  yo_task_t* head;
-  yo_task_t* tail;
-  size_t count;
-};
-
-// Worker thread structure with per-thread task queue
-typedef struct {
-  yo_thread_handle_t handle;
-  yo_thread_id_t id;
-  bool active;
-  yo_task_queue_t ready_queue;     // Each worker has its own ready queue
-  yo_task_queue_t blocked_queue;   // Each worker has its own blocked queue
-  yo_mutex_t queue_mutex;          // Protects this worker's queues
-} yo_worker_thread_t;
-
-// Global task scheduler state
-static _Thread_local yo_task_t* yo_task_current = NULL;  // Thread-local current task
-static _Thread_local yo_worker_thread_t* yo_task_current_worker = NULL;  // Thread-local worker pointer
-static size_t yo_task_max_threads = 0;
-static bool yo_task_scheduler_initialized = false;
-static _Thread_local jmp_buf yo_task_main_context;  // Thread-local context (main or worker)
-static _Thread_local bool yo_task_main_context_set = false;  // Thread-local flag
-static _Thread_local yo_task_t* yo_task_to_cleanup = NULL;  // Thread-local cleanup task
-
-// Thread pool state
-static yo_worker_thread_t* yo_worker_threads = NULL;
-static size_t yo_worker_thread_count = 0;
-static _Atomic bool yo_worker_shutdown = false;
-static _Atomic size_t yo_next_worker_index = 0;  // For round-robin task distribution
-static _Atomic size_t yo_active_task_count = 0;  // Total number of active tasks (spawned but not completed)
-
-// Helper function to clean up a completed task
-// This is called after we've switched away from the task's stack
-static void __yo_cleanup_completed_task(yo_task_t* task) {
-  if (!task) return;
-  CONCURRENCY_DEBUG("[CLEANUP] Freeing stack=%p of task=%p\\n", task->stack, task);
-  if (task->stack) {
-    __yo_free(task->stack);
-  }
-  __yo_free(task);
-  CONCURRENCY_DEBUG("[CLEANUP] Task cleanup complete\\n");
-}
-
-// Bootstrap function - called on new stack to initialize task context
-// This runs on the task's stack, so setjmp will save the right stack pointer
-static void __yo_task_bootstrap(void* arg) {
-  yo_task_t* task = (yo_task_t*)arg;
-  CONCURRENCY_DEBUG("[TASK] Bootstrap: task=%p on its own stack\\n", task);
-  
-  // Save context on the task's stack
-  // When we longjmp to this context later, we'll skip past this and start executing
-  if (setjmp(task->context) == 0) {
-    // First time: mark as initialized
-    task->context_initialized = true;
-    CONCURRENCY_DEBUG("[TASK] Context saved, task ready to execute\\n");
-    // Don't return to scheduler - continue to execute the task!
-  } else {
-    // Resumed via longjmp - check if there's a completed task to clean up
-    if (yo_task_to_cleanup) {
-      __yo_cleanup_completed_task(yo_task_to_cleanup);
-      yo_task_to_cleanup = NULL;
-    }
-  }
-  
-  // Execution continues here both:
-  // 1. First time after setjmp (falls through)
-  // 2. When resumed via longjmp (jumps here)
-  CONCURRENCY_DEBUG("[TASK] Task=%p starting execution\\n", task);
-  
-  // Execute the actual task function
-  task->func(task->data);
-  CONCURRENCY_DEBUG("[TASK] Task=%p completed execution\\n", task);
-  
-  // Task completed - we need to switch away BEFORE freeing our stack!
-  task->state = YO_TASK_COMPLETED;
-  yo_task_current = NULL;
-  
-  // Decrement active task counter
-  atomic_fetch_sub(&yo_active_task_count, 1);
-  CONCURRENCY_DEBUG("[TASK] Active task count decremented\\n");
-  
-  // Mark this task for cleanup (it will be cleaned up after we switch away)
-  yo_task_to_cleanup = task;
-  
-  // Return to the context that started this task (main thread or worker thread)
-  // In thread pool mode, return to worker's context
-  // In single-threaded mode, return to main context
-  if (yo_task_main_context_set) {
-    CONCURRENCY_DEBUG("[TASK] Completed, returning to caller context\\n");
-    longjmp(yo_task_main_context, 1);
-  }
-  
-  // Should not reach here
-  CONCURRENCY_DEBUG("Error: Task bootstrap reached end without context\\n");
-  abort();
-}
-
-// Initialize task scheduler
-static void __yo_task_scheduler_init(void) {
-  if (!yo_task_scheduler_initialized) {
-    yo_task_scheduler_initialized = true;
-  }
-}
-
-// Enqueue a task to a worker's ready queue (called from spawn)
-static void __yo_task_enqueue_to_worker(yo_worker_thread_t* worker, yo_task_t* task) {
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  task->next = NULL;
-  if (worker->ready_queue.tail) {
-    worker->ready_queue.tail->next = task;
-  } else {
-    worker->ready_queue.head = task;
-  }
-  worker->ready_queue.tail = task;
-  worker->ready_queue.count++;
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-}
-
-// Dequeue a task from current worker's ready queue (called by worker itself)
-static yo_task_t* __yo_task_dequeue_from_worker(yo_worker_thread_t* worker) {
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  yo_task_t* task = worker->ready_queue.head;
-  if (task) {
-    worker->ready_queue.head = task->next;
-    if (!worker->ready_queue.head) {
-      worker->ready_queue.tail = NULL;
-    }
-    worker->ready_queue.count--;
-  }
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-  return task;
-}
-
-// Enqueue a task to current worker's blocked queue
-static void __yo_task_block(yo_task_t* task, void* channel) {
-  yo_worker_thread_t* worker = yo_task_current_worker;
-  if (!worker) {
-    CONCURRENCY_DEBUG("[BLOCK] Error: No current worker for task=%p\\n", task);
-    return;
-  }
-  
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  task->state = YO_TASK_BLOCKED;
-  task->wait_channel = channel;
-  task->next = NULL;
-  if (worker->blocked_queue.tail) {
-    worker->blocked_queue.tail->next = task;
-  } else {
-    worker->blocked_queue.head = task;
-  }
-  worker->blocked_queue.tail = task;
-  worker->blocked_queue.count++;
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-}
-
-// Wake up tasks waiting on a specific channel (in current worker's blocked queue)
-static void __yo_task_wakeup(void* channel) {
-  yo_worker_thread_t* worker = yo_task_current_worker;
-  if (!worker) {
-    CONCURRENCY_DEBUG("[WAKEUP] Error: No current worker\\n");
-    return;
-  }
-  
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  CONCURRENCY_DEBUG("[WAKEUP] Waking tasks on channel=%p\\n", channel);
-  yo_task_t* task = worker->blocked_queue.head;
-  yo_task_t* prev = NULL;
-  
-  while (task != NULL) {
-    yo_task_t* next = task->next;
-    
-    if (task->wait_channel == channel) {
-      CONCURRENCY_DEBUG("[WAKEUP] Moving task=%p to ready queue\\n", task);
-      // Remove from blocked queue
-      if (prev == NULL) {
-        worker->blocked_queue.head = next;
-      } else {
-        prev->next = next;
-      }
-      if (worker->blocked_queue.tail == task) {
-        worker->blocked_queue.tail = prev;
-      }
-      worker->blocked_queue.count--;
-      
-      // Add to ready queue (unlocked version since we hold the lock)
-      task->state = YO_TASK_READY;
-      task->wait_channel = NULL;
-      task->next = NULL;
-      if (worker->ready_queue.tail) {
-        worker->ready_queue.tail->next = task;
-      } else {
-        worker->ready_queue.head = task;
-      }
-      worker->ready_queue.tail = task;
-      worker->ready_queue.count++;
-      
-      // Don't update prev since we removed this node
-      task = next;
-    } else {
-      prev = task;
-      task = next;
-    }
-  }
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-}
-
-// Wake up only ONE task waiting on a specific channel (for rendezvous)
-static void __yo_task_wakeup_one(void* channel) {
-  yo_worker_thread_t* worker = yo_task_current_worker;
-  if (!worker) {
-    CONCURRENCY_DEBUG("[WAKEUP_ONE] Error: No current worker\\n");
-    return;
-  }
-  
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  CONCURRENCY_DEBUG("[WAKEUP_ONE] Waking one task on channel=%p\\n", channel);
-  yo_task_t* task = worker->blocked_queue.head;
-  yo_task_t* prev = NULL;
-  
-  while (task != NULL) {
-    yo_task_t* next = task->next;
-    
-    if (task->wait_channel == channel) {
-      CONCURRENCY_DEBUG("[WAKEUP_ONE] Moving task=%p to ready queue\\n", task);
-      // Remove from blocked queue
-      if (prev == NULL) {
-        worker->blocked_queue.head = next;
-      } else {
-        prev->next = next;
-      }
-      if (worker->blocked_queue.tail == task) {
-        worker->blocked_queue.tail = prev;
-      }
-      worker->blocked_queue.count--;
-      
-      // Add to ready queue (unlocked version since we hold the lock)
-      task->state = YO_TASK_READY;
-      task->wait_channel = NULL;
-      task->next = NULL;
-      if (worker->ready_queue.tail) {
-        worker->ready_queue.tail->next = task;
-      } else {
-        worker->ready_queue.head = task;
-      }
-      worker->ready_queue.tail = task;
-      worker->ready_queue.count++;
-      
-      YO_MUTEX_UNLOCK(&worker->queue_mutex);
-      // Only wake one task, then stop
-      return;
-    } else {
-      prev = task;
-      task = next;
-    }
-  }
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-}
-
-// Wake up ONE task from ANY worker's blocked queue (global wakeup)
-// Used when main thread or non-task context needs to wake a task
-static void __yo_task_wakeup_one_global(void* channel) {
-  if (yo_worker_thread_count == 0) {
-    return;
-  }
-  
-  // Try each worker in sequence until we find a task to wake
-  for (size_t i = 0; i < yo_worker_thread_count; i++) {
-    yo_worker_thread_t* worker = &yo_worker_threads[i];
-    
-    YO_MUTEX_LOCK(&worker->queue_mutex);
-    
-    yo_task_t* task = worker->blocked_queue.head;
-    yo_task_t* prev = NULL;
-    
-    while (task != NULL) {
-      yo_task_t* next = task->next;
-      
-      if (task->wait_channel == channel) {
-        CONCURRENCY_DEBUG("[WAKEUP_GLOBAL] Worker %zu waking task=%p\\n", i, task);
-        // Remove from blocked queue
-        if (prev == NULL) {
-          worker->blocked_queue.head = next;
-        } else {
-          prev->next = next;
-        }
-        if (worker->blocked_queue.tail == task) {
-          worker->blocked_queue.tail = prev;
-        }
-        worker->blocked_queue.count--;
-        
-        // Add to ready queue
-        task->state = YO_TASK_READY;
-        task->wait_channel = NULL;
-        task->next = NULL;
-        if (worker->ready_queue.tail) {
-          worker->ready_queue.tail->next = task;
-        } else {
-          worker->ready_queue.head = task;
-        }
-        worker->ready_queue.tail = task;
-        worker->ready_queue.count++;
-        
-        YO_MUTEX_UNLOCK(&worker->queue_mutex);
-        return; // Found and woke one task, done
-      } else {
-        prev = task;
-        task = next;
-      }
-    }
-    
-    YO_MUTEX_UNLOCK(&worker->queue_mutex);
-  }
-}
-
-
-// Worker thread function - runs tasks from its own ready queue
-#ifdef _WIN32
-static unsigned __stdcall __yo_worker_thread_func(void* arg) {
-#else
-static void* __yo_worker_thread_func(void* arg) {
-#endif
-  yo_worker_thread_t* worker = (yo_worker_thread_t*)arg;
-  yo_thread_id_t thread_id = YO_THREAD_ID();
-  
-  // Set thread-local worker pointer
-  yo_task_current_worker = worker;
-  
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu started (worker=%p)\\n", (unsigned long)thread_id, worker);
-  
-  while (!atomic_load(&yo_worker_shutdown)) {
-    yo_task_t* task = __yo_task_dequeue_from_worker(worker);
-    
-    if (!task) {
-      // No tasks available, sleep briefly
-      #ifdef _WIN32
-      Sleep(1);
-      #else
-      usleep(1000);  // 1ms
-      #endif
-      continue;
-    }
-    
-    CONCURRENCY_DEBUG("[WORKER] Thread %lu executing task=%p\\n", (unsigned long)thread_id, task);
-    
-    yo_task_current = task;
-    task->state = YO_TASK_RUNNING;
-    
-    // Set this thread's context for tasks to return to
-    yo_task_main_context_set = true;
-    
-    if (setjmp(yo_task_main_context) == 0) {
-      // First time - clean up any previous task
-      if (yo_task_to_cleanup) {
-        __yo_cleanup_completed_task(yo_task_to_cleanup);
-        yo_task_to_cleanup = NULL;
-      }
-      
-      // Execute task cooperatively using its stack
-      if (!task->context_initialized) {
-        // First time running - bootstrap on task's stack
-        char* stack_top = task->stack + task->stack_size;
-        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
-        __yo_switch_to_stack(stack_top, __yo_task_bootstrap, task);
-      } else {
-        // Resume task from saved context
-        CONCURRENCY_DEBUG("[WORKER] Resuming task=%p from saved context\\n", task);
-        // Just longjmp - it will restore the stack pointer from the saved context
-        // No need to switch stacks first!
-        longjmp(task->context, 1);
-      }
-      
-      // Should not reach here - tasks return via longjmp
-      CONCURRENCY_DEBUG("[WORKER] Error: reached end of task execution\\n");
-      abort();
-    } else {
-      // Returned from a task via longjmp
-      CONCURRENCY_DEBUG("[WORKER] Returned from task via longjmp\\n");
-      
-      // Check if a task completed and needs cleanup
-      if (yo_task_to_cleanup) {
-        CONCURRENCY_DEBUG("[WORKER] Task=%p completed, cleaning up and fetching next\\n", yo_task_to_cleanup);
-        __yo_cleanup_completed_task(yo_task_to_cleanup);
-        yo_task_to_cleanup = NULL;
-        yo_task_current = NULL;
-        continue; // Fetch next task
-      }
-      
-      // Check if current task was blocked - it's been moved to blocked queue
-      if (yo_task_current && yo_task_current->state == YO_TASK_BLOCKED) {
-        CONCURRENCY_DEBUG("[WORKER] Task=%p blocked, fetching next task\\n", yo_task_current);
-        yo_task_current = NULL;
-        continue; // Fetch next task
-      }
-      
-      // If yo_task_current is NULL, task was cleaned up elsewhere
-      if (!yo_task_current) {
-        CONCURRENCY_DEBUG("[WORKER] Current task is NULL, fetching next\\n");
-        continue;
-      }
-      
-      // Task returned but didn't complete or block - should not happen
-      CONCURRENCY_DEBUG("[WORKER] Warning: Task=%p returned via longjmp but not completed/blocked\\n", yo_task_current);
-    }
-    
-    yo_task_current = NULL;
-  }
-  
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
-  #ifdef _WIN32
-  return 0;
-  #else
-  return NULL;
-  #endif
-}
-
-// Get number of hardware threads available
-size_t __yo_concurrency_get_hardware_threads(void) {
-  #ifdef _WIN32
-  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  return (size_t)sysinfo.dwNumberOfProcessors;
-  #else
-  // Use sysconf on POSIX systems
-  long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-  if (nprocs < 1) {
-    return 1;  // Fallback to 1 if detection fails
-  }
-  return (size_t)nprocs;
-  #endif
-}
-
-// Initialize thread pool
-static void __yo_thread_pool_init(size_t num_threads) {
-  if (num_threads < 1 || yo_worker_thread_count > 0) {
-    return;  // Already initialized or invalid count
-  }
-  
-  CONCURRENCY_DEBUG("[POOL] Initializing %zu worker threads\\n", num_threads);
-  
-  // Allocate worker thread array
-  yo_worker_threads = (yo_worker_thread_t*)__yo_malloc(sizeof(yo_worker_thread_t) * num_threads);
-  yo_worker_thread_count = num_threads;
-  atomic_store(&yo_worker_shutdown, false);
-  atomic_store(&yo_next_worker_index, 0);
-  
-  // Initialize each worker
-  for (size_t i = 0; i < num_threads; i++) {
-    yo_worker_threads[i].active = true;
-    yo_worker_threads[i].ready_queue = (yo_task_queue_t){NULL, NULL, 0};
-    yo_worker_threads[i].blocked_queue = (yo_task_queue_t){NULL, NULL, 0};
-    YO_MUTEX_INIT(&yo_worker_threads[i].queue_mutex);
-    
-    #ifdef _WIN32
-    yo_worker_threads[i].handle = (HANDLE)_beginthreadex(
-      NULL, 0, __yo_worker_thread_func, &yo_worker_threads[i], 0, NULL
-    );
-    #else
-    pthread_create(&yo_worker_threads[i].handle, NULL, __yo_worker_thread_func, &yo_worker_threads[i]);
-    #endif
-    
-    CONCURRENCY_DEBUG("[POOL] Spawned worker thread %zu\\n", i);
-  }
-}
-
-// Set maximum number of threads for task scheduler
-void __yo_concurrency_set_maximum_threads(size_t num) {
-  __yo_task_scheduler_init();
-  
-  // If num is 0, use hardware thread count
-  if (num == 0) {
-    num = __yo_concurrency_get_hardware_threads();
-  }
-  
-  yo_task_max_threads = num;
-  
-  // Always initialize thread pool (even for num=1)
-  __yo_thread_pool_init(num);
-}
-
-// Yield is no longer used with per-thread queues - tasks run cooperatively within each worker
-// Blocking/wakeup happens via __yo_task_block_and_yield which is called by channel operations
-
-// Yield control to allow other tasks to run (like Go's runtime.Gosched)
-// This allows a task to voluntarily give up the CPU to other tasks on the same worker
-void __yo_task_yield(void) {
-  if (!yo_task_scheduler_initialized || !yo_task_current) {
-    return; // Not in a task context
-  }
-  
-  yo_worker_thread_t* worker = yo_task_current_worker;
-  if (!worker) {
-    return;
-  }
-  
-  yo_task_t* current = yo_task_current;
-  
-  // NOTE: Context should already be saved by the caller (channel send/recv/select)
-  // before calling this function. We do NOT save context here to avoid double-setjmp.
-  
-  // Check if task is blocked or just yielding
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  if (current->state == YO_TASK_BLOCKED) {
-    // Task is blocked - add to blocked queue
-    current->next = NULL;
-    if (worker->blocked_queue.tail) {
-      worker->blocked_queue.tail->next = current;
-    } else {
-      worker->blocked_queue.head = current;
-    }
-    worker->blocked_queue.tail = current;
-    worker->blocked_queue.count++;
-    CONCURRENCY_DEBUG("[YIELD] Task=%p moved to blocked queue\\n", current);
-  } else {
-    // Task is just yielding - re-enqueue at the end of ready queue
-    current->state = YO_TASK_READY;
-    current->next = NULL;
-    if (worker->ready_queue.tail) {
-      worker->ready_queue.tail->next = current;
-    } else {
-      worker->ready_queue.head = current;
-    }
-    worker->ready_queue.tail = current;
-    worker->ready_queue.count++;
-    CONCURRENCY_DEBUG("[YIELD] Task=%p moved to ready queue\\n", current);
-  }
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-  
-  // Get next ready task from this worker's queue
-  yo_task_t* next = __yo_task_dequeue_from_worker(worker);
-  if (next) {
-    yo_task_current = next;
-    next->state = YO_TASK_RUNNING;
-    
-    if (next->context_initialized) {
-      // Resume next task
-      longjmp(next->context, 1);
-    } else {
-      // First time running next task
-      char* stack_top = next->stack + next->stack_size;
-      stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
-      __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
-    }
-  } else {
-    // No ready tasks - return to worker's main context
-    if (yo_task_main_context_set) {
-      longjmp(yo_task_main_context, 1);
-    }
-  }
-}
-
-// Wait for all spawned tasks to complete
-// This should be called from the main thread to run all pending tasks
-void __yo_task_wait_all(void) {
-  if (!yo_task_scheduler_initialized) {
-    return; // No tasks to wait for
-  }
-  
-  CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for all tasks to complete\\n");
-  
-  // If using thread pool, wait for all tasks to complete then join threads
-  if (yo_worker_thread_count > 0) {
-    CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for thread pool to finish\\n");
-    
-    // Wait until all active tasks complete (use atomic counter, not queue polling)
-    while (atomic_load(&yo_active_task_count) > 0) {
-      // Sleep briefly to avoid busy waiting
-      #ifdef _WIN32
-      Sleep(1);
-      #else
-      usleep(1000);  // 1ms
-      #endif
-    }
-    
-    CONCURRENCY_DEBUG("[WAIT_ALL] All tasks completed, shutting down workers\\n");
-    
-    // Signal workers to shutdown
-    atomic_store(&yo_worker_shutdown, true);
-    
-    // Join all worker threads
-    for (size_t i = 0; i < yo_worker_thread_count; i++) {
-      if (yo_worker_threads[i].active) {
-        #ifdef _WIN32
-        WaitForSingleObject(yo_worker_threads[i].handle, INFINITE);
-        CloseHandle(yo_worker_threads[i].handle);
-        #else
-        pthread_join(yo_worker_threads[i].handle, NULL);
-        #endif
-        YO_MUTEX_DESTROY(&yo_worker_threads[i].queue_mutex);
-      }
-    }
-    
-    // Clean up thread pool
-    __yo_free(yo_worker_threads);
-    yo_worker_threads = NULL;
-    yo_worker_thread_count = 0;
-    
-    CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
-    return;
-  }
-  
-  // Single-threaded mode not supported with per-thread queues
-  CONCURRENCY_DEBUG("[WAIT_ALL] Error: No worker threads initialized\\n");
-}
-
-// Block current task on a channel and yield to another task
-// This is a specialized version of yield that also marks the task as blocked
-static void __yo_task_block_and_yield(void* channel) {
-  if (!yo_task_scheduler_initialized || !yo_task_current) {
-    return;
-  }
-  
-  yo_worker_thread_t* worker = yo_task_current_worker;
-  if (!worker) {
-    CONCURRENCY_DEBUG("[BLOCK] Error: No current worker\\n");
-    return;
-  }
-  
-  yo_task_t* current = yo_task_current;
-  CONCURRENCY_DEBUG("[BLOCK] Blocking task=%p on channel=%p\\n", current, channel);
-  
-  // Save current context before blocking
-  if (setjmp(current->context) == 0) {
-    // Mark task as blocked and move to blocked queue
-    __yo_task_block(current, channel);
-    
-    // Get next ready task from this worker's queue
-    yo_task_t* next = __yo_task_dequeue_from_worker(worker);
-    if (next) {
-      yo_task_current = next;
-      next->state = YO_TASK_RUNNING;
-      CONCURRENCY_DEBUG("[BLOCK] Switching to next=%p\\n", next);
-      
-      if (next->context_initialized) {
-        // Resume next task - just longjmp, it will restore stack from saved context
-        longjmp(next->context, 1);
-      } else {
-        // First time running next task
-        char* stack_top = next->stack + next->stack_size;
-        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
-        __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
-      }
-    } else {
-      // No ready tasks - return to worker's main context
-      // Don't set yo_task_current = NULL here - let the worker check the state
-      if (yo_task_main_context_set) {
-        CONCURRENCY_DEBUG("[BLOCK] No ready tasks, returning to worker\\n");
-        longjmp(yo_task_main_context, 1);
-      }
-      // If no main context, we're deadlocked - but let the channel code handle it
-    }
-  } else {
-    // Resumed via longjmp - restore yo_task_current and check for cleanup
-    // NOTE: When we longjmp, thread-local variables ARE preserved!
-    CONCURRENCY_DEBUG("[BLOCK] Task resumed after blocking (setjmp returned 1), task=%p\\n", yo_task_current);
-    if (yo_task_to_cleanup) {
-      __yo_cleanup_completed_task(yo_task_to_cleanup);
-      yo_task_to_cleanup = NULL;
-    }
-    CONCURRENCY_DEBUG("[BLOCK] About to return, task=%p\\n", yo_task_current);
-  }
-  
-  // Returns here when unblocked and resumed
-  CONCURRENCY_DEBUG("[BLOCK] Returned from block_and_yield, task=%p\\n", yo_task_current);
-}
-`);
 }
 
 /**
@@ -1821,24 +1028,46 @@ ${paramAssignments}
   }
 
   // Generate a simple spawn function for unit functions (void -> void)
-  emitter.emitLine(`void __yo_task_spawn_unit_function(void (*func)(void)) {
+  // STACKLESS VERSION - wraps function as a simple continuation
+  // Generate continuation wrapper for unit functions
+  emitter.emitLine(`
+typedef struct {
+  void (*func)(void);
+} __yo_unit_function_data_t;
+
+static void __yo_unit_function_continuation(yo_task_t* task) {
+  __yo_unit_function_data_t* data = (__yo_unit_function_data_t*)task->data;
+  
+  // Call the unit function
+  data->func();
+  
+  // Mark task as completed - worker will free the data
+  task->state = YO_TASK_COMPLETED;
+}
+
+void __yo_task_spawn_unit_function(void (*func)(void)) {
   __yo_task_scheduler_init();
   
   if (yo_worker_thread_count == 0) {
     __yo_concurrency_set_maximum_threads(0);
   }
   
+  // Allocate data structure to hold the function pointer
+  __yo_unit_function_data_t* data = (__yo_unit_function_data_t*)__yo_malloc(sizeof(__yo_unit_function_data_t));
+  data->func = func;
+  
+  // Create task with proper continuation wrapper
   yo_task_t* task = (yo_task_t*)__yo_malloc(sizeof(yo_task_t));
-  task->func = (void (*)(void*))func;
-  task->data = NULL;
+  task->continuation = __yo_unit_function_continuation;
+  task->data = data;
+  task->state_id = 0;
   task->state = YO_TASK_READY;
   task->wait_channel = NULL;
+  task->select_ready_case = -1;
+  task->select_cases = NULL;
+  task->select_num_cases = 0;
   task->next = NULL;
-  task->context_initialized = false;
-  task->select_state = NULL;
   task->next_wait = NULL;
-  task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
-  task->stack_size = YO_TASK_STACK_SIZE;
   
   // Increment active task counter BEFORE enqueueing
   atomic_fetch_add(&yo_active_task_count, 1);
@@ -1850,7 +1079,7 @@ ${paramAssignments}
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
     atomic_fetch_sub(&yo_active_task_count, 1);  // Decrement since task failed
-    __yo_free(task->stack);
+    __yo_free(data);
     __yo_free(task);
   }
 }
@@ -1896,17 +1125,17 @@ ${paramAssignments}
       continue;
     }
 
-    // Generate task data structure for closure
+    // Generate task data structure for closure (stackless)
     const structName = `yo_task_data_${signatureStr}_t`;
     emitter.emitLine(`typedef struct ${structName} {
   ${closureTypeCName}* closure;
 } ${structName};
 `);
 
-    // Generate task execution function for closure
-    const executeFnName = `__yo_task_execute_${signatureStr}`;
-    emitter.emitLine(`static void ${executeFnName}(void* task_data) {
-  ${structName}* data = (${structName}*)task_data;
+    // Generate continuation function for closure (stackless)
+    const continuationFnName = `__yo_task_continuation_${signatureStr}`;
+    emitter.emitLine(`static void ${continuationFnName}(yo_task_t* task) {
+  ${structName}* data = (${structName}*)task->data;
   ${closureTypeCName}* closure = data->closure;
   
   // Call the closure: closure->vtable.call(closure)
@@ -1915,11 +1144,12 @@ ${paramAssignments}
   // Drop the closure (decrement reference count)
   __yo_decr_rc(closure, (void(*)(void*))closure->vtable.dispose);
   
-  __yo_free(data);
+  // Mark task as completed - worker will free the data
+  task->state = YO_TASK_COMPLETED;
 }
 `);
 
-    // Generate task spawn function for closure
+    // Generate task spawn function for closure (stackless)
     const spawnFunctionName = `__yo_task_spawn_${signatureStr}`;
     emitter.emitLine(`void ${spawnFunctionName}(${closureTypeCName}* closure) {
   __yo_task_scheduler_init();
@@ -1937,20 +1167,18 @@ ${paramAssignments}
   ${structName}* data = (${structName}*)__yo_malloc(sizeof(${structName}));
   data->closure = closure;
   
-  // Create task
+  // Create stackless task
   yo_task_t* task = (yo_task_t*)__yo_malloc(sizeof(yo_task_t));
-  task->func = ${executeFnName};
+  task->continuation = ${continuationFnName};  // Set continuation function
   task->data = data;
+  task->state_id = 0;  // Initial state
   task->state = YO_TASK_READY;
   task->wait_channel = NULL;
+  task->select_ready_case = -1;
+  task->select_cases = NULL;
+  task->select_num_cases = 0;
   task->next = NULL;
-  task->context_initialized = false;
-  task->select_state = NULL;
   task->next_wait = NULL;
-  
-  // Allocate separate stack for cooperative scheduling
-  task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
-  task->stack_size = YO_TASK_STACK_SIZE;
   
   // Increment active task counter BEFORE enqueueing
   atomic_fetch_add(&yo_active_task_count, 1);
@@ -1963,7 +1191,6 @@ ${paramAssignments}
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
     atomic_fetch_sub(&yo_active_task_count, 1);  // Decrement since task failed
-    __yo_free(task->stack);
     __yo_free(task);
     __yo_free(data);
     // On error, decrement the reference we received since we won't use it
