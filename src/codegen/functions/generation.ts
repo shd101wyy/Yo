@@ -92,6 +92,11 @@ export function generateFunctionDeclarations(
     generateFunctionDeclaration(value.type, cName, false, context);
   }
 
+  // Forward declaration for unit task spawn function (used by main wrapper)
+  emitter.emitDeclarationLine(
+    `void __yo_task_spawn_unit_function(void (*func)(void)); // Spawn unit function as task`
+  );
+
   // Generate vtable instance declarations for closures (after function declarations)
   emitter.emitDeclarationLine(`/// Closure vtable instances`);
   generateClosureVtableDeclarations(context);
@@ -262,13 +267,14 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     );
   }
 
-  // Main returns unit - generate wrapper that always returns 0
+  // Main returns unit - generate wrapper that spawns main as a task
   emitter.emitLine(`
-// Main wrapper - automatically calls __yo_task_wait_all() on exit
+// Main wrapper - spawns yo_user_main as a task and waits for completion
 int main(void) {
-  yo_user_main();
+  // Spawn yo_user_main as a task so all channel operations use task wait queues
+  __yo_task_spawn_unit_function(yo_user_main);
   
-  // Wait for all cooperative tasks to complete before exiting
+  // Wait for all cooperative tasks (including main) to complete before exiting
   if (yo_task_scheduler_initialized) {
     __yo_task_wait_all();
   }
@@ -1016,6 +1022,7 @@ static yo_worker_thread_t* yo_worker_threads = NULL;
 static size_t yo_worker_thread_count = 0;
 static _Atomic bool yo_worker_shutdown = false;
 static _Atomic size_t yo_next_worker_index = 0;  // For round-robin task distribution
+static _Atomic size_t yo_active_task_count = 0;  // Total number of active tasks (spawned but not completed)
 
 // Helper function to clean up a completed task
 // This is called after we've switched away from the task's stack
@@ -1062,6 +1069,10 @@ static void __yo_task_bootstrap(void* arg) {
   // Task completed - we need to switch away BEFORE freeing our stack!
   task->state = YO_TASK_COMPLETED;
   yo_task_current = NULL;
+  
+  // Decrement active task counter
+  atomic_fetch_sub(&yo_active_task_count, 1);
+  CONCURRENCY_DEBUG("[TASK] Active task count decremented\\n");
   
   // Mark this task for cleanup (it will be cleaned up after we switch away)
   yo_task_to_cleanup = task;
@@ -1488,25 +1499,36 @@ void __yo_task_yield(void) {
   
   yo_task_t* current = yo_task_current;
   
-  // Save current task context
-  if (setjmp(current->context) != 0) {
-    // Resumed after yield
-    return;
-  }
+  // NOTE: Context should already be saved by the caller (channel send/recv/select)
+  // before calling this function. We do NOT save context here to avoid double-setjmp.
   
-  // Move current task to back of ready queue to give others a chance
+  // Check if task is blocked or just yielding
   YO_MUTEX_LOCK(&worker->queue_mutex);
-  current->state = YO_TASK_READY;
   
-  // Re-enqueue at the end
-  if (worker->ready_queue.tail) {
-    worker->ready_queue.tail->next = current;
+  if (current->state == YO_TASK_BLOCKED) {
+    // Task is blocked - add to blocked queue
+    current->next = NULL;
+    if (worker->blocked_queue.tail) {
+      worker->blocked_queue.tail->next = current;
+    } else {
+      worker->blocked_queue.head = current;
+    }
+    worker->blocked_queue.tail = current;
+    worker->blocked_queue.count++;
+    CONCURRENCY_DEBUG("[YIELD] Task=%p moved to blocked queue\\n", current);
   } else {
-    worker->ready_queue.head = current;
+    // Task is just yielding - re-enqueue at the end of ready queue
+    current->state = YO_TASK_READY;
+    current->next = NULL;
+    if (worker->ready_queue.tail) {
+      worker->ready_queue.tail->next = current;
+    } else {
+      worker->ready_queue.head = current;
+    }
+    worker->ready_queue.tail = current;
+    worker->ready_queue.count++;
+    CONCURRENCY_DEBUG("[YIELD] Task=%p moved to ready queue\\n", current);
   }
-  worker->ready_queue.tail = current;
-  current->next = NULL;
-  worker->ready_queue.count++;
   
   YO_MUTEX_UNLOCK(&worker->queue_mutex);
   
@@ -1546,21 +1568,8 @@ void __yo_task_wait_all(void) {
   if (yo_worker_thread_count > 0) {
     CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for thread pool to finish\\n");
     
-    // Wait until all worker queues are empty (both ready and blocked)
-    while (true) {
-      size_t total_tasks = 0;
-      
-      for (size_t i = 0; i < yo_worker_thread_count; i++) {
-        YO_MUTEX_LOCK(&yo_worker_threads[i].queue_mutex);
-        total_tasks += yo_worker_threads[i].ready_queue.count;
-        total_tasks += yo_worker_threads[i].blocked_queue.count;
-        YO_MUTEX_UNLOCK(&yo_worker_threads[i].queue_mutex);
-      }
-      
-      if (total_tasks == 0) {
-        break;
-      }
-      
+    // Wait until all active tasks complete (use atomic counter, not queue polling)
+    while (atomic_load(&yo_active_task_count) > 0) {
       // Sleep briefly to avoid busy waiting
       #ifdef _WIN32
       Sleep(1);
@@ -1568,6 +1577,8 @@ void __yo_task_wait_all(void) {
       usleep(1000);  // 1ms
       #endif
     }
+    
+    CONCURRENCY_DEBUG("[WAIT_ALL] All tasks completed, shutting down workers\\n");
     
     // Signal workers to shutdown
     atomic_store(&yo_worker_shutdown, true);
@@ -1787,6 +1798,8 @@ ${paramAssignments}
   task->wait_channel = NULL;
   task->next = NULL;
   task->context_initialized = false;
+  task->select_state = NULL;
+  task->next_wait = NULL;
   
   // Allocate separate stack for cooperative scheduling
   task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
@@ -1806,6 +1819,42 @@ ${paramAssignments}
 }
 `);
   }
+
+  // Generate a simple spawn function for unit functions (void -> void)
+  emitter.emitLine(`void __yo_task_spawn_unit_function(void (*func)(void)) {
+  __yo_task_scheduler_init();
+  
+  if (yo_worker_thread_count == 0) {
+    __yo_concurrency_set_maximum_threads(0);
+  }
+  
+  yo_task_t* task = (yo_task_t*)__yo_malloc(sizeof(yo_task_t));
+  task->func = (void (*)(void*))func;
+  task->data = NULL;
+  task->state = YO_TASK_READY;
+  task->wait_channel = NULL;
+  task->next = NULL;
+  task->context_initialized = false;
+  task->select_state = NULL;
+  task->next_wait = NULL;
+  task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
+  task->stack_size = YO_TASK_STACK_SIZE;
+  
+  // Increment active task counter BEFORE enqueueing
+  atomic_fetch_add(&yo_active_task_count, 1);
+  
+  if (yo_worker_thread_count > 0) {
+    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % yo_worker_thread_count;
+    CONCURRENCY_DEBUG("[SPAWN] Assigning main task=%p to worker %zu\\n", task, worker_idx);
+    __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
+  } else {
+    CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
+    atomic_fetch_sub(&yo_active_task_count, 1);  // Decrement since task failed
+    __yo_free(task->stack);
+    __yo_free(task);
+  }
+}
+`);
 
   // Generate task spawn functions for closures (async keyword)
   emitter.emitDeclarationLine(
@@ -1896,10 +1945,15 @@ ${paramAssignments}
   task->wait_channel = NULL;
   task->next = NULL;
   task->context_initialized = false;
+  task->select_state = NULL;
+  task->next_wait = NULL;
   
   // Allocate separate stack for cooperative scheduling
   task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
   task->stack_size = YO_TASK_STACK_SIZE;
+  
+  // Increment active task counter BEFORE enqueueing
+  atomic_fetch_add(&yo_active_task_count, 1);
   
   // Distribute task to worker thread round-robin
   if (yo_worker_thread_count > 0) {
@@ -1908,6 +1962,7 @@ ${paramAssignments}
     __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
+    atomic_fetch_sub(&yo_active_task_count, 1);  // Decrement since task failed
     __yo_free(task->stack);
     __yo_free(task);
     __yo_free(data);
@@ -3262,8 +3317,16 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
         pthread_mutex_unlock(&chan->mutex);
 #endif
         
-        // Wake the receiver
+        // Wake the receiver task
         __yo_task_wakeup_one_global(chan);
+        
+        // Also signal pthread condition variable in case non-task threads are waiting
+#if defined(_WIN32)
+        WakeConditionVariable(&chan->recv_cond);
+#else
+        pthread_cond_signal(&chan->recv_cond);
+#endif
+        
         return;
       }
       
@@ -3277,6 +3340,8 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       }
       chan->buffer[0] = value;
       chan->size = 1;
+      
+      CONCURRENCY_DEBUG("[CHAN_SEND] Task=%p parking, stored value in buffer, size=%d\\n", yo_task_current, chan->size);
       
 #if defined(_WIN32)
       LeaveCriticalSection(&chan->mutex);
@@ -3426,13 +3491,12 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 }
 `);
 
-    // Channel receive function
-    emitter.emitLine(`${optionReturnTypeStr} __yo_chan_recv_${safeCName}(${cName}* chan) {
-  ${optionReturnTypeStr} result;
-  memset(&result, 0, sizeof(result)); // Initialize to zero (None case)
+    // Channel receive function - uses output parameter to avoid struct return issues with longjmp
+    emitter.emitLine(`void __yo_chan_recv_${safeCName}(${cName}* chan, ${optionReturnTypeStr}* result) {
+  memset(result, 0, sizeof(*result)); // Initialize to zero (None case)
 
   if (!chan) {
-    return result; // Return None for null channel
+    return; // Return None for null channel
   }
 
   if (chan->capacity == 0) {
@@ -3448,27 +3512,54 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 #endif
       
       if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-        result.tag = ${noneTag};
+        result->tag = ${noneTag};
 #if defined(_WIN32)
         LeaveCriticalSection(&chan->mutex);
 #else
         pthread_mutex_unlock(&chan->mutex);
 #endif
-        return result;
+        return;
       }
       
       // Check if sender is waiting
       if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
+        CONCURRENCY_DEBUG("[CHAN_RECV] Found sender=%p in send_queue\\n", chan->send_queue_head);
         // Sender waiting - take value directly
         yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
+        CONCURRENCY_DEBUG("[CHAN_RECV] Popped sender=%p, select_state=%p\\n", sender, sender->select_state);
         
-        // Value is in buffer (sender put it there)
-        if (chan->size > 0 && chan->buffer != NULL) {
-          result.tag = ${someTag};
-          result.data.Some.value = chan->buffer[0];
-          chan->size = 0;
+        // Check if sender is in a select statement
+        if (sender->select_state) {
+          CONCURRENCY_DEBUG("[CHAN_RECV] Sender has select_state, num_cases=%d\\n", sender->select_state->num_cases);
+          // Sender is in select - find the send case for this channel and take value
+          bool found = false;
+          for (int i = 0; i < sender->select_state->num_cases; i++) {
+            CONCURRENCY_DEBUG("[CHAN_RECV] Checking case %d: channel=%p (want %p), is_send=%d\\n", 
+              i, sender->select_state->cases[i].channel, chan, sender->select_state->cases[i].is_send);
+            if (sender->select_state->cases[i].channel == chan && 
+                sender->select_state->cases[i].is_send) {
+              ${elementTypeStr} val = *(${elementTypeStr}*)sender->select_state->cases[i].value_ptr;
+              CONCURRENCY_DEBUG("[CHAN_RECV] Found send case %d, value=%d\\n", i, val);
+              result->tag = ${someTag};
+              result->data.Some.value = val;
+              sender->select_state->ready_case = i;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            CONCURRENCY_DEBUG("[CHAN_RECV] ERROR: No matching send case found!\\n");
+            result->tag = ${noneTag};
+          }
         } else {
-          result.tag = ${noneTag};
+          // Regular send - value is in buffer
+          if (chan->size > 0 && chan->buffer != NULL) {
+            result->tag = ${someTag};
+            result->data.Some.value = chan->buffer[0];
+            chan->size = 0;
+          } else {
+            result->tag = ${noneTag};
+          }
         }
         
 #if defined(_WIN32)
@@ -3477,15 +3568,23 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
         pthread_mutex_unlock(&chan->mutex);
 #endif
         
-        // Wake the sender
+        // Wake the sender task
         __yo_task_wakeup_one_global(chan);
-        return result;
+        
+        // Also signal pthread condition variable in case non-task threads are waiting
+#if defined(_WIN32)
+        WakeConditionVariable(&chan->send_cond);
+#else
+        pthread_cond_signal(&chan->send_cond);
+#endif
+        
+        return;
       }
       
       // Check if value is available from non-task sender
       if (chan->size > 0 && chan->buffer != NULL) {
-        result.tag = ${someTag};
-        result.data.Some.value = chan->buffer[0];
+        result->tag = ${someTag};
+        result->data.Some.value = chan->buffer[0];
         chan->size = 0;
 
 #if defined(_WIN32)
@@ -3497,10 +3596,11 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 #endif
         
         __yo_task_wakeup_one_global(chan);
-        return result;
+        return;
       }
       
       // No sender waiting - must park
+      CONCURRENCY_DEBUG("[CHAN_RECV] No sender waiting, no buffer value, parking...\\n");
       __yo_chan_wait_queue_add(&chan->recv_queue_head, &chan->recv_queue_tail, yo_task_current);
       yo_task_current->wait_channel = chan;
       
@@ -3517,30 +3617,39 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       }
       
       // Resumed - value should be available
+      CONCURRENCY_DEBUG("[CHAN_RECV] Task=%p resumed after parking, yo_task_current=%p\\n", yo_task_current, yo_task_current);
+      
 #if defined(_WIN32)
       EnterCriticalSection(&chan->mutex);
 #else
       pthread_mutex_lock(&chan->mutex);
 #endif
 
+      CONCURRENCY_DEBUG("[CHAN_RECV] About to check select_state, yo_task_current=%p, select_state=%p\\n", yo_task_current, yo_task_current ? yo_task_current->select_state : NULL);
+      CONCURRENCY_DEBUG("[CHAN_RECV] Buffer state: size=%d, buffer=%p\\n", chan->size, (void*)chan->buffer);
+      
       if (yo_task_current->select_state != NULL) {
         // We were in select - value was written to select state
+        CONCURRENCY_DEBUG("[CHAN_RECV] In select path\\n");
         for (int i = 0; i < yo_task_current->select_state->num_cases; i++) {
           if (yo_task_current->select_state->cases[i].channel == chan && 
               !yo_task_current->select_state->cases[i].is_send) {
-            result.tag = ${someTag};
-            result.data.Some.value = *(${elementTypeStr}*)yo_task_current->select_state->cases[i].value_ptr;
+            result->tag = ${someTag};
+            result->data.Some.value = *(${elementTypeStr}*)yo_task_current->select_state->cases[i].value_ptr;
             break;
           }
         }
       } else {
         // Regular receive - value in buffer
+        CONCURRENCY_DEBUG("[CHAN_RECV] Regular receive path, checking buffer: size=%d, buffer=%p\\n", chan->size, (void*)chan->buffer);
         if (chan->size > 0 && chan->buffer != NULL) {
-          result.tag = ${someTag};
-          result.data.Some.value = chan->buffer[0];
+          result->tag = ${someTag};
+          result->data.Some.value = chan->buffer[0];
           chan->size = 0;
+          CONCURRENCY_DEBUG("[CHAN_RECV] Got value from buffer: %d, set tag to %d (Some=%d, None=%d)\\n", chan->buffer[0], result->tag, ${someTag}, ${noneTag});
         } else {
-          result.tag = ${noneTag};
+          result->tag = ${noneTag};
+          CONCURRENCY_DEBUG("[CHAN_RECV] Buffer empty, returning None\\n");
         }
       }
 
@@ -3550,25 +3659,50 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       pthread_mutex_unlock(&chan->mutex);
 #endif
 
-      return result;
+      CONCURRENCY_DEBUG("[CHAN_RECV] Returning result with tag=%d\\n", result->tag);
+      return;
     }
     
     // Non-task context - use pthread primitives
 #if defined(_WIN32)
     EnterCriticalSection(&chan->mutex);
-    while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    while (chan->size == 0 && __yo_chan_wait_queue_empty(chan->send_queue_head) && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
       SleepConditionVariableCS(&chan->recv_cond, &chan->mutex, INFINITE);
     }
 #else
     pthread_mutex_lock(&chan->mutex);
-    while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    while (chan->size == 0 && __yo_chan_wait_queue_empty(chan->send_queue_head) && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
       pthread_cond_wait(&chan->recv_cond, &chan->mutex);
     }
 #endif
 
+    // Check if there's a task sender waiting
+    if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
+      yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
+      
+      // Value is in buffer (sender put it there)
+      if (chan->size > 0 && chan->buffer != NULL) {
+        result->tag = ${someTag};
+        result->data.Some.value = chan->buffer[0];
+        chan->size = 0;
+      } else {
+        result->tag = ${noneTag};
+      }
+
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+
+      // Wake the sender task
+      __yo_task_wakeup_one_global(chan);
+      return;
+    }
+
     if (chan->size > 0 && chan->buffer != NULL) {
-      result.tag = ${someTag};
-      result.data.Some.value = chan->buffer[0];
+      result->tag = ${someTag};
+      result->data.Some.value = chan->buffer[0];
       chan->size = 0;
 
 #if defined(_WIN32)
@@ -3581,7 +3715,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
       __yo_task_wakeup_one_global(chan);
     } else {
-      result.tag = ${noneTag};
+      result->tag = ${noneTag};
 #if defined(_WIN32)
       LeaveCriticalSection(&chan->mutex);
 #else
@@ -3589,7 +3723,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 #endif
     }
     
-    return result;
+    return;
   }
 
   // Buffered channel
@@ -3625,11 +3759,11 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       chan->size--;
       
       // Construct Some(value)
-      result.tag = ${someTag}; // SOME variant
-      result.data.Some.value = value;
+      result->tag = ${someTag}; // SOME variant
+      result->data.Some.value = value;
     } else {
       // No data available - return None
-      result.tag = ${noneTag}; // NONE variant
+      result->tag = ${noneTag}; // NONE variant
     }
 
 #if defined(_WIN32)
@@ -3640,7 +3774,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
     // Wake up any tasks waiting to send
     __yo_task_wakeup(chan);
-    return result;
+    return;
   }
 
   // Fall back to pthread blocking for non-task contexts
@@ -3663,11 +3797,11 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     chan->size--;
     
     // Construct Some(value)
-    result.tag = ${someTag}; // SOME variant
-    result.data.Some.value = value;
+    result->tag = ${someTag}; // SOME variant
+    result->data.Some.value = value;
   } else {
     // No data available - return None
-    result.tag = ${noneTag}; // NONE variant
+    result->tag = ${noneTag}; // NONE variant
   }
 
 #if defined(_WIN32)
@@ -3678,7 +3812,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   pthread_mutex_unlock(&chan->mutex);
 #endif
 
-  return result;
+  return;
 }
 `);
 
@@ -3718,7 +3852,10 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
       if (chan->capacity == 0) {
         // Unbuffered - ready if receiver in queue
         if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
+          CONCURRENCY_DEBUG("[SELECT] Case %d (send) ready - receiver waiting\\n", i);
           ready_case = i;
+        } else {
+          CONCURRENCY_DEBUG("[SELECT] Case %d (send) not ready - no receiver\\n", i);
         }
       } else {
         // Buffered - ready if space available
@@ -3729,9 +3866,12 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
     } else {
       // Receive case - ready if sender waiting or buffer has data
       if (chan->capacity == 0) {
-        // Unbuffered - ready if sender in queue or value available
-        if (!__yo_chan_wait_queue_empty(chan->send_queue_head) || chan->size > 0) {
+        // Unbuffered - ready ONLY if sender in queue (don't check chan->size!)
+        if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
+          CONCURRENCY_DEBUG("[SELECT] Case %d (recv) ready - sender waiting\\n", i);
           ready_case = i;
+        } else {
+          CONCURRENCY_DEBUG("[SELECT] Case %d (recv) not ready - no sender\\n", i);
         }
       } else {
         // Buffered - ready if data available
@@ -3744,6 +3884,7 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
   
   // If case is ready, perform operation and return
   if (ready_case >= 0) {
+    CONCURRENCY_DEBUG("[SELECT] Phase 1: Case %d ready, performing operation\\n", ready_case);
     ${cName}* chan = (${cName}*)cases[ready_case].channel;
     
     if (cases[ready_case].is_send) {
@@ -3755,6 +3896,8 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
         if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
           yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
           
+          CONCURRENCY_DEBUG("[SELECT] Unbuffered send: Found receiver, writing value=%d\\n", (int)value);
+          
           // Write value to receiver's buffer
           if (receiver->select_state) {
             for (int j = 0; j < receiver->select_state->num_cases; j++) {
@@ -3762,6 +3905,7 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
                   !receiver->select_state->cases[j].is_send) {
                 *(${elementTypeStr}*)receiver->select_state->cases[j].value_ptr = value;
                 receiver->select_state->ready_case = j;
+                CONCURRENCY_DEBUG("[SELECT] Wrote to receiver select_state\\n");
                 break;
               }
             }
@@ -3769,7 +3913,10 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
             if (!chan->buffer) chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
             chan->buffer[0] = value;
             chan->size = 1;
+            CONCURRENCY_DEBUG("[SELECT] Wrote to buffer: buffer[0]=%d, size=%d\\n", chan->buffer[0], chan->size);
           }
+          
+          CONCURRENCY_DEBUG("[SELECT] Unbuffered send: value written, waking receiver\\n");
           
           // Unlock all before waking
           for (int i = 0; i < num_cases; i++) {
@@ -3817,9 +3964,22 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
         if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
           yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
           
-          if (chan->size > 0 && chan->buffer) {
-            *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[0];
-            chan->size = 0;
+          // Check if sender is in select - value is in select_state, not buffer
+          if (sender->select_state) {
+            for (int j = 0; j < sender->select_state->num_cases; j++) {
+              if (sender->select_state->cases[j].channel == chan && 
+                  sender->select_state->cases[j].is_send) {
+                *(${elementTypeStr}*)cases[ready_case].value_ptr = *(${elementTypeStr}*)sender->select_state->cases[j].value_ptr;
+                sender->select_state->ready_case = j;
+                break;
+              }
+            }
+          } else {
+            // Regular send - value in buffer
+            if (chan->size > 0 && chan->buffer) {
+              *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[0];
+              chan->size = 0;
+            }
           }
           
           // Unlock all before waking
@@ -3835,10 +3995,6 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
           
           __yo_task_wakeup_one_global(chan);
           return ready_case;
-        } else if (chan->size > 0 && chan->buffer) {
-          // Value from non-task sender
-          *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[0];
-          chan->size = 0;
         }
       } else {
         // Buffered recv
@@ -3898,6 +4054,8 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
   }
   
   // PHASE 2: No ready cases, no default - register and park
+  
+  CONCURRENCY_DEBUG("[SELECT] Phase 2: No ready cases, parking task\\n");
   
   // Allocate select state
   yo_select_state_t* state = (yo_select_state_t*)__yo_malloc(sizeof(yo_select_state_t));

@@ -392,7 +392,16 @@ function generateFuncCall(
       return `// Error: __yo_chan_recv channel type not found in context`;
     }
 
-    return `__yo_chan_recv_${chanTypeCName}(${chanCode})`;
+    // Generate a temporary variable to hold the result
+    // Receive now takes an output parameter to avoid struct return issues with longjmp
+    // Use volatile to ensure the value persists across longjmp
+    const resultType = expr.$?.type;
+    const resultTypeCName = resultType
+      ? context.types[resultType.id]?.cName
+      : "void";
+    const tempName = `_yo_chan_recv_tmp_${Math.random().toString(36).substring(2, 10)}`;
+
+    return `({ volatile ${resultTypeCName} ${tempName}; __yo_chan_recv_${chanTypeCName}(${chanCode}, (${resultTypeCName}*)&${tempName}); ${tempName}; })`;
   }
 
   // __yo_chan_close - close channel
@@ -1426,7 +1435,16 @@ function generateFuncCall(
               if (!chanTypeCName) {
                 return `// Error: __yo_chan_recv channel type not found in context`;
               }
-              return `__yo_chan_recv_${chanTypeCName}(${chanCode})`;
+
+              // Generate a temporary variable to hold the result
+              // Use volatile to ensure the value persists across longjmp
+              const resultType = expr.$?.type;
+              const resultTypeCName = resultType
+                ? context.types[resultType.id]?.cName
+                : "void";
+              const tempName = `_yo_chan_recv_tmp_${Math.random().toString(36).substring(2, 10)}`;
+
+              return `({ volatile ${resultTypeCName} ${tempName}; __yo_chan_recv_${chanTypeCName}(${chanCode}, (${resultTypeCName}*)&${tempName}); ${tempName}; })`;
             } else if (funcName === "__yo_chan_close") {
               // Handle as built-in __yo_chan_close
               const chanArg = expr.args[0];

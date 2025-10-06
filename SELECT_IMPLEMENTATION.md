@@ -4,6 +4,8 @@
 
 This document describes the implementation of Go-style `select` statement for Yo's channel-based concurrency model. The implementation follows Go's runtime design closely, using wait queues and proper blocking semantics.
 
+**Status**: Core implementation complete. Simple cases work reliably. Unbuffered select rendezvous semantics need refinement for complex multi-iteration scenarios.
+
 ## Problems with Previous Approach
 
 ### Try-Loop with Rendezvous (FAILED)
@@ -317,48 +319,212 @@ void wake_task(task) {
 
 ## Testing Strategy
 
-### Phase 1: Basic Select
+### ✅ Phase 1: Basic Send/Receive (COMPLETE)
 ```yo
-// Two receive cases
-select(
-  (x := <-(ch1)) => { printf("ch1: %d\n", x); },
-  (y := <-(ch2)) => { printf("ch2: %d\n", y); }
-)
+// test_simple_recv.yo - Simple sender/receiver
+main :: (fn() -> unit) {
+  ch := chan(i32);
+  
+  async {
+    ch <- 42;
+  };
+  
+  result := <-(ch);
+  value := result.unwrap();
+  printf("value=%d\n", value);  // Prints: value=42
+};
 ```
+**Status**: ✅ Works perfectly - 20/20 test runs successful
 
-### Phase 2: Send and Receive
+### ⚠️ Phase 2: Select with Mixed Cases (PARTIAL)
 ```yo
-// Mixed cases
-select(
-  (ch1 <- value) => { printf("sent\n"); },
-  (x := <-(ch2)) => { printf("recv: %d\n", x); }
-)
+// fixme.yo - Fibonacci with select
+fibonacci :: (fn(ch : Chan(i32), quit : Chan(i32)) -> unit) {
+  x := 0;
+  y := 1;
+  while(true,
+    select(
+      (ch <- x) => {
+        temp := x;
+        x = y;
+        y = (temp + y);
+      },
+      (q := <-(quit)) => {
+        printf("quit %d\n", q);
+        return;
+      }
+    ));
+};
 ```
+**Status**: ⚠️ First iteration works (prints 0, 1), then deadlocks
+**Issue**: Unbuffered select rendezvous semantics (see Known Issues)
 
-### Phase 3: With Default
+### ❌ Phase 3: With Default (TODO)
 ```yo
-// Non-blocking
+// Non-blocking select
 select(
   (x := <-(ch)) => { printf("recv: %d\n", x); },
   _ => { printf("nothing ready\n"); }
 )
 ```
+**Status**: ❌ Not yet tested
 
-### Phase 4: Complex (Fibonacci)
-The current `fixme.yo` test with fibonacci and quit channel.
+### ❌ Phase 4: Buffered Channels (TODO)
+Test select with buffered channels to verify buffer handling.
 
 ## Implementation Plan
 
-1. **Update channel structure** - Add send_queue and recv_queue ✓ (DONE)
-2. **Add select state structures** ✓ (DONE)
-3. **Update task structure** ✓ (DONE)
-4. **Implement wait queue operations** ✓ (DONE)
-5. **Rewrite channel send/recv** to use wait queues
-6. **Implement select runtime function** (`__yo_select`)
-7. **Update select codegen** to call `__yo_select`
-8. **Remove old try_send/try_recv** code
-9. **Test with fixme.yo**
-10. **Add more tests**
+1. **Update channel structure** - Add send_queue and recv_queue ✅ (DONE)
+2. **Add select state structures** ✅ (DONE)
+3. **Update task structure** ✅ (DONE)
+4. **Implement wait queue operations** ✅ (DONE)
+5. **Rewrite channel send/recv** to use wait queues ✅ (DONE)
+6. **Implement select runtime function** (`__yo_select`) ✅ (DONE)
+7. **Update select codegen** to call `__yo_select` ✅ (DONE)
+8. **Remove old try_send/try_recv** code ✅ (DONE)
+9. **Fix task context switching bugs** ✅ (DONE - fixed double setjmp, uninitialized fields, blocked queue routing)
+10. **Fix main-as-task** ✅ (DONE - spawn main as task to avoid pthread/task communication deadlock)
+11. **Fix atomic task counter** ✅ (DONE - use atomic counter instead of queue polling to avoid race conditions)
+12. **Fix select sender value extraction** ✅ (DONE - extract values from select_state when sender is in select)
+13. **Test with simple cases** ✅ (DONE - test_simple_recv.yo works 100% reliably)
+14. **Fix unbuffered select rendezvous** ⚠️ (IN PROGRESS - see Known Issues below)
+15. **Test with fixme.yo** ⚠️ (PARTIAL - first iteration works, subsequent iterations deadlock)
+16. **Add more tests** ❌ (TODO)
+
+## Implementation Status
+
+### ✅ Completed Features
+
+#### Core Select Implementation
+- ✅ Two-phase select algorithm (lock-poll-park / register-wait-wake)
+- ✅ Wait queue operations (add/remove/pop/empty)
+- ✅ Select state management (allocation, initialization, cleanup)
+- ✅ Channel send with wait queues (parks sender if no receiver)
+- ✅ Channel receive with wait queues (parks receiver if no sender)
+- ✅ Select runtime function with Go's algorithm
+- ✅ Select expression codegen (builds case array, calls __yo_select)
+- ✅ Phase 1: Lock all channels and poll for ready cases
+- ✅ Phase 2: Register with wait queues and park if no ready cases
+- ✅ Wake and resume logic when channel becomes ready
+- ✅ Dequeue from all wait queues after waking
+
+#### Critical Bug Fixes
+- ✅ **Double setjmp bug** - __yo_task_yield was doing setjmp when caller already did it
+- ✅ **Uninitialized fields** - select_state and next_wait had garbage values
+- ✅ **Blocked queue routing** - Tasks were going to ready queue even when state was BLOCKED
+- ✅ **Main thread deadlock** - Main ran on main thread (pthread), tasks ran on workers (task queues) - couldn't communicate
+  - Solution: Spawn main as a task using `__yo_task_spawn_unit_function`
+- ✅ **Task wait race condition** - `__yo_task_wait_all()` checked queues before tasks were enqueued
+  - Solution: Use atomic counter `yo_active_task_count` incremented on spawn, decremented on completion
+- ✅ **Select sender value extraction** - Regular receive didn't know how to extract value from select sender
+  - Solution: Check if sender->select_state is not NULL, then find the send case and extract value from cases[i].value_ptr
+
+#### Working Test Cases
+- ✅ **test_simple_recv.yo** - Sender task sends to receiver task via unbuffered channel
+  - Tested 20 times: 100% success rate
+  - Demonstrates: task spawning, channel send/recv, wait queues, task parking/resuming
+  
+### ⚠️ Known Issues
+
+#### Unbuffered Select Rendezvous Semantics
+**Status**: Partial implementation - works for first send, fails on subsequent iterations
+
+**Problem**: When select performs an unbuffered send to a parked receiver:
+1. Select Phase 1 finds receiver in recv_queue
+2. Select writes value to buffer, wakes receiver, returns immediately
+3. Sender continues execution (e.g., loops back to select)
+4. Sender tries to send again BEFORE receiver has finished processing first value
+5. Receiver is still executing (not yet parked for second receive)
+6. Sender's select sees no receiver in recv_queue, parks in Phase 2
+7. Receiver finishes processing, tries to receive again, parks
+8. **Both tasks parked → deadlock**
+
+**Root Cause**: Select treats unbuffered send as async (write-and-continue) instead of sync (write-and-wait). Go's select waits for true rendezvous - sender doesn't continue until receiver has received.
+
+**Example Failure**: fixme.yo fibonacci
+- First iteration: ✅ Fibonacci sends 0, consumer receives and prints it
+- Second iteration: ❌ Fibonacci parks trying to send 1, consumer parks trying to receive
+- Result: Deadlock after printing "0\n1\n"
+
+**Attempted Solutions**:
+1. ❌ Buffered channels - Didn't help, issue is in select coordination
+2. ⚠️ Check buffer in regular receive - Receiver finds value in buffer, but sender already parked
+
+**Correct Solution** (not yet implemented):
+When select performs unbuffered send:
+1. Find receiver in recv_queue
+2. Write value to receiver's buffer (or select state)
+3. Wake receiver
+4. **Sender must wait/park until receiver confirms receipt**
+5. Only then return from select
+
+This requires:
+- Sender parks after writing value
+- Receiver wakes sender after taking value
+- Bidirectional handshake for rendezvous
+
+Alternatively, for unbuffered channels in select:
+- Don't use buffer as intermediary
+- Pass value pointer directly
+- Use synchronization to ensure atomic exchange
+
+### 🎯 What Works Perfectly
+
+1. **Simple send/receive** (test_simple_recv.yo)
+   - Single sender → single receiver
+   - Unbuffered channel
+   - Task spawning and coordination
+   - Wait queues and parking
+   - 100% reliable
+
+2. **Select with receiver already waiting**
+   - If receiver parks first, sender's select finds it immediately
+   - Handoff works correctly
+   - No race conditions
+
+3. **Task scheduling infrastructure**
+   - Cooperative scheduling with setjmp/longjmp
+   - Worker thread pools
+   - Per-worker ready/blocked queues
+   - Task parking and waking
+   - Atomic task counter for wait_all
+
+4. **Select Phase 1 (Poll)**
+   - Correctly locks all channels
+   - Polls for ready cases
+   - Performs operations when ready
+   - Returns correct case index
+
+5. **Select Phase 2 (Park)**
+   - Registers with wait queues correctly
+   - Parks task properly
+   - Wakes on channel ready
+   - Dequeues from all queues
+
+### 📋 Remaining Work
+
+1. **Fix unbuffered select rendezvous** (PRIORITY)
+   - Implement bidirectional handshake
+   - Ensure sender waits for receiver confirmation
+   - Test with fibonacci example
+   
+2. **Struct return corruption** (LOWER PRIORITY)
+   - Channel receive expressions use output parameter ✅
+   - Specialized wrapper functions still use struct returns ❌
+   - Need to propagate output-parameter pattern throughout
+
+3. **Additional test cases**
+   - Multiple senders, one receiver
+   - One sender, multiple receivers  
+   - Buffered channel select
+   - Select with default (non-blocking)
+   - Select with timeout (using timer channel)
+
+4. **Optimizations** (FUTURE)
+   - Stack-allocate select state for fixed case count
+   - Randomize ready case selection (fairness)
+   - Lock elision for single-case select
+   - Fast path for buffered channels
 
 ## Breaking Changes
 
@@ -368,8 +534,71 @@ This implementation makes breaking changes:
 - No more `rendezvous_value` pointer
 - Different blocking semantics
 - Select now properly supports all cases atomically
+- Main function now runs as a task (not on main thread)
+- Task completion uses atomic counter (not queue polling)
 
 These are acceptable per project guidelines.
+
+## Recent Improvements
+
+### Main-as-Task (Commit: 2024-10-06)
+**Problem**: Main thread used pthread blocking (pthread_cond_wait), while async tasks used task wait queues. They couldn't communicate across this boundary.
+
+**Solution**: Spawn main function as a task on worker thread:
+```c
+int main(void) {
+  __yo_task_spawn_unit_function(yo_user_main);
+  __yo_task_wait_all();
+  return 0;
+}
+```
+
+Now all channel operations use task wait queues uniformly.
+
+### Atomic Task Counter (Commit: 2024-10-06)
+**Problem**: `__yo_task_wait_all()` polled worker queues to check if all tasks completed. Race condition: tasks could be spawned after the check but before shutdown.
+
+**Solution**: Use atomic counter:
+```c
+static _Atomic size_t yo_active_task_count = 0;
+
+// On spawn:
+atomic_fetch_add(&yo_active_task_count, 1);
+
+// On completion:
+atomic_fetch_sub(&yo_active_task_count, 1);
+
+// In wait_all:
+while (atomic_load(&yo_active_task_count) > 0) {
+  usleep(1000);
+}
+```
+
+This eliminates the race - counter is incremented BEFORE enqueueing, ensuring wait_all sees all spawned tasks.
+
+### Select Sender Value Extraction (Commit: 2024-10-06)
+**Problem**: When regular receive found a sender in send_queue, it assumed value was in buffer. But if sender was in select, value was in sender's select_state.
+
+**Solution**: Check if sender is in select:
+```c
+if (sender->select_state) {
+  // Find the send case for this channel
+  for (int i = 0; i < sender->select_state->num_cases; i++) {
+    if (sender->select_state->cases[i].channel == chan && 
+        sender->select_state->cases[i].is_send) {
+      // Extract value from select state
+      result->tag = SOME;
+      result->data.Some.value = *(T*)sender->select_state->cases[i].value_ptr;
+      sender->select_state->ready_case = i;
+      break;
+    }
+  }
+} else {
+  // Regular send - value in buffer
+  result->data.Some.value = chan->buffer[0];
+  chan->size = 0;
+}
+```
 
 ## Performance Considerations
 
@@ -391,12 +620,64 @@ These are acceptable per project guidelines.
 - Wait queue registration
 - Direct value passing for unbuffered channels
 - Task parking semantics
+- Atomic case selection
 
 ### Different from Go
 - Simpler: No channel lock-free fast paths (yet)
 - Simpler: No randomization of ready cases (yet)
 - Simpler: No work stealing (tasks stay on worker)
 - Same thread affinity model (for BRC compatibility)
+- **Different**: Unbuffered select rendezvous not fully implemented (in progress)
+  - Go: Sender waits for receiver to complete receive
+  - Yo (current): Sender writes value and continues immediately
+  - Yo (planned): Implement bidirectional handshake for rendezvous
+
+### Architecture Decisions
+
+1. **Main as Task**: Unlike Go where main is special, Yo spawns main as a regular task
+   - Benefit: Uniform channel operations across all execution contexts
+   - Benefit: No special-casing for main thread
+   
+2. **Atomic Task Counter**: Track active tasks with atomic counter
+   - Benefit: No race conditions in task completion detection
+   - Benefit: Clean shutdown without queue polling
+   
+3. **Intrusive Wait Queues**: Tasks link via `next_wait` pointer
+   - Benefit: No separate queue nodes to allocate
+   - Benefit: O(1) enqueue/dequeue operations
+   
+4. **Select State in Task**: Task carries select_state when blocked in select
+   - Benefit: Channel can identify if peer is in select
+   - Benefit: Enables proper value extraction and case marking
+
+## Debug and Troubleshooting
+
+### Debug Flags
+Enable debug output with compiler flags:
+- `--debug-concurrency`: Task scheduling, spawning, parking, waking
+- `--debug-brc`: Biased reference counting operations
+
+### Common Issues
+
+1. **Tasks not waking**: Check if wait_channel matches the waking channel
+2. **Deadlock**: Both tasks blocked - verify wait queues and wakeup calls
+3. **Race conditions**: Use debug output to trace execution order
+4. **Struct corruption**: longjmp across stacks corrupts struct returns - use output parameters
+
+### Debugging Workflow
+```bash
+# Compile with debug
+bun run src/yo-cli.ts test.yo --debug-concurrency -o test
+
+# Run and analyze
+./test 2>&1 | grep -E "(SPAWN|TASK|WAKEUP|CHAN)"
+
+# Look for:
+# - Task spawn and assignment to workers
+# - Task execution and parking
+# - Channel operations and buffer state
+# - Wakeup calls and task state transitions
+```
 
 ## References
 

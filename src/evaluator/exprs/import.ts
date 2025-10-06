@@ -74,9 +74,12 @@ export function evaluateImport({
   if (!modulePathToImport.startsWith(".")) {
     throw formatErrorMessage({
       token: moduleArg.token,
-      errorMessage: "Only local relative path is supported for now",
+      errorMessage: `Only local relative path is supported for now:
+${exprToString(expr)}
+${modulePathToImport}`,
     });
   }
+
   // TODO: Support other protocol like https://
   let moduleAbsolutePath =
     "file://" +
