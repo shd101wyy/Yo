@@ -876,9 +876,10 @@ void* __yo_incr_rc(void* ptr) {
 
   // Generate cooperative task scheduler runtime
   emitter.emitLine(`
-// Cooperative Task Scheduler Runtime using setjmp/longjmp
+// Cooperative Task Scheduler Runtime using llco (Low-Level Coroutines)
 // Note: _FORTIFY_SOURCE=0 is defined before includes to disable fortification checks
 #include <setjmp.h>
+#include "vendor/llco/llco.h"
 
 // Thread support
 #ifdef _WIN32
@@ -932,61 +933,24 @@ typedef struct {
   bool has_default;           // Whether there's a default case
 } yo_select_state_t;
 
-// Stack size for each task (64KB default, can be tuned)
-#define YO_TASK_STACK_SIZE (64 * 1024)
+// Stack size for each task (16KB - same as LLCO_MINSTACKSIZE)
+// llco requires minimum LLCO_MINSTACKSIZE (16KB) for proper operation
+#define YO_TASK_STACK_SIZE LLCO_MINSTACKSIZE
 
 // Forward declarations
 static yo_task_t* __yo_task_dequeue(void);
-static void __yo_task_entry(void);
 
-// Minimal assembly: switch stack and call a function (x86_64 only for now)
-// This is the ONLY place we use assembly - just to bootstrap onto new stack
-#if defined(__x86_64__)
-static void __yo_switch_to_stack(void* stack_top, void (*func)(void*), void* arg) {
-  __asm__ volatile(
-    "movq %0, %%rsp\\n"       // Switch to new stack
-    "movq %2, %%rdi\\n"       // First argument (System V ABI)
-    "callq *%1\\n"            // Call function
-    :
-    : "r"(stack_top), "r"(func), "r"(arg)
-    : "rsp", "rdi", "memory"
-  );
-}
-
-// Switch to task stack and longjmp to saved context
-// This is needed to resume tasks without creating new stack frames
-static void __yo_switch_stack_and_longjmp(void* stack_top, jmp_buf* env) {
-  // Reserve 128 bytes below stack_top for red zone and call frame
-  // We do this in assembly to avoid using local variables after switching stacks
-  
-  __asm__ volatile(
-    "movq %0, %%rax\\n"              // Load stack_top into rax
-    "subq $128, %%rax\\n"            // Reserve 128 bytes for red zone
-    "movq %%rax, %%rsp\\n"           // Switch to task's stack
-    "movq %1, %%rdi\\n"              // First argument: jmp_buf pointer  
-    "movl $1, %%esi\\n"              // Second argument: return value 1
-    "call longjmp@PLT\\n"            // Call longjmp via PLT (PIC-safe, noreturn)
-    :
-    : "r"(stack_top), "r"(env)
-    : "rsp", "rdi", "rsi", "rax", "memory"
-  );
-  __builtin_unreachable();  // Tell compiler this never returns
-}
-#else
-#error "Cooperative scheduler requires x86_64 architecture (for now)"
-#endif
-
-// Task structure with context switching support
+// Task structure with llco coroutine support
 struct yo_task {
   void (*func)(void*);           // Function to execute
   void* data;                    // Task-specific data
   yo_task_state_t state;         // Current state
   void* wait_channel;            // Channel this task is waiting on (NULL if not waiting)
   yo_select_state_t* select_state; // Select state if blocked in select (NULL otherwise)
-  jmp_buf context;               // Saved execution context (setjmp/longjmp)
+  struct llco* coroutine;        // llco coroutine handle
   char* stack;                   // Separate stack for this task
   size_t stack_size;             // Size of allocated stack
-  bool context_initialized;      // Whether context has been set up
+  bool started;                  // Whether coroutine has been started
   yo_task_t* next;               // Next task in queue (for ready/blocked queues)
   yo_task_t* next_wait;          // Next task in channel wait queue
 };
@@ -1013,8 +977,6 @@ static _Thread_local yo_task_t* yo_task_current = NULL;  // Thread-local current
 static _Thread_local yo_worker_thread_t* yo_task_current_worker = NULL;  // Thread-local worker pointer
 static size_t yo_task_max_threads = 0;
 static bool yo_task_scheduler_initialized = false;
-static _Thread_local jmp_buf yo_task_main_context;  // Thread-local context (main or worker)
-static _Thread_local bool yo_task_main_context_set = false;  // Thread-local flag
 static _Thread_local yo_task_t* yo_task_to_cleanup = NULL;  // Thread-local cleanup task
 
 // Thread pool state
@@ -1036,37 +998,27 @@ static void __yo_cleanup_completed_task(yo_task_t* task) {
   CONCURRENCY_DEBUG("[CLEANUP] Task cleanup complete\\n");
 }
 
-// Bootstrap function - called on new stack to initialize task context
-// This runs on the task's stack, so setjmp will save the right stack pointer
-static void __yo_task_bootstrap(void* arg) {
-  yo_task_t* task = (yo_task_t*)arg;
-  CONCURRENCY_DEBUG("[TASK] Bootstrap: task=%p on its own stack\\n", task);
+// Cleanup callback for llco - called when coroutine is finalized
+static void __yo_task_llco_cleanup(void* stack, size_t stack_size, void* udata) {
+  CONCURRENCY_DEBUG("[CLEANUP] llco cleanup callback: stack=%p, size=%zu\\n", stack, stack_size);
+  // Stack will be freed by __yo_cleanup_completed_task
+  // This callback is just for llco bookkeeping
+}
+
+// Task entry function - called by llco when coroutine starts
+static void __yo_task_entry(void* udata) {
+  yo_task_t* task = (yo_task_t*)udata;
   
-  // Save context on the task's stack
-  // When we longjmp to this context later, we'll skip past this and start executing
-  if (setjmp(task->context) == 0) {
-    // First time: mark as initialized
-    task->context_initialized = true;
-    CONCURRENCY_DEBUG("[TASK] Context saved, task ready to execute\\n");
-    // Don't return to scheduler - continue to execute the task!
-  } else {
-    // Resumed via longjmp - check if there's a completed task to clean up
-    if (yo_task_to_cleanup) {
-      __yo_cleanup_completed_task(yo_task_to_cleanup);
-      yo_task_to_cleanup = NULL;
-    }
-  }
+  // Capture this coroutine's handle for future resume operations
+  task->coroutine = llco_current();
   
-  // Execution continues here both:
-  // 1. First time after setjmp (falls through)
-  // 2. When resumed via longjmp (jumps here)
-  CONCURRENCY_DEBUG("[TASK] Task=%p starting execution\\n", task);
+  CONCURRENCY_DEBUG("[TASK] Entry: task=%p starting execution\\n", task);
   
   // Execute the actual task function
   task->func(task->data);
   CONCURRENCY_DEBUG("[TASK] Task=%p completed execution\\n", task);
   
-  // Task completed - we need to switch away BEFORE freeing our stack!
+  // Task completed - mark it and switch back
   task->state = YO_TASK_COMPLETED;
   yo_task_current = NULL;
   
@@ -1077,17 +1029,9 @@ static void __yo_task_bootstrap(void* arg) {
   // Mark this task for cleanup (it will be cleaned up after we switch away)
   yo_task_to_cleanup = task;
   
-  // Return to the context that started this task (main thread or worker thread)
-  // In thread pool mode, return to worker's context
-  // In single-threaded mode, return to main context
-  if (yo_task_main_context_set) {
-    CONCURRENCY_DEBUG("[TASK] Completed, returning to caller context\\n");
-    longjmp(yo_task_main_context, 1);
-  }
-  
-  // Should not reach here
-  CONCURRENCY_DEBUG("Error: Task bootstrap reached end without context\\n");
-  abort();
+  // Switch back to scheduler (NULL means return to caller)
+  CONCURRENCY_DEBUG("[TASK] Completed, switching back to scheduler\\n");
+  llco_switch(NULL, true);  // final=true means we're done with this coroutine
 }
 
 // Initialize task scheduler
@@ -1347,64 +1291,51 @@ static void* __yo_worker_thread_func(void* arg) {
     
     CONCURRENCY_DEBUG("[WORKER] Thread %lu executing task=%p\\n", (unsigned long)thread_id, task);
     
+    // Clean up any completed task from previous iteration
+    if (yo_task_to_cleanup) {
+      __yo_cleanup_completed_task(yo_task_to_cleanup);
+      yo_task_to_cleanup = NULL;
+    }
+    
     yo_task_current = task;
     task->state = YO_TASK_RUNNING;
     
-    // Set this thread's context for tasks to return to
-    yo_task_main_context_set = true;
-    
-    if (setjmp(yo_task_main_context) == 0) {
-      // First time - clean up any previous task
-      if (yo_task_to_cleanup) {
-        __yo_cleanup_completed_task(yo_task_to_cleanup);
-        yo_task_to_cleanup = NULL;
-      }
+    if (!task->started) {
+      // First time running - start the coroutine with llco
+      CONCURRENCY_DEBUG("[WORKER] Starting new task=%p\\n", task);
       
-      // Execute task cooperatively using its stack
-      if (!task->context_initialized) {
-        // First time running - bootstrap on task's stack
-        char* stack_top = task->stack + task->stack_size;
-        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
-        __yo_switch_to_stack(stack_top, __yo_task_bootstrap, task);
-      } else {
-        // Resume task from saved context
-        CONCURRENCY_DEBUG("[WORKER] Resuming task=%p from saved context\\n", task);
-        // Just longjmp - it will restore the stack pointer from the saved context
-        // No need to switch stacks first!
-        longjmp(task->context, 1);
-      }
+      struct llco_desc desc = {
+        .stack = task->stack,
+        .stack_size = task->stack_size,
+        .entry = __yo_task_entry,
+        .cleanup = __yo_task_llco_cleanup,
+        .udata = task
+      };
       
-      // Should not reach here - tasks return via longjmp
-      CONCURRENCY_DEBUG("[WORKER] Error: reached end of task execution\\n");
-      abort();
+      task->started = true;
+      llco_start(&desc, false);  // final=false, we may resume this task later
+      // Note: task->coroutine is set inside __yo_task_entry via llco_current()
     } else {
-      // Returned from a task via longjmp
-      CONCURRENCY_DEBUG("[WORKER] Returned from task via longjmp\\n");
-      
-      // Check if a task completed and needs cleanup
-      if (yo_task_to_cleanup) {
-        CONCURRENCY_DEBUG("[WORKER] Task=%p completed, cleaning up and fetching next\\n", yo_task_to_cleanup);
-        __yo_cleanup_completed_task(yo_task_to_cleanup);
-        yo_task_to_cleanup = NULL;
-        yo_task_current = NULL;
-        continue; // Fetch next task
-      }
-      
-      // Check if current task was blocked - it's been moved to blocked queue
-      if (yo_task_current && yo_task_current->state == YO_TASK_BLOCKED) {
-        CONCURRENCY_DEBUG("[WORKER] Task=%p blocked, fetching next task\\n", yo_task_current);
-        yo_task_current = NULL;
-        continue; // Fetch next task
-      }
-      
-      // If yo_task_current is NULL, task was cleaned up elsewhere
-      if (!yo_task_current) {
-        CONCURRENCY_DEBUG("[WORKER] Current task is NULL, fetching next\\n");
-        continue;
-      }
-      
-      // Task returned but didn't complete or block - should not happen
-      CONCURRENCY_DEBUG("[WORKER] Warning: Task=%p returned via longjmp but not completed/blocked\\n", yo_task_current);
+      // Resume task from where it yielded
+      CONCURRENCY_DEBUG("[WORKER] Resuming task=%p\\n", task);
+      llco_switch(task->coroutine, false);  // Switch to task's coroutine
+    }
+    
+    // Task returned (either completed, blocked, or yielded)
+    CONCURRENCY_DEBUG("[WORKER] Returned from task=%p, state=%d\\n", task, task->state);
+    
+    // Check if a task completed and needs cleanup
+    if (yo_task_to_cleanup) {
+      CONCURRENCY_DEBUG("[WORKER] Task completed, will cleanup on next iteration\\n");
+      yo_task_current = NULL;
+      continue;
+    }
+    
+    // Check if current task was blocked
+    if (yo_task_current && yo_task_current->state == YO_TASK_BLOCKED) {
+      CONCURRENCY_DEBUG("[WORKER] Task=%p blocked, fetching next task\\n", yo_task_current);
+      yo_task_current = NULL;
+      continue;
     }
     
     yo_task_current = NULL;
@@ -1538,20 +1469,28 @@ void __yo_task_yield(void) {
     yo_task_current = next;
     next->state = YO_TASK_RUNNING;
     
-    if (next->context_initialized) {
+    if (next->started) {
       // Resume next task
-      longjmp(next->context, 1);
+      CONCURRENCY_DEBUG("[SWITCH] Resuming next task=%p\\n", next);
+      llco_switch(next->coroutine, false);
     } else {
       // First time running next task
-      char* stack_top = next->stack + next->stack_size;
-      stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
-      __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
+      CONCURRENCY_DEBUG("[SWITCH] Starting next task=%p\\n", next);
+      struct llco_desc desc = {
+        .stack = next->stack,
+        .stack_size = next->stack_size,
+        .entry = __yo_task_entry,
+        .cleanup = __yo_task_llco_cleanup,
+        .udata = next
+      };
+      next->started = true;
+      llco_start(&desc, false);
+      next->coroutine = llco_current();
     }
   } else {
-    // No ready tasks - return to worker's main context
-    if (yo_task_main_context_set) {
-      longjmp(yo_task_main_context, 1);
-    }
+    // No ready tasks - return to worker (switch to NULL)
+    CONCURRENCY_DEBUG("[SWITCH] No ready tasks, returning to worker\\n");
+    llco_switch(NULL, false);
   }
 }
 
@@ -1625,49 +1564,46 @@ static void __yo_task_block_and_yield(void* channel) {
   yo_task_t* current = yo_task_current;
   CONCURRENCY_DEBUG("[BLOCK] Blocking task=%p on channel=%p\\n", current, channel);
   
-  // Save current context before blocking
-  if (setjmp(current->context) == 0) {
-    // Mark task as blocked and move to blocked queue
-    __yo_task_block(current, channel);
+  // Mark task as blocked and move to blocked queue
+  __yo_task_block(current, channel);
+  
+  // Get next ready task from this worker's queue
+  yo_task_t* next = __yo_task_dequeue_from_worker(worker);
+  if (next) {
+    yo_task_current = next;
+    next->state = YO_TASK_RUNNING;
+    CONCURRENCY_DEBUG("[BLOCK] Switching to next=%p\\n", next);
     
-    // Get next ready task from this worker's queue
-    yo_task_t* next = __yo_task_dequeue_from_worker(worker);
-    if (next) {
-      yo_task_current = next;
-      next->state = YO_TASK_RUNNING;
-      CONCURRENCY_DEBUG("[BLOCK] Switching to next=%p\\n", next);
-      
-      if (next->context_initialized) {
-        // Resume next task - just longjmp, it will restore stack from saved context
-        longjmp(next->context, 1);
-      } else {
-        // First time running next task
-        char* stack_top = next->stack + next->stack_size;
-        stack_top = (char*)((uintptr_t)stack_top & ~0xFUL);
-        __yo_switch_to_stack(stack_top, __yo_task_bootstrap, next);
-      }
+    if (next->started) {
+      // Resume next task
+      llco_switch(next->coroutine, false);
     } else {
-      // No ready tasks - return to worker's main context
-      // Don't set yo_task_current = NULL here - let the worker check the state
-      if (yo_task_main_context_set) {
-        CONCURRENCY_DEBUG("[BLOCK] No ready tasks, returning to worker\\n");
-        longjmp(yo_task_main_context, 1);
-      }
-      // If no main context, we're deadlocked - but let the channel code handle it
+      // First time running next task
+      struct llco_desc desc = {
+        .stack = next->stack,
+        .stack_size = next->stack_size,
+        .entry = __yo_task_entry,
+        .cleanup = __yo_task_llco_cleanup,
+        .udata = next
+      };
+      next->started = true;
+      llco_start(&desc, false);
+      next->coroutine = llco_current();
     }
   } else {
-    // Resumed via longjmp - restore yo_task_current and check for cleanup
-    // NOTE: When we longjmp, thread-local variables ARE preserved!
-    CONCURRENCY_DEBUG("[BLOCK] Task resumed after blocking (setjmp returned 1), task=%p\\n", yo_task_current);
-    if (yo_task_to_cleanup) {
-      __yo_cleanup_completed_task(yo_task_to_cleanup);
-      yo_task_to_cleanup = NULL;
-    }
-    CONCURRENCY_DEBUG("[BLOCK] About to return, task=%p\\n", yo_task_current);
+    // No ready tasks - return to worker
+    CONCURRENCY_DEBUG("[BLOCK] No ready tasks, returning to worker\\n");
+    llco_switch(NULL, false);
   }
   
   // Returns here when unblocked and resumed
   CONCURRENCY_DEBUG("[BLOCK] Returned from block_and_yield, task=%p\\n", yo_task_current);
+  
+  // Clean up any completed task
+  if (yo_task_to_cleanup) {
+    __yo_cleanup_completed_task(yo_task_to_cleanup);
+    yo_task_to_cleanup = NULL;
+  }
 }
 `);
 }
@@ -1797,7 +1733,8 @@ ${paramAssignments}
   task->state = YO_TASK_READY;
   task->wait_channel = NULL;
   task->next = NULL;
-  task->context_initialized = false;
+  task->started = false;
+  task->coroutine = NULL;
   task->select_state = NULL;
   task->next_wait = NULL;
   
@@ -1834,7 +1771,8 @@ ${paramAssignments}
   task->state = YO_TASK_READY;
   task->wait_channel = NULL;
   task->next = NULL;
-  task->context_initialized = false;
+  task->started = false;
+  task->coroutine = NULL;
   task->select_state = NULL;
   task->next_wait = NULL;
   task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
@@ -1944,7 +1882,8 @@ ${paramAssignments}
   task->state = YO_TASK_READY;
   task->wait_channel = NULL;
   task->next = NULL;
-  task->context_initialized = false;
+  task->started = false;
+  task->coroutine = NULL;
   task->select_state = NULL;
   task->next_wait = NULL;
   
@@ -3349,12 +3288,9 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       pthread_mutex_unlock(&chan->mutex);
 #endif
       
-      // Park this task (save context and switch to next)
-      if (setjmp(yo_task_current->context) == 0) {
-        yo_task_current->state = YO_TASK_BLOCKED;
-        // Let scheduler switch to next task
-        __yo_task_yield();
-      }
+      // Park this task and switch to next
+      yo_task_current->state = YO_TASK_BLOCKED;
+      __yo_task_yield();
       
       // Resumed - receiver took the value
       return;
@@ -3610,11 +3546,9 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       pthread_mutex_unlock(&chan->mutex);
 #endif
       
-      // Park this task (save context and switch to next)
-      if (setjmp(yo_task_current->context) == 0) {
-        yo_task_current->state = YO_TASK_BLOCKED;
-        __yo_task_yield();
-      }
+      // Park this task and switch to next
+      yo_task_current->state = YO_TASK_BLOCKED;
+      __yo_task_yield();
       
       // Resumed - value should be available
       CONCURRENCY_DEBUG("[CHAN_RECV] Task=%p resumed after parking, yo_task_current=%p\\n", yo_task_current, yo_task_current);
@@ -4089,11 +4023,9 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
   }
   
   // Park the task
-  if (setjmp(yo_task_current->context) == 0) {
-    yo_task_current->state = YO_TASK_BLOCKED;
-    yo_task_current->wait_channel = NULL; // Waiting on multiple channels
-    __yo_task_yield();
-  }
+  yo_task_current->state = YO_TASK_BLOCKED;
+  yo_task_current->wait_channel = NULL; // Waiting on multiple channels
+  __yo_task_yield();
   
   // ===== RESUMED - one channel is ready =====
   

@@ -1,6 +1,7 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
+/*
 fibonacci :: (fn(ch : Chan(i32), quit : Chan(i32)) -> unit) {
   x := 0;
   y := 1;
@@ -39,6 +40,23 @@ main :: (fn() -> unit) {
   async {
     fibonacci(ch, quit);
   };
+};
+
+export main;
+*/
+
+main :: (fn() -> unit) {
+  ch := chan(i32);
+  
+  async {
+    x := 1;
+    ch <- (x + 2);
+  };
+  
+  result := <-(ch);
+  // printf("tag=%d\n", result.tag);
+  value := result.unwrap();
+  printf("value=%d\n", value);
 };
 
 export main;
