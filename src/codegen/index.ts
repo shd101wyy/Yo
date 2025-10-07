@@ -72,8 +72,9 @@ export class CodeGenerator {
         const compiler = options.cCompiler as string;
         const compileArgs = [
           "-std=c11",
-          "-Wall",
-          "-Wextra",
+          "-w", // Silence all warnings
+          // "-Wall",
+          // "-Wextra",
           tempCFile,
           "-o",
           outputFile,

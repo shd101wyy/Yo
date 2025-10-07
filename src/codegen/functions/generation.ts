@@ -908,6 +908,7 @@ void* __yo_incr_rc(void* ptr) {
 
 typedef struct yo_task yo_task_t;
 typedef struct yo_task_queue yo_task_queue_t;
+typedef struct yo_worker_thread yo_worker_thread_t;
 
 // Task state
 typedef enum {
@@ -933,9 +934,9 @@ typedef struct {
   bool has_default;           // Whether there's a default case
 } yo_select_state_t;
 
-// Stack size for each task (16KB - same as LLCO_MINSTACKSIZE)
-// llco requires minimum LLCO_MINSTACKSIZE (16KB) for proper operation
-#define YO_TASK_STACK_SIZE LLCO_MINSTACKSIZE
+// Stack size for each task (256KB to accommodate complex functions with debug logging)
+// llco requires minimum LLCO_MINSTACKSIZE (16KB), but we use 256KB for safety with debug builds
+#define YO_TASK_STACK_SIZE (256 * 1024)
 
 // Forward declarations
 static yo_task_t* __yo_task_dequeue(void);
@@ -947,10 +948,12 @@ struct yo_task {
   yo_task_state_t state;         // Current state
   void* wait_channel;            // Channel this task is waiting on (NULL if not waiting)
   yo_select_state_t* select_state; // Select state if blocked in select (NULL otherwise)
+  void* recv_data_ptr;           // For channel recv: points to receiver's local variable (like neco's cmsg)
   struct llco* coroutine;        // llco coroutine handle
   char* stack;                   // Separate stack for this task
   size_t stack_size;             // Size of allocated stack
   bool started;                  // Whether coroutine has been started
+  yo_worker_thread_t* owner_worker; // Worker thread that owns this task
   yo_task_t* next;               // Next task in queue (for ready/blocked queues)
   yo_task_t* next_wait;          // Next task in channel wait queue
 };
@@ -963,14 +966,14 @@ struct yo_task_queue {
 };
 
 // Worker thread structure with per-thread task queue
-typedef struct {
+struct yo_worker_thread {
   yo_thread_handle_t handle;
   yo_thread_id_t id;
   bool active;
   yo_task_queue_t ready_queue;     // Each worker has its own ready queue
   yo_task_queue_t blocked_queue;   // Each worker has its own blocked queue
   yo_mutex_t queue_mutex;          // Protects this worker's queues
-} yo_worker_thread_t;
+};
 
 // Global task scheduler state
 static _Thread_local yo_task_t* yo_task_current = NULL;  // Thread-local current task
@@ -1292,11 +1295,11 @@ static void* __yo_worker_thread_func(void* arg) {
         yo_task_to_cleanup = NULL;
       }
       
-      // Sleep briefly
+      // Sleep briefly to avoid busy-waiting
       #ifdef _WIN32
-      Sleep(1);
+      Sleep(0);  // Yield timeslice
       #else
-      usleep(1000);  // 1ms
+      usleep(10);  // 10 microseconds
       #endif
       continue;
     }
@@ -1545,9 +1548,9 @@ void __yo_task_wait_all(void) {
     while (atomic_load(&yo_active_task_count) > 0) {
       // Sleep briefly to avoid busy waiting
       #ifdef _WIN32
-      Sleep(1);
+      Sleep(0);  // Yield timeslice
       #else
-      usleep(1000);  // 1ms
+      usleep(10);  // 10 microseconds
       #endif
     }
     
@@ -1780,6 +1783,7 @@ ${paramAssignments}
   if (yo_worker_thread_count > 0) {
     size_t limit = yo_task_active_worker_limit > 0 ? yo_task_active_worker_limit : yo_worker_thread_count;
     size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
+    task->owner_worker = &yo_worker_threads[worker_idx];  // Set owner
     CONCURRENCY_DEBUG("[SPAWN] Assigning task=%p to worker %zu (limit=%zu)\\n", task, worker_idx, limit);
     __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
   } else {
@@ -1819,6 +1823,7 @@ ${paramAssignments}
   if (yo_worker_thread_count > 0) {
     size_t limit = yo_task_active_worker_limit > 0 ? yo_task_active_worker_limit : yo_worker_thread_count;
     size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
+    task->owner_worker = &yo_worker_threads[worker_idx];  // Set owner
     CONCURRENCY_DEBUG("[SPAWN] Assigning main task=%p to worker %zu (limit=%zu)\\n", task, worker_idx, limit);
     __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
   } else {
@@ -1934,6 +1939,7 @@ ${paramAssignments}
   if (yo_worker_thread_count > 0) {
     size_t limit = yo_task_active_worker_limit > 0 ? yo_task_active_worker_limit : yo_worker_thread_count;
     size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
+    task->owner_worker = &yo_worker_threads[worker_idx];  // Set owner
     CONCURRENCY_DEBUG("[SPAWN] Assigning closure task=%p to worker %zu (limit=%zu)\\n", task, worker_idx, limit);
     __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
   } else {
@@ -3210,8 +3216,14 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
   chan->recv_queue_head = NULL;
   chan->recv_queue_tail = NULL;
 
-  if (capacity > 0) {
-    chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}) * capacity);
+  // Following neco's approach: allocate capacity+1 slots
+  // - The extra slot is for select-case operations
+  // - For unbuffered channels (capacity=0), we allocate 1 slot but don't use it for normal send/recv
+  // - Normal unbuffered send/recv use direct copy to receiver's recv_data_ptr (like neco's cmsg)
+  size_t buffer_size = capacity + 1;
+  
+  if (buffer_size > 0) {
+    chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}) * buffer_size);
     if (!chan->buffer) {
       __yo_free(chan);
       return NULL;
@@ -3235,105 +3247,15 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 }
 `);
 
-    // Channel send function
+    // Channel send function - following neco's approach
     emitter.emitLine(`void __yo_chan_send_${safeCName}(${cName}* chan, ${elementTypeStr} value) {
   if (!chan || atomic_load_explicit(&chan->closed, memory_order_acquire)) {
     return;
   }
 
-  if (chan->capacity == 0) {
-    // Unbuffered channel - direct handoff using wait queues
+  if (yo_task_scheduler_initialized && yo_task_current) {
+    // Task context - use wait queues and park (neco-style)
     
-    if (yo_task_scheduler_initialized && yo_task_current) {
-      // Task context - use wait queues and park
-      
-#if defined(_WIN32)
-      EnterCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_lock(&chan->mutex);
-#endif
-
-      if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-#if defined(_WIN32)
-        LeaveCriticalSection(&chan->mutex);
-#else
-        pthread_mutex_unlock(&chan->mutex);
-#endif
-        return;
-      }
-
-      // Check if receiver is waiting
-      if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
-        // Receiver waiting - direct handoff
-        yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
-        
-        if (receiver->select_state != NULL) {
-          // Receiver is in select - find which case matches this channel
-          for (int i = 0; i < receiver->select_state->num_cases; i++) {
-            if (receiver->select_state->cases[i].channel == chan && 
-                !receiver->select_state->cases[i].is_send) {
-              // This is the receive case - store value
-              *(${elementTypeStr}*)receiver->select_state->cases[i].value_ptr = value;
-              receiver->select_state->ready_case = i;
-              break;
-            }
-          }
-        } else {
-          // Regular receive - store value in channel buffer
-          if (chan->buffer == NULL) {
-            chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
-          }
-          chan->buffer[0] = value;
-          chan->size = 1;
-        }
-        
-#if defined(_WIN32)
-        LeaveCriticalSection(&chan->mutex);
-#else
-        pthread_mutex_unlock(&chan->mutex);
-#endif
-        
-        // Wake the receiver task
-        __yo_task_wakeup_one_global(chan);
-        
-        // Also signal pthread condition variable in case non-task threads are waiting
-#if defined(_WIN32)
-        WakeConditionVariable(&chan->recv_cond);
-#else
-        pthread_cond_signal(&chan->recv_cond);
-#endif
-        
-        return;
-      }
-      
-      // No receiver waiting - must park
-      __yo_chan_wait_queue_add(&chan->send_queue_head, &chan->send_queue_tail, yo_task_current);
-      yo_task_current->wait_channel = chan;
-      
-      // Store value in temporary buffer for receiver to pick up
-      if (chan->buffer == NULL) {
-        chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
-      }
-      chan->buffer[0] = value;
-      chan->size = 1;
-      
-      CONCURRENCY_DEBUG("[CHAN_SEND] Task=%p parking, stored value in buffer, size=%d\\n", yo_task_current, chan->size);
-      
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      
-      // Park this task and switch to next
-      yo_task_current->state = YO_TASK_BLOCKED;
-      __yo_task_yield();
-      
-      // Resumed - receiver took the value
-      return;
-    }
-    
-    // Non-task context - use pthread primitives
 #if defined(_WIN32)
     EnterCriticalSection(&chan->mutex);
 #else
@@ -3349,95 +3271,98 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       return;
     }
 
-    if (chan->buffer == NULL) {
-      chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
-    }
-    
-    chan->buffer[0] = value;
-    chan->size = 1;
-
+    // Check if receiver is waiting (neco: single queue mode)
+    if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
+      // Receiver waiting - do direct handoff
+      yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
+      
+      if (receiver->select_state != NULL) {
+        // Receiver is in select - find which case matches this channel
+        for (int i = 0; i < receiver->select_state->num_cases; i++) {
+          if (receiver->select_state->cases[i].channel == chan && 
+              !receiver->select_state->cases[i].is_send) {
+            // This is the receive case - store value
+            *(${elementTypeStr}*)receiver->select_state->cases[i].value_ptr = value;
+            receiver->select_state->ready_case = i;
+            break;
+          }
+        }
+      } else if (receiver->recv_data_ptr != NULL) {
+        // Regular receive - copy directly to receiver's result struct (KEY: neco's cmsg pattern)
+        // This is the magic: no buffer race, direct copy to receiver's stack!
+        // recv_data_ptr points to the Option result struct
+        ${optionReturnTypeStr}* recv_result = (${optionReturnTypeStr}*)receiver->recv_data_ptr;
+        recv_result->tag = ${someTag};
+        recv_result->data.Some.value = value;
+        receiver->recv_data_ptr = NULL;  // Clear after use
+      }
+      
 #if defined(_WIN32)
-    WakeConditionVariable(&chan->recv_cond);
-    while (chan->size > 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-      SleepConditionVariableCS(&chan->send_cond, &chan->mutex, INFINITE);
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+      
+      // Wake the receiver task
+      if (receiver->owner_worker) {
+        receiver->state = YO_TASK_READY;
+        receiver->wait_channel = NULL;
+        __yo_task_enqueue_to_worker(receiver->owner_worker, receiver);
+      }
+      
+#if defined(_WIN32)
+      WakeConditionVariable(&chan->recv_cond);
+#else
+      pthread_cond_signal(&chan->recv_cond);
+#endif
+      
+      // Sender completes immediately (neco line 5993)
+      return;
     }
+
+    // No receiver waiting - check if buffer has space (neco line 6006)
+    if (chan->size < chan->capacity) {
+      // Buffer has space - add to buffer and return immediately
+      chan->buffer[chan->size++] = value;
+      
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+      return;
+    }
+
+    // Buffer full or unbuffered - must park sender (neco line 6012)
+    __yo_chan_wait_queue_add(&chan->send_queue_head, &chan->send_queue_tail, yo_task_current);
+    yo_task_current->wait_channel = chan;
+    // Store value in buffer for receiver to pick up later (neco stores in last slot: bufcap)
+    // For unbuffered (capacity=0), we allocated 1 slot, so buffer[0] is available
+    chan->buffer[0] = value;
+    chan->size = 1;  // Mark that parked sender has value
+    
+    CONCURRENCY_DEBUG("[CHAN_SEND] Task=%p parking, stored value in buffer[0]\\n", yo_task_current);
+    
+#if defined(_WIN32)
     LeaveCriticalSection(&chan->mutex);
 #else
-    pthread_cond_signal(&chan->recv_cond);
-    while (chan->size > 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-      pthread_cond_wait(&chan->send_cond, &chan->mutex);
-    }
     pthread_mutex_unlock(&chan->mutex);
 #endif
+    
+    // Park this task
+    yo_task_current->state = YO_TASK_BLOCKED;
+    yo_task_current = NULL;
+    llco_switch(NULL, false);
+    
+    // Resumed - receiver took the value
     return;
   }
-
-  // Buffered channel
-  if (yo_task_scheduler_initialized && yo_task_current) {
-    // Cooperative multitasking: check if buffer is full
-    bool buffer_full = false;
-    
-#if defined(_WIN32)
-    EnterCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_lock(&chan->mutex);
-#endif
-    
-    buffer_full = (chan->size >= chan->capacity);
-    
-    if (buffer_full && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      // Block and switch to another task
-      __yo_task_block_and_yield(chan);
-      
-      // When resumed, try again
-#if defined(_WIN32)
-      EnterCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_lock(&chan->mutex);
-#endif
-    }
-
-    if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      return;
-    }
-
-    // Add value to buffer
-    chan->buffer[chan->tail] = value;
-    chan->tail = (chan->tail + 1) % chan->capacity;
-    chan->size++;
-
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-
-    // Wake up any tasks waiting to receive
-    __yo_task_wakeup(chan);
-    return;
-  }
-
-  // Fall back to pthread blocking for non-task contexts
+  
+  // Non-task context - use pthread primitives (for completeness)
 #if defined(_WIN32)
   EnterCriticalSection(&chan->mutex);
-  while (chan->size >= chan->capacity && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-    SleepConditionVariableCS(&chan->send_cond, &chan->mutex, INFINITE);
-  }
 #else
   pthread_mutex_lock(&chan->mutex);
-  while (chan->size >= chan->capacity && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-    pthread_cond_wait(&chan->send_cond, &chan->mutex);
-  }
 #endif
 
   if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
@@ -3449,16 +3374,40 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     return;
   }
 
-  // Add value to buffer
-  chan->buffer[chan->tail] = value;
-  chan->tail = (chan->tail + 1) % chan->capacity;
-  chan->size++;
+  // For non-task threads, use buffer and condition variables
+  if (chan->size < chan->capacity) {
+    chan->buffer[chan->size++] = value;
+#if defined(_WIN32)
+    WakeConditionVariable(&chan->recv_cond);
+    LeaveCriticalSection(&chan->mutex);
+#else
+    pthread_cond_signal(&chan->recv_cond);
+    pthread_mutex_unlock(&chan->mutex);
+#endif
+    return;
+  }
+
+  // Buffer full - wait
+  while (chan->size >= chan->capacity && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+#if defined(_WIN32)
+    SleepConditionVariableCS(&chan->send_cond, &chan->mutex, INFINITE);
+#else
+    pthread_cond_wait(&chan->send_cond, &chan->mutex);
+#endif
+  }
+
+  if (!atomic_load_explicit(&chan->closed, memory_order_acquire)) {
+    chan->buffer[chan->size++] = value;
+#if defined(_WIN32)
+    WakeConditionVariable(&chan->recv_cond);
+#else
+    pthread_cond_signal(&chan->recv_cond);
+#endif
+  }
 
 #if defined(_WIN32)
-  WakeConditionVariable(&chan->recv_cond);
   LeaveCriticalSection(&chan->mutex);
 #else
-  pthread_cond_signal(&chan->recv_cond);
   pthread_mutex_unlock(&chan->mutex);
 #endif
 }
@@ -3541,8 +3490,12 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
         pthread_mutex_unlock(&chan->mutex);
 #endif
         
-        // Wake the sender task
-        __yo_task_wakeup_one_global(chan);
+        // Wake the sender task by enqueueing it back to its owner worker's ready queue
+        if (sender->owner_worker) {
+          sender->state = YO_TASK_READY;
+          sender->wait_channel = NULL;
+          __yo_task_enqueue_to_worker(sender->owner_worker, sender);
+        }
         
         // Also signal pthread condition variable in case non-task threads are waiting
 #if defined(_WIN32)
@@ -3554,9 +3507,10 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
         return;
       }
       
-      // Check if value is available from non-task sender
+      // Check if value is available from parked sender
       if (chan->size > 0 && chan->buffer != NULL) {
         result->tag = ${someTag};
+        // Parked sender always stores value in buffer[0]
         result->data.Some.value = chan->buffer[0];
         chan->size = 0;
 
@@ -3567,8 +3521,16 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
         pthread_mutex_unlock(&chan->mutex);
         pthread_cond_signal(&chan->send_cond);
 #endif
-        
-        __yo_task_wakeup_one_global(chan);
+
+        // Pop and wake the sender from wait queue
+        if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
+          yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
+          if (sender && sender->owner_worker) {
+            sender->state = YO_TASK_READY;
+            sender->wait_channel = NULL;
+            __yo_task_enqueue_to_worker(sender->owner_worker, sender);
+          }
+        }
         return;
       }
       
@@ -3576,6 +3538,8 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       CONCURRENCY_DEBUG("[CHAN_RECV] No sender waiting, no buffer value, parking...\\n");
       __yo_chan_wait_queue_add(&chan->recv_queue_head, &chan->recv_queue_tail, yo_task_current);
       yo_task_current->wait_channel = chan;
+      // KEY FIX: Set recv_data_ptr to point to result (like neco's cmsg pattern)
+      yo_task_current->recv_data_ptr = result;
       
 #if defined(_WIN32)
       LeaveCriticalSection(&chan->mutex);
@@ -3583,46 +3547,21 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
       pthread_mutex_unlock(&chan->mutex);
 #endif
       
-      // Park this task and switch to next
+      // Park this task - switch directly back to worker without re-enqueuing
+      // The task is already in the channel's recv_queue and will be woken up by a sender
       yo_task_current->state = YO_TASK_BLOCKED;
-      __yo_task_yield();
+      yo_task_current = NULL;  // Clear current task since we're blocking
+      CONCURRENCY_DEBUG("[CHAN_RECV] Switching back to worker (task blocked)\\n");
+      llco_switch(NULL, false);  // Return to worker loop
       
       // Resumed - value should be available
-      CONCURRENCY_DEBUG("[CHAN_RECV] Task=%p resumed after parking, yo_task_current=%p\\n", yo_task_current, yo_task_current);
+      // Sender copied value directly to result via recv_data_ptr (neco's cmsg pattern)
+      CONCURRENCY_DEBUG("[CHAN_RECV] Task resumed after parking, value should be in result\\n");
       
-#if defined(_WIN32)
-      EnterCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_lock(&chan->mutex);
-#endif
-
-      CONCURRENCY_DEBUG("[CHAN_RECV] About to check select_state, yo_task_current=%p, select_state=%p\\n", yo_task_current, yo_task_current ? yo_task_current->select_state : NULL);
-      CONCURRENCY_DEBUG("[CHAN_RECV] Buffer state: size=%d, buffer=%p\\n", chan->size, (void*)chan->buffer);
-      
-      if (yo_task_current->select_state != NULL) {
-        // We were in select - value was written to select state
-        CONCURRENCY_DEBUG("[CHAN_RECV] In select path\\n");
-        for (int i = 0; i < yo_task_current->select_state->num_cases; i++) {
-          if (yo_task_current->select_state->cases[i].channel == chan && 
-              !yo_task_current->select_state->cases[i].is_send) {
-            result->tag = ${someTag};
-            result->data.Some.value = *(${elementTypeStr}*)yo_task_current->select_state->cases[i].value_ptr;
-            break;
-          }
-        }
-      } else {
-        // Regular receive - value in buffer
-        CONCURRENCY_DEBUG("[CHAN_RECV] Regular receive path, checking buffer: size=%d, buffer=%p\\n", chan->size, (void*)chan->buffer);
-        if (chan->size > 0 && chan->buffer != NULL) {
-          result->tag = ${someTag};
-          result->data.Some.value = chan->buffer[0];
-          chan->size = 0;
-          CONCURRENCY_DEBUG("[CHAN_RECV] Got value from buffer: %d, set tag to %d (Some=%d, None=%d)\\n", chan->buffer[0], result->tag, ${someTag}, ${noneTag});
-        } else {
-          result->tag = ${noneTag};
-          CONCURRENCY_DEBUG("[CHAN_RECV] Buffer empty, returning None\\n");
-        }
-      }
+      // Value was already written by sender to result (via recv_data_ptr)
+      // Just return - no need to lock mutex or check buffer
+      // The result struct already has the value with tag set by sender
+      return;
 
 #if defined(_WIN32)
       LeaveCriticalSection(&chan->mutex);
@@ -3695,7 +3634,7 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     }
     
     return;
-  }
+  }  // Close: if (chan->capacity == 0)
 
   // Buffered channel
   if (yo_task_scheduler_initialized && yo_task_current) {
