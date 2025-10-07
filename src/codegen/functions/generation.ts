@@ -3281,8 +3281,10 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
         for (int i = 0; i < receiver->select_state->num_cases; i++) {
           if (receiver->select_state->cases[i].channel == chan && 
               !receiver->select_state->cases[i].is_send) {
-            // This is the receive case - store value
-            *(${elementTypeStr}*)receiver->select_state->cases[i].value_ptr = value;
+            // This is the receive case - write to Option result
+            ${optionReturnTypeStr}* recv_result = (${optionReturnTypeStr}*)receiver->select_state->cases[i].value_ptr;
+            recv_result->tag = ${someTag};
+            recv_result->data.Some.value = value;
             receiver->select_state->ready_case = i;
             break;
           }
@@ -3730,252 +3732,179 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     if (isFirstChannelType) {
       emitter.emitLine(`
 // Go-style select implementation
+// Following neco's select implementation:
+// 1. Poll all channels to see if any are ready (has sender/receiver waiting OR has buffered data)
+// 2. If ready, perform the operation immediately and return
+// 3. If not ready, add task to ALL channel wait queues and park
+// 4. When ANY channel operation completes, wake the task and set ready_case in select_state
+// 5. Remove from all wait queues and return which case was ready
+//
+// Extension: We support both send and receive in select (neco only supports receive)
 int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
   if (!yo_task_scheduler_initialized || !yo_task_current) {
     // Not in task context - cannot use select
-    return -1;
+    if (has_default) {
+      return -2; // Default case
+    }
+    return -1; // Error
   }
   
-  // PHASE 1: Lock all channels and poll for ready cases
-  // TODO: Sort channels by address to avoid deadlock (for now, lock in order)
+  CONCURRENCY_DEBUG("[SELECT] Task=%p entering select with %d cases\\n", yo_task_current, num_cases);
+  
+  // PHASE 1: Poll all channels to see if any are ready
+  // We need to lock each channel to check atomically
   for (int i = 0; i < num_cases; i++) {
     void* chan_ptr = cases[i].channel;
-    if (chan_ptr) {
+    if (!chan_ptr) continue;
+    
+    ${cName}* chan = (${cName}*)chan_ptr;
+    
+    CONCURRENCY_DEBUG("[SELECT] Checking case %d: is_send=%d, chan=%p\\n", i, cases[i].is_send, chan);
+    
 #if defined(_WIN32)
-      // For type-erased channel, we need to know the actual type
-      // For now, assume all channels have same mutex layout
-      EnterCriticalSection(&((${cName}*)chan_ptr)->mutex);
+    EnterCriticalSection(&chan->mutex);
 #else
-      pthread_mutex_lock(&((${cName}*)chan_ptr)->mutex);
+    pthread_mutex_lock(&chan->mutex);
 #endif
-    }
-  }
-  
-  // Poll each case to see if ready
-  int ready_case = -1;
-  for (int i = 0; i < num_cases && ready_case < 0; i++) {
-    ${cName}* chan = (${cName}*)cases[i].channel;
-    if (!chan) continue;
+    
+    bool is_ready = false;
     
     if (cases[i].is_send) {
-      // Send case - ready if receiver waiting or buffer has space
+      // Send case - ready if receiver waiting (unbuffered) or buffer has space (buffered)
       if (chan->capacity == 0) {
         // Unbuffered - ready if receiver in queue
-        if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
-          CONCURRENCY_DEBUG("[SELECT] Case %d (send) ready - receiver waiting\\n", i);
-          ready_case = i;
-        } else {
-          CONCURRENCY_DEBUG("[SELECT] Case %d (send) not ready - no receiver\\n", i);
-        }
+        is_ready = !__yo_chan_wait_queue_empty(chan->recv_queue_head);
+        CONCURRENCY_DEBUG("[SELECT] Send case: unbuffered, recv_queue_empty=%d, is_ready=%d\\n", 
+          __yo_chan_wait_queue_empty(chan->recv_queue_head), is_ready);
       } else {
-        // Buffered - ready if space available
-        if (chan->size < chan->capacity) {
-          ready_case = i;
-        }
+        // Buffered - ready if space available  
+        is_ready = (chan->size < chan->capacity);
+        CONCURRENCY_DEBUG("[SELECT] Send case: buffered, size=%d, capacity=%d, is_ready=%d\\n", 
+          chan->size, chan->capacity, is_ready);
       }
     } else {
-      // Receive case - ready if sender waiting or buffer has data
+      // Receive case - ready if sender waiting (unbuffered) or buffer has data (buffered)
       if (chan->capacity == 0) {
-        // Unbuffered - ready ONLY if sender in queue (don't check chan->size!)
-        if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
-          CONCURRENCY_DEBUG("[SELECT] Case %d (recv) ready - sender waiting\\n", i);
-          ready_case = i;
-        } else {
-          CONCURRENCY_DEBUG("[SELECT] Case %d (recv) not ready - no sender\\n", i);
-        }
+        // Unbuffered - ready if sender in queue
+        is_ready = !__yo_chan_wait_queue_empty(chan->send_queue_head);
+        CONCURRENCY_DEBUG("[SELECT] Recv case: unbuffered, send_queue_empty=%d, is_ready=%d\\n", 
+          __yo_chan_wait_queue_empty(chan->send_queue_head), is_ready);
       } else {
         // Buffered - ready if data available
-        if (chan->size > 0) {
-          ready_case = i;
-        }
+        is_ready = (chan->size > 0);
+        CONCURRENCY_DEBUG("[SELECT] Recv case: buffered, size=%d, is_ready=%d\\n", 
+          chan->size, is_ready);
       }
+    }
+    
+#if defined(_WIN32)
+    LeaveCriticalSection(&chan->mutex);
+#else
+    pthread_mutex_unlock(&chan->mutex);
+#endif
+    
+    if (is_ready) {
+      CONCURRENCY_DEBUG("[SELECT] Case %d is ready, executing now\\n", i);
+      // Perform the operation immediately
+      if (cases[i].is_send) {
+        ${elementTypeStr} value = *(${elementTypeStr}*)cases[i].value_ptr;
+        __yo_chan_send_${safeCName}(chan, value);
+      } else {
+        ${optionReturnTypeStr}* result_ptr = (${optionReturnTypeStr}*)cases[i].value_ptr;
+        __yo_chan_recv_${safeCName}(chan, result_ptr);
+      }
+      CONCURRENCY_DEBUG("[SELECT] Case %d completed, returning\\n", i);
+      return i;
     }
   }
   
-  // If case is ready, perform operation and return
-  if (ready_case >= 0) {
-    CONCURRENCY_DEBUG("[SELECT] Phase 1: Case %d ready, performing operation\\n", ready_case);
-    ${cName}* chan = (${cName}*)cases[ready_case].channel;
-    
-    if (cases[ready_case].is_send) {
-      // Perform send
-      ${elementTypeStr} value = *(${elementTypeStr}*)cases[ready_case].value_ptr;
-      
-      if (chan->capacity == 0) {
-        // Unbuffered send - dequeue receiver and handoff
-        if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
-          yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
-          
-          CONCURRENCY_DEBUG("[SELECT] Unbuffered send: Found receiver, writing value=%d\\n", (int)value);
-          
-          // Write value to receiver's buffer
-          if (receiver->select_state) {
-            for (int j = 0; j < receiver->select_state->num_cases; j++) {
-              if (receiver->select_state->cases[j].channel == chan && 
-                  !receiver->select_state->cases[j].is_send) {
-                *(${elementTypeStr}*)receiver->select_state->cases[j].value_ptr = value;
-                receiver->select_state->ready_case = j;
-                CONCURRENCY_DEBUG("[SELECT] Wrote to receiver select_state\\n");
-                break;
-              }
-            }
-          } else {
-            if (!chan->buffer) chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
-            chan->buffer[0] = value;
-            chan->size = 1;
-            CONCURRENCY_DEBUG("[SELECT] Wrote to buffer: buffer[0]=%d, size=%d\\n", chan->buffer[0], chan->size);
-          }
-          
-          CONCURRENCY_DEBUG("[SELECT] Unbuffered send: value written, waking receiver\\n");
-          
-          // Unlock all before waking
-          for (int i = 0; i < num_cases; i++) {
-            if (cases[i].channel) {
-#if defined(_WIN32)
-              LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
-#else
-              pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
-#endif
-            }
-          }
-          
-          __yo_task_wakeup_one_global(chan);
-          return ready_case;
-        }
-      } else {
-        // Buffered send
-        chan->buffer[chan->tail] = value;
-        chan->tail = (chan->tail + 1) % chan->capacity;
-        chan->size++;
-        
-        // Wake waiting receiver if any
-        if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
-          yo_task_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
-          
-          // Unlock all before waking
-          for (int i = 0; i < num_cases; i++) {
-            if (cases[i].channel) {
-#if defined(_WIN32)
-              LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
-#else
-              pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
-#endif
-            }
-          }
-          
-          __yo_task_wakeup_one_global(chan);
-          return ready_case;
-        }
-      }
-    } else {
-      // Perform receive
-      if (chan->capacity == 0) {
-        // Unbuffered recv - dequeue sender and take value
-        if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
-          yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
-          
-          // Check if sender is in select - value is in select_state, not buffer
-          if (sender->select_state) {
-            for (int j = 0; j < sender->select_state->num_cases; j++) {
-              if (sender->select_state->cases[j].channel == chan && 
-                  sender->select_state->cases[j].is_send) {
-                *(${elementTypeStr}*)cases[ready_case].value_ptr = *(${elementTypeStr}*)sender->select_state->cases[j].value_ptr;
-                sender->select_state->ready_case = j;
-                break;
-              }
-            }
-          } else {
-            // Regular send - value in buffer
-            if (chan->size > 0 && chan->buffer) {
-              *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[0];
-              chan->size = 0;
-            }
-          }
-          
-          // Unlock all before waking
-          for (int i = 0; i < num_cases; i++) {
-            if (cases[i].channel) {
-#if defined(_WIN32)
-              LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
-#else
-              pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
-#endif
-            }
-          }
-          
-          __yo_task_wakeup_one_global(chan);
-          return ready_case;
-        }
-      } else {
-        // Buffered recv
-        if (chan->size > 0) {
-          *(${elementTypeStr}*)cases[ready_case].value_ptr = chan->buffer[chan->head];
-          chan->head = (chan->head + 1) % chan->capacity;
-          chan->size--;
-          
-          // Wake waiting sender if any
-          if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
-            yo_task_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
-            
-            // Unlock all before waking
-            for (int i = 0; i < num_cases; i++) {
-              if (cases[i].channel) {
-#if defined(_WIN32)
-                LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
-#else
-                pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
-#endif
-              }
-            }
-            
-            __yo_task_wakeup_one_global(chan);
-            return ready_case;
-          }
-        }
-      }
-    }
-    
-    // Unlock all channels
-    for (int i = 0; i < num_cases; i++) {
-      if (cases[i].channel) {
-#if defined(_WIN32)
-        LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
-#else
-        pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
-#endif
-      }
-    }
-    
-    return ready_case;
-  }
-  
-  // If has default and nothing ready, return -1 for default
+  // PHASE 2: No case is ready - check for default
   if (has_default) {
-    for (int i = 0; i < num_cases; i++) {
-      if (cases[i].channel) {
-#if defined(_WIN32)
-        LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
-#else
-        pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
-#endif
-      }
-    }
-    return -1;
+    CONCURRENCY_DEBUG("[SELECT] No case ready, using default\\n");
+    return -2; // Execute default case
   }
   
-  // PHASE 2: No ready cases, no default - register and park
+  CONCURRENCY_DEBUG("[SELECT] No case ready, no default, parking on all channels\\n");
   
-  CONCURRENCY_DEBUG("[SELECT] Phase 2: No ready cases, parking task\\n");
-  
-  // Allocate select state
+  // PHASE 3: No case ready and no default - must park on all channels
+  // Create select_state and store in current task
   yo_select_state_t* state = (yo_select_state_t*)__yo_malloc(sizeof(yo_select_state_t));
   state->cases = cases;
   state->num_cases = num_cases;
   state->ready_case = -1;
   state->has_default = has_default;
+  
   yo_task_current->select_state = state;
   
-  // Register with all channel wait queues
+  // CRITICAL: Lock ALL channels first to prevent TOCTOU bugs
+  // Then re-check if any are ready, then add to wait queues atomically
+  for (int i = 0; i < num_cases; i++) {
+    ${cName}* chan = (${cName}*)cases[i].channel;
+    if (!chan) continue;
+#if defined(_WIN32)
+    EnterCriticalSection(&chan->mutex);
+#else
+    pthread_mutex_lock(&chan->mutex);
+#endif
+  }
+  
+  // Re-check if any case is now ready (TOCTOU fix)
+  int ready_idx = -1;
+  for (int i = 0; i < num_cases; i++) {
+    ${cName}* chan = (${cName}*)cases[i].channel;
+    if (!chan) continue;
+    
+    bool is_ready = false;
+    if (cases[i].is_send) {
+      if (chan->capacity == 0) {
+        is_ready = !__yo_chan_wait_queue_empty(chan->recv_queue_head);
+      } else {
+        is_ready = (chan->size < chan->capacity);
+      }
+    } else {
+      if (chan->capacity == 0) {
+        is_ready = !__yo_chan_wait_queue_empty(chan->send_queue_head);
+      } else {
+        is_ready = (chan->size > 0);
+      }
+    }
+    
+    if (is_ready) {
+      ready_idx = i;
+      break;
+    }
+  }
+  
+  if (ready_idx >= 0) {
+    // Found a ready case after locking - unlock all and perform operation
+    CONCURRENCY_DEBUG("[SELECT] Found ready case %d after locking all channels\\n", ready_idx);
+    for (int i = 0; i < num_cases; i++) {
+      ${cName}* chan = (${cName}*)cases[i].channel;
+      if (!chan) continue;
+#if defined(_WIN32)
+      LeaveCriticalSection(&chan->mutex);
+#else
+      pthread_mutex_unlock(&chan->mutex);
+#endif
+    }
+    
+    __yo_free(state);
+    yo_task_current->select_state = NULL;
+    
+    // Perform the ready operation
+    ${cName}* ready_chan = (${cName}*)cases[ready_idx].channel;
+    if (cases[ready_idx].is_send) {
+      ${elementTypeStr} value = *(${elementTypeStr}*)cases[ready_idx].value_ptr;
+      __yo_chan_send_${safeCName}(ready_chan, value);
+    } else {
+      ${optionReturnTypeStr}* result_ptr = (${optionReturnTypeStr}*)cases[ready_idx].value_ptr;
+      __yo_chan_recv_${safeCName}(ready_chan, result_ptr);
+    }
+    return ready_idx;
+  }
+  
+  // Still no ready case - add to all wait queues while holding all locks
+  CONCURRENCY_DEBUG("[SELECT] Still no ready case, adding to all wait queues\\n");
   for (int i = 0; i < num_cases; i++) {
     ${cName}* chan = (${cName}*)cases[i].channel;
     if (!chan) continue;
@@ -3987,58 +3916,52 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
     }
   }
   
-  // Unlock all channels
+  // Now unlock all channels
   for (int i = 0; i < num_cases; i++) {
-    if (cases[i].channel) {
+    ${cName}* chan = (${cName}*)cases[i].channel;
+    if (!chan) continue;
 #if defined(_WIN32)
-      LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+    LeaveCriticalSection(&chan->mutex);
 #else
-      pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+    pthread_mutex_unlock(&chan->mutex);
 #endif
-    }
   }
   
-  // Park the task
+  // Park the task (will be woken when any channel operation completes)
+  CONCURRENCY_DEBUG("[SELECT] Parking task\\n");
   yo_task_current->state = YO_TASK_BLOCKED;
   yo_task_current->wait_channel = NULL; // Waiting on multiple channels
-  __yo_task_yield();
+  yo_task_current = NULL;
+  llco_switch(NULL, false); // Switch back to worker
   
   // ===== RESUMED - one channel is ready =====
+  // Worker loop has restored yo_task_current
   
-  ready_case = state->ready_case;
+  int ready_case = yo_task_current->select_state->ready_case;
   
-  // Lock all channels again
-  for (int i = 0; i < num_cases; i++) {
-    if (cases[i].channel) {
-#if defined(_WIN32)
-      EnterCriticalSection(&((${cName}*)cases[i].channel)->mutex);
-#else
-      pthread_mutex_lock(&((${cName}*)cases[i].channel)->mutex);
-#endif
-    }
-  }
-  
-  // Dequeue from all wait queues
+  // Remove from all wait queues (important - we might still be in other queues!)
   for (int i = 0; i < num_cases; i++) {
     ${cName}* chan = (${cName}*)cases[i].channel;
     if (!chan) continue;
     
+#if defined(_WIN32)
+    EnterCriticalSection(&chan->mutex);
+#else
+    pthread_mutex_lock(&chan->mutex);
+#endif
+    
+    // Note: The channel that woke us already dequeued us, but we need to remove from others
     if (cases[i].is_send) {
       __yo_chan_wait_queue_remove(&chan->send_queue_head, &chan->send_queue_tail, yo_task_current);
     } else {
       __yo_chan_wait_queue_remove(&chan->recv_queue_head, &chan->recv_queue_tail, yo_task_current);
     }
-  }
-  
-  // Unlock all channels
-  for (int i = 0; i < num_cases; i++) {
-    if (cases[i].channel) {
+    
 #if defined(_WIN32)
-      LeaveCriticalSection(&((${cName}*)cases[i].channel)->mutex);
+    LeaveCriticalSection(&chan->mutex);
 #else
-      pthread_mutex_unlock(&((${cName}*)cases[i].channel)->mutex);
+    pthread_mutex_unlock(&chan->mutex);
 #endif
-    }
   }
   
   // Free select state
