@@ -12,6 +12,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../expr";
+import { TokenType } from "../token";
 import { isClosureType, isFunctionType } from "../types/guards";
 
 /**
@@ -22,6 +23,8 @@ import { isClosureType, isFunctionType } from "../types/guards";
  * - Select statement: `select(...)`
  */
 export function hasSuspensionPoint(expr: Expr): boolean {
+  console.error(`[hasSuspensionPoint] Checking ${expr.tag}`);
+
   // Check if this is a function call
   if (exprIsFunctionCall(expr)) {
     // Skip nested function/closure bodies - they will be transformed separately
@@ -57,21 +60,40 @@ export function hasSuspensionPoint(expr: Expr): boolean {
 
     // `<-` operator
     if (exprIsFunctionCallOf(expr, "<-")) {
+      console.error("[hasSuspensionPoint] Found suspension point: <- operator");
       return true;
+    }
+
+    // Log the function name to debug
+    if (expr.func.tag === "Atom") {
+      let funcName = expr.func.token.value;
+      if (expr.func.token.type === TokenType.BacktickIdentifier) {
+        funcName = funcName.slice(1, -1);
+      }
+      console.error(
+        `[hasSuspensionPoint] Checking function call to: ${funcName}`
+      );
     }
 
     // Channel receive: `__yo_chan_recv`
     if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_recv)) {
+      console.error(
+        "[hasSuspensionPoint] Found suspension point: __yo_chan_recv"
+      );
       return true;
     }
 
     // Channel send: `__yo_chan_send`
     if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_send)) {
+      console.error(
+        "[hasSuspensionPoint] Found suspension point: __yo_chan_send"
+      );
       return true;
     }
 
     // Select statement
     if (exprIsFunctionCallOf(expr, BuiltinKeywords.select)) {
+      console.error("[hasSuspensionPoint] Found suspension point: select");
       return true;
     }
 

@@ -31,6 +31,8 @@ import {
   generateReturnStatement,
 } from "../expressions";
 import { generateStacklessRuntime } from "../stackless-runtime";
+import { needsStateMachineTransformation } from "../stackless-transform";
+import { generateStateMachineFunction } from "../state-machine";
 import {
   CodeGenContext,
   getTypeString,
@@ -365,8 +367,27 @@ export function generateFunction(
     }
   }
 
-  // Generate function body with proper return handling
-  generateFunctionBody(functionValue.body, functionType, "  ", context);
+  // Check if this function needs state machine transformation (has suspension points)
+  const needsStateMachine = needsStateMachineTransformation(functionValue.body);
+  console.error(
+    `[generateFunction] ${cFunctionName}: needsStateMachine = ${needsStateMachine}`
+  );
+
+  if (needsStateMachine) {
+    // Generate state machine version
+    emitter.emitLine(
+      `// ${cFunctionName} needs state machine (has suspension points)`
+    );
+    generateStateMachineFunction(
+      functionValue.body,
+      functionType,
+      cFunctionName,
+      context
+    );
+  } else {
+    // Generate function body with proper return handling
+    generateFunctionBody(functionValue.body, functionType, "  ", context);
+  }
 
   // Restore previous function name and closure captures
   context.currentFunctionName = previousFunctionName;
