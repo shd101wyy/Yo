@@ -982,20 +982,25 @@ static _Thread_local yo_task_t* yo_task_to_cleanup = NULL;  // Thread-local clea
 // Thread pool state
 static yo_worker_thread_t* yo_worker_threads = NULL;
 static size_t yo_worker_thread_count = 0;
+static size_t yo_task_active_worker_limit = 0;  // Limit for task distribution (set by set_maximum_threads)
 static _Atomic bool yo_worker_shutdown = false;
 static _Atomic size_t yo_next_worker_index = 0;  // For round-robin task distribution
 static _Atomic size_t yo_active_task_count = 0;  // Total number of active tasks (spawned but not completed)
 
 // Helper function to clean up a completed task
 // This is called after we've switched away from the task's stack
+// NOTE: We only free the stack, not the task structure itself!
+// The task structure stays allocated so that checks on task->state remain valid
 static void __yo_cleanup_completed_task(yo_task_t* task) {
   if (!task) return;
-  CONCURRENCY_DEBUG("[CLEANUP] Freeing stack=%p of task=%p\\n", task->stack, task);
+  CONCURRENCY_DEBUG("[CLEANUP] Freeing stack=%p of task=%p (keeping task structure)\\n", task->stack, task);
   if (task->stack) {
     __yo_free(task->stack);
+    task->stack = NULL;
   }
-  __yo_free(task);
-  CONCURRENCY_DEBUG("[CLEANUP] Task cleanup complete\\n");
+  task->coroutine = NULL;  // Ensure coroutine is NULL
+  // DON'T free task structure - it may still be in queues!
+  CONCURRENCY_DEBUG("[CLEANUP] Task cleanup complete (task structure preserved)\\n");
 }
 
 // Cleanup callback for llco - called when coroutine is finalized
@@ -1020,6 +1025,7 @@ static void __yo_task_entry(void* udata) {
   
   // Task completed - mark it and switch back
   task->state = YO_TASK_COMPLETED;
+  task->coroutine = NULL;  // NULL out coroutine so any dequeue checks will catch it
   yo_task_current = NULL;
   
   // Decrement active task counter
@@ -1280,7 +1286,13 @@ static void* __yo_worker_thread_func(void* arg) {
     yo_task_t* task = __yo_task_dequeue_from_worker(worker);
     
     if (!task) {
-      // No tasks available, sleep briefly
+      // No tasks available - clean up any completed task before sleeping
+      if (yo_task_to_cleanup) {
+        __yo_cleanup_completed_task(yo_task_to_cleanup);
+        yo_task_to_cleanup = NULL;
+      }
+      
+      // Sleep briefly
       #ifdef _WIN32
       Sleep(1);
       #else
@@ -1295,6 +1307,28 @@ static void* __yo_worker_thread_func(void* arg) {
     if (yo_task_to_cleanup) {
       __yo_cleanup_completed_task(yo_task_to_cleanup);
       yo_task_to_cleanup = NULL;
+    }
+    
+    // Check if this task was already completed (can happen if task yielded then completed)
+    if (task->state == YO_TASK_COMPLETED) {
+      CONCURRENCY_DEBUG("[WORKER] Task=%p already completed (state=COMPLETED), freeing task structure\\n", task);
+      // Stack was already freed by cleanup, just free the task structure now
+      __yo_free(task);
+      continue;
+    }
+    
+    // For resumed tasks, also check if coroutine is NULL (already cleaned up)
+    if (task->started && task->coroutine == NULL) {
+      CONCURRENCY_DEBUG("[WORKER] Task=%p has NULL coroutine, freeing task structure\\n", task);
+      __yo_free(task);
+      continue;
+    }
+    
+    // Additional check: if stack is NULL, this task was cleaned up
+    if (task->stack == NULL) {
+      CONCURRENCY_DEBUG("[WORKER] Task=%p has NULL stack, freeing task structure\\n", task);
+      __yo_free(task);
+      continue;
     }
     
     yo_task_current = task;
@@ -1317,7 +1351,7 @@ static void* __yo_worker_thread_func(void* arg) {
       // Note: task->coroutine is set inside __yo_task_entry via llco_current()
     } else {
       // Resume task from where it yielded
-      CONCURRENCY_DEBUG("[WORKER] Resuming task=%p\\n", task);
+      CONCURRENCY_DEBUG("[WORKER] Resuming task=%p coroutine=%p\\n", task, task->coroutine);
       llco_switch(task->coroutine, false);  // Switch to task's coroutine
     }
     
@@ -1399,6 +1433,7 @@ static void __yo_thread_pool_init(size_t num_threads) {
 }
 
 // Set maximum number of threads for task scheduler
+// This limits how many workers will be used for distributing new tasks
 void __yo_concurrency_set_maximum_threads(size_t num) {
   __yo_task_scheduler_init();
   
@@ -1409,8 +1444,21 @@ void __yo_concurrency_set_maximum_threads(size_t num) {
   
   yo_task_max_threads = num;
   
-  // Always initialize thread pool (even for num=1)
-  __yo_thread_pool_init(num);
+  // If thread pool isn't initialized yet, initialize it with hardware thread count
+  if (yo_worker_thread_count == 0) {
+    size_t hardware_threads = __yo_concurrency_get_hardware_threads();
+    __yo_thread_pool_init(hardware_threads);
+  }
+  
+  // Set the active worker limit to restrict task distribution
+  // Tasks will only be distributed to the first 'num' workers
+  if (num <= yo_worker_thread_count) {
+    yo_task_active_worker_limit = num;
+    CONCURRENCY_DEBUG("[POOL] Limited task distribution to first %zu workers\\n", num);
+  } else {
+    yo_task_active_worker_limit = yo_worker_thread_count;
+    CONCURRENCY_DEBUG("[POOL] Cannot limit to %zu workers (only %zu available)\\n", num, yo_worker_thread_count);
+  }
 }
 
 // Yield is no longer used with per-thread queues - tasks run cooperatively within each worker
@@ -1430,36 +1478,22 @@ void __yo_task_yield(void) {
   
   yo_task_t* current = yo_task_current;
   
-  // NOTE: Context should already be saved by the caller (channel send/recv/select)
-  // before calling this function. We do NOT save context here to avoid double-setjmp.
+  // Re-enqueue the current task so it can be resumed later
+  // IMPORTANT: We must re-enqueue for cooperative multitasking to work
+  // If the task completes after this yield, the worker will detect COMPLETED state and skip it
   
-  // Check if task is blocked or just yielding
   YO_MUTEX_LOCK(&worker->queue_mutex);
   
-  if (current->state == YO_TASK_BLOCKED) {
-    // Task is blocked - add to blocked queue
-    current->next = NULL;
-    if (worker->blocked_queue.tail) {
-      worker->blocked_queue.tail->next = current;
-    } else {
-      worker->blocked_queue.head = current;
-    }
-    worker->blocked_queue.tail = current;
-    worker->blocked_queue.count++;
-    CONCURRENCY_DEBUG("[YIELD] Task=%p moved to blocked queue\\n", current);
+  current->state = YO_TASK_READY;
+  current->next = NULL;
+  if (worker->ready_queue.tail) {
+    worker->ready_queue.tail->next = current;
   } else {
-    // Task is just yielding - re-enqueue at the end of ready queue
-    current->state = YO_TASK_READY;
-    current->next = NULL;
-    if (worker->ready_queue.tail) {
-      worker->ready_queue.tail->next = current;
-    } else {
-      worker->ready_queue.head = current;
-    }
-    worker->ready_queue.tail = current;
-    worker->ready_queue.count++;
-    CONCURRENCY_DEBUG("[YIELD] Task=%p moved to ready queue\\n", current);
+    worker->ready_queue.head = current;
   }
+  worker->ready_queue.tail = current;
+  worker->ready_queue.count++;
+  CONCURRENCY_DEBUG("[YIELD] Task=%p re-enqueued to ready queue\\n", current);
   
   YO_MUTEX_UNLOCK(&worker->queue_mutex);
   
@@ -1485,7 +1519,7 @@ void __yo_task_yield(void) {
       };
       next->started = true;
       llco_start(&desc, false);
-      next->coroutine = llco_current();
+      // Note: next->coroutine is set inside __yo_task_entry via llco_current()
     }
   } else {
     // No ready tasks - return to worker (switch to NULL)
@@ -1742,10 +1776,11 @@ ${paramAssignments}
   task->stack = (char*)__yo_malloc(YO_TASK_STACK_SIZE);
   task->stack_size = YO_TASK_STACK_SIZE;
   
-  // Distribute task to worker thread round-robin
+  // Distribute task to worker thread round-robin (limited by active_worker_limit)
   if (yo_worker_thread_count > 0) {
-    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % yo_worker_thread_count;
-    CONCURRENCY_DEBUG("[SPAWN] Assigning task=%p to worker %zu\\n", task, worker_idx);
+    size_t limit = yo_task_active_worker_limit > 0 ? yo_task_active_worker_limit : yo_worker_thread_count;
+    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
+    CONCURRENCY_DEBUG("[SPAWN] Assigning task=%p to worker %zu (limit=%zu)\\n", task, worker_idx, limit);
     __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
@@ -1782,8 +1817,9 @@ ${paramAssignments}
   atomic_fetch_add(&yo_active_task_count, 1);
   
   if (yo_worker_thread_count > 0) {
-    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % yo_worker_thread_count;
-    CONCURRENCY_DEBUG("[SPAWN] Assigning main task=%p to worker %zu\\n", task, worker_idx);
+    size_t limit = yo_task_active_worker_limit > 0 ? yo_task_active_worker_limit : yo_worker_thread_count;
+    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
+    CONCURRENCY_DEBUG("[SPAWN] Assigning main task=%p to worker %zu (limit=%zu)\\n", task, worker_idx, limit);
     __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
@@ -1894,10 +1930,11 @@ ${paramAssignments}
   // Increment active task counter BEFORE enqueueing
   atomic_fetch_add(&yo_active_task_count, 1);
   
-  // Distribute task to worker thread round-robin
+  // Distribute task to worker thread round-robin (limited by active_worker_limit)
   if (yo_worker_thread_count > 0) {
-    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % yo_worker_thread_count;
-    CONCURRENCY_DEBUG("[SPAWN] Assigning closure task=%p to worker %zu\\n", task, worker_idx);
+    size_t limit = yo_task_active_worker_limit > 0 ? yo_task_active_worker_limit : yo_worker_thread_count;
+    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
+    CONCURRENCY_DEBUG("[SPAWN] Assigning closure task=%p to worker %zu (limit=%zu)\\n", task, worker_idx, limit);
     __yo_task_enqueue_to_worker(&yo_worker_threads[worker_idx], task);
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");

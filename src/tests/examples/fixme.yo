@@ -45,18 +45,44 @@ main :: (fn() -> unit) {
 export main;
 */
 
+
+test1 :: (fn()-> unit) {
+  printf("%zu begin test1\n", Concurrency.get_thread_id());
+  Concurrency.yield();
+  printf("%zu middle test1\n", Concurrency.get_thread_id());
+  Concurrency.yield();
+  printf("%zu end test1\n", Concurrency.get_thread_id());
+};
+
+test2 :: (fn()-> unit) {
+  printf("%zu begin test2\n", Concurrency.get_thread_id());
+  Concurrency.yield();
+  printf("%zu middle test2\n", Concurrency.get_thread_id());
+  Concurrency.yield();
+  printf("%zu end test2\n", Concurrency.get_thread_id());
+};
+
+// Pointer arithmetic example
 main :: (fn() -> unit) {
-  ch := chan(i32);
-  
-  async {
-    x := 1;
-    ch <- (x + 2);
-  };
-  
-  result := <-(ch);
-  // printf("tag=%d\n", result.tag);
-  value := result.unwrap();
-  printf("value=%d\n", value);
+  Concurrency.set_maximum_threads(1); // Set maximum 1 thread for async tasks
+
+  printf("%zu start main\n", Concurrency.get_thread_id());
+  async test1();
+  async test2();
+  printf("%zu end main\n", Concurrency.get_thread_id());
+
+  // This function is not available anymore
+  // Concurrency.wait_all(); // Wait for all spawned tasks to complete
+
+  // Expected to print:
+  // start main
+  // end main
+  // begin test1
+  // begin test2
+  // middle test1
+  // middle test2
+  // end test1
+  // end test2
 };
 
 export main;

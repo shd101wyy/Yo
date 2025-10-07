@@ -3,31 +3,32 @@ open import "std/libc/stdio.yo";
 
 
 test1 :: (fn()-> unit) {
-  printf("begin test1\n");
+  printf("%zu begin test1\n", Concurrency.get_thread_id());
   Concurrency.yield();
-  printf("middle test1\n");
+  printf("%zu middle test1\n", Concurrency.get_thread_id());
   Concurrency.yield();
-  printf("end test1\n");
+  printf("%zu end test1\n", Concurrency.get_thread_id());
 };
 
 test2 :: (fn()-> unit) {
-  printf("begin test2\n");
+  printf("%zu begin test2\n", Concurrency.get_thread_id());
   Concurrency.yield();
-  printf("middle test2\n");
+  printf("%zu middle test2\n", Concurrency.get_thread_id());
   Concurrency.yield();
-  printf("end test2\n");
+  printf("%zu end test2\n", Concurrency.get_thread_id());
 };
 
 // Pointer arithmetic example
-main :: (fn() -> i32) {
+main :: (fn() -> unit) {
   Concurrency.set_maximum_threads(1); // Set maximum 1 thread for async tasks
 
-  printf("start main\n");
+  printf("%zu start main\n", Concurrency.get_thread_id());
   async test1();
   async test2();
-  printf("end main\n");
+  printf("%zu end main\n", Concurrency.get_thread_id());
 
-  Concurrency.wait_all(); // Wait for all spawned tasks to complete
+  // This function is not available anymore
+  // Concurrency.wait_all(); // Wait for all spawned tasks to complete
 
   // Expected to print:
   // start main
@@ -38,8 +39,6 @@ main :: (fn() -> i32) {
   // middle test2
   // end test1
   // end test2
-
-  return 0;
 };
 
 export main;
