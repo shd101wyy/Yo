@@ -4,9 +4,9 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 - Spawned with `async function(args)`
 - Distributed round-robin to worker threads
 - Run cooperatively within each worker using llco (stackful coroutines)
-- Each coroutine has its own 256KB stack (minimum 16KB, configurable via `LLCO_MINSTACKSIZE`)
+- Each coroutine has its own 16KB stack (minimum 16KB required by llco)
 - Coroutines voluntarily yield when blocking on channels
-- **Coroutine pool**: Completed coroutines are returned to a global pool (max 1000 total, shared across all workers) for reuse instead of being freed
+- **Coroutine pool**: Completed coroutines are returned to a global pool for reuse (unbounded during execution, cleaned up only at shutdown)
 
 ### 3. **Thread Affinity** (Not Work Stealing)
 - Once a coroutine starts on a worker thread, it **stays on that thread**
@@ -21,7 +21,7 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 - **Memory Allocator**: mimalloc
 - **Synchronization**: Mutexes (pthread/Windows)
 - **Scheduling**: Cooperative within workers, parallel across workers
-- **Coroutine Pool**: neco-style pool (max 1000 coroutines) - reuse instead of free
+- **Coroutine Pool**: neco-inspired pool (unbounded during execution, shutdown cleanup only)
 
 ## Architecture Overview
 
@@ -130,7 +130,8 @@ select(
 4. **Block**: Coroutine blocks on channel → saves context via llco → worker switches to next coroutine
 5. **Wake**: Channel operation completes → coroutine moved back to ready queue
 6. **Resume**: Worker restores coroutine context via llco → coroutine continues execution
-7. **Complete**: Coroutine finishes → returned to pool for reuse (or freed if pool full) → worker fetches next coroutine
+7. **Complete**: Coroutine finishes → returned to pool for reuse → worker fetches next coroutine
+8. **Shutdown**: All pooled coroutines are freed when `__yo_coro_wait_all()` completes
 
 ### Cooperative Scheduling
 
@@ -207,7 +208,7 @@ struct yo_coro {
   yo_select_state_t* select_state; // Non-NULL when blocked in select
   void* recv_data_ptr;           // For receive: where to store result
   struct llco* coro;             // llco coroutine handle (NULL = not started)
-  char* stack;                   // Separate 256KB stack
+  char* stack;                   // Separate 16KB stack (default)
   size_t stack_size;             // Stack size
   yo_worker_thread_t* owner_worker; // Worker thread that owns this coroutine
   yo_coro_t* next;               // Next in ready/blocked queue or pool
@@ -253,7 +254,7 @@ Yo uses the **llco** (Low-Level Coroutines) library for context switching:
 - **Automatic stack switching**: llco handles stack pointer restoration
 - **Register preservation**: All registers saved/restored automatically  
 - **No manual longjmp**: Clean context management via llco API
-- **Stack isolation**: Each coroutine has its own stack (256KB default)
+- **Stack isolation**: Each coroutine has its own stack (16KB default)
 
 ## Synchronization
 
@@ -285,19 +286,21 @@ Yo uses the **llco** (Low-Level Coroutines) library for context switching:
 
 ## Memory Management & BRC
 
-### Coroutine Pool (neco-style)
+### Coroutine Pool (neco-inspired)
 
-Following the [neco](https://github.com/tidwall/neco) coroutine library design:
-- **Pool size**: Maximum 1000 coroutines in the pool (global, shared across all workers)
+Inspired by the [neco](https://github.com/tidwall/neco) coroutine library design:
+- **Pool size**: Unbounded during execution - grows as needed
 - **On spawn**: Get from pool (if available) or allocate new coroutine + stack
-- **On complete**: Return to pool for reuse (or free if pool is full)
+- **On complete**: Return to pool for reuse (never freed during execution)
+- **On shutdown**: All pooled coroutines freed after workers stop
 - **Thread safety**: Pool access protected by global `yo_coro_pool_mutex`
 - **Benefits**: 
   - Eliminates allocation overhead for short-lived coroutines
-  - Avoids race conditions from freeing coroutines during execution
+  - **No use-after-free bugs** - coroutines never freed while workers are running
   - Stack reuse reduces memory pressure
   - Single global pool simplifies implementation and reduces memory fragmentation
 - **Pool state**: Global `yo_coro_pool_head` linked list, protected by mutex
+- **Difference from neco**: neco uses time-based cleanup (100ms idle), we use shutdown-only cleanup for simplicity
 
 ### Why Thread Affinity?
 
@@ -330,13 +333,15 @@ Objects can be shared between threads via channels:
 ✅ **Efficient memory** - coroutines share thread resources
 ✅ **Fast select** - Go's proven algorithm with atomic channel locking
 ✅ **Coroutine reuse** - pool eliminates allocation overhead for short-lived coroutines
+✅ **No use-after-free** - coroutines never freed during execution
 ✅ **CPU affinity** - thread-per-core model maximizes cache locality and reduces context switching
 
 ### Tradeoffs
 ⚠️ **No preemption** - CPU-bound coroutine blocks its worker  
 ⚠️ **Fixed worker count** - must be set at startup  
 ⚠️ **Thread affinity** - coroutines can't migrate for load balancing  
-⚠️ **Stack size limit** - 256KB per coroutine (tunable)
+⚠️ **Stack size limit** - 16KB per coroutine (fixed, not growable)
+⚠️ **Unbounded pool** - pool grows during execution (freed only at shutdown)
 
 ## Example
 

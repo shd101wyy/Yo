@@ -997,7 +997,7 @@ static yo_coro_t* yo_coro_pool_head = NULL;
 static yo_mutex_t yo_coro_pool_mutex;
 static bool yo_coro_pool_mutex_initialized = false;
 static size_t yo_coro_pool_size = 0;
-static const size_t YO_CORO_POOL_MAX = 1000;  // Max coroutines to keep in pool
+// No size limit - pool grows as needed and is cleaned up only at shutdown
 
 // Thread pool state
 static yo_worker_thread_t* yo_worker_threads = NULL;
@@ -1114,22 +1114,14 @@ static void __yo_coro_pool_put(yo_coro_t* coro) {
   
   YO_MUTEX_LOCK(&yo_coro_pool_mutex);
   
-  if (yo_coro_pool_size < YO_CORO_POOL_MAX) {
-    // Add to pool for reuse
-    coro->next = yo_coro_pool_head;
-    yo_coro_pool_head = coro;
-    yo_coro_pool_size++;
-    CONCURRENCY_DEBUG("[POOL] Returned coroutine to pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
-    YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
-  } else {
-    // Pool is full, actually free it
-    YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
-    CONCURRENCY_DEBUG("[POOL] Pool full, freeing coroutine, coro=%p\\n", coro);
-    if (coro->stack) {
-      __yo_free(coro->stack);
-    }
-    __yo_free(coro);
-  }
+  // ALWAYS add to pool during execution (never free during execution to avoid use-after-free)
+  // We'll free all pooled coroutines during shutdown in __yo_coro_wait_all()
+  coro->next = yo_coro_pool_head;
+  yo_coro_pool_head = coro;
+  yo_coro_pool_size++;
+  CONCURRENCY_DEBUG("[POOL] Returned coroutine to pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
+  
+  YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
 }
 
 // Enqueue a coroutine to a worker's ready queue (called from spawn)
@@ -1338,6 +1330,12 @@ static void* __yo_worker_thread_func(void* arg) {
     
     // Coroutine returned (either completed, blocked, or yielded)
     CONCURRENCY_DEBUG("[WORKER] Returned from coro=%p, state=%d\\n", coro, coro->state);
+    
+    // Check if shutdown was signaled while we were running
+    if (atomic_load(&yo_worker_shutdown)) {
+      CONCURRENCY_DEBUG("[WORKER] Shutdown detected, stopping cleanup and exiting\\n");
+      break;
+    }
     
     // Check if a coroutine completed and needs cleanup
     if (yo_coro_to_cleanup) {
@@ -1610,6 +1608,23 @@ void __yo_coro_wait_all(void) {
     __yo_free(yo_worker_threads);
     yo_worker_threads = NULL;
     yo_worker_thread_count = 0;
+    
+    // After all workers stopped, clean up the coroutine pool
+    CONCURRENCY_DEBUG("[WAIT_ALL] Cleaning up coroutine pool\\n");
+    YO_MUTEX_LOCK(&yo_coro_pool_mutex);
+    yo_coro_t* coro = yo_coro_pool_head;
+    while (coro != NULL) {
+      yo_coro_t* next = coro->next;
+      CONCURRENCY_DEBUG("[POOL] Freeing pooled coroutine coro=%p\\n", coro);
+      if (coro->stack) {
+        __yo_free(coro->stack);
+      }
+      __yo_free(coro);
+      coro = next;
+    }
+    yo_coro_pool_head = NULL;
+    yo_coro_pool_size = 0;
+    YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
     
     CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
     return;

@@ -13,6 +13,7 @@ mkShell rec {
     mimalloc
     gdb
     valgrind
+    emscripten
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc
