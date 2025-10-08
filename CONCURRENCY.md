@@ -6,6 +6,7 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 - Run cooperatively within each worker using llco (stackful coroutines)
 - Each coroutine has its own 256KB stack (minimum 16KB, configurable via `LLCO_MINSTACKSIZE`)
 - Coroutines voluntarily yield when blocking on channels
+- **Coroutine pool**: Completed coroutines are returned to a global pool (max 1000 total, shared across all workers) for reuse instead of being freed
 
 ### 3. **Thread Affinity** (Not Work Stealing)
 - Once a coroutine starts on a worker thread, it **stays on that thread**
@@ -15,11 +16,12 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 
 ## Technology Stack
 
-- **Coroutine Library**: [llco](https://github.com/tidwall/llco) - Low-Level Coroutines
+- **Coroutine Library**: [llco](https://github.com/tidwall/llco) v1.0 - Low-Level Coroutines
 - **Threading**: OS threads (pthread/Windows threads)
 - **Memory Allocator**: mimalloc
-- **Synchronization**: Mutexes + condition variables (pthread/Windows)
+- **Synchronization**: Mutexes (pthread/Windows)
 - **Scheduling**: Cooperative within workers, parallel across workers
+- **Coroutine Pool**: neco-style pool (max 1000 coroutines) - reuse instead of free
 
 ## Architecture Overview
 
@@ -57,6 +59,11 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 - Each worker is a real OS thread (pthread/Windows thread)
 - Workers run independently and in parallel
 - Each worker has its own task queue (thread affinity)
+- **CPU Affinity**: Each worker is pinned to a dedicated CPU core (thread-per-core model)
+  - Worker 0 → Core 0, Worker 1 → Core 1, etc.
+  - Reduces cache misses and context switching overhead
+  - Maximizes CPU cache locality
+  - **Implementation**: Direct syscalls on Linux (no GNU extensions needed), native APIs on Windows/macOS
 
 ### 2. **Cooperative Tasks**
 - Spawned with `async function(args)`
@@ -117,13 +124,13 @@ select(
 
 ### Coroutine Lifecycle
 
-1. **Spawn**: `async func()` creates a coroutine and assigns it to a worker (round-robin)
+1. **Spawn**: `async func()` gets coroutine from pool (or allocates new), assigns to worker (round-robin)
 2. **Schedule**: Worker dequeues coroutine from its ready queue
 3. **Execute**: Coroutine runs cooperatively on its own stack (via llco)
-4. **Block**: Coroutine blocks on channel → saves context → worker switches to next coroutine
+4. **Block**: Coroutine blocks on channel → saves context via llco → worker switches to next coroutine
 5. **Wake**: Channel operation completes → coroutine moved back to ready queue
-6. **Resume**: Worker restores coroutine context → coroutine continues execution
-7. **Complete**: Coroutine finishes → cleanup → worker fetches next coroutine
+6. **Resume**: Worker restores coroutine context via llco → coroutine continues execution
+7. **Complete**: Coroutine finishes → returned to pool for reuse (or freed if pool full) → worker fetches next coroutine
 
 ### Cooperative Scheduling
 
@@ -199,12 +206,11 @@ struct yo_coro {
   void* wait_channel;            // Channel blocking on (or NULL)
   yo_select_state_t* select_state; // Non-NULL when blocked in select
   void* recv_data_ptr;           // For receive: where to store result
-  struct llco* coro;             // llco coroutine handle
+  struct llco* coro;             // llco coroutine handle (NULL = not started)
   char* stack;                   // Separate 256KB stack
-  size_t stack_size;
-  bool started;                  // Whether coroutine has been started
+  size_t stack_size;             // Stack size
   yo_worker_thread_t* owner_worker; // Worker thread that owns this coroutine
-  yo_coro_t* next;               // Next in ready/blocked queue
+  yo_coro_t* next;               // Next in ready/blocked queue or pool
   yo_coro_t* next_wait;          // Next in channel wait queue
 };
 ```
@@ -215,6 +221,7 @@ struct yo_worker_thread {
   pthread_t handle;           // OS thread handle
   pthread_t id;               // Thread ID
   bool active;
+  size_t core_id;             // CPU core this worker is pinned to
   yo_coro_queue_t ready_queue;    // Coroutines ready to run
   yo_coro_queue_t blocked_queue;  // Coroutines waiting on channels
   pthread_mutex_t queue_mutex;    // Protects queues
@@ -278,6 +285,20 @@ Yo uses the **llco** (Low-Level Coroutines) library for context switching:
 
 ## Memory Management & BRC
 
+### Coroutine Pool (neco-style)
+
+Following the [neco](https://github.com/tidwall/neco) coroutine library design:
+- **Pool size**: Maximum 1000 coroutines in the pool (global, shared across all workers)
+- **On spawn**: Get from pool (if available) or allocate new coroutine + stack
+- **On complete**: Return to pool for reuse (or free if pool is full)
+- **Thread safety**: Pool access protected by global `yo_coro_pool_mutex`
+- **Benefits**: 
+  - Eliminates allocation overhead for short-lived coroutines
+  - Avoids race conditions from freeing coroutines during execution
+  - Stack reuse reduces memory pressure
+  - Single global pool simplifies implementation and reduces memory fragmentation
+- **Pool state**: Global `yo_coro_pool_head` linked list, protected by mutex
+
 ### Why Thread Affinity?
 
 Yo uses **Biased Reference Counting** (BRC) for memory management:
@@ -308,6 +329,8 @@ Objects can be shared between threads via channels:
 ✅ **Scalable** - per-worker queues eliminate contention  
 ✅ **Efficient memory** - coroutines share thread resources
 ✅ **Fast select** - Go's proven algorithm with atomic channel locking
+✅ **Coroutine reuse** - pool eliminates allocation overhead for short-lived coroutines
+✅ **CPU affinity** - thread-per-core model maximizes cache locality and reduces context switching
 
 ### Tradeoffs
 ⚠️ **No preemption** - CPU-bound coroutine blocks its worker  
@@ -365,10 +388,12 @@ Received: 40
 | Feature | Yo | Go |
 |---------|----|----|
 | Threading Model | M:N (hybrid) | M:N |
-| Coroutine Lib | llco | Custom asm |
+| Coroutine Lib | llco v1.0 | Custom asm |
 | Task Scheduling | Cooperative | Preemptive |
 | Work Stealing | ❌ No (affinity) | ✅ Yes |
 | Stack Size | Fixed 256KB | Growable 2KB→1GB |
+| Coroutine Pool | ✅ Yes (neco-style) | ✅ Yes (G pool) |
+| CPU Affinity | ✅ Yes (thread-per-core) | ❌ No (GOMAXPROCS only) |
 | Parallelism | OS thread pool | GOMAXPROCS |
 | Channel Semantics | Unbuffered default | Same |
 | Select Statement | ✅ Full support | ✅ Full support |

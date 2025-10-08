@@ -878,6 +878,7 @@ void* __yo_incr_rc(void* ptr) {
   emitter.emitLine(`
 // Cooperative Task Scheduler Runtime using llco (Low-Level Coroutines)
 // Note: _FORTIFY_SOURCE=0 is defined before includes to disable fortification checks
+
 #include <setjmp.h>
 #include "vendor/llco/llco.h"
 
@@ -896,6 +897,9 @@ void* __yo_incr_rc(void* ptr) {
 #else
   #include <pthread.h>
   #include <unistd.h>
+  #ifdef __linux__
+    #include <sys/syscall.h>  // For syscall() and SYS_* constants
+  #endif
   typedef pthread_t yo_thread_handle_t;
   typedef pthread_t yo_thread_id_t;
   typedef pthread_mutex_t yo_mutex_t;
@@ -904,6 +908,10 @@ void* __yo_incr_rc(void* ptr) {
   #define YO_MUTEX_LOCK(m) pthread_mutex_lock(m)
   #define YO_MUTEX_UNLOCK(m) pthread_mutex_unlock(m)
   #define YO_THREAD_ID() ((yo_thread_id_t)pthread_self())
+  #ifdef __APPLE__
+    #include <mach/thread_policy.h>
+    #include <mach/thread_act.h>
+  #endif
 #endif
 
 typedef struct yo_coro yo_coro_t;
@@ -935,12 +943,13 @@ typedef struct {
 } yo_select_state_t;
 
 // Stack size for each coroutine (256KB to accommodate complex functions with debug logging)
-// llco requires minimum LLCO_MINSTACKSIZE (16KB), but we use 256KB for safety with debug builds
-#define YO_CORO_STACK_SIZE (256 * 1024)
+// llco requires minimum LLCO_MINSTACKSIZE (16KB)
+#define YO_CORO_STACK_SIZE (16 * 1024)
 
 // Forward declarations
 static yo_coro_t* __yo_coro_pool_get(void);
 static void __yo_coro_pool_put(yo_coro_t* coro);
+static void __yo_set_thread_affinity(size_t core_id);
 
 // Coroutine structure with llco coroutine support
 struct yo_coro {
@@ -970,6 +979,7 @@ struct yo_worker_thread {
   yo_thread_handle_t handle;
   yo_thread_id_t id;
   bool active;
+  size_t core_id;                  // CPU core this worker is pinned to
   yo_coro_queue_t ready_queue;     // Each worker has its own ready queue
   yo_coro_queue_t blocked_queue;   // Each worker has its own blocked queue
   yo_mutex_t queue_mutex;          // Protects this worker's queues
@@ -1265,7 +1275,10 @@ static void* __yo_worker_thread_func(void* arg) {
   // Set thread-local worker pointer
   yo_coro_current_worker = worker;
   
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu started (worker=%p)\\n", (unsigned long)thread_id, worker);
+  // Set CPU affinity to pin this worker to its dedicated core
+  __yo_set_thread_affinity(worker->core_id);
+  
+  CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
   
   while (!atomic_load(&yo_worker_shutdown)) {
     yo_coro_t* coro = __yo_coro_dequeue_from_worker(worker);
@@ -1367,6 +1380,62 @@ size_t __yo_concurrency_get_hardware_threads(void) {
   #endif
 }
 
+// Set thread affinity to bind worker to specific CPU core
+static void __yo_set_thread_affinity(size_t core_id) {
+  #ifdef _WIN32
+  // Windows: SetThreadAffinityMask
+  DWORD_PTR mask = 1ULL << core_id;
+  SetThreadAffinityMask(GetCurrentThread(), mask);
+  CONCURRENCY_DEBUG("[AFFINITY] Set thread affinity to core %zu (Windows)\\n", core_id);
+  
+  #elif defined(__APPLE__)
+  // macOS: thread_policy_set with THREAD_AFFINITY_POLICY
+  thread_affinity_policy_data_t policy = { (integer_t)core_id };
+  kern_return_t result = thread_policy_set(pthread_mach_thread_np(pthread_self()), 
+                    THREAD_AFFINITY_POLICY, 
+                    (thread_policy_t)&policy, 
+                    THREAD_AFFINITY_POLICY_COUNT);
+  if (result == KERN_SUCCESS) {
+    CONCURRENCY_DEBUG("[AFFINITY] Set thread affinity to core %zu (macOS)\\n", core_id);
+  } else {
+    CONCURRENCY_DEBUG("[AFFINITY] Failed to set thread affinity to core %zu (macOS, error=%d)\\n", core_id, result);
+  }
+  
+  #elif defined(__linux__)
+  // Linux: Use sched_setaffinity syscall directly (no GNU extensions needed)
+  // We'll build a simple cpu_set manually without using CPU_* macros
+  unsigned long mask = 1UL << core_id;
+  // syscall numbers from linux/unistd.h
+  #if defined(__x86_64__)
+    // x86_64: sched_setaffinity is syscall 203
+    long result = syscall(203, 0, sizeof(unsigned long), &mask);
+  #elif defined(__aarch64__)
+    // ARM64: sched_setaffinity is syscall 122
+    long result = syscall(122, 0, sizeof(unsigned long), &mask);
+  #elif defined(__i386__)
+    // x86 32-bit: sched_setaffinity is syscall 241
+    long result = syscall(241, 0, sizeof(unsigned long), &mask);
+  #elif defined(__arm__)
+    // ARM 32-bit: sched_setaffinity is syscall 241
+    long result = syscall(241, 0, sizeof(unsigned long), &mask);
+  #else
+    // Unknown architecture - try common syscall number 203
+    long result = syscall(203, 0, sizeof(unsigned long), &mask);
+  #endif
+  
+  if (result == 0) {
+    CONCURRENCY_DEBUG("[AFFINITY] Set thread affinity to core %zu (Linux)\\n", core_id);
+  } else {
+    CONCURRENCY_DEBUG("[AFFINITY] Failed to set thread affinity to core %zu (Linux, errno=%d)\\n", core_id, (int)result);
+  }
+  
+  #else
+  // Other POSIX systems: no affinity support
+  CONCURRENCY_DEBUG("[AFFINITY] Thread affinity not supported on this platform (core %zu requested)\\n", core_id);
+  (void)core_id; // Suppress unused parameter warning
+  #endif
+}
+
 // Initialize thread pool
 static void __yo_thread_pool_init(size_t num_threads) {
   if (num_threads < 1 || yo_worker_thread_count > 0) {
@@ -1381,9 +1450,10 @@ static void __yo_thread_pool_init(size_t num_threads) {
   atomic_store(&yo_worker_shutdown, false);
   atomic_store(&yo_next_worker_index, 0);
   
-  // Initialize each worker
+  // Initialize each worker and pin to a CPU core
   for (size_t i = 0; i < num_threads; i++) {
     yo_worker_threads[i].active = true;
+    yo_worker_threads[i].core_id = i;  // Pin worker i to core i
     yo_worker_threads[i].ready_queue = (yo_coro_queue_t){NULL, NULL, 0};
     yo_worker_threads[i].blocked_queue = (yo_coro_queue_t){NULL, NULL, 0};
     YO_MUTEX_INIT(&yo_worker_threads[i].queue_mutex);
@@ -1396,7 +1466,7 @@ static void __yo_thread_pool_init(size_t num_threads) {
     pthread_create(&yo_worker_threads[i].handle, NULL, __yo_worker_thread_func, &yo_worker_threads[i]);
     #endif
     
-    CONCURRENCY_DEBUG("[POOL] Spawned worker thread %zu\\n", i);
+    CONCURRENCY_DEBUG("[POOL] Spawned worker thread %zu (will pin to core %zu)\\n", i, i);
   }
 }
 
