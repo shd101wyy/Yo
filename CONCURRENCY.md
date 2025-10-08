@@ -1,6 +1,25 @@
 # Concurrency Model
 
-Yo implements a **hybrid M:N threading model** that combines OS-level parallelism with cooperative multitasking, similar to Go's goroutines but with some key differences.
+Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
+- Spawned with `async function(args)`
+- Distributed round-robin to worker threads
+- Run cooperatively within each worker using llco (stackful coroutines)
+- Each coroutine has its own 256KB stack (minimum 16KB, configurable via `LLCO_MINSTACKSIZE`)
+- Coroutines voluntarily yield when blocking on channels
+
+### 3. **Thread Affinity** (Not Work Stealing)
+- Once a coroutine starts on a worker thread, it **stays on that thread**
+- Coroutines are never migrated between worker threads
+- This is essential for **Biased Reference Counting** to work correctly
+- BRC assumes objects stay on the thread that created themodel** that combines OS-level parallelism with cooperative multitasking using stackful coroutines, similar to Go's goroutines but with some key differences.
+
+## Technology Stack
+
+- **Coroutine Library**: [llco](https://github.com/tidwall/llco) - Low-Level Coroutines
+- **Threading**: OS threads (pthread/Windows threads)
+- **Memory Allocator**: mimalloc
+- **Synchronization**: Mutexes + condition variables (pthread/Windows)
+- **Scheduling**: Cooperative within workers, parallel across workers
 
 ## Architecture Overview
 
@@ -9,7 +28,7 @@ Yo implements a **hybrid M:N threading model** that combines OS-level parallelis
 │                  Main Thread                        │
 │  - Calls Concurrency.set_maximum_threads(N)         │
 │  - Spawns N worker threads (OS threads)             │
-│  - Can send/recv on channels (pthread blocking)     │
+│  - Spawns main() as a coroutine on worker 0         │
 └─────────────────────────────────────────────────────┘
                         │
         ┌───────────────┴───────────────┐
@@ -18,16 +37,16 @@ Yo implements a **hybrid M:N threading model** that combines OS-level parallelis
 │  Worker Thread 1 │            │ Worker Thread N │
 │  (OS Thread)     │    ...     │  (OS Thread)    │
 ├──────────────────┤            ├─────────────────┤
-│ Task Queue 1     │            │ Task Queue N    │
+│ Coroutine Queue  │            │ Coroutine Queue │
 │  ┌────────────┐  │            │  ┌────────────┐ │
-│  │ Task A     │  │            │  │ Task X     │ │
-│  │ Task B     │  │            │  │ Task Y     │ │
-│  │ Task C     │  │            │  │ Task Z     │ │
+│  │ Coro A     │  │            │  │ Coro X     │ │
+│  │ Coro B     │  │            │  │ Coro Y     │ │
+│  │ Coro C     │  │            │  │ Coro Z     │ │
 │  └────────────┘  │            │  └────────────┘ │
 │                  │            │                 │
 │ Cooperative      │            │ Cooperative     │
 │ Scheduling       │            │ Scheduling      │
-│ (setjmp/longjmp) │            │ (setjmp/longjmp)│
+│ (llco library)   │            │ (llco library)  │
 └──────────────────┘            └─────────────────┘
 ```
 
@@ -65,7 +84,7 @@ Concurrency.get_thread_id() -> u64
 
 ### Task Spawning
 ```yo
-// Spawn a task on a worker thread (non-blocking)
+// Spawn a coroutine on a worker thread (non-blocking)
 async function(args...)
 
 // Example:
@@ -73,93 +92,120 @@ async say("hello", 42, channel)
 ```
 
 ### Channels
-```yo
+```go
 // Create unbuffered channel (synchronous rendezvous)
-ch := chan(Type)
+ch := chan(Type);
 
 // Create buffered channel with capacity
-ch := chan(Type, capacity)
+ch := chan(Type, capacity);
 
 // Send value (blocks if unbuffered and no receiver)
-ch <- value
+ch <- value;
 
-// Receive value (blocks if no sender)
-result := <-(ch)  // Returns Option(Type)
+// Receive value (blocks if no sender, returns Option)
+result := <-(ch);  // Returns Option(Type)
+
+// Select statement (Go-style)
+select(
+  (ch1 <- value) => { /* send succeeded */ },
+  (x := <-(ch2)) => { /* receive succeeded */ },
+  _ => { /* default case (non-blocking) */ }
+);
 ```
 
 ## Execution Model
 
-### Task Lifecycle
+### Coroutine Lifecycle
 
-1. **Spawn**: `async func()` creates a task and assigns it to a worker (round-robin)
-2. **Schedule**: Worker dequeues task from its ready queue
-3. **Execute**: Task runs cooperatively on its own stack
-4. **Block**: Task blocks on channel → saves context → worker switches to next task
-5. **Wake**: Channel operation completes → task moved back to ready queue
-6. **Resume**: Worker restores task context → task continues execution
-7. **Complete**: Task finishes → cleanup → worker fetches next task
+1. **Spawn**: `async func()` creates a coroutine and assigns it to a worker (round-robin)
+2. **Schedule**: Worker dequeues coroutine from its ready queue
+3. **Execute**: Coroutine runs cooperatively on its own stack (via llco)
+4. **Block**: Coroutine blocks on channel → saves context → worker switches to next coroutine
+5. **Wake**: Channel operation completes → coroutine moved back to ready queue
+6. **Resume**: Worker restores coroutine context → coroutine continues execution
+7. **Complete**: Coroutine finishes → cleanup → worker fetches next coroutine
 
 ### Cooperative Scheduling
 
-Tasks cooperate within each worker thread:
-- **No preemption** - tasks run until they voluntarily yield
-- **Yields occur on**: channel send/recv operations
-- **Context switching**: setjmp/longjmp with separate stacks
-- **Fast switching**: no syscalls, just register/stack save/restore
+Coroutines cooperate within each worker thread:
+- **No preemption** - coroutines run until they voluntarily yield
+- **Yields occur on**: channel send/recv operations, select statements
+- **Context switching**: llco library (stackful coroutines with separate stacks)
+- **Fast switching**: no syscalls, efficient context save/restore
 
 ### Parallelism
 
 Workers run in parallel across CPU cores:
 - **True parallelism** - multiple workers execute simultaneously
-- **Independent queues** - no lock contention for task scheduling
-- **Parallel channels** - tasks on different workers can communicate
+- **Independent queues** - no lock contention for coroutine scheduling
+- **Parallel channels** - coroutines on different workers can communicate
 
 ## Channel Semantics
 
 ### Unbuffered Channels (Rendezvous)
 ```yo
-ch := chan(i32)  // capacity = 0
+ch := chan(i32);  // capacity = 0
 
 // Sender blocks until receiver is ready
-async ((fn()-> unit){ ch <- 42 })()  // Blocks in task context
+async ((fn()-> unit){ ch <- 42 })();  // Blocks cooperatively
 
 // Receiver blocks until sender is ready
-value := <-(ch)  // Blocks (pthread if main, cooperative if task)
+value := <-(ch);  // Blocks cooperatively
+```
+
+**Select with unbuffered channels:**
+```yo
+// Both send and receive operations work in select
+select(
+  (ch1 <- value) => { /* sent when receiver ready */ },
+  (x := <-(ch2)) => { /* received when sender ready */ }
+);
 ```
 
 ### Buffered Channels
 ```yo
-ch := chan(i32, 10)  // capacity = 10
+ch := chan(i32, 10);  // capacity = 10
 
 // Sender blocks only if buffer is full
-ch <- 42  // Non-blocking if buffer has space
+ch <- 42;  // Non-blocking if buffer has space
 
 // Receiver blocks only if buffer is empty
-value := <-(ch)  // Non-blocking if buffer has data
+value := <-(ch);  // Non-blocking if buffer has data
 ```
 
 ### Cross-Thread Communication
 
 Channels work across threads using hybrid synchronization:
-- **Task → Task (same worker)**: Cooperative yielding
-- **Task → Task (different worker)**: Global wakeup across workers
-- **Task → Main Thread**: pthread condition variables
-- **Main Thread → Task**: pthread signals + task wakeup
+- **Coroutine → Coroutine (same worker)**: Cooperative yielding via llco
+- **Coroutine → Coroutine (different worker)**: Wake and enqueue to target worker
+- All communication uses wait queues and cooperative scheduling
+
+### Select Statement
+
+Go-style select for multiplexing channel operations:
+- **Two-phase algorithm**: Lock-poll-execute OR register-park-wake
+- **Supports send and receive**: Both operations work in select (unlike some implementations)
+- **TOCTOU-safe**: Locks all channels before checking readiness to avoid race conditions
+- **Fair wakeup**: When multiple cases ready, first ready case executes (can be randomized)
 
 ## Implementation Details
 
-### Task Structure
+### Coroutine Structure
 ```c
-struct yo_task {
-  void (*func)(void*);      // Task function
-  void* data;                // Task arguments
-  yo_task_state_t state;     // READY, RUNNING, BLOCKED, COMPLETED
-  void* wait_channel;        // Channel blocking on (or NULL)
-  jmp_buf context;           // Saved execution context
-  char* stack;               // Separate 64KB stack
+struct yo_coro {
+  void (*func)(void*);           // Coroutine function
+  void* data;                    // Coroutine arguments
+  yo_coro_state_t state;         // READY, RUNNING, BLOCKED, COMPLETED
+  void* wait_channel;            // Channel blocking on (or NULL)
+  yo_select_state_t* select_state; // Non-NULL when blocked in select
+  void* recv_data_ptr;           // For receive: where to store result
+  struct llco* coro;             // llco coroutine handle
+  char* stack;                   // Separate 256KB stack
   size_t stack_size;
-  bool context_initialized;  // Whether setjmp has been called
-  yo_task_t* next;           // Queue linkage
+  bool started;                  // Whether coroutine has been started
+  yo_worker_thread_t* owner_worker; // Worker thread that owns this coroutine
+  yo_coro_t* next;               // Next in ready/blocked queue
+  yo_coro_t* next_wait;          // Next in channel wait queue
 };
 ```
 
@@ -169,63 +215,66 @@ struct yo_worker_thread {
   pthread_t handle;           // OS thread handle
   pthread_t id;               // Thread ID
   bool active;
-  yo_task_queue_t ready_queue;    // Tasks ready to run
-  yo_task_queue_t blocked_queue;  // Tasks waiting on channels
+  yo_coro_queue_t ready_queue;    // Coroutines ready to run
+  yo_coro_queue_t blocked_queue;  // Coroutines waiting on channels
   pthread_mutex_t queue_mutex;    // Protects queues
 };
 ```
 
 ### Context Switching
 
-**Task Bootstrap** (first run):
+Yo uses the **llco** (Low-Level Coroutines) library for context switching:
+
+**Coroutine Bootstrap** (first run):
 ```c
-1. Worker switches to task's stack
-2. Calls __yo_task_bootstrap(task)
-3. Bootstrap calls setjmp(task->context) → returns 0
-4. Marks context_initialized = true
-5. Executes task->func(task->data)
-6. On completion: longjmp to worker context
+1. Worker calls llco_start(&desc, false) with coroutine descriptor
+2. llco switches to coroutine's stack and begins execution
+3. Coroutine executes coro->func(coro->data)
+4. On completion or block: llco_switch(NULL, false) returns to worker
 ```
 
-**Task Resume** (after blocking):
+**Coroutine Resume** (after blocking):
 ```c
-1. Worker calls longjmp(task->context, 1)
-2. Task's setjmp returns 1 (resumed)
-3. Task continues from where it blocked
+1. Worker calls llco_switch(coro->coro, false)
+2. llco restores coroutine's saved context (registers, stack pointer)
+3. Coroutine continues from where it blocked
 4. Executes remaining code
-5. On completion or re-block: longjmp to worker
+5. On completion or re-block: llco_switch(NULL, false) back to worker
 ```
 
-**Critical**: `longjmp()` automatically restores the stack pointer from the saved context. No manual stack switching needed for resume!
+**Key features**:
+- **Automatic stack switching**: llco handles stack pointer restoration
+- **Register preservation**: All registers saved/restored automatically  
+- **No manual longjmp**: Clean context management via llco API
+- **Stack isolation**: Each coroutine has its own stack (256KB default)
 
 ## Synchronization
 
 ### Blocking Mechanisms
 
-**Cooperative (Tasks)**:
-- Save context with `setjmp()`
-- Move task to blocked queue
-- Switch to next ready task or return to worker
+**Cooperative (Coroutines)**:
+- Save context with `llco_switch(NULL, false)` (returns to worker)
+- Move coroutine to blocked queue
+- Worker switches to next ready coroutine or waits
 - On wakeup: move to ready queue, worker will resume
 
-**OS-level (Main Thread)**:
-- Use pthread condition variables
-- `pthread_cond_wait()` on channels
-- `pthread_cond_signal()` from tasks
-- Allows main thread to block without spinning
+**Wait Queues**:
+- Each channel has `send_queue` and `recv_queue`
+- Coroutines register in wait queues when blocking
+- When channel becomes ready, coroutines are dequeued and woken
+- Intrusive queues (linked via `next_wait` pointer)
 
 ### Wakeup Strategies
 
-**Local Wakeup** (`__yo_task_wakeup_one`):
-- Wakes one task from current worker's blocked queue
-- Used when task wakes another task on same worker
-- Fast: no cross-thread coordination
+**Worker-local Wakeup**:
+- Wakes coroutine on its owner worker
+- Enqueues to that worker's ready queue
+- Used for all channel operations (coroutines have thread affinity)
 
-**Global Wakeup** (`__yo_task_wakeup_one_global`):
-- Searches all workers' blocked queues
-- Wakes first matching task found
-- Used when main thread or non-task context wakes a task
-- Slower: requires locking each worker's queue
+**Global Coroutine Counter**:
+- Atomic counter tracks active coroutines
+- Incremented on spawn, decremented on completion
+- Used by `__yo_coro_wait_all()` to know when all work is done
 
 ## Memory Management & BRC
 
@@ -238,7 +287,7 @@ Yo uses **Biased Reference Counting** (BRC) for memory management:
 - Object ownership can transfer but requires synchronization
 
 **Thread affinity ensures**:
-- Tasks stay on the thread that created their objects
+- Coroutines stay on the thread that created their objects
 - Objects remain on their owner thread
 - No unexpected ownership transfers
 - BRC fast path works consistently
@@ -253,48 +302,50 @@ Objects can be shared between threads via channels:
 ## Performance Characteristics
 
 ### Strengths
-✅ **Low overhead context switching** - setjmp/longjmp is fast  
-✅ **No syscalls for task scheduling** - all in userspace  
+✅ **Low overhead context switching** - llco is highly optimized  
+✅ **No syscalls for coroutine scheduling** - all in userspace  
 ✅ **True parallelism** - workers run on multiple cores  
 ✅ **Scalable** - per-worker queues eliminate contention  
-✅ **Efficient memory** - shared thread stacks, not per-task OS stacks
+✅ **Efficient memory** - coroutines share thread resources
+✅ **Fast select** - Go's proven algorithm with atomic channel locking
 
 ### Tradeoffs
-⚠️ **No preemption** - CPU-bound task blocks its worker  
+⚠️ **No preemption** - CPU-bound coroutine blocks its worker  
 ⚠️ **Fixed worker count** - must be set at startup  
-⚠️ **Thread affinity** - tasks can't migrate for load balancing  
-⚠️ **Stack size limit** - 64KB per task (can be tuned)
+⚠️ **Thread affinity** - coroutines can't migrate for load balancing  
+⚠️ **Stack size limit** - 256KB per coroutine (tunable)
 
 ## Example
 
 ```yo
-open import "std"
+open import "std";
 
 main :: (fn() -> i32) {
   // Create 2 OS worker threads
-  Concurrency.set_maximum_threads(2)
+  Concurrency.set_maximum_threads(2);
   
-  ch := chan(i32)  // Unbuffered channel
+  ch := chan(i32);  // Unbuffered channel
   
-  // Spawn 4 tasks (distributed round-robin to 2 workers)
-  async worker(1, ch)  // → Worker 0
-  async worker(2, ch)  // → Worker 1
-  async worker(3, ch)  // → Worker 0
-  async worker(4, ch)  // → Worker 1
+  // Spawn 4 coroutines (distributed round-robin to 2 workers)
+  async worker(1, ch);  // → Worker 0
+  async worker(2, ch);  // → Worker 1
+  async worker(3, ch);  // → Worker 0
+  async worker(4, ch);  // → Worker 1
   
   // Main thread receives results
-  for i in 0..4 {
-    value := <-(ch).unwrap()
-    printf("Received: %d\n", value)
-  }
+  i := 0;
+  while i < 4, {
+    value := <-(ch).unwrap();
+    printf("Received: %d\n", value);
+  };
   
-  return 0
-}
+  return 0;
+};
 
 worker :: (fn(id: i32, ch: Chan(i32)) -> Unit) {
-  printf("Worker %d on thread %zu\n", id, Concurrency.get_thread_id())
-  ch <- (id * 10)
-}
+  printf("Worker %d on thread %zu\n", id, Concurrency.get_thread_id());
+  ch <- (id * 10);
+};
 ```
 
 **Output** (order non-deterministic):
@@ -314,22 +365,25 @@ Received: 40
 | Feature | Yo | Go |
 |---------|----|----|
 | Threading Model | M:N (hybrid) | M:N |
+| Coroutine Lib | llco | Custom asm |
 | Task Scheduling | Cooperative | Preemptive |
 | Work Stealing | ❌ No (affinity) | ✅ Yes |
-| Context Switch | setjmp/longjmp | Custom asm |
-| Stack Size | Fixed 64KB | Growable 2KB→1GB |
+| Stack Size | Fixed 256KB | Growable 2KB→1GB |
 | Parallelism | OS thread pool | GOMAXPROCS |
-| Channel Semantics | Rendezvous | Buffered default |
+| Channel Semantics | Unbuffered default | Same |
+| Select Statement | ✅ Full support | ✅ Full support |
 | GC Integration | BRC (per-thread) | Mark-sweep (STW) |
 
 ## Future Improvements
 
 Potential enhancements (not yet implemented):
 - [ ] Dynamic worker pool resizing
-- [ ] Growable task stacks
-- [ ] Task priorities
+- [ ] Growable coroutine stacks
+- [ ] Coroutine priorities
 - [ ] Preemptive scheduling (timer-based)
 - [ ] Work stealing with ownership transfer
-- [ ] Task-local storage
+- [ ] Coroutine-local storage
 - [ ] Better deadlock detection
 - [ ] Async/await syntax sugar
+- [ ] Randomized select case selection (fairness)
+- [ ] Buffered channels as default (like Go)

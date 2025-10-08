@@ -251,10 +251,10 @@ struct yo_thread_gc_state {
 };
 `);
 
-  // Forward declarations for task and queue types (used by channel types)
-  context.emitter.emitDeclarationLine("typedef struct yo_task yo_task_t;");
+  // Forward declarations for coroutine and queue types (used by channel types)
+  context.emitter.emitDeclarationLine("typedef struct yo_coro yo_coro_t;");
   context.emitter.emitDeclarationLine(
-    "typedef struct yo_task_queue yo_task_queue_t;"
+    "typedef struct yo_coro_queue yo_coro_queue_t;"
   );
   context.emitter.emitDeclarationLine("");
 
@@ -801,16 +801,16 @@ export function generateChanDeclaration(
 
   // Wait queues for select support (Go-style) - just head pointers
   emitter.emitDeclarationLine(
-    `  yo_task_t* send_queue_head; // Head of tasks waiting to send`
+    `  yo_coro_t* send_queue_head; // Head of coroutines waiting to send`
   );
   emitter.emitDeclarationLine(
-    `  yo_task_t* send_queue_tail; // Tail of tasks waiting to send`
+    `  yo_coro_t* send_queue_tail; // Tail of coroutines waiting to send`
   );
   emitter.emitDeclarationLine(
-    `  yo_task_t* recv_queue_head; // Head of tasks waiting to receive`
+    `  yo_coro_t* recv_queue_head; // Head of coroutines waiting to receive`
   );
   emitter.emitDeclarationLine(
-    `  yo_task_t* recv_queue_tail; // Tail of tasks waiting to receive`
+    `  yo_coro_t* recv_queue_tail; // Tail of coroutines waiting to receive`
   );
 
   emitter.emitDeclarationLine(`} ${cName};`);

@@ -269,7 +269,7 @@ function generateFuncCall(
     return `(*((${returnTypeStr}*)NULL))`; // This will never execute but has the right type
   }
 
-  // async - spawn any expression as a cooperative task by wrapping it in a closure
+  // async - spawn any expression as a cooperative coroutine by wrapping it in a closure
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
     // The evaluator has already created the closure and stored it in expr.$.evaluatedClosure
     const evaluatedClosure = expr.$?.evaluatedClosure;
@@ -298,13 +298,13 @@ function generateFuncCall(
         closureType: closureType,
       });
 
-      return `__yo_task_spawn_${signatureStr}(${closureCode})`;
+      return `__yo_coro_spawn_${signatureStr}(${closureCode})`;
     } else {
       return `// Error: async argument must be a closure after evaluation`;
     }
   }
 
-  // __yo_concurrency_set_maximum_threads - set maximum number of threads for task scheduler
+  // __yo_concurrency_set_maximum_threads - set maximum number of threads for coroutine scheduler
   if (
     exprIsFunctionCallOf(
       expr,
