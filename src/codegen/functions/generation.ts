@@ -992,11 +992,12 @@ static size_t yo_coro_max_threads = 0;
 static bool yo_coro_scheduler_initialized = false;
 static _Thread_local yo_coro_t* yo_coro_to_cleanup = NULL;  // Thread-local cleanup task
 
-// Coroutine pool (like neco) - reuse completed coroutines instead of freeing them
-static yo_coro_t* yo_coro_pool_head = NULL;
-static yo_mutex_t yo_coro_pool_mutex;
-static bool yo_coro_pool_mutex_initialized = false;
-static size_t yo_coro_pool_size = 0;
+// Coroutine pool (thread-local) - reuse completed coroutines instead of freeing them
+// Each worker thread has its own pool - no mutex needed, zero contention!
+static _Thread_local yo_coro_t* yo_coro_pool_head = NULL;
+#ifdef YO_DEBUG_CONCURRENCY
+static _Thread_local size_t yo_coro_pool_size = 0;
+#endif
 // No size limit - pool grows as needed and is cleaned up only at shutdown
 
 // Thread pool state
@@ -1062,26 +1063,25 @@ static void __yo_coro_entry(void* udata) {
 static void __yo_coro_scheduler_init(void) {
   if (!yo_coro_scheduler_initialized) {
     yo_coro_scheduler_initialized = true;
-    // Initialize pool mutex
-    if (!yo_coro_pool_mutex_initialized) {
-      YO_MUTEX_INIT(&yo_coro_pool_mutex);
-      yo_coro_pool_mutex_initialized = true;
-    }
+    // Thread-local pool needs no mutex initialization
   }
 }
 
-// Get a coroutine from the pool or allocate a new one (like neco)
+// Get a coroutine from the thread-local pool or allocate a new one
+// No mutex needed - each worker has its own pool!
 static yo_coro_t* __yo_coro_pool_get(void) {
   yo_coro_t* coro = NULL;
   
-  YO_MUTEX_LOCK(&yo_coro_pool_mutex);
   if (yo_coro_pool_head) {
     coro = yo_coro_pool_head;
     yo_coro_pool_head = coro->next;
+    #ifdef YO_DEBUG_CONCURRENCY
     yo_coro_pool_size--;
-    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
+    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from thread-local pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
+    #else
+    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from thread-local pool, coro=%p\\n", coro);
+    #endif
   }
-  YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
   
   if (!coro) {
     // Allocate new coroutine
@@ -1103,7 +1103,8 @@ static yo_coro_t* __yo_coro_pool_get(void) {
   return coro;
 }
 
-// Return a coroutine to the pool (like neco's cleanup function)
+// Return a coroutine to the thread-local pool
+// No mutex needed - zero contention!
 static void __yo_coro_pool_put(yo_coro_t* coro) {
   if (!coro) return;
   
@@ -1112,16 +1113,16 @@ static void __yo_coro_pool_put(yo_coro_t* coro) {
     coro->coro = NULL;
   }
   
-  YO_MUTEX_LOCK(&yo_coro_pool_mutex);
-  
   // ALWAYS add to pool during execution (never free during execution to avoid use-after-free)
   // We'll free all pooled coroutines during shutdown in __yo_coro_wait_all()
   coro->next = yo_coro_pool_head;
   yo_coro_pool_head = coro;
+  #ifdef YO_DEBUG_CONCURRENCY
   yo_coro_pool_size++;
-  CONCURRENCY_DEBUG("[POOL] Returned coroutine to pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
-  
-  YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
+  CONCURRENCY_DEBUG("[POOL] Returned coroutine to thread-local pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
+  #else
+  CONCURRENCY_DEBUG("[POOL] Returned coroutine to thread-local pool, coro=%p\\n", coro);
+  #endif
 }
 
 // Enqueue a coroutine to a worker's ready queue (called from spawn)
@@ -1353,6 +1354,22 @@ static void* __yo_worker_thread_func(void* arg) {
     
     yo_coro_current = NULL;
   }
+  
+  // Clean up this worker's thread-local coroutine pool before exiting
+  CONCURRENCY_DEBUG("[WORKER] Thread %lu cleaning up thread-local pool\\n", (unsigned long)thread_id);
+  yo_coro_t* coro = yo_coro_pool_head;
+  while (coro != NULL) {
+    yo_coro_t* next = coro->next;
+    if (coro->stack) {
+      __yo_free(coro->stack);
+    }
+    __yo_free(coro);
+    coro = next;
+  }
+  yo_coro_pool_head = NULL;
+  #ifdef YO_DEBUG_CONCURRENCY
+  yo_coro_pool_size = 0;
+  #endif
   
   CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
   #ifdef _WIN32
@@ -1609,9 +1626,9 @@ void __yo_coro_wait_all(void) {
     yo_worker_threads = NULL;
     yo_worker_thread_count = 0;
     
-    // After all workers stopped, clean up the coroutine pool
-    CONCURRENCY_DEBUG("[WAIT_ALL] Cleaning up coroutine pool\\n");
-    YO_MUTEX_LOCK(&yo_coro_pool_mutex);
+    // After all workers stopped, clean up the main thread's coroutine pool
+    // Note: Each worker thread cleans up its own thread-local pool when it exits
+    CONCURRENCY_DEBUG("[WAIT_ALL] Cleaning up main thread's coroutine pool\\n");
     yo_coro_t* coro = yo_coro_pool_head;
     while (coro != NULL) {
       yo_coro_t* next = coro->next;
@@ -1623,8 +1640,9 @@ void __yo_coro_wait_all(void) {
       coro = next;
     }
     yo_coro_pool_head = NULL;
+    #ifdef YO_DEBUG_CONCURRENCY
     yo_coro_pool_size = 0;
-    YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
+    #endif
     
     CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
     return;
