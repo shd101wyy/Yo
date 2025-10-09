@@ -1290,26 +1290,49 @@ static void __yo_coro_block(yo_coro_t* coro, void* channel) {
 
 // Wake up coroutines waiting on a specific channel (in current worker's blocked queue)
 static void __yo_coro_wakeup(void* channel) {
-  yo_worker_thread_t* worker = yo_coro_current_worker;
-  if (!worker) {
-    CONCURRENCY_DEBUG("[WAKEUP] Error: No current worker\\n");
+  if (!yo_coro_scheduler_initialized) {
     return;
   }
   
-  YO_MUTEX_LOCK(&worker->queue_mutex);
+  CONCURRENCY_DEBUG("[WAKEUP] Waking coroutines on channel=%p across all workers\\n", channel);
   
-  CONCURRENCY_DEBUG("[WAKEUP] Waking coroutines on channel=%p\\n", channel);
-  yo_coro_t* coro = worker->blocked_queue.head;
-  yo_coro_t* prev = NULL;
-  
-  while (coro != NULL) {
-    yo_coro_t* next = coro->next;
+  // Wake up blocked coroutines on ALL workers, not just current worker
+  // This is necessary because sender might be on different worker than receiver
+  for (size_t i = 0; i < yo_worker_thread_count; i++) {
+    yo_worker_thread_t* worker = &yo_worker_threads[i];
     
-    if (coro->wait_channel == channel) {
-      // Skip if coroutine is already completed or stack was freed (shouldn't happen but be defensive)
-      if (coro->state == YO_CORO_COMPLETED || coro->stack == NULL) {
-        CONCURRENCY_DEBUG("[WAKEUP] Skipping completed/freed coro=%p (state=%d, stack=%p)\\n", coro, coro->state, coro->stack);
-        // Remove from blocked queue and free
+    YO_MUTEX_LOCK(&worker->queue_mutex);
+    
+    yo_coro_t* coro = worker->blocked_queue.head;
+    yo_coro_t* prev = NULL;
+    
+    while (coro != NULL) {
+      yo_coro_t* next = coro->next;
+      
+      if (coro->wait_channel == channel) {
+        // Skip if coroutine is already completed or stack was freed
+        if (coro->state == YO_CORO_COMPLETED || coro->stack == NULL) {
+          CONCURRENCY_DEBUG("[WAKEUP] Skipping completed/freed coro=%p (state=%d, stack=%p)\\n", coro, coro->state, coro->stack);
+          // Remove from blocked queue and free
+          if (prev == NULL) {
+            worker->blocked_queue.head = next;
+          } else {
+            prev->next = next;
+          }
+          if (worker->blocked_queue.tail == coro) {
+            worker->blocked_queue.tail = prev;
+          }
+          worker->blocked_queue.count--;
+          // Free the completed coroutine structure if not already freed
+          if (coro->stack == NULL) {
+            __yo_free(coro);
+          }
+          coro = next;
+          continue;
+        }
+        
+        CONCURRENCY_DEBUG("[WAKEUP] Moving coro=%p to ready queue on worker %zu\\n", coro, i);
+        // Remove from blocked queue
         if (prev == NULL) {
           worker->blocked_queue.head = next;
         } else {
@@ -1319,47 +1342,29 @@ static void __yo_coro_wakeup(void* channel) {
           worker->blocked_queue.tail = prev;
         }
         worker->blocked_queue.count--;
-        // Free the completed coroutine structure if not already freed
-        if (coro->stack == NULL) {
-          __yo_free(coro);
+        
+        // Add to ready queue (unlocked version since we hold the lock)
+        coro->wait_channel = NULL;
+        coro->state = YO_CORO_READY;
+        coro->next = NULL;
+        if (worker->ready_queue.tail) {
+          worker->ready_queue.tail->next = coro;
+        } else {
+          worker->ready_queue.head = coro;
         }
+        worker->ready_queue.tail = coro;
+        worker->ready_queue.count++;
+        
+        // Don't increment prev since we removed current node
         coro = next;
-        continue;
-      }
-      
-      CONCURRENCY_DEBUG("[WAKEUP] Moving coro=%p to ready queue\\n", coro);
-      // Remove from blocked queue
-      if (prev == NULL) {
-        worker->blocked_queue.head = next;
       } else {
-        prev->next = next;
+        prev = coro;
+        coro = next;
       }
-      if (worker->blocked_queue.tail == coro) {
-        worker->blocked_queue.tail = prev;
-      }
-      worker->blocked_queue.count--;
-      
-      // Add to ready queue (unlocked version since we hold the lock)
-      coro->state = YO_CORO_READY;
-      coro->wait_channel = NULL;
-      coro->next = NULL;
-      if (worker->ready_queue.tail) {
-        worker->ready_queue.tail->next = coro;
-      } else {
-        worker->ready_queue.head = coro;
-      }
-      worker->ready_queue.tail = coro;
-      worker->ready_queue.count++;
-      
-      // Don't update prev since we removed this node
-      coro = next;
-    } else {
-      prev = coro;
-      coro = next;
     }
+    
+    YO_MUTEX_UNLOCK(&worker->queue_mutex);
   }
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
 }
 
 // Worker thread function - runs coroutines from its own ready queue
@@ -3485,14 +3490,21 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 
     // No receiver waiting - check if buffer has space (neco line 6006)
     if (chan->size < chan->capacity) {
-      // Buffer has space - add to buffer and return immediately
-      chan->buffer[chan->size++] = value;
+      // Buffer has space - add to buffer using ring buffer (tail for write, head for read)
+      chan->buffer[chan->tail] = value;
+      chan->tail = (chan->tail + 1) % chan->capacity;
+      chan->size++;
       
 #if defined(_WIN32)
       LeaveCriticalSection(&chan->mutex);
 #else
       pthread_mutex_unlock(&chan->mutex);
 #endif
+      
+      // Wake up any blocked receivers
+      // NOTE: This must be called AFTER unlocking to avoid deadlock
+      // (wakeup locks worker queues while we hold channel mutex)
+      __yo_coro_wakeup(chan);
       return;
     }
 
