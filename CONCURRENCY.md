@@ -6,7 +6,7 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 - Run cooperatively within each worker using llco (stackful coroutines)
 - Each coroutine has its own 16KB stack (minimum 16KB required by llco)
 - Coroutines voluntarily yield when blocking on channels
-- **Coroutine pool**: Completed coroutines are returned to a global pool for reuse (unbounded during execution, cleaned up only at shutdown)
+- **Coroutine pool**: Completed coroutines are returned to a **thread-local** pool for reuse (unbounded during execution, cleaned up only at shutdown)
 
 ### 3. **Thread Affinity** (Not Work Stealing)
 - Once a coroutine starts on a worker thread, it **stays on that thread**
@@ -68,8 +68,8 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 ### 2. **Cooperative Tasks**
 - Spawned with `async function(args)`
 - Distributed round-robin to worker threads
-- Run cooperatively within each worker using setjmp/longjmp
-- Each task has its own 64KB stack
+- Run cooperatively within each worker using llco (stackful coroutines)
+- Each task has its own 16KB stack (minimum 16KB required by llco)
 - Tasks voluntarily yield when blocking on channels
 
 ### 3. **Thread Affinity** (Not Work Stealing)
@@ -181,6 +181,12 @@ ch <- 42;  // Non-blocking if buffer has space
 value := <-(ch);  // Non-blocking if buffer has data
 ```
 
+**Implementation**: (No dont yet)
+- All channels use a **uniform `void*` buffer structure** regardless of element type
+- Channel struct: `{ void* buffer; size_t element_size; size_t capacity; ... }`
+- Elements stored at byte offsets: `(T*)((char*)buffer + index * element_size)`
+- Enables **type-erased channel pooling** (future optimization)
+
 ### Cross-Thread Communication
 
 Channels work across threads using hybrid synchronization:
@@ -286,21 +292,22 @@ Yo uses the **llco** (Low-Level Coroutines) library for context switching:
 
 ## Memory Management & BRC
 
-### Coroutine Pool (neco-inspired)
+### Coroutine Pool (Thread-Local)
 
-Inspired by the [neco](https://github.com/tidwall/neco) coroutine library design:
+Each worker thread maintains its own coroutine pool:
+- **Pool scope**: Thread-local (`_Thread_local` storage) - zero contention
 - **Pool size**: Unbounded during execution - grows as needed
-- **On spawn**: Get from pool (if available) or allocate new coroutine + stack
-- **On complete**: Return to pool for reuse (never freed during execution)
-- **On shutdown**: All pooled coroutines freed after workers stop
-- **Thread safety**: Pool access protected by global `yo_coro_pool_mutex`
+- **On spawn**: Get from thread-local pool (if available) or allocate new coroutine + stack
+- **On complete**: Return to thread-local pool for reuse (never freed during execution)
+- **On shutdown**: Each worker frees its own pooled coroutines when exiting
+- **Thread safety**: No mutex needed - each thread owns its pool exclusively
 - **Benefits**: 
+  - **Zero contention** - no mutex/atomic operations for pool access
   - Eliminates allocation overhead for short-lived coroutines
   - **No use-after-free bugs** - coroutines never freed while workers are running
   - Stack reuse reduces memory pressure
-  - Single global pool simplifies implementation and reduces memory fragmentation
-- **Pool state**: Global `yo_coro_pool_head` linked list, protected by mutex
-- **Difference from neco**: neco uses time-based cleanup (100ms idle), we use shutdown-only cleanup for simplicity
+  - Perfect alignment with thread affinity model
+- **Debug mode**: Pool size tracked per thread with `YO_DEBUG_CONCURRENCY` flag
 
 ### Why Thread Affinity?
 
@@ -332,9 +339,10 @@ Objects can be shared between threads via channels:
 ✅ **Scalable** - per-worker queues eliminate contention  
 ✅ **Efficient memory** - coroutines share thread resources
 ✅ **Fast select** - Go's proven algorithm with atomic channel locking
-✅ **Coroutine reuse** - pool eliminates allocation overhead for short-lived coroutines
+✅ **Coroutine reuse** - thread-local pools eliminate allocation overhead with zero contention
 ✅ **No use-after-free** - coroutines never freed during execution
 ✅ **CPU affinity** - thread-per-core model maximizes cache locality and reduces context switching
+✅ **Uniform channels** - void* buffer structure enables type-erased pooling
 
 ### Tradeoffs
 ⚠️ **No preemption** - CPU-bound coroutine blocks its worker  
@@ -396,8 +404,8 @@ Received: 40
 | Coroutine Lib | llco v1.0 | Custom asm |
 | Task Scheduling | Cooperative | Preemptive |
 | Work Stealing | ❌ No (affinity) | ✅ Yes |
-| Stack Size | Fixed 256KB | Growable 2KB→1GB |
-| Coroutine Pool | ✅ Yes (neco-style) | ✅ Yes (G pool) |
+| Stack Size | Fixed 16KB | Growable 2KB→1GB |
+| Coroutine Pool | ✅ Yes (thread-local) | ✅ Yes (G pool) |
 | CPU Affinity | ✅ Yes (thread-per-core) | ❌ No (GOMAXPROCS only) |
 | Parallelism | OS thread pool | GOMAXPROCS |
 | Channel Semantics | Unbuffered default | Same |
