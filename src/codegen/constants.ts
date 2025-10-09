@@ -46,6 +46,7 @@ export const BuiltinYoInlineFunctions = [
   // Others
   ...BuiltinFunctions.__yo_noop, // __yo_noop
   ...BuiltinFunctions.__yo_return_self, // __yo_return_self
+  ...BuiltinFunctions.__yo_ms_sleep, // __yo_ms_sleep
 ];
 
 export const PrimitiveTypeTags = new Set([

@@ -1287,7 +1287,7 @@ static void* __yo_worker_thread_func(void* arg) {
       #ifdef _WIN32
       Sleep(0);  // Yield timeslice
       #else
-      usleep(10);  // 10 microseconds
+      usleep(10);  // 10 microseconds (0.01ms)
       #endif
       continue;
     }
@@ -1599,7 +1599,7 @@ void __yo_coro_wait_all(void) {
       #ifdef _WIN32
       Sleep(0);  // Yield timeslice
       #else
-      usleep(10);  // 10 microseconds
+      usleep(10);  // 10 microseconds (0.01ms)
       #endif
     }
     

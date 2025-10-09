@@ -3409,6 +3409,18 @@ function generateYoInlineFunctionCall(
     // This is a special case where we just return the first argument
     return `(*${args[0]!})`;
   }
+  // __yo_ms_sleep
+  else if (BuiltinFunctions.__yo_ms_sleep.includes(functionName)) {
+    // Cross-platform sleep - takes milliseconds
+    // Windows Sleep takes milliseconds, usleep takes microseconds
+    return `(
+#ifdef _WIN32
+Sleep(${args[0]!})
+#else
+usleep((${args[0]!}) * 1000)
+#endif
+)`;
+  }
   // __yo_decr_rc
   else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {
     // Handle 1 or 2 arguments - second argument is dispose function (optional)

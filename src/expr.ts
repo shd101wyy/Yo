@@ -867,6 +867,7 @@ export const BuiltinFunctions = {
   /// Others
   __yo_noop: ["__yo_noop"],
   __yo_return_self: ["__yo_return_self"],
+  __yo_ms_sleep: ["__yo_ms_sleep"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
