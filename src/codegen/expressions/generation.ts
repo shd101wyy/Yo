@@ -614,9 +614,11 @@ function generateFuncCall(
               tempVarName,
               context
             );
-            context.emitter.emitLine(
-              `${indent}${tempVarType} = ${rhsExprCode};`
-            );
+            if (tempVarName !== rhsExprCode) {
+              context.emitter.emitLine(
+                `${indent}${tempVarType} = ${rhsExprCode};`
+              );
+            }
 
             // Use temp variable for the main assignment
             rhsCode = tempVarName;
