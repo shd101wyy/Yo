@@ -947,8 +947,6 @@ typedef struct {
 #define YO_CORO_STACK_SIZE (16 * 1024)
 
 // Forward declarations
-static yo_coro_t* __yo_coro_pool_get(void);
-static void __yo_coro_pool_put(yo_coro_t* coro);
 static void __yo_set_thread_affinity(size_t core_id);
 
 // Coroutine structure with llco coroutine support
@@ -990,14 +988,6 @@ static _Thread_local yo_coro_t* yo_coro_current = NULL;  // Thread-local current
 static _Thread_local yo_worker_thread_t* yo_coro_current_worker = NULL;  // Thread-local worker pointer
 static size_t yo_coro_max_threads = 0;
 static bool yo_coro_scheduler_initialized = false;
-static _Thread_local yo_coro_t* yo_coro_to_cleanup = NULL;  // Thread-local cleanup task
-
-// Coroutine pool (like neco) - reuse completed coroutines instead of freeing them
-static yo_coro_t* yo_coro_pool_head = NULL;
-static yo_mutex_t yo_coro_pool_mutex;
-static bool yo_coro_pool_mutex_initialized = false;
-static size_t yo_coro_pool_size = 0;
-// No size limit - pool grows as needed and is cleaned up only at shutdown
 
 // Thread pool state
 static yo_worker_thread_t* yo_worker_threads = NULL;
@@ -1007,25 +997,18 @@ static _Atomic bool yo_worker_shutdown = false;
 static _Atomic size_t yo_next_worker_index = 0;  // For round-robin coroutine distribution
 static _Atomic size_t yo_active_coro_count = 0;  // Total number of active coroutines (spawned but not completed)
 
-// Helper function to clean up a completed task
-// This is called after we've switched away from the coroutine's stack
-// NOTE: We only free the stack, not the coroutine structure itself!
-// The coroutine structure stays allocated so that checks on coro->state remain valid
-// Helper function to clean up a completed task (like neco's cleanup callback)
-// This is called after we've switched away from the coroutine's stack
-// Following neco's approach: return coroutine to pool instead of freeing
-static void __yo_cleanup_completed_coro(yo_coro_t* coro) {
-  if (!coro) return;
-  CONCURRENCY_DEBUG("[CLEANUP] Returning coro=%p to pool\\n", coro);
-  // Return to pool for reuse (like neco)
-  __yo_coro_pool_put(coro);
-}
-
-// Cleanup callback for llco - called when coroutine is finalized
+// Cleanup callback for llco - called when coroutine is finalized with final=true
+// This is called automatically by llco BEFORE switching to the next coroutine
 static void __yo_coro_llco_cleanup(void* stack, size_t stack_size, void* udata) {
-  CONCURRENCY_DEBUG("[CLEANUP] llco cleanup callback: stack=%p, size=%zu\\n", stack, stack_size);
-  // Coroutine will be returned to pool by __yo_cleanup_completed_coro
-  // This callback is just for llco bookkeeping
+  yo_coro_t* coro = (yo_coro_t*)udata;
+  CONCURRENCY_DEBUG("[CLEANUP] llco cleanup: freeing coro=%p, stack=%p, size=%zu\\n", coro, stack, stack_size);
+  
+  // Free the stack and coroutine structure
+  // Note: llco passes us the stack pointer, but we allocated it ourselves so we free it
+  if (stack) {
+    __yo_free(stack);
+  }
+  __yo_free(coro);
 }
 
 // Coroutine entry function - called by llco when coroutine starts
@@ -1050,78 +1033,17 @@ static void __yo_coro_entry(void* udata) {
   atomic_fetch_sub(&yo_active_coro_count, 1);
   CONCURRENCY_DEBUG("[CORO] Active coroutine count decremented\\n");
   
-  // Mark this coroutine for cleanup (it will be cleaned up after we switch away)
-  yo_coro_to_cleanup = coro;
-  
-  // Switch back to scheduler (NULL means return to caller)
-  CONCURRENCY_DEBUG("[CORO] Completed, switching back to scheduler\\n");
-  llco_switch(NULL, true);  // final=true means we're done with this coroutine
+  // Switch back to scheduler with final=true
+  // This will trigger the llco cleanup callback which frees the coroutine
+  CONCURRENCY_DEBUG("[CORO] Completed, switching back to scheduler (cleanup will be automatic)\\n");
+  llco_switch(NULL, true);  // final=true triggers __yo_coro_llco_cleanup
 }
 
 // Initialize coroutine scheduler
 static void __yo_coro_scheduler_init(void) {
   if (!yo_coro_scheduler_initialized) {
     yo_coro_scheduler_initialized = true;
-    // Initialize pool mutex
-    if (!yo_coro_pool_mutex_initialized) {
-      YO_MUTEX_INIT(&yo_coro_pool_mutex);
-      yo_coro_pool_mutex_initialized = true;
-    }
   }
-}
-
-// Get a coroutine from the pool or allocate a new one (like neco)
-static yo_coro_t* __yo_coro_pool_get(void) {
-  yo_coro_t* coro = NULL;
-  
-  YO_MUTEX_LOCK(&yo_coro_pool_mutex);
-  if (yo_coro_pool_head) {
-    coro = yo_coro_pool_head;
-    yo_coro_pool_head = coro->next;
-    yo_coro_pool_size--;
-    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
-  }
-  YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
-  
-  if (!coro) {
-    // Allocate new coroutine
-    coro = (yo_coro_t*)__yo_malloc(sizeof(yo_coro_t));
-    coro->stack = (char*)__yo_malloc(YO_CORO_STACK_SIZE);
-    coro->stack_size = YO_CORO_STACK_SIZE;
-    CONCURRENCY_DEBUG("[POOL] Allocated new coroutine, coro=%p\\n", coro);
-  }
-  
-  // Reset coroutine state
-  coro->state = YO_CORO_READY;
-  coro->wait_channel = NULL;
-  coro->next = NULL;
-  coro->coro = NULL;
-  coro->select_state = NULL;
-  coro->next_wait = NULL;
-  coro->recv_data_ptr = NULL;
-  
-  return coro;
-}
-
-// Return a coroutine to the pool (like neco's cleanup function)
-static void __yo_coro_pool_put(yo_coro_t* coro) {
-  if (!coro) return;
-  
-  // Free the llco coroutine handle if it exists
-  if (coro->coro) {
-    coro->coro = NULL;
-  }
-  
-  YO_MUTEX_LOCK(&yo_coro_pool_mutex);
-  
-  // ALWAYS add to pool during execution (never free during execution to avoid use-after-free)
-  // We'll free all pooled coroutines during shutdown in __yo_coro_wait_all()
-  coro->next = yo_coro_pool_head;
-  yo_coro_pool_head = coro;
-  yo_coro_pool_size++;
-  CONCURRENCY_DEBUG("[POOL] Returned coroutine to pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
-  
-  YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
 }
 
 // Enqueue a coroutine to a worker's ready queue (called from spawn)
@@ -1276,13 +1198,7 @@ static void* __yo_worker_thread_func(void* arg) {
     yo_coro_t* coro = __yo_coro_dequeue_from_worker(worker);
     
     if (!coro) {
-      // No coroutines available - clean up any completed coroutine before sleeping
-      if (yo_coro_to_cleanup) {
-        __yo_cleanup_completed_coro(yo_coro_to_cleanup);
-        yo_coro_to_cleanup = NULL;
-      }
-      
-      // Sleep briefly to avoid busy-waiting
+      // No coroutines available - sleep briefly to avoid busy-waiting
       #ifdef _WIN32
       Sleep(0);  // Yield timeslice
       #else
@@ -1293,15 +1209,9 @@ static void* __yo_worker_thread_func(void* arg) {
     
     CONCURRENCY_DEBUG("[WORKER] Thread %lu executing coro=%p\\n", (unsigned long)thread_id, coro);
     
-    // Clean up any completed coroutine from previous iteration
-    if (yo_coro_to_cleanup) {
-      __yo_cleanup_completed_coro(yo_coro_to_cleanup);
-      yo_coro_to_cleanup = NULL;
-    }
-    
-    // Skip completed coroutines (cleanup will handle them)
+    // Skip completed coroutines (they were already cleaned up by llco)
     if (coro->state == YO_CORO_COMPLETED) {
-      CONCURRENCY_DEBUG("[WORKER] Task=%p already completed, skipping (will be returned to pool)\\n", coro);
+      CONCURRENCY_DEBUG("[WORKER] Task=%p already completed, skipping\\n", coro);
       continue;
     }
     
@@ -1335,13 +1245,6 @@ static void* __yo_worker_thread_func(void* arg) {
     if (atomic_load(&yo_worker_shutdown)) {
       CONCURRENCY_DEBUG("[WORKER] Shutdown detected, stopping cleanup and exiting\\n");
       break;
-    }
-    
-    // Check if a coroutine completed and needs cleanup
-    if (yo_coro_to_cleanup) {
-      CONCURRENCY_DEBUG("[WORKER] Task completed, will cleanup on next iteration\\n");
-      yo_coro_current = NULL;
-      continue;
     }
     
     // Check if current coroutine was blocked
@@ -1609,23 +1512,6 @@ void __yo_coro_wait_all(void) {
     yo_worker_threads = NULL;
     yo_worker_thread_count = 0;
     
-    // After all workers stopped, clean up the coroutine pool
-    CONCURRENCY_DEBUG("[WAIT_ALL] Cleaning up coroutine pool\\n");
-    YO_MUTEX_LOCK(&yo_coro_pool_mutex);
-    yo_coro_t* coro = yo_coro_pool_head;
-    while (coro != NULL) {
-      yo_coro_t* next = coro->next;
-      CONCURRENCY_DEBUG("[POOL] Freeing pooled coroutine coro=%p\\n", coro);
-      if (coro->stack) {
-        __yo_free(coro->stack);
-      }
-      __yo_free(coro);
-      coro = next;
-    }
-    yo_coro_pool_head = NULL;
-    yo_coro_pool_size = 0;
-    YO_MUTEX_UNLOCK(&yo_coro_pool_mutex);
-    
     CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
     return;
   }
@@ -1683,12 +1569,6 @@ static void __yo_coro_block_and_yield(void* channel) {
   
   // Returns here when unblocked and resumed
   CONCURRENCY_DEBUG("[BLOCK] Returned from block_and_yield, coro=%p\\n", yo_coro_current);
-  
-  // Clean up any completed task
-  if (yo_coro_to_cleanup) {
-    __yo_cleanup_completed_coro(yo_coro_to_cleanup);
-    yo_coro_to_cleanup = NULL;
-  }
 }
 `);
 }
@@ -1811,8 +1691,17 @@ ${executeBody}
   data->function = func;
 ${paramAssignments}
   
-  // Create task (get from pool or allocate new)
-  yo_coro_t* coro = __yo_coro_pool_get();
+  // Allocate new coroutine
+  yo_coro_t* coro = (yo_coro_t*)__yo_malloc(sizeof(yo_coro_t));
+  coro->stack = (char*)__yo_malloc(YO_CORO_STACK_SIZE);
+  coro->stack_size = YO_CORO_STACK_SIZE;
+  coro->state = YO_CORO_READY;
+  coro->wait_channel = NULL;
+  coro->next = NULL;
+  coro->coro = NULL;
+  coro->select_state = NULL;
+  coro->next_wait = NULL;
+  coro->recv_data_ptr = NULL;
   coro->func = ${executeFnName};
   coro->data = data;
   
@@ -1825,7 +1714,7 @@ ${paramAssignments}
     __yo_coro_enqueue_to_worker(&yo_worker_threads[worker_idx], coro);
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
-    __yo_coro_pool_put(coro);  // Return to pool instead of freeing
+    __yo_free(coro->stack);
     __yo_free(coro);
     __yo_free(data);
   }
@@ -1841,7 +1730,17 @@ ${paramAssignments}
     __yo_concurrency_set_maximum_threads(0);
   }
   
-  yo_coro_t* coro = __yo_coro_pool_get();
+  // Allocate new coroutine
+  yo_coro_t* coro = (yo_coro_t*)__yo_malloc(sizeof(yo_coro_t));
+  coro->stack = (char*)__yo_malloc(YO_CORO_STACK_SIZE);
+  coro->stack_size = YO_CORO_STACK_SIZE;
+  coro->state = YO_CORO_READY;
+  coro->wait_channel = NULL;
+  coro->next = NULL;
+  coro->coro = NULL;
+  coro->select_state = NULL;
+  coro->next_wait = NULL;
+  coro->recv_data_ptr = NULL;
   coro->func = (void (*)(void*))func;
   coro->data = NULL;
   
@@ -1857,7 +1756,7 @@ ${paramAssignments}
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
     atomic_fetch_sub(&yo_active_coro_count, 1);  // Decrement since coroutine failed
-    __yo_coro_pool_put(coro);  // Return to pool
+    __yo_free(coro->stack);
     __yo_free(coro);
   }
 }
@@ -1944,8 +1843,17 @@ ${paramAssignments}
   ${structName}* data = (${structName}*)__yo_malloc(sizeof(${structName}));
   data->closure = closure;
   
-  // Create task (get from pool or allocate new)
-  yo_coro_t* coro = __yo_coro_pool_get();
+  // Allocate new coroutine
+  yo_coro_t* coro = (yo_coro_t*)__yo_malloc(sizeof(yo_coro_t));
+  coro->stack = (char*)__yo_malloc(YO_CORO_STACK_SIZE);
+  coro->stack_size = YO_CORO_STACK_SIZE;
+  coro->state = YO_CORO_READY;
+  coro->wait_channel = NULL;
+  coro->next = NULL;
+  coro->coro = NULL;
+  coro->select_state = NULL;
+  coro->next_wait = NULL;
+  coro->recv_data_ptr = NULL;
   coro->func = ${executeFnName};
   coro->data = data;
   
