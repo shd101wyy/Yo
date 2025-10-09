@@ -67,9 +67,10 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 
 ### 2. **Cooperative Tasks**
 - Spawned with `async function(args)`
+- Optional configurable stack size: `async function(args), { stack_size: bytes }`
 - Distributed round-robin to worker threads
 - Run cooperatively within each worker using llco (stackful coroutines)
-- Each task has its own 16KB stack (minimum 16KB required by llco)
+- Each task has its own stack (default 16KB, configurable from 16KB to 1MB+)
 - Tasks voluntarily yield when blocking on channels
 
 ### 3. **Thread Affinity** (Not Work Stealing)
@@ -91,12 +92,23 @@ Concurrency.get_thread_id() -> u64
 
 ### Task Spawning
 ```yo
-// Spawn a coroutine on a worker thread (non-blocking)
+// Spawn a coroutine on a worker thread (non-blocking, default 16KB stack)
 async function(args...)
 
-// Example:
+// Spawn with custom stack size (runtime-known, in bytes)
+async function(args...), { stack_size: 1024 * 64 }  // 64KB stack
+
+// Stack size can be any runtime expression
+stack_needed := if deep_recursion, 1024 * 128, 1024 * 16;
+async worker(), { stack_size: stack_needed }
+
+// Examples:
 async say("hello", 42, channel)
+async worker(), { stack_size: 1024 * 128 }  // 128KB for deep recursion
+async process(data), { stack_size: config.worker_stack_size }  // Dynamic
 ```
+
+**Note**: Stack size is **runtime-known**, allowing dynamic computation based on program state. The coroutine pool uses **segregated free lists** for common sizes (16KB, 32KB, 64KB, 128KB, 256KB, 512KB, 1MB) for O(1) lookup, with best-fit search for custom sizes.
 
 ### Channels
 ```go
@@ -214,8 +226,8 @@ struct yo_coro {
   yo_select_state_t* select_state; // Non-NULL when blocked in select
   void* recv_data_ptr;           // For receive: where to store result
   struct llco* coro;             // llco coroutine handle (NULL = not started)
-  char* stack;                   // Separate 16KB stack (default)
-  size_t stack_size;             // Stack size
+  char* stack;                   // Coroutine stack (allocated)
+  size_t stack_size;             // Stack size (default 16KB, configurable)
   yo_worker_thread_t* owner_worker; // Worker thread that owns this coroutine
   yo_coro_t* next;               // Next in ready/blocked queue or pool
   yo_coro_t* next_wait;          // Next in channel wait queue
@@ -294,20 +306,27 @@ Yo uses the **llco** (Low-Level Coroutines) library for context switching:
 
 ### Coroutine Pool (Thread-Local)
 
-Each worker thread maintains its own coroutine pool:
+Each worker thread maintains its own coroutine pool with **segregated free lists**:
 - **Pool scope**: Thread-local (`_Thread_local` storage) - zero contention
+- **Pool structure**: Separate lists for common stack sizes (16KB, 32KB, 64KB, 128KB, 256KB, 512KB, 1MB)
 - **Pool size**: Unbounded during execution - grows as needed
-- **On spawn**: Get from thread-local pool (if available) or allocate new coroutine + stack
-- **On complete**: Return to thread-local pool for reuse (never freed during execution)
+- **On spawn**: 
+  1. Check segregated pool for exact size match (O(1) lookup)
+  2. If not found, search custom pool for best-fit (O(n) but rare)
+  3. If still not found, allocate new coroutine + stack
+- **On complete**: Return to appropriate segregated pool for reuse (never freed during execution)
 - **On shutdown**: Each worker frees its own pooled coroutines when exiting
 - **Thread safety**: No mutex needed - each thread owns its pool exclusively
 - **Benefits**: 
   - **Zero contention** - no mutex/atomic operations for pool access
+  - **O(1) pool lookup** for common sizes (16KB default covers 99% of use cases)
   - Eliminates allocation overhead for short-lived coroutines
   - **No use-after-free bugs** - coroutines never freed while workers are running
   - Stack reuse reduces memory pressure
   - Perfect alignment with thread affinity model
 - **Debug mode**: Pool size tracked per thread with `YO_DEBUG_CONCURRENCY` flag
+
+**Recommended stack sizes**: Use power-of-2 multiples of 16KB (16KB, 32KB, 64KB, 128KB, etc.) for optimal pool performance.
 
 ### Why Thread Affinity?
 
@@ -416,7 +435,8 @@ Received: 40
 
 Potential enhancements (not yet implemented):
 - [ ] Dynamic worker pool resizing
-- [ ] Growable coroutine stacks
+- [ ] Growable coroutine stacks (currently fixed but configurable)
+- [ ] Configurable thread affinity assignments
 - [ ] Coroutine priorities
 - [ ] Preemptive scheduling (timer-based)
 - [ ] Work stealing with ownership transfer

@@ -942,12 +942,12 @@ typedef struct {
   bool has_default;           // Whether there's a default case
 } yo_select_state_t;
 
-// Stack size for each coroutine (256KB to accommodate complex functions with debug logging)
+// Stack size for each coroutine (default 16KB - configurable per coroutine)
 // llco requires minimum LLCO_MINSTACKSIZE (16KB)
-#define YO_CORO_STACK_SIZE (16 * 1024)
+#define YO_CORO_DEFAULT_STACK_SIZE (16 * 1024)
 
 // Forward declarations
-static yo_coro_t* __yo_coro_pool_get(void);
+static yo_coro_t* __yo_coro_pool_get(size_t stack_size);
 static void __yo_coro_pool_put(yo_coro_t* coro);
 static void __yo_set_thread_affinity(size_t core_id);
 
@@ -992,9 +992,17 @@ static size_t yo_coro_max_threads = 0;
 static bool yo_coro_scheduler_initialized = false;
 static _Thread_local yo_coro_t* yo_coro_to_cleanup = NULL;  // Thread-local cleanup task
 
-// Coroutine pool (thread-local) - reuse completed coroutines instead of freeing them
-// Each worker thread has its own pool - no mutex needed, zero contention!
-static _Thread_local yo_coro_t* yo_coro_pool_head = NULL;
+// Coroutine pool (thread-local) - segregated free lists for different stack sizes
+// Each worker thread has its own pools - no mutex needed, zero contention!
+// Common stack sizes get their own list for O(1) lookup
+static _Thread_local yo_coro_t* yo_coro_pool_16kb = NULL;   // 16KB (default)
+static _Thread_local yo_coro_t* yo_coro_pool_32kb = NULL;   // 32KB
+static _Thread_local yo_coro_t* yo_coro_pool_64kb = NULL;   // 64KB
+static _Thread_local yo_coro_t* yo_coro_pool_128kb = NULL;  // 128KB
+static _Thread_local yo_coro_t* yo_coro_pool_256kb = NULL;  // 256KB
+static _Thread_local yo_coro_t* yo_coro_pool_512kb = NULL;  // 512KB
+static _Thread_local yo_coro_t* yo_coro_pool_1mb = NULL;    // 1MB
+static _Thread_local yo_coro_t* yo_coro_pool_custom = NULL; // Other sizes (sorted by size)
 #ifdef YO_DEBUG_CONCURRENCY
 static _Thread_local size_t yo_coro_pool_size = 0;
 #endif
@@ -1068,27 +1076,68 @@ static void __yo_coro_scheduler_init(void) {
 }
 
 // Get a coroutine from the thread-local pool or allocate a new one
+// Uses segregated free lists for common sizes (O(1)), best-fit for custom sizes (O(n))
 // No mutex needed - each worker has its own pool!
-static yo_coro_t* __yo_coro_pool_get(void) {
+static yo_coro_t* __yo_coro_pool_get(size_t stack_size) {
   yo_coro_t* coro = NULL;
+  yo_coro_t** pool_head = NULL;
   
-  if (yo_coro_pool_head) {
-    coro = yo_coro_pool_head;
-    yo_coro_pool_head = coro->next;
+  // Try exact match from segregated pools (O(1))
+  if (stack_size == 16 * 1024) {
+    pool_head = &yo_coro_pool_16kb;
+  } else if (stack_size == 32 * 1024) {
+    pool_head = &yo_coro_pool_32kb;
+  } else if (stack_size == 64 * 1024) {
+    pool_head = &yo_coro_pool_64kb;
+  } else if (stack_size == 128 * 1024) {
+    pool_head = &yo_coro_pool_128kb;
+  } else if (stack_size == 256 * 1024) {
+    pool_head = &yo_coro_pool_256kb;
+  } else if (stack_size == 512 * 1024) {
+    pool_head = &yo_coro_pool_512kb;
+  } else if (stack_size == 1024 * 1024) {
+    pool_head = &yo_coro_pool_1mb;
+  }
+  
+  if (pool_head && *pool_head) {
+    // Found exact match in segregated pool
+    coro = *pool_head;
+    *pool_head = coro->next;
     #ifdef YO_DEBUG_CONCURRENCY
     yo_coro_pool_size--;
-    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from thread-local pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
+    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from segregated pool, coro=%p, stack_size=%zu, pool_size=%zu\\n", 
+                      coro, coro->stack_size, yo_coro_pool_size);
     #else
-    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from thread-local pool, coro=%p\\n", coro);
+    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from segregated pool, coro=%p, stack_size=%zu\\n", 
+                      coro, coro->stack_size);
     #endif
+  } else if (!coro) {
+    // No exact match - try custom pool for best-fit (first fit with size >= requested)
+    yo_coro_t** prev = &yo_coro_pool_custom;
+    for (yo_coro_t* candidate = *prev; candidate; prev = &candidate->next, candidate = *prev) {
+      if (candidate->stack_size >= stack_size) {
+        // Found suitable coroutine - unlink from pool
+        *prev = candidate->next;
+        coro = candidate;
+        #ifdef YO_DEBUG_CONCURRENCY
+        yo_coro_pool_size--;
+        CONCURRENCY_DEBUG("[POOL] Reusing coroutine from custom pool, coro=%p, stack_size=%zu (requested=%zu), pool_size=%zu\\n", 
+                          coro, coro->stack_size, stack_size, yo_coro_pool_size);
+        #else
+        CONCURRENCY_DEBUG("[POOL] Reusing coroutine from custom pool, coro=%p, stack_size=%zu (requested=%zu)\\n", 
+                          coro, coro->stack_size, stack_size);
+        #endif
+        break;
+      }
+    }
   }
   
   if (!coro) {
-    // Allocate new coroutine
+    // Allocate new coroutine with requested stack size
     coro = (yo_coro_t*)__yo_malloc(sizeof(yo_coro_t));
-    coro->stack = (char*)__yo_malloc(YO_CORO_STACK_SIZE);
-    coro->stack_size = YO_CORO_STACK_SIZE;
-    CONCURRENCY_DEBUG("[POOL] Allocated new coroutine, coro=%p\\n", coro);
+    coro->stack = (char*)__yo_malloc(stack_size);
+    coro->stack_size = stack_size;
+    CONCURRENCY_DEBUG("[POOL] Allocated new coroutine, coro=%p, stack_size=%zu\\n", coro, stack_size);
   }
   
   // Reset coroutine state
@@ -1104,6 +1153,7 @@ static yo_coro_t* __yo_coro_pool_get(void) {
 }
 
 // Return a coroutine to the thread-local pool
+// Uses segregated free lists for O(1) return
 // No mutex needed - zero contention!
 static void __yo_coro_pool_put(yo_coro_t* coro) {
   if (!coro) return;
@@ -1115,14 +1165,70 @@ static void __yo_coro_pool_put(yo_coro_t* coro) {
   
   // ALWAYS add to pool during execution (never free during execution to avoid use-after-free)
   // We'll free all pooled coroutines during shutdown in __yo_coro_wait_all()
-  coro->next = yo_coro_pool_head;
-  yo_coro_pool_head = coro;
+  
+  // Return to appropriate segregated pool based on stack size
+  yo_coro_t** pool_head = NULL;
+  size_t stack_size = coro->stack_size;
+  
+  if (stack_size == 16 * 1024) {
+    pool_head = &yo_coro_pool_16kb;
+  } else if (stack_size == 32 * 1024) {
+    pool_head = &yo_coro_pool_32kb;
+  } else if (stack_size == 64 * 1024) {
+    pool_head = &yo_coro_pool_64kb;
+  } else if (stack_size == 128 * 1024) {
+    pool_head = &yo_coro_pool_128kb;
+  } else if (stack_size == 256 * 1024) {
+    pool_head = &yo_coro_pool_256kb;
+  } else if (stack_size == 512 * 1024) {
+    pool_head = &yo_coro_pool_512kb;
+  } else if (stack_size == 1024 * 1024) {
+    pool_head = &yo_coro_pool_1mb;
+  } else {
+    // Custom size - insert sorted by stack_size (ascending) for best-fit reuse
+    pool_head = &yo_coro_pool_custom;
+    yo_coro_t** prev = pool_head;
+    while (*prev && (*prev)->stack_size < stack_size) {
+      prev = &(*prev)->next;
+    }
+    coro->next = *prev;
+    *prev = coro;
+    #ifdef YO_DEBUG_CONCURRENCY
+    yo_coro_pool_size++;
+    CONCURRENCY_DEBUG("[POOL] Returned coroutine to custom pool (sorted), coro=%p, stack_size=%zu, pool_size=%zu\\n", 
+                      coro, stack_size, yo_coro_pool_size);
+    #else
+    CONCURRENCY_DEBUG("[POOL] Returned coroutine to custom pool (sorted), coro=%p, stack_size=%zu\\n", 
+                      coro, stack_size);
+    #endif
+    return;
+  }
+  
+  // Return to segregated pool (common sizes)
+  coro->next = *pool_head;
+  *pool_head = coro;
   #ifdef YO_DEBUG_CONCURRENCY
   yo_coro_pool_size++;
-  CONCURRENCY_DEBUG("[POOL] Returned coroutine to thread-local pool, coro=%p, pool_size=%zu\\n", coro, yo_coro_pool_size);
+  CONCURRENCY_DEBUG("[POOL] Returned coroutine to segregated pool, coro=%p, stack_size=%zu, pool_size=%zu\\n", 
+                    coro, stack_size, yo_coro_pool_size);
   #else
-  CONCURRENCY_DEBUG("[POOL] Returned coroutine to thread-local pool, coro=%p\\n", coro);
+  CONCURRENCY_DEBUG("[POOL] Returned coroutine to segregated pool, coro=%p, stack_size=%zu\\n", 
+                    coro, stack_size);
   #endif
+}
+
+// Helper function to free a segregated pool list (used by worker cleanup and main thread cleanup)
+static void __yo_free_coro_pool_list(yo_coro_t* head) {
+  yo_coro_t* coro = head;
+  while (coro != NULL) {
+    yo_coro_t* next = coro->next;
+    CONCURRENCY_DEBUG("[POOL] Freeing pooled coroutine coro=%p, stack_size=%zu\\n", coro, coro->stack_size);
+    if (coro->stack) {
+      __yo_free(coro->stack);
+    }
+    __yo_free(coro);
+    coro = next;
+  }
 }
 
 // Enqueue a coroutine to a worker's ready queue (called from spawn)
@@ -1355,18 +1461,29 @@ static void* __yo_worker_thread_func(void* arg) {
     yo_coro_current = NULL;
   }
   
-  // Clean up this worker's thread-local coroutine pool before exiting
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu cleaning up thread-local pool\\n", (unsigned long)thread_id);
-  yo_coro_t* coro = yo_coro_pool_head;
-  while (coro != NULL) {
-    yo_coro_t* next = coro->next;
-    if (coro->stack) {
-      __yo_free(coro->stack);
-    }
-    __yo_free(coro);
-    coro = next;
-  }
-  yo_coro_pool_head = NULL;
+  // Clean up this worker's thread-local coroutine pools before exiting
+  CONCURRENCY_DEBUG("[WORKER] Thread %lu cleaning up thread-local pools\\n", (unsigned long)thread_id);
+  
+  // Free all segregated pools for this worker thread
+  __yo_free_coro_pool_list(yo_coro_pool_16kb);
+  __yo_free_coro_pool_list(yo_coro_pool_32kb);
+  __yo_free_coro_pool_list(yo_coro_pool_64kb);
+  __yo_free_coro_pool_list(yo_coro_pool_128kb);
+  __yo_free_coro_pool_list(yo_coro_pool_256kb);
+  __yo_free_coro_pool_list(yo_coro_pool_512kb);
+  __yo_free_coro_pool_list(yo_coro_pool_1mb);
+  __yo_free_coro_pool_list(yo_coro_pool_custom);
+  
+  // Reset all pool heads (thread-local cleanup)
+  yo_coro_pool_16kb = NULL;
+  yo_coro_pool_32kb = NULL;
+  yo_coro_pool_64kb = NULL;
+  yo_coro_pool_128kb = NULL;
+  yo_coro_pool_256kb = NULL;
+  yo_coro_pool_512kb = NULL;
+  yo_coro_pool_1mb = NULL;
+  yo_coro_pool_custom = NULL;
+  
   #ifdef YO_DEBUG_CONCURRENCY
   yo_coro_pool_size = 0;
   #endif
@@ -1628,18 +1745,28 @@ void __yo_coro_wait_all(void) {
     
     // After all workers stopped, clean up the main thread's coroutine pool
     // Note: Each worker thread cleans up its own thread-local pool when it exits
-    CONCURRENCY_DEBUG("[WAIT_ALL] Cleaning up main thread's coroutine pool\\n");
-    yo_coro_t* coro = yo_coro_pool_head;
-    while (coro != NULL) {
-      yo_coro_t* next = coro->next;
-      CONCURRENCY_DEBUG("[POOL] Freeing pooled coroutine coro=%p\\n", coro);
-      if (coro->stack) {
-        __yo_free(coro->stack);
-      }
-      __yo_free(coro);
-      coro = next;
-    }
-    yo_coro_pool_head = NULL;
+    CONCURRENCY_DEBUG("[WAIT_ALL] Cleaning up main thread's coroutine pools\\n");
+    
+    // Free all segregated pools
+    __yo_free_coro_pool_list(yo_coro_pool_16kb);
+    __yo_free_coro_pool_list(yo_coro_pool_32kb);
+    __yo_free_coro_pool_list(yo_coro_pool_64kb);
+    __yo_free_coro_pool_list(yo_coro_pool_128kb);
+    __yo_free_coro_pool_list(yo_coro_pool_256kb);
+    __yo_free_coro_pool_list(yo_coro_pool_512kb);
+    __yo_free_coro_pool_list(yo_coro_pool_1mb);
+    __yo_free_coro_pool_list(yo_coro_pool_custom);
+    
+    // Reset all pool heads
+    yo_coro_pool_16kb = NULL;
+    yo_coro_pool_32kb = NULL;
+    yo_coro_pool_64kb = NULL;
+    yo_coro_pool_128kb = NULL;
+    yo_coro_pool_256kb = NULL;
+    yo_coro_pool_512kb = NULL;
+    yo_coro_pool_1mb = NULL;
+    yo_coro_pool_custom = NULL;
+    
     #ifdef YO_DEBUG_CONCURRENCY
     yo_coro_pool_size = 0;
     #endif
@@ -1859,7 +1986,7 @@ ${paramAssignments}
     __yo_concurrency_set_maximum_threads(0);
   }
   
-  yo_coro_t* coro = __yo_coro_pool_get();
+  yo_coro_t* coro = __yo_coro_pool_get(YO_CORO_DEFAULT_STACK_SIZE);
   coro->func = (void (*)(void*))func;
   coro->data = NULL;
   
@@ -1901,7 +2028,7 @@ ${paramAssignments}
 
     const spawnFunctionName = `__yo_coro_spawn_${signatureStr}`;
     emitter.emitDeclarationLine(
-      `void ${spawnFunctionName}(${closureTypeCName}* closure); // Coroutine spawn function for closure ${signatureStr}`
+      `void ${spawnFunctionName}(${closureTypeCName}* closure, size_t stack_size); // Coroutine spawn function for closure ${signatureStr}`
     );
   }
   emitter.emitDeclarationLine("");
@@ -1946,7 +2073,7 @@ ${paramAssignments}
 
     // Generate coroutine spawn function for closure
     const spawnFunctionName = `__yo_coro_spawn_${signatureStr}`;
-    emitter.emitLine(`void ${spawnFunctionName}(${closureTypeCName}* closure) {
+    emitter.emitLine(`void ${spawnFunctionName}(${closureTypeCName}* closure, size_t stack_size) {
   __yo_coro_scheduler_init();
   
   // Auto-initialize thread pool with hardware threads if not already done
@@ -1962,8 +2089,8 @@ ${paramAssignments}
   ${structName}* data = (${structName}*)__yo_malloc(sizeof(${structName}));
   data->closure = closure;
   
-  // Create task (get from pool or allocate new)
-  yo_coro_t* coro = __yo_coro_pool_get();
+  // Create task (get from pool with requested stack size or allocate new)
+  yo_coro_t* coro = __yo_coro_pool_get(stack_size);
   coro->func = ${executeFnName};
   coro->data = data;
   
@@ -1975,13 +2102,12 @@ ${paramAssignments}
     size_t limit = yo_coro_active_worker_limit > 0 ? yo_coro_active_worker_limit : yo_worker_thread_count;
     size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
     coro->owner_worker = &yo_worker_threads[worker_idx];  // Set owner
-    CONCURRENCY_DEBUG("[SPAWN] Assigning closure coro=%p to worker %zu (limit=%zu)\\n", coro, worker_idx, limit);
+    CONCURRENCY_DEBUG("[SPAWN] Assigning closure coro=%p to worker %zu (limit=%zu, stack_size=%zu)\\n", coro, worker_idx, limit, stack_size);
     __yo_coro_enqueue_to_worker(&yo_worker_threads[worker_idx], coro);
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
     atomic_fetch_sub(&yo_active_coro_count, 1);  // Decrement since coroutine failed
-    __yo_free(coro->stack);
-    __yo_free(coro);
+    __yo_coro_pool_put(coro);  // Return to pool instead of freeing
     __yo_free(data);
     // On error, decrement the reference we received since we won't use it
     __yo_decr_rc(closure, (void(*)(void*))closure->vtable.dispose);

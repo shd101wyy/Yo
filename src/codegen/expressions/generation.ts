@@ -298,7 +298,17 @@ function generateFuncCall(
         closureType: closureType,
       });
 
-      return `__yo_coro_spawn_${signatureStr}(${closureCode})`;
+      // Get stack size from expr.$.asyncStackSize or use default 16KB
+      let stackSizeCode: string;
+      if (expr.$?.asyncStackSize) {
+        // Generate stack size code from provided expression
+        stackSizeCode = generateExpr(expr.$.asyncStackSize, indent, context);
+      } else {
+        // Default stack size: 16KB
+        stackSizeCode = "(16 * 1024)";
+      }
+
+      return `__yo_coro_spawn_${signatureStr}(${closureCode}, ${stackSizeCode})`;
     } else {
       return `// Error: async argument must be a closure after evaluation`;
     }

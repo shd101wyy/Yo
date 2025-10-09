@@ -204,6 +204,14 @@ export interface EvaluatedExprData {
    * Example: For `async say("hello")`, this contains the evaluated closure call `(fn() => unit) { say("hello") }`
    */
   evaluatedClosure?: Expr;
+
+  /**
+   * For async expressions, this contains the optional stack size configuration (runtime-known).
+   * If undefined, the default stack size (16KB) is used.
+   *
+   * Example: For `async say("hello"), { stack_size: 1024 * 64 }`, this contains the evaluated expression `1024 * 64`
+   */
+  asyncStackSize?: Expr;
 }
 
 export type AtomExpr = {

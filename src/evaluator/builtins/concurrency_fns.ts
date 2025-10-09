@@ -3,6 +3,10 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
+  Expr,
+  exprIsAtom,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
   ExprTag,
   FuncCallExpr,
 } from "../../expr";
@@ -16,8 +20,13 @@ import { EvaluatorContext } from "../context";
  * async takes any expression and wraps it in an anonymous closure that runs asynchronously.
  * The expression is wrapped as: (fn() => unit) { expr; }()
  *
+ * Optionally accepts a second argument for configuration (struct literal):
+ * - async func_call(args), { stack_size: 1024 * 64 }
+ * - async func_call(args), _( stack_size: 1024 * 64 )
+ *
  * Examples:
  * - async say("hello", 18, ch);
+ * - async say("hello", 18, ch), { stack_size: 1024 * 32 };
  * - async { x := compute(42); process(x); };
  * - async x.method();
  *
@@ -33,9 +42,104 @@ export function evaluateAsync({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.async, 1);
+  // async can take 1 or 2 arguments
+  // - 1 arg: async func_call()
+  // - 2 args: async func_call(), { stack_size: 1024 * 64 }
+  if (expr.args.length !== 1 && expr.args.length !== 2) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `async expects 1 or 2 arguments, got ${expr.args.length}.`,
+    });
+  }
 
   const bodyExpr = expr.args[0]!;
+  const configExpr = expr.args[1]; // Optional configuration struct
+
+  // Parse optional configuration and extract stack_size expression
+  let stackSizeExpr: Expr | undefined = undefined;
+  if (configExpr) {
+    // Check if configExpr is a struct literal: _(...) or {...}
+    if (!exprIsFunctionCall(configExpr)) {
+      throw formatErrorMessage({
+        token: configExpr.token,
+        errorMessage: `async configuration must be a struct literal { ... } or _( ... ).`,
+      });
+    }
+
+    // Check if it's a call to _ (struct literal)
+    if (!exprIsFunctionCallOf(configExpr, "_")) {
+      throw formatErrorMessage({
+        token: configExpr.token,
+        errorMessage: `async configuration must be a struct literal { ... } or _( ... ).`,
+      });
+    }
+
+    // Parse fields from struct literal
+    // Format: _( stack_size: expr, ... )
+    for (const arg of configExpr.args) {
+      if (!exprIsFunctionCallOf(arg, ":")) {
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `Expected field assignment (field: value) in async configuration.`,
+        });
+      }
+
+      // Now we know arg is a FuncCallExpr
+      const fieldAssignment = arg as FuncCallExpr;
+
+      if (fieldAssignment.args.length !== 2) {
+        throw formatErrorMessage({
+          token: fieldAssignment.token,
+          errorMessage: `Field assignment must have exactly 2 arguments (field: value).`,
+        });
+      }
+
+      const fieldName = fieldAssignment.args[0]!;
+      const fieldValue = fieldAssignment.args[1]!;
+
+      // Check field name
+      if (!exprIsAtom(fieldName)) {
+        throw formatErrorMessage({
+          token: fieldName.token,
+          errorMessage: `Field name must be an identifier.`,
+        });
+      }
+
+      const fieldNameStr = fieldName.token.value;
+
+      if (fieldNameStr === "stack_size") {
+        stackSizeExpr = fieldValue;
+      } else {
+        throw formatErrorMessage({
+          token: fieldName.token,
+          errorMessage: `Unknown async configuration field: ${fieldNameStr}. Supported fields: stack_size.`,
+        });
+      }
+    }
+  }
+
+  // Evaluate optional stack size expression (runtime-known)
+  let evaluatedStackSize: Expr | undefined = undefined;
+  if (stackSizeExpr) {
+    evaluatedStackSize = context.evaluateExpression({
+      expr: stackSizeExpr,
+      env,
+      context: { ...context },
+    });
+
+    if (!evaluatedStackSize.$) {
+      throw formatErrorMessage({
+        token: stackSizeExpr.token,
+        errorMessage: `Failed to evaluate stack_size expression.`,
+      });
+    }
+
+    // Update env after evaluation
+    env = evaluatedStackSize.$.env;
+
+    // TODO: Add type checking - stack_size should be usize or i32/i64
+    // For now, we trust the user to provide a valid integer expression
+  }
 
   // Create an anonymous closure that wraps the expression:
   // (fn() => unit) { bodyExpr; }()
@@ -124,8 +228,10 @@ export function evaluateAsync({
     type: VUnit.type,
     value: undefined, // Runtime value, not compile-time
     pathCollection: [],
-    // Store the UNevaluated closure call for codegen to use (it has the dup expressions)
+    // Store the evaluated closure call for codegen to use (it has the dup expressions)
     evaluatedClosure: evaluatedClosure,
+    // Store the evaluated stack size (if provided)
+    asyncStackSize: evaluatedStackSize,
   };
 
   return expr;

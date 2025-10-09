@@ -2,38 +2,16 @@ open import "std";
 open import "std/libc/stdio.yo";
 
 main :: (fn() -> unit) {
-  c1 := chan(i32);
-  c2 := chan(i32);
-
+  ch := chan(i32);
+  
   async {
-    Time.sleep(2000);
-    printf("c1 <- 1\n");
-    c1 <- 1;
-  };
-
-  async {
-    Time.sleep(1000);
-    printf("c2 <- 2\n");
-    c2 <- 2;
-  };
-
-  i := 0;
-  while i < 10, i = (i + 1),
-    select(
-      (msg1 := <-(c1)) => {
-        printf("Received: %d\n", msg1.unwrap());
-      },
-      (msg2 := <-(c2)) => {
-        printf("Received: %d\n", msg2.unwrap());
-      },
-      _ => {
-        printf("No channel operation ready yet. Waiting...\n");
-        Time.sleep(500); // Simulate some work while waiting
-      }
-    )
-  ;
-
-  printf("Done!\n");
+    // arr := Array(i32, 1024).fill(0);
+    ch <- 666;
+  }, { stack_size : (1024 * 64) }; // 64KB stack
+  
+  result := <-(ch);
+  value := result.unwrap();
+  printf("value=%d\n", value);
 };
 
 export main;
