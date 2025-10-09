@@ -76,6 +76,18 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: false,
   })
+  .option("release", {
+    describe: "Build in release mode with optimizations (-O2, no warnings).",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
+  .option("optimize", {
+    describe: "Set optimization level (0, 1, 2, 3). Overrides --release.",
+    type: "string",
+    demandOption: false,
+    choices: ["0", "1", "2", "3"],
+  })
   .option("extern", {
     describe: "External C files to link with. eg: --extern extern1.c extern2.c",
     type: "array",
@@ -114,6 +126,8 @@ yo run <script>                  Run a script defined in 'yo.json'
         skipCCompiler: argv.skipCCompiler,
         debugBrc: argv.debugBrc,
         debugConcurrency: argv.debugConcurrency,
+        release: argv.release,
+        optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
       });
     }
   )

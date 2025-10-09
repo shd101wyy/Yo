@@ -48,6 +48,14 @@ export class CodeGenerator {
        * Enable debug logging for cooperative task scheduler operations.
        */
       debugConcurrency?: boolean;
+      /**
+       * Build in release mode with optimizations.
+       */
+      release?: boolean;
+      /**
+       * Set optimization level (0, 1, 2, 3). Overrides release.
+       */
+      optimize?: "0" | "1" | "2" | "3";
     }
   ): void {
     if (!options.skipCodegen) {
@@ -70,11 +78,28 @@ export class CodeGenerator {
       // Compile the C code with the specified compiler (unless skipped)
       if (!options.skipCCompiler) {
         const compiler = options.cCompiler as string;
+
+        // Determine optimization flags
+        let optimizationFlags: string[];
+        if (options.optimize !== undefined) {
+          // Explicit --optimize flag takes precedence
+          const level = options.optimize;
+          if (level === "0") {
+            optimizationFlags = ["-Wall", "-Wextra", "-O0"];
+          } else {
+            optimizationFlags = ["-w", `-O${level}`];
+          }
+        } else if (options.release) {
+          // --release uses -O2 and silences warnings
+          optimizationFlags = ["-w", "-O2"];
+        } else {
+          // Default: debug mode with no optimizations and all warnings
+          optimizationFlags = ["-Wall", "-Wextra", "-O0"];
+        }
+
         const compileArgs = [
           "-std=c11",
-          "-w", // Silence all warnings
-          // "-Wall",
-          // "-Wextra",
+          ...optimizationFlags,
           tempCFile,
           "-o",
           outputFile,

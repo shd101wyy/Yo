@@ -946,10 +946,16 @@ typedef struct {
 // llco requires minimum LLCO_MINSTACKSIZE (16KB)
 #define YO_CORO_DEFAULT_STACK_SIZE (16 * 1024)
 
+// Stack overflow detection - canary value placed at bottom of stack
+// Stack grows DOWN from high to low addresses, so overflow writes below stack_base
+#define YO_STACK_GUARD_SIZE 16  // 16 bytes for guard (2 x uint64_t)
+#define YO_STACK_CANARY 0xDEADBEEFCAFEBABEULL
+
 // Forward declarations
 static yo_coro_t* __yo_coro_pool_get(size_t stack_size);
 static void __yo_coro_pool_put(yo_coro_t* coro);
 static void __yo_set_thread_affinity(size_t core_id);
+static void __yo_check_stack_overflow(yo_coro_t* coro);
 
 // Coroutine structure with llco coroutine support
 struct yo_coro {
@@ -1050,6 +1056,10 @@ static void __yo_coro_entry(void* udata) {
   coro->func(coro->data);
   CONCURRENCY_DEBUG("[CORO] Coroutine=%p completed execution\\n", coro);
   
+  // Check for stack overflow immediately after function execution (before marking completed)
+  // This is critical - local variables are allocated during func execution, not before!
+  __yo_check_stack_overflow(coro);
+  
   // Coroutine completed - mark it and switch back
   coro->state = YO_CORO_COMPLETED;
   coro->coro = NULL;  // NULL out coroutine so any dequeue checks will catch it
@@ -1133,11 +1143,23 @@ static yo_coro_t* __yo_coro_pool_get(size_t stack_size) {
   }
   
   if (!coro) {
-    // Allocate new coroutine with requested stack size
+    // Allocate new coroutine with requested stack size PLUS bottom guard zone
+    // Stack grows DOWN from (stack_base + stack_size) toward stack_base
+    // Overflow writes BELOW stack_base, into the guard zone
+    size_t total_size = YO_STACK_GUARD_SIZE + stack_size;
+    char* buffer = (char*)__yo_malloc(total_size);
+    
     coro = (yo_coro_t*)__yo_malloc(sizeof(yo_coro_t));
-    coro->stack = (char*)__yo_malloc(stack_size);
+    coro->stack = buffer + YO_STACK_GUARD_SIZE;  // Skip bottom guard to get usable stack
     coro->stack_size = stack_size;
-    CONCURRENCY_DEBUG("[POOL] Allocated new coroutine, coro=%p, stack_size=%zu\\n", coro, stack_size);
+    
+    // Initialize stack canary at bottom (before usable stack, in guard zone)
+    uint64_t* canary = (uint64_t*)buffer;
+    *canary = YO_STACK_CANARY;
+    *(canary + 1) = YO_STACK_CANARY;
+    
+    CONCURRENCY_DEBUG("[POOL] Allocated new coroutine, coro=%p, usable_stack=%p, stack_size=%zu, guard=%p\\n", 
+                      coro, coro->stack, stack_size, canary);
   }
   
   // Reset coroutine state
@@ -1224,10 +1246,45 @@ static void __yo_free_coro_pool_list(yo_coro_t* head) {
     yo_coro_t* next = coro->next;
     CONCURRENCY_DEBUG("[POOL] Freeing pooled coroutine coro=%p, stack_size=%zu\\n", coro, coro->stack_size);
     if (coro->stack) {
-      __yo_free(coro->stack);
+      // Free the full buffer including guard zone (starts at coro->stack - YO_STACK_GUARD_SIZE)
+      __yo_free(coro->stack - YO_STACK_GUARD_SIZE);
     }
     __yo_free(coro);
     coro = next;
+  }
+}
+
+// Check for stack overflow by verifying the stack guard canary at bottom
+// Stack grows DOWN, so overflow writes into bottom guard zone
+static void __yo_check_stack_overflow(yo_coro_t* coro) {
+  if (!coro || !coro->stack) return;
+  
+  // Canary is at the bottom (before usable stack)
+  uint64_t* canary = (uint64_t*)(coro->stack - YO_STACK_GUARD_SIZE);
+  
+  if (*canary != YO_STACK_CANARY || *(canary + 1) != YO_STACK_CANARY) {
+    fprintf(stderr, "\\n\\n");
+    fprintf(stderr, "╔═══════════════════════════════════════════════════════════════╗\\n");
+    fprintf(stderr, "║                   STACK OVERFLOW DETECTED!                    ║\\n");
+    fprintf(stderr, "╠═══════════════════════════════════════════════════════════════╣\\n");
+    fprintf(stderr, "║ Coroutine: %p                                         ║\\n", coro);
+    fprintf(stderr, "║ Stack size allocated: %-7zu bytes                          ║\\n", coro->stack_size);
+    fprintf(stderr, "║ Stack address range: %p - %p             ║\\n", coro->stack, coro->stack + coro->stack_size);
+    fprintf(stderr, "║ Bottom guard zone: %p (corrupted!)                    ║\\n", canary);
+    fprintf(stderr, "║                                                               ║\\n");
+    fprintf(stderr, "║ The coroutine has exceeded its allocated stack space.        ║\\n");
+    fprintf(stderr, "║ This usually happens when:                                    ║\\n");
+    fprintf(stderr, "║  1. Large local arrays are allocated on the stack             ║\\n");
+    fprintf(stderr, "║  2. Deep recursion occurs                                     ║\\n");
+    fprintf(stderr, "║  3. The stack_size parameter is too small                     ║\\n");
+    fprintf(stderr, "║                                                               ║\\n");
+    fprintf(stderr, "║ Solutions:                                                    ║\\n");
+    fprintf(stderr, "║  • Increase stack_size in async { }, { stack_size: ... }     ║\\n");
+    fprintf(stderr, "║  • Move large arrays to heap allocation                       ║\\n");
+    fprintf(stderr, "║  • Reduce recursion depth or use iteration                    ║\\n");
+    fprintf(stderr, "╚═══════════════════════════════════════════════════════════════╝\\n");
+    fprintf(stderr, "\\n");
+    abort();
   }
 }
 
@@ -1799,6 +1856,9 @@ static void __yo_coro_block_and_yield(void* channel) {
   
   yo_coro_t* current = yo_coro_current;
   CONCURRENCY_DEBUG("[BLOCK] Blocking coro=%p on channel=%p\\n", current, channel);
+  
+  // Check for stack overflow before switching away
+  __yo_check_stack_overflow(current);
   
   // Mark coroutine as blocked and move to blocked queue
   __yo_coro_block(current, channel);
@@ -3524,6 +3584,9 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     pthread_mutex_unlock(&chan->mutex);
 #endif
     
+    // Check for stack overflow before parking
+    __yo_check_stack_overflow(yo_coro_current);
+    
     // Park this task
     yo_coro_current->state = YO_CORO_BLOCKED;
     yo_coro_current = NULL;
@@ -3668,6 +3731,9 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
 #else
       pthread_mutex_unlock(&chan->mutex);
 #endif
+      
+      // Check for stack overflow before parking
+      __yo_check_stack_overflow(yo_coro_current);
       
       // Park this coroutine - switch directly back to worker without re-enqueuing
       // The coroutine is already in the channel's recv_queue and will be woken up by a sender
@@ -3975,6 +4041,9 @@ int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
     pthread_mutex_unlock(&chan->mutex);
 #endif
   }
+  
+  // Check for stack overflow before parking
+  __yo_check_stack_overflow(yo_coro_current);
   
   // Park the coroutine (will be woken when any channel operation completes)
   CONCURRENCY_DEBUG("[SELECT] Parking coroutine\\n");
