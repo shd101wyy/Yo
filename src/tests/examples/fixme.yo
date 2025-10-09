@@ -2,23 +2,49 @@ open import "std";
 open import "std/libc/stdio.yo";
 
 main :: (fn() -> unit) {
-  printf("Before sleep (0ms)\n");
-  Time.sleep(0);
-  printf("After 0ms sleep\n");
-  
-  printf("Before sleep (100ms)\n");
-  Time.sleep(100);
-  printf("After 100ms sleep\n");
-  
-  printf("Before sleep (500ms)\n");
-  Time.sleep(500);
-  printf("After 500ms sleep\n");
-  
-    
-  printf("Before sleep (2000ms)\n");
-  s := 2.as(usize);
-  Time.sleep(s * 1000);
-  printf("After 2000ms sleep\n");
+  c1 := chan(i32);
+  c2 := chan(i32);
+
+  async {
+    Time.sleep(2000);
+    printf("c1 <- 1\n");
+    c1 <- 1;
+  };
+
+  async {
+    Time.sleep(1000);
+    printf("c2 <- 2\n");
+    c2 <- 2;
+  };
+
+  i := 0;
+  while i < 6, i = (i + 1),
+    select(
+      (msg1 := <-(c1)) => {
+        printf("Received: %d\n", msg1);
+      },
+      (msg2 := <-(c2)) => {
+        printf("Received: %d\n", msg2);
+      },
+      _ => {
+        printf("No channel operation ready yet. Waiting...\n");
+        Time.sleep(500); // Simulate some work while waiting
+      }
+    )
+  ;
+
+  /*
+  // Another select to ensure all messages are received
+  // This select will block until a channel is ready
+  select(
+    (msg1 := <-(c1)) => printf("(1) Final Received: %d\n", msg1),
+    (msg2 := <-(c2)) => printf("(1) Final Received: %d\n", msg2)
+  );
+  select(
+    (msg1 := <-(c1)) => printf("(2) Final Received: %d\n", msg1),
+    (msg2 := <-(c2)) => printf("(2) Final Received: %d\n", msg2)
+  );
+  */
 
   printf("Done!\n");
 };

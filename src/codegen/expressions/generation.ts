@@ -858,14 +858,20 @@ function generateFuncCall(
 
       // Evaluate each argument
       context.emitter.emitLine(`${indent}{ // begin block`);
-      const argsCode = expr.args.map((arg) =>
-        generateExpr(arg, indent + "  ", context)
-      );
-      argsCode.forEach((argCode) => {
-        if (argCode) {
-          context.emitter.emitLine(`${indent}  ${argCode};`);
+
+      // Generate and emit code for each arg IMMEDIATELY to preserve order
+      // This is important because generateExpr may have side effects that emit code
+      const argsCode: string[] = [];
+      for (let idx = 0; idx < expr.args.length; idx++) {
+        const arg = expr.args[idx]!;
+        const result = generateExpr(arg, indent + "  ", context);
+        argsCode.push(result);
+
+        // Emit immediately to preserve order (generateExpr might emit temp vars as side effects)
+        if (result) {
+          context.emitter.emitLine(`${indent}  ${result};`);
         }
-      });
+      }
       if (!isUnitType(valueType) && !expr.$?.controlFlow) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
@@ -3210,6 +3216,18 @@ function generateSelectExpression(
   );
   context.emitter.emitLine(`${indent}`);
 
+  // Build mapping from original case index to __yo_select return value
+  // __yo_select returns: 0, 1, 2... for channel cases (array index)
+  //                      -2 for default case
+  const caseIndexToSelectReturn = new Map<number, number>();
+  for (let idx = 0; idx < channelCases.length; idx++) {
+    const originalCaseIndex = channelCases[idx]!;
+    caseIndexToSelectReturn.set(originalCaseIndex, idx);
+  }
+  if (defaultCaseIndex >= 0) {
+    caseIndexToSelectReturn.set(defaultCaseIndex, -2);
+  }
+
   // Generate switch statement for executing case bodies
   context.emitter.emitLine(`${indent}  switch (_select_case) {`);
 
@@ -3224,7 +3242,13 @@ function generateSelectExpression(
 
     const bodyExpr = caseStmt.args[1]!;
 
-    context.emitter.emitLine(`${indent}  case ${i}: {`);
+    // Get the value that __yo_select will return for this case
+    const selectReturnValue = caseIndexToSelectReturn.get(i);
+    if (selectReturnValue === undefined) {
+      continue; // Skip cases that aren't channel operations or default
+    }
+
+    context.emitter.emitLine(`${indent}  case ${selectReturnValue}: {`);
 
     // Generate body
     if (
