@@ -72,6 +72,7 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 - Run cooperatively within each worker using llco (stackful coroutines)
 - Each task has its own stack (default 16KB, configurable from 16KB to 1MB+)
 - Tasks voluntarily yield when blocking on channels
+- **Stack overflow detection**: Guard zones with canary values detect stack overflows in debug builds
 
 ### 3. **Thread Affinity** (Not Work Stealing)
 - Once a task starts on a worker thread, it **stays on that thread**
@@ -310,11 +311,14 @@ Each worker thread maintains its own coroutine pool with **segregated free lists
 - **Pool scope**: Thread-local (`_Thread_local` storage) - zero contention
 - **Pool structure**: Separate lists for common stack sizes (16KB, 32KB, 64KB, 128KB, 256KB, 512KB, 1MB)
 - **Pool size**: Unbounded during execution - grows as needed
+- **Stack overflow detection**: 16-byte guard zone at stack bottom with canary values (debug builds only)
 - **On spawn**: 
   1. Check segregated pool for exact size match (O(1) lookup)
   2. If not found, search custom pool for best-fit (O(n) but rare)
-  3. If still not found, allocate new coroutine + stack
-- **On complete**: Return to appropriate segregated pool for reuse (never freed during execution)
+  3. If still not found, allocate new coroutine + stack + guard zone
+- **On complete**: 
+  1. Check stack guard canary for overflow (debug builds only)
+  2. Return to appropriate segregated pool for reuse (never freed during execution)
 - **On shutdown**: Each worker frees its own pooled coroutines when exiting
 - **Thread safety**: No mutex needed - each thread owns its pool exclusively
 - **Benefits**: 
@@ -324,6 +328,7 @@ Each worker thread maintains its own coroutine pool with **segregated free lists
   - **No use-after-free bugs** - coroutines never freed while workers are running
   - Stack reuse reduces memory pressure
   - Perfect alignment with thread affinity model
+  - **Stack safety** - Guard zones catch overflows early (debug mode)
 - **Debug mode**: Pool size tracked per thread with `YO_DEBUG_CONCURRENCY` flag
 
 **Recommended stack sizes**: Use power-of-2 multiples of 16KB (16KB, 32KB, 64KB, 128KB, etc.) for optimal pool performance.
@@ -362,13 +367,16 @@ Objects can be shared between threads via channels:
 ✅ **No use-after-free** - coroutines never freed during execution
 ✅ **CPU affinity** - thread-per-core model maximizes cache locality and reduces context switching
 ✅ **Uniform channels** - void* buffer structure enables type-erased pooling
+✅ **Stack safety** - Guard zones detect stack overflows early in debug builds
+✅ **Configurable stacks** - Runtime-known stack sizes from 16KB to 1MB+
 
 ### Tradeoffs
 ⚠️ **No preemption** - CPU-bound coroutine blocks its worker  
 ⚠️ **Fixed worker count** - must be set at startup  
 ⚠️ **Thread affinity** - coroutines can't migrate for load balancing  
-⚠️ **Stack size limit** - 16KB per coroutine (fixed, not growable)
+⚠️ **Non-growable stacks** - Stack size fixed at spawn time (configurable 16KB-1MB+, not dynamically growable)
 ⚠️ **Unbounded pool** - pool grows during execution (freed only at shutdown)
+⚠️ **Stack overflow detection** - Only works in debug builds (-O0), optimizations may bypass detection
 
 ## Example
 
@@ -423,7 +431,8 @@ Received: 40
 | Coroutine Lib | llco v1.0 | Custom asm |
 | Task Scheduling | Cooperative | Preemptive |
 | Work Stealing | ❌ No (affinity) | ✅ Yes |
-| Stack Size | Fixed 16KB | Growable 2KB→1GB |
+| Stack Size | Configurable 16KB-1MB+ | Growable 2KB→1GB |
+| Stack Overflow Detection | ✅ Debug builds only | ✅ Always |
 | Coroutine Pool | ✅ Yes (thread-local) | ✅ Yes (G pool) |
 | CPU Affinity | ✅ Yes (thread-per-core) | ❌ No (GOMAXPROCS only) |
 | Parallelism | OS thread pool | GOMAXPROCS |
@@ -435,7 +444,7 @@ Received: 40
 
 Potential enhancements (not yet implemented):
 - [ ] Dynamic worker pool resizing
-- [ ] Growable coroutine stacks (currently fixed but configurable)
+- [ ] Growable coroutine stacks (currently fixed at spawn but configurable)
 - [ ] Configurable thread affinity assignments
 - [ ] Coroutine priorities
 - [ ] Preemptive scheduling (timer-based)
@@ -445,3 +454,4 @@ Potential enhancements (not yet implemented):
 - [ ] Async/await syntax sugar
 - [ ] Randomized select case selection (fairness)
 - [ ] Buffered channels as default (like Go)
+- [ ] Stack overflow detection in release builds (currently debug only)
