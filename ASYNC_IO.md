@@ -634,7 +634,7 @@ int yo_async_accept(int sockfd, struct sockaddr* addr, socklen_t* addrlen) {
 }
 ```
 
-## Yo Language API
+## Yo Language API (pseudocode)
 
 ### File I/O
 

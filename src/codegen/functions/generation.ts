@@ -965,6 +965,8 @@ struct yo_coro {
   void* wait_channel;            // Channel this coroutine is waiting on (NULL if not waiting)
   yo_select_state_t* select_state; // Select state if blocked in select (NULL otherwise)
   void* recv_data_ptr;           // For channel recv: points to receiver's local variable (like neco's cmsg)
+  void* send_data_ptr;           // For channel send: points to sender's value to send
+  size_t send_data_size;         // Size of send data (for validation)
   struct llco* coro;             // llco coroutine handle
   char* stack;                   // Separate stack for this task
   size_t stack_size;             // Size of allocated stack
@@ -1170,6 +1172,8 @@ static yo_coro_t* __yo_coro_pool_get(size_t stack_size) {
   coro->select_state = NULL;
   coro->next_wait = NULL;
   coro->recv_data_ptr = NULL;
+  coro->send_data_ptr = NULL;
+  coro->send_data_size = 0;
   
   return coro;
 }
@@ -3571,12 +3575,15 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     // Buffer full or unbuffered - must park sender (neco line 6012)
     __yo_chan_wait_queue_add(&chan->send_queue_head, &chan->send_queue_tail, yo_coro_current);
     yo_coro_current->wait_channel = chan;
-    // Store value in buffer for receiver to pick up later (neco stores in last slot: bufcap)
-    // For unbuffered (capacity=0), we allocated 1 slot, so buffer[0] is available
-    chan->buffer[0] = value;
-    chan->size = 1;  // Mark that parked sender has value
     
-    CONCURRENCY_DEBUG("[CHAN_SEND] Task=%p parking, stored value in buffer[0]\\n", yo_coro_current);
+    // NEW: Store value pointer in coroutine instead of shared buffer
+    // Allocate temp storage for the value (will be freed when sender resumes)
+    ${elementTypeStr}* value_storage = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
+    *value_storage = value;
+    yo_coro_current->send_data_ptr = value_storage;
+    yo_coro_current->send_data_size = sizeof(${elementTypeStr});
+    
+    CONCURRENCY_DEBUG("[CHAN_SEND] Task=%p parking, stored value=%d at %p\\n", yo_coro_current, value, value_storage);
     
 #if defined(_WIN32)
     LeaveCriticalSection(&chan->mutex);
@@ -3592,7 +3599,12 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
     yo_coro_current = NULL;
     llco_switch(NULL, false);
     
-    // Resumed - receiver took the value
+    // Resumed - receiver took the value, free our temp storage
+    if (yo_coro_current && yo_coro_current->send_data_ptr) {
+      __yo_free(yo_coro_current->send_data_ptr);
+      yo_coro_current->send_data_ptr = NULL;
+      yo_coro_current->send_data_size = 0;
+    }
     return;
   }
 }
@@ -3659,12 +3671,15 @@ ${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
             result->tag = ${noneTag};
           }
         } else {
-          // Regular send - value is in buffer
-          if (chan->size > 0 && chan->buffer != NULL) {
+          // Regular send - read value from sender's send_data_ptr
+          if (sender->send_data_ptr != NULL && sender->send_data_size == sizeof(${elementTypeStr})) {
             result->tag = ${someTag};
-            result->data.Some.value = chan->buffer[0];
-            chan->size = 0;
+            result->data.Some.value = *(${elementTypeStr}*)sender->send_data_ptr;
+            CONCURRENCY_DEBUG("[CHAN_RECV] Got value=%d from parked sender's send_data_ptr=%p\\n", 
+              result->data.Some.value, sender->send_data_ptr);
           } else {
+            CONCURRENCY_DEBUG("[CHAN_RECV] ERROR: Parked sender has no send_data_ptr! ptr=%p, size=%zu\\n", 
+              sender->send_data_ptr, sender->send_data_size);
             result->tag = ${noneTag};
           }
         }

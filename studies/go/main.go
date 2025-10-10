@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"runtime"
+	// "runtime"
 )
 
 func say(s string, val int, ch chan int) int {
@@ -12,6 +12,7 @@ func say(s string, val int, ch chan int) int {
 	return val
 }
 
+/*
 func main() {
 	runtime.GOMAXPROCS(1)
 
@@ -28,4 +29,50 @@ func main() {
 
 	result := t1_result + t2_result
 	fmt.Printf("result: %d\n", result)
+}
+*/
+
+/*
+func main() {
+    ch := make(chan int32) // Unbuffered channel
+
+    i := 0
+    for i < 10 {
+        go func() {
+            ch <- int32(i)
+            fmt.Printf("Sent %d\n", i)
+        }()
+        i++
+    }
+
+    i = 0
+    for i < 10 {
+        val := <-ch
+        fmt.Printf("Received %d\n", val)
+        i++
+    }
+
+    fmt.Println("Done")
+}
+*/
+
+func main() {
+	ch := make(chan int32) // Unbuffered channel
+
+	// Spawn 10 goroutines
+	for i := 0; i < 10; i++ {
+		i := i // Go idiom: shadow the loop variable to capture by value
+		go func() {
+			ch <- int32(i)
+			fmt.Printf("Sent %d\n", i)
+		}()
+	}
+
+	// Receive 10 values
+	for i := 0; i < 10; i++ {
+		val := <-ch
+		fmt.Printf("Received %d\n", val)
+	}
+
+	fmt.Println("Done")
 }
