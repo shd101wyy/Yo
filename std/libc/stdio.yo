@@ -4,7 +4,6 @@ c_include "<stdio.h>",
   // Types
   FILE : Type,
   fpos_t : Type,
-  size_t : Type,
   va_list : Type,
 
   // Standard streams
@@ -24,7 +23,7 @@ c_include "<stdio.h>",
   setbuf :
     fn(stream : *(FILE), buffer : ?*(char)) -> unit,
   setvbuf :
-    fn(stream : *(FILE), buffer : ?*(char), mode : int, size : size_t) -> int,
+    fn(stream : *(FILE), buffer : ?*(char), mode : int, size : usize) -> int,
 
   // File positioning
   fseek :
@@ -72,7 +71,7 @@ c_include "<stdio.h>",
   sprintf :
     fn(s : *(char), format : *(char), ...) -> int,
   snprintf :
-    fn(s : *(char), n : size_t, format : *(char), ...) -> int,
+    fn(s : *(char), n : usize, format : *(char), ...) -> int,
   
   vprintf :
     fn(format : *(char), ap : va_list) -> int,
@@ -81,7 +80,7 @@ c_include "<stdio.h>",
   vsprintf :
     fn(s : *(char), format : *(char), ap : va_list) -> int,
   vsnprintf :
-    fn(s : *(char), n : size_t, format : *(char), ap : va_list) -> int,
+    fn(s : *(char), n : usize, format : *(char), ap : va_list) -> int,
   
   scanf :
     fn(format : *(char), ...) -> int,
@@ -99,9 +98,9 @@ c_include "<stdio.h>",
 
   // Binary input/output
   fread :
-    fn(ptr : *(unit), size : size_t, nmemb : size_t, stream : *(FILE)) -> size_t,
+    fn(ptr : *(unit), size : usize, nmemb : usize, stream : *(FILE)) -> usize,
   fwrite :
-    fn(ptr : *(unit), size : size_t, nmemb : size_t, stream : *(FILE)) -> size_t,
+    fn(ptr : *(unit), size : usize, nmemb : usize, stream : *(FILE)) -> usize,
 
   // File management
   remove :
@@ -135,12 +134,7 @@ c_include "<stdio.h>",
   SEEK_END : int,
   _IOFBF : int,
   _IOLBF : int,
-  _IONBF : int,
-  
-  // Additional useful constants
-  STDIN_FILENO : int,
-  STDOUT_FILENO : int,
-  STDERR_FILENO : int
+  _IONBF : int
 ;
 
 // Export all stdio functionality
@@ -148,7 +142,6 @@ export
   // Types
   FILE,
   fpos_t,
-  size_t,
   va_list,
 
   // Standard streams
@@ -230,8 +223,5 @@ export
   SEEK_END,
   _IOFBF,
   _IOLBF,
-  _IONBF,
-  STDIN_FILENO,
-  STDOUT_FILENO,
-  STDERR_FILENO
+  _IONBF
 ;

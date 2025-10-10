@@ -899,7 +899,12 @@ void* __yo_incr_rc(void* ptr) {
   #include <unistd.h>
   #ifdef __linux__
     #include <sys/syscall.h>  // For syscall() and SYS_* constants
+    #include <sys/epoll.h>    // For epoll async I/O
+  #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    #include <sys/event.h>    // For kqueue async I/O
   #endif
+  #include <fcntl.h>          // For fcntl() to set O_NONBLOCK
+  #include <errno.h>          // For errno, EAGAIN, EINTR
   typedef pthread_t yo_thread_handle_t;
   typedef pthread_t yo_thread_id_t;
   typedef pthread_mutex_t yo_mutex_t;
@@ -982,7 +987,14 @@ struct yo_coro_queue {
   size_t count;
 };
 
-// Worker thread structure with per-thread coroutine queue
+// I/O wait modes for async I/O
+#define YO_WAIT_READ  1
+#define YO_WAIT_WRITE 2
+
+// Maximum number of file descriptors we can wait on
+#define YO_MAX_FDS 1024
+
+// Worker thread structure with per-thread coroutine queue and I/O poller
 struct yo_worker_thread {
   yo_thread_handle_t handle;
   yo_thread_id_t id;
@@ -991,6 +1003,11 @@ struct yo_worker_thread {
   yo_coro_queue_t ready_queue;     // Each worker has its own ready queue
   yo_coro_queue_t blocked_queue;   // Each worker has its own blocked queue
   yo_mutex_t queue_mutex;          // Protects this worker's queues
+  
+  // Async I/O support (epoll on Linux, kqueue on macOS/BSD)
+  int qfd;                         // Event queue file descriptor (epoll_fd or kqueue_fd)
+  yo_coro_t* ev_read_waiters[YO_MAX_FDS];  // Map fd -> coroutine waiting for read
+  yo_coro_t* ev_write_waiters[YO_MAX_FDS]; // Map fd -> coroutine waiting for write
 };
 
 // Global coroutine scheduler state
@@ -1258,6 +1275,186 @@ static void __yo_free_coro_pool_list(yo_coro_t* head) {
   }
 }
 
+// ========== Async I/O Functions ==========
+
+// Set file descriptor to non-blocking mode
+// Returns 0 on success, -1 on error
+static int __yo_setnonblock(int fd, bool nonblock) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags == -1) {
+    return -1;
+  }
+  
+  int new_flags = nonblock ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+  return fcntl(fd, F_SETFL, new_flags);
+}
+
+// Core async wait primitive
+// Adds fd to epoll/kqueue, parks coroutine, resumes when fd is ready
+// Returns 0 on success, -1 on error
+int yo_async_wait(int fd, int mode) {
+  yo_coro_t* coro = yo_coro_current;
+  yo_worker_thread_t* worker = yo_coro_current_worker;
+  
+  if (!coro || !worker) {
+    errno = EPERM;  // Not in coroutine context
+    return -1;
+  }
+  
+  if (fd < 0 || fd >= YO_MAX_FDS) {
+    errno = EINVAL;  // Invalid fd
+    return -1;
+  }
+  
+  if (mode != YO_WAIT_READ && mode != YO_WAIT_WRITE) {
+    errno = EINVAL;  // Invalid mode
+    return -1;
+  }
+  
+  if (worker->qfd < 0) {
+    errno = ENOSYS;  // Async I/O not supported on this platform
+    return -1;
+  }
+  
+  #ifdef __linux__
+    // Linux epoll implementation
+    struct epoll_event ev = {0};
+    ev.data.fd = fd;
+    ev.events = EPOLLONESHOT;  // One-shot mode: auto-remove after trigger
+    
+    // Check if we're already waiting on this fd
+    if (mode == YO_WAIT_READ) {
+      ev.events |= EPOLLIN;
+      // Also include write if someone's waiting for write
+      if (worker->ev_write_waiters[fd] != NULL) {
+        ev.events |= EPOLLOUT;
+      }
+    } else {
+      ev.events |= EPOLLOUT;
+      // Also include read if someone's waiting for read
+      if (worker->ev_read_waiters[fd] != NULL) {
+        ev.events |= EPOLLIN;
+      }
+    }
+    
+    // Try to modify first, if that fails then add
+    int ret = epoll_ctl(worker->qfd, EPOLL_CTL_MOD, fd, &ev);
+    if (ret == -1) {
+      ret = epoll_ctl(worker->qfd, EPOLL_CTL_ADD, fd, &ev);
+      if (ret == -1) {
+        return -1;
+      }
+    }
+  
+  #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    // BSD kqueue implementation
+    struct kevent ev;
+    int filter = (mode == YO_WAIT_READ) ? EVFILT_READ : EVFILT_WRITE;
+    EV_SET(&ev, fd, filter, EV_ADD | EV_ONESHOT, 0, 0, NULL);
+    
+    int ret = kevent(worker->qfd, &ev, 1, NULL, 0, NULL);
+    if (ret == -1) {
+      return -1;
+    }
+  #else
+    // Unsupported platform
+    errno = ENOSYS;
+    return -1;
+  #endif
+  
+  // Save this coroutine in the waiters array
+  if (mode == YO_WAIT_READ) {
+    worker->ev_read_waiters[fd] = coro;
+  } else {
+    worker->ev_write_waiters[fd] = coro;
+  }
+  
+  // Park this coroutine and switch back to worker
+  coro->state = YO_CORO_BLOCKED;
+  llco_switch(NULL, false);  // Switch back to worker (NULL = return to caller)
+  
+  // When we resume, the fd is ready
+  return 0;
+}
+
+// Async read - reads from fd without blocking other coroutines
+// Returns number of bytes read, 0 for EOF, -1 for error (check errno)
+ssize_t yo_async_read(int fd, void* buf, size_t count) {
+  // Ensure fd is non-blocking
+  if (__yo_setnonblock(fd, true) == -1) {
+    return -1;
+  }
+  
+  // Try to read, retry on EAGAIN
+  while (true) {
+    ssize_t n = read(fd, buf, count);
+    
+    if (n >= 0) {
+      // Success or EOF
+      return n;
+    }
+    
+    // Check error
+    if (errno == EINTR) {
+      // Interrupted, retry immediately
+      continue;
+    }
+    
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      // Would block, yield coroutine and wait for fd to be readable
+      int ret = yo_async_wait(fd, YO_WAIT_READ);
+      if (ret != 0) {
+        // Wait failed
+        return -1;
+      }
+      continue;  // Retry read
+    }
+    
+    // Other error
+    return -1;
+  }
+}
+
+// Async write - writes to fd without blocking other coroutines
+// Returns number of bytes written, -1 for error (check errno)
+ssize_t yo_async_write(int fd, const void* buf, size_t count) {
+  // Ensure fd is non-blocking
+  if (__yo_setnonblock(fd, true) == -1) {
+    return -1;
+  }
+  
+  // Try to write, retry on EAGAIN
+  while (true) {
+    ssize_t n = write(fd, buf, count);
+    
+    if (n >= 0) {
+      // Success
+      return n;
+    }
+    
+    // Check error
+    if (errno == EINTR) {
+      // Interrupted, retry immediately
+      continue;
+    }
+    
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      // Would block, yield coroutine and wait for fd to be writable
+      int ret = yo_async_wait(fd, YO_WAIT_WRITE);
+      if (ret != 0) {
+        // Wait failed
+        return -1;
+      }
+      continue;  // Retry write
+    }
+    
+    // Other error
+    return -1;
+  }
+}
+
+// ========== End Async I/O Functions ==========
+
 // Check for stack overflow by verifying the stack guard canary at bottom
 // Stack grows DOWN, so overflow writes into bottom guard zone
 static void __yo_check_stack_overflow(yo_coro_t* coro) {
@@ -1446,6 +1643,63 @@ static void* __yo_worker_thread_func(void* arg) {
   CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
   
   while (!atomic_load(&yo_worker_shutdown)) {
+    // Poll for I/O events (non-blocking)
+    #if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    if (worker->qfd >= 0) {
+      #ifdef __linux__
+        struct epoll_event events[32];
+        int nevents = epoll_wait(worker->qfd, events, 32, 0);  // 0 timeout = non-blocking
+        
+        for (int i = 0; i < nevents; i++) {
+          int fd = events[i].data.fd;
+          bool can_read = events[i].events & EPOLLIN;
+          bool can_write = events[i].events & EPOLLOUT;
+          
+          // Resume waiting coroutines
+          if (can_read && fd < YO_MAX_FDS && worker->ev_read_waiters[fd]) {
+            yo_coro_t* waiting_coro = worker->ev_read_waiters[fd];
+            worker->ev_read_waiters[fd] = NULL;
+            waiting_coro->state = YO_CORO_READY;
+            __yo_coro_enqueue_to_worker(worker, waiting_coro);
+          }
+          
+          if (can_write && fd < YO_MAX_FDS && worker->ev_write_waiters[fd]) {
+            yo_coro_t* waiting_coro = worker->ev_write_waiters[fd];
+            worker->ev_write_waiters[fd] = NULL;
+            waiting_coro->state = YO_CORO_READY;
+            __yo_coro_enqueue_to_worker(worker, waiting_coro);
+          }
+        }
+      
+      #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        struct kevent events[32];
+        struct timespec timeout = {0, 0};  // Non-blocking
+        int nevents = kevent(worker->qfd, NULL, 0, events, 32, &timeout);
+        
+        for (int i = 0; i < nevents; i++) {
+          int fd = (int)events[i].ident;
+          bool can_read = events[i].filter == EVFILT_READ;
+          bool can_write = events[i].filter == EVFILT_WRITE;
+          
+          // Resume waiting coroutines
+          if (can_read && fd < YO_MAX_FDS && worker->ev_read_waiters[fd]) {
+            yo_coro_t* waiting_coro = worker->ev_read_waiters[fd];
+            worker->ev_read_waiters[fd] = NULL;
+            waiting_coro->state = YO_CORO_READY;
+            __yo_coro_enqueue_to_worker(worker, waiting_coro);
+          }
+          
+          if (can_write && fd < YO_MAX_FDS && worker->ev_write_waiters[fd]) {
+            yo_coro_t* waiting_coro = worker->ev_write_waiters[fd];
+            worker->ev_write_waiters[fd] = NULL;
+            waiting_coro->state = YO_CORO_READY;
+            __yo_coro_enqueue_to_worker(worker, waiting_coro);
+          }
+        }
+      #endif
+    }
+    #endif
+    
     yo_coro_t* coro = __yo_coro_dequeue_from_worker(worker);
     
     if (!coro) {
@@ -1655,6 +1909,21 @@ static void __yo_thread_pool_init(size_t num_threads) {
     yo_worker_threads[i].ready_queue = (yo_coro_queue_t){NULL, NULL, 0};
     yo_worker_threads[i].blocked_queue = (yo_coro_queue_t){NULL, NULL, 0};
     YO_MUTEX_INIT(&yo_worker_threads[i].queue_mutex);
+    
+    // Initialize async I/O event queue
+    #ifdef __linux__
+      yo_worker_threads[i].qfd = epoll_create1(0);
+    #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+      yo_worker_threads[i].qfd = kqueue();
+    #else
+      yo_worker_threads[i].qfd = -1;  // No async I/O support on this platform
+    #endif
+    
+    // Initialize event waiters arrays to NULL
+    for (int j = 0; j < YO_MAX_FDS; j++) {
+      yo_worker_threads[i].ev_read_waiters[j] = NULL;
+      yo_worker_threads[i].ev_write_waiters[j] = NULL;
+    }
     
     #ifdef _WIN32
     yo_worker_threads[i].handle = (HANDLE)_beginthreadex(

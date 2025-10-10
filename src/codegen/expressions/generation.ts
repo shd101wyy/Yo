@@ -944,7 +944,7 @@ function generateFuncCall(
     return generateSelectExpression(expr, indent, context);
   }
   // ptr value
-  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
+  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.AddressOf, 1)) {
     const type = expr.$?.type;
     if (!type) {
       return `// Error: No type information for pointer/reference expression ${exprToString(expr)}\n`;

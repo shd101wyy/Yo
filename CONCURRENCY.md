@@ -17,11 +17,38 @@ Yo implements a **hybrid M:N### 2. **Cooperative Coroutines**
 ## Technology Stack
 
 - **Coroutine Library**: [llco](https://github.com/tidwall/llco) v1.0 - Low-Level Coroutines
+- **Coroutine Model**: **Asymmetric stackful coroutines** (coroutine ↔ scheduler, not coroutine ↔ coroutine)
 - **Threading**: OS threads (pthread/Windows threads)
 - **Memory Allocator**: mimalloc
 - **Synchronization**: Mutexes (pthread/Windows)
 - **Scheduling**: Cooperative within workers, parallel across workers
 - **Coroutine Pool**: neco-inspired pool (unbounded during execution, shutdown cleanup only)
+
+### Asymmetric vs Symmetric Coroutines
+
+**Yo uses asymmetric coroutines:**
+- ✅ Coroutines yield **back to the scheduler/worker** (not to another coroutine)
+- ✅ Control flow: `Worker → Coroutine → Worker → Next Coroutine`
+- ✅ Simpler mental model: coroutines don't directly call each other
+- ✅ Central scheduler controls execution order
+- ✅ Implementation: `llco_switch(NULL, false)` always returns to worker
+
+**Symmetric coroutines** (not used in Yo):
+- ❌ Coroutines can yield **directly to other coroutines**
+- ❌ Control flow: `Coro A → Coro B → Coro C → Coro A` (no scheduler)
+- ❌ More complex: requires explicit transfer of control between coroutines
+- ❌ Example: Lua coroutines with `coroutine.resume(target)`
+
+**Why asymmetric?**
+1. **Simpler scheduling**: Worker loop controls all coroutine execution
+2. **Better for M:N threading**: Workers can distribute coroutines across threads
+3. **Channel integration**: Blocking operations naturally yield to scheduler
+4. **Matches Go/Erlang model**: Goroutines/processes yield to runtime scheduler
+
+**Implementation details:**
+- Coroutines call `llco_switch(NULL, false)` to yield (NULL = return to caller/worker)
+- Worker calls `llco_switch(coro->coro, false)` to resume a specific coroutine
+- No coroutine can directly switch to another coroutine (asymmetric restriction)
 
 ## Architecture Overview
 

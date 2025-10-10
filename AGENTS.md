@@ -25,7 +25,7 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
-Ignore the DESIGN.md and other markdown files because they are out of date.  
+Ignore the DESIGN.md and other markdown files because they are out of date.
 
 No need to read fixme.test.ts
 
@@ -44,6 +44,8 @@ For understanding the compile-time reference counting ownership model, please re
 For understanding the biased reference counting implementation, please read `BIASED_REFERENCE_COUNTING.md` document.
 
 For understanding the concurrency design, please read `CONCURRENCY.md` document.
+
+For understanding the async IO, please read `ASYNC_IO.md` document.
 
 While making design decisions, don't worry about making breaking changes to the Yo language! It is a new language and it is still evolving. Breaking changes are acceptable.
 
