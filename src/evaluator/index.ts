@@ -62,6 +62,7 @@ import {
   evaluateYoExprListLength,
 } from "./builtins/expr_list_fns";
 import {
+  evaluateAwait,
   evaluateYoFutureDrop,
   evaluateYoFutureDup,
 } from "./builtins/future_fns";
@@ -410,6 +411,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
         // async
         return evaluateAsync({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
+        // await
+        return evaluateAwait({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(
           expr,

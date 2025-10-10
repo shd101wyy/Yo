@@ -8,7 +8,12 @@ import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import { areTypesCompatible, FunctionType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  FunctionType,
+  isFutureType,
+  typeToString,
+} from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import {
@@ -152,21 +157,50 @@ export function tryToImplementFunctionByFunctionType({
   env = evaluatedFunctionBody.$.env;
 
   // Check if the function body type matches the function return type
-  const functionBodyReturnType = evaluatedFunctionBody.$.type;
-  if (
-    !areTypesCompatible(
-      { type: functionType.return.type, env },
-      { type: functionBodyReturnType, env }
-    )
-  ) {
-    // console.trace();
-    throw formatErrorMessage({
-      token: functionType.return.expr?.token ?? PlaceholderToken,
-      errorMessage: `Incompatible function return type for:
+  let functionBodyReturnType = evaluatedFunctionBody.$.type;
+
+  // For async functions, automatically wrap the return value in Future(T)
+  // If the function is async and returns Future(T), the body should return T
+  if (functionType.isAsync && isFutureType(functionType.return.type)) {
+    const futureType = functionType.return.type;
+    const expectedBodyReturnType = futureType.elementType;
+
+    // Check if body returns T (not Future(T))
+    if (
+      !areTypesCompatible(
+        { type: expectedBodyReturnType, env },
+        { type: functionBodyReturnType, env }
+      )
+    ) {
+      throw formatErrorMessage({
+        token: functionType.return.expr?.token ?? PlaceholderToken,
+        errorMessage: `Incompatible async function body return type:
+- Expected: ${typeToString(expectedBodyReturnType)} (will be wrapped in Future)
+- Given  : ${typeToString(functionBodyReturnType)}`,
+      });
+    }
+
+    // Mark that the body will be wrapped in Future during codegen
+    // The actual Future wrapping happens at runtime in codegen
+    functionBodyReturnType = futureType;
+  } else {
+    // Regular function: body type must match return type exactly
+    if (
+      !areTypesCompatible(
+        { type: functionType.return.type, env },
+        { type: functionBodyReturnType, env }
+      )
+    ) {
+      // console.trace();
+      throw formatErrorMessage({
+        token: functionType.return.expr?.token ?? PlaceholderToken,
+        errorMessage: `Incompatible function return type for:
 - Expected: ${typeToString(functionType.return.type)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
-    });
+      });
+    }
   }
+
   if (functionType.return.isCompileTimeOnly && !evaluatedFunctionBody.$.value) {
     throw formatErrorMessage({
       token: functionType.return.expr?.token ?? PlaceholderToken,

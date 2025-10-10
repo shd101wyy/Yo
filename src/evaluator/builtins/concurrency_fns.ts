@@ -12,6 +12,7 @@ import {
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
 import {
+  convertComptTypeToRuntimeType,
   createFutureType,
   isFunctionType,
   isFutureType,
@@ -303,6 +304,7 @@ export function evaluateAsync({
       }
 
       // Mark the function type as async
+      // TODO: Should we only allow async(fn() -> Future(T)) but not async(some_variable_function_type)?
       functionType.isAsync = true;
 
       // Return the async function type as a TypeValue
@@ -324,7 +326,7 @@ export function evaluateAsync({
   // The actual async spawning logic will be implemented in codegen
 
   // Infer the return type from the evaluated expression
-  const returnType = evaluatedArg.$.type;
+  const returnType = convertComptTypeToRuntimeType(evaluatedArg.$.type);
 
   // Create Future(returnType)
   const futureType = createFutureType(returnType, env);

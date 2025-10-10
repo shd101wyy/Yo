@@ -43,9 +43,9 @@ For understanding the compile-time reference counting ownership model, please re
 
 For understanding the biased reference counting implementation, please read `BIASED_REFERENCE_COUNTING.md` document.
 
-For understanding the concurrency design, please read `CONCURRENCY.md` document.
-
-For understanding the async IO, please read `ASYNC_IO.md` document.
+For understanding the concurrency design, please read `CONCURRENCY.md` document. <- Stackful coroutine might be deprecated in favor of async/await
+For understanding the async IO, please read `ASYNC_IO.md` document. <- Stackful coroutine might be deprecated in favor of async/await
+For understanding the async/await design, please read `ASYNC_AWAIT.md` document.
 
 While making design decisions, don't worry about making breaking changes to the Yo language! It is a new language and it is still evolving. Breaking changes are acceptable.
 

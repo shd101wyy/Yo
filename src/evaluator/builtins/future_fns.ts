@@ -1,11 +1,14 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
+import { isFutureType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
@@ -92,5 +95,88 @@ export function evaluateYoFutureDup({
     value: VUnit,
     pathCollection: [],
   };
+  return expr;
+}
+
+/**
+ * Evaluates the await builtin function (stackless async value extraction).
+ *
+ * await extracts a value of type T from Future(T).
+ * It can only be used inside async function bodies.
+ *
+ * Examples:
+ * - await(task) where task: Future(i32) => returns i32
+ */
+export function evaluateAwait({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  if (expr.args.length !== 1) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `await expects exactly 1 argument, got ${expr.args.length}.`,
+    });
+  }
+
+  // Check if we're in an async function body
+  if (!context.isEvaluatingFunctionBody) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `await can only be used inside a function body.`,
+    });
+  }
+
+  const functionType = context.isEvaluatingFunctionBody.type;
+  if (!functionType.isAsync) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `await can only be used inside async functions. The current function is not async.`,
+    });
+  }
+
+  const argExpr = expr.args[0]!;
+
+  // Evaluate the argument expression
+  const evaluatedArg = context.evaluateExpression({
+    expr: argExpr,
+    env,
+    context: { ...context },
+  });
+
+  if (!evaluatedArg.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate await argument expression.`,
+    });
+  }
+
+  env = evaluatedArg.$.env;
+
+  // Check that the argument is a Future(T)
+  const argType = evaluatedArg.$.type;
+  if (!isFutureType(argType)) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `await expects a Future(T) type, but got: ${typeToString(argType)}`,
+    });
+  }
+
+  // Extract the element type T from Future(T)
+  const elementType = argType.elementType;
+
+  expr.$ = {
+    env,
+    type: elementType,
+    value: undefined, // Runtime value, not compile-time
+    pathCollection: [],
+  };
+
+  attachTempVariableToExpr(expr, false);
+  setExprAsNeedsToCallDup(expr, { ...context }); // We allow to await on a Future multiple times, so we need to call dup here.
   return expr;
 }

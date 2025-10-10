@@ -512,6 +512,7 @@ export const BuiltinFunctions = {
   // Concurrency related functions
   go: ["go"],
   async: ["async"],
+  await: ["await"],
   __yo_concurrency_set_maximum_threads: [
     "__yo_concurrency_set_maximum_threads",
   ],
