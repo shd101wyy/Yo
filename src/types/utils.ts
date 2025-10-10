@@ -25,6 +25,7 @@ import {
   EnumType,
   FunctionParameter,
   FunctionType,
+  FutureType,
   ModuleElement,
   ModuleType,
   MutPtrType,
@@ -223,6 +224,11 @@ export function typeContainsSomeType(
       return typeContainsSomeType((type as MutPtrType).type, checkedTypes);
     case TypeTag.Chan:
       return typeContainsSomeType((type as ChanType).elementType, checkedTypes);
+    case TypeTag.Future:
+      return typeContainsSomeType(
+        (type as FutureType).elementType,
+        checkedTypes
+      );
     default:
       return false; // For other types, no SomeType is present
   }
@@ -266,6 +272,9 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         break;
       case TypeTag.Chan:
         helper((t as ChanType).elementType);
+        break;
+      case TypeTag.Future:
+        helper((t as FutureType).elementType);
         break;
       default:
         break; // For other types, do nothing
@@ -354,6 +363,8 @@ export function typeRequiresInference(type?: Type): boolean {
     }
     case TypeTag.Chan:
       return typeRequiresInference((type as ChanType).elementType);
+    case TypeTag.Future:
+      return typeRequiresInference((type as FutureType).elementType);
     default:
       return false; // For other types, no unknown values are present
   }
@@ -940,6 +951,11 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     case TypeTag.Chan: {
       const chanType = type as ChanType;
       return `Chan(${typeToString(chanType.elementType, visited)})`;
+    }
+
+    case TypeTag.Future: {
+      const futureType = type as FutureType;
+      return `Future(${typeToString(futureType.elementType, visited)})`;
     }
 
     default: {

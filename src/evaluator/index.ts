@@ -102,6 +102,7 @@ import { evaluateClosureType } from "./types/closure";
 import { evaluateDynType } from "./types/dyn";
 import { evaluateEnumType } from "./types/enum";
 import { evaluateFunctionType } from "./types/function";
+import { evaluateFutureType } from "./types/future";
 import { evaluateModuleType } from "./types/module";
 import { evaluateObjectType } from "./types/object";
 import { evaluateSliceType } from "./types/slice";
@@ -398,8 +399,8 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
-        // async
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
+        // go
         return evaluateGo({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(
@@ -468,6 +469,13 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Chan)) {
         // Chan type
         return evaluateChanType({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Future)) {
+        // Future type
+        return evaluateFutureType({
           expr,
           env,
           context: { ...context },

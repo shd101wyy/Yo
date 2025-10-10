@@ -476,6 +476,7 @@ export const BuiltinKeywords = {
   Slice: ["Slice"],
   Thread: ["Thread"],
   Chan: ["Chan"],
+  Future: ["Future"],
   Type: ["Type"],
   Module: ["Module"],
 
@@ -865,6 +866,8 @@ export const BuiltinFunctions = {
   // Channel ARC functions
   __yo_chan_drop: ["__yo_chan_drop"], // drop channel object and handle cleanup
   __yo_chan_dup: ["__yo_chan_dup"], // dup channel object with proper reference counting
+  __yo_future_drop: ["__yo_future_drop"], // drop future object and handle cleanup
+  __yo_future_dup: ["__yo_future_dup"], // dup future object with proper reference counting
 
   // ARC functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned

@@ -11,6 +11,7 @@ import {
   ClosureType,
   DynType,
   EnumType,
+  FutureType,
   isARCType,
   isFunctionType,
   ModuleElement,
@@ -27,7 +28,13 @@ import { EvaluatorContext } from "../context";
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType: StructType | EnumType | DynType | ClosureType | ChanType,
+  SelfType:
+    | StructType
+    | EnumType
+    | DynType
+    | ClosureType
+    | ChanType
+    | FutureType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -67,7 +74,13 @@ export function addFunctionSignatureToSelfTypeModule({
    * Function code string, like (fn()-> unit)
    */
   functionSignature: string;
-  SelfType: StructType | EnumType | DynType | ClosureType | ChanType;
+  SelfType:
+    | StructType
+    | EnumType
+    | DynType
+    | ClosureType
+    | ChanType
+    | FutureType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -132,7 +145,13 @@ export function addFunctionCodeToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType: StructType | EnumType | DynType | ClosureType | ChanType;
+  SelfType:
+    | StructType
+    | EnumType
+    | DynType
+    | ClosureType
+    | ChanType
+    | FutureType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -886,6 +905,71 @@ function generateDupFunctionCodeForChanType(chanType: ChanType): string {
   // This builtin function handles the channel reference counting properly
   return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(chanType)}
     ${BuiltinFunctions.__yo_chan_dup[0]!}(self);
+    return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+  })`;
+}
+
+/**
+ * Add ARC functions (___dup, ___drop) to a future type's module.
+ * These functions operate on the future object itself.
+ */
+export function addARCFunctionsToFutureType({
+  futureType,
+  env,
+  context,
+}: {
+  futureType: FutureType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Generate ARC functions for the future
+  const dropFunctionCode = generateDropFunctionCodeForFutureType(futureType);
+  const dupFunctionCode = generateDupFunctionCodeForFutureType(futureType);
+
+  // Add ___dup function to the future type module elements
+  if (dupFunctionCode) {
+    env = addFunctionCodeToSelfTypeModule({
+      label: BuiltinFunctions.___dup[0]!,
+      functionCode: dupFunctionCode,
+      SelfType: futureType,
+      env,
+      context,
+    });
+  }
+
+  // Add ___drop function to the future type module elements
+  if (dropFunctionCode) {
+    env = addFunctionCodeToSelfTypeModule({
+      label: BuiltinFunctions.___drop[0]!,
+      functionCode: dropFunctionCode,
+      SelfType: futureType,
+      env,
+      context,
+    });
+  }
+
+  return env;
+}
+
+/**
+ * Generate ___drop function code for a future type
+ */
+function generateDropFunctionCodeForFutureType(futureType: FutureType): string {
+  // For future types, drop should use __yo_future_drop
+  // This builtin function handles future cleanup and reference counting
+  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(futureType)}
+    ${BuiltinFunctions.__yo_future_drop[0]!}(self);
+  })`;
+}
+
+/**
+ * Generate ___dup function code for a future type
+ */
+function generateDupFunctionCodeForFutureType(futureType: FutureType): string {
+  // For future types, dup should use __yo_future_dup
+  // This builtin function handles the future reference counting properly
+  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(futureType)}
+    ${BuiltinFunctions.__yo_future_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
 }

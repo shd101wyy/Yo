@@ -20,6 +20,7 @@ import {
   isExprListType,
   isExprType,
   isFunctionType,
+  isFutureType,
   isModuleType,
   isMutPtrType,
   isObjectType,
@@ -204,6 +205,8 @@ export function typeOfType(
     // Raw pointers are now level 0 types
     return createType0(type);
   } else if (isChanType(type)) {
+    return createType0(type);
+  } else if (isFutureType(type)) {
     return createType0(type);
   } else {
     throw new Error(`Unknown type tag: ${type}`);

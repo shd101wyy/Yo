@@ -7,6 +7,7 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
+  isFutureType,
   isModuleType,
   isMutPtrType,
   isStructType,
@@ -616,7 +617,8 @@ export function getMethodsByNameFromEnv(
     isEnumType(dereferencedReceiverType) ||
     isUnionType(dereferencedReceiverType) ||
     isClosureType(dereferencedReceiverType) ||
-    isChanType(dereferencedReceiverType)
+    isChanType(dereferencedReceiverType) ||
+    isFutureType(dereferencedReceiverType)
   ) {
     const method = dereferencedReceiverType.module.elements.find(
       (element) =>

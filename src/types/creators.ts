@@ -14,6 +14,7 @@ import {
   FunctionParameterExprs,
   FunctionReturn,
   FunctionType,
+  FutureType,
   ModuleElement,
   ModuleType,
   MutPtrType,
@@ -629,4 +630,48 @@ export function createChanType(elementType: Type, env: Environment): ChanType {
   chanType.module.elements.push(selfElement);
 
   return chanType;
+}
+
+export function createFutureType(
+  elementType: Type,
+  env: Environment
+): FutureType {
+  const module = createModuleType(env);
+
+  const futureType: FutureType = {
+    id: `future_${elementType.id}`,
+    tag: TypeTag.Future,
+    elementType,
+    module,
+    env,
+  };
+
+  // Add "Self" to future type module, similar to other ARC types
+  const typeValue = createTypeValue(futureType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    assignedValue: typeValue,
+    label: "Self",
+    isCompileTimeOnly: true,
+    isImplicit: true,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+      labelExpr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+      typeExpr: undefined,
+      defaultValueExpr: undefined,
+      assignedValueExpr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+    },
+  };
+  futureType.module.elements.push(selfElement);
+
+  return futureType;
 }

@@ -19,6 +19,7 @@ import {
   isExprListType,
   isExprType,
   isFunctionType,
+  isFutureType,
   isModuleType,
   isMutPtrType,
   isPrimitiveType,
@@ -475,6 +476,15 @@ export function areTypesCompatible(
 
   if (isChanType(expected.type) && isChanType(given.type)) {
     // Chan types are compatible if their element types are compatible
+    return areTypesCompatible(
+      { type: expected.type.elementType, env: expected.env },
+      { type: given.type.elementType, env: given.env },
+      isMethodReceiver
+    );
+  }
+
+  if (isFutureType(expected.type) && isFutureType(given.type)) {
+    // Future types are compatible if their element types are compatible
     return areTypesCompatible(
       { type: expected.type.elementType, env: expected.env },
       { type: given.type.elementType, env: given.env },

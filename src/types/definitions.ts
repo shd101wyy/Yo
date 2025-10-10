@@ -618,3 +618,40 @@ export interface ChanType extends Type {
    */
   env: Environment;
 }
+
+/**
+ * FutureType represents an async/await future for stackless coroutines.
+ * A Future(T) is a value that will be available in the future after an async operation completes.
+ *
+ * Examples:
+ * - Future(i32): A future that will eventually yield an i32 value
+ * - Future(string): A future that will eventually yield a string value
+ * - Future(unit): A future that completes without returning a value
+ *
+ * Usage:
+ * ```yo
+ * read_async :: (async fn(fd: i32) -> string) { ... }
+ * future := read_async(fd);          // Returns Future(string)
+ * result := await future;            // Waits for and extracts the string
+ * ```
+ */
+export interface FutureType extends Type {
+  tag: TypeTag.Future;
+
+  /**
+   * The type of value that this future will eventually yield.
+   */
+  elementType: Type;
+
+  /**
+   * The module associated with this future type.
+   * Contains ARC functions (___dup, ___drop) for reference counting.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the future type is created.
+   * The env is also useful to show the frame level at which the future is defined.
+   */
+  env: Environment;
+}
