@@ -694,7 +694,8 @@ function functionTypeToString(
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
-  return `${from ? `(${from}) ` : ""}fn(${paramsString}) ${func.isClosure ? "=>" : "->"} ${returnString}`;
+  const fnKind = func.isAsync ? "async fn" : "fn";
+  return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) ${func.isClosure ? "=>" : "->"} ${returnString}`;
 }
 
 /**

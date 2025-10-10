@@ -11,8 +11,16 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
+import {
+  createFutureType,
+  isFunctionType,
+  isFutureType,
+  typeToString,
+} from "../../types";
 import { VUnit } from "../../unit-value";
+import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { addARCFunctionsToFutureType } from "../types/utils";
 
 /**
  * Evaluates the go builtin function (stackful coroutine spawning).
@@ -232,6 +240,107 @@ export function evaluateGo({
     evaluatedClosure: evaluatedClosure,
     // Store the evaluated stack size (if provided)
     asyncStackSize: evaluatedStackSize,
+  };
+
+  return expr;
+}
+
+/**
+ * Evaluates the async builtin function (stackless coroutine spawning).
+ *
+ * async can be used to declare async function types or spawn async tasks.
+ * - async(fn() -> Future(T)) => marks function type as async
+ * - async { expr } => spawns async task, returns Future(T)
+ */
+export function evaluateAsync({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  if (expr.args.length !== 1) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `async expects exactly 1 argument, got ${expr.args.length}.`,
+    });
+  }
+
+  const argExpr = expr.args[0]!;
+
+  // Evaluate the argument expression
+  const evaluatedArg = context.evaluateExpression({
+    expr: argExpr,
+    env,
+    context: { ...context },
+  });
+
+  if (!evaluatedArg.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate async argument expression.`,
+    });
+  }
+
+  env = evaluatedArg.$.env;
+
+  // Check if the argument is a function type (for async function type declaration)
+  if (evaluatedArg.$.value && isTypeValue(evaluatedArg.$.value)) {
+    const argType = evaluatedArg.$.value.value;
+
+    if (isFunctionType(argType)) {
+      // Case 1: async(fn() -> Future(T)) => return async function type
+      const functionType = argType;
+
+      // Validate that the function returns Future(T)
+      if (!isFutureType(functionType.return.type)) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `async function must return Future(T), but got return type: ${typeToString(functionType.return.type)}`,
+        });
+      }
+
+      // Mark the function type as async
+      functionType.isAsync = true;
+
+      // Return the async function type as a TypeValue
+      const asyncFunctionTypeValue = createTypeValue(functionType);
+
+      expr.$ = {
+        env,
+        type: asyncFunctionTypeValue.type,
+        value: asyncFunctionTypeValue,
+        pathCollection: [],
+      };
+
+      return expr;
+    }
+  }
+
+  // Case 2: async { expr } => spawn async task, return Future(T)
+  // For now, just return the evaluated expression wrapped in a Future
+  // The actual async spawning logic will be implemented in codegen
+
+  // Infer the return type from the evaluated expression
+  const returnType = evaluatedArg.$.type;
+
+  // Create Future(returnType)
+  const futureType = createFutureType(returnType, env);
+
+  // Add ARC functions to the future type
+  env = addARCFunctionsToFutureType({
+    futureType,
+    env,
+    context: { ...context },
+  });
+
+  expr.$ = {
+    env,
+    type: futureType,
+    value: undefined, // Runtime value, not compile-time
+    pathCollection: [],
   };
 
   return expr;

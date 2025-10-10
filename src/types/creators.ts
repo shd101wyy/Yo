@@ -410,6 +410,7 @@ export function createFunctionType({
   SelfType,
   ModuleType,
   isClosure,
+  isAsync,
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
@@ -421,6 +422,7 @@ export function createFunctionType({
   SelfType?: Type;
   ModuleType?: ModuleType;
   isClosure?: boolean;
+  isAsync?: boolean;
 }): FunctionType {
   return {
     id: `${isClosure ? "closure" : "fn"}_${randomId()}`,
@@ -435,6 +437,7 @@ export function createFunctionType({
     SelfType,
     ModuleType,
     isClosure: isClosure ?? false,
+    isAsync: isAsync ?? false,
   };
 }
 

@@ -40,6 +40,7 @@ import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import {
+  evaluateAsync,
   evaluateGo,
   evaluateTaskSetMaximumThreads,
 } from "./builtins/concurrency_fns";
@@ -60,6 +61,10 @@ import {
   evaluateYoExprListCons,
   evaluateYoExprListLength,
 } from "./builtins/expr_list_fns";
+import {
+  evaluateYoFutureDrop,
+  evaluateYoFutureDup,
+} from "./builtins/future_fns";
 import { evaluateYoGcCollect } from "./builtins/gc";
 import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
@@ -402,6 +407,9 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
         // go
         return evaluateGo({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+        // async
+        return evaluateAsync({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(
           expr,
@@ -420,6 +428,14 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_dup)) {
         // __yo_chan_dup
         return evaluateYoChanDup({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)
+      ) {
+        // __yo_future_drop
+        return evaluateYoFutureDrop({ expr, env, context: { ...context } });
+      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
+        // __yo_future_dup
+        return evaluateYoFutureDup({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
         // import
         return evaluateImport({
