@@ -27,7 +27,7 @@ main :: (fn() -> unit) {
   ch := chan(i32); // unbuffered channel
   quit := chan(i32); // unbuffered channel
 
-  async {
+  go {
     i := 0;
     while i < 10, i = (i + 1), {
       value := <-(ch).unwrap();
@@ -36,7 +36,7 @@ main :: (fn() -> unit) {
     quit <- 0;
   };
 
-  async {
+  go {
     fibonacci(ch, quit);
   };
 };

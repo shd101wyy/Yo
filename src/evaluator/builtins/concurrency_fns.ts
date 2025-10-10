@@ -15,25 +15,25 @@ import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
 /**
- * Evaluates the async builtin function.
+ * Evaluates the go builtin function (stackful coroutine spawning).
  *
- * async takes any expression and wraps it in an anonymous closure that runs asynchronously.
+ * go takes any expression and wraps it in an anonymous closure that runs asynchronously.
  * The expression is wrapped as: (fn() => unit) { expr; }()
  *
  * Optionally accepts a second argument for configuration (struct literal):
- * - async func_call(args), { stack_size: 1024 * 64 }
- * - async func_call(args), _( stack_size: 1024 * 64 )
+ * - go func_call(args), { stack_size: 1024 * 64 }
+ * - go func_call(args), _( stack_size: 1024 * 64 )
  *
  * Examples:
- * - async say("hello", 18, ch);
- * - async say("hello", 18, ch), { stack_size: 1024 * 32 };
- * - async { x := compute(42); process(x); };
- * - async x.method();
+ * - go say("hello", 18, ch);
+ * - go say("hello", 18, ch), { stack_size: 1024 * 32 };
+ * - go { x := compute(42); process(x); };
+ * - go x.method();
  *
  * @param params - The evaluation parameters
  * @returns The expression with unit type, containing the wrapped closure
  */
-export function evaluateAsync({
+export function evaluateGo({
   expr,
   env,
   context,
@@ -42,13 +42,13 @@ export function evaluateAsync({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  // async can take 1 or 2 arguments
-  // - 1 arg: async func_call()
-  // - 2 args: async func_call(), { stack_size: 1024 * 64 }
+  // go can take 1 or 2 arguments
+  // - 1 arg: go func_call()
+  // - 2 args: go func_call(), { stack_size: 1024 * 64 }
   if (expr.args.length !== 1 && expr.args.length !== 2) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `async expects 1 or 2 arguments, got ${expr.args.length}.`,
+      errorMessage: `go expects 1 or 2 arguments, got ${expr.args.length}.`,
     });
   }
 

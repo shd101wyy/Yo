@@ -18,36 +18,36 @@ main :: (fn() -> unit) {
   // ch := chan(i32);
 
   // Test 1: Default 16KB stack (segregated pool)
-  async {
+  go {
     ch <- 1;
     printf("[Task 1] Sent 1 (default 16KB stack)\n");
   };
   
   // Test 2: 64KB stack (segregated pool)
-  async {
+  go {
     ch <- 2;
     printf("[Task 2] Sent 2 (64KB stack)\n");
   }, { stack_size: (1024 * 64) };
   
   // Test 3: 128KB stack (segregated pool)
-  async {
+  go {
     ch <- 3;
     printf("[Task 3] Sent 3 (128KB stack)\n");
   }, { stack_size: (1024 * 128) };
   
   // Test 4: Custom size (48KB - custom pool)
-  async {
+  go {
     ch <- 4;
     printf("[Task 4] Sent 4 (custom 48KB stack)\n");
   }, { stack_size: (1024 * 48) };
   
   // Test 5: Multiple tasks with same size (pool reuse)
-  async {
+  go {
     ch <- 5;
     printf("[Task 5] Sent 5 (64KB stack - pool reuse)\n");
   }, { stack_size: (1024 * 64) };
   
-  async {
+  go {
     ch <- 6;
     printf("[Task 6] Sent 6 (64KB stack - pool reuse)\n");
   }, { stack_size: (1024 * 64) };

@@ -269,12 +269,12 @@ function generateFuncCall(
     return `(*((${returnTypeStr}*)NULL))`; // This will never execute but has the right type
   }
 
-  // async - spawn any expression as a cooperative coroutine by wrapping it in a closure
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+  // go - spawn any expression as a cooperative coroutine by wrapping it in a closure
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
     // The evaluator has already created the closure and stored it in expr.$.evaluatedClosure
     const evaluatedClosure = expr.$?.evaluatedClosure;
     if (!evaluatedClosure || !evaluatedClosure.$) {
-      return `// Error: async missing evaluated closure`;
+      return `// Error: go missing evaluated closure`;
     }
 
     // Generate the closure creation code (with dup expressions for captured variables)
@@ -286,7 +286,7 @@ function generateFuncCall(
       // The closure is a () => unit closure, so it has no args
       const closureTypeCName = context.types[closureType.id]?.cName;
       if (!closureTypeCName) {
-        return `// Error: async closure type not found in context`;
+        return `// Error: go closure type not found in context`;
       }
 
       // Create a wrapper function signature for this specific closure type
@@ -310,7 +310,7 @@ function generateFuncCall(
 
       return `__yo_coro_spawn_${signatureStr}(${closureCode}, ${stackSizeCode})`;
     } else {
-      return `// Error: async argument must be a closure after evaluation`;
+      return `// Error: go argument must be a closure after evaluation`;
     }
   }
 

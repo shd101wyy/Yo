@@ -40,7 +40,7 @@ import { evaluateComptExpectError } from "./builtins/compt_expect_error";
 import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import {
-  evaluateAsync,
+  evaluateGo,
   evaluateTaskSetMaximumThreads,
 } from "./builtins/concurrency_fns";
 import { evaluateDrop } from "./builtins/drop";
@@ -400,7 +400,7 @@ ${exprToString(expr)}`,
         return evaluateThe({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
         // async
-        return evaluateAsync({ expr, env, context: { ...context } });
+        return evaluateGo({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(
           expr,

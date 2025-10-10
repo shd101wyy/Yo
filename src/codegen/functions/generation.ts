@@ -1480,7 +1480,7 @@ static void __yo_check_stack_overflow(yo_coro_t* coro) {
     fprintf(stderr, "║  3. The stack_size parameter is too small                     ║\\n");
     fprintf(stderr, "║                                                               ║\\n");
     fprintf(stderr, "║ Solutions:                                                    ║\\n");
-    fprintf(stderr, "║  • Increase stack_size in async { }, { stack_size: ... }     ║\\n");
+    fprintf(stderr, "║  • Increase stack_size in go { }, { stack_size: ... }        ║\\n");
     fprintf(stderr, "║  • Move large arrays to heap allocation                       ║\\n");
     fprintf(stderr, "║  • Reduce recursion depth or use iteration                    ║\\n");
     fprintf(stderr, "╚═══════════════════════════════════════════════════════════════╝\\n");

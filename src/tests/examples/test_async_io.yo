@@ -1,23 +1,22 @@
 open import "std";
 open import "std/libc/stdio.yo";
+open import "std/libc/unistd.yo";
 
-// Extern C declarations for async I/O
-extern "C",
-  pipe : (fn(pipefd : *(i32)) -> i32),
-  close : (fn(fd : i32) -> i32),
-  yo_async_read : (fn(fd : i32, buf : *(u8), count : usize) -> isize),
-  yo_async_write : (fn(fd : i32, buf : *(u8), count : usize) -> isize)
+// Async I/O functions provided by Yo runtime
+extern "Yo",
+  yo_async_read : (fn(fd : int, buf : *(u8), count : usize) -> isize),
+  yo_async_write : (fn(fd : int, buf : *(u8), count : usize) -> isize)
 ;
 
 main :: (fn() -> unit) {
   printf("Testing async I/O\n");
   
   // Create a pipe
-  pipefd := [0, 0];
+  (pipefd : Array(int, 2)) = [0, 0];
   ret := pipe(&(pipefd(0.as(usize))));
   
   cond 
-    (ret == -1) => {
+    (ret == -(1.as(int))) => {
       printf("Failed to create pipe\n");
       return ();
     },
@@ -33,7 +32,7 @@ main :: (fn() -> unit) {
   i := 0;
   while i < 10, i = (i + 1), {
     value := i;
-    async {
+    go {
       // Write value as a 4-byte integer
       bytes_written := yo_async_write(write_fd, &(value).cast(*(u8)), 4);
       printf("Writer: wrote value %d (%ld bytes)\n", value, bytes_written);

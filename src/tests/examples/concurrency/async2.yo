@@ -38,8 +38,8 @@ main :: (fn() -> unit) {
   box1 := MyBox(16);
 
   // say2("world") and say("hello") will run in parallel on different threads
-  async { say2("world", ch); };
-  async { say("hello", box1, ch); };
+  go { say2("world", ch); };
+  go { say("hello", box1, ch); };
 
   t1_result := <-(ch).unwrap();
   printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
