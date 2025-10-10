@@ -50,6 +50,13 @@ export interface EvaluatorContext {
   isEvaluatingFunctionBody?: FunctionEvaluationContext;
 
   /**
+   * Whether we are currently evaluating an async block.
+   * This affects how we evaluate expressions within the async block.
+   * For example, `await` expressions are only valid within async blocks.
+   */
+  isEvaluatingAsyncBlock?: boolean;
+
+  /**
    * Whether we are currently evaluating a while/for loop.
    * This record the env that is used for the while/for loop body.
    */

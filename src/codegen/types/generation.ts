@@ -4,14 +4,17 @@ import {
   DynType,
   EnumType,
   FunctionType,
+  FutureType,
   isChanType,
   isClosureType,
   isDynType,
   isEnumType,
   isFunctionType,
+  isFutureType,
   isStructType,
   isTupleType,
   isUnionType,
+  isUnitType,
   StructType,
   TupleType,
   typeContainsSomeType,
@@ -326,6 +329,8 @@ struct yo_thread_gc_state {
       generateTupleDeclaration(type, cName, context);
     } else if (isChanType(type)) {
       generateChanDeclaration(type, cName, context);
+    } else if (isFutureType(type)) {
+      generateFutureDeclaration(type, cName, context);
     }
     // Note: isEnumType is handled in the first pass above
   }
@@ -812,6 +817,45 @@ export function generateChanDeclaration(
   emitter.emitDeclarationLine(
     `  yo_coro_t* recv_queue_tail; // Tail of coroutines waiting to receive`
   );
+
+  emitter.emitDeclarationLine(`} ${cName};`);
+  emitter.emitDeclarationLine(""); // Add blank line for readability
+}
+
+/**
+ * Generate a Future declaration for stackless async/await
+ * Future is a reference-counted struct that holds an async task result
+ */
+export function generateFutureDeclaration(
+  futureType: FutureType,
+  cName: string,
+  context: CodeGenContext
+): void {
+  const emitter = context.emitter;
+  const elementTypeStr = getTypeString(futureType.elementType, context);
+  const isUnit = isUnitType(futureType.elementType);
+
+  emitter.emitDeclarationLine(
+    `typedef struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (reference counted)`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_ref_header_t header; // Reference count header`
+  );
+
+  // Future state enum
+  emitter.emitDeclarationLine(
+    `  enum { YO_FUTURE_PENDING = 0, YO_FUTURE_COMPLETED = 1, YO_FUTURE_ERROR = 2 } state; // Future state`
+  );
+
+  // Only include result field if not unit/void
+  if (!isUnit) {
+    emitter.emitDeclarationLine(
+      `  ${elementTypeStr} result; // The result value (only valid when state=completed)`
+    );
+  }
+
+  // TODO: Add task/continuation support for actual async execution
+  // For now, this is a placeholder - futures will complete immediately
 
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability

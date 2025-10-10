@@ -203,23 +203,39 @@ function generateFuncCall(
   }
 
   // __yo_chan_drop - call dispose function then __yo_decr_rc on channel
+  // NOTE: Channels are deprecated with stackful coroutines
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_drop)) {
+    throw new Error(
+      `__yo_chan_drop is not supported in C codegen. ` +
+        `Channels are designed for stackful coroutines which have been deprecated.`
+    );
+
+    /* DEPRECATED: Old channel drop implementation
     const selfArg = expr.args[0];
     if (!selfArg) {
       return `// Error: __yo_chan_drop requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
     return `__yo_decr_rc((void*)(${selfCode}), NULL)`;
+    */
   }
 
   // __yo_chan_dup - call __yo_incr_rc on channel
+  // NOTE: Channels are deprecated with stackful coroutines
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_dup)) {
+    throw new Error(
+      `__yo_chan_dup is not supported in C codegen. ` +
+        `Channels are designed for stackful coroutines which have been deprecated.`
+    );
+
+    /* DEPRECATED: Old channel dup implementation
     const selfArg = expr.args[0];
     if (!selfArg) {
       return `// Error: __yo_chan_dup requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
     return `__yo_incr_rc((void*)(${selfCode}))`;
+    */
   }
 
   // __yo_gc_collect - trigger garbage collection
@@ -270,7 +286,15 @@ function generateFuncCall(
   }
 
   // go - spawn any expression as a cooperative coroutine by wrapping it in a closure
+  // NOTE: Stackful coroutines are deprecated in C codegen - use async/await instead
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
+    throw new Error(
+      `The 'go' keyword (stackful coroutines) is not supported in C codegen. ` +
+        `Please use async/await (stackless coroutines) instead. ` +
+        `Change 'go { ... }' to 'async { ... }' and use 'await' to get results.`
+    );
+
+    /* DEPRECATED: Old stackful coroutine implementation - kept for reference
     // The evaluator has already created the closure and stored it in expr.$.evaluatedClosure
     const evaluatedClosure = expr.$?.evaluatedClosure;
     if (!evaluatedClosure || !evaluatedClosure.$) {
@@ -312,15 +336,23 @@ function generateFuncCall(
     } else {
       return `// Error: go argument must be a closure after evaluation`;
     }
+    */
   }
 
   // __yo_concurrency_set_maximum_threads - set maximum number of threads for coroutine scheduler
+  // NOTE: Deprecated with stackful coroutines
   if (
     exprIsFunctionCallOf(
       expr,
       BuiltinFunctions.__yo_concurrency_set_maximum_threads
     )
   ) {
+    throw new Error(
+      `__yo_concurrency_set_maximum_threads is not supported in C codegen. ` +
+        `Stackful coroutines have been deprecated in favor of async/await.`
+    );
+
+    /* DEPRECATED: Old implementation
     const numArg = expr.args[0];
     if (!numArg) {
       return `// Error: __yo_concurrency_set_maximum_threads requires exactly 1 argument`;
@@ -328,10 +360,19 @@ function generateFuncCall(
 
     const numCode = generateExpr(numArg, indent, context);
     return `__yo_concurrency_set_maximum_threads(${numCode})`;
+    */
   }
 
   // chan() - create a new channel
+  // NOTE: Channels are deprecated with stackful coroutines
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.chan)) {
+    throw new Error(
+      `The 'chan()' function is not supported in C codegen. ` +
+        `Channels are designed for stackful coroutines which have been deprecated. ` +
+        `Use async/await with Future instead.`
+    );
+
+    /* DEPRECATED: Old channel implementation
     const elementTypeArg = expr.args[0];
     const capacityArg = expr.args[1];
 
@@ -356,10 +397,19 @@ function generateFuncCall(
     }
 
     return `__yo_chan_create_${chanTypeCName}(${capacity})`;
+    */
   }
 
   // __yo_chan_send - send value to channel
+  // NOTE: Channels are deprecated with stackful coroutines
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_send)) {
+    throw new Error(
+      `Channel send operation is not supported in C codegen. ` +
+        `Channels are designed for stackful coroutines which have been deprecated.`
+    );
+
+    /* DEPRECATED: Old channel send implementation
+    /* DEPRECATED: Old channel send implementation
     const chanArg = expr.args[0];
     const valueArg = expr.args[1];
 
@@ -380,10 +430,18 @@ function generateFuncCall(
       return `// Error: __yo_chan_send channel type not found in context`;
     }
     return `__yo_chan_send_${chanTypeCName}(${chanCode}, ${valueCode})`;
+    */
   }
 
   // __yo_chan_recv - receive value from channel
+  // NOTE: Channels are deprecated with stackful coroutines
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_recv)) {
+    throw new Error(
+      `Channel receive operation is not supported in C codegen. ` +
+        `Channels are designed for stackful coroutines which have been deprecated.`
+    );
+
+    /* DEPRECATED: Old channel recv implementation
     const chanArg = expr.args[0];
 
     if (!chanArg) {
@@ -412,10 +470,18 @@ function generateFuncCall(
     const tempName = `_yo_chan_recv_tmp_${Math.random().toString(36).substring(2, 10)}`;
 
     return `({ volatile ${resultTypeCName} ${tempName}; __yo_chan_recv_${chanTypeCName}(${chanCode}, (${resultTypeCName}*)&${tempName}); ${tempName}; })`;
+    */
   }
 
   // __yo_chan_close - close channel
+  // NOTE: Channels are deprecated with stackful coroutines
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_close)) {
+    throw new Error(
+      `Channel close operation is not supported in C codegen. ` +
+        `Channels are designed for stackful coroutines which have been deprecated.`
+    );
+
+    /* DEPRECATED: Old channel close implementation
     const chanArg = expr.args[0];
 
     if (!chanArg) {
@@ -434,6 +500,7 @@ function generateFuncCall(
       return `// Error: __yo_chan_close channel type not found in context`;
     }
     return `__yo_chan_close_${chanTypeCName}(${chanCode})`;
+    */
   }
 
   // dyn() - dynamic dispatch constructor

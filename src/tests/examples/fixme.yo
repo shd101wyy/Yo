@@ -1,23 +1,33 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
+/*
+
+test :: (async(fn() -> Future(i32))) {
+  printf("running task1")
+  return 1;
+}
+
 main :: (async(fn() -> Future(unit))) {
-  task1 := async {
-    return 1;
-  };
-  task2 := async {
-    return 2;
+  task1 := test(); // async fn call
+
+  x := 1;
+  task2 := async { // async block
+    printf("running task2\n");
+    return (x + 2);
   };
 
   a := await(task1);
+  printf("awaited task1\n");
+  b := await(task2);
+  printf("awaited task2\n");
 
-  result := (await(task1) + await(task2));
+  result := (a + b);
 };
+*/
 
-/*
 main :: (async(fn() -> Future(unit))) {
   printf("Hello, async world!\n");
 };
-*/
 
 export main;

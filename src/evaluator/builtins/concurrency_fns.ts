@@ -275,7 +275,7 @@ export function evaluateAsync({
   const evaluatedArg = context.evaluateExpression({
     expr: argExpr,
     env,
-    context: { ...context },
+    context: { ...context, isEvaluatingAsyncBlock: true },
   });
 
   if (!evaluatedArg.$) {

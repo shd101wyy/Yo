@@ -12,11 +12,13 @@ import {
   DynType,
   EnumType,
   FunctionType,
+  FutureType,
   isChanType,
   isClosureType,
   isDynType,
   isEnumType,
   isFunctionType,
+  isFutureType,
   isStructType,
   isUnitType,
   typeContainsSomeType,
@@ -255,11 +257,22 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     return; // No main function, nothing to wrap
   }
 
-  // REQUIREMENT: main must return unit
+  // Check if main is an async function
+  const isAsyncMain = mainFunctionValue.type.isAsync;
+
+  // REQUIREMENT: main must return unit (or Future(unit) for async)
   const returnType = mainFunctionValue.type.return.type;
   const returnsUnit = isUnitType(returnType);
+  const returnsFutureUnit =
+    isFutureType(returnType) &&
+    isUnitType((returnType as FutureType).elementType);
 
-  if (!returnsUnit) {
+  if (isAsyncMain && !returnsFutureUnit) {
+    throw new Error(
+      `async main function must return Future(unit), but it returns ${typeToString(returnType)}. ` +
+        `Use 'main :: (async(fn() -> Future(unit)))' instead.`
+    );
+  } else if (!isAsyncMain && !returnsUnit) {
     throw new Error(
       `main function must return unit, but it returns ${typeToString(returnType)}. ` +
         `Use 'main :: (fn() -> unit)' instead. ` +
@@ -267,21 +280,31 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     );
   }
 
-  // Main returns unit - generate wrapper that spawns main as a task
-  emitter.emitLine(`
-// Main wrapper - spawns yo_user_main as a coroutine and waits for completion
+  if (isAsyncMain) {
+    // Async main - call it and handle the Future (for now, just call it)
+    emitter.emitLine(`
+// Main wrapper - calls async yo_user_main
 int main(void) {
-  // Spawn yo_user_main as a coroutine so all channel operations use coroutine wait queues
-  __yo_coro_spawn_unit_function(yo_user_main);
+  // TODO: Initialize async runtime here
   
-  // Wait for all cooperative coroutines (including main) to complete before exiting
-  if (yo_coro_scheduler_initialized) {
-    __yo_coro_wait_all();
-  }
+  // Call async main (returns Future(unit))
+  yo_user_main();
+  
+  // TODO: Wait for all async tasks to complete
   
   return 0;
 }
 `);
+  } else {
+    // Sync main - just call it directly
+    emitter.emitLine(`
+// Main wrapper - calls yo_user_main directly
+int main(void) {
+  yo_user_main();
+  return 0;
+}
+`);
+  }
 }
 
 /**
@@ -420,7 +443,62 @@ export function generateFunctionBody(
       // Generate deferred drop expressions before the return statement
       generateDeferredDropExpressions(expr, indent, context);
 
-      if (lastExpr && isUnitType(functionType.return.type)) {
+      // Check if this is an async function - async functions return Future(T)
+      const isAsyncFunction =
+        functionType.isAsync && isFutureType(functionType.return.type);
+
+      if (isAsyncFunction && lastExpr) {
+        // For async functions, wrap the return value in a Future
+        const futureType = functionType.return.type as FutureType;
+        const elementType = futureType.elementType;
+        const isUnitResult = isUnitType(elementType);
+
+        // Get the Future type C name
+        const futureTypeCName = context.types[futureType.id]?.cName;
+        if (!futureTypeCName) {
+          emitter.emitLine(
+            `${indent}// Error: Future type not found in context`
+          );
+          return;
+        }
+
+        // Generate the result expression (if not unit)
+        if (!isUnitResult) {
+          const resultCode = generateExpr(lastExpr, indent, context);
+          emitter.emitLine(
+            `${indent}${getTypeString(elementType, context)} _yo_async_result = ${resultCode};`
+          );
+        } else {
+          // For unit, just execute the expression as a statement
+          const exprCode = generateExpr(lastExpr, indent, context);
+          if (exprCode) {
+            emitter.emitLine(`${indent}${exprCode};`);
+          }
+        }
+
+        // Allocate and initialize the Future
+        emitter.emitLine(
+          `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+        );
+        emitter.emitLine(
+          `${indent}_yo_future->header.owner_thread_id = __yo_get_thread_id();`
+        );
+        emitter.emitLine(
+          `${indent}_yo_future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
+        );
+        emitter.emitLine(`${indent}_yo_future->header.shared_word = 0;`);
+        emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
+        emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
+        emitter.emitLine(`${indent}_yo_future->header.dispose_fn = NULL;`);
+        emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
+        emitter.emitLine(`${indent}_yo_future->state = YO_FUTURE_COMPLETED;`);
+
+        if (!isUnitResult) {
+          emitter.emitLine(`${indent}_yo_future->result = _yo_async_result;`);
+        }
+
+        emitter.emitLine(`${indent}return _yo_future;`);
+      } else if (lastExpr && isUnitType(functionType.return.type)) {
         // For unit/void functions, generate the expression as a statement
         const exprCode = generateExpr(lastExpr, indent, context);
         if (exprCode) {

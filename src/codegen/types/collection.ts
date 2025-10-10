@@ -5,11 +5,13 @@ import {
   ClosureType,
   DynType,
   FunctionType,
+  FutureType,
   isArrayType,
   isChanType,
   isClosureType,
   isDynType,
   isEnumType,
+  isFutureType,
   isMutPtrType,
   isStructType,
   isTupleType,
@@ -142,12 +144,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isTupleType(type) ||
     isClosureType(type) ||
     isDynType(type) ||
-    isChanType(type)
+    isChanType(type) ||
+    isFutureType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName = isChanType(type)
       ? `yo_chan_${sanitizeForCIdentifier(getTypeString((type as ChanType).elementType, context))}_t`
-      : `yo_${type.id}`;
+      : isFutureType(type)
+        ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).elementType, context))}_t`
+        : `yo_${type.id}`;
     context.types[type.id] = {
       type,
       cName: cTypeName,
@@ -251,6 +256,13 @@ export function collectType(type: Type, context: CodeGenContext): void {
       const chanType = type as ChanType;
       // Recursively collect the element type
       collectType(chanType.elementType, context);
+    }
+
+    // For future types, collect the element type
+    if (isFutureType(type)) {
+      const futureType = type as FutureType;
+      // Recursively collect the element type
+      collectType(futureType.elementType, context);
     }
   }
   // Check if it's array types
