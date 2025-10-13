@@ -593,6 +593,52 @@ function generateFuncCall(
         isFutureType(currentFunctionType?.return?.type);
 
       if (isAsyncFunction) {
+        const functionContext = context as FunctionGenerationContext;
+
+        // Check if we're in a state machine
+        if (functionContext.inStateMachine) {
+          // State machine return - complete the Future and clean up
+          const futureType = currentFunctionType.return.type as FutureType;
+          const elementType = futureType.elementType;
+          const isUnitResult = isUnitType(elementType);
+          const futureTypeCName = context.types[futureType.id]?.cName;
+
+          if (!futureTypeCName) {
+            context.emitter.emitLine(
+              `${indent}// Error: Future type not found for async return`
+            );
+            return `return`;
+          }
+
+          context.emitter.emitLine(
+            `${indent}// Final state - complete the result Future`
+          );
+          context.emitter.emitLine(
+            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Completing async function\\n");`
+          );
+
+          // Store the result if not unit
+          if (!isUnitResult) {
+            context.emitter.emitLine(
+              `${indent}sm->result->result = ${expr.$.variableName};`
+            );
+          }
+
+          // Set state to COMPLETED with release semantics
+          // This ensures the result write above is visible to other threads
+          context.emitter.emitLine(
+            `${indent}atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
+          );
+          context.emitter.emitLine(
+            `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`
+          );
+          context.emitter.emitLine(``);
+          context.emitter.emitLine(
+            `${indent}// State machine will be freed when Future is disposed (RC reaches 0)`
+          );
+          return `return`;
+        }
+
         // Wrap the return value in a Future
         const futureType = currentFunctionType.return.type as FutureType;
         const elementType = futureType.elementType;
@@ -635,7 +681,7 @@ function generateFuncCall(
           `${indent}_yo_return_future->header.traverse_fn = NULL;`
         );
         context.emitter.emitLine(
-          `${indent}_yo_return_future->state = YO_FUTURE_COMPLETED;`
+          `${indent}atomic_store_explicit(&_yo_return_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
         );
         context.emitter.emitLine(
           `${indent}_yo_return_future->is_running = false;`

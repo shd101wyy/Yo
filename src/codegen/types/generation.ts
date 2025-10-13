@@ -855,23 +855,20 @@ export function generateFutureDeclaration(
     `  yo_ref_header_t header; // Reference count header`
   );
 
-  // Future state and flags
+  // Future state (atomic for thread-safe access across threads)
   emitter.emitDeclarationLine(
-    `  yo_future_state_t state; // Future state (PENDING/COMPLETED/ERROR)`
-  );
-  emitter.emitDeclarationLine(
-    `  _Atomic(bool) is_running; // True if the async task is still executing`
+    `  _Atomic(yo_future_state_t) state; // Future state (RUNNING/COMPLETED/ERROR) - atomic for cross-thread access`
   );
 
   // Pointer to state machine (if this Future is backed by a state machine)
   emitter.emitDeclarationLine(
-    `  void* state_machine; // Pointer to state machine (freed when Future completes)`
+    `  void* state_machine; // Pointer to state machine (freed when Future is disposed)`
   );
 
   // Only include result field if not unit/void
   if (!isUnit) {
     emitter.emitDeclarationLine(
-      `  ${elementTypeStr} result; // The result value (only valid when state=completed)`
+      `  ${elementTypeStr} result; // The result value (only valid when state=COMPLETED)`
     );
   }
 

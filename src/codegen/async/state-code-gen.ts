@@ -70,7 +70,7 @@ export function splitIntoStateSegments(
     ];
   }
 
-  // Begin block - split at await points
+  // Begin block - split at await points and return statements
   const expressions = body.args;
   const segmentExpressions: Expr[][] = [];
   let currentSegment: Expr[] = [];
@@ -79,13 +79,23 @@ export function splitIntoStateSegments(
     // Check if this expression contains an await
     const awaitIndex = findAwaitInExpr(expr, awaitPoints);
 
+    // Check if this expression is a return statement
+    const isReturn = exprIsFunctionCallOf(expr, "return");
+
     if (awaitIndex !== -1) {
-      // This expression contains an await
+      // This expression contains an await - end this segment
       currentSegment.push(expr);
       segmentExpressions.push(currentSegment);
       currentSegment = [];
+    } else if (isReturn) {
+      // This is a return statement - end this segment after including the return
+      currentSegment.push(expr);
+      segmentExpressions.push(currentSegment);
+      currentSegment = [];
+      // Don't process any more expressions after a return
+      break;
     } else {
-      // No await in this expression
+      // No await or return in this expression
       currentSegment.push(expr);
     }
   }

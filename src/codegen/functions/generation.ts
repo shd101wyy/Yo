@@ -27,7 +27,6 @@ import {
 import { canRefStructFormCycles } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
-import { analyzeAwaitPoints } from "../async/await-analysis";
 import { generateAsyncRuntime } from "../async/runtime";
 import {
   generateResumeFunctionDeclaration,
@@ -293,18 +292,18 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
   if (isAsyncMain) {
     // Async main - call it and run the event loop
     emitter.emitLine(`
-// Main wrapper - calls async yo_user_main and runs event loop
+// Main wrapper - calls async yo_user_main and waits for workers
 int main(void) {
   // Initialize async runtime
   yo_async_runtime_init();
   
   // Call async main (returns Future(unit))
-  // This starts the state machine execution
+  // This spawns the state machine to a worker thread
   yo_future_void_t* main_future = yo_user_main();
   
-  // Run the event loop to process all async tasks
-  // This will process continuations until the queue is empty
-  yo_async_run_event_loop();
+  // Wait for all async tasks to complete
+  // This waits for all worker threads to finish their tasks
+  __yo_coro_wait_all();
   
   // Clean up main Future
   // Note: The Future should already be completed and ref count should be 1
@@ -393,22 +392,25 @@ function generateAsyncFunctionWithStateMachine(
   emitter.emitLine(`  future->header.shared_word = 0;`);
   emitter.emitLine(`  future->header.gc_next = NULL;`);
   emitter.emitLine(`  future->header.gc_prev = NULL;`);
-  emitter.emitLine(`  future->header.dispose_fn = NULL;`);
+  emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);
   emitter.emitLine(`  future->header.traverse_fn = NULL;`);
-  emitter.emitLine(`  future->state = YO_FUTURE_PENDING;`);
-  emitter.emitLine(`  future->is_running = true;`);
+  emitter.emitLine(
+    `  atomic_store_explicit(&future->state, YO_FUTURE_RUNNING, memory_order_relaxed);`
+  );
   emitter.emitLine(
     `  future->state_machine = sm;  // Link state machine to Future`
   );
   emitter.emitLine(`  sm->result = future;`);
   emitter.emitLine(``);
 
-  // Start the state machine execution
-  emitter.emitLine(`  // Start execution`);
+  // Spawn the state machine execution to a worker thread
+  emitter.emitLine(`  // Spawn execution to worker thread`);
   emitter.emitLine(
-    `  ASYNC_DEBUG("${cFunctionName}: Starting state machine\\n");`
+    `  ASYNC_DEBUG("${cFunctionName}: Spawning state machine to worker thread\\n");`
   );
-  emitter.emitLine(`  ${stateMachineInfo.resumeFunctionName}(sm);`);
+  emitter.emitLine(
+    `  yo_async_spawn_task((void (*)(void*))${stateMachineInfo.resumeFunctionName}, (void*)sm);`
+  );
   emitter.emitLine(``);
   emitter.emitLine(`  return future;`);
   emitter.emitLine(`}`);
@@ -442,20 +444,14 @@ export function generateFunction(
     functionType.isAsync && isFutureType(functionType.return.type);
 
   if (isAsyncFunction) {
-    // Analyze the function body for await points
-    const analysis = analyzeAwaitPoints(functionValue.body);
-
-    if (analysis.hasAwaits) {
-      // This async function has awaits - generate state machine
-      generateAsyncFunctionWithStateMachine(
-        functionValue,
-        cFunctionName,
-        context
-      );
-      return;
-    }
-    // If no awaits, fall through to generate a simple async function
-    // that just returns a completed Future
+    // All async functions use state machine transformation
+    // This ensures they all spawn to worker threads consistently
+    generateAsyncFunctionWithStateMachine(
+      functionValue,
+      cFunctionName,
+      context
+    );
+    return;
   }
 
   const functionPrototype = generateFunctionPrototype(
@@ -631,11 +627,12 @@ export function generateFunctionBody(
         emitter.emitLine(`${indent}_yo_future->header.shared_word = 0;`);
         emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
         emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
-        emitter.emitLine(`${indent}_yo_future->header.dispose_fn = NULL;`);
-        emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
-        emitter.emitLine(`${indent}_yo_future->state = YO_FUTURE_COMPLETED;`);
         emitter.emitLine(
-          `${indent}_yo_future->is_running = false;  // Already completed`
+          `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
+        );
+        emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
+        emitter.emitLine(
+          `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
         );
         emitter.emitLine(
           `${indent}_yo_future->state_machine = NULL;  // No state machine for immediate completion`
@@ -1115,15 +1112,13 @@ void __yo_future_drop(void* ptr) {
   
   // All Future types have the same layout:
   // - yo_ref_header_t header
-  // - enum state
-  // - _Atomic(bool) is_running
+  // - _Atomic(yo_future_state_t) state
   // - void* state_machine
   // - result (optional)
   
   typedef struct {
     yo_ref_header_t header;
-    int state;  // enum: YO_FUTURE_PENDING/COMPLETED/ERROR
-    _Atomic(bool) is_running;
+    int state;  // enum: YO_FUTURE_RUNNING/COMPLETED/ERROR
     void* state_machine;
   } yo_future_generic_t;
   
@@ -1132,16 +1127,9 @@ void __yo_future_drop(void* ptr) {
   // Decrement reference count
   __yo_decr_rc(ptr, NULL);
   
-  // If still running and ref count reached 0, we have a problem:
-  // The Future is still executing but no one is holding a reference.
-  // For now, we'll let the async task complete and free itself.
-  // In a full implementation, we might want to cancel the task here.
-  
   // Note: The actual freeing is handled by __yo_decr_rc, which will
   // call the dispose function if ref count reaches 0.
-  // We need to ensure that disposal only happens when is_running = false.
-  // This is handled by setting is_running = false in the state machine
-  // completion code before freeing the state machine.
+  // The dispose function will free the state machine.
 }
 `);
 

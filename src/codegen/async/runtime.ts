@@ -71,6 +71,28 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
   ASYNC_DEBUG("Queue count: %zu\\n", yo_thread_async_queue.count);
 }
 
+// Dispose function for Future types - frees the state machine
+static void yo_future_dispose(void* future_ptr) {
+  // All Future types have the same layout for the fields we care about:
+  // - yo_ref_header_t header
+  // - _Atomic(yo_future_state_t) state
+  // - void* state_machine
+  typedef struct {
+    yo_ref_header_t header;
+    int state;
+    void* state_machine;
+  } yo_future_generic_t;
+  
+  yo_future_generic_t* future = (yo_future_generic_t*)future_ptr;
+  
+  // Free the state machine if it exists
+  if (future->state_machine) {
+    ASYNC_DEBUG("Disposing Future: freeing state machine %p\\n", future->state_machine);
+    __yo_free(future->state_machine);
+    future->state_machine = NULL;
+  }
+}
+
 // Dequeue and execute one continuation
 // Returns true if a continuation was executed, false if queue is empty
 static bool yo_async_run_one_continuation(void) {
@@ -112,14 +134,40 @@ static void yo_async_run_event_loop(void) {
   ASYNC_DEBUG("Event loop finished\\n");
 }
 
-// Spawn an async task by starting its execution
-// For async functions without await, this just calls them
-// For async functions with await, this starts the state machine
-static void yo_async_spawn(void* future) {
-  // For now, do nothing - the Future is already being executed
-  // In a more sophisticated runtime, we might enqueue it to run later
-  ASYNC_DEBUG("Spawning async task: future=%p\\n", future);
-  (void)future;  // Suppress unused parameter warning
+// Spawn an async task by starting its execution on a worker thread
+// This uses the existing coroutine infrastructure to run async tasks
+static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
+  ASYNC_DEBUG("Spawning async task to worker: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
+  
+  // Initialize the coroutine scheduler if not already done
+  __yo_coro_scheduler_init();
+  
+  // If no workers, run on current thread
+  if (yo_worker_thread_count == 0) {
+    __yo_concurrency_set_maximum_threads(0);
+  }
+  
+  // Allocate a coroutine for this async task
+  yo_coro_t* coro = __yo_coro_pool_get(YO_CORO_DEFAULT_STACK_SIZE);
+  coro->func = resume_fn;
+  coro->data = state_machine;
+  
+  // Increment active coroutine counter BEFORE enqueueing
+  atomic_fetch_add(&yo_active_coro_count, 1);
+  
+  if (yo_worker_thread_count > 0) {
+    // Assign to a worker thread (round-robin)
+    size_t limit = yo_coro_active_worker_limit > 0 ? yo_coro_active_worker_limit : yo_worker_thread_count;
+    size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
+    coro->owner_worker = &yo_worker_threads[worker_idx];
+    ASYNC_DEBUG("Assigning async task coro=%p to worker %zu\\n", (void*)coro, worker_idx);
+    __yo_coro_enqueue_to_worker(&yo_worker_threads[worker_idx], coro);
+  } else {
+    CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
+    atomic_fetch_sub(&yo_active_coro_count, 1);
+    __yo_coro_pool_put(coro);
+    __yo_free(coro);
+  }
 }
 
 // Register a continuation to be called when a Future completes
@@ -134,13 +182,12 @@ static void yo_async_register_continuation(
   
   (void)future;  // Suppress unused parameter warning
   
-  // For now, just enqueue the continuation
-  // In a full implementation, we'd attach it to the Future
-  // and invoke it when the Future completes
+  // When the Future becomes ready, we need to resume the state machine
+  // For now, since we don't have actual async I/O, the Future is immediately ready
+  // So we spawn the continuation immediately
   
-  // Since we don't have actual async I/O yet, we'll just enqueue it
-  // to run in the next event loop iteration
-  yo_async_enqueue_continuation(resume_fn, state_machine);
+  // Spawn the continuation to a worker thread
+  yo_async_spawn_task(resume_fn, state_machine);
 }
 
 // Initialize async runtime (called at program start)

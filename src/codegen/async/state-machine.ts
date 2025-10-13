@@ -4,6 +4,7 @@
  * Generates C code for async function state machines.
  */
 
+import { exprIsFunctionCallOf } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { FutureType, isFutureType, isUnitType } from "../../types";
 import { FunctionGenerationContext } from "../functions/context";
@@ -53,11 +54,8 @@ export function generateStateMachineStruct(
   // Analyze the function body for await points
   const analysis = analyzeAwaitPoints(functionValue.body);
 
-  if (!analysis.hasAwaits) {
-    // This async function has no awaits, no state machine needed
-    // (It will just allocate and return a completed Future)
-    throw new Error(`Async function ${functionCName} has no await expressions`);
-  }
+  // Note: Even if there are no awaits, we still generate a state machine
+  // This ensures all async functions spawn to worker threads consistently
 
   // Generate struct name and resume function name
   const structName = `${functionCName}_state_t`;
@@ -196,6 +194,12 @@ export function generateResumeFunctionImplementation(
     info.analysis.awaitPoints
   );
 
+  // Set current function context so return statements know we're in an async function
+  const previousFunctionName = context.currentFunctionName;
+  const previousFunctionType = context.currentFunctionType;
+  context.currentFunctionName = functionCName;
+  context.currentFunctionType = functionType;
+
   emitter.emitLine(`// Resume function for ${functionCName}`);
   emitter.emitLine(`void ${info.resumeFunctionName}(${info.structName}* sm) {`);
   emitter.emitLine(
@@ -273,7 +277,7 @@ export function generateResumeFunctionImplementation(
       emitter.emitLine(``);
       emitter.emitLine(`      // Check if future is ready`);
       emitter.emitLine(
-        `      if (sm->await_future_${awaitIndex}->state == YO_FUTURE_COMPLETED) {`
+        `      if (atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire) == YO_FUTURE_COMPLETED) {`
       );
       emitter.emitLine(
         `        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} already completed, continuing immediately\\n");`
@@ -295,43 +299,36 @@ export function generateResumeFunctionImplementation(
       emitter.emitLine(`      }`);
     } else if (isLastSegment) {
       // Last segment - complete the Future
-      emitter.emitLine(`      // Final state - complete the result Future`);
-      emitter.emitLine(
-        `      ASYNC_DEBUG("${functionCName}: Completing async function\\n");`
+      // But only if the segment doesn't already contain a return statement
+      const hasReturnStatement = segment.expressions.some((expr) =>
+        exprIsFunctionCallOf(expr, "return")
       );
-      emitter.emitLine(`      sm->result->state = YO_FUTURE_COMPLETED;`);
 
-      if (!isUnitResult) {
-        emitter.emitLine(`      // TODO: Set result value`);
-        emitter.emitLine(`      // sm->result->result = <final_result>;`);
+      if (!hasReturnStatement) {
+        emitter.emitLine(`      // Final state - complete the result Future`);
+        emitter.emitLine(
+          `      ASYNC_DEBUG("${functionCName}: Completing async function\\n");`
+        );
+        emitter.emitLine(
+          `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
+        );
+
+        if (!isUnitResult) {
+          emitter.emitLine(`      // TODO: Set result value`);
+          emitter.emitLine(`      // sm->result->result = <final_result>;`);
+        }
+
+        emitter.emitLine(
+          `      sm->state = ${stateNumber + 1};  // Terminal state`
+        );
+        emitter.emitLine(``);
+
+        // State machine will be freed when Future is disposed
+        emitter.emitLine(
+          `      // State machine will be freed when Future is disposed (RC reaches 0)`
+        );
+        emitter.emitLine(`      return;`);
       }
-
-      emitter.emitLine(
-        `      sm->state = ${stateNumber + 1};  // Terminal state`
-      );
-      emitter.emitLine(``);
-
-      // Mark Future as no longer running and free state machine
-      emitter.emitLine(
-        `      // Save Future pointer before freeing state machine`
-      );
-      emitter.emitLine(`      ${futureTypeCName}* result_future = sm->result;`);
-      emitter.emitLine(``);
-      emitter.emitLine(`      // Free state machine and unlink from Future`);
-      emitter.emitLine(`      result_future->state_machine = NULL;`);
-      emitter.emitLine(`      __yo_free(sm);`);
-      emitter.emitLine(`      `);
-      emitter.emitLine(
-        `      // Mark as not running - this may trigger Future disposal if ref count is 0`
-      );
-      emitter.emitLine(
-        `      atomic_store(&result_future->is_running, false);`
-      );
-      emitter.emitLine(`      `);
-      emitter.emitLine(
-        `      // Note: sm is now freed, don't use it after this point`
-      );
-      emitter.emitLine(`      return;`);
     }
 
     emitter.emitLine(`    }`);
@@ -340,4 +337,8 @@ export function generateResumeFunctionImplementation(
   emitter.emitLine(`  }`);
   emitter.emitLine(`}`);
   emitter.emitLine(``);
+
+  // Restore previous function context
+  context.currentFunctionName = previousFunctionName;
+  context.currentFunctionType = previousFunctionType;
 }
