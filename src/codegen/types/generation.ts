@@ -43,6 +43,10 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
     ? "#define YO_DEBUG_CONCURRENCY 1"
     : "// #define YO_DEBUG_CONCURRENCY 1";
 
+  const debugAsyncAwaitDefine = context.debugAsyncAwait
+    ? "#define YO_DEBUG_ASYNC_AWAIT 1"
+    : "// #define YO_DEBUG_ASYNC_AWAIT 1";
+
   context.emitter
     .emitDeclarationLine(`// Biased Reference Counting (BRC) header for objects and ref enums
 // Per-thread GC with stop-the-world collection for better scalability
@@ -63,6 +67,15 @@ ${debugConcurrencyDefine}
   #define CONCURRENCY_DEBUG(...) fprintf(stderr, __VA_ARGS__)
 #else
   #define CONCURRENCY_DEBUG(...)
+#endif
+
+// Debug flag for async/await operations - use --debug-async-await flag to enable
+${debugAsyncAwaitDefine}
+
+#ifdef YO_DEBUG_ASYNC_AWAIT
+  #define ASYNC_DEBUG(...) fprintf(stderr, "ASYNC: " __VA_ARGS__)
+#else
+  #define ASYNC_DEBUG(...)
 #endif
 
 // Fast thread ID function using platform-specific inline assembly (inspired by Python/mimalloc)
@@ -842,9 +855,17 @@ export function generateFutureDeclaration(
     `  yo_ref_header_t header; // Reference count header`
   );
 
-  // Future state enum
+  // Future state and flags
   emitter.emitDeclarationLine(
-    `  enum { YO_FUTURE_PENDING = 0, YO_FUTURE_COMPLETED = 1, YO_FUTURE_ERROR = 2 } state; // Future state`
+    `  yo_future_state_t state; // Future state (PENDING/COMPLETED/ERROR)`
+  );
+  emitter.emitDeclarationLine(
+    `  _Atomic(bool) is_running; // True if the async task is still executing`
+  );
+
+  // Pointer to state machine (if this Future is backed by a state machine)
+  emitter.emitDeclarationLine(
+    `  void* state_machine; // Pointer to state machine (freed when Future completes)`
   );
 
   // Only include result field if not unit/void
@@ -853,9 +874,6 @@ export function generateFutureDeclaration(
       `  ${elementTypeStr} result; // The result value (only valid when state=completed)`
     );
   }
-
-  // TODO: Add task/continuation support for actual async execution
-  // For now, this is a placeholder - futures will complete immediately
 
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability

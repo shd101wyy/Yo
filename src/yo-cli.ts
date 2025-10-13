@@ -76,6 +76,12 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: false,
   })
+  .option("debug-async-await", {
+    describe: "Enable debug logging for async/await state machine operations.",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
   .option("release", {
     describe: "Build in release mode with optimizations (-O2, no warnings).",
     type: "boolean",
@@ -126,6 +132,7 @@ yo run <script>                  Run a script defined in 'yo.json'
         skipCCompiler: argv.skipCCompiler,
         debugBrc: argv.debugBrc,
         debugConcurrency: argv.debugConcurrency,
+        debugAsyncAwait: argv.debugAsyncAwait,
         release: argv.release,
         optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
       });

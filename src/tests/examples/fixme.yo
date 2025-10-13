@@ -1,33 +1,34 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
-/*
-
-test :: (async(fn() -> Future(i32))) {
-  printf("running task1")
+task1 :: (async(fn() -> Future(i32))) {
+  printf("running task1 on thread %zu\n", Concurrency.get_thread_id());
   return 1;
-}
+};
+
+task2 :: (async(fn() -> Future(i32))) {
+  printf("running task2 on thread %zu\n", Concurrency.get_thread_id());
+  return 2;
+};
 
 main :: (async(fn() -> Future(unit))) {
-  task1 := test(); // async fn call
+  printf("Hello, async world on thread %zu!\n", Concurrency.get_thread_id());
+  
+  task1_future := task1(); // async fn call
+  printf("after calling task1\n");
 
   x := 1;
-  task2 := async { // async block
-    printf("running task2\n");
-    return (x + 2);
-  };
+  task2_future := task2(); // another async call
+  printf("after calling task2\n");
 
-  a := await(task1);
-  printf("awaited task1\n");
-  b := await(task2);
-  printf("awaited task2\n");
+  a := await task1_future;
+  printf("awaited task1, result: %d\n", a);
+  
+  b := await task2_future;
+  printf("awaited task2, result: %d\n", b);
 
   result := (a + b);
-};
-*/
-
-main :: (async(fn() -> Future(unit))) {
-  printf("Hello, async world!\n");
+  printf("Final result: %d\n", result);
 };
 
 export main;

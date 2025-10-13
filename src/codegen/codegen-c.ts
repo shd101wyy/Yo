@@ -31,7 +31,11 @@ export class CodeGeneratorC {
   public compileModule(
     modulePath: string,
     moduleValue: ModuleValue,
-    options: { debugBrc?: boolean; debugConcurrency?: boolean } = {}
+    options: {
+      debugBrc?: boolean;
+      debugConcurrency?: boolean;
+      debugAsyncAwait?: boolean;
+    } = {}
   ): void {
     this.emitter.emitDeclarationLine(`\n// Module ${modulePath}`);
     this.emitter.emitDeclarationLine(
@@ -61,6 +65,7 @@ export class CodeGeneratorC {
       ]),
       debugBrc: options.debugBrc ?? false,
       debugConcurrency: options.debugConcurrency ?? false,
+      debugAsyncAwait: options.debugAsyncAwait ?? false,
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)
@@ -72,6 +77,16 @@ export class CodeGeneratorC {
 
     // Emit C include headers
     emitCIncludes(context);
+
+    // Generate the Future state enum (needed before type declarations)
+    this.emitter.emitDeclarationLine(`
+// Future state enum - shared by all Future types
+typedef enum {
+  YO_FUTURE_PENDING = 0,
+  YO_FUTURE_COMPLETED = 1,
+  YO_FUTURE_ERROR = 2
+} yo_future_state_t;
+`);
 
     // Second pass: Generate type declarations
     generateTypeDeclarations(context);

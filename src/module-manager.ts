@@ -71,7 +71,13 @@ export class ModuleManager {
       emitC,
       debugBrc,
       debugConcurrency,
-    }: { emitC?: boolean; debugBrc?: boolean; debugConcurrency?: boolean } = {}
+      debugAsyncAwait,
+    }: {
+      emitC?: boolean;
+      debugBrc?: boolean;
+      debugConcurrency?: boolean;
+      debugAsyncAwait?: boolean;
+    } = {}
   ) {
     console.log(`= Compiling module ${modulePath}`);
     const { moduleValue, moduleError } = this.loadModule(modulePath);
@@ -88,6 +94,7 @@ export class ModuleManager {
     this.codeGenratorC.compileModule(modulePath, moduleValue, {
       debugBrc,
       debugConcurrency,
+      debugAsyncAwait,
     });
     if (emitC) {
       console.log(this.codeGenratorC.print());

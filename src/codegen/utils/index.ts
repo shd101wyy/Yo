@@ -94,6 +94,11 @@ export interface CodeGenContext {
    * Enable debug logging for cooperative task scheduler operations
    */
   debugConcurrency: boolean;
+
+  /**
+   * Enable debug logging for async/await state machine operations
+   */
+  debugAsyncAwait: boolean;
 }
 
 /**

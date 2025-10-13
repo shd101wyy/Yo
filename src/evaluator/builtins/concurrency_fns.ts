@@ -1,6 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
@@ -345,6 +346,7 @@ export function evaluateAsync({
     pathCollection: [],
   };
 
+  attachTempVariableToExpr(expr, true);
   return expr;
 }
 

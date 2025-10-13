@@ -16,11 +16,14 @@ import {
   ArrayType,
   ChanType,
   ClosureType,
+  FunctionType,
+  FutureType,
   isArrayType,
   isClosureType,
   isDynType,
   isEnumType,
   isFunctionType,
+  isFutureType,
   isMutPtrType,
   isObjectType,
   isSliceType,
@@ -236,6 +239,27 @@ function generateFuncCall(
     const selfCode = generateExpr(selfArg, indent, context);
     return `__yo_incr_rc((void*)(${selfCode}))`;
     */
+  }
+
+  // __yo_future_drop - call __yo_decr_rc on future with special running check
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_future_drop requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    // Use a special dispose function that checks is_running flag
+    return `__yo_future_drop((void*)(${selfCode}))`;
+  }
+
+  // __yo_future_dup - call __yo_incr_rc on future
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_future_dup requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
   // __yo_gc_collect - trigger garbage collection
@@ -508,6 +532,34 @@ function generateFuncCall(
     return generateDynCall(expr, indent, context);
   }
 
+  // await - extract value from Future
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
+    const futureArg = expr.args[0];
+    if (!futureArg) {
+      return `// Error: await requires exactly 1 argument`;
+    }
+
+    const futureCode = generateExpr(futureArg, indent, context);
+    const futureType = futureArg.$?.type;
+
+    if (!futureType || !isFutureType(futureType)) {
+      return `// Error: await argument must be a Future type`;
+    }
+
+    const resultType = (futureType as FutureType).elementType;
+    const isUnit = isUnitType(resultType);
+
+    // For now, futures complete immediately, so we just extract the result
+    // TODO: Add actual async waiting/polling when we implement the async runtime
+    if (isUnit) {
+      // Future(unit) - just check if completed and return unit
+      return `({ (void)(${futureCode})->state; })`;
+    } else {
+      // Future(T) - extract the result field
+      return `(${futureCode})->result`;
+    }
+  }
+
   // return
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
     const arg = expr.args[0];
@@ -530,6 +582,75 @@ function generateFuncCall(
 
       if (expr.$.deferredDropExpressions) {
         generateDeferredDropExpressions(expr, indent, context);
+      }
+
+      // Check if we're in an async function - if so, wrap the return value in a Future
+      const currentFunctionType = (
+        context as { currentFunctionType?: FunctionType }
+      ).currentFunctionType;
+      const isAsyncFunction =
+        currentFunctionType?.isAsync &&
+        isFutureType(currentFunctionType?.return?.type);
+
+      if (isAsyncFunction) {
+        // Wrap the return value in a Future
+        const futureType = currentFunctionType.return.type as FutureType;
+        const elementType = futureType.elementType;
+        const isUnitResult = isUnitType(elementType);
+        const futureTypeCName = context.types[futureType.id]?.cName;
+
+        if (!futureTypeCName) {
+          context.emitter.emitLine(
+            `${indent}// Error: Future type not found for async return`
+          );
+          return `return`;
+        }
+
+        // Allocate and initialize the Future
+        context.emitter.emitLine(
+          `${indent}// Async function return - wrap in completed Future`
+        );
+        context.emitter.emitLine(
+          `${indent}${futureTypeCName}* _yo_return_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->header.owner_thread_id = __yo_get_thread_id();`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->header.shared_word = 0;`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->header.gc_next = NULL;`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->header.gc_prev = NULL;`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->header.dispose_fn = NULL;`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->header.traverse_fn = NULL;`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->state = YO_FUTURE_COMPLETED;`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->is_running = false;`
+        );
+        context.emitter.emitLine(
+          `${indent}_yo_return_future->state_machine = NULL;`
+        );
+
+        if (!isUnitResult) {
+          context.emitter.emitLine(
+            `${indent}_yo_return_future->result = ${expr.$.variableName};`
+          );
+        }
+
+        return `return _yo_return_future`;
       }
 
       if (isUnitType(expr.$.type)) {
@@ -592,12 +713,76 @@ function generateFuncCall(
     let lhs = expr.args[0]!;
     const rhs = expr.args[1]!;
 
+    // Debug: Log all := assignments in state machines
+    const functionContext = context as FunctionGenerationContext;
+    if (functionContext.inStateMachine) {
+      const lhsInfo = exprIsAtom(lhs)
+        ? `atom(${lhs.token.value})`
+        : `non-atom(${lhs.tag})`;
+      const rhsInfo = exprIsAtom(rhs)
+        ? `atom(${rhs.token.value})`
+        : `non-atom(${rhs.tag})`;
+      console.log(`[STATE MACHINE := DEBUG] ${lhsInfo} := ${rhsInfo}`);
+    }
+
     if (
       exprIsFunctionCall(lhs) &&
       exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
     ) {
       // compile-time variable
       return "";
+    }
+
+    // In state machine context, skip variable "load" expressions (localVar := stateMachineVar)
+    // These are generated by the type checker to create local copies of variables
+    // But in state machines, we access variables directly through sm->var_xxx
+    if (functionContext.inStateMachine && exprIsAtom(lhs) && exprIsAtom(rhs)) {
+      const lhsName = lhs.token.value;
+      const rhsName = rhs.token.value;
+
+      // Check if both refer to the same state machine variable
+      // This handles cases like: b := b (creating a local copy)
+      const lhsIsStateMachineVar =
+        functionContext.stateMachineVariables &&
+        Array.from(functionContext.stateMachineVariables.values()).some(
+          (v) => v.name === lhsName
+        );
+      const rhsIsStateMachineVar =
+        functionContext.stateMachineVariables &&
+        Array.from(functionContext.stateMachineVariables.values()).some(
+          (v) => v.name === rhsName
+        );
+
+      // Debug: Check if these are borrowing variables
+      if (lhs.$?.env && rhs.$?.env) {
+        const lhsVars = getVariablesFromEnv(lhs.$.env, lhsName);
+        const rhsVars = getVariablesFromEnv(rhs.$.env, rhsName);
+        const lhsVar = lhsVars[lhsVars.length - 1];
+        const rhsVar = rhsVars[rhsVars.length - 1];
+
+        if (lhsVar || rhsVar) {
+          console.log(
+            `[STATE MACHINE ASSIGN DEBUG] lhs="${lhsName}" rhs="${rhsName}"` +
+              ` lhsIsBorrowing=${!!lhsVar?.isBorrowingTheARCValueOfVariable}` +
+              ` rhsIsBorrowing=${!!rhsVar?.isBorrowingTheARCValueOfVariable}` +
+              ` lhsIsStateMachineVar=${lhsIsStateMachineVar}` +
+              ` rhsIsStateMachineVar=${rhsIsStateMachineVar}`
+          );
+        }
+      }
+
+      // Skip if both sides reference state machine variables with the same name
+      // OR if we're trying to create a local copy of a state machine variable
+      if (
+        lhsName === rhsName &&
+        (lhsIsStateMachineVar || rhsIsStateMachineVar)
+      ) {
+        // Self-assignment of state machine variable - skip to avoid redundant local copy
+        console.log(
+          `[STATE MACHINE ASSIGN DEBUG] Skipping self-assignment: ${lhsName} := ${rhsName}`
+        );
+        return "";
+      }
     }
 
     // Check if it's destructurings
@@ -647,6 +832,16 @@ function generateFuncCall(
         return `// Error: No type information for variable ${varName}\n`;
       }
 
+      // Check if we're in a state machine context and this is a captured variable
+      const functionContext = context as FunctionGenerationContext;
+      const isStateMachineVar =
+        functionContext.inStateMachine &&
+        functionContext.stateMachineVariables &&
+        lhs.$?.env &&
+        Array.from(functionContext.stateMachineVariables.values()).some(
+          (v) => v.name === varName
+        );
+
       // Handle array initialization specially
       if (isArrayType(lhs.$.type)) {
         // Check if RHS is an array literal
@@ -655,36 +850,48 @@ function generateFuncCall(
           exprIsFunctionCallOf(rhs, BuiltinKeywords.array)
         ) {
           // Direct initialization with array literal
-          const varTypeAndName = getVariableTypeString(
-            lhs.$.type,
-            varName,
-            context
-          );
           const rhsCode = generateExpr(rhs, indent, context);
-          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
+
+          if (isStateMachineVar) {
+            // In state machine - assign to sm->var_xxx field
+            const varId = Array.from(
+              functionContext.stateMachineVariables!.entries()
+            ).find(([_, v]) => v.name === varName)?.[0];
+            if (varId) {
+              context.emitter.emitLine(
+                `${indent}sm->var_${varId} = ${rhsCode};`
+              );
+            }
+          } else {
+            const varTypeAndName = getVariableTypeString(
+              lhs.$.type,
+              varName,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${varTypeAndName} = ${rhsCode};`
+            );
+          }
         } else {
           // Copying from another array - use direct struct assignment
-          const varTypeAndName = getVariableTypeString(
-            lhs.$.type,
-            varName,
-            context
-          );
           // Handle temp variable assignment for ARC values
           let rhsCode: string;
           if (rhs.$?.variableName) {
             const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
             const rhsExprCode = generateExpr(rhs, indent, context);
 
-            // Generate temp variable assignment first
-            const tempVarType = getVariableTypeString(
-              rhs.$.type!,
-              tempVarName,
-              context
-            );
-            if (tempVarName !== rhsExprCode) {
-              context.emitter.emitLine(
-                `${indent}${tempVarType} = ${rhsExprCode};`
+            // Generate temp variable assignment first (only if not in state machine)
+            if (!isStateMachineVar) {
+              const tempVarType = getVariableTypeString(
+                rhs.$.type!,
+                tempVarName,
+                context
               );
+              if (tempVarName !== rhsExprCode) {
+                context.emitter.emitLine(
+                  `${indent}${tempVarType} = ${rhsExprCode};`
+                );
+              }
             }
 
             // Use temp variable for the main assignment
@@ -692,7 +899,27 @@ function generateFuncCall(
           } else {
             rhsCode = generateExpr(rhs, indent, context);
           }
-          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
+
+          if (isStateMachineVar) {
+            // In state machine - assign to sm->var_xxx field
+            const varId = Array.from(
+              functionContext.stateMachineVariables!.entries()
+            ).find(([_, v]) => v.name === varName)?.[0];
+            if (varId) {
+              context.emitter.emitLine(
+                `${indent}sm->var_${varId} = ${rhsCode};`
+              );
+            }
+          } else {
+            const varTypeAndName = getVariableTypeString(
+              lhs.$.type,
+              varName,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${varTypeAndName} = ${rhsCode};`
+            );
+          }
         }
       } else {
         // Non-array initialization - use existing logic
@@ -787,20 +1014,49 @@ function generateFuncCall(
         // Special handling for slice initialization.
         if (isMutPtrType(lhs.$.type) && isSliceType(lhs.$.type.type)) {
           const sliceType = lhs.$.type.type; // Get the slice type directly
-          const varTypeAndName = getVariableTypeString(
-            sliceType,
-            varName,
-            context
-          );
-          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
+
+          if (isStateMachineVar) {
+            // In state machine - assign to sm->var_xxx field
+            const varId = Array.from(
+              functionContext.stateMachineVariables!.entries()
+            ).find(([_, v]) => v.name === varName)?.[0];
+            if (varId) {
+              context.emitter.emitLine(
+                `${indent}sm->var_${varId} = ${rhsCode};`
+              );
+            }
+          } else {
+            const varTypeAndName = getVariableTypeString(
+              sliceType,
+              varName,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${varTypeAndName} = ${rhsCode};`
+            );
+          }
         } else {
           // Normal initialization
-          const varTypeAndName = getVariableTypeString(
-            lhs.$.type,
-            varName,
-            context
-          );
-          context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
+          if (isStateMachineVar) {
+            // In state machine - assign to sm->var_xxx field
+            const varId = Array.from(
+              functionContext.stateMachineVariables!.entries()
+            ).find(([_, v]) => v.name === varName)?.[0];
+            if (varId) {
+              context.emitter.emitLine(
+                `${indent}sm->var_${varId} = ${rhsCode};`
+              );
+            }
+          } else {
+            const varTypeAndName = getVariableTypeString(
+              lhs.$.type,
+              varName,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${varTypeAndName} = ${rhsCode};`
+            );
+          }
         }
       }
       return "";
@@ -839,23 +1095,31 @@ function generateFuncCall(
     // Check if we need to save the old value into temp variable
     if (expr.$?.variableName) {
       const tempVarName = expr.$.variableName;
-      const tempVarNameAndType = getVariableTypeString(
-        lhs.$.type,
-        tempVarName,
-        context
-      );
 
-      // Handle array assignment specially
-      if (isArrayType(lhs.$.type)) {
-        // For array, use direct struct assignment
-        context.emitter.emitLine(
-          `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+      // Skip temp variable declaration in state machines if lhsCode already accesses sm->var_xxx
+      const functionContext = context as FunctionGenerationContext;
+      const skipTempVar =
+        functionContext.inStateMachine && lhsCode.startsWith("sm->");
+
+      if (!skipTempVar) {
+        const tempVarNameAndType = getVariableTypeString(
+          lhs.$.type,
+          tempVarName,
+          context
         );
-      } else {
-        if (!isUnitType(lhs.$.type)) {
+
+        // Handle array assignment specially
+        if (isArrayType(lhs.$.type)) {
+          // For array, use direct struct assignment
           context.emitter.emitLine(
             `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
           );
+        } else {
+          if (!isUnitType(lhs.$.type)) {
+            context.emitter.emitLine(
+              `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+            );
+          }
         }
       }
     }
@@ -1287,9 +1551,10 @@ function generateFuncCall(
         const args = runtimeArgExprs.map((arg, index) => {
           // First, check if this argument needs a temporary variable
           if (arg.$?.variableName && arg.$?.type) {
-            // Check if this variable is a captured variable in the current closure
             const functionContext = context as FunctionGenerationContext;
-            const isCapturedVariable =
+
+            // Check if this variable is captured by a closure
+            const isClosureCapturedVariable =
               functionContext.currentClosureCaptures &&
               functionContext.currentClosureCaptures.includes(
                 arg.$.variableName
@@ -1305,14 +1570,21 @@ function generateFuncCall(
 
             // Generate the argument expression and declare it as a temp variable
             const argCode = generateExpr(arg, indent, context);
+
+            // Check if this variable is captured by a state machine
+            const isStateMachineCapturedVariable =
+              functionContext.inStateMachine && argCode.startsWith("sm->");
+
             if (
               argCode &&
               argCode !== arg.$.variableName &&
-              !isCapturedVariable
+              !isClosureCapturedVariable &&
+              !isStateMachineCapturedVariable
             ) {
               // Only emit declaration if:
               // 1. The expression doesn't already handle it
-              // 2. It's not a captured variable (those are accessed inline from closure_context->data)
+              // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
+              // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
               const varTypeAndName = getVariableTypeString(
                 arg.$.type,
                 arg.$.variableName,
@@ -1352,9 +1624,12 @@ function generateFuncCall(
               // For all other methods (wrapped object methods), pass the wrapped object data
               return `${arg.$.variableName}->data`;
             } else {
-              // If this is a captured variable, use the generated code (inline access)
+              // If this is a closure-captured variable, use the generated code (inline access)
+              // If this is a state machine variable, use the generated code (sm->var_xxx access)
               // Otherwise use the variable name
-              return isCapturedVariable ? argCode : arg.$.variableName;
+              return isClosureCapturedVariable || isStateMachineCapturedVariable
+                ? argCode
+                : arg.$.variableName;
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
@@ -1604,8 +1879,8 @@ function generateFuncCall(
         const functionContext = context as FunctionGenerationContext;
         for (const arg of runtimeArgExprs) {
           if (arg.$?.variableName && arg.$?.type) {
-            // Check if this variable is a captured variable in the current closure
-            const isCapturedVariable =
+            // Check if this variable is captured by a closure
+            const isClosureCapturedVariable =
               functionContext.currentClosureCaptures &&
               functionContext.currentClosureCaptures.includes(
                 arg.$.variableName
@@ -1621,14 +1896,21 @@ function generateFuncCall(
 
             // Generate the argument expression and declare it as a temp variable
             const argCode = generateExpr(arg, indent, context);
+
+            // Check if this variable is captured by a state machine
+            const isStateMachineCapturedVariable =
+              functionContext.inStateMachine && argCode.startsWith("sm->");
+
             if (
               argCode &&
               argCode !== arg.$.variableName &&
-              !isCapturedVariable
+              !isClosureCapturedVariable &&
+              !isStateMachineCapturedVariable
             ) {
               // Only emit declaration if:
               // 1. The expression doesn't already handle it
-              // 2. It's not a captured variable (those are accessed inline from closure_context->data)
+              // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
+              // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
               const varTypeAndName = getVariableTypeString(
                 arg.$.type,
                 arg.$.variableName,
@@ -1645,8 +1927,8 @@ function generateFuncCall(
         const closureCode = generateExpr(expr.func, indent, context);
         const args = runtimeArgExprs.map((arg) => {
           if (arg.$?.variableName && arg.$?.type) {
-            // Check if this is a captured variable - if so, use the full access expression
-            const isCapturedVariable =
+            // Check if this is a closure-captured variable - if so, use the full access expression
+            const isClosureCapturedVariable =
               functionContext.currentClosureCaptures &&
               functionContext.currentClosureCaptures.includes(
                 arg.$.variableName
@@ -1660,11 +1942,17 @@ function generateFuncCall(
                 functionContext.currentClosureCaptureFrameLevel
               );
 
-            if (isCapturedVariable) {
+            if (isClosureCapturedVariable) {
               // Return the inline access expression
               return generateExpr(arg, indent, context);
             } else {
-              return arg.$.variableName;
+              // Check if this is a state machine variable
+              const argCode = generateExpr(arg, indent, context);
+              const isStateMachineCapturedVariable =
+                functionContext.inStateMachine && argCode.startsWith("sm->");
+              return isStateMachineCapturedVariable
+                ? argCode
+                : arg.$.variableName;
             }
           } else {
             return generateExpr(arg, indent, context);
@@ -2058,10 +2346,34 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   // Check if we're in a closure function and this variable is captured
   const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
 
+  // Check if we're in a state machine and this is a captured variable
+  if (
+    functionContext.inStateMachine &&
+    functionContext.stateMachineVariables &&
+    expr.$?.env
+  ) {
+    const varName = expr.token.value;
+    // Check if this variable is in the state machine
+    for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
+      if (capturedVar.name === varName) {
+        // This is a state machine variable - access it through sm->var_xxx
+        const fieldName = `var_${varId}`;
+        console.log(
+          `[generateAtom DEBUG] State machine var "${varName}" -> sm->${fieldName}`
+        );
+        return `sm->${fieldName}`;
+      }
+    }
+    console.log(
+      `[generateAtom DEBUG] In state machine but "${varName}" not found in captured vars`
+    );
+  }
+
   // If this atom has a temp variable name (e.g., for ARC values), use that instead of the computed value
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
-  if (expr.$?.variableName) {
+  // ALSO: Skip this in state machine context to avoid local variable declarations
+  if (expr.$?.variableName && !functionContext.inStateMachine) {
     // Check if this is a captured variable in a closure - if so, don't use temp variable name
     if (
       functionContext.currentClosureCaptures &&

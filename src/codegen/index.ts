@@ -49,6 +49,10 @@ export class CodeGenerator {
        */
       debugConcurrency?: boolean;
       /**
+       * Enable debug logging for async/await state machine operations.
+       */
+      debugAsyncAwait?: boolean;
+      /**
        * Build in release mode with optimizations.
        */
       release?: boolean;
@@ -63,6 +67,7 @@ export class CodeGenerator {
         emitC: options.emitC,
         debugBrc: options.debugBrc,
         debugConcurrency: options.debugConcurrency,
+        debugAsyncAwait: options.debugAsyncAwait,
       });
 
       // Get the generated C code

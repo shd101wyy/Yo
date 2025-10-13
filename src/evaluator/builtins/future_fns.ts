@@ -1,12 +1,10 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import { isFutureType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -178,7 +176,8 @@ export function evaluateAwait({
     pathCollection: [],
   };
 
-  attachTempVariableToExpr(expr, false);
-  setExprAsNeedsToCallDup(expr, { ...context }); // We allow to await on a Future multiple times, so we need to call dup here.
+  // NOTE: No need to run the following functions:
+  // attachTempVariableToExpr(expr, false);
+  // setExprAsNeedsToCallDup(expr, { ...context }); // We allow to await on a Future multiple times, so we need to call dup here.
   return expr;
 }
