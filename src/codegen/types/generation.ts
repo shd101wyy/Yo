@@ -1,11 +1,9 @@
 import {
-  ChanType,
   ClosureType,
   DynType,
   EnumType,
   FunctionType,
   FutureType,
-  isChanType,
   isClosureType,
   isDynType,
   isEnumType,
@@ -267,13 +265,6 @@ struct yo_thread_gc_state {
 };
 `);
 
-  // Forward declarations for coroutine and queue types (used by channel types)
-  context.emitter.emitDeclarationLine("typedef struct yo_coro yo_coro_t;");
-  context.emitter.emitDeclarationLine(
-    "typedef struct yo_coro_queue yo_coro_queue_t;"
-  );
-  context.emitter.emitDeclarationLine("");
-
   // Forward declarations - generate struct and enum forward declarations first
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
@@ -340,8 +331,6 @@ struct yo_thread_gc_state {
     } else if (isTupleType(type)) {
       // For tuples, we can generate a struct-like declaration
       generateTupleDeclaration(type, cName, context);
-    } else if (isChanType(type)) {
-      generateChanDeclaration(type, cName, context);
     } else if (isFutureType(type)) {
       generateFutureDeclaration(type, cName, context);
     }
@@ -760,77 +749,6 @@ export function generateDynDeclaration(
   );
   emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
   emitter.emitDeclarationLine(`  void* data; // Actual object data`);
-  emitter.emitDeclarationLine(`} ${cName};`);
-  emitter.emitDeclarationLine(""); // Add blank line for readability
-}
-
-/**
- * Generate a channel declaration for buffered/unbuffered channels
- */
-export function generateChanDeclaration(
-  chanType: ChanType,
-  cName: string,
-  context: CodeGenContext
-): void {
-  const emitter = context.emitter;
-  const elementTypeStr = getTypeString(chanType.elementType, context);
-
-  emitter.emitDeclarationLine(
-    `typedef struct { // ${chanType.typeName || "Chan"} : ${typeToString(chanType)} (reference counted)`
-  );
-  emitter.emitDeclarationLine(
-    `  yo_ref_header_t header; // Reference count header`
-  );
-
-  // Core channel fields
-  emitter.emitDeclarationLine(
-    `  ${elementTypeStr}* buffer; // Buffer for elements`
-  );
-  emitter.emitDeclarationLine(
-    `  size_t capacity; // Maximum number of elements`
-  );
-  emitter.emitDeclarationLine(`  size_t size; // Current number of elements`);
-  emitter.emitDeclarationLine(`  size_t head; // Index of first element`);
-  emitter.emitDeclarationLine(
-    `  size_t tail; // Index where next element will be added`
-  );
-  emitter.emitDeclarationLine(`  _Atomic(int) closed; // Channel closed flag`);
-
-  // Synchronization for thread safety
-  emitter.emitDeclarationLine(`#if defined(_WIN32)`);
-  emitter.emitDeclarationLine(
-    `  CRITICAL_SECTION mutex; // Windows critical section`
-  );
-  emitter.emitDeclarationLine(
-    `  CONDITION_VARIABLE send_cond; // Condition for send operations`
-  );
-  emitter.emitDeclarationLine(
-    `  CONDITION_VARIABLE recv_cond; // Condition for receive operations`
-  );
-  emitter.emitDeclarationLine(`#else`);
-  emitter.emitDeclarationLine(`  pthread_mutex_t mutex; // POSIX mutex`);
-  emitter.emitDeclarationLine(
-    `  pthread_cond_t send_cond; // Condition for send operations`
-  );
-  emitter.emitDeclarationLine(
-    `  pthread_cond_t recv_cond; // Condition for receive operations`
-  );
-  emitter.emitDeclarationLine(`#endif`);
-
-  // Wait queues for select support (Go-style) - just head pointers
-  emitter.emitDeclarationLine(
-    `  yo_coro_t* send_queue_head; // Head of coroutines waiting to send`
-  );
-  emitter.emitDeclarationLine(
-    `  yo_coro_t* send_queue_tail; // Tail of coroutines waiting to send`
-  );
-  emitter.emitDeclarationLine(
-    `  yo_coro_t* recv_queue_head; // Head of coroutines waiting to receive`
-  );
-  emitter.emitDeclarationLine(
-    `  yo_coro_t* recv_queue_tail; // Tail of coroutines waiting to receive`
-  );
-
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }

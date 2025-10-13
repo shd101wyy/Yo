@@ -1,6 +1,5 @@
 import {
   ArrayType,
-  ChanType,
   ClosureType,
   DynType,
   EnumType,
@@ -242,7 +241,6 @@ export function isARCType(type?: Type): boolean {
     isObjectType(type) ||
     isDynType(type) || // All Dyn types are reference semantics
     isClosureType(type) || // All closures are reference semantics
-    isChanType(type) || // All channels are reference semantics
     isFutureType(type) // All futures are reference semantics
   );
 }
@@ -330,10 +328,6 @@ export function isLongDoubleType(type?: Type): boolean {
 
 export function isVoidType(type?: Type): type is VoidType {
   return type?.tag === TypeTag.Void;
-}
-
-export function isChanType(type?: Type): type is ChanType {
-  return type?.tag === TypeTag.Chan;
 }
 
 export function isFutureType(type?: Type): type is FutureType {

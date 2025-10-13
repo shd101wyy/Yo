@@ -29,11 +29,6 @@ import {
   evaluateYoIncrRc,
   evaluateYoRcOwn,
 } from "./builtins/arc_fns";
-import {
-  evaluateChan,
-  evaluateYoChanDrop,
-  evaluateYoChanDup,
-} from "./builtins/channel_fns";
 import { evaluateComptAssert } from "./builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "./builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "./builtins/compt_expect_error";
@@ -41,7 +36,6 @@ import { evaluateComptPrint } from "./builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "./builtins/compt_string_fns";
 import {
   evaluateAsync,
-  evaluateGo,
   evaluateTaskSetMaximumThreads,
 } from "./builtins/concurrency_fns";
 import { evaluateDrop } from "./builtins/drop";
@@ -98,12 +92,10 @@ import { evaluateMatch } from "./exprs/match";
 import { evaluateOpen } from "./exprs/open";
 import { evaluatePropertyAccess } from "./exprs/property_access";
 import { evaluateRecur } from "./exprs/recur";
-import { evaluateSelect } from "./exprs/select";
 import { evaluateSubtypeOf } from "./exprs/subtype_of";
 import { evaluateTypeOf } from "./exprs/typeof";
 import { evaluateWhile } from "./exprs/while";
 import { evaluateArrayType } from "./types/array";
-import { evaluateChanType } from "./types/channel";
 import { evaluateClosureType } from "./types/closure";
 import { evaluateDynType } from "./types/dyn";
 import { evaluateEnumType } from "./types/enum";
@@ -322,9 +314,6 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
         // match
         return evaluateMatch({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.select)) {
-        // select
-        return evaluateSelect({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
         // tuple
         return evaluateTupleValue({ expr, env, context: { ...context } });
@@ -405,9 +394,6 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
         // the
         return evaluateThe({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
-        // go
-        return evaluateGo({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
         // async
         return evaluateAsync({ expr, env, context: { ...context } });
@@ -426,12 +412,6 @@ ${exprToString(expr)}`,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_drop)) {
-        // __yo_chan_drop
-        return evaluateYoChanDrop({ expr, env, context: { ...context } });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_dup)) {
-        // __yo_chan_dup
-        return evaluateYoChanDup({ expr, env, context: { ...context } });
       } else if (
         exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)
       ) {
@@ -486,23 +466,9 @@ ${exprToString(expr)}`,
           env,
           context: { ...context },
         });
-      } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Chan)) {
-        // Chan type
-        return evaluateChanType({
-          expr,
-          env,
-          context: { ...context },
-        });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Future)) {
         // Future type
         return evaluateFutureType({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.chan)) {
-        // chan function
-        return evaluateChan({
           expr,
           env,
           context: { ...context },

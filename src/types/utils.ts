@@ -19,7 +19,6 @@ import {
 } from "./creators";
 import {
   ArrayType,
-  ChanType,
   ClosureType,
   DynType,
   EnumType,
@@ -42,7 +41,6 @@ import {
   isArrayType,
   isBooleanType,
   isCCompatibleType,
-  isChanType,
   isCharType,
   isClosureType,
   isComptFloatType,
@@ -222,8 +220,6 @@ export function typeContainsSomeType(
       );
     case TypeTag.MutPtr:
       return typeContainsSomeType((type as MutPtrType).type, checkedTypes);
-    case TypeTag.Chan:
-      return typeContainsSomeType((type as ChanType).elementType, checkedTypes);
     case TypeTag.Future:
       return typeContainsSomeType(
         (type as FutureType).elementType,
@@ -269,9 +265,6 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         break;
       case TypeTag.MutPtr:
         helper((t as MutPtrType).type);
-        break;
-      case TypeTag.Chan:
-        helper((t as ChanType).elementType);
         break;
       case TypeTag.Future:
         helper((t as FutureType).elementType);
@@ -361,8 +354,6 @@ export function typeRequiresInference(type?: Type): boolean {
         typeRequiresInference(closureType.callType)
       );
     }
-    case TypeTag.Chan:
-      return typeRequiresInference((type as ChanType).elementType);
     case TypeTag.Future:
       return typeRequiresInference((type as FutureType).elementType);
     default:
@@ -949,11 +940,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         .join(", ")})`;
     }
 
-    case TypeTag.Chan: {
-      const chanType = type as ChanType;
-      return `Chan(${typeToString(chanType.elementType, visited)})`;
-    }
-
     case TypeTag.Future: {
       const futureType = type as FutureType;
       return `Future(${typeToString(futureType.elementType, visited)})`;
@@ -1517,8 +1503,6 @@ export function resolveSomeTypeInType(
       type.callType,
       env
     ) as FunctionType & { isClosure: true };
-  } else if (isChanType(type)) {
-    type.elementType = resolveSomeTypeInType(type.elementType, env);
   }
 
   checkedTypes.add(type);

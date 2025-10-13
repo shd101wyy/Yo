@@ -8,7 +8,6 @@ import { PlaceholderToken } from "../../token";
 import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
-  isChanType,
   isClosureType,
   isEnumType,
   isFunctionType,
@@ -505,23 +504,8 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  } else if (isChanType(expected.type) && isChanType(given.type)) {
-    // Synthesize the element types of the channels
-    const { expectedEnv, givenEnv } = synthesizeTypes(
-      {
-        type: expected.type.elementType,
-        env: expected.env,
-      },
-      {
-        type: given.type.elementType,
-        env: given.env,
-      },
-      checkedTypePairs
-    );
-    expected.env = expectedEnv;
-    given.env = givenEnv;
   } else if (isFutureType(expected.type) && isFutureType(given.type)) {
-    // Synthesize the element types of the channels
+    // Synthesize the element types of the Futures
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
         type: expected.type.elementType,

@@ -10,7 +10,6 @@ import {
 } from "./definitions";
 import {
   isArrayType,
-  isChanType,
   isClosureType,
   isComptFloatType,
   isComptIntType,
@@ -203,8 +202,6 @@ export function typeOfType(
   } else if (isMutPtrType(type)) {
     // Pointer type hierarchy logic
     // Raw pointers are now level 0 types
-    return createType0(type);
-  } else if (isChanType(type)) {
     return createType0(type);
   } else if (isFutureType(type)) {
     return createType0(type);

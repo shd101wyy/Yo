@@ -135,38 +135,51 @@ static void yo_async_run_event_loop(void) {
 }
 
 // Spawn an async task by starting its execution on a worker thread
-// This uses the existing coroutine infrastructure to run async tasks
+// This enqueues the task to a worker's task queue (NO coroutines!)
 static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("Spawning async task to worker: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   
-  // Initialize the coroutine scheduler if not already done
-  __yo_coro_scheduler_init();
+  // Initialize the async scheduler if not already done
+  __yo_async_scheduler_init();
   
-  // If no workers, run on current thread
+  // If no workers, run on current thread immediately
   if (yo_worker_thread_count == 0) {
-    __yo_concurrency_set_maximum_threads(0);
+    __yo_concurrency_set_maximum_threads(0);  // Initialize with hardware threads
   }
-  
-  // Allocate a coroutine for this async task
-  yo_coro_t* coro = __yo_coro_pool_get(YO_CORO_DEFAULT_STACK_SIZE);
-  coro->func = resume_fn;
-  coro->data = state_machine;
-  
-  // Increment active coroutine counter BEFORE enqueueing
-  atomic_fetch_add(&yo_active_coro_count, 1);
   
   if (yo_worker_thread_count > 0) {
     // Assign to a worker thread (round-robin)
-    size_t limit = yo_coro_active_worker_limit > 0 ? yo_coro_active_worker_limit : yo_worker_thread_count;
+    size_t limit = yo_async_active_worker_limit > 0 ? yo_async_active_worker_limit : yo_worker_thread_count;
     size_t worker_idx = atomic_fetch_add(&yo_next_worker_index, 1) % limit;
-    coro->owner_worker = &yo_worker_threads[worker_idx];
-    ASYNC_DEBUG("Assigning async task coro=%p to worker %zu\\n", (void*)coro, worker_idx);
-    __yo_coro_enqueue_to_worker(&yo_worker_threads[worker_idx], coro);
+    yo_worker_thread_t* worker = &yo_worker_threads[worker_idx];
+    
+    ASYNC_DEBUG("Assigning async task to worker %zu\\n", worker_idx);
+    
+    // Increment active task counter BEFORE enqueueing
+    atomic_fetch_add(&yo_active_task_count, 1);
+    
+    // Enqueue task to worker's queue
+    yo_continuation_t* task = (yo_continuation_t*)__yo_malloc(sizeof(yo_continuation_t));
+    task->resume_fn = resume_fn;
+    task->state_machine = state_machine;
+    task->next = NULL;
+    
+    YO_MUTEX_LOCK(&worker->queue_mutex);
+    
+    if (worker->task_queue_tail) {
+      worker->task_queue_tail->next = task;
+      worker->task_queue_tail = task;
+    } else {
+      worker->task_queue_head = task;
+      worker->task_queue_tail = task;
+    }
+    worker->task_queue_count++;
+    
+    YO_MUTEX_UNLOCK(&worker->queue_mutex);
+    
+    ASYNC_DEBUG("Enqueued task to worker %zu (queue size: %zu)\\n", worker_idx, worker->task_queue_count);
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
-    atomic_fetch_sub(&yo_active_coro_count, 1);
-    __yo_coro_pool_put(coro);
-    __yo_free(coro);
   }
 }
 
@@ -211,11 +224,12 @@ static void yo_async_register_continuation(
 }
 
 // Initialize async runtime (called at program start)
-static void yo_async_runtime_init(void) {
-  yo_thread_async_queue.head = NULL;
-  yo_thread_async_queue.tail = NULL;
-  yo_thread_async_queue.count = 0;
-  ASYNC_DEBUG("Async runtime initialized\\n");
+static void __yo_async_scheduler_init(void) {
+  if (yo_async_scheduler_initialized) {
+    return;  // Already initialized
+  }
+  yo_async_scheduler_initialized = true;
+  ASYNC_DEBUG("Async scheduler initialized\\n");
 }
 `);
 }

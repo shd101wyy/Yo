@@ -82,7 +82,5 @@ export enum TypeTag {
   ExprList = "ExprList",
 
   // Concurrency
-  Thread = "Thread",
-  Chan = "Chan",
   Future = "Future",
 }

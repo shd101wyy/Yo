@@ -7,13 +7,11 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
-  ChanType,
   ClosureType,
   DynType,
   EnumType,
   FunctionType,
   FutureType,
-  isChanType,
   isClosureType,
   isDynType,
   isEnumType,
@@ -99,11 +97,6 @@ export function generateFunctionDeclarations(
     }
     generateFunctionDeclaration(value.type, cName, false, context);
   }
-
-  // Forward declaration for unit coroutine spawn function (used by main wrapper)
-  emitter.emitDeclarationLine(
-    `void __yo_coro_spawn_unit_function(void (*func)(void)); // Spawn unit function as coroutine`
-  );
 
   // Generate vtable instance declarations for closures (after function declarations)
   emitter.emitDeclarationLine(`/// Closure vtable instances`);
@@ -210,9 +203,6 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate async/await runtime
   generateAsyncRuntime(context.emitter, context.debugAsyncAwait);
 
-  // Generate channel function implementations
-  generateChannelFunctions(context);
-
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
@@ -243,8 +233,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 }
 
 /**
- * Generate a main() wrapper that calls yo_user_main() and then __yo_coro_wait_all()
- * This ensures all cooperative coroutines complete before the program exits
+ * Generate a main() wrapper that calls yo_user_main() and then __yo_async_wait_all()
+ * This ensures all async tasks complete before the program exits
  * REQUIREMENT: main function must return unit (void)
  */
 function generateMainWrapper(context: FunctionGenerationContext): void {
@@ -295,7 +285,7 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
 // Main wrapper - calls async yo_user_main and waits for workers
 int main(void) {
   // Initialize async runtime
-  yo_async_runtime_init();
+  __yo_async_scheduler_init();
   
   // Call async main (returns Future(unit))
   // This spawns the state machine to a worker thread
@@ -303,7 +293,7 @@ int main(void) {
   
   // Wait for all async tasks to complete
   // This waits for all worker threads to finish their tasks
-  __yo_coro_wait_all();
+  __yo_async_wait_all();
   
   // Clean up main Future
   // Note: The Future should already be completed and ref count should be 1
@@ -805,16 +795,6 @@ export function generateObjectConstructorDeclarations(
     `static void __yo_brc_queue_object(void* ptr, size_t owner_tid); // Queue object to owner thread for BRC`
   );
 
-  // Generate dispose function declarations for channel types (forward declarations)
-  for (const typeId in context.types) {
-    const { type, cName } = context.types[typeId]!;
-    if (isChanType(type)) {
-      emitter.emitDeclarationLine(
-        `void __yo_dispose_${cName}(void* ptr); // Channel dispose function`
-      );
-    }
-  }
-
   // Generate constructor declarations for each object
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
@@ -1144,9 +1124,6 @@ void __yo_future_drop(void* ptr) {
 // Cooperative Task Scheduler Runtime using llco (Low-Level Coroutines)
 // Note: _FORTIFY_SOURCE=0 is defined before includes to disable fortification checks
 
-#include <setjmp.h>
-#include "vendor/llco/llco.h"
-
 // Thread support
 #ifdef _WIN32
   #include <windows.h>
@@ -1184,33 +1161,7 @@ void __yo_future_drop(void* ptr) {
   #endif
 #endif
 
-typedef struct yo_coro yo_coro_t;
-typedef struct yo_coro_queue yo_coro_queue_t;
 typedef struct yo_worker_thread yo_worker_thread_t;
-
-// Coroutine state
-typedef enum {
-  YO_CORO_READY,      // Ready to run
-  YO_CORO_RUNNING,    // Currently running
-  YO_CORO_BLOCKED,    // Blocked on channel operation
-  YO_CORO_COMPLETED   // Finished execution
-} yo_coro_state_t;
-
-// Select case information
-typedef struct yo_select_case {
-  void* channel;              // Channel for this case
-  bool is_send;               // true = send, false = receive
-  void* value_ptr;            // For send: pointer to value, for recv: pointer to store result
-  int case_index;             // Which case this is (for switch statement)
-} yo_select_case_t;
-
-// Select state for a coroutine blocked in select
-typedef struct {
-  yo_select_case_t* cases;    // Array of select cases
-  int num_cases;              // Number of cases
-  int ready_case;             // Which case is ready (-1 if none)
-  bool has_default;           // Whether there's a default case
-} yo_select_state_t;
 
 // Stack size for each coroutine (default 16KB - configurable per coroutine)
 // llco requires minimum LLCO_MINSTACKSIZE (16KB)
@@ -1222,35 +1173,7 @@ typedef struct {
 #define YO_STACK_CANARY 0xDEADBEEFCAFEBABEULL
 
 // Forward declarations
-static yo_coro_t* __yo_coro_pool_get(size_t stack_size);
-static void __yo_coro_pool_put(yo_coro_t* coro);
 static void __yo_set_thread_affinity(size_t core_id);
-static void __yo_check_stack_overflow(yo_coro_t* coro);
-
-// Coroutine structure with llco coroutine support
-struct yo_coro {
-  void (*func)(void*);           // Function to execute
-  void* data;                    // Task-specific data
-  yo_coro_state_t state;         // Current state
-  void* wait_channel;            // Channel this coroutine is waiting on (NULL if not waiting)
-  yo_select_state_t* select_state; // Select state if blocked in select (NULL otherwise)
-  void* recv_data_ptr;           // For channel recv: points to receiver's local variable (like neco's cmsg)
-  void* send_data_ptr;           // For channel send: points to sender's value to send
-  size_t send_data_size;         // Size of send data (for validation)
-  struct llco* coro;             // llco coroutine handle
-  char* stack;                   // Separate stack for this task
-  size_t stack_size;             // Size of allocated stack
-  yo_worker_thread_t* owner_worker; // Worker thread that owns this task
-  yo_coro_t* next;               // Next coroutine in queue (for ready/blocked queues)
-  yo_coro_t* next_wait;          // Next coroutine in channel wait queue
-};
-
-// Coroutine queue (simple linked list)
-struct yo_coro_queue {
-  yo_coro_t* head;
-  yo_coro_t* tail;
-  size_t count;
-};
 
 // I/O wait modes for async I/O
 #define YO_WAIT_READ  1
@@ -1259,638 +1182,37 @@ struct yo_coro_queue {
 // Maximum number of file descriptors we can wait on
 #define YO_MAX_FDS 1024
 
-// Worker thread structure with per-thread coroutine queue and I/O poller
+// Worker thread structure with per-thread task queue for async/await
 struct yo_worker_thread {
   yo_thread_handle_t handle;
   yo_thread_id_t id;
   bool active;
   size_t core_id;                  // CPU core this worker is pinned to
-  yo_coro_queue_t ready_queue;     // Each worker has its own ready queue
-  yo_coro_queue_t blocked_queue;   // Each worker has its own blocked queue
-  yo_mutex_t queue_mutex;          // Protects this worker's queues
   
-  // Async I/O support (epoll on Linux, kqueue on macOS/BSD)
+  // Task queue for async state machines (no coroutines!)
+  yo_continuation_t* task_queue_head;    // Head of task queue
+  yo_continuation_t* task_queue_tail;    // Tail of task queue
+  size_t task_queue_count;               // Number of pending tasks
+  yo_mutex_t queue_mutex;                // Protects this worker's queue
+  
+  // TODO: Async I/O support (epoll on Linux, kqueue on macOS/BSD)
   int qfd;                         // Event queue file descriptor (epoll_fd or kqueue_fd)
-  yo_coro_t* ev_read_waiters[YO_MAX_FDS];  // Map fd -> coroutine waiting for read
-  yo_coro_t* ev_write_waiters[YO_MAX_FDS]; // Map fd -> coroutine waiting for write
 };
 
-// Global coroutine scheduler state
-static _Thread_local yo_coro_t* yo_coro_current = NULL;  // Thread-local current task
-static _Thread_local yo_worker_thread_t* yo_coro_current_worker = NULL;  // Thread-local worker pointer
-static size_t yo_coro_max_threads = 0;
-static bool yo_coro_scheduler_initialized = false;
-static _Thread_local yo_coro_t* yo_coro_to_cleanup = NULL;  // Thread-local cleanup task
-
-// Coroutine pool (thread-local) - segregated free lists for different stack sizes
-// Each worker thread has its own pools - no mutex needed, zero contention!
-// Common stack sizes get their own list for O(1) lookup
-static _Thread_local yo_coro_t* yo_coro_pool_16kb = NULL;   // 16KB (default)
-static _Thread_local yo_coro_t* yo_coro_pool_32kb = NULL;   // 32KB
-static _Thread_local yo_coro_t* yo_coro_pool_64kb = NULL;   // 64KB
-static _Thread_local yo_coro_t* yo_coro_pool_128kb = NULL;  // 128KB
-static _Thread_local yo_coro_t* yo_coro_pool_256kb = NULL;  // 256KB
-static _Thread_local yo_coro_t* yo_coro_pool_512kb = NULL;  // 512KB
-static _Thread_local yo_coro_t* yo_coro_pool_1mb = NULL;    // 1MB
-static _Thread_local yo_coro_t* yo_coro_pool_custom = NULL; // Other sizes (sorted by size)
-#ifdef YO_DEBUG_CONCURRENCY
-static _Thread_local size_t yo_coro_pool_size = 0;
-#endif
-// No size limit - pool grows as needed and is cleaned up only at shutdown
+// Global async/await thread pool state (NO coroutines!)
+static size_t yo_async_max_threads = 0;                    // Maximum threads for async runtime
+static bool yo_async_scheduler_initialized = false;        // Whether thread pool is initialized
 
 // Thread pool state
-static yo_worker_thread_t* yo_worker_threads = NULL;
-static size_t yo_worker_thread_count = 0;
-static size_t yo_coro_active_worker_limit = 0;  // Limit for coroutine distribution (set by set_maximum_threads)
-static _Atomic bool yo_worker_shutdown = false;
-static _Atomic size_t yo_next_worker_index = 0;  // For round-robin coroutine distribution
-static _Atomic size_t yo_active_coro_count = 0;  // Total number of active coroutines (spawned but not completed)
+static yo_worker_thread_t* yo_worker_threads = NULL;      // Array of worker threads
+static size_t yo_worker_thread_count = 0;                  // Number of worker threads
+static size_t yo_async_active_worker_limit = 0;            // Limit for task distribution (set by set_maximum_threads)
+static _Atomic bool yo_worker_shutdown = false;            // Shutdown signal for workers
+static _Atomic size_t yo_next_worker_index = 0;            // For round-robin task distribution
+static _Atomic size_t yo_active_task_count = 0;            // Total number of active async tasks
 
-// Helper function to clean up a completed task
-// This is called after we've switched away from the coroutine's stack
-// NOTE: We only free the stack, not the coroutine structure itself!
-// The coroutine structure stays allocated so that checks on coro->state remain valid
-// Helper function to clean up a completed task (like neco's cleanup callback)
-// This is called after we've switched away from the coroutine's stack
-// Following neco's approach: return coroutine to pool instead of freeing
-static void __yo_cleanup_completed_coro(yo_coro_t* coro) {
-  if (!coro) return;
-  CONCURRENCY_DEBUG("[CLEANUP] Returning coro=%p to pool\\n", coro);
-  // Return to pool for reuse (like neco)
-  __yo_coro_pool_put(coro);
-}
 
-// Cleanup callback for llco - called when coroutine is finalized
-static void __yo_coro_llco_cleanup(void* stack, size_t stack_size, void* udata) {
-  CONCURRENCY_DEBUG("[CLEANUP] llco cleanup callback: stack=%p, size=%zu\\n", stack, stack_size);
-  // Coroutine will be returned to pool by __yo_cleanup_completed_coro
-  // This callback is just for llco bookkeeping
-}
-
-// Coroutine entry function - called by llco when coroutine starts
-static void __yo_coro_entry(void* udata) {
-  yo_coro_t* coro = (yo_coro_t*)udata;
-  
-  // Capture this coroutine's handle for future resume operations
-  coro->coro = llco_current();
-  
-  CONCURRENCY_DEBUG("[CORO] Entry: coro=%p starting execution\\n", coro);
-  
-  // Execute the actual coroutine function
-  coro->func(coro->data);
-  CONCURRENCY_DEBUG("[CORO] Coroutine=%p completed execution\\n", coro);
-  
-  // Check for stack overflow immediately after function execution (before marking completed)
-  // This is critical - local variables are allocated during func execution, not before!
-  __yo_check_stack_overflow(coro);
-  
-  // Coroutine completed - mark it and switch back
-  coro->state = YO_CORO_COMPLETED;
-  coro->coro = NULL;  // NULL out coroutine so any dequeue checks will catch it
-  yo_coro_current = NULL;
-  
-  // Decrement active coroutine counter
-  atomic_fetch_sub(&yo_active_coro_count, 1);
-  CONCURRENCY_DEBUG("[CORO] Active coroutine count decremented\\n");
-  
-  // Mark this coroutine for cleanup (it will be cleaned up after we switch away)
-  yo_coro_to_cleanup = coro;
-  
-  // Switch back to scheduler (NULL means return to caller)
-  CONCURRENCY_DEBUG("[CORO] Completed, switching back to scheduler\\n");
-  llco_switch(NULL, true);  // final=true means we're done with this coroutine
-}
-
-// Initialize coroutine scheduler
-static void __yo_coro_scheduler_init(void) {
-  if (!yo_coro_scheduler_initialized) {
-    yo_coro_scheduler_initialized = true;
-    // Thread-local pool needs no mutex initialization
-  }
-}
-
-// Get a coroutine from the thread-local pool or allocate a new one
-// Uses segregated free lists for common sizes (O(1)), best-fit for custom sizes (O(n))
-// No mutex needed - each worker has its own pool!
-static yo_coro_t* __yo_coro_pool_get(size_t stack_size) {
-  yo_coro_t* coro = NULL;
-  yo_coro_t** pool_head = NULL;
-  
-  // Try exact match from segregated pools (O(1))
-  if (stack_size == 16 * 1024) {
-    pool_head = &yo_coro_pool_16kb;
-  } else if (stack_size == 32 * 1024) {
-    pool_head = &yo_coro_pool_32kb;
-  } else if (stack_size == 64 * 1024) {
-    pool_head = &yo_coro_pool_64kb;
-  } else if (stack_size == 128 * 1024) {
-    pool_head = &yo_coro_pool_128kb;
-  } else if (stack_size == 256 * 1024) {
-    pool_head = &yo_coro_pool_256kb;
-  } else if (stack_size == 512 * 1024) {
-    pool_head = &yo_coro_pool_512kb;
-  } else if (stack_size == 1024 * 1024) {
-    pool_head = &yo_coro_pool_1mb;
-  }
-  
-  if (pool_head && *pool_head) {
-    // Found exact match in segregated pool
-    coro = *pool_head;
-    *pool_head = coro->next;
-    #ifdef YO_DEBUG_CONCURRENCY
-    yo_coro_pool_size--;
-    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from segregated pool, coro=%p, stack_size=%zu, pool_size=%zu\\n", 
-                      coro, coro->stack_size, yo_coro_pool_size);
-    #else
-    CONCURRENCY_DEBUG("[POOL] Reusing coroutine from segregated pool, coro=%p, stack_size=%zu\\n", 
-                      coro, coro->stack_size);
-    #endif
-  } else if (!coro) {
-    // No exact match - try custom pool for best-fit (first fit with size >= requested)
-    yo_coro_t** prev = &yo_coro_pool_custom;
-    for (yo_coro_t* candidate = *prev; candidate; prev = &candidate->next, candidate = *prev) {
-      if (candidate->stack_size >= stack_size) {
-        // Found suitable coroutine - unlink from pool
-        *prev = candidate->next;
-        coro = candidate;
-        #ifdef YO_DEBUG_CONCURRENCY
-        yo_coro_pool_size--;
-        CONCURRENCY_DEBUG("[POOL] Reusing coroutine from custom pool, coro=%p, stack_size=%zu (requested=%zu), pool_size=%zu\\n", 
-                          coro, coro->stack_size, stack_size, yo_coro_pool_size);
-        #else
-        CONCURRENCY_DEBUG("[POOL] Reusing coroutine from custom pool, coro=%p, stack_size=%zu (requested=%zu)\\n", 
-                          coro, coro->stack_size, stack_size);
-        #endif
-        break;
-      }
-    }
-  }
-  
-  if (!coro) {
-    // Allocate new coroutine with requested stack size PLUS bottom guard zone
-    // Stack grows DOWN from (stack_base + stack_size) toward stack_base
-    // Overflow writes BELOW stack_base, into the guard zone
-    size_t total_size = YO_STACK_GUARD_SIZE + stack_size;
-    char* buffer = (char*)__yo_malloc(total_size);
-    
-    coro = (yo_coro_t*)__yo_malloc(sizeof(yo_coro_t));
-    coro->stack = buffer + YO_STACK_GUARD_SIZE;  // Skip bottom guard to get usable stack
-    coro->stack_size = stack_size;
-    
-    // Initialize stack canary at bottom (before usable stack, in guard zone)
-    uint64_t* canary = (uint64_t*)buffer;
-    *canary = YO_STACK_CANARY;
-    *(canary + 1) = YO_STACK_CANARY;
-    
-    CONCURRENCY_DEBUG("[POOL] Allocated new coroutine, coro=%p, usable_stack=%p, stack_size=%zu, guard=%p\\n", 
-                      coro, coro->stack, stack_size, canary);
-  }
-  
-  // Reset coroutine state
-  coro->state = YO_CORO_READY;
-  coro->wait_channel = NULL;
-  coro->next = NULL;
-  coro->coro = NULL;
-  coro->select_state = NULL;
-  coro->next_wait = NULL;
-  coro->recv_data_ptr = NULL;
-  coro->send_data_ptr = NULL;
-  coro->send_data_size = 0;
-  
-  return coro;
-}
-
-// Return a coroutine to the thread-local pool
-// Uses segregated free lists for O(1) return
-// No mutex needed - zero contention!
-static void __yo_coro_pool_put(yo_coro_t* coro) {
-  if (!coro) return;
-  
-  // Free the llco coroutine handle if it exists
-  if (coro->coro) {
-    coro->coro = NULL;
-  }
-  
-  // ALWAYS add to pool during execution (never free during execution to avoid use-after-free)
-  // We'll free all pooled coroutines during shutdown in __yo_coro_wait_all()
-  
-  // Return to appropriate segregated pool based on stack size
-  yo_coro_t** pool_head = NULL;
-  size_t stack_size = coro->stack_size;
-  
-  if (stack_size == 16 * 1024) {
-    pool_head = &yo_coro_pool_16kb;
-  } else if (stack_size == 32 * 1024) {
-    pool_head = &yo_coro_pool_32kb;
-  } else if (stack_size == 64 * 1024) {
-    pool_head = &yo_coro_pool_64kb;
-  } else if (stack_size == 128 * 1024) {
-    pool_head = &yo_coro_pool_128kb;
-  } else if (stack_size == 256 * 1024) {
-    pool_head = &yo_coro_pool_256kb;
-  } else if (stack_size == 512 * 1024) {
-    pool_head = &yo_coro_pool_512kb;
-  } else if (stack_size == 1024 * 1024) {
-    pool_head = &yo_coro_pool_1mb;
-  } else {
-    // Custom size - insert sorted by stack_size (ascending) for best-fit reuse
-    pool_head = &yo_coro_pool_custom;
-    yo_coro_t** prev = pool_head;
-    while (*prev && (*prev)->stack_size < stack_size) {
-      prev = &(*prev)->next;
-    }
-    coro->next = *prev;
-    *prev = coro;
-    #ifdef YO_DEBUG_CONCURRENCY
-    yo_coro_pool_size++;
-    CONCURRENCY_DEBUG("[POOL] Returned coroutine to custom pool (sorted), coro=%p, stack_size=%zu, pool_size=%zu\\n", 
-                      coro, stack_size, yo_coro_pool_size);
-    #else
-    CONCURRENCY_DEBUG("[POOL] Returned coroutine to custom pool (sorted), coro=%p, stack_size=%zu\\n", 
-                      coro, stack_size);
-    #endif
-    return;
-  }
-  
-  // Return to segregated pool (common sizes)
-  coro->next = *pool_head;
-  *pool_head = coro;
-  #ifdef YO_DEBUG_CONCURRENCY
-  yo_coro_pool_size++;
-  CONCURRENCY_DEBUG("[POOL] Returned coroutine to segregated pool, coro=%p, stack_size=%zu, pool_size=%zu\\n", 
-                    coro, stack_size, yo_coro_pool_size);
-  #else
-  CONCURRENCY_DEBUG("[POOL] Returned coroutine to segregated pool, coro=%p, stack_size=%zu\\n", 
-                    coro, stack_size);
-  #endif
-}
-
-// Helper function to free a segregated pool list (used by worker cleanup and main thread cleanup)
-static void __yo_free_coro_pool_list(yo_coro_t* head) {
-  yo_coro_t* coro = head;
-  while (coro != NULL) {
-    yo_coro_t* next = coro->next;
-    CONCURRENCY_DEBUG("[POOL] Freeing pooled coroutine coro=%p, stack_size=%zu\\n", coro, coro->stack_size);
-    if (coro->stack) {
-      // Free the full buffer including guard zone (starts at coro->stack - YO_STACK_GUARD_SIZE)
-      __yo_free(coro->stack - YO_STACK_GUARD_SIZE);
-    }
-    __yo_free(coro);
-    coro = next;
-  }
-}
-
-// ========== Async I/O Functions ==========
-
-// Set file descriptor to non-blocking mode
-// Returns 0 on success, -1 on error
-static int __yo_setnonblock(int fd, bool nonblock) {
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags == -1) {
-    return -1;
-  }
-  
-  int new_flags = nonblock ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
-  return fcntl(fd, F_SETFL, new_flags);
-}
-
-// Core async wait primitive
-// Adds fd to epoll/kqueue, parks coroutine, resumes when fd is ready
-// Returns 0 on success, -1 on error
-int yo_async_wait(int fd, int mode) {
-  yo_coro_t* coro = yo_coro_current;
-  yo_worker_thread_t* worker = yo_coro_current_worker;
-  
-  if (!coro || !worker) {
-    errno = EPERM;  // Not in coroutine context
-    return -1;
-  }
-  
-  if (fd < 0 || fd >= YO_MAX_FDS) {
-    errno = EINVAL;  // Invalid fd
-    return -1;
-  }
-  
-  if (mode != YO_WAIT_READ && mode != YO_WAIT_WRITE) {
-    errno = EINVAL;  // Invalid mode
-    return -1;
-  }
-  
-  if (worker->qfd < 0) {
-    errno = ENOSYS;  // Async I/O not supported on this platform
-    return -1;
-  }
-  
-  #ifdef __linux__
-    // Linux epoll implementation
-    struct epoll_event ev = {0};
-    ev.data.fd = fd;
-    ev.events = EPOLLONESHOT;  // One-shot mode: auto-remove after trigger
-    
-    // Check if we're already waiting on this fd
-    if (mode == YO_WAIT_READ) {
-      ev.events |= EPOLLIN;
-      // Also include write if someone's waiting for write
-      if (worker->ev_write_waiters[fd] != NULL) {
-        ev.events |= EPOLLOUT;
-      }
-    } else {
-      ev.events |= EPOLLOUT;
-      // Also include read if someone's waiting for read
-      if (worker->ev_read_waiters[fd] != NULL) {
-        ev.events |= EPOLLIN;
-      }
-    }
-    
-    // Try to modify first, if that fails then add
-    int ret = epoll_ctl(worker->qfd, EPOLL_CTL_MOD, fd, &ev);
-    if (ret == -1) {
-      ret = epoll_ctl(worker->qfd, EPOLL_CTL_ADD, fd, &ev);
-      if (ret == -1) {
-        return -1;
-      }
-    }
-  
-  #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    // BSD kqueue implementation
-    struct kevent ev;
-    int filter = (mode == YO_WAIT_READ) ? EVFILT_READ : EVFILT_WRITE;
-    EV_SET(&ev, fd, filter, EV_ADD | EV_ONESHOT, 0, 0, NULL);
-    
-    int ret = kevent(worker->qfd, &ev, 1, NULL, 0, NULL);
-    if (ret == -1) {
-      return -1;
-    }
-  #else
-    // Unsupported platform
-    errno = ENOSYS;
-    return -1;
-  #endif
-  
-  // Save this coroutine in the waiters array
-  if (mode == YO_WAIT_READ) {
-    worker->ev_read_waiters[fd] = coro;
-  } else {
-    worker->ev_write_waiters[fd] = coro;
-  }
-  
-  // Park this coroutine and switch back to worker
-  coro->state = YO_CORO_BLOCKED;
-  llco_switch(NULL, false);  // Switch back to worker (NULL = return to caller)
-  
-  // When we resume, the fd is ready
-  return 0;
-}
-
-// Async read - reads from fd without blocking other coroutines
-// Returns number of bytes read, 0 for EOF, -1 for error (check errno)
-ssize_t yo_async_read(int fd, void* buf, size_t count) {
-  // Ensure fd is non-blocking
-  if (__yo_setnonblock(fd, true) == -1) {
-    return -1;
-  }
-  
-  // Try to read, retry on EAGAIN
-  while (true) {
-    ssize_t n = read(fd, buf, count);
-    
-    if (n >= 0) {
-      // Success or EOF
-      return n;
-    }
-    
-    // Check error
-    if (errno == EINTR) {
-      // Interrupted, retry immediately
-      continue;
-    }
-    
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      // Would block, yield coroutine and wait for fd to be readable
-      int ret = yo_async_wait(fd, YO_WAIT_READ);
-      if (ret != 0) {
-        // Wait failed
-        return -1;
-      }
-      continue;  // Retry read
-    }
-    
-    // Other error
-    return -1;
-  }
-}
-
-// Async write - writes to fd without blocking other coroutines
-// Returns number of bytes written, -1 for error (check errno)
-ssize_t yo_async_write(int fd, const void* buf, size_t count) {
-  // Ensure fd is non-blocking
-  if (__yo_setnonblock(fd, true) == -1) {
-    return -1;
-  }
-  
-  // Try to write, retry on EAGAIN
-  while (true) {
-    ssize_t n = write(fd, buf, count);
-    
-    if (n >= 0) {
-      // Success
-      return n;
-    }
-    
-    // Check error
-    if (errno == EINTR) {
-      // Interrupted, retry immediately
-      continue;
-    }
-    
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      // Would block, yield coroutine and wait for fd to be writable
-      int ret = yo_async_wait(fd, YO_WAIT_WRITE);
-      if (ret != 0) {
-        // Wait failed
-        return -1;
-      }
-      continue;  // Retry write
-    }
-    
-    // Other error
-    return -1;
-  }
-}
-
-// ========== End Async I/O Functions ==========
-
-// Check for stack overflow by verifying the stack guard canary at bottom
-// Stack grows DOWN, so overflow writes into bottom guard zone
-static void __yo_check_stack_overflow(yo_coro_t* coro) {
-  if (!coro || !coro->stack) return;
-  
-  // Canary is at the bottom (before usable stack)
-  uint64_t* canary = (uint64_t*)(coro->stack - YO_STACK_GUARD_SIZE);
-  
-  if (*canary != YO_STACK_CANARY || *(canary + 1) != YO_STACK_CANARY) {
-    fprintf(stderr, "\\n\\n");
-    fprintf(stderr, "╔═══════════════════════════════════════════════════════════════╗\\n");
-    fprintf(stderr, "║                   STACK OVERFLOW DETECTED!                    ║\\n");
-    fprintf(stderr, "╠═══════════════════════════════════════════════════════════════╣\\n");
-    fprintf(stderr, "║ Coroutine: %p                                         ║\\n", coro);
-    fprintf(stderr, "║ Stack size allocated: %-7zu bytes                          ║\\n", coro->stack_size);
-    fprintf(stderr, "║ Stack address range: %p - %p             ║\\n", coro->stack, coro->stack + coro->stack_size);
-    fprintf(stderr, "║ Bottom guard zone: %p (corrupted!)                    ║\\n", canary);
-    fprintf(stderr, "║                                                               ║\\n");
-    fprintf(stderr, "║ The coroutine has exceeded its allocated stack space.        ║\\n");
-    fprintf(stderr, "║ This usually happens when:                                    ║\\n");
-    fprintf(stderr, "║  1. Large local arrays are allocated on the stack             ║\\n");
-    fprintf(stderr, "║  2. Deep recursion occurs                                     ║\\n");
-    fprintf(stderr, "║  3. The stack_size parameter is too small                     ║\\n");
-    fprintf(stderr, "║                                                               ║\\n");
-    fprintf(stderr, "║ Solutions:                                                    ║\\n");
-    fprintf(stderr, "║  • Increase stack_size in go { }, { stack_size: ... }        ║\\n");
-    fprintf(stderr, "║  • Move large arrays to heap allocation                       ║\\n");
-    fprintf(stderr, "║  • Reduce recursion depth or use iteration                    ║\\n");
-    fprintf(stderr, "╚═══════════════════════════════════════════════════════════════╝\\n");
-    fprintf(stderr, "\\n");
-    abort();
-  }
-}
-
-// Enqueue a coroutine to a worker's ready queue (called from spawn)
-static void __yo_coro_enqueue_to_worker(yo_worker_thread_t* worker, yo_coro_t* coro) {
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  coro->next = NULL;
-  if (worker->ready_queue.tail) {
-    worker->ready_queue.tail->next = coro;
-  } else {
-    worker->ready_queue.head = coro;
-  }
-  worker->ready_queue.tail = coro;
-  worker->ready_queue.count++;
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-}
-
-// Dequeue a coroutine from current worker's ready queue (called by worker itself)
-static yo_coro_t* __yo_coro_dequeue_from_worker(yo_worker_thread_t* worker) {
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  yo_coro_t* coro = worker->ready_queue.head;
-  if (coro) {
-    worker->ready_queue.head = coro->next;
-    if (!worker->ready_queue.head) {
-      worker->ready_queue.tail = NULL;
-    }
-    worker->ready_queue.count--;
-  }
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-  return coro;
-}
-
-// Enqueue a coroutine to current worker's blocked queue
-static void __yo_coro_block(yo_coro_t* coro, void* channel) {
-  yo_worker_thread_t* worker = yo_coro_current_worker;
-  if (!worker) {
-    CONCURRENCY_DEBUG("[BLOCK] Error: No current worker for coro=%p\\n", coro);
-    return;
-  }
-  
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  coro->state = YO_CORO_BLOCKED;
-  coro->wait_channel = channel;
-  coro->next = NULL;
-  if (worker->blocked_queue.tail) {
-    worker->blocked_queue.tail->next = coro;
-  } else {
-    worker->blocked_queue.head = coro;
-  }
-  worker->blocked_queue.tail = coro;
-  worker->blocked_queue.count++;
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-}
-
-// Wake up coroutines waiting on a specific channel (in current worker's blocked queue)
-static void __yo_coro_wakeup(void* channel) {
-  if (!yo_coro_scheduler_initialized) {
-    return;
-  }
-  
-  CONCURRENCY_DEBUG("[WAKEUP] Waking coroutines on channel=%p across all workers\\n", channel);
-  
-  // Wake up blocked coroutines on ALL workers, not just current worker
-  // This is necessary because sender might be on different worker than receiver
-  for (size_t i = 0; i < yo_worker_thread_count; i++) {
-    yo_worker_thread_t* worker = &yo_worker_threads[i];
-    
-    YO_MUTEX_LOCK(&worker->queue_mutex);
-    
-    yo_coro_t* coro = worker->blocked_queue.head;
-    yo_coro_t* prev = NULL;
-    
-    while (coro != NULL) {
-      yo_coro_t* next = coro->next;
-      
-      if (coro->wait_channel == channel) {
-        // Skip if coroutine is already completed or stack was freed
-        if (coro->state == YO_CORO_COMPLETED || coro->stack == NULL) {
-          CONCURRENCY_DEBUG("[WAKEUP] Skipping completed/freed coro=%p (state=%d, stack=%p)\\n", coro, coro->state, coro->stack);
-          // Remove from blocked queue and free
-          if (prev == NULL) {
-            worker->blocked_queue.head = next;
-          } else {
-            prev->next = next;
-          }
-          if (worker->blocked_queue.tail == coro) {
-            worker->blocked_queue.tail = prev;
-          }
-          worker->blocked_queue.count--;
-          // Free the completed coroutine structure if not already freed
-          if (coro->stack == NULL) {
-            __yo_free(coro);
-          }
-          coro = next;
-          continue;
-        }
-        
-        CONCURRENCY_DEBUG("[WAKEUP] Moving coro=%p to ready queue on worker %zu\\n", coro, i);
-        // Remove from blocked queue
-        if (prev == NULL) {
-          worker->blocked_queue.head = next;
-        } else {
-          prev->next = next;
-        }
-        if (worker->blocked_queue.tail == coro) {
-          worker->blocked_queue.tail = prev;
-        }
-        worker->blocked_queue.count--;
-        
-        // Add to ready queue (unlocked version since we hold the lock)
-        coro->wait_channel = NULL;
-        coro->state = YO_CORO_READY;
-        coro->next = NULL;
-        if (worker->ready_queue.tail) {
-          worker->ready_queue.tail->next = coro;
-        } else {
-          worker->ready_queue.head = coro;
-        }
-        worker->ready_queue.tail = coro;
-        worker->ready_queue.count++;
-        
-        // Don't increment prev since we removed current node
-        coro = next;
-      } else {
-        prev = coro;
-        coro = next;
-      }
-    }
-    
-    YO_MUTEX_UNLOCK(&worker->queue_mutex);
-  }
-}
-
-// Worker thread function - runs coroutines from its own ready queue
+// Worker thread function - executes async tasks from task queue
 #ifdef _WIN32
 static unsigned __stdcall __yo_worker_thread_func(void* arg) {
 #else
@@ -1899,179 +1221,53 @@ static void* __yo_worker_thread_func(void* arg) {
   yo_worker_thread_t* worker = (yo_worker_thread_t*)arg;
   yo_thread_id_t thread_id = YO_THREAD_ID();
   
-  // Set thread-local worker pointer
-  yo_coro_current_worker = worker;
-  
   // Set CPU affinity to pin this worker to its dedicated core
   __yo_set_thread_affinity(worker->core_id);
   
   CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
   
   while (!atomic_load(&yo_worker_shutdown)) {
-    // Poll for I/O events (non-blocking)
-    #if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    if (worker->qfd >= 0) {
-      #ifdef __linux__
-        struct epoll_event events[32];
-        int nevents = epoll_wait(worker->qfd, events, 32, 0);  // 0 timeout = non-blocking
-        
-        for (int i = 0; i < nevents; i++) {
-          int fd = events[i].data.fd;
-          bool can_read = events[i].events & EPOLLIN;
-          bool can_write = events[i].events & EPOLLOUT;
-          
-          // Resume waiting coroutines
-          if (can_read && fd < YO_MAX_FDS && worker->ev_read_waiters[fd]) {
-            yo_coro_t* waiting_coro = worker->ev_read_waiters[fd];
-            worker->ev_read_waiters[fd] = NULL;
-            waiting_coro->state = YO_CORO_READY;
-            __yo_coro_enqueue_to_worker(worker, waiting_coro);
-          }
-          
-          if (can_write && fd < YO_MAX_FDS && worker->ev_write_waiters[fd]) {
-            yo_coro_t* waiting_coro = worker->ev_write_waiters[fd];
-            worker->ev_write_waiters[fd] = NULL;
-            waiting_coro->state = YO_CORO_READY;
-            __yo_coro_enqueue_to_worker(worker, waiting_coro);
-          }
-        }
-      
-      #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-        struct kevent events[32];
-        struct timespec timeout = {0, 0};  // Non-blocking
-        int nevents = kevent(worker->qfd, NULL, 0, events, 32, &timeout);
-        
-        for (int i = 0; i < nevents; i++) {
-          int fd = (int)events[i].ident;
-          bool can_read = events[i].filter == EVFILT_READ;
-          bool can_write = events[i].filter == EVFILT_WRITE;
-          
-          // Resume waiting coroutines
-          if (can_read && fd < YO_MAX_FDS && worker->ev_read_waiters[fd]) {
-            yo_coro_t* waiting_coro = worker->ev_read_waiters[fd];
-            worker->ev_read_waiters[fd] = NULL;
-            waiting_coro->state = YO_CORO_READY;
-            __yo_coro_enqueue_to_worker(worker, waiting_coro);
-          }
-          
-          if (can_write && fd < YO_MAX_FDS && worker->ev_write_waiters[fd]) {
-            yo_coro_t* waiting_coro = worker->ev_write_waiters[fd];
-            worker->ev_write_waiters[fd] = NULL;
-            waiting_coro->state = YO_CORO_READY;
-            __yo_coro_enqueue_to_worker(worker, waiting_coro);
-          }
-        }
-      #endif
-    }
-    #endif
+    // Dequeue a task from this worker's task queue
+    YO_MUTEX_LOCK(&worker->queue_mutex);
     
-    yo_coro_t* coro = __yo_coro_dequeue_from_worker(worker);
-    
-    if (!coro) {
-      // No coroutines available - clean up any completed coroutine before sleeping
-      if (yo_coro_to_cleanup) {
-        __yo_cleanup_completed_coro(yo_coro_to_cleanup);
-        yo_coro_to_cleanup = NULL;
+    yo_continuation_t* task = worker->task_queue_head;
+    if (task) {
+      worker->task_queue_head = task->next;
+      if (!worker->task_queue_head) {
+        worker->task_queue_tail = NULL;
       }
-      
-      // Sleep briefly to avoid busy-waiting
+      worker->task_queue_count--;
+    }
+    
+    YO_MUTEX_UNLOCK(&worker->queue_mutex);
+    
+    if (!task) {
+      // No tasks available - sleep briefly to avoid busy-waiting
       #ifdef _WIN32
-      Sleep(0);  // Yield timeslice
+      Sleep(1);  // 1ms
       #else
-      usleep(10);  // 10 microseconds (0.01ms)
+      usleep(1000);  // 1000 microseconds (1ms)
       #endif
       continue;
     }
     
-    CONCURRENCY_DEBUG("[WORKER] Thread %lu executing coro=%p\\n", (unsigned long)thread_id, coro);
+    CONCURRENCY_DEBUG("[WORKER] Thread %lu executing task=%p (state_machine=%p, resume_fn=%p)\\n", 
+                      (unsigned long)thread_id, task, task->state_machine, task->resume_fn);
     
-    // Clean up any completed coroutine from previous iteration
-    if (yo_coro_to_cleanup) {
-      __yo_cleanup_completed_coro(yo_coro_to_cleanup);
-      yo_coro_to_cleanup = NULL;
+    // Execute the task's resume function
+    if (task->resume_fn && task->state_machine) {
+      task->resume_fn(task->state_machine);
     }
     
-    // Skip completed coroutines (cleanup will handle them)
-    if (coro->state == YO_CORO_COMPLETED) {
-      CONCURRENCY_DEBUG("[WORKER] Task=%p already completed, skipping (will be returned to pool)\\n", coro);
-      continue;
-    }
+    // Free the continuation structure (state machine is freed by its own logic)
+    __yo_free(task);
     
-    yo_coro_current = coro;
-    coro->state = YO_CORO_RUNNING;
+    // Decrement active task count
+    atomic_fetch_sub(&yo_active_task_count, 1);
     
-    if (!coro->coro) {
-      // First time running - start the coroutine with llco
-      CONCURRENCY_DEBUG("[WORKER] Starting new coro=%p\\n", coro);
-      
-      struct llco_desc desc = {
-        .stack = coro->stack,
-        .stack_size = coro->stack_size,
-        .entry = __yo_coro_entry,
-        .cleanup = __yo_coro_llco_cleanup,
-        .udata = coro
-      };
-      
-      llco_start(&desc, false);  // final=false, we may resume this coroutine later
-      // Note: coro->coro is set inside __yo_coro_entry via llco_current()
-    } else {
-      // Resume coroutine from where it yielded
-      CONCURRENCY_DEBUG("[WORKER] Resuming coro=%p coro=%p\\n", coro, coro->coro);
-      llco_switch(coro->coro, false);  // Switch to coroutine's llco handle
-    }
-    
-    // Coroutine returned (either completed, blocked, or yielded)
-    CONCURRENCY_DEBUG("[WORKER] Returned from coro=%p, state=%d\\n", coro, coro->state);
-    
-    // Check if shutdown was signaled while we were running
-    if (atomic_load(&yo_worker_shutdown)) {
-      CONCURRENCY_DEBUG("[WORKER] Shutdown detected, stopping cleanup and exiting\\n");
-      break;
-    }
-    
-    // Check if a coroutine completed and needs cleanup
-    if (yo_coro_to_cleanup) {
-      CONCURRENCY_DEBUG("[WORKER] Task completed, will cleanup on next iteration\\n");
-      yo_coro_current = NULL;
-      continue;
-    }
-    
-    // Check if current coroutine was blocked
-    if (yo_coro_current && yo_coro_current->state == YO_CORO_BLOCKED) {
-      CONCURRENCY_DEBUG("[WORKER] Task=%p blocked, fetching next coroutine\\n", yo_coro_current);
-      yo_coro_current = NULL;
-      continue;
-    }
-    
-    yo_coro_current = NULL;
+    CONCURRENCY_DEBUG("[WORKER] Thread %lu completed task, remaining tasks=%zu\\n", 
+                      (unsigned long)thread_id, atomic_load(&yo_active_task_count));
   }
-  
-  // Clean up this worker's thread-local coroutine pools before exiting
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu cleaning up thread-local pools\\n", (unsigned long)thread_id);
-  
-  // Free all segregated pools for this worker thread
-  __yo_free_coro_pool_list(yo_coro_pool_16kb);
-  __yo_free_coro_pool_list(yo_coro_pool_32kb);
-  __yo_free_coro_pool_list(yo_coro_pool_64kb);
-  __yo_free_coro_pool_list(yo_coro_pool_128kb);
-  __yo_free_coro_pool_list(yo_coro_pool_256kb);
-  __yo_free_coro_pool_list(yo_coro_pool_512kb);
-  __yo_free_coro_pool_list(yo_coro_pool_1mb);
-  __yo_free_coro_pool_list(yo_coro_pool_custom);
-  
-  // Reset all pool heads (thread-local cleanup)
-  yo_coro_pool_16kb = NULL;
-  yo_coro_pool_32kb = NULL;
-  yo_coro_pool_64kb = NULL;
-  yo_coro_pool_128kb = NULL;
-  yo_coro_pool_256kb = NULL;
-  yo_coro_pool_512kb = NULL;
-  yo_coro_pool_1mb = NULL;
-  yo_coro_pool_custom = NULL;
-  
-  #ifdef YO_DEBUG_CONCURRENCY
-  yo_coro_pool_size = 0;
-  #endif
   
   CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
   #ifdef _WIN32
@@ -2171,24 +1367,10 @@ static void __yo_thread_pool_init(size_t num_threads) {
   for (size_t i = 0; i < num_threads; i++) {
     yo_worker_threads[i].active = true;
     yo_worker_threads[i].core_id = i;  // Pin worker i to core i
-    yo_worker_threads[i].ready_queue = (yo_coro_queue_t){NULL, NULL, 0};
-    yo_worker_threads[i].blocked_queue = (yo_coro_queue_t){NULL, NULL, 0};
+    yo_worker_threads[i].task_queue_head = NULL;
+    yo_worker_threads[i].task_queue_tail = NULL;
+    yo_worker_threads[i].task_queue_count = 0;
     YO_MUTEX_INIT(&yo_worker_threads[i].queue_mutex);
-    
-    // Initialize async I/O event queue
-    #ifdef __linux__
-      yo_worker_threads[i].qfd = epoll_create1(0);
-    #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-      yo_worker_threads[i].qfd = kqueue();
-    #else
-      yo_worker_threads[i].qfd = -1;  // No async I/O support on this platform
-    #endif
-    
-    // Initialize event waiters arrays to NULL
-    for (int j = 0; j < YO_MAX_FDS; j++) {
-      yo_worker_threads[i].ev_read_waiters[j] = NULL;
-      yo_worker_threads[i].ev_write_waiters[j] = NULL;
-    }
     
     #ifdef _WIN32
     yo_worker_threads[i].handle = (HANDLE)_beginthreadex(
@@ -2202,17 +1384,17 @@ static void __yo_thread_pool_init(size_t num_threads) {
   }
 }
 
-// Set maximum number of threads for coroutine scheduler
-// This limits how many workers will be used for distributing new tasks
+// Set maximum number of threads for async/await thread pool
+// This limits how many workers will be used for distributing new async tasks
 void __yo_concurrency_set_maximum_threads(size_t num) {
-  __yo_coro_scheduler_init();
+  __yo_async_scheduler_init();
   
   // If num is 0, use hardware thread count
   if (num == 0) {
     num = __yo_concurrency_get_hardware_threads();
   }
   
-  yo_coro_max_threads = num;
+  yo_async_max_threads = num;
   
   // If thread pool isn't initialized yet, initialize it with hardware thread count
   if (yo_worker_thread_count == 0) {
@@ -2220,107 +1402,39 @@ void __yo_concurrency_set_maximum_threads(size_t num) {
     __yo_thread_pool_init(hardware_threads);
   }
   
-  // Set the active worker limit to restrict coroutine distribution
+  // Set the active worker limit to restrict async task distribution
   // Tasks will only be distributed to the first 'num' workers
   if (num <= yo_worker_thread_count) {
-    yo_coro_active_worker_limit = num;
-    CONCURRENCY_DEBUG("[POOL] Limited coroutine distribution to first %zu workers\\n", num);
+    yo_async_active_worker_limit = num;
+    CONCURRENCY_DEBUG("[POOL] Limited async task distribution to first %zu workers\\n", num);
   } else {
-    yo_coro_active_worker_limit = yo_worker_thread_count;
+    yo_async_active_worker_limit = yo_worker_thread_count;
     CONCURRENCY_DEBUG("[POOL] Cannot limit to %zu workers (only %zu available)\\n", num, yo_worker_thread_count);
   }
 }
 
-// Yield is no longer used with per-thread queues - coroutines run cooperatively within each worker
-// Blocking/wakeup happens via __yo_coro_block_and_yield which is called by channel operations
-
-// Yield control to allow other coroutines to run (like Go's runtime.Gosched)
-// This allows a coroutine to voluntarily give up the CPU to other coroutines on the same worker
-void __yo_coro_yield(void) {
-  if (!yo_coro_scheduler_initialized || !yo_coro_current) {
-    return; // Not in a coroutine context
-  }
-  
-  yo_worker_thread_t* worker = yo_coro_current_worker;
-  if (!worker) {
+// Wait for all async tasks to complete
+void __yo_async_wait_all(void) {
+  if (!yo_async_scheduler_initialized) {
     return;
   }
   
-  yo_coro_t* current = yo_coro_current;
+  CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for all async tasks to complete\\n");
   
-  // Re-enqueue the current coroutine so it can be resumed later
-  // IMPORTANT: We must re-enqueue for cooperative multitasking to work
-  // If the coroutine completes after this yield, the worker will detect COMPLETED state and skip it
-  
-  YO_MUTEX_LOCK(&worker->queue_mutex);
-  
-  current->state = YO_CORO_READY;
-  current->next = NULL;
-  if (worker->ready_queue.tail) {
-    worker->ready_queue.tail->next = current;
-  } else {
-    worker->ready_queue.head = current;
-  }
-  worker->ready_queue.tail = current;
-  worker->ready_queue.count++;
-  CONCURRENCY_DEBUG("[YIELD] Task=%p re-enqueued to ready queue\\n", current);
-  
-  YO_MUTEX_UNLOCK(&worker->queue_mutex);
-  
-  // Get next ready coroutine from this worker's queue
-  yo_coro_t* next = __yo_coro_dequeue_from_worker(worker);
-  if (next) {
-    yo_coro_current = next;
-    next->state = YO_CORO_RUNNING;
-    
-    if (next->coro) {
-      // Resume next task
-      CONCURRENCY_DEBUG("[SWITCH] Resuming next coro=%p\\n", next);
-      llco_switch(next->coro, false);
-    } else {
-      // First time running next task
-      CONCURRENCY_DEBUG("[SWITCH] Starting next coro=%p\\n", next);
-      struct llco_desc desc = {
-        .stack = next->stack,
-        .stack_size = next->stack_size,
-        .entry = __yo_coro_entry,
-        .cleanup = __yo_coro_llco_cleanup,
-        .udata = next
-      };
-      llco_start(&desc, false);
-      // Note: next->coro is set inside __yo_coro_entry via llco_current()
-    }
-  } else {
-    // No ready coroutines - return to worker (switch to NULL)
-    CONCURRENCY_DEBUG("[SWITCH] No ready coroutines, returning to worker\\n");
-    llco_switch(NULL, false);
-  }
-}
-
-// Wait for all spawned coroutines to complete
-// This should be called from the main thread to run all pending tasks
-void __yo_coro_wait_all(void) {
-  if (!yo_coro_scheduler_initialized) {
-    return; // No coroutines to wait for
-  }
-  
-  CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for all coroutines to complete\\n");
-  
-  // If using thread pool, wait for all coroutines to complete then join threads
   if (yo_worker_thread_count > 0) {
-    CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for thread pool to finish\\n");
+    CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for thread pool to finish (active_tasks=%zu)\\n", 
+                      atomic_load(&yo_active_task_count));
     
-    // Wait until all active coroutines complete (use atomic counter, not queue polling)
-    while (atomic_load(&yo_active_coro_count) > 0) {
-      // Sleep briefly to avoid busy waiting
+    // Wait until all active tasks complete
+    while (atomic_load(&yo_active_task_count) > 0) {
       #ifdef _WIN32
-      Sleep(0);  // Yield timeslice
+      Sleep(1);  // 1ms
       #else
-      usleep(10);  // 10 microseconds (0.01ms)
+      usleep(1000);  // 1000 microseconds (1ms)
       #endif
     }
     
-    CONCURRENCY_DEBUG("[WAIT_ALL] All coroutines completed, shutting down workers\\n");
+    CONCURRENCY_DEBUG("[WAIT_ALL] All tasks completed, shutting down workers\\n");
     
     // Signal workers to shutdown
     atomic_store(&yo_worker_shutdown, true);
@@ -2343,99 +1457,7 @@ void __yo_coro_wait_all(void) {
     yo_worker_threads = NULL;
     yo_worker_thread_count = 0;
     
-    // After all workers stopped, clean up the main thread's coroutine pool
-    // Note: Each worker thread cleans up its own thread-local pool when it exits
-    CONCURRENCY_DEBUG("[WAIT_ALL] Cleaning up main thread's coroutine pools\\n");
-    
-    // Free all segregated pools
-    __yo_free_coro_pool_list(yo_coro_pool_16kb);
-    __yo_free_coro_pool_list(yo_coro_pool_32kb);
-    __yo_free_coro_pool_list(yo_coro_pool_64kb);
-    __yo_free_coro_pool_list(yo_coro_pool_128kb);
-    __yo_free_coro_pool_list(yo_coro_pool_256kb);
-    __yo_free_coro_pool_list(yo_coro_pool_512kb);
-    __yo_free_coro_pool_list(yo_coro_pool_1mb);
-    __yo_free_coro_pool_list(yo_coro_pool_custom);
-    
-    // Reset all pool heads
-    yo_coro_pool_16kb = NULL;
-    yo_coro_pool_32kb = NULL;
-    yo_coro_pool_64kb = NULL;
-    yo_coro_pool_128kb = NULL;
-    yo_coro_pool_256kb = NULL;
-    yo_coro_pool_512kb = NULL;
-    yo_coro_pool_1mb = NULL;
-    yo_coro_pool_custom = NULL;
-    
-    #ifdef YO_DEBUG_CONCURRENCY
-    yo_coro_pool_size = 0;
-    #endif
-    
     CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
-    return;
-  }
-  
-  // Single-threaded mode not supported with per-thread queues
-  CONCURRENCY_DEBUG("[WAIT_ALL] Error: No worker threads initialized\\n");
-}
-
-// Block current coroutine on a channel and yield to another task
-// This is a specialized version of yield that also marks the coroutine as blocked
-static void __yo_coro_block_and_yield(void* channel) {
-  if (!yo_coro_scheduler_initialized || !yo_coro_current) {
-    return;
-  }
-  
-  yo_worker_thread_t* worker = yo_coro_current_worker;
-  if (!worker) {
-    CONCURRENCY_DEBUG("[BLOCK] Error: No current worker\\n");
-    return;
-  }
-  
-  yo_coro_t* current = yo_coro_current;
-  CONCURRENCY_DEBUG("[BLOCK] Blocking coro=%p on channel=%p\\n", current, channel);
-  
-  // Check for stack overflow before switching away
-  __yo_check_stack_overflow(current);
-  
-  // Mark coroutine as blocked and move to blocked queue
-  __yo_coro_block(current, channel);
-  
-  // Get next ready coroutine from this worker's queue
-  yo_coro_t* next = __yo_coro_dequeue_from_worker(worker);
-  if (next) {
-    yo_coro_current = next;
-    next->state = YO_CORO_RUNNING;
-    CONCURRENCY_DEBUG("[BLOCK] Switching to next=%p\\n", next);
-    
-    if (next->coro) {
-      // Resume next task
-      llco_switch(next->coro, false);
-    } else {
-      // First time running next task
-      struct llco_desc desc = {
-        .stack = next->stack,
-        .stack_size = next->stack_size,
-        .entry = __yo_coro_entry,
-        .cleanup = __yo_coro_llco_cleanup,
-        .udata = next
-      };
-      llco_start(&desc, false);
-      // Note: next->coro is set inside __yo_coro_entry
-    }
-  } else {
-    // No ready coroutines - return to worker
-    CONCURRENCY_DEBUG("[BLOCK] No ready coroutines, returning to worker\\n");
-    llco_switch(NULL, false);
-  }
-  
-  // Returns here when unblocked and resumed
-  CONCURRENCY_DEBUG("[BLOCK] Returned from block_and_yield, coro=%p\\n", yo_coro_current);
-  
-  // Clean up any completed task
-  if (yo_coro_to_cleanup) {
-    __yo_cleanup_completed_coro(yo_coro_to_cleanup);
-    yo_coro_to_cleanup = NULL;
   }
 }
 `);
@@ -3834,862 +2856,5 @@ export function generateDynConstructorFunctions(
       emitter.emitLine(``);
       emitter.emitLine(``);
     }
-  }
-}
-
-/**
- * Generate channel function implementations for all collected channel types
- */
-function generateChannelFunctions(context: FunctionGenerationContext): void {
-  const emitter = context.emitter;
-
-  // Collect all channel types from the context
-  const channelTypes: Array<{ type: ChanType; cName: string }> = [];
-
-  for (const typeId in context.types) {
-    const typeEntry = context.types[typeId]!;
-    if (isChanType(typeEntry.type)) {
-      channelTypes.push({ type: typeEntry.type, cName: typeEntry.cName });
-    }
-  }
-
-  if (channelTypes.length === 0) {
-    return; // No channel types to generate
-  }
-
-  // Generate channel functions for each collected channel type
-  let isFirstChannelType = true;
-  for (const { type: chanType, cName } of channelTypes) {
-    const elementTypeStr = getTypeString(chanType.elementType, context);
-    // Use cName directly - it should already be a valid C identifier without * suffix
-    const safeCName = cName;
-
-    // Find the Option type for the element type - this should already be collected
-    // Look for Option(elementType) in the context types using typeName
-    // Use the original Yo type name, not the C type name, for matching
-    const elementYoTypeName = typeToString(chanType.elementType);
-    let optionReturnTypeStr = `/* Option(${elementTypeStr}) type not found */`;
-    let noneTag = 0; // Default fallback
-    let someTag = 1; // Default fallback
-    const expectedOptionTypeName = `Option(${elementYoTypeName})`;
-
-    for (const typeId in context.types) {
-      const typeEntry = context.types[typeId]!;
-      if (isEnumType(typeEntry.type)) {
-        const enumType = typeEntry.type;
-
-        // Use typeName for exact matching - this is more reliable
-        if (enumType.typeName === expectedOptionTypeName) {
-          optionReturnTypeStr = typeEntry.cName;
-
-          // Find the tag values for None and Some variants
-          const noneVariantIndex = enumType.variants.findIndex(
-            (v) => v.name === "None"
-          );
-          const someVariantIndex = enumType.variants.findIndex(
-            (v) => v.name === "Some"
-          );
-
-          // Update the tag values
-          noneTag = noneVariantIndex;
-          someTag = someVariantIndex;
-
-          break;
-        }
-      }
-    }
-    emitter.emitLine(`// Channel wait queue operations (operate on head/tail pointers directly)
-
-// Add coroutine to channel's wait queue
-static void __yo_chan_wait_queue_add(yo_coro_t** head, yo_coro_t** tail, yo_coro_t* coro) {
-  coro->next_wait = NULL;
-  if (*tail) {
-    (*tail)->next_wait = coro;
-  } else {
-    *head = coro;
-  }
-  *tail = coro;
-}
-
-// Remove coroutine from channel's wait queue
-static bool __yo_chan_wait_queue_remove(yo_coro_t** head, yo_coro_t** tail, yo_coro_t* coro) {
-  yo_coro_t* curr = *head;
-  yo_coro_t* prev = NULL;
-  
-  while (curr) {
-    if (curr == coro) {
-      if (prev) {
-        prev->next_wait = curr->next_wait;
-      } else {
-        *head = curr->next_wait;
-      }
-      if (*tail == curr) {
-        *tail = prev;
-      }
-      return true;
-    }
-    prev = curr;
-    curr = curr->next_wait;
-  }
-  return false;
-}
-
-// Pop first coroutine from channel's wait queue
-static yo_coro_t* __yo_chan_wait_queue_pop(yo_coro_t** head, yo_coro_t** tail) {
-  yo_coro_t* coro = *head;
-  if (coro) {
-    *head = coro->next_wait;
-    if (!*head) {
-      *tail = NULL;
-    }
-    coro->next_wait = NULL;
-  }
-  return coro;
-}
-
-// Check if wait queue is empty
-static bool __yo_chan_wait_queue_empty(yo_coro_t* head) {
-  return head == NULL;
-}
-
-// Channel functions for ${cName}
-
-${cName}* __yo_chan_create_${safeCName}(size_t capacity) {
-  ${cName}* chan = (${cName}*)__yo_malloc(sizeof(${cName}));
-  if (!chan) return NULL;
-
-  // Initialize reference counting header
-  chan->header.owner_thread_id = __yo_get_thread_id();
-  chan->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);
-  atomic_store_explicit(&chan->header.shared_word, 0, memory_order_relaxed);
-  chan->header.gc_next = NULL;
-  chan->header.gc_prev = NULL;
-  chan->header.dispose_fn = __yo_dispose_${safeCName};
-  chan->header.traverse_fn = NULL;
-
-  // Initialize channel fields
-  chan->capacity = capacity;
-  chan->size = 0;
-  chan->head = 0;
-  chan->tail = 0;
-  atomic_store_explicit(&chan->closed, 0, memory_order_relaxed);
-  
-  // Initialize wait queues for select support (using head/tail pointers directly)
-  chan->send_queue_head = NULL;
-  chan->send_queue_tail = NULL;
-  chan->recv_queue_head = NULL;
-  chan->recv_queue_tail = NULL;
-
-  // Following neco's approach: allocate capacity+1 slots
-  // - The extra slot is for select-case operations
-  // - For unbuffered channels (capacity=0), we allocate 1 slot but don't use it for normal send/recv
-  // - Normal unbuffered send/recv use direct copy to receiver's recv_data_ptr (like neco's cmsg)
-  size_t buffer_size = capacity + 1;
-  
-  if (buffer_size > 0) {
-    chan->buffer = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}) * buffer_size);
-    if (!chan->buffer) {
-      __yo_free(chan);
-      return NULL;
-    }
-  } else {
-    chan->buffer = NULL;
-  }
-
-  // Initialize synchronization primitives
-#if defined(_WIN32)
-  InitializeCriticalSection(&chan->mutex);
-  InitializeConditionVariable(&chan->send_cond);
-  InitializeConditionVariable(&chan->recv_cond);
-#else
-  pthread_mutex_init(&chan->mutex, NULL);
-  pthread_cond_init(&chan->send_cond, NULL);
-  pthread_cond_init(&chan->recv_cond, NULL);
-#endif
-
-  return chan;
-}
-`);
-
-    // Channel send function - following neco's approach
-    emitter.emitLine(`void __yo_chan_send_${safeCName}(${cName}* chan, ${elementTypeStr} value) {
-  if (!chan || atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-    return;
-  }
-
-  if (yo_coro_scheduler_initialized && yo_coro_current) {
-    // Coroutine context - use wait queues and park (neco-style)
-    
-#if defined(_WIN32)
-    EnterCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_lock(&chan->mutex);
-#endif
-
-    if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      return;
-    }
-
-    // Check if receiver is waiting (neco: single queue mode)
-    if (!__yo_chan_wait_queue_empty(chan->recv_queue_head)) {
-      // Receiver waiting - do direct handoff
-      yo_coro_t* receiver = __yo_chan_wait_queue_pop(&chan->recv_queue_head, &chan->recv_queue_tail);
-      
-      if (receiver->select_state != NULL) {
-        // Receiver is in select - find which case matches this channel
-        for (int i = 0; i < receiver->select_state->num_cases; i++) {
-          if (receiver->select_state->cases[i].channel == chan && 
-              !receiver->select_state->cases[i].is_send) {
-            // This is the receive case - write to Option result
-            ${optionReturnTypeStr}* recv_result = (${optionReturnTypeStr}*)receiver->select_state->cases[i].value_ptr;
-            recv_result->tag = ${someTag};
-            recv_result->data.Some.value = value;
-            receiver->select_state->ready_case = i;
-            break;
-          }
-        }
-      } else if (receiver->recv_data_ptr != NULL) {
-        // Regular receive - copy directly to receiver's result struct (KEY: neco's cmsg pattern)
-        // This is the magic: no buffer race, direct copy to receiver's stack!
-        // recv_data_ptr points to the Option result struct
-        ${optionReturnTypeStr}* recv_result = (${optionReturnTypeStr}*)receiver->recv_data_ptr;
-        recv_result->tag = ${someTag};
-        recv_result->data.Some.value = value;
-        receiver->recv_data_ptr = NULL;  // Clear after use
-      }
-      
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      
-      // Wake the receiver task (only if not already completed and stack not freed)
-      if (receiver->owner_worker && receiver->state != YO_CORO_COMPLETED && receiver->stack != NULL) {
-        receiver->state = YO_CORO_READY;
-        receiver->wait_channel = NULL;
-        __yo_coro_enqueue_to_worker(receiver->owner_worker, receiver);
-      }
-      
-#if defined(_WIN32)
-      WakeConditionVariable(&chan->recv_cond);
-#else
-      pthread_cond_signal(&chan->recv_cond);
-#endif
-      
-      // Sender completes immediately (neco line 5993)
-      return;
-    }
-
-    // No receiver waiting - check if buffer has space (neco line 6006)
-    if (chan->size < chan->capacity) {
-      // Buffer has space - add to buffer using ring buffer (tail for write, head for read)
-      chan->buffer[chan->tail] = value;
-      chan->tail = (chan->tail + 1) % chan->capacity;
-      chan->size++;
-      
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      
-      // Wake up any blocked receivers
-      // NOTE: This must be called AFTER unlocking to avoid deadlock
-      // (wakeup locks worker queues while we hold channel mutex)
-      __yo_coro_wakeup(chan);
-      return;
-    }
-
-    // Buffer full or unbuffered - must park sender (neco line 6012)
-    __yo_chan_wait_queue_add(&chan->send_queue_head, &chan->send_queue_tail, yo_coro_current);
-    yo_coro_current->wait_channel = chan;
-    
-    // NEW: Store value pointer in coroutine instead of shared buffer
-    // Allocate temp storage for the value (will be freed when sender resumes)
-    ${elementTypeStr}* value_storage = (${elementTypeStr}*)__yo_malloc(sizeof(${elementTypeStr}));
-    *value_storage = value;
-    yo_coro_current->send_data_ptr = value_storage;
-    yo_coro_current->send_data_size = sizeof(${elementTypeStr});
-    
-    CONCURRENCY_DEBUG("[CHAN_SEND] Task=%p parking, stored value=%d at %p\\n", yo_coro_current, value, value_storage);
-    
-#if defined(_WIN32)
-    LeaveCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_unlock(&chan->mutex);
-#endif
-    
-    // Check for stack overflow before parking
-    __yo_check_stack_overflow(yo_coro_current);
-    
-    // Park this task
-    yo_coro_current->state = YO_CORO_BLOCKED;
-    yo_coro_current = NULL;
-    llco_switch(NULL, false);
-    
-    // Resumed - receiver took the value, free our temp storage
-    if (yo_coro_current && yo_coro_current->send_data_ptr) {
-      __yo_free(yo_coro_current->send_data_ptr);
-      yo_coro_current->send_data_ptr = NULL;
-      yo_coro_current->send_data_size = 0;
-    }
-    return;
-  }
-}
-`);
-
-    // Channel receive function - uses output parameter to avoid struct return issues with longjmp
-    emitter.emitLine(`void __yo_chan_recv_${safeCName}(${cName}* chan, ${optionReturnTypeStr}* result) {
-  memset(result, 0, sizeof(*result)); // Initialize to zero (None case)
-
-  if (!chan) {
-    return; // Return None for null channel
-  }
-
-  if (chan->capacity == 0) {
-    // Unbuffered channel - direct handoff using wait queues
-    
-    if (yo_coro_scheduler_initialized && yo_coro_current) {
-      // Coroutine context - use wait queues and park
-      
-#if defined(_WIN32)
-      EnterCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_lock(&chan->mutex);
-#endif
-      
-      if (atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-        result->tag = ${noneTag};
-#if defined(_WIN32)
-        LeaveCriticalSection(&chan->mutex);
-#else
-        pthread_mutex_unlock(&chan->mutex);
-#endif
-        return;
-      }
-      
-      // Check if sender is waiting
-      if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
-        CONCURRENCY_DEBUG("[CHAN_RECV] Found sender=%p in send_queue\\n", chan->send_queue_head);
-        // Sender waiting - take value directly
-        yo_coro_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
-        CONCURRENCY_DEBUG("[CHAN_RECV] Popped sender=%p, select_state=%p\\n", sender, sender->select_state);
-        
-        // Check if sender is in a select statement
-        if (sender->select_state) {
-          CONCURRENCY_DEBUG("[CHAN_RECV] Sender has select_state, num_cases=%d\\n", sender->select_state->num_cases);
-          // Sender is in select - find the send case for this channel and take value
-          bool found = false;
-          for (int i = 0; i < sender->select_state->num_cases; i++) {
-            CONCURRENCY_DEBUG("[CHAN_RECV] Checking case %d: channel=%p (want %p), is_send=%d\\n", 
-              i, sender->select_state->cases[i].channel, chan, sender->select_state->cases[i].is_send);
-            if (sender->select_state->cases[i].channel == chan && 
-                sender->select_state->cases[i].is_send) {
-              ${elementTypeStr} val = *(${elementTypeStr}*)sender->select_state->cases[i].value_ptr;
-              CONCURRENCY_DEBUG("[CHAN_RECV] Found send case %d, value=%d\\n", i, val);
-              result->tag = ${someTag};
-              result->data.Some.value = val;
-              sender->select_state->ready_case = i;
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            CONCURRENCY_DEBUG("[CHAN_RECV] ERROR: No matching send case found!\\n");
-            result->tag = ${noneTag};
-          }
-        } else {
-          // Regular send - read value from sender's send_data_ptr
-          if (sender->send_data_ptr != NULL && sender->send_data_size == sizeof(${elementTypeStr})) {
-            result->tag = ${someTag};
-            result->data.Some.value = *(${elementTypeStr}*)sender->send_data_ptr;
-            CONCURRENCY_DEBUG("[CHAN_RECV] Got value=%d from parked sender's send_data_ptr=%p\\n", 
-              result->data.Some.value, sender->send_data_ptr);
-          } else {
-            CONCURRENCY_DEBUG("[CHAN_RECV] ERROR: Parked sender has no send_data_ptr! ptr=%p, size=%zu\\n", 
-              sender->send_data_ptr, sender->send_data_size);
-            result->tag = ${noneTag};
-          }
-        }
-        
-#if defined(_WIN32)
-        LeaveCriticalSection(&chan->mutex);
-#else
-        pthread_mutex_unlock(&chan->mutex);
-#endif
-        
-        // Wake the sender coroutine by enqueueing it back to its owner worker's ready queue (only if not already completed and stack not freed)
-        if (sender->owner_worker && sender->state != YO_CORO_COMPLETED && sender->stack != NULL) {
-          sender->state = YO_CORO_READY;
-          sender->wait_channel = NULL;
-          __yo_coro_enqueue_to_worker(sender->owner_worker, sender);
-        }
-        
-        // Also signal pthread condition variable in case non-task threads are waiting
-#if defined(_WIN32)
-        WakeConditionVariable(&chan->send_cond);
-#else
-        pthread_cond_signal(&chan->send_cond);
-#endif
-        
-        return;
-      }
-      
-      // Check if value is available from parked sender
-      if (chan->size > 0 && chan->buffer != NULL) {
-        result->tag = ${someTag};
-        // Parked sender always stores value in buffer[0]
-        result->data.Some.value = chan->buffer[0];
-        chan->size = 0;
-
-#if defined(_WIN32)
-        LeaveCriticalSection(&chan->mutex);
-        WakeConditionVariable(&chan->send_cond);
-#else
-        pthread_mutex_unlock(&chan->mutex);
-        pthread_cond_signal(&chan->send_cond);
-#endif
-
-        // Pop and wake the sender from wait queue (only if not already completed and stack not freed)
-        if (!__yo_chan_wait_queue_empty(chan->send_queue_head)) {
-          yo_coro_t* sender = __yo_chan_wait_queue_pop(&chan->send_queue_head, &chan->send_queue_tail);
-          if (sender && sender->owner_worker && sender->state != YO_CORO_COMPLETED && sender->stack != NULL) {
-            sender->state = YO_CORO_READY;
-            sender->wait_channel = NULL;
-            __yo_coro_enqueue_to_worker(sender->owner_worker, sender);
-          }
-        }
-        return;
-      }
-      
-      // No sender waiting - must park
-      CONCURRENCY_DEBUG("[CHAN_RECV] No sender waiting, no buffer value, parking...\\n");
-      __yo_chan_wait_queue_add(&chan->recv_queue_head, &chan->recv_queue_tail, yo_coro_current);
-      yo_coro_current->wait_channel = chan;
-      // KEY FIX: Set recv_data_ptr to point to result (like neco's cmsg pattern)
-      yo_coro_current->recv_data_ptr = result;
-      
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      
-      // Check for stack overflow before parking
-      __yo_check_stack_overflow(yo_coro_current);
-      
-      // Park this coroutine - switch directly back to worker without re-enqueuing
-      // The coroutine is already in the channel's recv_queue and will be woken up by a sender
-      yo_coro_current->state = YO_CORO_BLOCKED;
-      yo_coro_current = NULL;  // Clear current coroutine since we're blocking
-      CONCURRENCY_DEBUG("[CHAN_RECV] Switching back to worker (coro blocked)\\n");
-      llco_switch(NULL, false);  // Return to worker loop
-      
-      // Resumed - value should be available
-      // Sender copied value directly to result via recv_data_ptr (neco's cmsg pattern)
-      CONCURRENCY_DEBUG("[CHAN_RECV] Task resumed after parking, value should be in result\\n");
-      
-      // Value was already written by sender to result (via recv_data_ptr)
-      // Just return - no need to lock mutex or check buffer
-      // The result struct already has the value with tag set by sender
-      return;
-    }
-  }  // Close: if (chan->capacity == 0)
-
-  // Buffered channel
-  if (yo_coro_scheduler_initialized && yo_coro_current) {
-#if defined(_WIN32)
-    EnterCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_lock(&chan->mutex);
-#endif
-    
-    // Check if buffer is empty
-    if (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-      // Buffer empty, block and switch to another task
-      __yo_coro_block_and_yield(chan);
-      
-      // When resumed, try again
-#if defined(_WIN32)
-      EnterCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_lock(&chan->mutex);
-#endif
-    }
-
-    if (chan->size > 0) {
-      // Get value from buffer
-      ${elementTypeStr} value = chan->buffer[chan->head];
-      chan->head = (chan->head + 1) % chan->capacity;
-      chan->size--;
-      
-      // Construct Some(value)
-      result->tag = ${someTag}; // SOME variant
-      result->data.Some.value = value;
-    } else {
-      // No data available - return None
-      result->tag = ${noneTag}; // NONE variant
-    }
-
-#if defined(_WIN32)
-    LeaveCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_unlock(&chan->mutex);
-#endif
-
-    // Wake up any coroutines waiting to send
-    __yo_coro_wakeup(chan);
-    return;
-  }
-
-  // Fall back to pthread blocking for non-task contexts
-#if defined(_WIN32)
-  EnterCriticalSection(&chan->mutex);
-  while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-    SleepConditionVariableCS(&chan->recv_cond, &chan->mutex, INFINITE);
-  }
-#else
-  pthread_mutex_lock(&chan->mutex);
-  while (chan->size == 0 && !atomic_load_explicit(&chan->closed, memory_order_acquire)) {
-    pthread_cond_wait(&chan->recv_cond, &chan->mutex);
-  }
-#endif
-
-  if (chan->size > 0) {
-    // Get value from buffer
-    ${elementTypeStr} value = chan->buffer[chan->head];
-    chan->head = (chan->head + 1) % chan->capacity;
-    chan->size--;
-    
-    // Construct Some(value)
-    result->tag = ${someTag}; // SOME variant
-    result->data.Some.value = value;
-  } else {
-    // No data available - return None
-    result->tag = ${noneTag}; // NONE variant
-  }
-
-#if defined(_WIN32)
-  WakeConditionVariable(&chan->send_cond);
-  LeaveCriticalSection(&chan->mutex);
-#else
-  pthread_cond_signal(&chan->send_cond);
-  pthread_mutex_unlock(&chan->mutex);
-#endif
-
-  return;
-}
-`);
-
-    // Generic select runtime function (works for all channel types)
-    if (isFirstChannelType) {
-      emitter.emitLine(`
-// Go-style select implementation
-// Following neco's select implementation:
-// 1. Poll all channels to see if any are ready (has sender/receiver waiting OR has buffered data)
-// 2. If ready, perform the operation immediately and return
-// 3. If not ready, add coroutine to ALL channel wait queues and park
-// 4. When ANY channel operation completes, wake the coroutine and set ready_case in select_state
-// 5. Remove from all wait queues and return which case was ready
-//
-// Extension: We support both send and receive in select (neco only supports receive)
-int __yo_select(yo_select_case_t* cases, int num_cases, bool has_default) {
-  if (!yo_coro_scheduler_initialized || !yo_coro_current) {
-    // Not in coroutine context - cannot use select
-    if (has_default) {
-      return -2; // Default case
-    }
-    return -1; // Error
-  }
-  
-  CONCURRENCY_DEBUG("[SELECT] Task=%p entering select with %d cases\\n", yo_coro_current, num_cases);
-  
-  // PHASE 1: Poll all channels to see if any are ready
-  // We need to lock each channel to check atomically
-  for (int i = 0; i < num_cases; i++) {
-    void* chan_ptr = cases[i].channel;
-    if (!chan_ptr) continue;
-    
-    ${cName}* chan = (${cName}*)chan_ptr;
-    
-    CONCURRENCY_DEBUG("[SELECT] Checking case %d: is_send=%d, chan=%p\\n", i, cases[i].is_send, chan);
-    
-#if defined(_WIN32)
-    EnterCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_lock(&chan->mutex);
-#endif
-    
-    bool is_ready = false;
-    
-    if (cases[i].is_send) {
-      // Send case - ready if receiver waiting (unbuffered) or buffer has space (buffered)
-      if (chan->capacity == 0) {
-        // Unbuffered - ready if receiver in queue
-        is_ready = !__yo_chan_wait_queue_empty(chan->recv_queue_head);
-        CONCURRENCY_DEBUG("[SELECT] Send case: unbuffered, recv_queue_empty=%d, is_ready=%d\\n", 
-          __yo_chan_wait_queue_empty(chan->recv_queue_head), is_ready);
-      } else {
-        // Buffered - ready if space available  
-        is_ready = (chan->size < chan->capacity);
-        CONCURRENCY_DEBUG("[SELECT] Send case: buffered, size=%d, capacity=%d, is_ready=%d\\n", 
-          chan->size, chan->capacity, is_ready);
-      }
-    } else {
-      // Receive case - ready if sender waiting (unbuffered) or buffer has data (buffered)
-      if (chan->capacity == 0) {
-        // Unbuffered - ready if sender in queue
-        is_ready = !__yo_chan_wait_queue_empty(chan->send_queue_head);
-        CONCURRENCY_DEBUG("[SELECT] Recv case: unbuffered, send_queue_empty=%d, is_ready=%d\\n", 
-          __yo_chan_wait_queue_empty(chan->send_queue_head), is_ready);
-      } else {
-        // Buffered - ready if data available
-        is_ready = (chan->size > 0);
-        CONCURRENCY_DEBUG("[SELECT] Recv case: buffered, size=%d, is_ready=%d\\n", 
-          chan->size, is_ready);
-      }
-    }
-    
-#if defined(_WIN32)
-    LeaveCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_unlock(&chan->mutex);
-#endif
-    
-    if (is_ready) {
-      CONCURRENCY_DEBUG("[SELECT] Case %d is ready, executing now\\n", i);
-      // Perform the operation immediately
-      if (cases[i].is_send) {
-        ${elementTypeStr} value = *(${elementTypeStr}*)cases[i].value_ptr;
-        __yo_chan_send_${safeCName}(chan, value);
-      } else {
-        ${optionReturnTypeStr}* result_ptr = (${optionReturnTypeStr}*)cases[i].value_ptr;
-        __yo_chan_recv_${safeCName}(chan, result_ptr);
-      }
-      CONCURRENCY_DEBUG("[SELECT] Case %d completed, returning\\n", i);
-      return i;
-    }
-  }
-  
-  // PHASE 2: No case is ready - check for default
-  if (has_default) {
-    CONCURRENCY_DEBUG("[SELECT] No case ready, using default\\n");
-    return -2; // Execute default case
-  }
-  
-  CONCURRENCY_DEBUG("[SELECT] No case ready, no default, parking on all channels\\n");
-  
-  // PHASE 3: No case ready and no default - must park on all channels
-  // Create select_state and store in current task
-  yo_select_state_t* state = (yo_select_state_t*)__yo_malloc(sizeof(yo_select_state_t));
-  state->cases = cases;
-  state->num_cases = num_cases;
-  state->ready_case = -1;
-  state->has_default = has_default;
-  
-  yo_coro_current->select_state = state;
-  
-  // CRITICAL: Lock ALL channels first to prevent TOCTOU bugs
-  // Then re-check if any are ready, then add to wait queues atomically
-  for (int i = 0; i < num_cases; i++) {
-    ${cName}* chan = (${cName}*)cases[i].channel;
-    if (!chan) continue;
-#if defined(_WIN32)
-    EnterCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_lock(&chan->mutex);
-#endif
-  }
-  
-  // Re-check if any case is now ready (TOCTOU fix)
-  int ready_idx = -1;
-  for (int i = 0; i < num_cases; i++) {
-    ${cName}* chan = (${cName}*)cases[i].channel;
-    if (!chan) continue;
-    
-    bool is_ready = false;
-    if (cases[i].is_send) {
-      if (chan->capacity == 0) {
-        is_ready = !__yo_chan_wait_queue_empty(chan->recv_queue_head);
-      } else {
-        is_ready = (chan->size < chan->capacity);
-      }
-    } else {
-      if (chan->capacity == 0) {
-        is_ready = !__yo_chan_wait_queue_empty(chan->send_queue_head);
-      } else {
-        is_ready = (chan->size > 0);
-      }
-    }
-    
-    if (is_ready) {
-      ready_idx = i;
-      break;
-    }
-  }
-  
-  if (ready_idx >= 0) {
-    // Found a ready case after locking - unlock all and perform operation
-    CONCURRENCY_DEBUG("[SELECT] Found ready case %d after locking all channels\\n", ready_idx);
-    for (int i = 0; i < num_cases; i++) {
-      ${cName}* chan = (${cName}*)cases[i].channel;
-      if (!chan) continue;
-#if defined(_WIN32)
-      LeaveCriticalSection(&chan->mutex);
-#else
-      pthread_mutex_unlock(&chan->mutex);
-#endif
-    }
-    
-    __yo_free(state);
-    yo_coro_current->select_state = NULL;
-    
-    // Perform the ready operation
-    ${cName}* ready_chan = (${cName}*)cases[ready_idx].channel;
-    if (cases[ready_idx].is_send) {
-      ${elementTypeStr} value = *(${elementTypeStr}*)cases[ready_idx].value_ptr;
-      __yo_chan_send_${safeCName}(ready_chan, value);
-    } else {
-      ${optionReturnTypeStr}* result_ptr = (${optionReturnTypeStr}*)cases[ready_idx].value_ptr;
-      __yo_chan_recv_${safeCName}(ready_chan, result_ptr);
-    }
-    return ready_idx;
-  }
-  
-  // Still no ready case - add to all wait queues while holding all locks
-  CONCURRENCY_DEBUG("[SELECT] Still no ready case, adding to all wait queues\\n");
-  for (int i = 0; i < num_cases; i++) {
-    ${cName}* chan = (${cName}*)cases[i].channel;
-    if (!chan) continue;
-    
-    if (cases[i].is_send) {
-      __yo_chan_wait_queue_add(&chan->send_queue_head, &chan->send_queue_tail, yo_coro_current);
-    } else {
-      __yo_chan_wait_queue_add(&chan->recv_queue_head, &chan->recv_queue_tail, yo_coro_current);
-    }
-  }
-  
-  // Now unlock all channels
-  for (int i = 0; i < num_cases; i++) {
-    ${cName}* chan = (${cName}*)cases[i].channel;
-    if (!chan) continue;
-#if defined(_WIN32)
-    LeaveCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_unlock(&chan->mutex);
-#endif
-  }
-  
-  // Check for stack overflow before parking
-  __yo_check_stack_overflow(yo_coro_current);
-  
-  // Park the coroutine (will be woken when any channel operation completes)
-  CONCURRENCY_DEBUG("[SELECT] Parking coroutine\\n");
-  yo_coro_current->state = YO_CORO_BLOCKED;
-  yo_coro_current->wait_channel = NULL; // Waiting on multiple channels
-  yo_coro_current = NULL;
-  llco_switch(NULL, false); // Switch back to worker
-  
-  // ===== RESUMED - one channel is ready =====
-  // Worker loop has restored yo_coro_current
-  
-  int ready_case = yo_coro_current->select_state->ready_case;
-  
-  // Remove from all wait queues (important - we might still be in other queues!)
-  for (int i = 0; i < num_cases; i++) {
-    ${cName}* chan = (${cName}*)cases[i].channel;
-    if (!chan) continue;
-    
-#if defined(_WIN32)
-    EnterCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_lock(&chan->mutex);
-#endif
-    
-    // Note: The channel that woke us already dequeued us, but we need to remove from others
-    if (cases[i].is_send) {
-      __yo_chan_wait_queue_remove(&chan->send_queue_head, &chan->send_queue_tail, yo_coro_current);
-    } else {
-      __yo_chan_wait_queue_remove(&chan->recv_queue_head, &chan->recv_queue_tail, yo_coro_current);
-    }
-    
-#if defined(_WIN32)
-    LeaveCriticalSection(&chan->mutex);
-#else
-    pthread_mutex_unlock(&chan->mutex);
-#endif
-  }
-  
-  // Free select state
-  __yo_free(state);
-  yo_coro_current->select_state = NULL;
-  
-  return ready_case;
-}
-`);
-    }
-
-    // Channel close function
-    emitter.emitLine(`void __yo_chan_close_${safeCName}(${cName}* chan) {
-  if (!chan) return;
-
-#if defined(_WIN32)
-  EnterCriticalSection(&chan->mutex);
-#else
-  pthread_mutex_lock(&chan->mutex);
-#endif
-
-  atomic_store_explicit(&chan->closed, 1, memory_order_release);
-
-#if defined(_WIN32)
-  WakeAllConditionVariable(&chan->send_cond);
-  WakeAllConditionVariable(&chan->recv_cond);
-  LeaveCriticalSection(&chan->mutex);
-#else
-  pthread_cond_broadcast(&chan->send_cond);
-  pthread_cond_broadcast(&chan->recv_cond);
-  pthread_mutex_unlock(&chan->mutex);
-#endif
-}
-`);
-
-    // Channel dispose function
-    emitter.emitLine(`void __yo_dispose_${safeCName}(void* ptr) {
-  ${cName}* chan = (${cName}*)ptr;
-  if (!chan) return;
-
-  // Close the channel first to wake any waiting threads
-  __yo_chan_close_${safeCName}(chan);
-
-  // Free the buffer if allocated
-  if (chan->buffer != NULL) {
-    __yo_free(chan->buffer);
-    chan->buffer = NULL;
-  }
-
-  // Destroy synchronization primitives
-#if defined(_WIN32)
-  DeleteCriticalSection(&chan->mutex);
-  // Condition variables don't need explicit cleanup on Windows
-#else
-  pthread_mutex_destroy(&chan->mutex);
-  pthread_cond_destroy(&chan->send_cond);
-  pthread_cond_destroy(&chan->recv_cond);
-#endif
-}
-`);
-
-    isFirstChannelType = false;
   }
 }

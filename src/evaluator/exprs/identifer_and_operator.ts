@@ -34,7 +34,6 @@ import {
   createUnitType,
   createUsizeType,
   createVoidType,
-  isChanType,
   isClosureType,
   isDynType,
   isEnumType,
@@ -456,7 +455,6 @@ export function evaluateIdentifierAndOperator({
       isUnionType(context.SelfType) ||
       isDynType(context.SelfType) ||
       isClosureType(context.SelfType) ||
-      isChanType(context.SelfType) ||
       isFutureType(context.SelfType))
   ) {
     const typeValue = createTypeValue(context.SelfType);

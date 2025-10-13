@@ -136,20 +136,6 @@ export class CodeGenerator {
           );
         }
 
-        // Always use bundled llco (Low-Level Coroutines)
-        const llcoPath = "vendor/llco/llco.c";
-        const llcoIncludePath = "vendor/llco";
-
-        if (fs.existsSync(llcoPath)) {
-          compileArgs.splice(-2, 0, llcoPath); // Add llco.c
-          compileArgs.splice(-2, 0, `-I${llcoIncludePath}`); // Add include path for llco.h
-          console.log("Using bundled llco");
-        } else {
-          console.warn(
-            "Bundled llco not found, coroutines may not work properly"
-          );
-        }
-
         console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
 
         const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });

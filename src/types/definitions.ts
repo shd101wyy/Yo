@@ -588,44 +588,6 @@ export interface DynType extends Type {
 }
 
 /**
- * ChanType represents a Go-like channel for communication between threads.
- * Following Go's design, the buffer size is not part of the type - it's a runtime property.
- *
- * Examples:
- * - Chan(i32): A channel that sends/receives i32 values (can be buffered or unbuffered)
- * - Chan(string): A channel that sends/receives string values
- * - Chan(MyStruct): A channel for custom structs
- *
- * Usage:
- * ```yo
- * unbuffered := chan(i32);           // Creates unbuffered Chan(i32)
- * buffered := chan(string, 10);      // Creates buffered Chan(string) with capacity 10
- * __yo_chan_send(ch, value);         // Send value to channel
- * result := __yo_chan_recv(ch);      // Receive value from channel
- * ```
- */
-export interface ChanType extends Type {
-  tag: TypeTag.Chan;
-
-  /**
-   * The type of values that can be sent/received through this channel.
-   */
-  elementType: Type;
-
-  /**
-   * The module associated with this channel type.
-   * Contains ARC functions (___dup, ___drop) and channel-related functions.
-   */
-  module: ModuleType;
-
-  /**
-   * The env when the channel type is created.
-   * The env is also useful to show the frame level at which the channel is defined.
-   */
-  env: Environment;
-}
-
-/**
  * FutureType represents an async/await future for stackless coroutines.
  * A Future(T) is a value that will be available in the future after an async operation completes.
  *

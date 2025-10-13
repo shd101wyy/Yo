@@ -427,7 +427,6 @@ export const BuiltinKeywords = {
   cond: ["cond"],
   type: ["type"],
   match: ["match"],
-  select: ["select"],
   struct: ["struct"],
   object: ["object"],
   enum: ["enum"],
@@ -474,8 +473,6 @@ export const BuiltinKeywords = {
   Tuple: ["Tuple"],
   Array: ["Array"],
   Slice: ["Slice"],
-  Thread: ["Thread"],
-  Chan: ["Chan"],
   Future: ["Future"],
   Type: ["Type"],
   Module: ["Module"],
@@ -509,19 +506,12 @@ export const BuiltinFunctions = {
   the: ["the"],
   do: ["do"],
 
-  // Concurrency related functions
-  go: ["go"],
+  // Async/await functions
   async: ["async"],
   await: ["await"],
   __yo_concurrency_set_maximum_threads: [
     "__yo_concurrency_set_maximum_threads",
   ],
-
-  // Channel related functions
-  chan: ["chan"],
-  __yo_chan_send: ["__yo_chan_send"],
-  __yo_chan_recv: ["__yo_chan_recv"],
-  __yo_chan_close: ["__yo_chan_close"],
 
   // Pointer related functions
   __yo_ptr_cast: ["__yo_ptr_cast"],
@@ -865,9 +855,7 @@ export const BuiltinFunctions = {
   __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
   __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
 
-  // Channel ARC functions
-  __yo_chan_drop: ["__yo_chan_drop"], // drop channel object and handle cleanup
-  __yo_chan_dup: ["__yo_chan_dup"], // dup channel object with proper reference counting
+  // Future ARC functions
   __yo_future_drop: ["__yo_future_drop"], // drop future object and handle cleanup
   __yo_future_dup: ["__yo_future_dup"], // dup future object with proper reference counting
 

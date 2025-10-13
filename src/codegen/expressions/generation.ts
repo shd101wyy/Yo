@@ -14,7 +14,6 @@ import {
 import { TypeValue } from "../../type-value";
 import {
   ArrayType,
-  ChanType,
   ClosureType,
   FunctionType,
   FutureType,
@@ -205,42 +204,6 @@ function generateFuncCall(
     return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
-  // __yo_chan_drop - call dispose function then __yo_decr_rc on channel
-  // NOTE: Channels are deprecated with stackful coroutines
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_drop)) {
-    throw new Error(
-      `__yo_chan_drop is not supported in C codegen. ` +
-        `Channels are designed for stackful coroutines which have been deprecated.`
-    );
-
-    /* DEPRECATED: Old channel drop implementation
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_chan_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_decr_rc((void*)(${selfCode}), NULL)`;
-    */
-  }
-
-  // __yo_chan_dup - call __yo_incr_rc on channel
-  // NOTE: Channels are deprecated with stackful coroutines
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_dup)) {
-    throw new Error(
-      `__yo_chan_dup is not supported in C codegen. ` +
-        `Channels are designed for stackful coroutines which have been deprecated.`
-    );
-
-    /* DEPRECATED: Old channel dup implementation
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_chan_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc((void*)(${selfCode}))`;
-    */
-  }
-
   // __yo_future_drop - call __yo_decr_rc on future with special running check
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
     const selfArg = expr.args[0];
@@ -309,222 +272,19 @@ function generateFuncCall(
     return `(*((${returnTypeStr}*)NULL))`; // This will never execute but has the right type
   }
 
-  // go - spawn any expression as a cooperative coroutine by wrapping it in a closure
-  // NOTE: Stackful coroutines are deprecated in C codegen - use async/await instead
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.go)) {
-    throw new Error(
-      `The 'go' keyword (stackful coroutines) is not supported in C codegen. ` +
-        `Please use async/await (stackless coroutines) instead. ` +
-        `Change 'go { ... }' to 'async { ... }' and use 'await' to get results.`
-    );
-
-    /* DEPRECATED: Old stackful coroutine implementation - kept for reference
-    // The evaluator has already created the closure and stored it in expr.$.evaluatedClosure
-    const evaluatedClosure = expr.$?.evaluatedClosure;
-    if (!evaluatedClosure || !evaluatedClosure.$) {
-      return `// Error: go missing evaluated closure`;
-    }
-
-    // Generate the closure creation code (with dup expressions for captured variables)
-    const closureCode = generateExpr(evaluatedClosure, indent, context);
-    const closureType = evaluatedClosure.$.type;
-
-    if (isClosureType(closureType)) {
-      // Generate spawn code for closure
-      // The closure is a () => unit closure, so it has no args
-      const closureTypeCName = context.types[closureType.id]?.cName;
-      if (!closureTypeCName) {
-        return `// Error: go closure type not found in context`;
-      }
-
-      // Create a wrapper function signature for this specific closure type
-      const signatureStr = `closure_${closureTypeCName}_to_unit`;
-
-      context.spawnedClosureSignatures =
-        context.spawnedClosureSignatures || new Map();
-      context.spawnedClosureSignatures.set(signatureStr, {
-        closureType: closureType,
-      });
-
-      // Get stack size from expr.$.asyncStackSize or use default 16KB
-      let stackSizeCode: string;
-      if (expr.$?.asyncStackSize) {
-        // Generate stack size code from provided expression
-        stackSizeCode = generateExpr(expr.$.asyncStackSize, indent, context);
-      } else {
-        // Default stack size: 16KB
-        stackSizeCode = "(16 * 1024)";
-      }
-
-      return `__yo_coro_spawn_${signatureStr}(${closureCode}, ${stackSizeCode})`;
-    } else {
-      return `// Error: go argument must be a closure after evaluation`;
-    }
-    */
-  }
-
-  // __yo_concurrency_set_maximum_threads - set maximum number of threads for coroutine scheduler
-  // NOTE: Deprecated with stackful coroutines
+  // __yo_concurrency_set_maximum_threads - set maxmium number of threads for coroutine schedular
   if (
     exprIsFunctionCallOf(
       expr,
       BuiltinFunctions.__yo_concurrency_set_maximum_threads
     )
   ) {
-    throw new Error(
-      `__yo_concurrency_set_maximum_threads is not supported in C codegen. ` +
-        `Stackful coroutines have been deprecated in favor of async/await.`
-    );
-
-    /* DEPRECATED: Old implementation
     const numArg = expr.args[0];
     if (!numArg) {
       return `// Error: __yo_concurrency_set_maximum_threads requires exactly 1 argument`;
     }
-
     const numCode = generateExpr(numArg, indent, context);
     return `__yo_concurrency_set_maximum_threads(${numCode})`;
-    */
-  }
-
-  // chan() - create a new channel
-  // NOTE: Channels are deprecated with stackful coroutines
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.chan)) {
-    throw new Error(
-      `The 'chan()' function is not supported in C codegen. ` +
-        `Channels are designed for stackful coroutines which have been deprecated. ` +
-        `Use async/await with Future instead.`
-    );
-
-    /* DEPRECATED: Old channel implementation
-    const elementTypeArg = expr.args[0];
-    const capacityArg = expr.args[1];
-
-    if (!elementTypeArg) {
-      return `// Error: chan() requires at least 1 argument (element type)`;
-    }
-
-    const chanType = expr.$?.type;
-    if (!chanType) {
-      return `// Error: chan() missing type information`;
-    }
-
-    const chanTypeCName = context.types[chanType.id]?.cName;
-    if (!chanTypeCName) {
-      return `// Error: chan() channel type not found in context`;
-    }
-
-    let capacity = "0";
-
-    if (capacityArg) {
-      capacity = generateExpr(capacityArg, indent, context);
-    }
-
-    return `__yo_chan_create_${chanTypeCName}(${capacity})`;
-    */
-  }
-
-  // __yo_chan_send - send value to channel
-  // NOTE: Channels are deprecated with stackful coroutines
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_send)) {
-    throw new Error(
-      `Channel send operation is not supported in C codegen. ` +
-        `Channels are designed for stackful coroutines which have been deprecated.`
-    );
-
-    /* DEPRECATED: Old channel send implementation
-    /* DEPRECATED: Old channel send implementation
-    const chanArg = expr.args[0];
-    const valueArg = expr.args[1];
-
-    if (!chanArg || !valueArg) {
-      return `// Error: __yo_chan_send requires exactly 2 arguments (channel, value)`;
-    }
-
-    const chanCode = generateExpr(chanArg, indent, context);
-    const valueCode = generateExpr(valueArg, indent, context);
-    const chanType = chanArg.$?.type;
-
-    if (!chanType) {
-      return `// Error: __yo_chan_send channel argument missing type information`;
-    }
-
-    const chanTypeCName = context.types[chanType.id]?.cName;
-    if (!chanTypeCName) {
-      return `// Error: __yo_chan_send channel type not found in context`;
-    }
-    return `__yo_chan_send_${chanTypeCName}(${chanCode}, ${valueCode})`;
-    */
-  }
-
-  // __yo_chan_recv - receive value from channel
-  // NOTE: Channels are deprecated with stackful coroutines
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_recv)) {
-    throw new Error(
-      `Channel receive operation is not supported in C codegen. ` +
-        `Channels are designed for stackful coroutines which have been deprecated.`
-    );
-
-    /* DEPRECATED: Old channel recv implementation
-    const chanArg = expr.args[0];
-
-    if (!chanArg) {
-      return `// Error: __yo_chan_recv requires exactly 1 argument (channel)`;
-    }
-
-    const chanCode = generateExpr(chanArg, indent, context);
-    const chanType = chanArg.$?.type;
-
-    if (!chanType) {
-      return `// Error: __yo_chan_recv channel argument missing type information`;
-    }
-
-    const chanTypeCName = context.types[chanType.id]?.cName;
-    if (!chanTypeCName) {
-      return `// Error: __yo_chan_recv channel type not found in context`;
-    }
-
-    // Generate a temporary variable to hold the result
-    // Receive now takes an output parameter to avoid struct return issues with longjmp
-    // Use volatile to ensure the value persists across longjmp
-    const resultType = expr.$?.type;
-    const resultTypeCName = resultType
-      ? context.types[resultType.id]?.cName
-      : "void";
-    const tempName = `_yo_chan_recv_tmp_${Math.random().toString(36).substring(2, 10)}`;
-
-    return `({ volatile ${resultTypeCName} ${tempName}; __yo_chan_recv_${chanTypeCName}(${chanCode}, (${resultTypeCName}*)&${tempName}); ${tempName}; })`;
-    */
-  }
-
-  // __yo_chan_close - close channel
-  // NOTE: Channels are deprecated with stackful coroutines
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_chan_close)) {
-    throw new Error(
-      `Channel close operation is not supported in C codegen. ` +
-        `Channels are designed for stackful coroutines which have been deprecated.`
-    );
-
-    /* DEPRECATED: Old channel close implementation
-    const chanArg = expr.args[0];
-
-    if (!chanArg) {
-      return `// Error: __yo_chan_close requires exactly 1 argument (channel)`;
-    }
-
-    const chanCode = generateExpr(chanArg, indent, context);
-    const chanType = chanArg.$?.type;
-
-    if (!chanType) {
-      return `// Error: __yo_chan_close channel argument missing type information`;
-    }
-
-    const chanTypeCName = context.types[chanType.id]?.cName;
-    if (!chanTypeCName) {
-      return `// Error: __yo_chan_close channel type not found in context`;
-    }
-    return `__yo_chan_close_${chanTypeCName}(${chanCode})`;
-    */
   }
 
   // dyn() - dynamic dispatch constructor
@@ -1343,10 +1103,6 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
     return generateMatchExpression(expr, indent, context);
   }
-  // select
-  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.select)) {
-    return generateSelectExpression(expr, indent, context);
-  }
   // ptr value
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.AddressOf, 1)) {
     const type = expr.$?.type;
@@ -1821,94 +1577,17 @@ function generateFuncCall(
             }
           }
         } else {
-          // Check if this is a channel extern function that should be treated as built-in
           const externFunction = context.externFunctions[functionType.id];
           if (externFunction) {
-            const funcName = externFunction.cName;
+            // Generate regular extern function call
+            const cFuncName = externFunction.cName;
 
-            // Redirect channel extern functions to built-in handlers
-            if (funcName === "__yo_chan_send") {
-              // Handle as built-in __yo_chan_send
-              const chanArg = expr.args[0];
-              const valueArg = expr.args[1];
-
-              if (!chanArg || !valueArg) {
-                return `// Error: __yo_chan_send requires exactly 2 arguments (channel, value)`;
-              }
-
-              const chanCode = generateExpr(chanArg, indent, context);
-              const valueCode = generateExpr(valueArg, indent, context);
-              const chanType = chanArg.$?.type;
-
-              if (!chanType) {
-                return `// Error: __yo_chan_send channel argument missing type information`;
-              }
-
-              const chanTypeCName = context.types[chanType.id]?.cName;
-              if (!chanTypeCName) {
-                return `// Error: __yo_chan_send channel type not found in context`;
-              }
-              return `__yo_chan_send_${chanTypeCName}(${chanCode}, ${valueCode})`;
-            } else if (funcName === "__yo_chan_recv") {
-              // Handle as built-in __yo_chan_recv
-              const chanArg = expr.args[0];
-
-              if (!chanArg) {
-                return `// Error: __yo_chan_recv requires exactly 1 argument (channel)`;
-              }
-
-              const chanCode = generateExpr(chanArg, indent, context);
-              const chanType = chanArg.$?.type;
-
-              if (!chanType) {
-                return `// Error: __yo_chan_recv channel argument missing type information`;
-              }
-
-              const chanTypeCName = context.types[chanType.id]?.cName;
-              if (!chanTypeCName) {
-                return `// Error: __yo_chan_recv channel type not found in context`;
-              }
-
-              // Generate a temporary variable to hold the result
-              // Use volatile to ensure the value persists across longjmp
-              const resultType = expr.$?.type;
-              const resultTypeCName = resultType
-                ? context.types[resultType.id]?.cName
-                : "void";
-              const tempName = `_yo_chan_recv_tmp_${Math.random().toString(36).substring(2, 10)}`;
-
-              return `({ volatile ${resultTypeCName} ${tempName}; __yo_chan_recv_${chanTypeCName}(${chanCode}, (${resultTypeCName}*)&${tempName}); ${tempName}; })`;
-            } else if (funcName === "__yo_chan_close") {
-              // Handle as built-in __yo_chan_close
-              const chanArg = expr.args[0];
-
-              if (!chanArg) {
-                return `// Error: __yo_chan_close requires exactly 1 argument (channel)`;
-              }
-
-              const chanCode = generateExpr(chanArg, indent, context);
-              const chanType = chanArg.$?.type;
-
-              if (!chanType) {
-                return `// Error: __yo_chan_close channel argument missing type information`;
-              }
-
-              const chanTypeCName = context.types[chanType.id]?.cName;
-              if (!chanTypeCName) {
-                return `// Error: __yo_chan_close channel type not found in context`;
-              }
-              return `__yo_chan_close_${chanTypeCName}(${chanCode})`;
-            } else {
-              // Generate regular extern function call
-              const cFuncName = externFunction.cName;
-
-              // Handle deferred drop expressions if they exist
-              if (expr.$?.deferredDropExpressions) {
-                generateDeferredDropExpressions(expr, indent, context);
-              }
-
-              return `${cFuncName}(${argsList})`;
+            // Handle deferred drop expressions if they exist
+            if (expr.$?.deferredDropExpressions) {
+              generateDeferredDropExpressions(expr, indent, context);
             }
+
+            return `${cFuncName}(${argsList})`;
           } else {
             // Function parameter call (e.g., callback(x))
             const funcCode = generateExpr(expr.func, indent, context);
@@ -3523,249 +3202,6 @@ function generateMatchExpression(
 
   context.emitter.emitLine(`${indent}}`);
   return isUnit ? "" : (tempVariableName ?? ""); // Return the temp variable name
-}
-
-/**
- * Generate a select expression for channel operations (similar to Go's select statement)
- */
-function generateSelectExpression(
-  expr: FuncCallExpr,
-  indent: string,
-  context: CodeGenContext
-): string {
-  if (!expr.$) {
-    return '/* "select" expression is not evaluated */';
-  }
-
-  const tempVar = expr.$.variableName;
-  const valueType = expr.$.type;
-  const isUnit = valueType && isUnitType(valueType);
-  const hasControlFlow = expr.$.controlFlow !== undefined;
-
-  if (!isUnit && !hasControlFlow && tempVar) {
-    const varType = getTypeString(valueType, context);
-    context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
-  }
-
-  const cases = expr.args;
-
-  // Separate default case from channel operation cases
-  let defaultCaseIndex = -1;
-  const channelCases: number[] = [];
-
-  for (let i = 0; i < cases.length; i++) {
-    const caseStmt = cases[i];
-    if (
-      !exprIsFunctionCall(caseStmt) ||
-      !exprIsFunctionCallOf(caseStmt, "=>", 2)
-    ) {
-      continue;
-    }
-
-    const caseExpr = caseStmt.args[0]!;
-
-    if (exprIsAtom(caseExpr) && caseExpr.token.value === "_") {
-      defaultCaseIndex = i;
-    } else {
-      channelCases.push(i);
-    }
-  }
-
-  context.emitter.emitLine(`${indent}{`);
-
-  // Declare receive variables BEFORE building cases array
-  for (let idx = 0; idx < channelCases.length; idx++) {
-    const i = channelCases[idx]!;
-    const caseStmt = cases[i]!;
-    const caseExpr = (caseStmt as FuncCallExpr).args[0]!;
-
-    if (
-      exprIsFunctionCall(caseExpr) &&
-      (exprIsFunctionCallOf(caseExpr, "<-", 1) ||
-        exprIsFunctionCallOf(caseExpr, ":=", 2))
-    ) {
-      let recvExpr: Expr;
-      let varName: string | undefined;
-
-      if (exprIsFunctionCallOf(caseExpr, ":=", 2)) {
-        varName = caseExpr.args[0]!.token.value;
-        recvExpr = caseExpr.args[1]!;
-      } else {
-        recvExpr = caseExpr;
-      }
-
-      const recvType = recvExpr.$?.type;
-      if (recvType) {
-        const recvTypeStr = getTypeString(recvType, context);
-        if (varName) {
-          context.emitter.emitLine(`${indent}  ${recvTypeStr} ${varName};`);
-        } else {
-          context.emitter.emitLine(
-            `${indent}  ${recvTypeStr} _select_recv_tmp_${i};`
-          );
-        }
-      }
-    }
-  }
-
-  // Build select_case array
-  context.emitter.emitLine(
-    `${indent}  yo_select_case_t _select_cases[${channelCases.length}];`
-  );
-
-  for (let idx = 0; idx < channelCases.length; idx++) {
-    const i = channelCases[idx]!;
-    const caseStmt = cases[i]!;
-    const caseExpr = (caseStmt as FuncCallExpr).args[0]!;
-
-    if (
-      exprIsFunctionCall(caseExpr) &&
-      exprIsFunctionCallOf(caseExpr, "<-", 2)
-    ) {
-      // Send case
-      const channelExpr = caseExpr.args[0]!;
-      const valueExpr = caseExpr.args[1]!;
-
-      const channelCode = generateExpr(channelExpr, indent, context);
-      const valueCode = generateExpr(valueExpr, indent, context);
-
-      const chanType = channelExpr.$?.type;
-      if (chanType) {
-        const elementTypeStr = getTypeString(
-          (chanType as ChanType).elementType,
-          context
-        );
-
-        context.emitter.emitLine(
-          `${indent}  ${elementTypeStr} _select_send_val_${i} = ${valueCode};`
-        );
-        context.emitter.emitLine(
-          `${indent}  _select_cases[${idx}] = (yo_select_case_t){${channelCode}, true, &_select_send_val_${i}, ${i}};`
-        );
-      }
-      continue;
-    }
-
-    if (
-      exprIsFunctionCall(caseExpr) &&
-      (exprIsFunctionCallOf(caseExpr, "<-", 1) ||
-        exprIsFunctionCallOf(caseExpr, ":=", 2))
-    ) {
-      // Receive case
-      let recvExpr: Expr;
-      let varName: string | undefined;
-
-      if (exprIsFunctionCallOf(caseExpr, ":=", 2)) {
-        varName = caseExpr.args[0]!.token.value;
-        recvExpr = caseExpr.args[1]!;
-      } else {
-        recvExpr = caseExpr;
-      }
-
-      const channelExpr = (recvExpr as FuncCallExpr).args[0]!;
-      const channelCode = generateExpr(channelExpr, indent, context);
-
-      const targetVar = varName || `_select_recv_tmp_${i}`;
-      context.emitter.emitLine(
-        `${indent}  _select_cases[${idx}] = (yo_select_case_t){${channelCode}, false, &${targetVar}, ${i}};`
-      );
-      continue;
-    }
-  }
-
-  // Call __yo_select runtime function
-  const hasDefault = defaultCaseIndex >= 0;
-  context.emitter.emitLine(
-    `${indent}  int _select_case = __yo_select(_select_cases, ${channelCases.length}, ${hasDefault ? "true" : "false"});`
-  );
-  context.emitter.emitLine(`${indent}`);
-
-  // Build mapping from original case index to __yo_select return value
-  // __yo_select returns: 0, 1, 2... for channel cases (array index)
-  //                      -2 for default case
-  const caseIndexToSelectReturn = new Map<number, number>();
-  for (let idx = 0; idx < channelCases.length; idx++) {
-    const originalCaseIndex = channelCases[idx]!;
-    caseIndexToSelectReturn.set(originalCaseIndex, idx);
-  }
-  if (defaultCaseIndex >= 0) {
-    caseIndexToSelectReturn.set(defaultCaseIndex, -2);
-  }
-
-  // Generate switch statement for executing case bodies
-  context.emitter.emitLine(`${indent}  switch (_select_case) {`);
-
-  for (let i = 0; i < cases.length; i++) {
-    const caseStmt = cases[i];
-    if (
-      !exprIsFunctionCall(caseStmt) ||
-      !exprIsFunctionCallOf(caseStmt, "=>", 2)
-    ) {
-      continue;
-    }
-
-    const bodyExpr = caseStmt.args[1]!;
-
-    // Get the value that __yo_select will return for this case
-    const selectReturnValue = caseIndexToSelectReturn.get(i);
-    if (selectReturnValue === undefined) {
-      continue; // Skip cases that aren't channel operations or default
-    }
-
-    context.emitter.emitLine(`${indent}  case ${selectReturnValue}: {`);
-
-    // Generate body
-    if (
-      exprIsFunctionCall(bodyExpr) &&
-      exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
-    ) {
-      const beginArgs = bodyExpr.args;
-      for (let j = 0; j < beginArgs.length; j++) {
-        const arg = beginArgs[j]!;
-        const argCode = generateExpr(arg, indent + "    ", context);
-        if (argCode) {
-          if (
-            argCode === "continue" ||
-            argCode === "break" ||
-            (exprIsFunctionCall(arg) &&
-              exprIsFunctionCallOf(arg, BuiltinKeywords.return)) ||
-            argCode.includes("return")
-          ) {
-            context.emitter.emitLine(`${indent}    ${argCode};`);
-          } else if (j === beginArgs.length - 1 && !isUnit && tempVar) {
-            context.emitter.emitLine(`${indent}    ${tempVar} = ${argCode};`);
-          } else {
-            context.emitter.emitLine(`${indent}    ${argCode};`);
-          }
-        }
-      }
-    } else {
-      const bodyCode = generateExpr(bodyExpr, indent + "    ", context);
-      if (bodyCode) {
-        if (
-          bodyCode === "continue" ||
-          bodyCode === "break" ||
-          (exprIsFunctionCall(bodyExpr) &&
-            exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.return)) ||
-          bodyCode.includes("return")
-        ) {
-          context.emitter.emitLine(`${indent}    ${bodyCode};`);
-        } else if (!isUnit && tempVar) {
-          context.emitter.emitLine(`${indent}    ${tempVar} = ${bodyCode};`);
-        } else {
-          context.emitter.emitLine(`${indent}    ${bodyCode};`);
-        }
-      }
-    }
-
-    context.emitter.emitLine(`${indent}    break;`);
-    context.emitter.emitLine(`${indent}  }`);
-  }
-
-  context.emitter.emitLine(`${indent}  }`);
-  context.emitter.emitLine(`${indent}}`);
-
-  return isUnit ? "" : (tempVar ?? "");
 }
 
 /**

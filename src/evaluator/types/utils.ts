@@ -7,7 +7,6 @@ import {
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import {
-  ChanType,
   ClosureType,
   DynType,
   EnumType,
@@ -28,13 +27,7 @@ import { EvaluatorContext } from "../context";
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType:
-    | StructType
-    | EnumType
-    | DynType
-    | ClosureType
-    | ChanType
-    | FutureType,
+  SelfType: StructType | EnumType | DynType | ClosureType | FutureType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -74,13 +67,7 @@ export function addFunctionSignatureToSelfTypeModule({
    * Function code string, like (fn()-> unit)
    */
   functionSignature: string;
-  SelfType:
-    | StructType
-    | EnumType
-    | DynType
-    | ClosureType
-    | ChanType
-    | FutureType;
+  SelfType: StructType | EnumType | DynType | ClosureType | FutureType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -145,13 +132,7 @@ export function addFunctionCodeToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType:
-    | StructType
-    | EnumType
-    | DynType
-    | ClosureType
-    | ChanType
-    | FutureType;
+  SelfType: StructType | EnumType | DynType | ClosureType | FutureType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -840,71 +821,6 @@ function generateDupFunctionCodeForClosureType(
   // This builtin function handles the closure reference counting properly
   return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_closureType)}
     ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
-    return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
-  })`;
-}
-
-/**
- * Add ARC functions (___dup, ___drop) to a channel type's module.
- * These functions operate on the channel object itself.
- */
-export function addARCFunctionsToChanType({
-  chanType,
-  env,
-  context,
-}: {
-  chanType: ChanType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  // Generate ARC functions for the channel
-  const dropFunctionCode = generateDropFunctionCodeForChanType(chanType);
-  const dupFunctionCode = generateDupFunctionCodeForChanType(chanType);
-
-  // Add ___dup function to the channel type module elements
-  if (dupFunctionCode) {
-    env = addFunctionCodeToSelfTypeModule({
-      label: BuiltinFunctions.___dup[0]!,
-      functionCode: dupFunctionCode,
-      SelfType: chanType,
-      env,
-      context,
-    });
-  }
-
-  // Add ___drop function to the channel type module elements
-  if (dropFunctionCode) {
-    env = addFunctionCodeToSelfTypeModule({
-      label: BuiltinFunctions.___drop[0]!,
-      functionCode: dropFunctionCode,
-      SelfType: chanType,
-      env,
-      context,
-    });
-  }
-
-  return env;
-}
-
-/**
- * Generate ___drop function code for a channel type
- */
-function generateDropFunctionCodeForChanType(chanType: ChanType): string {
-  // For channel types, drop should use __yo_chan_drop
-  // This builtin function handles channel cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(chanType)}
-    ${BuiltinFunctions.__yo_chan_drop[0]!}(self);
-  })`;
-}
-
-/**
- * Generate ___dup function code for a channel type
- */
-function generateDupFunctionCodeForChanType(chanType: ChanType): string {
-  // For channel types, dup should use __yo_chan_dup
-  // This builtin function handles the channel reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(chanType)}
-    ${BuiltinFunctions.__yo_chan_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
 }

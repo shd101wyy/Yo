@@ -5,7 +5,6 @@ import { hashString, randomId } from "../utils";
 import { createTypeValue, Value, valueToString } from "../value";
 import {
   ArrayType,
-  ChanType,
   ClosureType,
   DynType,
   EnumType,
@@ -592,47 +591,6 @@ export function createDynType(
   module.elements.push(selfElement);
 
   return dynType;
-}
-
-export function createChanType(elementType: Type, env: Environment): ChanType {
-  const module = createModuleType(env);
-
-  const chanType: ChanType = {
-    id: `chan_${elementType.id}`,
-    tag: TypeTag.Chan,
-    elementType,
-    module,
-    env,
-  };
-
-  // Add "Self" to channel type module, similar to other ARC types
-  const typeValue = createTypeValue(chanType);
-  const selfElement: ModuleElement = {
-    type: typeValue.type,
-    assignedValue: typeValue,
-    label: "Self",
-    isCompileTimeOnly: true,
-    isImplicit: true,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-      labelExpr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-      typeExpr: undefined,
-      defaultValueExpr: undefined,
-      assignedValueExpr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  chanType.module.elements.push(selfElement);
-
-  return chanType;
 }
 
 export function createFutureType(
