@@ -862,7 +862,15 @@ export function generateFutureDeclaration(
 
   // Pointer to state machine (if this Future is backed by a state machine)
   emitter.emitDeclarationLine(
-    `  void* state_machine; // Pointer to state machine (freed when Future is disposed)`
+    `  void* state_machine; // Pointer to state machine that created this Future (freed when Future is disposed)`
+  );
+
+  // Continuation callback and state machine for async notification
+  emitter.emitDeclarationLine(
+    `  _Atomic(void*) continuation_fn; // Resume function to call when Future completes (NULL if no continuation)`
+  );
+  emitter.emitDeclarationLine(
+    `  _Atomic(void*) continuation_sm; // State machine to resume when Future completes (the AWAITING state machine)`
   );
 
   // Only include result field if not unit/void

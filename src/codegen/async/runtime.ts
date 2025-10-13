@@ -71,18 +71,18 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
   ASYNC_DEBUG("Queue count: %zu\\n", yo_thread_async_queue.count);
 }
 
+// Generic Future type for runtime operations
+// All Future types have the same layout for the fields we care about in runtime code
+typedef struct {
+  yo_ref_header_t header;
+  _Atomic(yo_future_state_t) state;
+  void* state_machine;
+  _Atomic(void*) continuation_fn;
+  _Atomic(void*) continuation_sm;
+} yo_future_generic_t;
+
 // Dispose function for Future types - frees the state machine
 static void yo_future_dispose(void* future_ptr) {
-  // All Future types have the same layout for the fields we care about:
-  // - yo_ref_header_t header
-  // - _Atomic(yo_future_state_t) state
-  // - void* state_machine
-  typedef struct {
-    yo_ref_header_t header;
-    int state;
-    void* state_machine;
-  } yo_future_generic_t;
-  
   yo_future_generic_t* future = (yo_future_generic_t*)future_ptr;
   
   // Free the state machine if it exists
@@ -173,21 +173,41 @@ static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
 // Register a continuation to be called when a Future completes
 // This is called when await encounters a pending Future
 static void yo_async_register_continuation(
-    void* future,
+    void* future_ptr,
     void (*resume_fn)(void*),
     void* state_machine) {
   
   ASYNC_DEBUG("Registering continuation for future=%p: resume_fn=%p, sm=%p\\n",
-              future, (void*)resume_fn, state_machine);
+              future_ptr, (void*)resume_fn, state_machine);
   
-  (void)future;  // Suppress unused parameter warning
+  yo_future_generic_t* future = (yo_future_generic_t*)future_ptr;
   
-  // When the Future becomes ready, we need to resume the state machine
-  // For now, since we don't have actual async I/O, the Future is immediately ready
-  // So we spawn the continuation immediately
+  // Note: state_machine parameter is the AWAITING state machine (e.g., yo_user_main)
+  // future->state_machine is the TASK's state machine (e.g., task1)
+  // These are different! The continuation resumes the awaiting state machine.
   
-  // Spawn the continuation to a worker thread
-  yo_async_spawn_task(resume_fn, state_machine);
+  // Atomically register the continuation
+  // We use release semantics so the continuation registration is visible when state becomes COMPLETED
+  atomic_store_explicit(&future->continuation_fn, (void*)resume_fn, memory_order_release);
+  atomic_store_explicit(&future->continuation_sm, state_machine, memory_order_release);
+  
+  // After registering the continuation, check if the Future already completed
+  // We use acquire semantics to ensure we see the result write if state is COMPLETED
+  yo_future_state_t current_state = atomic_load_explicit(&future->state, memory_order_acquire);
+  
+  if (current_state == YO_FUTURE_COMPLETED) {
+    // The Future completed between our await check and continuation registration
+    // We need to spawn the continuation ourselves
+    ASYNC_DEBUG("Future %p already completed during registration, spawning continuation immediately\\n", future_ptr);
+    
+    // Clear the continuation (so the completing task doesn't also spawn it)
+    atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);
+    atomic_store_explicit(&future->continuation_sm, NULL, memory_order_relaxed);
+    
+    // Spawn the continuation with the awaiting state machine
+    yo_async_spawn_task(resume_fn, state_machine);
+  }
+  // Otherwise, the completing task will spawn the continuation when it sets state=COMPLETED
 }
 
 // Initialize async runtime (called at program start)

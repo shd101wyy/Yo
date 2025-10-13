@@ -620,6 +620,9 @@ function generateFuncCall(
           // Store the result if not unit
           if (!isUnitResult) {
             context.emitter.emitLine(
+              `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting result = %d\\n", (int)${expr.$.variableName});`
+            );
+            context.emitter.emitLine(
               `${indent}sm->result->result = ${expr.$.variableName};`
             );
           }
@@ -627,8 +630,32 @@ function generateFuncCall(
           // Set state to COMPLETED with release semantics
           // This ensures the result write above is visible to other threads
           context.emitter.emitLine(
+            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`
+          );
+          context.emitter.emitLine(
             `${indent}atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
           );
+
+          // Check if there's a continuation waiting (with acquire semantics to see the continuation registration)
+          context.emitter.emitLine(``);
+          context.emitter.emitLine(
+            `${indent}// Check if there's a continuation waiting for this Future to complete`
+          );
+          context.emitter.emitLine(
+            `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->result->continuation_fn, memory_order_acquire);`
+          );
+          context.emitter.emitLine(
+            `${indent}void* continuation_sm = atomic_load_explicit(&sm->result->continuation_sm, memory_order_acquire);`
+          );
+          context.emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
+          context.emitter.emitLine(
+            `${indent}  ASYNC_DEBUG("${context.currentFunctionName}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
+          );
+          context.emitter.emitLine(
+            `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
+          );
+          context.emitter.emitLine(`${indent}}`);
+
           context.emitter.emitLine(
             `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`
           );

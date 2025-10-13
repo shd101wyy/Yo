@@ -400,6 +400,12 @@ function generateAsyncFunctionWithStateMachine(
   emitter.emitLine(
     `  future->state_machine = sm;  // Link state machine to Future`
   );
+  emitter.emitLine(
+    `  atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);  // No continuation yet`
+  );
+  emitter.emitLine(
+    `  atomic_store_explicit(&future->continuation_sm, NULL, memory_order_relaxed);  // No continuation yet`
+  );
   emitter.emitLine(`  sm->result = future;`);
   emitter.emitLine(``);
 

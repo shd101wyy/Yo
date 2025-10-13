@@ -186,7 +186,7 @@ export function generateResumeFunctionImplementation(
   const futureType = functionType.return.type as FutureType;
   const elementType = futureType.elementType;
   const isUnitResult = isUnitType(elementType);
-  const futureTypeCName = context.types[futureType.id]?.cName;
+  // const futureTypeCName = context.types[futureType.id]?.cName;
 
   // Split the function body into state segments
   const segments = splitIntoStateSegments(
@@ -232,7 +232,19 @@ export function generateResumeFunctionImplementation(
           `      // Extract result from await ${stateNumber - 1}`
         );
         emitter.emitLine(
+          `      // Ensure we see all writes that happened before state was set to COMPLETED`
+        );
+        emitter.emitLine(
+          `      yo_future_state_t state_before_read = atomic_load_explicit(&sm->await_future_${stateNumber - 1}->state, memory_order_acquire);`
+        );
+        emitter.emitLine(
+          `      ASYNC_DEBUG("${functionCName}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
+        );
+        emitter.emitLine(
           `      sm->await_result_${stateNumber - 1} = sm->await_future_${stateNumber - 1}->result;`
+        );
+        emitter.emitLine(
+          `      ASYNC_DEBUG("${functionCName}: Read result value = %d\\n", (int)sm->await_result_${stateNumber - 1});`
         );
 
         // If this await has a target variable, assign the result to it
@@ -277,8 +289,12 @@ export function generateResumeFunctionImplementation(
       emitter.emitLine(``);
       emitter.emitLine(`      // Check if future is ready`);
       emitter.emitLine(
-        `      if (atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire) == YO_FUTURE_COMPLETED) {`
+        `      yo_future_state_t future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);`
       );
+      emitter.emitLine(
+        `      ASYNC_DEBUG("${functionCName}: Checking Future ${awaitIndex}, state=%d\\n", future_state);`
+      );
+      emitter.emitLine(`      if (future_state == YO_FUTURE_COMPLETED) {`);
       emitter.emitLine(
         `        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} already completed, continuing immediately\\n");`
       );
