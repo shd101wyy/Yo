@@ -12,15 +12,9 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
-import {
-  convertComptTypeToRuntimeType,
-  createFutureType,
-  isFunctionType,
-  isFutureType,
-  typeToString,
-} from "../../types";
+import { convertComptTypeToRuntimeType, createFutureType } from "../../types";
 import { VUnit } from "../../unit-value";
-import { createTypeValue, isTypeValue } from "../../value";
+import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { addARCFunctionsToFutureType } from "../types/utils";
 
@@ -251,7 +245,7 @@ export function evaluateGo({
  * Evaluates the async builtin function (stackless coroutine spawning).
  *
  * async can be used to declare async function types or spawn async tasks.
- * - async(fn() -> Future(T)) => marks function type as async
+ * - ~~async(fn() -> Future(T)) => marks function type as async~~ DEPRECATED
  * - async { expr } => spawns async task, returns Future(T)
  */
 export function evaluateAsync({
@@ -278,48 +272,20 @@ export function evaluateAsync({
     env,
     context: { ...context, isEvaluatingAsyncBlock: true },
   });
-
   if (!evaluatedArg.$) {
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate async argument expression.`,
     });
   }
-
   env = evaluatedArg.$.env;
 
   // Check if the argument is a function type (for async function type declaration)
   if (evaluatedArg.$.value && isTypeValue(evaluatedArg.$.value)) {
-    const argType = evaluatedArg.$.value.value;
-
-    if (isFunctionType(argType)) {
-      // Case 1: async(fn() -> Future(T)) => return async function type
-      const functionType = argType;
-
-      // Validate that the function returns Future(T)
-      if (!isFutureType(functionType.return.type)) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `async function must return Future(T), but got return type: ${typeToString(functionType.return.type)}`,
-        });
-      }
-
-      // Mark the function type as async
-      // TODO: Should we only allow async(fn() -> Future(T)) but not async(some_variable_function_type)?
-      functionType.isAsync = true;
-
-      // Return the async function type as a TypeValue
-      const asyncFunctionTypeValue = createTypeValue(functionType);
-
-      expr.$ = {
-        env,
-        type: asyncFunctionTypeValue.type,
-        value: asyncFunctionTypeValue,
-        pathCollection: [],
-      };
-
-      return expr;
-    }
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: "Not a valid use of async block.",
+    });
   }
 
   // Case 2: async { expr } => spawn async task, return Future(T)

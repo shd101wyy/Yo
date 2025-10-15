@@ -254,7 +254,7 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
   }
 
   // Check if main is an async function
-  const isAsyncMain = mainFunctionValue.type.isAsync;
+  const isAsyncMain = isFutureType(mainFunctionValue.type.return.type);
 
   // REQUIREMENT: main must return unit (or Future(unit) for async)
   const returnType = mainFunctionValue.type.return.type;
@@ -433,8 +433,7 @@ export function generateFunction(
   const functionType = functionValue.specializedType ?? functionValue.type;
 
   // Check if this is an async function with await expressions
-  const isAsyncFunction =
-    functionType.isAsync && isFutureType(functionType.return.type);
+  const isAsyncFunction = isFutureType(functionType.return.type);
 
   if (isAsyncFunction) {
     // All async functions use state machine transformation
@@ -575,8 +574,7 @@ export function generateFunctionBody(
       generateDeferredDropExpressions(expr, indent, context);
 
       // Check if this is an async function - async functions return Future(T)
-      const isAsyncFunction =
-        functionType.isAsync && isFutureType(functionType.return.type);
+      const isAsyncFunction = isFutureType(functionType.return.type);
 
       if (isAsyncFunction && lastExpr) {
         // For async functions, wrap the return value in a Future

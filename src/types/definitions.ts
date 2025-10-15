@@ -500,12 +500,6 @@ export interface FunctionType extends Type {
    * - undefined: regular function (default behavior)
    */
   isClosure?: boolean;
-
-  /**
-   * Whether this function is async (uses async fn syntax)
-   * Async functions must return Future(T) types
-   */
-  isAsync?: boolean;
 }
 
 export interface MutPtrType extends Type {

@@ -348,9 +348,7 @@ function generateFuncCall(
       const currentFunctionType = (
         context as { currentFunctionType?: FunctionType }
       ).currentFunctionType;
-      const isAsyncFunction =
-        currentFunctionType?.isAsync &&
-        isFutureType(currentFunctionType?.return?.type);
+      const isAsyncFunction = isFutureType(currentFunctionType?.return?.type);
 
       if (isAsyncFunction) {
         const functionContext = context as FunctionGenerationContext;

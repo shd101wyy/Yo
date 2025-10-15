@@ -121,22 +121,12 @@ export function evaluateAwait({
     });
   }
 
-  // Check if we're in an async function body
-  if (!context.isEvaluatingFunctionBody && !context.isEvaluatingAsyncBlock) {
+  // Check if we're in an async block
+  if (!context.isEvaluatingAsyncBlock) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `await can only be used inside a async function body or async block.`,
+      errorMessage: `"await" can only be used inside an "async" block.`,
     });
-  }
-
-  if (context.isEvaluatingFunctionBody) {
-    const functionType = context.isEvaluatingFunctionBody.type;
-    if (!functionType.isAsync) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `await can only be used inside async functions. The current function is not async.`,
-      });
-    }
   }
 
   const argExpr = expr.args[0]!;

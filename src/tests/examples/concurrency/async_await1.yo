@@ -1,22 +1,23 @@
 open import "std";
 open import "std/libc/stdio.yo";
 
-task1 :: (fn() -> Future(i32)) async {
+task1 :: (async(fn() -> Future(i32))) {
   printf("running task1 on thread %zu\n", Concurrency.get_thread_id());
   return 1;
 };
 
-task2 :: (fn() -> Future(i32)) async {
+task2 :: (async(fn() -> Future(i32))) {
   printf("running task2 on thread %zu\n", Concurrency.get_thread_id());
   return 2;
 };
 
-main :: (fn() -> Future(unit)) async {
+main :: (async(fn() -> Future(unit))) {
   printf("Hello, async world on thread %zu!\n", Concurrency.get_thread_id());
   
   task1_future := task1(); // async fn call
   printf("after calling task1\n");
 
+  x := 1;
   task2_future := task2(); // another async call
   printf("after calling task2\n");
 

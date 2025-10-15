@@ -413,13 +413,10 @@ export function areTypesCompatible(
   }
 
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {
-    return (
-      Boolean(expected.type.isAsync) === Boolean(given.type.isAsync) &&
-      areFunctionTypesCompatible(
-        { type: expected.type, env: expected.env },
-        { type: given.type, env: given.env },
-        isMethodReceiver
-      )
+    return areFunctionTypesCompatible(
+      { type: expected.type, env: expected.env },
+      { type: given.type, env: given.env },
+      isMethodReceiver
     );
   }
 
