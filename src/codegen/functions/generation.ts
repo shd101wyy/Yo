@@ -292,8 +292,19 @@ int main(void) {
   __yo_async_scheduler_init();
   
   // Call async main (returns Future(unit))
-  // This spawns the state machine to a worker thread
   yo_future_void_t* main_future = yo_user_main();
+  
+  // Spawn main Future immediately (since nothing will await it)
+  // Transition from PENDING to RUNNING and spawn
+  yo_future_state_t expected = YO_FUTURE_PENDING;
+  if (atomic_compare_exchange_strong_explicit(
+        &main_future->state,
+        &expected,
+        YO_FUTURE_RUNNING,
+        memory_order_release,
+        memory_order_acquire)) {
+    yo_async_spawn_task(main_future->resume_fn, main_future->state_machine);
+  }
   
   // Wait for all async tasks to complete
   // This waits for all worker threads to finish their tasks

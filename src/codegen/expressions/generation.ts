@@ -2293,16 +2293,12 @@ function generateAsyncBlockResumeFunction(
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
-  emitter.emitDeclarationLine(
-    `// Resume function for async block ${asyncBlockId}`
-  );
-  emitter.emitDeclarationLine(
-    `void ${resumeFunctionName}(${structName}* sm) {`
-  );
-  emitter.emitDeclarationLine(
+  emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
+  emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
+  emitter.emitLine(
     `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
   );
-  emitter.emitDeclarationLine(`  switch (sm->state) {`);
+  emitter.emitLine(`  switch (sm->state) {`);
 
   // Generate code for each state segment
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
@@ -2314,14 +2310,12 @@ function generateAsyncBlockResumeFunction(
 
     // State case label
     if (stateNumber > 0) {
-      emitter.emitDeclarationLine(`
+      emitter.emitLine(`
     state_${stateNumber}:`);
     }
 
-    emitter.emitDeclarationLine(
-      `    case ${stateNumber}: { // State ${stateNumber}`
-    );
-    emitter.emitDeclarationLine(
+    emitter.emitLine(`    case ${stateNumber}: { // State ${stateNumber}`);
+    emitter.emitLine(
       `      ASYNC_DEBUG("${asyncBlockId}: Entering state ${stateNumber}\\n");`
     );
 
@@ -2329,16 +2323,16 @@ function generateAsyncBlockResumeFunction(
     if (stateNumber > 0 && analysis.awaitPoints[stateNumber - 1]) {
       const prevAwait = analysis.awaitPoints[stateNumber - 1];
       if (prevAwait && !isUnitType(prevAwait.resultType)) {
-        emitter.emitDeclarationLine(
+        emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
         );
-        emitter.emitDeclarationLine(
+        emitter.emitLine(
           `      yo_future_state_t state_before_read = atomic_load_explicit(&sm->await_future_${stateNumber - 1}->state, memory_order_acquire);`
         );
-        emitter.emitDeclarationLine(
+        emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
-        emitter.emitDeclarationLine(
+        emitter.emitLine(
           `      sm->await_result_${stateNumber - 1} = sm->await_future_${stateNumber - 1}->result;`
         );
 
@@ -2347,12 +2341,12 @@ function generateAsyncBlockResumeFunction(
           const fieldName = getStateMachineFieldName(
             prevAwait.targetVariableId
           );
-          emitter.emitDeclarationLine(
+          emitter.emitLine(
             `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
           );
         }
 
-        emitter.emitDeclarationLine(``);
+        emitter.emitLine(``);
       }
     }
 
@@ -2372,34 +2366,30 @@ function generateAsyncBlockResumeFunction(
     context.inStateMachine = previousInStateMachine;
     context.stateMachineVariables = previousStateMachineVariables;
 
-    emitter.emitDeclarationLine(``);
+    emitter.emitLine(``);
 
     if (segment.awaitPoint) {
       // This segment ends with an await - generate the await logic
       const awaitIndex = segment.awaitPoint.index;
       const nextState = stateNumber + 1;
 
-      emitter.emitDeclarationLine(
-        `      // Transition to next state after await`
-      );
-      emitter.emitDeclarationLine(`      sm->state = ${nextState};`);
-      emitter.emitDeclarationLine(``);
-      emitter.emitDeclarationLine(`      // Check if future is ready`);
-      emitter.emitDeclarationLine(
+      emitter.emitLine(`      // Transition to next state after await`);
+      emitter.emitLine(`      sm->state = ${nextState};`);
+      emitter.emitLine(``);
+      emitter.emitLine(`      // Check if future is ready`);
+      emitter.emitLine(
         `      yo_future_state_t future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);`
       );
-      emitter.emitDeclarationLine(
-        `      if (future_state == YO_FUTURE_COMPLETED) {`
-      );
-      emitter.emitDeclarationLine(
+      emitter.emitLine(`      if (future_state == YO_FUTURE_COMPLETED) {`);
+      emitter.emitLine(
         `        goto state_${nextState};  // Continue immediately`
       );
-      emitter.emitDeclarationLine(`      } else {`);
-      emitter.emitDeclarationLine(
+      emitter.emitLine(`      } else {`);
+      emitter.emitLine(
         `        yo_async_register_continuation((void*)sm->await_future_${awaitIndex}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
       );
-      emitter.emitDeclarationLine(`        return;`);
-      emitter.emitDeclarationLine(`      }`);
+      emitter.emitLine(`        return;`);
+      emitter.emitLine(`      }`);
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>
@@ -2407,30 +2397,28 @@ function generateAsyncBlockResumeFunction(
       );
 
       if (!hasReturnStatement) {
-        emitter.emitDeclarationLine(
-          `      // Final state - complete the result Future`
-        );
-        emitter.emitDeclarationLine(
+        emitter.emitLine(`      // Final state - complete the result Future`);
+        emitter.emitLine(
           `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
         );
 
         if (!isUnitResult) {
-          emitter.emitDeclarationLine(`      // TODO: Set result value`);
+          emitter.emitLine(`      // TODO: Set result value`);
         }
 
-        emitter.emitDeclarationLine(
+        emitter.emitLine(
           `      sm->state = ${stateNumber + 1};  // Terminal state`
         );
-        emitter.emitDeclarationLine(`      return;`);
+        emitter.emitLine(`      return;`);
       }
     }
 
-    emitter.emitDeclarationLine(`    }`);
+    emitter.emitLine(`    }`);
   }
 
-  emitter.emitDeclarationLine(`  }`);
-  emitter.emitDeclarationLine(`}`);
-  emitter.emitDeclarationLine(``);
+  emitter.emitLine(`  }`);
+  emitter.emitLine(`}`);
+  emitter.emitLine(``);
 }
 
 /**
@@ -2503,9 +2491,12 @@ function generateAsyncBlockConstructor(
   );
   emitter.emitDeclarationLine(`  future->header.traverse_fn = NULL;`);
   emitter.emitDeclarationLine(
-    `  atomic_store_explicit(&future->state, YO_FUTURE_RUNNING, memory_order_relaxed);`
+    `  atomic_store_explicit(&future->state, YO_FUTURE_PENDING, memory_order_relaxed);`
   );
   emitter.emitDeclarationLine(`  future->state_machine = sm;`);
+  emitter.emitDeclarationLine(
+    `  future->resume_fn = (void (*)(void*))${resumeFunctionName}; // Store resume function for lazy spawn`
+  );
   emitter.emitDeclarationLine(
     `  atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);`
   );
@@ -2515,13 +2506,13 @@ function generateAsyncBlockConstructor(
   emitter.emitDeclarationLine(`  sm->result = future;`);
   emitter.emitDeclarationLine(``);
 
-  // Spawn the task
-  emitter.emitDeclarationLine(`  // Spawn async block to worker thread`);
+  // Do NOT spawn the task here - lazy evaluation!
+  // The task will be spawned when it's first awaited
   emitter.emitDeclarationLine(
-    `  ASYNC_DEBUG("${asyncBlockId}: Spawning async block\\n");`
+    `  // Task not started yet - will spawn lazily on first await (Rust-style)`
   );
   emitter.emitDeclarationLine(
-    `  yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+    `  ASYNC_DEBUG("${asyncBlockId}: Created Future in PENDING state (not started)\\n");`
   );
   emitter.emitDeclarationLine(``);
 

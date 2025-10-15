@@ -284,35 +284,44 @@ export function generateResumeFunctionImplementation(
       const awaitIndex = segment.awaitPoint.index;
       const nextState = stateNumber + 1;
 
-      emitter.emitLine(`      // Transition to next state after await`);
-      emitter.emitLine(`      sm->state = ${nextState};`);
-      emitter.emitLine(``);
-      emitter.emitLine(`      // Check if future is ready`);
-      emitter.emitLine(
-        `      yo_future_state_t future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);`
-      );
-      emitter.emitLine(
-        `      ASYNC_DEBUG("${functionCName}: Checking Future ${awaitIndex}, state=%d\\n", future_state);`
-      );
-      emitter.emitLine(`      if (future_state == YO_FUTURE_COMPLETED) {`);
-      emitter.emitLine(
-        `        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} already completed, continuing immediately\\n");`
-      );
-      emitter.emitLine(
-        `        goto state_${nextState};  // Continue immediately`
-      );
-      emitter.emitLine(`      } else {`);
-      emitter.emitLine(
-        `        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} not ready, yielding\\n");`
-      );
-      emitter.emitLine(
-        `        // Register continuation to resume when Future completes`
-      );
-      emitter.emitLine(
-        `        yo_async_register_continuation((void*)sm->await_future_${awaitIndex}, (void (*)(void*))${info.resumeFunctionName}, (void*)sm);`
-      );
-      emitter.emitLine(`        return;`);
-      emitter.emitLine(`      }`);
+      emitter.emitLine(`      // Transition to next state after await
+      sm->state = ${nextState};
+
+      // Check if future is ready (lazy spawn if PENDING)
+      yo_future_state_t future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);
+      ASYNC_DEBUG("${functionCName}: Checking Future ${awaitIndex}, state=%d\\n", future_state);
+
+      if (future_state == YO_FUTURE_PENDING) {
+        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} is PENDING, spawning task now (lazy)\\n");
+        // Transition Future from PENDING to RUNNING atomically
+        yo_future_state_t expected = YO_FUTURE_PENDING;
+        if (atomic_compare_exchange_strong_explicit(
+              &sm->await_future_${awaitIndex}->state,
+              &expected,
+              YO_FUTURE_RUNNING,
+              memory_order_release,
+              memory_order_acquire)) {
+          ASYNC_DEBUG("${functionCName}: Successfully transitioned to RUNNING, spawning\\n");
+          // We won the race to spawn this task - spawn using the Future's resume function
+          void (*resume_fn)(void*) = sm->await_future_${awaitIndex}->resume_fn;
+          void* state_machine = sm->await_future_${awaitIndex}->state_machine;
+          yo_async_spawn_task(resume_fn, state_machine);
+        } else {
+          ASYNC_DEBUG("${functionCName}: Another thread spawned the task, continuing\\n");
+        }
+        // Fall through to register continuation or check if completed
+        future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);
+      }
+
+      if (future_state == YO_FUTURE_COMPLETED) {
+        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} already completed, continuing immediately\\n");
+        goto state_${nextState};  // Continue immediately
+      } else {
+        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} not ready, registering continuation\\n");
+        // Register continuation to resume when Future completes
+        yo_async_register_continuation((void*)sm->await_future_${awaitIndex}, (void (*)(void*))${info.resumeFunctionName}, (void*)sm);
+        return;
+      }`);
     } else if (isLastSegment) {
       // Last segment - complete the Future
       // But only if the segment doesn't already contain a return statement

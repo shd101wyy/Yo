@@ -775,12 +775,17 @@ export function generateFutureDeclaration(
 
   // Future state (atomic for thread-safe access across threads)
   emitter.emitDeclarationLine(
-    `  _Atomic(yo_future_state_t) state; // Future state (RUNNING/COMPLETED/ERROR) - atomic for cross-thread access`
+    `  _Atomic(yo_future_state_t) state; // Future state (PENDING/RUNNING/COMPLETED/ERROR) - atomic for cross-thread access`
   );
 
   // Pointer to state machine (if this Future is backed by a state machine)
   emitter.emitDeclarationLine(
     `  void* state_machine; // Pointer to state machine that created this Future (freed when Future is disposed)`
+  );
+
+  // Resume function for this Future's state machine (for lazy spawning)
+  emitter.emitDeclarationLine(
+    `  void (*resume_fn)(void*); // Resume function for this Future's state machine (for lazy spawn on await)`
   );
 
   // Continuation callback and state machine for async notification

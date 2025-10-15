@@ -138,7 +138,7 @@ static void __yo_async_scheduler_init(void) {
 }
 
 // Spawn an async task by starting its execution on a worker thread
-static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
+void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("Spawning async task to worker: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   
   __yo_async_scheduler_init();
@@ -441,12 +441,13 @@ typedef struct {
   yo_ref_header_t header;
   _Atomic(yo_future_state_t) state;
   void* state_machine;
+  void (*resume_fn)(void*); // Resume function for lazy spawn
   _Atomic(void*) continuation_fn;
   _Atomic(void*) continuation_sm;
 } yo_future_generic_t;
 
 // Dispose function for Future types - frees the state machine
-static void yo_future_dispose(void* future_ptr) {
+void yo_future_dispose(void* future_ptr) {
   yo_future_generic_t* future = (yo_future_generic_t*)future_ptr;
   
   // Free the state machine if it exists
@@ -498,12 +499,9 @@ static void yo_async_run_event_loop(void) {
   ASYNC_DEBUG("Event loop finished\\n");
 }
 
-// Forward declaration - implemented later where worker threads are defined
-static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);
-
 // Register a continuation to be called when a Future completes
 // This is called when await encounters a pending Future
-static void yo_async_register_continuation(
+void yo_async_register_continuation(
     void* future_ptr,
     void (*resume_fn)(void*),
     void* state_machine) {
