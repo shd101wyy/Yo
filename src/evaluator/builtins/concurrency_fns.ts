@@ -12,11 +12,16 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
-import { convertComptTypeToRuntimeType, createFutureType } from "../../types";
+import {
+  convertComptTypeToRuntimeType,
+  createFutureType,
+  isFutureType,
+  Type,
+} from "../../types";
 import { VUnit } from "../../unit-value";
-import { isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { addARCFunctionsToFutureType } from "../types/utils";
+import { enrichCapturedVariables } from "../utils/closure";
 
 /**
  * Evaluates the go builtin function (stackful coroutine spawning).
@@ -244,9 +249,25 @@ export function evaluateGo({
 /**
  * Evaluates the async builtin function (stackless coroutine spawning).
  *
- * async can be used to declare async function types or spawn async tasks.
- * - ~~async(fn() -> Future(T)) => marks function type as async~~ DEPRECATED
- * - async { expr } => spawns async task, returns Future(T)
+ * async { expr } creates a Future(T) that represents a lazy async computation.
+ * The computation does NOT start until the Future is awaited.
+ *
+ * Unlike evaluateGo, we don't wrap in a closure here - instead we:
+ * 1. Evaluate the body to infer return type T
+ * 2. Collect captured variables from outer scope
+ * 3. Store metadata for codegen to create state machine
+ *
+ * Codegen will create:
+ * - State machine struct with captured variables
+ * - Future(T) object
+ * - Resume function for state transitions
+ *
+ * Examples:
+ * - async { printf("hello"); }  => Future(unit)
+ * - async { compute(42) }       => Future(i32)
+ *
+ * @param params - The evaluation parameters
+ * @returns The expression with Future(T) type, containing captured variables metadata
  */
 export function evaluateAsync({
   expr,
@@ -264,36 +285,48 @@ export function evaluateAsync({
     });
   }
 
-  const argExpr = expr.args[0]!;
+  const bodyExpr = expr.args[0]!;
 
-  // Evaluate the argument expression
-  const evaluatedArg = context.evaluateExpression({
-    expr: argExpr,
+  // Determine the expected return type for the body
+  // If context expects Future(T), we should expect T inside the async block
+  let unwrappedFutureExpectedType: Type | undefined = undefined;
+  if (context.expectedType && isFutureType(context.expectedType.type)) {
+    unwrappedFutureExpectedType = context.expectedType.type.elementType;
+  }
+
+  // Create a map to track captured variables (similar to closures)
+  const capturedVariablesMap = new Map<string, CapturedVariableInfo>();
+
+  // Evaluate the body in async context to:
+  // 1. Allow `await` expressions
+  // 2. Infer the return type T
+  // 3. Collect captured variables (via context.capturedVariables)
+  const evaluatedBody = context.evaluateExpression({
+    expr: bodyExpr,
     env,
-    context: { ...context, isEvaluatingAsyncBlock: true },
+    context: {
+      ...context,
+      isEvaluatingAsyncBlock: {
+        evaluationEnv: env, // Track the env to determine captured variables
+      },
+      capturedVariables: capturedVariablesMap, // Set the captured variables map
+      expectedType: unwrappedFutureExpectedType
+        ? { type: unwrappedFutureExpectedType, env }
+        : undefined,
+    },
   });
-  if (!evaluatedArg.$) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Failed to evaluate async argument expression.`,
-    });
-  }
-  env = evaluatedArg.$.env;
 
-  // Check if the argument is a function type (for async function type declaration)
-  if (evaluatedArg.$.value && isTypeValue(evaluatedArg.$.value)) {
+  if (!evaluatedBody.$) {
     throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: "Not a valid use of async block.",
+      token: bodyExpr.token,
+      errorMessage: `Failed to evaluate async block body.`,
     });
   }
 
-  // Case 2: async { expr } => spawn async task, return Future(T)
-  // For now, just return the evaluated expression wrapped in a Future
-  // The actual async spawning logic will be implemented in codegen
+  env = evaluatedBody.$.env;
 
   // Infer the return type from the evaluated expression
-  const returnType = convertComptTypeToRuntimeType(evaluatedArg.$.type);
+  const returnType = convertComptTypeToRuntimeType(evaluatedBody.$.type);
 
   // Create Future(returnType)
   const futureType = createFutureType(returnType, env);
@@ -305,11 +338,23 @@ export function evaluateAsync({
     context: { ...context },
   });
 
+  // Enrich captured variables with values and types (convert to FunctionCapturedVariableInfo)
+  const capturedVariables =
+    capturedVariablesMap.size > 0
+      ? enrichCapturedVariables({
+          capturedVariables: capturedVariablesMap,
+          env,
+        })
+      : undefined;
+
+  // Store the captured variables for codegen (bodyExpr already has evaluated data)
   expr.$ = {
     env,
     type: futureType,
-    value: undefined, // Runtime value, not compile-time
+    value: undefined, // Runtime value (the Future handle)
     pathCollection: [],
+    // Store metadata for async codegen
+    asyncBlockCapturedVariables: capturedVariables,
   };
 
   attachTempVariableToExpr(expr, true);

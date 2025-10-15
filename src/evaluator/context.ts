@@ -10,11 +10,6 @@ export interface FunctionEvaluationContext {
   type: FunctionType;
   value?: FunctionValue;
   /**
-   * For closures, track variables captured from outer scopes.
-   * Maps variable name to usage information.
-   */
-  capturedVariables?: Map<string, CapturedVariableInfo>;
-  /**
    * The environment at the time the function body is being evaluated.
    * This is used to determine the frame level for closure variable capture.
    * The evaluationEnv should contain the frame of parameters/arguments
@@ -53,8 +48,20 @@ export interface EvaluatorContext {
    * Whether we are currently evaluating an async block.
    * This affects how we evaluate expressions within the async block.
    * For example, `await` expressions are only valid within async blocks.
+   * Contains the environment at the time the async block started evaluation,
+   * used to determine which variables are captured from outer scopes.
    */
-  isEvaluatingAsyncBlock?: boolean;
+  isEvaluatingAsyncBlock?: {
+    evaluationEnv: Environment;
+  };
+
+  /**
+   * For closures and async blocks, track variables captured from outer scopes.
+   * Maps variable name to usage information (frame level, usage type, token).
+   * This is populated during evaluation when isEvaluatingFunctionBody is set
+   * (for closures) or when isEvaluatingAsyncBlock is set (for async blocks).
+   */
+  capturedVariables?: Map<string, CapturedVariableInfo>;
 
   /**
    * Whether we are currently evaluating a while/for loop.
@@ -308,12 +315,18 @@ export function trackVariableUsage(
   token: Token,
   context: EvaluatorContext
 ): void {
-  if (!context.isEvaluatingFunctionBody) {
+  // Only track for closures or async blocks
+  if (!context.isEvaluatingFunctionBody && !context.isEvaluatingAsyncBlock) {
     return;
   }
 
-  // const functionType = context.isEvaluatingFunctionBody.type;
-  const evaluationEnv = context.isEvaluatingFunctionBody.evaluationEnv;
+  // Determine the evaluation environment
+  let evaluationEnv: Environment | undefined;
+  if (context.isEvaluatingFunctionBody) {
+    evaluationEnv = context.isEvaluatingFunctionBody.evaluationEnv;
+  } else if (context.isEvaluatingAsyncBlock) {
+    evaluationEnv = context.isEvaluatingAsyncBlock.evaluationEnv;
+  }
 
   // Only track variables from outer scopes (not local variables)
   if (!evaluationEnv || frameLevel >= evaluationEnv.frames.length) {
@@ -334,12 +347,11 @@ export function trackVariableUsage(
   }
 
   // Track the variable usage
-  if (!context.isEvaluatingFunctionBody.capturedVariables) {
-    context.isEvaluatingFunctionBody.capturedVariables = new Map();
+  if (!context.capturedVariables) {
+    context.capturedVariables = new Map();
   }
 
-  const existing =
-    context.isEvaluatingFunctionBody.capturedVariables.get(variableName);
+  const existing = context.capturedVariables.get(variableName);
 
   // Update with the highest privilege usage type (own > write > read)
   const newUsageType =
@@ -349,7 +361,7 @@ export function trackVariableUsage(
       ? existing.usageType
       : usageType;
 
-  context.isEvaluatingFunctionBody.capturedVariables.set(variableName, {
+  context.capturedVariables.set(variableName, {
     frameLevel,
     usageType: newUsageType,
     token,

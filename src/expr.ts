@@ -8,6 +8,7 @@ import {
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
+import { FunctionCapturedVariableInfo } from "./function-value";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
@@ -212,6 +213,16 @@ export interface EvaluatedExprData {
    * Example: For `async say("hello"), { stack_size: 1024 * 64 }`, this contains the evaluated expression `1024 * 64`
    */
   asyncStackSize?: Expr;
+
+  /**
+   * For async block expressions, this contains the variables captured from outer scope.
+   * Maps variable name to capture information including frame level, usage type, token, value, and type.
+   * These variables need to be included in the state machine struct for codegen.
+   *
+   * Example: For `async { printf("%d", x); }` where `x` is from outer scope,
+   * this would contain a Map with entry for "x" with its value and type.
+   */
+  asyncBlockCapturedVariables?: Map<string, FunctionCapturedVariableInfo>;
 }
 
 export type AtomExpr = {

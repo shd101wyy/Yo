@@ -33,10 +33,17 @@ export function createFunctionBodyEvaluationContext(
 ): {
   evaluationContext: EvaluatorContext;
   functionBodyContext: FunctionEvaluationContext;
-  capturedVariables: Map<string, CapturedVariableInfo> | undefined;
 } {
-  const { functionBodyContext, capturedVariables } =
-    createFreshFunctionBodyContext(functionType, functionValue, env);
+  const functionBodyContext: FunctionEvaluationContext = {
+    type: functionType,
+    value: functionValue,
+    evaluationEnv: env,
+  };
+
+  // Create captured variables map if this is a closure
+  const capturedVariables = functionType.isClosure
+    ? new Map<string, CapturedVariableInfo>()
+    : undefined;
 
   const evaluationContext: EvaluatorContext = {
     ...context,
@@ -44,38 +51,14 @@ export function createFunctionBodyEvaluationContext(
     isValidatingFunctionDefinition: true, // We're validating function definition
     isEvaluatingFunctionBody: functionBodyContext,
     isEvaluatingFunctionType: false,
+    capturedVariables, // Set the captured variables map here
     expectedType: {
       type: functionType.return.type,
       env: env,
     },
   };
 
-  return { evaluationContext, functionBodyContext, capturedVariables };
-}
-
-/**
- * Creates a fresh function body context for evaluation
- */
-function createFreshFunctionBodyContext(
-  functionType: FunctionType,
-  functionValue: FunctionValue,
-  env: Environment
-): {
-  functionBodyContext: FunctionEvaluationContext;
-  capturedVariables: Map<string, CapturedVariableInfo> | undefined;
-} {
-  const capturedVariables = functionType.isClosure
-    ? new Map<string, CapturedVariableInfo>()
-    : undefined;
-
-  const functionBodyContext: FunctionEvaluationContext = {
-    type: functionType,
-    value: functionValue,
-    capturedVariables: capturedVariables,
-    evaluationEnv: env,
-  };
-
-  return { functionBodyContext, capturedVariables };
+  return { evaluationContext, functionBodyContext };
 }
 
 /**
@@ -128,14 +111,12 @@ export function tryToImplementFunctionByFunctionType({
   };
 
   // Create a mutable context that we can check after evaluation
-  // eslint-disable-next-line prefer-const
-  let { evaluationContext, capturedVariables } =
-    createFunctionBodyEvaluationContext(
-      context,
-      functionType,
-      functionValue,
-      env
-    );
+  const { evaluationContext } = createFunctionBodyEvaluationContext(
+    context,
+    functionType,
+    functionValue,
+    env
+  );
 
   const evaluatedFunctionBody = evaluateBeginExpression({
     expr: functionBodyExpr, // Use transformed body
@@ -150,6 +131,9 @@ export function tryToImplementFunctionByFunctionType({
     });
   }
   env = evaluatedFunctionBody.$.env;
+
+  // Get captured variables from the evaluation context
+  const capturedVariables = evaluationContext.capturedVariables;
 
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$.type;

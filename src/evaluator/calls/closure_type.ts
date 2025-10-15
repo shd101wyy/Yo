@@ -70,14 +70,12 @@ export function tryToImplementClosureByClosureType({
   };
 
   // Create evaluation context using helper function
-  // eslint-disable-next-line prefer-const
-  let { evaluationContext, capturedVariables } =
-    createFunctionBodyEvaluationContext(
-      context,
-      closureType.callType,
-      functionValue,
-      env
-    );
+  const { evaluationContext } = createFunctionBodyEvaluationContext(
+    context,
+    closureType.callType,
+    functionValue,
+    env
+  );
 
   // Evaluate the closure body
   const evaluatedClosureBody = evaluateBeginExpression({
@@ -94,6 +92,9 @@ export function tryToImplementClosureByClosureType({
     });
   }
   env = evaluatedClosureBody.$.env;
+
+  // Get captured variables from the evaluation context
+  const capturedVariables = evaluationContext.capturedVariables;
 
   // Check if the closure body type matches the closure return type
   const closureBodyReturnType = evaluatedClosureBody.$.type;
