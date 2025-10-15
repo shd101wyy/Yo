@@ -4,7 +4,9 @@ import { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
 
 // Import the modular components
+import { generateDeferredAsyncBlocks } from "./expressions/generation";
 import { collectRequiredFunctions } from "./functions/collection";
+import { FunctionGenerationContext } from "./functions/context";
 import {
   generateAllFunctions,
   generateFunctionDeclarations,
@@ -13,7 +15,6 @@ import {
 } from "./functions/generation";
 import { collectRequiredTypes } from "./types/collection";
 import { generateTypeDeclarations } from "./types/generation";
-import { CodeGenContext } from "./utils";
 
 export class CodeGeneratorC {
   private emitter: Emitter;
@@ -43,7 +44,7 @@ export class CodeGeneratorC {
     );
 
     // Create contexts for the modular functions
-    const context: CodeGenContext = {
+    const context: FunctionGenerationContext = {
       functions: {},
       externFunctions: {},
       types: {},
@@ -66,6 +67,7 @@ export class CodeGeneratorC {
       debugBrc: options.debugBrc ?? false,
       debugConcurrency: options.debugConcurrency ?? false,
       debugAsyncAwait: options.debugAsyncAwait ?? false,
+      deferredAsyncBlocks: [], // Initialize deferred async blocks array
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)
@@ -97,6 +99,10 @@ typedef enum {
 
     // Fourth pass: Generate all collected functions
     generateAllFunctions(context);
+
+    // Generate deferred async block implementations
+    // This must happen after all regular functions are generated to avoid nesting
+    generateDeferredAsyncBlocks(context);
 
     // Fifth pass: Generate declarations for specialized functions (now that they're collected)
     generateSpecializedFunctionDeclarations(context);

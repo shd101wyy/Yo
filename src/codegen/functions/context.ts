@@ -1,6 +1,11 @@
-import { FunctionValue, FuncValueId } from "../../function-value";
-import { ClosureType, FunctionType, TypeId } from "../../types";
-import { CapturedVariable } from "../async/await-analysis";
+import { Expr } from "../../expr";
+import {
+  FunctionCapturedVariableInfo,
+  FunctionValue,
+  FuncValueId,
+} from "../../function-value";
+import { ClosureType, FunctionType, FutureType, TypeId } from "../../types";
+import { AwaitAnalysisResult, CapturedVariable } from "../async/await-analysis";
 import { CodeGenContext } from "../utils";
 
 export interface FunctionGenerationContext extends CodeGenContext {
@@ -15,6 +20,18 @@ export interface FunctionGenerationContext extends CodeGenContext {
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
   currentClosureType?: ClosureType; // Current closure type being generated
   // State machine context (when generating code inside async state machine)
-  inStateMachine?: boolean; // True if we're generating code inside a state machine
+  inStateMachine?: { futureType: FutureType }; // Set when generating code inside a state machine, contains the Future type being generated
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
+  // Deferred async block generation - async blocks are generated after all regular functions
+  deferredAsyncBlocks?: Array<{
+    bodyExpr: Expr;
+    asyncBlockId: string;
+    structName: string;
+    resumeFunctionName: string;
+    constructorName: string;
+    futureType: FutureType;
+    futureTypeCName: string;
+    capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined;
+    analysis: AwaitAnalysisResult;
+  }>;
 }

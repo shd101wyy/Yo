@@ -16,7 +16,6 @@ import { TypeValue } from "../../type-value";
 import {
   ArrayType,
   ClosureType,
-  FunctionType,
   FutureType,
   isArrayType,
   isClosureType,
@@ -360,88 +359,11 @@ function generateFuncCall(
         generateDeferredDropExpressions(expr, indent, context);
       }
 
-      // Check if we're in an async function - if so, wrap the return value in a Future
-      const currentFunctionType = (
-        context as { currentFunctionType?: FunctionType }
-      ).currentFunctionType;
-      const isAsyncFunction = isFutureType(currentFunctionType?.return?.type);
-
-      if (isAsyncFunction) {
-        const functionContext = context as FunctionGenerationContext;
-
-        // Check if we're in a state machine
-        if (functionContext.inStateMachine) {
-          // State machine return - complete the Future and clean up
-          const futureType = currentFunctionType.return.type as FutureType;
-          const elementType = futureType.elementType;
-          const isUnitResult = isUnitType(elementType);
-          const futureTypeCName = context.types[futureType.id]?.cName;
-
-          if (!futureTypeCName) {
-            context.emitter.emitLine(
-              `${indent}// Error: Future type not found for async return`
-            );
-            return `return`;
-          }
-
-          context.emitter.emitLine(
-            `${indent}// Final state - complete the result Future`
-          );
-          context.emitter.emitLine(
-            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Completing async function\\n");`
-          );
-
-          // Store the result if not unit
-          if (!isUnitResult) {
-            context.emitter.emitLine(
-              `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting result = %d\\n", (int)${expr.$.variableName});`
-            );
-            context.emitter.emitLine(
-              `${indent}sm->result->result = ${expr.$.variableName};`
-            );
-          }
-
-          // Set state to COMPLETED with release semantics
-          // This ensures the result write above is visible to other threads
-          context.emitter.emitLine(
-            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`
-          );
-          context.emitter.emitLine(
-            `${indent}atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
-          );
-
-          // Check if there's a continuation waiting (with acquire semantics to see the continuation registration)
-          context.emitter.emitLine(``);
-          context.emitter.emitLine(
-            `${indent}// Check if there's a continuation waiting for this Future to complete`
-          );
-          context.emitter.emitLine(
-            `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->result->continuation_fn, memory_order_acquire);`
-          );
-          context.emitter.emitLine(
-            `${indent}void* continuation_sm = atomic_load_explicit(&sm->result->continuation_sm, memory_order_acquire);`
-          );
-          context.emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
-          context.emitter.emitLine(
-            `${indent}  ASYNC_DEBUG("${context.currentFunctionName}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
-          );
-          context.emitter.emitLine(
-            `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
-          );
-          context.emitter.emitLine(`${indent}}`);
-
-          context.emitter.emitLine(
-            `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`
-          );
-          context.emitter.emitLine(``);
-          context.emitter.emitLine(
-            `${indent}// State machine will be freed when Future is disposed (RC reaches 0)`
-          );
-          return `return`;
-        }
-
-        // Wrap the return value in a Future
-        const futureType = currentFunctionType.return.type as FutureType;
+      // Check if we're in a state machine - if so, complete the Future instead of returning
+      const functionContext = context as FunctionGenerationContext;
+      if (functionContext.inStateMachine) {
+        // State machine return - complete the Future and clean up
+        const futureType = functionContext.inStateMachine.futureType;
         const elementType = futureType.elementType;
         const isUnitResult = isUnitType(elementType);
         const futureTypeCName = context.types[futureType.id]?.cName;
@@ -453,53 +375,66 @@ function generateFuncCall(
           return `return`;
         }
 
-        // Allocate and initialize the Future
         context.emitter.emitLine(
-          `${indent}// Async function return - wrap in completed Future`
+          `${indent}// Final state - complete the result Future`
         );
         context.emitter.emitLine(
-          `${indent}${futureTypeCName}* _yo_return_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->header.owner_thread_id = __yo_get_thread_id();`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->header.shared_word = 0;`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->header.gc_next = NULL;`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->header.gc_prev = NULL;`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->header.dispose_fn = NULL;`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->header.traverse_fn = NULL;`
-        );
-        context.emitter.emitLine(
-          `${indent}atomic_store_explicit(&_yo_return_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->is_running = false;`
-        );
-        context.emitter.emitLine(
-          `${indent}_yo_return_future->state_machine = NULL;`
+          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Completing async function\\n");`
         );
 
+        // Store the result if not unit
         if (!isUnitResult) {
           context.emitter.emitLine(
-            `${indent}_yo_return_future->result = ${expr.$.variableName};`
+            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting result = %d\\n", (int)${expr.$.variableName});`
+          );
+          context.emitter.emitLine(
+            `${indent}sm->result->result = ${expr.$.variableName};`
           );
         }
 
-        return `return _yo_return_future`;
+        // Set state to COMPLETED with release semantics
+        // This ensures the result write above is visible to other threads
+        context.emitter.emitLine(
+          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`
+        );
+        context.emitter.emitLine(
+          `${indent}atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
+        );
+
+        // Check if there's a continuation waiting (with acquire semantics to see the continuation registration)
+        context.emitter.emitLine(``);
+        context.emitter.emitLine(
+          `${indent}// Check if there's a continuation waiting for this Future to complete`
+        );
+        context.emitter.emitLine(
+          `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->result->continuation_fn, memory_order_acquire);`
+        );
+        context.emitter.emitLine(
+          `${indent}void* continuation_sm = atomic_load_explicit(&sm->result->continuation_sm, memory_order_acquire);`
+        );
+        context.emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
+        context.emitter.emitLine(
+          `${indent}  ASYNC_DEBUG("${context.currentFunctionName}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
+        );
+        context.emitter.emitLine(
+          `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
+        );
+        context.emitter.emitLine(`${indent}}`);
+
+        context.emitter.emitLine(
+          `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`
+        );
+        context.emitter.emitLine(``);
+        context.emitter.emitLine(
+          `${indent}// State machine will be freed when Future is disposed (RC reaches 0)`
+        );
+        // Return from the void resume function
+        context.emitter.emitLine(`${indent}return;`);
+        // Return empty string so no additional code is generated
+        return ``;
       }
 
+      // Normal (non-state-machine) return
       if (isUnitType(expr.$.type)) {
         return `return`;
       }
@@ -2248,19 +2183,14 @@ function generateAsyncBlockStateMachine(
   }
   emitter.emitDeclarationLine(``);
 
-  // Generate the resume function implementation
-  generateAsyncBlockResumeFunction(
-    bodyExpr,
-    asyncBlockId,
-    structName,
-    resumeFunctionName,
-    analysis,
-    futureType,
-    context
-  );
+  // Defer the generation of resume function and constructor implementations
+  // Store the information needed to generate them later
+  if (!context.deferredAsyncBlocks) {
+    context.deferredAsyncBlocks = [];
+  }
 
-  // Generate the constructor function implementation
-  generateAsyncBlockConstructor(
+  context.deferredAsyncBlocks.push({
+    bodyExpr,
     asyncBlockId,
     structName,
     resumeFunctionName,
@@ -2268,8 +2198,8 @@ function generateAsyncBlockStateMachine(
     futureType,
     futureTypeCName,
     capturedVariables,
-    context
-  );
+    analysis,
+  });
 }
 
 /**
@@ -2354,7 +2284,7 @@ function generateAsyncBlockResumeFunction(
     const previousInStateMachine = context.inStateMachine;
     const previousStateMachineVariables = context.stateMachineVariables;
 
-    context.inStateMachine = true;
+    context.inStateMachine = { futureType };
     context.stateMachineVariables = new Map(
       analysis.capturedVariables.map((v: CapturedVariable) => [v.id, v])
     );
@@ -2448,77 +2378,73 @@ function generateAsyncBlockConstructor(
         return `${varTypeCName} ${varName}`;
       })
       .join(", ");
-    emitter.emitDeclarationLine(
+    emitter.emitLine(
       `${futureTypeCName}* ${constructorName}(${captureParams}) {`
     );
   } else {
-    emitter.emitDeclarationLine(`${futureTypeCName}* ${constructorName}() {`);
+    emitter.emitLine(`${futureTypeCName}* ${constructorName}() {`);
   }
 
   // Allocate state machine
-  emitter.emitDeclarationLine(`  // Allocate async block state machine`);
-  emitter.emitDeclarationLine(
+  emitter.emitLine(`  // Allocate async block state machine`);
+  emitter.emitLine(
     `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`
   );
-  emitter.emitDeclarationLine(`  sm->state = 0;`);
-  emitter.emitDeclarationLine(``);
+  emitter.emitLine(`  sm->state = 0;`);
+  emitter.emitLine(``);
 
   // Initialize captured variables
   if (capturedVariables && capturedVariables.size > 0) {
-    emitter.emitDeclarationLine(`  // Initialize captured variables`);
+    emitter.emitLine(`  // Initialize captured variables`);
     for (const [varName, _varInfo] of capturedVariables.entries()) {
-      emitter.emitDeclarationLine(`  sm->${varName} = ${varName};`);
+      emitter.emitLine(`  sm->${varName} = ${varName};`);
     }
-    emitter.emitDeclarationLine(``);
+    emitter.emitLine(``);
   }
 
   // Allocate and initialize Future
-  emitter.emitDeclarationLine(`  // Allocate and initialize Future`);
-  emitter.emitDeclarationLine(
+  emitter.emitLine(`  // Allocate and initialize Future`);
+  emitter.emitLine(
     `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
   );
-  emitter.emitDeclarationLine(
-    `  future->header.owner_thread_id = __yo_get_thread_id();`
-  );
-  emitter.emitDeclarationLine(
+  emitter.emitLine(`  future->header.owner_thread_id = __yo_get_thread_id();`);
+  emitter.emitLine(
     `  future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
   );
-  emitter.emitDeclarationLine(`  future->header.shared_word = 0;`);
-  emitter.emitDeclarationLine(`  future->header.gc_next = NULL;`);
-  emitter.emitDeclarationLine(`  future->header.gc_prev = NULL;`);
-  emitter.emitDeclarationLine(
-    `  future->header.dispose_fn = yo_future_dispose;`
-  );
-  emitter.emitDeclarationLine(`  future->header.traverse_fn = NULL;`);
-  emitter.emitDeclarationLine(
+  emitter.emitLine(`  future->header.shared_word = 0;`);
+  emitter.emitLine(`  future->header.gc_next = NULL;`);
+  emitter.emitLine(`  future->header.gc_prev = NULL;`);
+  emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);
+  emitter.emitLine(`  future->header.traverse_fn = NULL;`);
+  emitter.emitLine(
     `  atomic_store_explicit(&future->state, YO_FUTURE_PENDING, memory_order_relaxed);`
   );
-  emitter.emitDeclarationLine(`  future->state_machine = sm;`);
-  emitter.emitDeclarationLine(
+  emitter.emitLine(`  future->state_machine = sm;`);
+  emitter.emitLine(
     `  future->resume_fn = (void (*)(void*))${resumeFunctionName}; // Store resume function for lazy spawn`
   );
-  emitter.emitDeclarationLine(
+  emitter.emitLine(
     `  atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);`
   );
-  emitter.emitDeclarationLine(
+  emitter.emitLine(
     `  atomic_store_explicit(&future->continuation_sm, NULL, memory_order_relaxed);`
   );
-  emitter.emitDeclarationLine(`  sm->result = future;`);
-  emitter.emitDeclarationLine(``);
+  emitter.emitLine(`  sm->result = future;`);
+  emitter.emitLine(``);
 
   // Do NOT spawn the task here - lazy evaluation!
   // The task will be spawned when it's first awaited
-  emitter.emitDeclarationLine(
+  emitter.emitLine(
     `  // Task not started yet - will spawn lazily on first await (Rust-style)`
   );
-  emitter.emitDeclarationLine(
+  emitter.emitLine(
     `  ASYNC_DEBUG("${asyncBlockId}: Created Future in PENDING state (not started)\\n");`
   );
-  emitter.emitDeclarationLine(``);
+  emitter.emitLine(``);
 
-  emitter.emitDeclarationLine(`  return future;`);
-  emitter.emitDeclarationLine(`}`);
-  emitter.emitDeclarationLine(``);
+  emitter.emitLine(`  return future;`);
+  emitter.emitLine(`}`);
+  emitter.emitLine(``);
 }
 
 /**
@@ -4201,5 +4127,65 @@ export function generateDeferredDropExpressions(
         emitter.emitLine(`${indent}${dropCode};`);
       }
     }
+  }
+}
+
+/**
+ * Generate all deferred async block implementations.
+ * This must be called after all regular functions are generated,
+ * so that async block resume/constructor functions don't get nested inside other functions.
+ */
+export function generateDeferredAsyncBlocks(
+  context: FunctionGenerationContext
+): void {
+  if (
+    !context.deferredAsyncBlocks ||
+    context.deferredAsyncBlocks.length === 0
+  ) {
+    return;
+  }
+
+  const emitter = context.emitter;
+  emitter.emitLine(`// Deferred async block implementations`);
+
+  for (const asyncBlockInfo of context.deferredAsyncBlocks) {
+    const {
+      bodyExpr,
+      asyncBlockId,
+      structName,
+      resumeFunctionName,
+      constructorName,
+      futureType,
+      futureTypeCName,
+      capturedVariables,
+      analysis,
+    } = asyncBlockInfo;
+
+    // Generate resume function implementation
+    generateAsyncBlockResumeFunction(
+      bodyExpr,
+      asyncBlockId,
+      structName,
+      resumeFunctionName,
+      analysis,
+      futureType,
+      context
+    );
+
+    emitter.emitLine(``);
+
+    // Generate constructor function implementation
+    generateAsyncBlockConstructor(
+      asyncBlockId,
+      structName,
+      resumeFunctionName,
+      constructorName,
+      futureType,
+      futureTypeCName,
+      capturedVariables,
+      context
+    );
+
+    emitter.emitLine(``);
   }
 }
