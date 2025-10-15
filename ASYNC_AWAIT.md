@@ -18,23 +18,23 @@ Yo uses **async/await with state machine transformation** for efficient concurre
 
 ```yo
 // Async function - MUST return Future(T) type
-fetch_data :: async fn(url: String) -> Future(Data) {
+fetch_data :: (fn(url: String) -> Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
   return data;
 };
 
 // Calling async from another async function
-process :: async fn() -> Future(unit) {
+process :: (fn() -> Future(unit)) async {
   data := await fetch_data("http://example.com");
   println(data);
 };
 
 // Main entry point
-main :: async fn() -> Future(unit) {
+main :: (fn() -> Future(unit)) async {
   // Spawn and await
-  future := fetch("http://example.com");  // Task starts immediately (eager)
-  result := await future;  // Wait for completion (only in async fn!)
+  future := fetch("http://example.com");  // Task not started yet
+  result := await future;  // Wait for completion (only in async block!)
   println(result);
 };
 
@@ -48,14 +48,13 @@ compute :: fn() -> unit {
   };
   
   // Can await in another async context
-  result := await future;  // Error: await only in async fn!
+  result := await future;  // Error: await only in async block!
 };
 ```
 
 ### Keywords
 
 ```yo
-async fn         // Async function type declaration
 async { ... }    // Async block expression (returns Future)
 await            // Suspend until Future ready (only in async functions and blocks!)
 ```
@@ -63,16 +62,14 @@ await            // Suspend until Future ready (only in async functions and bloc
 **Important Rules**:
 1. Async functions **must** explicitly return `Future(T)` type
 2. Async blocks `async { ... }` return `Future(T)` where T is the block's result type
-3. `await` can **only** be used inside `async fn` or `async { ... }` blocks (async coloring)
-4. Async functions and blocks start executing **immediately** when called (eager execution)
+3. `await` can **only** be used inside `async { ... }` blocks (async coloring)
+4. Async functions and blocks start executing when awaited.
 5. `await` suspends the current async function/block until the Future completes
 
 ```yo
-// This spawns the task NOW (eager)
-task := fetch(url);  // Task is running in background
+task := fetch(url); // The task is not running
 
-// This just waits for the result (only in async fn!)
-result := await task;  // Suspends until task completes
+result := await task;  // The task starts running here
 ```
 
 ### Async Blocks
@@ -91,7 +88,7 @@ compute :: fn() -> Future(i32) {
 };
 
 // Can be awaited in async context
-process :: async fn() -> Future(unit) {
+process :: fn() -> Future(unit) async {
   result := await compute();  // Await the Future from async block
   println(result);
 };
@@ -109,8 +106,8 @@ process :: async fn() -> Future(unit) {
 // - continuation_sm: atomic pointer (state machine of awaiter)
 // - result: T (the result value when completed)
 
-// Async function signature - MUST return Future(T)
-fetch :: async fn(url: String) -> Future(String);
+// Async function signature - return Future(T)
+fetch :: (fn(url: String) -> Future(String));
 ```
 
 ## State Machine Transformation
@@ -121,7 +118,7 @@ The compiler transforms async functions into state machines at each `await` poin
 
 **Input Yo code:**
 ```yo
-fetch_data :: async fn(url: String) -> Future(Data) {
+fetch_data :: (fn(url: String) -> Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
   return data;
@@ -308,7 +305,7 @@ Concurrency.set_maximum_threads(n: usize) -> unit
 open import "std";
 
 // Async worker function - MUST return Future(T)
-worker :: async fn(id: i32) -> Future(i32) {
+worker :: (fn(id: i32) -> Future(i32)) async {
   printf("Worker %d starting\n", id);
   // Simulate some async work
   i := 0;
@@ -320,7 +317,7 @@ worker :: async fn(id: i32) -> Future(i32) {
 };
 
 // Fetch multiple results concurrently
-fetch_many :: async fn(count: i32) -> Future(unit) {
+fetch_many :: (fn(count: i32) -> Future(unit)) async {
   // Spawn all tasks
   i := 0;
   futures := [];
@@ -349,7 +346,7 @@ compute_with_block :: fn() -> Future(i32) {
 };
 
 // Main entry point
-main :: async fn() -> Future(unit) {
+main :: (fn() -> Future(unit)) async {
   // Set worker threads
   Concurrency.set_maximum_threads(4);
   
@@ -384,21 +381,21 @@ Yo's async/await provides:
 3. ✅ **Thread affinity** - tasks never migrate between workers (no work stealing)
 4. ✅ **Memory efficiency** - millions of concurrent tasks (~200 bytes each)
 5. ✅ **Worker thread pool** - efficient parallel execution on OS threads
-6. ✅ **Simple to learn** - just `async fn` and `await`
+6. ✅ **Simple to learn** - just `async` block and `await` future
 7. ✅ **BRC compatible** - respects biased reference counting thread affinity
 
 ### Quick Reference
 
 ```yo
 // Define async function - MUST return Future(T)
-fetch :: async fn(url: String) -> Future(Data) {
+fetch :: (fn(url: String) -> Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
   return data;
 };
 
 // Call async function
-main :: async fn() -> Future(unit) {
+main :: (fn() -> Future(unit)) async {
   data := await fetch("http://example.com");
   println(data);
 };
@@ -421,10 +418,9 @@ compute :: fn() -> Future(i32) {
 
 ### Key Principles
 
-1. **`async fn` must return `Future(T)`** - explicitly declare Future return type
-2. **`async { ... }` blocks** - create inline async tasks that return Future(T)
-3. **Eager execution** - tasks start running immediately when called
-4. **`await` waits for result** - suspends until Future ready (only in async contexts)
-5. **State machines** - compiler transforms each `await` into state transition
-6. **Thread affinity** - async tasks stay on assigned worker thread (no migration)
-7. **Zero-cost** - no runtime overhead, compiled to efficient C code
+1. **`async { ... }` blocks** - create inline async tasks that return Future(T)
+2. **Lazy execution** - tasks start running when awaited
+3. **`await` waits for result** - suspends until Future ready (only in async contexts)
+4. **State machines** - compiler transforms each `await` into state transition
+5. **Thread affinity** - async tasks stay on assigned worker thread (no migration)
+6. **Zero-cost** - no runtime overhead, compiled to efficient C code

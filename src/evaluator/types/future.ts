@@ -14,7 +14,7 @@ import { addARCFunctionsToFutureType } from "./utils";
  * FutureType :: Future(String);    // future that will yield String
  * FutureType :: Future(unit);      // future that completes without returning a value
  *
- * async_fn :: (async fn() -> i32) { ... };
+ * async_fn :: (fn() -> Future(i32)) { ... };
  * future_var: Future(i32) := async_fn();  // calling async function returns Future(i32)
  */
 export function evaluateFutureType({

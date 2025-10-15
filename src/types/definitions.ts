@@ -592,7 +592,7 @@ export interface DynType extends Type {
  *
  * Usage:
  * ```yo
- * read_async :: (async fn(fd: i32) -> string) { ... }
+ * read_async :: (fn(fd: i32) -> Future(String)) { ... }
  * future := read_async(fd);          // Returns Future(string)
  * result := await future;            // Waits for and extracts the string
  * ```

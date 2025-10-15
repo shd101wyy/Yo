@@ -11,6 +11,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { FunctionCapturedVariableInfo } from "../../function-value";
 import { TypeValue } from "../../type-value";
 import {
   ArrayType,
@@ -50,6 +51,16 @@ import {
   Value,
   valueToString,
 } from "../../value";
+import type { CapturedVariable } from "../async/await-analysis";
+import {
+  analyzeAwaitPoints,
+  AwaitAnalysisResult,
+} from "../async/await-analysis";
+import {
+  generateStateSegmentCode,
+  splitIntoStateSegments,
+} from "../async/state-code-gen";
+import { getStateMachineFieldName } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";
 import {
@@ -285,6 +296,11 @@ function generateFuncCall(
     }
     const numCode = generateExpr(numArg, indent, context);
     return `__yo_concurrency_set_maximum_threads(${numCode})`;
+  }
+
+  // async - async block that creates a Future
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    return generateAsyncBlock(expr, indent, context);
   }
 
   // dyn() - dynamic dispatch constructor
@@ -2001,6 +2017,517 @@ function generateFuncCall(
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;
+}
+
+/**
+ * Generate C code for an async block expression.
+ * async { body } creates a Future by calling a constructor function
+ * similar to how closures are created.
+ */
+function generateAsyncBlock(
+  expr: FuncCallExpr,
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  const bodyExpr = expr.args[0];
+  if (!bodyExpr) {
+    return `/* Error: async requires exactly 1 argument */`;
+  }
+
+  const futureType = expr.$?.type;
+  if (!futureType || !isFutureType(futureType)) {
+    return `/* Error: async block must have Future type */`;
+  }
+
+  const futureTypeCName = context.types[futureType.id]?.cName;
+  if (!futureTypeCName) {
+    return `/* Error: Future type not found in context */`;
+  }
+
+  // Generate a unique name for this async block's state machine
+  const asyncBlockId = expr.$?.variableName || `async_block_${Date.now()}`;
+  const structName = `${asyncBlockId}_state_t`;
+  const resumeFunctionName = `${asyncBlockId}_resume`;
+  const constructorName = `__yo_new_${asyncBlockId}`;
+
+  // Generate the state machine, resume function, and constructor
+  // This needs to be done in the declarations section
+  generateAsyncBlockStateMachine(
+    bodyExpr,
+    asyncBlockId,
+    structName,
+    resumeFunctionName,
+    constructorName,
+    futureType as FutureType,
+    futureTypeCName,
+    expr.$?.asyncBlockCapturedVariables,
+    context
+  );
+
+  // Generate the constructor call with captured variables
+  const capturedVariables = expr.$?.asyncBlockCapturedVariables;
+
+  if (capturedVariables && capturedVariables.size > 0) {
+    // Construct arguments: captured variables
+    const captureArgs: string[] = [];
+
+    for (const [varName, varInfo] of capturedVariables.entries()) {
+      // For ARC types, we need to duplicate them before passing
+      // For non-ARC types, we can pass them directly
+      if (
+        isObjectType(varInfo.type) ||
+        isFutureType(varInfo.type) ||
+        isClosureType(varInfo.type) ||
+        isArrayType(varInfo.type)
+      ) {
+        // ARC type - need to duplicate
+        captureArgs.push(
+          `__yo_dup_${getTypeString(varInfo.type, context)}(${varName})`
+        );
+      } else {
+        // Non-ARC type - pass directly
+        captureArgs.push(varName);
+      }
+    }
+
+    const resultVar = expr.$?.variableName || `async_result`;
+    const constructorCall = `${constructorName}(${captureArgs.join(", ")})`;
+
+    // If this has a temporary variable name, declare it
+    if (resultVar && expr.$?.type) {
+      const varTypeAndName = getVariableTypeString(
+        expr.$.type,
+        resultVar,
+        context
+      );
+      context.emitter.emitLine(
+        `${indent}${varTypeAndName} = ${constructorCall};`
+      );
+      return resultVar;
+    } else {
+      return constructorCall;
+    }
+  } else {
+    // No captured variables - just call constructor
+    const resultVar = expr.$?.variableName || `async_result`;
+    const constructorCall = `${constructorName}()`;
+
+    if (resultVar && expr.$?.type) {
+      const varTypeAndName = getVariableTypeString(
+        expr.$.type,
+        resultVar,
+        context
+      );
+      context.emitter.emitLine(
+        `${indent}${varTypeAndName} = ${constructorCall};`
+      );
+      return resultVar;
+    } else {
+      return constructorCall;
+    }
+  }
+}
+
+/**
+ * Generate the state machine struct, resume function, and constructor for an async block.
+ * This reuses the async function state machine infrastructure.
+ */
+function generateAsyncBlockStateMachine(
+  bodyExpr: Expr,
+  asyncBlockId: string,
+  structName: string,
+  resumeFunctionName: string,
+  constructorName: string,
+  futureType: FutureType,
+  futureTypeCName: string,
+  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Analyze the body for await points
+  const analysis = analyzeAwaitPoints(bodyExpr);
+
+  // const elementType = futureType.elementType;
+  // const isUnitResult = isUnitType(elementType);
+
+  // Generate the state machine struct
+  emitter.emitDeclarationLine(
+    `// State machine for async block ${asyncBlockId}`
+  );
+  emitter.emitDeclarationLine(`typedef struct {`);
+  emitter.emitDeclarationLine(
+    `  int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done)`
+  );
+  emitter.emitDeclarationLine(
+    `  ${futureTypeCName}* result;  // The Future this async block returns`
+  );
+  emitter.emitDeclarationLine(``);
+
+  // Add captured variables as fields
+  if (capturedVariables && capturedVariables.size > 0) {
+    emitter.emitDeclarationLine(`  // Captured variables from outer scope`);
+    for (const [varName, varInfo] of capturedVariables.entries()) {
+      const varTypeCName = getTypeString(varInfo.type, context);
+      emitter.emitDeclarationLine(`  ${varTypeCName} ${varName};`);
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Add local variables as fields
+  if (analysis.capturedVariables.length > 0) {
+    emitter.emitDeclarationLine(`  // Local variables`);
+    for (const variable of analysis.capturedVariables) {
+      const varTypeCName = getTypeString(variable.type, context);
+      const fieldName = getStateMachineFieldName(variable.id);
+      emitter.emitDeclarationLine(
+        `  ${varTypeCName} ${fieldName};  // ${variable.name}`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Add await result temporaries
+  if (analysis.awaitPoints.length > 0) {
+    emitter.emitDeclarationLine(`  // Await result temporaries`);
+    for (const awaitPoint of analysis.awaitPoints) {
+      if (!isUnitType(awaitPoint.resultType)) {
+        const resultTypeCName = getTypeString(awaitPoint.resultType, context);
+        emitter.emitDeclarationLine(
+          `  ${resultTypeCName} await_result_${awaitPoint.index};`
+        );
+      }
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Add Future pointers for async calls
+  if (analysis.awaitPoints.length > 0) {
+    emitter.emitDeclarationLine(`  // Future pointers for async calls`);
+    for (const awaitPoint of analysis.awaitPoints) {
+      if (
+        awaitPoint.expr.tag === "FuncCall" &&
+        awaitPoint.expr.args.length > 0
+      ) {
+        const awaitArg = awaitPoint.expr.args[0];
+        const awaitFutureType = awaitArg?.$?.type;
+        if (awaitFutureType && isFutureType(awaitFutureType)) {
+          const awaitFutureTypeCName =
+            context.types[(awaitFutureType as FutureType).id]?.cName;
+          if (awaitFutureTypeCName) {
+            emitter.emitDeclarationLine(
+              `  ${awaitFutureTypeCName}* await_future_${awaitPoint.index};`
+            );
+          }
+        }
+      }
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  emitter.emitDeclarationLine(`} ${structName};`);
+  emitter.emitDeclarationLine(``);
+
+  // Generate forward declaration for resume function
+  emitter.emitDeclarationLine(`void ${resumeFunctionName}(${structName}* sm);`);
+  emitter.emitDeclarationLine(``);
+
+  // Generate forward declaration for constructor function
+  if (capturedVariables && capturedVariables.size > 0) {
+    const captureParams = Array.from(capturedVariables.entries())
+      .map(([varName, varInfo]) => {
+        const varTypeCName = getTypeString(varInfo.type, context);
+        return `${varTypeCName} ${varName}`;
+      })
+      .join(", ");
+    emitter.emitDeclarationLine(
+      `${futureTypeCName}* ${constructorName}(${captureParams});`
+    );
+  } else {
+    emitter.emitDeclarationLine(`${futureTypeCName}* ${constructorName}();`);
+  }
+  emitter.emitDeclarationLine(``);
+
+  // Generate the resume function implementation
+  generateAsyncBlockResumeFunction(
+    bodyExpr,
+    asyncBlockId,
+    structName,
+    resumeFunctionName,
+    analysis,
+    futureType,
+    context
+  );
+
+  // Generate the constructor function implementation
+  generateAsyncBlockConstructor(
+    asyncBlockId,
+    structName,
+    resumeFunctionName,
+    constructorName,
+    futureType,
+    futureTypeCName,
+    capturedVariables,
+    context
+  );
+}
+
+/**
+ * Generate the resume function for an async block.
+ * This follows the same pattern as async function resume functions.
+ */
+function generateAsyncBlockResumeFunction(
+  bodyExpr: Expr,
+  asyncBlockId: string,
+  structName: string,
+  resumeFunctionName: string,
+  analysis: AwaitAnalysisResult,
+  futureType: FutureType,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  const elementType = futureType.elementType;
+  const isUnitResult = isUnitType(elementType);
+
+  // Split the body into state segments
+  const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
+
+  emitter.emitDeclarationLine(
+    `// Resume function for async block ${asyncBlockId}`
+  );
+  emitter.emitDeclarationLine(
+    `void ${resumeFunctionName}(${structName}* sm) {`
+  );
+  emitter.emitDeclarationLine(
+    `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
+  );
+  emitter.emitDeclarationLine(`  switch (sm->state) {`);
+
+  // Generate code for each state segment
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+    const segment = segments[segmentIndex];
+    if (!segment) continue;
+
+    const stateNumber = segment.stateNumber;
+    const isLastSegment = segmentIndex === segments.length - 1;
+
+    // State case label
+    if (stateNumber > 0) {
+      emitter.emitDeclarationLine(`
+    state_${stateNumber}:`);
+    }
+
+    emitter.emitDeclarationLine(
+      `    case ${stateNumber}: { // State ${stateNumber}`
+    );
+    emitter.emitDeclarationLine(
+      `      ASYNC_DEBUG("${asyncBlockId}: Entering state ${stateNumber}\\n");`
+    );
+
+    // If this is not the first state, extract the result from the previous await
+    if (stateNumber > 0 && analysis.awaitPoints[stateNumber - 1]) {
+      const prevAwait = analysis.awaitPoints[stateNumber - 1];
+      if (prevAwait && !isUnitType(prevAwait.resultType)) {
+        emitter.emitDeclarationLine(
+          `      // Extract result from await ${stateNumber - 1}`
+        );
+        emitter.emitDeclarationLine(
+          `      yo_future_state_t state_before_read = atomic_load_explicit(&sm->await_future_${stateNumber - 1}->state, memory_order_acquire);`
+        );
+        emitter.emitDeclarationLine(
+          `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
+        );
+        emitter.emitDeclarationLine(
+          `      sm->await_result_${stateNumber - 1} = sm->await_future_${stateNumber - 1}->result;`
+        );
+
+        // If this await has a target variable, assign the result to it
+        if (prevAwait.targetVariableId) {
+          const fieldName = getStateMachineFieldName(
+            prevAwait.targetVariableId
+          );
+          emitter.emitDeclarationLine(
+            `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
+          );
+        }
+
+        emitter.emitDeclarationLine(``);
+      }
+    }
+
+    // Set up state machine context
+    const previousInStateMachine = context.inStateMachine;
+    const previousStateMachineVariables = context.stateMachineVariables;
+
+    context.inStateMachine = true;
+    context.stateMachineVariables = new Map(
+      analysis.capturedVariables.map((v: CapturedVariable) => [v.id, v])
+    );
+
+    // Generate the code for this segment
+    generateStateSegmentCode(segment, "      ", context);
+
+    // Restore previous context
+    context.inStateMachine = previousInStateMachine;
+    context.stateMachineVariables = previousStateMachineVariables;
+
+    emitter.emitDeclarationLine(``);
+
+    if (segment.awaitPoint) {
+      // This segment ends with an await - generate the await logic
+      const awaitIndex = segment.awaitPoint.index;
+      const nextState = stateNumber + 1;
+
+      emitter.emitDeclarationLine(
+        `      // Transition to next state after await`
+      );
+      emitter.emitDeclarationLine(`      sm->state = ${nextState};`);
+      emitter.emitDeclarationLine(``);
+      emitter.emitDeclarationLine(`      // Check if future is ready`);
+      emitter.emitDeclarationLine(
+        `      yo_future_state_t future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);`
+      );
+      emitter.emitDeclarationLine(
+        `      if (future_state == YO_FUTURE_COMPLETED) {`
+      );
+      emitter.emitDeclarationLine(
+        `        goto state_${nextState};  // Continue immediately`
+      );
+      emitter.emitDeclarationLine(`      } else {`);
+      emitter.emitDeclarationLine(
+        `        yo_async_register_continuation((void*)sm->await_future_${awaitIndex}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
+      );
+      emitter.emitDeclarationLine(`        return;`);
+      emitter.emitDeclarationLine(`      }`);
+    } else if (isLastSegment) {
+      // Last segment - complete the Future
+      const hasReturnStatement = segment.expressions.some((expr: Expr) =>
+        exprIsFunctionCallOf(expr, "return")
+      );
+
+      if (!hasReturnStatement) {
+        emitter.emitDeclarationLine(
+          `      // Final state - complete the result Future`
+        );
+        emitter.emitDeclarationLine(
+          `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
+        );
+
+        if (!isUnitResult) {
+          emitter.emitDeclarationLine(`      // TODO: Set result value`);
+        }
+
+        emitter.emitDeclarationLine(
+          `      sm->state = ${stateNumber + 1};  // Terminal state`
+        );
+        emitter.emitDeclarationLine(`      return;`);
+      }
+    }
+
+    emitter.emitDeclarationLine(`    }`);
+  }
+
+  emitter.emitDeclarationLine(`  }`);
+  emitter.emitDeclarationLine(`}`);
+  emitter.emitDeclarationLine(``);
+}
+
+/**
+ * Generate the constructor function for an async block.
+ * The constructor allocates the state machine and Future, initializes captured variables,
+ * and spawns the task to a worker thread.
+ */
+function generateAsyncBlockConstructor(
+  asyncBlockId: string,
+  structName: string,
+  resumeFunctionName: string,
+  constructorName: string,
+  futureType: FutureType,
+  futureTypeCName: string,
+  capturedVariables:
+    | Map<string, import("../../function-value").FunctionCapturedVariableInfo>
+    | undefined,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Generate constructor signature
+  if (capturedVariables && capturedVariables.size > 0) {
+    const captureParams = Array.from(capturedVariables.entries())
+      .map(([varName, varInfo]) => {
+        const varTypeCName = getTypeString(varInfo.type, context);
+        return `${varTypeCName} ${varName}`;
+      })
+      .join(", ");
+    emitter.emitDeclarationLine(
+      `${futureTypeCName}* ${constructorName}(${captureParams}) {`
+    );
+  } else {
+    emitter.emitDeclarationLine(`${futureTypeCName}* ${constructorName}() {`);
+  }
+
+  // Allocate state machine
+  emitter.emitDeclarationLine(`  // Allocate async block state machine`);
+  emitter.emitDeclarationLine(
+    `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`
+  );
+  emitter.emitDeclarationLine(`  sm->state = 0;`);
+  emitter.emitDeclarationLine(``);
+
+  // Initialize captured variables
+  if (capturedVariables && capturedVariables.size > 0) {
+    emitter.emitDeclarationLine(`  // Initialize captured variables`);
+    for (const [varName, _varInfo] of capturedVariables.entries()) {
+      emitter.emitDeclarationLine(`  sm->${varName} = ${varName};`);
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Allocate and initialize Future
+  emitter.emitDeclarationLine(`  // Allocate and initialize Future`);
+  emitter.emitDeclarationLine(
+    `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+  );
+  emitter.emitDeclarationLine(
+    `  future->header.owner_thread_id = __yo_get_thread_id();`
+  );
+  emitter.emitDeclarationLine(
+    `  future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
+  );
+  emitter.emitDeclarationLine(`  future->header.shared_word = 0;`);
+  emitter.emitDeclarationLine(`  future->header.gc_next = NULL;`);
+  emitter.emitDeclarationLine(`  future->header.gc_prev = NULL;`);
+  emitter.emitDeclarationLine(
+    `  future->header.dispose_fn = yo_future_dispose;`
+  );
+  emitter.emitDeclarationLine(`  future->header.traverse_fn = NULL;`);
+  emitter.emitDeclarationLine(
+    `  atomic_store_explicit(&future->state, YO_FUTURE_RUNNING, memory_order_relaxed);`
+  );
+  emitter.emitDeclarationLine(`  future->state_machine = sm;`);
+  emitter.emitDeclarationLine(
+    `  atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);`
+  );
+  emitter.emitDeclarationLine(
+    `  atomic_store_explicit(&future->continuation_sm, NULL, memory_order_relaxed);`
+  );
+  emitter.emitDeclarationLine(`  sm->result = future;`);
+  emitter.emitDeclarationLine(``);
+
+  // Spawn the task
+  emitter.emitDeclarationLine(`  // Spawn async block to worker thread`);
+  emitter.emitDeclarationLine(
+    `  ASYNC_DEBUG("${asyncBlockId}: Spawning async block\\n");`
+  );
+  emitter.emitDeclarationLine(
+    `  yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+  );
+  emitter.emitDeclarationLine(``);
+
+  emitter.emitDeclarationLine(`  return future;`);
+  emitter.emitDeclarationLine(`}`);
+  emitter.emitDeclarationLine(``);
 }
 
 /**

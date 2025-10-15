@@ -2,6 +2,7 @@ import {
   BuiltinFunctions,
   BuiltinKeywords,
   Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
@@ -26,11 +27,6 @@ import { canRefStructFormCycles } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
-import {
-  generateResumeFunctionDeclaration,
-  generateResumeFunctionImplementation,
-  generateStateMachineStruct,
-} from "../async/state-machine";
 import {
   generateDeferredDropExpressions,
   generateExpr,
@@ -67,6 +63,17 @@ export function generateFunctionDeclarations(
     }
     generateFunctionDeclaration(type, cName, true, context);
   }
+  emitter.emitDeclarationLine("");
+
+  // Generate forward declarations for async runtime functions
+  emitter.emitDeclarationLine(`/// Async runtime functions`);
+  emitter.emitDeclarationLine(
+    `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
+  );
+  emitter.emitDeclarationLine(
+    `void yo_async_register_continuation(void* future, void (*resume_fn)(void*), void* state_machine);`
+  );
+  emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
   emitter.emitDeclarationLine("");
 
   // Generate constructor functions for objects
@@ -312,113 +319,6 @@ int main(void) {
 }
 
 /**
- * Generate an async function with state machine transformation.
- * This handles async functions that contain await expressions.
- */
-function generateAsyncFunctionWithStateMachine(
-  functionValue: FunctionValue,
-  cFunctionName: string,
-  context: FunctionGenerationContext
-): void {
-  const emitter = context.emitter;
-  const functionType = functionValue.specializedType ?? functionValue.type;
-
-  // Step 1: Generate state machine struct type
-  const stateMachineInfo = generateStateMachineStruct(
-    functionValue,
-    cFunctionName,
-    context
-  );
-
-  // Step 2: Generate forward declaration for resume function
-  generateResumeFunctionDeclaration(stateMachineInfo, context);
-
-  // Step 3: Generate the async function entry point
-  // This function allocates the state machine, initializes it, and starts execution
-  const futureType = functionType.return.type as FutureType;
-  const futureTypeCName = context.types[futureType.id]?.cName;
-
-  if (!futureTypeCName) {
-    emitter.emitLine(`// Error: Future type not found for ${cFunctionName}`);
-    return;
-  }
-
-  const functionPrototype = generateFunctionPrototype(
-    functionType,
-    cFunctionName,
-    context
-  );
-
-  emitter.emitLine(`${functionPrototype} {`);
-  emitter.emitLine(
-    `  ASYNC_DEBUG("${cFunctionName}: Allocating state machine\\n");`
-  );
-
-  // Allocate state machine
-  emitter.emitLine(
-    `  ${stateMachineInfo.structName}* sm = (${stateMachineInfo.structName}*)__yo_malloc(sizeof(${stateMachineInfo.structName}));`
-  );
-  emitter.emitLine(`  sm->state = 0;  // Initial state`);
-  emitter.emitLine(``);
-
-  // Copy function parameters to state machine
-  for (const param of functionType.parameters) {
-    emitter.emitLine(`  sm->${param.label} = ${param.label};`);
-  }
-  emitter.emitLine(``);
-
-  // Allocate and initialize result Future
-  emitter.emitLine(`  // Allocate result Future`);
-  emitter.emitLine(
-    `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
-  );
-  emitter.emitLine(`  future->header.owner_thread_id = __yo_get_thread_id();`);
-  emitter.emitLine(
-    `  future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
-  );
-  emitter.emitLine(`  future->header.shared_word = 0;`);
-  emitter.emitLine(`  future->header.gc_next = NULL;`);
-  emitter.emitLine(`  future->header.gc_prev = NULL;`);
-  emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);
-  emitter.emitLine(`  future->header.traverse_fn = NULL;`);
-  emitter.emitLine(
-    `  atomic_store_explicit(&future->state, YO_FUTURE_RUNNING, memory_order_relaxed);`
-  );
-  emitter.emitLine(
-    `  future->state_machine = sm;  // Link state machine to Future`
-  );
-  emitter.emitLine(
-    `  atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);  // No continuation yet`
-  );
-  emitter.emitLine(
-    `  atomic_store_explicit(&future->continuation_sm, NULL, memory_order_relaxed);  // No continuation yet`
-  );
-  emitter.emitLine(`  sm->result = future;`);
-  emitter.emitLine(``);
-
-  // Spawn the state machine execution to a worker thread
-  emitter.emitLine(`  // Spawn execution to worker thread`);
-  emitter.emitLine(
-    `  ASYNC_DEBUG("${cFunctionName}: Spawning state machine to worker thread\\n");`
-  );
-  emitter.emitLine(
-    `  yo_async_spawn_task((void (*)(void*))${stateMachineInfo.resumeFunctionName}, (void*)sm);`
-  );
-  emitter.emitLine(``);
-  emitter.emitLine(`  return future;`);
-  emitter.emitLine(`}`);
-  emitter.emitLine(``);
-
-  // Step 4: Generate the resume function implementation
-  generateResumeFunctionImplementation(
-    functionValue,
-    cFunctionName,
-    stateMachineInfo,
-    context
-  );
-}
-
-/**
  * Generate C code for a function
  */
 export function generateFunction(
@@ -432,20 +332,7 @@ export function generateFunction(
   const functionName = cFunctionName;
   const functionType = functionValue.specializedType ?? functionValue.type;
 
-  // Check if this is an async function with await expressions
-  const isAsyncFunction = isFutureType(functionType.return.type);
-
-  if (isAsyncFunction) {
-    // All async functions use state machine transformation
-    // This ensures they all spawn to worker threads consistently
-    generateAsyncFunctionWithStateMachine(
-      functionValue,
-      cFunctionName,
-      context
-    );
-    return;
-  }
-
+  // Regular function generation (async blocks within the function handle their own state machines)
   const functionPrototype = generateFunctionPrototype(
     functionType,
     cFunctionName,
@@ -577,63 +464,77 @@ export function generateFunctionBody(
       const isAsyncFunction = isFutureType(functionType.return.type);
 
       if (isAsyncFunction && lastExpr) {
-        // For async functions, wrap the return value in a Future
-        const futureType = functionType.return.type as FutureType;
-        const elementType = futureType.elementType;
-        const isUnitResult = isUnitType(elementType);
+        // Check if the last expression is an async block
+        // If it is, we should return it directly without wrapping
+        const isAsyncBlock =
+          lastExpr.tag === "FuncCall" &&
+          lastExpr.func &&
+          exprIsAtom(lastExpr.func) &&
+          lastExpr.func.token.value === "async";
 
-        // Get the Future type C name
-        const futureTypeCName = context.types[futureType.id]?.cName;
-        if (!futureTypeCName) {
-          emitter.emitLine(
-            `${indent}// Error: Future type not found in context`
-          );
-          return;
-        }
-
-        // Generate the result expression (if not unit)
-        if (!isUnitResult) {
+        if (isAsyncBlock) {
+          // Last expression is an async block - return it directly
           const resultCode = generateExpr(lastExpr, indent, context);
-          emitter.emitLine(
-            `${indent}${getTypeString(elementType, context)} _yo_async_result = ${resultCode};`
-          );
+          emitter.emitLine(`${indent}return ${resultCode};`);
         } else {
-          // For unit, just execute the expression as a statement
-          const exprCode = generateExpr(lastExpr, indent, context);
-          if (exprCode) {
-            emitter.emitLine(`${indent}${exprCode};`);
+          // For async functions, wrap the return value in a Future
+          const futureType = functionType.return.type as FutureType;
+          const elementType = futureType.elementType;
+          const isUnitResult = isUnitType(elementType);
+
+          // Get the Future type C name
+          const futureTypeCName = context.types[futureType.id]?.cName;
+          if (!futureTypeCName) {
+            emitter.emitLine(
+              `${indent}// Error: Future type not found in context`
+            );
+            return;
           }
+
+          // Generate the result expression (if not unit)
+          if (!isUnitResult) {
+            const resultCode = generateExpr(lastExpr, indent, context);
+            emitter.emitLine(
+              `${indent}${getTypeString(elementType, context)} _yo_async_result = ${resultCode};`
+            );
+          } else {
+            // For unit, just execute the expression as a statement
+            const exprCode = generateExpr(lastExpr, indent, context);
+            if (exprCode) {
+              emitter.emitLine(`${indent}${exprCode};`);
+            }
+          }
+
+          // Allocate and initialize the Future
+          emitter.emitLine(
+            `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+          );
+          emitter.emitLine(
+            `${indent}_yo_future->header.owner_thread_id = __yo_get_thread_id();`
+          );
+          emitter.emitLine(
+            `${indent}_yo_future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
+          );
+          emitter.emitLine(`${indent}_yo_future->header.shared_word = 0;`);
+          emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
+          emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
+          emitter.emitLine(
+            `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
+          );
+          emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
+          emitter.emitLine(
+            `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
+          );
+          emitter.emitLine(
+            `${indent}_yo_future->state_machine = NULL;  // No state machine for immediate completion`
+          );
+
+          if (!isUnitResult) {
+            emitter.emitLine(`${indent}_yo_future->result = _yo_async_result;`);
+          }
+
+          emitter.emitLine(`${indent}return _yo_future;`);
         }
-
-        // Allocate and initialize the Future
-        emitter.emitLine(
-          `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
-        );
-        emitter.emitLine(
-          `${indent}_yo_future->header.owner_thread_id = __yo_get_thread_id();`
-        );
-        emitter.emitLine(
-          `${indent}_yo_future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
-        );
-        emitter.emitLine(`${indent}_yo_future->header.shared_word = 0;`);
-        emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
-        emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
-        emitter.emitLine(
-          `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
-        );
-        emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
-        emitter.emitLine(
-          `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
-        );
-        emitter.emitLine(
-          `${indent}_yo_future->state_machine = NULL;  // No state machine for immediate completion`
-        );
-
-        if (!isUnitResult) {
-          emitter.emitLine(`${indent}_yo_future->result = _yo_async_result;`);
-        }
-
-        emitter.emitLine(`${indent}return _yo_future;`);
       } else if (lastExpr && isUnitType(functionType.return.type)) {
         // For unit/void functions, generate the expression as a statement
         const exprCode = generateExpr(lastExpr, indent, context);

@@ -93,7 +93,7 @@ Concurrency.set_maximum_threads(n: usize) -> unit
 ### Async/Await
 ```yo
 // Define async function
-fetch :: async fn(url: String) -> Future(Data) {
+fetch :: (fn(url: String) -> Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
   return data;
@@ -223,7 +223,7 @@ Objects created on one thread can be passed to tasks on other threads:
 ```yo
 open import "std";
 
-main :: async fn() -> Future(unit) {
+main :: (fn() -> Future(unit)) async {
   // Create 2 OS worker threads
   Concurrency.set_maximum_threads(2);
   
@@ -242,7 +242,7 @@ main :: async fn() -> Future(unit) {
   printf("All tasks completed: %d, %d, %d, %d\n", result1, result2, result3, result4);
 };
 
-worker :: async fn(id: i32) -> i32 {
+worker :: (fn(id: i32) -> Future(i32)) async {
   printf("Worker %d on thread %zu\n", id, Concurrency.get_thread_id());
   // Do some async work...
   return id * 10;

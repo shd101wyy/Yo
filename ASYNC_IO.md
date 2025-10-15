@@ -212,15 +212,15 @@ Native Windows async I/O with completion ports.
 
 ```yo
 // Async file operations (return Futures)
-async_read :: async fn(fd: i32, buf: *(u8), count: usize) -> Future(isize)
-async_write :: async fn(fd: i32, buf: *(u8), count: usize) -> Future(isize)
+async_read :: (fn(fd: i32, buf: *(u8), count: usize) -> Future(isize))
+async_write :: (fn(fd: i32, buf: *(u8), count: usize) -> Future(isize))
 
 // Async socket operations (return Futures)
-async_accept :: async fn(sockfd: i32, addr: *(sockaddr), addrlen: *(socklen_t)) -> Future(i32)
-async_connect :: async fn(sockfd: i32, addr: *(sockaddr), addrlen: socklen_t) -> Future(i32)
+async_accept :: (fn(sockfd: i32, addr: *(sockaddr), addrlen: *(socklen_t)) -> Future(i32))
+async_connect :: (fn(sockfd: i32, addr: *(sockaddr), addrlen: socklen_t) -> Future(i32))
 
 // Usage with await:
-read_file :: async fn(path: String) -> Future(Result(String, Error)) {
+read_file :: (fn(path: String) -> Future(Result(String, Error))) async {
   fd := open(path, O_RDONLY)?;
   buffer := Array(u8).new(4096);
   bytes_read := await async_read(fd, buffer.ptr(), 4096);  // ✅ Uses await
@@ -234,7 +234,7 @@ read_file :: async fn(path: String) -> Future(Result(String, Error)) {
 ```yo
 open import "std";
 
-http_server :: async fn() -> Future(unit) {
+http_server :: (fn() -> Future(unit)) async {
   listener := Socket.listen("0.0.0.0", 8080).unwrap();
   printf("Listening on port 8080\n");
   
@@ -247,7 +247,7 @@ http_server :: async fn() -> Future(unit) {
   };
 };
 
-handle_client :: async fn(client_fd: i32) -> Future(unit) {
+handle_client :: (fn(client_fd: i32) -> Future(unit)) async {
   buffer := Array(u8).new(4096);
   
   // Read request asynchronously
@@ -271,7 +271,7 @@ build_http_response :: fn(request: String) -> String {
   return "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
 };
 
-main :: async fn() -> Future(unit) {
+main :: (fn() -> Future(unit)) async {
   Concurrency.set_maximum_threads(4);  // 4 worker threads
   await http_server();
 };
@@ -412,14 +412,14 @@ int yo_io_poll(yo_worker_thread* worker, int timeout_ms) {
 
 ```yo
 // ❌ BAD - doesn't wait for I/O to complete
-bad_read :: async fn(fd: i32) -> Future(unit) {
+bad_read :: (fn(fd: i32) -> Future(unit)) async {
   buffer := Array(u8).new(4096);
   future := async_read(fd, buffer.ptr(), 4096);  // Returns Future, doesn't wait!
   // buffer might not have data yet!
 };
 
 // ✅ GOOD - awaits I/O completion
-good_read :: async fn(fd: i32) -> Future(unit) {
+good_read :: (fn(fd: i32) -> Future(unit)) async {
   buffer := Array(u8).new(4096);
   bytes_read := await async_read(fd, buffer.ptr(), 4096);  // Waits for completion
   // buffer now has data
@@ -448,7 +448,7 @@ if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 ### 4. **Error Handling in Async Functions**
 
 ```yo
-safe_read :: async fn(fd: i32, buffer: *(u8), size: usize) -> Future(Result(isize, String)) {
+safe_read :: (fn(fd: i32, buffer: *(u8), size: usize) -> Future(Result(isize, String))) async {
   bytes_read := await async_read(fd, buffer, size);
   
   if bytes_read < 0, {
