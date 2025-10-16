@@ -30,6 +30,8 @@ void __yo_future_drop(void* ptr) {
   
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
+  ASYNC_DEBUG("__yo_future_drop: ptr=%p, owner_tid=%zu\\n", ptr, header->owner_thread_id);
+  
   // For Futures, we need to check the is_running flag
   // The Future struct has is_running after the header
   // We'll use a generic approach by checking the offset
@@ -48,8 +50,19 @@ void __yo_future_drop(void* ptr) {
   
   yo_future_generic_t* future = (yo_future_generic_t*)ptr;
   
+  #ifdef YO_DEBUG_ASYNC_AWAIT
+  uint64_t biased_before = header->biased_word;
+  uint32_t rc_before = BRC_GET_BIASED_COUNTER(biased_before);
+  uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
+  int32_t shared_rc = BRC_GET_SHARED_COUNTER(shared_word);
+  size_t current_tid = __yo_get_thread_id();
+  ASYNC_DEBUG("__yo_future_drop: RC before decr = %u (biased=%u, shared=%d), current_tid=%zu, owner_tid=%zu, Calling __yo_decr_rc on Future\\n", rc_before, rc_before, shared_rc, current_tid, header->owner_thread_id);
+  #endif
+
   // Decrement reference count and call dispose function if RC reaches 0
   __yo_decr_rc(ptr, header->dispose_fn);
+  
+  ASYNC_DEBUG("__yo_future_drop: Returned from __yo_decr_rc\\n");
   
   // Note: The actual freeing is handled by __yo_decr_rc, which will
   // call the dispose function if ref count reaches 0.
@@ -232,6 +245,11 @@ static void* __yo_worker_thread_func(void* arg) {
   }
   
   CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
+  
+  // Clean up thread-local GC state before exiting
+  // This is important for threads that had objects queued to them via BRC
+  __yo_cleanup_thread_gc();
+  
   #ifdef _WIN32
   return 0;
   #else

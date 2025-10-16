@@ -1177,12 +1177,26 @@ static void __yo_brc_queue_object(void* ptr, size_t owner_tid) {
   
   // If owner thread's GC state doesn't exist, initialize it
   if (thread_gc == NULL) {
+    // Need to initialize process cleanup before creating first GC state
+    // This is normally done in yo_init_thread_gc(), but we're creating GC state
+    // from a different thread (during cross-thread drop), so we need to do it here
+    static bool process_cleanup_initialized = false;
+    if (!process_cleanup_initialized) {
+      process_cleanup_initialized = true;
+      yo_init_process_cleanup();
+    }
+    
     thread_gc = (yo_thread_gc_state_t*)__yo_malloc(sizeof(yo_thread_gc_state_t));
     thread_gc->thread_id = owner_tid;
     thread_gc->tracked_objects = NULL;
     thread_gc->tracked_count = 0;
     thread_gc->next = yo_all_thread_gcs;
+    thread_gc->prev = NULL;
+    if (yo_all_thread_gcs != NULL) {
+      yo_all_thread_gcs->prev = thread_gc;
+    }
     yo_all_thread_gcs = thread_gc;
+    atomic_fetch_add_explicit(&yo_total_thread_count, 1, memory_order_relaxed);
 #ifdef YO_DEBUG_BRC
     BRC_DEBUG("BRC: QueueObj: Initialized GC state for owner tid=%zu\\n", owner_tid);
 #endif
@@ -1486,11 +1500,33 @@ static void per_thread_restore_refcount_visitor(void* ptr) {
   // Generate thread cleanup function for when threads die
   emitter.emitLine(`// Called when a thread is about to exit to merge its GC state
 void __yo_cleanup_thread_gc() {
-  if (yo_current_thread_gc == NULL) {
+  yo_mutex_lock(&yo_thread_list_mutex);
+  
+  // Find GC state for current thread (may not be in yo_current_thread_gc if created by another thread)
+  size_t current_tid = __yo_get_thread_id();
+  yo_thread_gc_state_t* my_gc_state = yo_current_thread_gc;
+  
+  // If yo_current_thread_gc is NULL, search the global list by thread ID
+  // This handles the case where another thread created a GC state for us via __yo_brc_queue_object
+  if (my_gc_state == NULL) {
+    yo_thread_gc_state_t* thread_gc = yo_all_thread_gcs;
+    while (thread_gc != NULL) {
+      if (thread_gc->thread_id == current_tid) {
+        my_gc_state = thread_gc;
+        break;
+      }
+      thread_gc = thread_gc->next;
+    }
+  }
+  
+  if (my_gc_state == NULL) {
+    yo_mutex_unlock(&yo_thread_list_mutex);
     return; // No GC state to clean up
   }
   
-  yo_mutex_lock(&yo_thread_list_mutex);
+  BRC_DEBUG("CleanupThread: tid=%zu, tracked_count=%zu\\n", 
+            my_gc_state->thread_id, 
+            my_gc_state->tracked_count);
   
   // Find a main/long-lived thread to merge objects to, or distribute among remaining threads
   yo_thread_gc_state_t* target_thread = NULL;
@@ -1499,17 +1535,21 @@ void __yo_cleanup_thread_gc() {
   // Try to find the main thread (usually the first one, with smallest thread ID)
   size_t min_thread_id = SIZE_MAX;
   while (thread_gc != NULL) {
-    if (thread_gc != yo_current_thread_gc && thread_gc->thread_id < min_thread_id) {
+    if (thread_gc != my_gc_state && thread_gc->thread_id < min_thread_id) {
       min_thread_id = thread_gc->thread_id;
       target_thread = thread_gc;
     }
     thread_gc = thread_gc->next;
   }
   
+  BRC_DEBUG("CleanupThread: target_thread=%p (tid=%zu)\\n", 
+            (void*)target_thread, 
+            target_thread ? target_thread->thread_id : 0);
+  
   // If we have objects to transfer and found a target thread
-  if (target_thread != NULL && yo_current_thread_gc->tracked_objects != NULL) {
+  if (target_thread != NULL && my_gc_state->tracked_objects != NULL) {
     // Transfer all tracked objects to target thread
-    yo_ref_header_t* current = yo_current_thread_gc->tracked_objects;
+    yo_ref_header_t* current = my_gc_state->tracked_objects;
     yo_ref_header_t* last = NULL;
     
     // Find the end of our list
@@ -1521,16 +1561,21 @@ void __yo_cleanup_thread_gc() {
     if (last != NULL) {
       // Append our list to target thread's list
       last->gc_next = target_thread->tracked_objects;
-      target_thread->tracked_objects = yo_current_thread_gc->tracked_objects;
-      target_thread->tracked_count += yo_current_thread_gc->tracked_count;
+      target_thread->tracked_objects = my_gc_state->tracked_objects;
+      target_thread->tracked_count += my_gc_state->tracked_count;
+      BRC_DEBUG("CleanupThread: Transferred %zu objects to target thread tid=%zu\\n", 
+                my_gc_state->tracked_count, target_thread->thread_id);
     }
-  } else if (yo_current_thread_gc->tracked_objects != NULL) {
+  } else if (my_gc_state->tracked_objects != NULL) {
     // No target thread found - force immediate collection of our objects
     // This is a safety measure to prevent memory leaks
-    yo_ref_header_t* current = yo_current_thread_gc->tracked_objects;
+    BRC_DEBUG("CleanupThread: No target thread, disposing %zu objects immediately\\n", 
+              my_gc_state->tracked_count);
+    yo_ref_header_t* current = my_gc_state->tracked_objects;
     while (current != NULL) {
       yo_ref_header_t* next = (yo_ref_header_t*)current->gc_next;
       
+      BRC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", current);
       // Force dispose the object
       if (current->dispose_fn) {
         current->dispose_fn(current);
@@ -1542,15 +1587,15 @@ void __yo_cleanup_thread_gc() {
   }
   
   // Remove current thread from global list (O(1) operation with doubly-linked list)
-  if (yo_current_thread_gc->prev != NULL) {
-    yo_current_thread_gc->prev->next = yo_current_thread_gc->next;
+  if (my_gc_state->prev != NULL) {
+    my_gc_state->prev->next = my_gc_state->next;
   } else {
     // We're the head of the list
-    yo_all_thread_gcs = yo_current_thread_gc->next;
+    yo_all_thread_gcs = my_gc_state->next;
   }
   
-  if (yo_current_thread_gc->next != NULL) {
-    yo_current_thread_gc->next->prev = yo_current_thread_gc->prev;
+  if (my_gc_state->next != NULL) {
+    my_gc_state->next->prev = my_gc_state->prev;
   }
   
   atomic_fetch_sub_explicit(&yo_total_thread_count, 1, memory_order_relaxed);
@@ -1558,14 +1603,35 @@ void __yo_cleanup_thread_gc() {
   yo_mutex_unlock(&yo_thread_list_mutex);
   
   // Free the thread GC state
-  __yo_free(yo_current_thread_gc);
-  yo_current_thread_gc = NULL;
+  __yo_free(my_gc_state);
+  
+  // Clear yo_current_thread_gc if it was pointing to the state we just freed
+  if (yo_current_thread_gc == my_gc_state) {
+    yo_current_thread_gc = NULL;
+  }
 }
 
 // Process cleanup - clean up remaining threads and resources
 static void yo_process_cleanup(void) {
-  // Clean up the main thread's GC state
-  __yo_cleanup_thread_gc();
+  // Note: On some systems (Unix with pthreads), TSS destructors may run BEFORE atexit handlers
+  // In that case, yo_current_thread_gc may already be NULL here
+  // However, worker threads should have transferred their queued objects to the main thread
+  // So we check if there are any remaining thread GC states to process
+  
+  BRC_DEBUG("ProcessCleanup: Called\\n");
+  BRC_DEBUG("ProcessCleanup: Current thread GC state: %p\\n", (void*)yo_current_thread_gc);
+  
+  // If we still have a GC state (main thread hasn't been cleaned up yet), run final GC
+  if (yo_current_thread_gc != NULL) {
+    BRC_DEBUG("ProcessCleanup: Running final GC collection\\n");
+    BRC_DEBUG("ProcessCleanup: Tracked objects: %p, count: %zu\\n", 
+            (void*)yo_current_thread_gc->tracked_objects, 
+            yo_current_thread_gc->tracked_count);
+    __yo_gc_collect();
+    __yo_cleanup_thread_gc();
+  } else {
+    BRC_DEBUG("ProcessCleanup: Main thread already cleaned up by TSS destructor\\n");
+  }
   
   // Clean up thread cleanup key
 #if defined(_WIN32)
