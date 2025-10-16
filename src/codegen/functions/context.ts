@@ -1,10 +1,12 @@
 import { Expr } from "../../expr";
+import { FunctionValue, FuncValueId } from "../../function-value";
 import {
-  FunctionCapturedVariableInfo,
-  FunctionValue,
-  FuncValueId,
-} from "../../function-value";
-import { ClosureType, FunctionType, FutureType, TypeId } from "../../types";
+  ClosureType,
+  FunctionType,
+  FutureType,
+  StructType,
+  TypeId,
+} from "../../types";
 import { AwaitAnalysisResult, CapturedVariable } from "../async/await-analysis";
 import { CodeGenContext } from "../utils";
 
@@ -32,7 +34,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     disposeFunctionName: string;
     futureType: FutureType;
     futureTypeCName: string;
-    capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined;
+    captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
   }>;
 }

@@ -5,11 +5,8 @@
  */
 
 import { Expr, exprIsFunctionCallOf } from "../../expr";
-import {
-  FunctionCapturedVariableInfo,
-  FunctionValue,
-} from "../../function-value";
-import { FutureType, isFutureType, isUnitType } from "../../types";
+import { FunctionValue } from "../../function-value";
+import { FutureType, isFutureType, isUnitType, StructType } from "../../types";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, sanitizeForCIdentifier } from "../utils";
@@ -58,11 +55,13 @@ export function getFutureFieldName(
       return fieldName;
     }
   }
-  // Fallback to old behavior (shouldn't happen)
-  console.log(
-    `[getFutureFieldName] FALLBACK! Returning await_future_${awaitPoint.index}`
+
+  // This should never happen - if we have an await, we must have captured the Future variable
+  throw new Error(
+    `getFutureFieldName: Could not find captured variable for await point ${awaitPoint.index} ` +
+      `(futureVariableId=${awaitPoint.futureVariableId}). ` +
+      `Captured variables: ${analysis.capturedVariables.map((v) => `${v.id}/${v.name}`).join(", ")}`
   );
-  return `await_future_${awaitPoint.index}`;
 }
 
 /**
@@ -148,7 +147,7 @@ export function generateStateMachineStruct(
     emitter.emitDeclarationLine(`  // Local variables`);
     for (const variable of analysis.capturedVariables) {
       const varTypeCName = getTypeString(variable.type, context);
-      const fieldName = getStateMachineFieldName(variable.id);
+      const fieldName = getStateMachineFieldName(variable.id, "local");
       emitter.emitDeclarationLine(
         `  ${varTypeCName} ${fieldName};  // ${variable.name}`
       );
@@ -198,7 +197,15 @@ export function generateResumeFunctionDeclaration(
  * Gets the C field name for a captured variable in a state machine struct.
  * This ensures consistent naming across struct definition and usage.
  */
-export function getStateMachineFieldName(variableId: string): string {
+export function getStateMachineFieldName(
+  variableId: string,
+  kind?: "outer" | "local"
+): string {
+  if (kind === "outer") {
+    // Outer captured variables are accessed through __capture struct
+    return `__capture.${sanitizeForCIdentifier(variableId)}`;
+  }
+  // Local variables use var_{id} naming
   return sanitizeForCIdentifier(`var_${variableId}`);
 }
 
@@ -213,7 +220,7 @@ export function generateAsyncBlockResumeFunction(
   resumeFunctionName: string,
   analysis: AwaitAnalysisResult,
   futureType: FutureType,
-  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
+  captureType: StructType | undefined,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
@@ -271,7 +278,8 @@ export function generateAsyncBlockResumeFunction(
         // If this await has a target variable, assign the result to it
         if (prevAwait.targetVariableId) {
           const fieldName = getStateMachineFieldName(
-            prevAwait.targetVariableId
+            prevAwait.targetVariableId,
+            "local"
           );
           emitter.emitLine(
             `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
@@ -297,14 +305,15 @@ export function generateAsyncBlockResumeFunction(
       combinedVariables.set(v.id, v);
     }
 
-    // Add outer captured variables (they use their actual names, not var_{id})
+    // Add outer captured variables from the capture struct
     // We create synthetic entries with the variable name as the ID
-    if (capturedVariables) {
-      for (const [varName, varInfo] of capturedVariables.entries()) {
-        combinedVariables.set(varName, {
-          id: varName, // Use varName as ID so getStateMachineFieldName returns varName
-          name: varName,
-          type: varInfo.type,
+    // Access will be through sm->__capture.varName
+    if (captureType) {
+      for (const elem of captureType.elements) {
+        combinedVariables.set(elem.label, {
+          id: elem.label, // Use label as ID
+          name: elem.label,
+          type: elem.type,
           kind: "outer",
           isBorrowingTheARCValueOfVariable: undefined,
         });

@@ -8,11 +8,11 @@ import {
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
-import { FunctionCapturedVariableInfo } from "./function-value";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
   isType0,
+  StructType,
   Type,
   typeContainsARCType,
   typeOfType,
@@ -215,14 +215,14 @@ export interface EvaluatedExprData {
   asyncStackSize?: Expr;
 
   /**
-   * For async block expressions, this contains the variables captured from outer scope.
-   * Maps variable name to capture information including frame level, usage type, token, value, and type.
-   * These variables need to be included in the state machine struct for codegen.
+   * For async block expressions, this contains the capture struct type that holds all
+   * captured variables from outer scope. This is similar to how closures work.
+   * The capture struct has ARC functions (___drop, ___dup, ___dispose) auto-generated.
    *
-   * Example: For `async { printf("%d", x); }` where `x` is from outer scope,
-   * this would contain a Map with entry for "x" with its value and type.
+   * Example: For `async { printf("%d", x); }` where `x: MyBox` is from outer scope,
+   * this would contain a StructType with a single field `x: MyBox`.
    */
-  asyncBlockCapturedVariables?: Map<string, FunctionCapturedVariableInfo>;
+  asyncBlockCaptureType?: StructType;
 }
 
 export type AtomExpr = {

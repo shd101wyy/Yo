@@ -22,6 +22,7 @@ import { VUnit } from "../../unit-value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { addARCFunctionsToFutureType } from "../types/utils";
 import {
+  createCaptureTypeAndValue,
   enrichCapturedVariables,
   generateCapturedVariableDupExpressions,
 } from "../utils/closure";
@@ -350,6 +351,16 @@ export function evaluateAsync({
         })
       : undefined;
 
+  // Create capture struct type and value (same approach as closures)
+  const { captureType, captureValue: _captureValue } =
+    createCaptureTypeAndValue({
+      expectedCaptureType: undefined, // Let it infer from captured variables
+      capturedVariablesWithValues: capturedVariables,
+      env,
+      closureToken: expr.token,
+      context: { ...context },
+    });
+
   // Generate dup expressions for captured ARC variables
   const { capturedVariableDupExpressions, env: updatedEnv } =
     generateCapturedVariableDupExpressions({
@@ -366,7 +377,7 @@ export function evaluateAsync({
     value: undefined, // Runtime value (the Future handle)
     pathCollection: [],
     // Store metadata for async codegen
-    asyncBlockCapturedVariables: capturedVariables,
+    asyncBlockCaptureType: captureType, // Store the capture struct type for codegen
     capturedVariableDupExpressions:
       capturedVariableDupExpressions &&
       capturedVariableDupExpressions.length > 0

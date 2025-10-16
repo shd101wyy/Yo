@@ -11,7 +11,6 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { FunctionCapturedVariableInfo } from "../../function-value";
 import { TypeValue } from "../../type-value";
 import {
   ArrayType,
@@ -32,7 +31,9 @@ import {
   isUnitType,
   ModuleType,
   SliceType,
+  StructType,
   Type,
+  typeContainsARCType,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -1993,19 +1994,17 @@ function generateAsyncBlock(
   );
   emitter.emitDeclarationLine(``);
 
-  // Add captured variables as fields
-  if (
-    expr.$?.asyncBlockCapturedVariables &&
-    expr.$?.asyncBlockCapturedVariables.size > 0
-  ) {
+  // Add capture struct as a single field if there are captured variables
+  if (expr.$?.asyncBlockCaptureType) {
+    const captureType = expr.$.asyncBlockCaptureType;
+    const existingCaptureTypeEntry = Object.values(context.types).find(
+      (entry) => entry.type === captureType
+    );
+    const captureStructName = existingCaptureTypeEntry
+      ? existingCaptureTypeEntry.cName
+      : `async_capture_${captureType.id}`;
     emitter.emitDeclarationLine(`  // Captured variables from outer scope`);
-    for (const [
-      varName,
-      varInfo,
-    ] of expr.$.asyncBlockCapturedVariables.entries()) {
-      const varTypeCName = getTypeString(varInfo.type, context);
-      emitter.emitDeclarationLine(`  ${varTypeCName} ${varName};`);
-    }
+    emitter.emitDeclarationLine(`  ${captureStructName} __capture;`);
     emitter.emitDeclarationLine(``);
   }
 
@@ -2014,7 +2013,7 @@ function generateAsyncBlock(
     emitter.emitDeclarationLine(`  // Local variables`);
     for (const variable of analysis.capturedVariables) {
       const varTypeCName = getTypeString(variable.type, context);
-      const fieldName = getStateMachineFieldName(variable.id);
+      const fieldName = getStateMachineFieldName(variable.id, "local");
       emitter.emitDeclarationLine(
         `  ${varTypeCName} ${fieldName};  // ${variable.name}`
       );
@@ -2051,20 +2050,16 @@ function generateAsyncBlock(
   emitter.emitDeclarationLine(``);
 
   // Generate forward declaration for constructor function
-  if (
-    expr.$?.asyncBlockCapturedVariables &&
-    expr.$?.asyncBlockCapturedVariables.size > 0
-  ) {
-    const captureParams = Array.from(
-      expr.$.asyncBlockCapturedVariables.entries()
-    )
-      .map(([varName, varInfo]) => {
-        const varTypeCName = getTypeString(varInfo.type, context);
-        return `${varTypeCName} ${varName}`;
-      })
-      .join(", ");
+  if (expr.$?.asyncBlockCaptureType) {
+    const captureType = expr.$.asyncBlockCaptureType;
+    const existingCaptureTypeEntry = Object.values(context.types).find(
+      (entry) => entry.type === captureType
+    );
+    const captureStructName = existingCaptureTypeEntry
+      ? existingCaptureTypeEntry.cName
+      : `async_capture_${captureType.id}`;
     emitter.emitDeclarationLine(
-      `${futureTypeCName}* ${constructorName}(${captureParams});`
+      `${futureTypeCName}* ${constructorName}(${captureStructName} __capture);`
     );
   } else {
     emitter.emitDeclarationLine(`${futureTypeCName}* ${constructorName}();`);
@@ -2085,31 +2080,38 @@ function generateAsyncBlock(
     disposeFunctionName,
     futureType: futureType as FutureType,
     futureTypeCName,
-    capturedVariables: expr.$?.asyncBlockCapturedVariables,
+    captureType: expr.$?.asyncBlockCaptureType,
     analysis,
   });
 
   // Generate the constructor call with captured variables
-  const capturedVariables = expr.$?.asyncBlockCapturedVariables;
+  const captureType = expr.$?.asyncBlockCaptureType;
 
-  if (capturedVariables && capturedVariables.size > 0) {
-    // Check if we have pre-generated dup expressions (from evaluator)
-    let captureArgs: string[];
+  if (captureType) {
+    // We have captured variables in a struct
+    const existingCaptureTypeEntry = Object.values(context.types).find(
+      (entry) => entry.type === captureType
+    );
+    const captureStructName = existingCaptureTypeEntry
+      ? existingCaptureTypeEntry.cName
+      : `async_capture_${captureType.id}`;
 
-    if (expr.$?.capturedVariableDupExpressions) {
-      // Use the pre-generated dup expressions (same pattern as closures)
-      const capturedVariableDupExpressions =
-        expr.$.capturedVariableDupExpressions;
-      captureArgs = capturedVariableDupExpressions.map((dupExpr) =>
-        generateExpr(dupExpr, indent, context)
-      );
-    } else {
-      // Fallback: construct arguments manually (for non-ARC types)
-      captureArgs = Array.from(capturedVariables.keys());
-    }
+    // Build the capture struct literal
+    const captureFields = captureType.elements
+      .map((elem, index) => {
+        // Find the dup expression by index (dup expressions are in same order as elements)
+        const dupExpr = expr.$?.capturedVariableDupExpressions?.[index];
+        if (dupExpr) {
+          return `.${elem.label} = ${generateExpr(dupExpr, indent, context)}`;
+        }
+        // Fallback to direct variable reference
+        return `.${elem.label} = ${elem.label}`;
+      })
+      .join(", ");
 
+    const captureStructLiteral = `(${captureStructName}){${captureFields}}`;
     const resultVar = expr.$?.variableName || `async_result`;
-    const constructorCall = `${constructorName}(${captureArgs.join(", ")})`;
+    const constructorCall = `${constructorName}(${captureStructLiteral})`;
 
     // If this has a temporary variable name, declare it
     if (resultVar && expr.$?.type) {
@@ -2152,13 +2154,13 @@ function generateAsyncBlock(
  */
 /**
  * Generate the state machine dispose function for an async block.
- * This drops all captured variables before freeing the state machine.
+ * This drops the capture struct before freeing the state machine.
  */
 function generateAsyncBlockStateDisposeFunction(
   asyncBlockId: string,
   structName: string,
   disposeFunctionName: string,
-  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
+  captureType: StructType | undefined,
   analysis: AwaitAnalysisResult,
   context: FunctionGenerationContext
 ): void {
@@ -2169,19 +2171,47 @@ function generateAsyncBlockStateDisposeFunction(
   );
   emitter.emitLine(`void ${disposeFunctionName}(void* sm_ptr) {`);
   emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
+  emitter.emitLine(
+    `  ASYNC_DEBUG("${disposeFunctionName}: Disposing state machine\\n");`
+  );
   emitter.emitLine(``);
 
-  // Drop captured variables from outer scope
-  if (capturedVariables && capturedVariables.size > 0) {
-    emitter.emitLine(`  // Drop captured variables from outer scope`);
-    for (const [varName, varInfo] of capturedVariables.entries()) {
-      if (isObjectType(varInfo.type) || isEnumType(varInfo.type)) {
-        const dropFunctionName = `__yo_decr_rc`;
-        emitter.emitLine(`  ${dropFunctionName}((void*)sm->${varName}, NULL);`);
+  // Drop capture struct (like closures do)
+  if (captureType && typeContainsARCType(captureType)) {
+    const existingCaptureTypeEntry = Object.values(context.types).find(
+      (entry) => entry.type === captureType
+    );
+    if (!existingCaptureTypeEntry) {
+      emitter.emitLine(
+        `  /* Error: capture struct type not found in context */`
+      );
+    } else {
+      const captureTypeName = existingCaptureTypeEntry.cName;
+
+      // Find the ___drop function for the capture struct
+      const dropFunction = captureType.module.elements.find(
+        (element) => element.label === BuiltinFunctions.___drop[0]
+      );
+      if (
+        dropFunction &&
+        dropFunction.assignedValue &&
+        isFunctionValue(dropFunction.assignedValue)
+      ) {
+        const dropFunctionCName =
+          context.functions[dropFunction.assignedValue.funcId]?.cName;
+        if (dropFunctionCName) {
+          emitter.emitLine(`  ASYNC_DEBUG("  Dropping capture struct\\n");`);
+          emitter.emitLine(`  ${dropFunctionCName}(sm->__capture);`);
+        }
+      } else {
+        emitter.emitLine(
+          `  /* Warning: ___drop function not found for capture struct ${captureTypeName} */`
+        );
       }
     }
-    emitter.emitLine(``);
   }
+
+  emitter.emitLine(``);
 
   // NOTE: Local variables are ALWAYS handled by deferred drop expressions
   // that run in the final state before completion. The state machine dispose
@@ -2211,23 +2241,21 @@ function generateAsyncBlockConstructor(
   disposeFunctionName: string,
   futureType: FutureType,
   futureTypeCName: string,
-  capturedVariables:
-    | Map<string, import("../../function-value").FunctionCapturedVariableInfo>
-    | undefined,
+  captureType: StructType | undefined,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
   // Generate constructor signature
-  if (capturedVariables && capturedVariables.size > 0) {
-    const captureParams = Array.from(capturedVariables.entries())
-      .map(([varName, varInfo]) => {
-        const varTypeCName = getTypeString(varInfo.type, context);
-        return `${varTypeCName} ${varName}`;
-      })
-      .join(", ");
+  if (captureType) {
+    const existingCaptureTypeEntry = Object.values(context.types).find(
+      (entry) => entry.type === captureType
+    );
+    const captureStructName = existingCaptureTypeEntry
+      ? existingCaptureTypeEntry.cName
+      : `async_capture_${captureType.id}`;
     emitter.emitLine(
-      `${futureTypeCName}* ${constructorName}(${captureParams}) {`
+      `${futureTypeCName}* ${constructorName}(${captureStructName} __capture) {`
     );
   } else {
     emitter.emitLine(`${futureTypeCName}* ${constructorName}() {`);
@@ -2241,12 +2269,10 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(`  sm->state = 0;`);
   emitter.emitLine(``);
 
-  // Initialize captured variables
-  if (capturedVariables && capturedVariables.size > 0) {
-    emitter.emitLine(`  // Initialize captured variables`);
-    for (const [varName, _varInfo] of capturedVariables.entries()) {
-      emitter.emitLine(`  sm->${varName} = ${varName};`);
-    }
+  // Initialize capture struct
+  if (captureType) {
+    emitter.emitLine(`  // Initialize capture struct`);
+    emitter.emitLine(`  sm->__capture = __capture;`);
     emitter.emitLine(``);
   }
 
@@ -2403,10 +2429,12 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       if (capturedVar.name === varName) {
         // This is a state machine variable - access it through sm->
         // Use kind to determine field name:
-        // - "outer": Use the variable name directly (sm->varName)
+        // - "outer": Use __capture.varName (sm->__capture.varName)
         // - "local": Use var_{varId} (sm->var_{varId})
         const fieldName =
-          capturedVar.kind === "outer" ? varName : `var_${varId}`;
+          capturedVar.kind === "outer"
+            ? `__capture.${varName}`
+            : `var_${varId}`;
         console.log(
           `[generateAtom] FOUND: varName=${varName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
         );
@@ -2421,7 +2449,9 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         capturedVar.isBorrowingTheARCValueOfVariable.name === varName
       ) {
         const fieldName =
-          capturedVar.kind === "outer" ? varName : `var_${varId}`;
+          capturedVar.kind === "outer"
+            ? `__capture.${varName}`
+            : `var_${varId}`;
         console.log(
           `[generateAtom] FOUND via borrowing: varName=${varName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
         );
@@ -2449,7 +2479,9 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
           ] of functionContext.stateMachineVariables) {
             if (capturedVar.name === ownerName || varId === ownerId) {
               const fieldName =
-                capturedVar.kind === "outer" ? ownerName : `var_${varId}`;
+                capturedVar.kind === "outer"
+                  ? `__capture.${ownerName}`
+                  : `var_${varId}`;
               console.log(
                 `[generateAtom] FOUND OWNER: varName=${varName}, ownerName=${ownerName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
               );
@@ -4064,7 +4096,7 @@ export function generateDeferredAsyncBlocks(
       disposeFunctionName,
       futureType,
       futureTypeCName,
-      capturedVariables,
+      captureType,
       analysis,
     } = asyncBlockInfo;
 
@@ -4073,7 +4105,7 @@ export function generateDeferredAsyncBlocks(
       asyncBlockId,
       structName,
       disposeFunctionName,
-      capturedVariables,
+      captureType,
       analysis,
       context
     );
@@ -4088,7 +4120,7 @@ export function generateDeferredAsyncBlocks(
       resumeFunctionName,
       analysis,
       futureType,
-      capturedVariables,
+      captureType,
       context
     );
 
@@ -4103,7 +4135,7 @@ export function generateDeferredAsyncBlocks(
       disposeFunctionName,
       futureType,
       futureTypeCName,
-      capturedVariables,
+      captureType,
       context
     );
 

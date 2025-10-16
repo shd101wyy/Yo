@@ -48,8 +48,8 @@ void __yo_future_drop(void* ptr) {
   
   yo_future_generic_t* future = (yo_future_generic_t*)ptr;
   
-  // Decrement reference count
-  __yo_decr_rc(ptr, NULL);
+  // Decrement reference count and call dispose function if RC reaches 0
+  __yo_decr_rc(ptr, header->dispose_fn);
   
   // Note: The actual freeing is handled by __yo_decr_rc, which will
   // call the dispose function if ref count reaches 0.

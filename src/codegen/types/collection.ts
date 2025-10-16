@@ -101,6 +101,11 @@ export function collectTypesFromExpr(
     collectTypesFromExpr(expr.$.evaluatedClosure, context);
   }
 
+  // For async block expressions, collect the capture struct type
+  if (expr.$ && expr.$.asyncBlockCaptureType) {
+    collectType(expr.$.asyncBlockCaptureType, context);
+  }
+
   switch (expr.tag) {
     case ExprTag.FuncCall:
       // Collect types from the function expression itself (for chained calls)

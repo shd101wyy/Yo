@@ -911,9 +911,14 @@ function generateAtomicGCRuntimeFunctions(
       // No shared references - deallocate
       BRC_DEBUG("FastDecr: Deallocating ptr=%p (biased=0, shared=0)\\n", ptr);
       __yo_gc_unregister(ptr);
+      /*
       void (*actual_dispose_fn)(void*) = dispose_fn ? dispose_fn : header->dispose_fn;
       if (actual_dispose_fn) {
         actual_dispose_fn(ptr);
+      }
+      */
+      if (dispose_fn) {
+        dispose_fn(ptr);
       }
       __yo_free(ptr);
     } else {
