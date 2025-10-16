@@ -1,0 +1,20 @@
+open import "std";
+open import "std/libc/stdio.yo";
+
+MyBox :: object
+  (*) : i32,
+
+  dispose :: (fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value %d\n", self.(*));
+  }
+;
+
+// box1 here is a local variable
+// which doesn't need to be captured by the state machine
+// since there are no await points in this function
+main :: (fn() -> Future(unit)) async {
+  box1 := MyBox(666);
+  printf("Created MyBox with value %d\n", box1.(*));
+};
+
+export main;

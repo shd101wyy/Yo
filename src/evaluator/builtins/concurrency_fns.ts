@@ -21,7 +21,10 @@ import {
 import { VUnit } from "../../unit-value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { addARCFunctionsToFutureType } from "../types/utils";
-import { enrichCapturedVariables } from "../utils/closure";
+import {
+  enrichCapturedVariables,
+  generateCapturedVariableDupExpressions,
+} from "../utils/closure";
 
 /**
  * Evaluates the go builtin function (stackful coroutine spawning).
@@ -347,6 +350,15 @@ export function evaluateAsync({
         })
       : undefined;
 
+  // Generate dup expressions for captured ARC variables
+  const { capturedVariableDupExpressions, env: updatedEnv } =
+    generateCapturedVariableDupExpressions({
+      capturedVariablesWithValues: capturedVariables,
+      env,
+      context: { ...context },
+    });
+  env = updatedEnv;
+
   // Store the captured variables for codegen (bodyExpr already has evaluated data)
   expr.$ = {
     env,
@@ -355,6 +367,11 @@ export function evaluateAsync({
     pathCollection: [],
     // Store metadata for async codegen
     asyncBlockCapturedVariables: capturedVariables,
+    capturedVariableDupExpressions:
+      capturedVariableDupExpressions &&
+      capturedVariableDupExpressions.length > 0
+        ? capturedVariableDupExpressions
+        : undefined,
   };
 
   attachTempVariableToExpr(expr, true);

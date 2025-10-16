@@ -533,6 +533,28 @@ export function evaluateIdentifierAndOperator({
         }
       }
 
+      // For async blocks, track variables captured from outer scopes
+      if (
+        context.isEvaluatingAsyncBlock &&
+        context.isEvaluatingAsyncBlock.evaluationEnv
+      ) {
+        const asyncBlockEvaluationFrameLevel =
+          context.isEvaluatingAsyncBlock.evaluationEnv.frames.length;
+
+        // If variable is from an outer scope (lower frame level than async block evaluation), it's captured
+        if (variable.frameLevel < asyncBlockEvaluationFrameLevel) {
+          // Async blocks always own the captured variables (move semantics)
+          const usageType = "own";
+          trackVariableUsage(
+            variable.name,
+            variable.frameLevel,
+            usageType,
+            expr.token,
+            context
+          );
+        }
+      }
+
       return expr;
     }
   }

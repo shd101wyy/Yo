@@ -2003,26 +2003,19 @@ function generateAsyncBlock(
   const capturedVariables = expr.$?.asyncBlockCapturedVariables;
 
   if (capturedVariables && capturedVariables.size > 0) {
-    // Construct arguments: captured variables
-    const captureArgs: string[] = [];
+    // Check if we have pre-generated dup expressions (from evaluator)
+    let captureArgs: string[];
 
-    for (const [varName, varInfo] of capturedVariables.entries()) {
-      // For ARC types, we need to duplicate them before passing
-      // For non-ARC types, we can pass them directly
-      if (
-        isObjectType(varInfo.type) ||
-        isFutureType(varInfo.type) ||
-        isClosureType(varInfo.type) ||
-        isArrayType(varInfo.type)
-      ) {
-        // ARC type - need to duplicate
-        captureArgs.push(
-          `__yo_dup_${getTypeString(varInfo.type, context)}(${varName})`
-        );
-      } else {
-        // Non-ARC type - pass directly
-        captureArgs.push(varName);
-      }
+    if (expr.$?.capturedVariableDupExpressions) {
+      // Use the pre-generated dup expressions (same pattern as closures)
+      const capturedVariableDupExpressions =
+        expr.$.capturedVariableDupExpressions;
+      captureArgs = capturedVariableDupExpressions.map((dupExpr) =>
+        generateExpr(dupExpr, indent, context)
+      );
+    } else {
+      // Fallback: construct arguments manually (for non-ARC types)
+      captureArgs = Array.from(capturedVariables.keys());
     }
 
     const resultVar = expr.$?.variableName || `async_result`;
@@ -2275,6 +2268,7 @@ function generateAsyncBlockResumeFunction(
   resumeFunctionName: string,
   analysis: AwaitAnalysisResult,
   futureType: FutureType,
+  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
@@ -2347,9 +2341,29 @@ function generateAsyncBlockResumeFunction(
     const previousStateMachineVariables = context.stateMachineVariables;
 
     context.inStateMachine = { futureType };
-    context.stateMachineVariables = new Map(
-      analysis.capturedVariables.map((v: CapturedVariable) => [v.id, v])
-    );
+
+    // Combine outer captured variables and local variables into stateMachineVariables
+    // This allows generateAtom to find all variables that should be accessed via sm->
+    const combinedVariables = new Map<string, CapturedVariable>();
+
+    // Add local variables (with their IDs for var_{id} naming)
+    for (const v of analysis.capturedVariables) {
+      combinedVariables.set(v.id, v);
+    }
+
+    // Add outer captured variables (they use their actual names, not var_{id})
+    // We create synthetic entries with the variable name as the ID
+    if (capturedVariables) {
+      for (const [varName, varInfo] of capturedVariables.entries()) {
+        combinedVariables.set(varName, {
+          id: varName, // Use varName as ID so getStateMachineFieldName returns varName
+          name: varName,
+          type: varInfo.type,
+        });
+      }
+    }
+
+    context.stateMachineVariables = combinedVariables;
 
     // Generate the code for this segment
     generateStateSegmentCode(segment, "      ", context);
@@ -2628,17 +2642,13 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // Check if this variable is in the state machine
     for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
       if (capturedVar.name === varName) {
-        // This is a state machine variable - access it through sm->var_xxx
-        const fieldName = `var_${varId}`;
-        console.log(
-          `[generateAtom DEBUG] State machine var "${varName}" -> sm->${fieldName}`
-        );
+        // This is a state machine variable - access it through sm->
+        // If varId === varName, it's an outer captured variable (use sm->varName)
+        // If varId !== varName, it's a local variable (use sm->var_{varId})
+        const fieldName = varId === varName ? varName : `var_${varId}`;
         return `sm->${fieldName}`;
       }
     }
-    console.log(
-      `[generateAtom DEBUG] In state machine but "${varName}" not found in captured vars`
-    );
   }
 
   // If this atom has a temp variable name (e.g., for ARC values), use that instead of the computed value
@@ -4260,6 +4270,7 @@ export function generateDeferredAsyncBlocks(
       resumeFunctionName,
       analysis,
       futureType,
+      capturedVariables,
       context
     );
 

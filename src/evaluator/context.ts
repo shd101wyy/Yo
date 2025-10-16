@@ -321,11 +321,12 @@ export function trackVariableUsage(
   }
 
   // Determine the evaluation environment
+  // Note: Check async block first since we can be inside both a function and an async block
   let evaluationEnv: Environment | undefined;
-  if (context.isEvaluatingFunctionBody) {
-    evaluationEnv = context.isEvaluatingFunctionBody.evaluationEnv;
-  } else if (context.isEvaluatingAsyncBlock) {
+  if (context.isEvaluatingAsyncBlock) {
     evaluationEnv = context.isEvaluatingAsyncBlock.evaluationEnv;
+  } else if (context.isEvaluatingFunctionBody) {
+    evaluationEnv = context.isEvaluatingFunctionBody.evaluationEnv;
   }
 
   // Only track variables from outer scopes (not local variables)
