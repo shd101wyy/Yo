@@ -4,26 +4,51 @@ open import "std/libc/stdio.yo";
 MyBox :: object
   (*) : i32,
 
-  dispose :: (fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value %d\n", self.(*));
-  }
+  dispose :: (fn(self: Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.*);
+  };
 ;
 
+say :: (fn(s : *(u8), box: MyBox) -> Future(i32)) async {
+  val := box.*;
+  printf("%s\n", s);
+  printf("thread %zu sent %i\n", Concurrency.get_thread_id(), val);
+  return val;
+};
+
+// Pointer arithmetic example
 main :: (fn() -> Future(unit)) async {
-  box1 := MyBox(666);
-  printf("Created MyBox with value %d\n", box1.(*));
-
-  future1 := async {
-    st := { box : box1 }; // Create an anonymous struct capturing `box1`;
-    box2 := MyBox(777);
-    printf("In future1, box1 value is %d\n", st.box.(*));
-    printf("In future1, box2 value is %d\n", box2.(*));
+  // Auto-detect hardware threads (no need to call set_maximum_threads)
+  hw_threads := Concurrency.get_hardware_threads();
+  printf("Hardware threads available: %zu\n", hw_threads);
+  // Will automatically use all hardware threads for parallel execution
+  
+  // say2 is a closure;
+  x := 18;
+  say2 := (fn(s : *(u8)) => Future(i32)) async {
+    printf("%s\n", s);
+    printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
+    return x;
   };
-  printf("Created future1\n");
 
-  await future1;
+  box1 := MyBox(16);
 
-  printf("After await future1\n");
+  // say2("world") and say("hello") will run in parallel on different threads
+  task1 := say2("world");
+  task2 := say("hello", box1);
+
+  t1_result := await task1;
+  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
+  // It should print
+  // "thread ? sent 16"
+
+  t2_result := await task2;
+  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t2_result);
+  // It should print
+  // "thread ? sent 18"
+
+  result := (t1_result + t2_result);
+  printf("result: %d\n", result);
 };
 
 export main;

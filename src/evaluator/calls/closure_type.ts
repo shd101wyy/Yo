@@ -123,7 +123,9 @@ export function tryToImplementClosureByClosureType({
   }
 
   // Pop the env frame
-  env = popEnvFrame(env);
+  // NOTE: We need to ignore check here because the top frame might contain tempVariable holding the return value.
+  //       The check should be handled when evaluating the begin expression.
+  env = popEnvFrame(env, true);
 
   // For closures, consume the captured variables from outer scopes
   let finalCallerEnv = callerEnv;

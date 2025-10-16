@@ -1,6 +1,7 @@
 # Yo
 
 A multi-paradigm, general-purpose, compiled programming language.
+Yo aims to be **Simple** and **Fast** (around 10% - 15% slower than C).
 
 - [Learn Yo in 10 Minutes](./LEARN_YO_IN_10_MINUTES.yo)
 - [Design](./DESIGN.md)
@@ -10,13 +11,11 @@ A multi-paradigm, general-purpose, compiled programming language.
 
 ## Features
 
-- Linear types, combined with RAII.
 - First-class types.
 - Compile-time evaluation.
-- 2nd-class reference, allowing for unsafe raw-pointers.
 - Modular implicits.
 - Homoiconicity and metaprogramming.
-- High-performance memory allocation with bundled [mimalloc](./MIMALLOC.md).
+- Async/await with zero-cost abstractions.
 
 ## Development
 
