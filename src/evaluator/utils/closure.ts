@@ -280,7 +280,10 @@ export function enrichCapturedVariables({
     if (captureInfo.frameLevel < env.frames.length) {
       const frame = env.frames[captureInfo.frameLevel]!;
       const variable = frame.variables.find((v) => v.name === varName);
-      if (variable) {
+      if (
+        variable &&
+        !variable.isCompileTimeOnly // NOTE: Ignore compile-time-only variables
+      ) {
         enrichedMap.set(varName, {
           ...captureInfo,
           value: variable.value, // Can be undefined for runtime values

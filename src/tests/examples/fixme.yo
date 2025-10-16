@@ -9,7 +9,7 @@ MyBox :: object
   }
 ;
 
-main :: (fn() -> unit) {
+main :: (fn() -> Future(unit)) async {
   box1 := MyBox(666);
   printf("Created MyBox with value %d\n", box1.(*));
 
@@ -21,8 +21,9 @@ main :: (fn() -> unit) {
   };
   printf("Created future1\n");
 
-  // future1 is not awaited
-  // it should be dropped at the end of this function
+  await future1;
+
+  printf("After await future1\n");
 };
 
 export main;

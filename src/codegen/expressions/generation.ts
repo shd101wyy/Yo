@@ -2236,20 +2236,10 @@ function generateAsyncBlockStateDisposeFunction(
     emitter.emitLine(``);
   }
 
-  // Drop local variables
-  if (analysis.capturedVariables.length > 0) {
-    emitter.emitLine(`  // Drop local variables`);
-    for (const variable of analysis.capturedVariables) {
-      if (isObjectType(variable.type) || isEnumType(variable.type)) {
-        const fieldName = getStateMachineFieldName(variable.id);
-        const dropFunctionName = `__yo_decr_rc`;
-        emitter.emitLine(
-          `  ${dropFunctionName}((void*)sm->${fieldName}, NULL);`
-        );
-      }
-    }
-    emitter.emitLine(``);
-  }
+  // NOTE: Local variables are NOT dropped here because they are handled by
+  // deferred drop expressions that run in the final state before completion.
+  // The dispose function only needs to clean up outer captured variables and
+  // the state machine struct itself.
 
   // Free the state machine itself
   emitter.emitLine(`  // Free the state machine`);
@@ -2359,6 +2349,8 @@ function generateAsyncBlockResumeFunction(
           id: varName, // Use varName as ID so getStateMachineFieldName returns varName
           name: varName,
           type: varInfo.type,
+          kind: "outer",
+          isBorrowingTheARCValueOfVariable: undefined,
         });
       }
     }
@@ -2368,13 +2360,13 @@ function generateAsyncBlockResumeFunction(
     // Generate the code for this segment
     generateStateSegmentCode(segment, "      ", context);
 
-    // Restore previous context
-    context.inStateMachine = previousInStateMachine;
-    context.stateMachineVariables = previousStateMachineVariables;
-
     emitter.emitLine(``);
 
     if (segment.awaitPoint) {
+      // Restore previous context before await logic
+      context.inStateMachine = previousInStateMachine;
+      context.stateMachineVariables = previousStateMachineVariables;
+
       // This segment ends with an await - generate the await logic
       const awaitIndex = segment.awaitPoint.index;
       const nextState = stateNumber + 1;
@@ -2404,6 +2396,7 @@ function generateAsyncBlockResumeFunction(
 
       if (!hasReturnStatement) {
         // Generate deferred drops for the body expression before completing the Future
+        // Keep state machine context active for this
         if (bodyExpr.$?.deferredDropExpressions) {
           emitter.emitLine(`      // Drop local variables before completion`);
           for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
@@ -2429,6 +2422,14 @@ function generateAsyncBlockResumeFunction(
         );
         emitter.emitLine(`      return;`);
       }
+
+      // Restore previous context after final state
+      context.inStateMachine = previousInStateMachine;
+      context.stateMachineVariables = previousStateMachineVariables;
+    } else {
+      // Restore previous context for non-await, non-final segments
+      context.inStateMachine = previousInStateMachine;
+      context.stateMachineVariables = previousStateMachineVariables;
     }
 
     emitter.emitLine(`    }`);
@@ -2633,22 +2634,42 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
 
   // Check if we're in a state machine and this is a captured variable
-  if (
-    functionContext.inStateMachine &&
-    functionContext.stateMachineVariables &&
-    expr.$?.env
-  ) {
+  if (functionContext.inStateMachine && functionContext.stateMachineVariables) {
     const varName = expr.token.value;
+    console.log(
+      `[generateAtom] In state machine, checking variable: ${varName}, has env: ${!!expr.$?.env}`
+    );
     // Check if this variable is in the state machine
     for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
       if (capturedVar.name === varName) {
         // This is a state machine variable - access it through sm->
-        // If varId === varName, it's an outer captured variable (use sm->varName)
-        // If varId !== varName, it's a local variable (use sm->var_{varId})
-        const fieldName = varId === varName ? varName : `var_${varId}`;
+        // Use kind to determine field name:
+        // - "outer": Use the variable name directly (sm->varName)
+        // - "local": Use var_{varId} (sm->var_{varId})
+        const fieldName =
+          capturedVar.kind === "outer" ? varName : `var_${varId}`;
+        console.log(
+          `[generateAtom] FOUND: varName=${varName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
+        );
+        return `sm->${fieldName}`;
+      }
+
+      // Also check if this variable is the owner of a borrowed variable in the state machine
+      // e.g., _temp_123 owns the value, future1 borrows from _temp_123
+      // In deferred drops, we drop _temp_123, but in state machine it's stored as sm->var_future1
+      if (
+        capturedVar.isBorrowingTheARCValueOfVariable &&
+        capturedVar.isBorrowingTheARCValueOfVariable.name === varName
+      ) {
+        const fieldName =
+          capturedVar.kind === "outer" ? varName : `var_${varId}`;
+        console.log(
+          `[generateAtom] FOUND via borrowing: varName=${varName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
+        );
         return `sm->${fieldName}`;
       }
     }
+    console.log(`[generateAtom] NOT FOUND in state machine: ${varName}`);
   }
 
   // If this atom has a temp variable name (e.g., for ARC values), use that instead of the computed value
@@ -3046,6 +3067,12 @@ function generateFieldAccess(
 
   if (!objectExpr || !fieldExpr) {
     return "/* ERROR: invalid field access arguments */";
+  }
+
+  if (exprIsAtom(objectExpr) && exprIsAtom(fieldExpr)) {
+    console.log(
+      `[generateFieldAccess] object=${objectExpr.token.value} field=${fieldExpr.token.value}`
+    );
   }
 
   const objectCode = generateExpr(objectExpr, indent, context);

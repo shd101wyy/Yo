@@ -4,9 +4,10 @@
  * Generates C code for async function state machines.
  */
 
-import { exprIsFunctionCallOf } from "../../expr";
+import { exprIsFunctionCallOf, exprToString } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { FutureType, isFutureType, isUnitType } from "../../types";
+import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, sanitizeForCIdentifier } from "../utils";
 import { analyzeAwaitPoints, AwaitAnalysisResult } from "./await-analysis";
@@ -194,6 +195,19 @@ export function generateResumeFunctionImplementation(
     info.analysis.awaitPoints
   );
 
+  // Extract deferred drop expressions from the function body if it's a begin block
+  const deferredDropExpressions = functionValue.body.$?.deferredDropExpressions;
+
+  console.log(`[STATE MACHINE] Function ${functionCName}:`);
+  console.log(`  - Body tag: ${functionValue.body.tag}`);
+  console.log(`  - Has deferredDropExpressions: ${!!deferredDropExpressions}`);
+  if (deferredDropExpressions) {
+    console.log(`  - Deferred drops count: ${deferredDropExpressions.length}`);
+    deferredDropExpressions.forEach((dropExpr, idx) => {
+      console.log(`  - Drop ${idx}: ${exprToString(dropExpr)}`);
+    });
+  }
+
   // Set current function context so return statements know we're in an async function
   const previousFunctionName = context.currentFunctionName;
   const previousFunctionType = context.currentFunctionType;
@@ -265,17 +279,13 @@ export function generateResumeFunctionImplementation(
     const previousInStateMachine = context.inStateMachine;
     const previousStateMachineVariables = context.stateMachineVariables;
 
-    context.inStateMachine = true;
+    context.inStateMachine = { futureType };
     context.stateMachineVariables = new Map(
       info.analysis.capturedVariables.map((v) => [v.id, v])
     );
 
     // Generate the code for this segment
     generateStateSegmentCode(segment, "      ", context);
-
-    // Restore previous context
-    context.inStateMachine = previousInStateMachine;
-    context.stateMachineVariables = previousStateMachineVariables;
 
     emitter.emitLine(``);
 
@@ -330,6 +340,26 @@ export function generateResumeFunctionImplementation(
       );
 
       if (!hasReturnStatement) {
+        // Generate deferred drop expressions before completing
+        // (keep state machine context active for this)
+        if (deferredDropExpressions && deferredDropExpressions.length > 0) {
+          emitter.emitLine(`      // Deferred drops before function completes`);
+          console.log(
+            `[STATE MACHINE] Generating ${deferredDropExpressions.length} deferred drops, inStateMachine=${!!context.inStateMachine}, stateMachineVariables=${context.stateMachineVariables?.size}`
+          );
+          for (const dropExpr of deferredDropExpressions) {
+            console.log(
+              `[STATE MACHINE] Generating drop: ${exprToString(dropExpr)}`
+            );
+            const dropCode = generateExpr(dropExpr, "      ", context);
+            console.log(`[STATE MACHINE] Generated drop code: ${dropCode}`);
+            if (dropCode) {
+              emitter.emitLine(`      ${dropCode};`);
+            }
+          }
+          emitter.emitLine(``);
+        }
+
         emitter.emitLine(`      // Final state - complete the result Future`);
         emitter.emitLine(
           `      ASYNC_DEBUG("${functionCName}: Completing async function\\n");`
@@ -355,6 +385,10 @@ export function generateResumeFunctionImplementation(
         emitter.emitLine(`      return;`);
       }
     }
+
+    // Restore previous context AFTER all codegen for this state
+    context.inStateMachine = previousInStateMachine;
+    context.stateMachineVariables = previousStateMachineVariables;
 
     emitter.emitLine(`    }`);
   }

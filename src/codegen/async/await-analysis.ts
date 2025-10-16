@@ -11,6 +11,7 @@ import {
   Expr,
   exprIsFunctionCallOf,
   ExprTag,
+  exprToString,
 } from "../../expr";
 import { TokenType } from "../../token";
 import { Type } from "../../types";
@@ -61,6 +62,20 @@ export interface CapturedVariable {
    * The type of the variable
    */
   type: Type;
+
+  /**
+   * The kind of variable being captured
+   * - "local": A variable defined in the async function body (uses var_{id} field naming)
+   * - "outer": A variable captured from outer scope (uses variable name as field name)
+   */
+  kind: "local" | "outer";
+
+  /**
+   * If this variable is borrowing an ARC value from another variable,
+   * this field holds a reference to the owner variable.
+   * This is used to resolve temporary variable names in deferred drops.
+   */
+  isBorrowingTheARCValueOfVariable: CapturedVariable | undefined;
 }
 
 /**
@@ -96,6 +111,22 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
   // Walk the expression tree and collect await points
   walkExprForAwaits(body, awaitPoints, capturedVariables);
 
+  // Also walk through deferred drop expressions to capture variables referenced there
+  if (body.$?.deferredDropExpressions) {
+    console.log(
+      `[AWAIT ANALYSIS] Walking ${body.$.deferredDropExpressions.length} deferred drop expressions`
+    );
+    console.log(
+      `[AWAIT ANALYSIS] Currently captured variables: ${Array.from(capturedVariables.keys()).join(", ")}`
+    );
+    for (const dropExpr of body.$.deferredDropExpressions) {
+      console.log(
+        `[AWAIT ANALYSIS] Walking drop expression: ${exprToString(dropExpr)}`
+      );
+      walkExprForAwaits(dropExpr, awaitPoints, capturedVariables);
+    }
+  }
+
   // If there are no await points, we don't need to capture any variables
   // since everything executes in a single state (state 0)
   if (awaitPoints.length === 0) {
@@ -125,11 +156,17 @@ function walkExprForAwaits(
         const varName = expr.token.value;
         const varType = expr.$.type;
 
+        console.log(`[AWAIT ANALYSIS] Found atom: ${varName}`);
+
         // Check if this variable should be captured in the state machine
         const variables = getVariablesFromEnv(expr.$.env, varName);
         if (variables.length > 0) {
           // Use the last element (most recent scope)
-          const variable = variables[variables.length - 1];
+          const variable = variables[variables.length - 1]!;
+
+          console.log(
+            `[AWAIT ANALYSIS]   Variable found in env: ${variable.name}, id=${variable.id}, isBorrowing=${!!variable.isBorrowingTheARCValueOfVariable}`
+          );
 
           // In state machines, we need to capture ALL local variables that are used
           // across await points, regardless of whether they're borrowing or owning.
@@ -139,11 +176,44 @@ function walkExprForAwaits(
           // - Temp variables owning ARC values
           // - Non-ARC variables (primitives, etc.)
           if (variable && !capturedVariables.has(variable.id)) {
+            console.log(
+              `[AWAIT ANALYSIS]   Variable not yet captured, will capture now`
+            );
+            // Check if this variable is borrowing from another variable
+            let borrowedFrom: CapturedVariable | undefined = undefined;
+            if (variable.isBorrowingTheARCValueOfVariable) {
+              const ownerVar = variable.isBorrowingTheARCValueOfVariable;
+              // Check if owner is already captured
+              if (capturedVariables.has(ownerVar.id)) {
+                borrowedFrom = capturedVariables.get(ownerVar.id);
+              } else {
+                // Capture the owner variable first
+                const ownerCaptured: CapturedVariable = {
+                  id: ownerVar.id,
+                  name: ownerVar.name,
+                  type: ownerVar.type,
+                  kind: "local",
+                  isBorrowingTheARCValueOfVariable: undefined,
+                };
+                capturedVariables.set(ownerVar.id, ownerCaptured);
+                borrowedFrom = ownerCaptured;
+              }
+            }
+
+            console.log(
+              `[AWAIT ANALYSIS]   Capturing variable: ${variable.name}, id=${variable.id}`
+            );
             capturedVariables.set(variable.id, {
               id: variable.id,
               name: varName,
               type: varType,
+              kind: "local",
+              isBorrowingTheARCValueOfVariable: borrowedFrom,
             });
+          } else {
+            console.log(
+              `[AWAIT ANALYSIS]   Variable already captured or check failed: has=${capturedVariables.has(variable.id)}, var exists=${!!variable}`
+            );
           }
         }
       }
@@ -266,6 +336,8 @@ function collectVariableBindings(
                     id: variable.id,
                     name: varName,
                     type: varType,
+                    kind: "local",
+                    isBorrowingTheARCValueOfVariable: undefined,
                   });
                   seen.add(variable.id);
                 }
@@ -295,6 +367,8 @@ function collectVariableBindings(
                     id: variable.id,
                     name: varName,
                     type: varType,
+                    kind: "local",
+                    isBorrowingTheARCValueOfVariable: undefined,
                   });
                   seen.add(variable.id);
                 }
