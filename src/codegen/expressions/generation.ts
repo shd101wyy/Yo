@@ -2420,9 +2420,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   // Check if we're in a state machine and this is a captured variable
   if (functionContext.inStateMachine && functionContext.stateMachineVariables) {
     const varName = expr.token.value;
-    console.log(
-      `[generateAtom] In state machine, checking variable: ${varName}, has env: ${!!expr.$?.env}`
-    );
 
     // Check if this variable is in the state machine
     for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
@@ -2435,9 +2432,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
           capturedVar.kind === "outer"
             ? `__capture.${varName}`
             : `var_${varId}`;
-        console.log(
-          `[generateAtom] FOUND: varName=${varName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
-        );
         return `sm->${fieldName}`;
       }
 
@@ -2452,9 +2446,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
           capturedVar.kind === "outer"
             ? `__capture.${varName}`
             : `var_${varId}`;
-        console.log(
-          `[generateAtom] FOUND via borrowing: varName=${varName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
-        );
         return `sm->${fieldName}`;
       }
     }
@@ -2469,9 +2460,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
           // This variable is borrowing - try to find the owner in state machine
           const ownerName = variable.isBorrowingTheARCValueOfVariable.name;
           const ownerId = variable.isBorrowingTheARCValueOfVariable.id;
-          console.log(
-            `[generateAtom] Variable ${varName} borrows from ${ownerName}, looking up owner`
-          );
 
           for (const [
             varId,
@@ -2482,9 +2470,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
                 capturedVar.kind === "outer"
                   ? `__capture.${ownerName}`
                   : `var_${varId}`;
-              console.log(
-                `[generateAtom] FOUND OWNER: varName=${varName}, ownerName=${ownerName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
-              );
               return `sm->${fieldName}`;
             }
           }
@@ -2492,14 +2477,17 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       }
     }
 
-    console.log(`[generateAtom] NOT FOUND in state machine: ${varName}`);
+    // Variable not in stateMachineVariables - it's a local C variable in the resume function
+    // Just use the variable name (don't regenerate its value)
+    if (expr.$?.variableName) {
+      return sanitizeForCIdentifier(expr.$.variableName);
+    }
   }
 
   // If this atom has a temp variable name (e.g., for ARC values), use that instead of the computed value
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
-  // ALSO: Skip this in state machine context to avoid local variable declarations
-  if (expr.$?.variableName && !functionContext.inStateMachine) {
+  if (expr.$?.variableName) {
     // Check if this is a captured variable in a closure - if so, don't use temp variable name
     if (
       functionContext.currentClosureCaptures &&
