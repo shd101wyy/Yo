@@ -911,8 +911,9 @@ function generateAtomicGCRuntimeFunctions(
       // No shared references - deallocate
       BRC_DEBUG("FastDecr: Deallocating ptr=%p (biased=0, shared=0)\\n", ptr);
       __yo_gc_unregister(ptr);
-      if (dispose_fn) {
-        dispose_fn(ptr);
+      void (*actual_dispose_fn)(void*) = dispose_fn ? dispose_fn : header->dispose_fn;
+      if (actual_dispose_fn) {
+        actual_dispose_fn(ptr);
       }
       __yo_free(ptr);
     } else {
@@ -951,8 +952,9 @@ function generateAtomicGCRuntimeFunctions(
     } else if (BRC_HAS_FLAG(new_shared_word, BRC_FLAG_MERGED) && BRC_GET_SHARED_COUNTER(new_shared_word) == 0) {
       // Counters are merged and shared counter is zero - deallocate
       __yo_gc_unregister(ptr);
-      if (dispose_fn) {
-        dispose_fn(ptr);
+      void (*actual_dispose_fn)(void*) = dispose_fn ? dispose_fn : header->dispose_fn;
+      if (actual_dispose_fn) {
+        actual_dispose_fn(ptr);
       }
       __yo_free(ptr);
     }
