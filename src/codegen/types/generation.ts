@@ -783,6 +783,11 @@ export function generateFutureDeclaration(
     `  void* state_machine; // Pointer to state machine that created this Future (freed when Future is disposed)`
   );
 
+  // Dispose function for the state machine (called before freeing state_machine)
+  emitter.emitDeclarationLine(
+    `  void (*state_machine_dispose_fn)(void*); // Dispose function to clean up state machine variables before freeing`
+  );
+
   // Resume function for this Future's state machine (for lazy spawning)
   emitter.emitDeclarationLine(
     `  void (*resume_fn)(void*); // Resume function for this Future's state machine (for lazy spawn on await)`

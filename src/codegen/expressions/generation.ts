@@ -2163,6 +2163,13 @@ function generateAsyncBlockStateMachine(
   emitter.emitDeclarationLine(`} ${structName};`);
   emitter.emitDeclarationLine(``);
 
+  // Generate forward declaration for state machine dispose function
+  const disposeFunctionName = `${asyncBlockId}_state_dispose`;
+  emitter.emitDeclarationLine(
+    `void ${disposeFunctionName}(void* sm_ptr);  // Dispose function for state machine`
+  );
+  emitter.emitDeclarationLine(``);
+
   // Generate forward declaration for resume function
   emitter.emitDeclarationLine(`void ${resumeFunctionName}(${structName}* sm);`);
   emitter.emitDeclarationLine(``);
@@ -2195,11 +2202,66 @@ function generateAsyncBlockStateMachine(
     structName,
     resumeFunctionName,
     constructorName,
+    disposeFunctionName,
     futureType,
     futureTypeCName,
     capturedVariables,
     analysis,
   });
+}
+
+/**
+ * Generate the state machine dispose function for an async block.
+ * This drops all captured variables before freeing the state machine.
+ */
+function generateAsyncBlockStateDisposeFunction(
+  asyncBlockId: string,
+  structName: string,
+  disposeFunctionName: string,
+  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
+  analysis: AwaitAnalysisResult,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  emitter.emitLine(
+    `// Dispose function for async block ${asyncBlockId} state machine`
+  );
+  emitter.emitLine(`void ${disposeFunctionName}(void* sm_ptr) {`);
+  emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
+  emitter.emitLine(``);
+
+  // Drop captured variables from outer scope
+  if (capturedVariables && capturedVariables.size > 0) {
+    emitter.emitLine(`  // Drop captured variables from outer scope`);
+    for (const [varName, varInfo] of capturedVariables.entries()) {
+      if (isObjectType(varInfo.type) || isEnumType(varInfo.type)) {
+        const dropFunctionName = `__yo_decr_rc`;
+        emitter.emitLine(`  ${dropFunctionName}((void*)sm->${varName}, NULL);`);
+      }
+    }
+    emitter.emitLine(``);
+  }
+
+  // Drop local variables
+  if (analysis.capturedVariables.length > 0) {
+    emitter.emitLine(`  // Drop local variables`);
+    for (const variable of analysis.capturedVariables) {
+      if (isObjectType(variable.type) || isEnumType(variable.type)) {
+        const fieldName = getStateMachineFieldName(variable.id);
+        const dropFunctionName = `__yo_decr_rc`;
+        emitter.emitLine(
+          `  ${dropFunctionName}((void*)sm->${fieldName}, NULL);`
+        );
+      }
+    }
+    emitter.emitLine(``);
+  }
+
+  // Free the state machine itself
+  emitter.emitLine(`  // Free the state machine`);
+  emitter.emitLine(`  __yo_free(sm);`);
+  emitter.emitLine(`}`);
 }
 
 /**
@@ -2327,6 +2389,18 @@ function generateAsyncBlockResumeFunction(
       );
 
       if (!hasReturnStatement) {
+        // Generate deferred drops for the body expression before completing the Future
+        if (bodyExpr.$?.deferredDropExpressions) {
+          emitter.emitLine(`      // Drop local variables before completion`);
+          for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
+            const dropCode = generateExpr(dropExpr, "      ", context);
+            if (dropCode) {
+              emitter.emitLine(`      ${dropCode};`);
+            }
+          }
+          emitter.emitLine(``);
+        }
+
         emitter.emitLine(`      // Final state - complete the result Future`);
         emitter.emitLine(
           `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
@@ -2361,6 +2435,7 @@ function generateAsyncBlockConstructor(
   structName: string,
   resumeFunctionName: string,
   constructorName: string,
+  disposeFunctionName: string,
   futureType: FutureType,
   futureTypeCName: string,
   capturedVariables:
@@ -2416,6 +2491,9 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(`  future->header.gc_prev = NULL;`);
   emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);
   emitter.emitLine(`  future->header.traverse_fn = NULL;`);
+  emitter.emitLine(
+    `  future->state_machine_dispose_fn = ${disposeFunctionName};`
+  );
   emitter.emitLine(
     `  atomic_store_explicit(&future->state, YO_FUTURE_PENDING, memory_order_relaxed);`
   );
@@ -4155,11 +4233,24 @@ export function generateDeferredAsyncBlocks(
       structName,
       resumeFunctionName,
       constructorName,
+      disposeFunctionName,
       futureType,
       futureTypeCName,
       capturedVariables,
       analysis,
     } = asyncBlockInfo;
+
+    // Generate state machine dispose function
+    generateAsyncBlockStateDisposeFunction(
+      asyncBlockId,
+      structName,
+      disposeFunctionName,
+      capturedVariables,
+      analysis,
+      context
+    );
+
+    emitter.emitLine(``);
 
     // Generate resume function implementation
     generateAsyncBlockResumeFunction(
@@ -4180,6 +4271,7 @@ export function generateDeferredAsyncBlocks(
       structName,
       resumeFunctionName,
       constructorName,
+      disposeFunctionName,
       futureType,
       futureTypeCName,
       capturedVariables,

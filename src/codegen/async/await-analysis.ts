@@ -96,6 +96,12 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
   // Walk the expression tree and collect await points
   walkExprForAwaits(body, awaitPoints, capturedVariables);
 
+  // If there are no await points, we don't need to capture any variables
+  // since everything executes in a single state (state 0)
+  if (awaitPoints.length === 0) {
+    capturedVariables.clear();
+  }
+
   return {
     awaitPoints,
     capturedVariables: Array.from(capturedVariables.values()),

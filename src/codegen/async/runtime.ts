@@ -441,6 +441,7 @@ typedef struct {
   yo_ref_header_t header;
   _Atomic(yo_future_state_t) state;
   void* state_machine;
+  void (*state_machine_dispose_fn)(void*); // Dispose function to clean up state machine variables
   void (*resume_fn)(void*); // Resume function for lazy spawn
   _Atomic(void*) continuation_fn;
   _Atomic(void*) continuation_sm;
@@ -452,8 +453,16 @@ void yo_future_dispose(void* future_ptr) {
   
   // Free the state machine if it exists
   if (future->state_machine) {
-    ASYNC_DEBUG("Disposing Future: freeing state machine %p\\n", future->state_machine);
-    __yo_free(future->state_machine);
+    ASYNC_DEBUG("Disposing Future: cleaning up and freeing state machine %p\\n", future->state_machine);
+    
+    // Call the state machine dispose function to drop variables before freeing
+    if (future->state_machine_dispose_fn) {
+      future->state_machine_dispose_fn(future->state_machine);
+    } else {
+      // Fallback: just free the state machine (old behavior)
+      __yo_free(future->state_machine);
+    }
+    
     future->state_machine = NULL;
   }
 }

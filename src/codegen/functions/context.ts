@@ -29,6 +29,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     structName: string;
     resumeFunctionName: string;
     constructorName: string;
+    disposeFunctionName: string;
     futureType: FutureType;
     futureTypeCName: string;
     capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined;
