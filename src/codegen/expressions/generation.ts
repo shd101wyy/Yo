@@ -50,16 +50,14 @@ import {
   Value,
   valueToString,
 } from "../../value";
-import type { CapturedVariable } from "../async/await-analysis";
 import {
   analyzeAwaitPoints,
   AwaitAnalysisResult,
 } from "../async/await-analysis";
 import {
-  generateStateSegmentCode,
-  splitIntoStateSegments,
-} from "../async/state-code-gen";
-import { getStateMachineFieldName } from "../async/state-machine";
+  generateAsyncBlockResumeFunction,
+  getStateMachineFieldName,
+} from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";
 import {
@@ -616,13 +614,33 @@ function generateFuncCall(
 
       // Check if we're in a state machine context and this is a captured variable
       const functionContext = context as FunctionGenerationContext;
-      const isStateMachineVar =
+
+      // To check if a variable is in the state machine, we need to:
+      // 1. Look up the variable in the environment to get its ID
+      // 2. Check if that ID is a key in stateMachineVariables map
+      let isStateMachineVar = false;
+      let varId: string | undefined;
+
+      if (
         functionContext.inStateMachine &&
         functionContext.stateMachineVariables &&
-        lhs.$?.env &&
-        Array.from(functionContext.stateMachineVariables.values()).some(
-          (v) => v.name === varName
-        );
+        lhs.$?.env
+      ) {
+        // Get the variable from the environment
+        const variables = getVariablesFromEnv(lhs.$.env, varName);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          // Check if this variable (or its owner if it's borrowing) is in state machine
+          const idToCheck = variable.isBorrowingTheARCValueOfVariable
+            ? variable.isBorrowingTheARCValueOfVariable.id
+            : variable.id;
+
+          if (functionContext.stateMachineVariables.has(idToCheck)) {
+            isStateMachineVar = true;
+            varId = idToCheck;
+          }
+        }
+      }
 
       // Handle array initialization specially
       if (isArrayType(lhs.$.type)) {
@@ -634,16 +652,9 @@ function generateFuncCall(
           // Direct initialization with array literal
           const rhsCode = generateExpr(rhs, indent, context);
 
-          if (isStateMachineVar) {
+          if (isStateMachineVar && varId) {
             // In state machine - assign to sm->var_xxx field
-            const varId = Array.from(
-              functionContext.stateMachineVariables!.entries()
-            ).find(([_, v]) => v.name === varName)?.[0];
-            if (varId) {
-              context.emitter.emitLine(
-                `${indent}sm->var_${varId} = ${rhsCode};`
-              );
-            }
+            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
             const varTypeAndName = getVariableTypeString(
               lhs.$.type,
@@ -682,16 +693,9 @@ function generateFuncCall(
             rhsCode = generateExpr(rhs, indent, context);
           }
 
-          if (isStateMachineVar) {
+          if (isStateMachineVar && varId) {
             // In state machine - assign to sm->var_xxx field
-            const varId = Array.from(
-              functionContext.stateMachineVariables!.entries()
-            ).find(([_, v]) => v.name === varName)?.[0];
-            if (varId) {
-              context.emitter.emitLine(
-                `${indent}sm->var_${varId} = ${rhsCode};`
-              );
-            }
+            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
             const varTypeAndName = getVariableTypeString(
               lhs.$.type,
@@ -797,16 +801,9 @@ function generateFuncCall(
         if (isMutPtrType(lhs.$.type) && isSliceType(lhs.$.type.type)) {
           const sliceType = lhs.$.type.type; // Get the slice type directly
 
-          if (isStateMachineVar) {
+          if (isStateMachineVar && varId) {
             // In state machine - assign to sm->var_xxx field
-            const varId = Array.from(
-              functionContext.stateMachineVariables!.entries()
-            ).find(([_, v]) => v.name === varName)?.[0];
-            if (varId) {
-              context.emitter.emitLine(
-                `${indent}sm->var_${varId} = ${rhsCode};`
-              );
-            }
+            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
             const varTypeAndName = getVariableTypeString(
               sliceType,
@@ -819,16 +816,9 @@ function generateFuncCall(
           }
         } else {
           // Normal initialization
-          if (isStateMachineVar) {
+          if (isStateMachineVar && varId) {
             // In state machine - assign to sm->var_xxx field
-            const varId = Array.from(
-              functionContext.stateMachineVariables!.entries()
-            ).find(([_, v]) => v.name === varName)?.[0];
-            if (varId) {
-              context.emitter.emitLine(
-                `${indent}sm->var_${varId} = ${rhsCode};`
-              );
-            }
+            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
             const varTypeAndName = getVariableTypeString(
               lhs.$.type,
@@ -1984,20 +1974,120 @@ function generateAsyncBlock(
   const structName = `${asyncBlockId}_state_t`;
   const resumeFunctionName = `${asyncBlockId}_resume`;
   const constructorName = `__yo_new_${asyncBlockId}`;
+  const disposeFunctionName = `${asyncBlockId}_state_dispose`;
 
-  // Generate the state machine, resume function, and constructor
-  // This needs to be done in the declarations section
-  generateAsyncBlockStateMachine(
+  // Analyze the body for await points
+  const analysis = analyzeAwaitPoints(bodyExpr);
+
+  // Generate the state machine struct declaration
+  const emitter = context.emitter;
+  emitter.emitDeclarationLine(
+    `// State machine for async block ${asyncBlockId}`
+  );
+  emitter.emitDeclarationLine(`typedef struct {`);
+  emitter.emitDeclarationLine(
+    `  int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done)`
+  );
+  emitter.emitDeclarationLine(
+    `  ${futureTypeCName}* result;  // The Future this async block returns`
+  );
+  emitter.emitDeclarationLine(``);
+
+  // Add captured variables as fields
+  if (
+    expr.$?.asyncBlockCapturedVariables &&
+    expr.$?.asyncBlockCapturedVariables.size > 0
+  ) {
+    emitter.emitDeclarationLine(`  // Captured variables from outer scope`);
+    for (const [
+      varName,
+      varInfo,
+    ] of expr.$.asyncBlockCapturedVariables.entries()) {
+      const varTypeCName = getTypeString(varInfo.type, context);
+      emitter.emitDeclarationLine(`  ${varTypeCName} ${varName};`);
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Add local variables as fields
+  if (analysis.capturedVariables.length > 0) {
+    emitter.emitDeclarationLine(`  // Local variables`);
+    for (const variable of analysis.capturedVariables) {
+      const varTypeCName = getTypeString(variable.type, context);
+      const fieldName = getStateMachineFieldName(variable.id);
+      emitter.emitDeclarationLine(
+        `  ${varTypeCName} ${fieldName};  // ${variable.name}`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Add await result temporaries
+  if (analysis.awaitPoints.length > 0) {
+    emitter.emitDeclarationLine(`  // Await result temporaries`);
+    for (const awaitPoint of analysis.awaitPoints) {
+      if (!isUnitType(awaitPoint.resultType)) {
+        const resultTypeCName = getTypeString(awaitPoint.resultType, context);
+        emitter.emitDeclarationLine(
+          `  ${resultTypeCName} await_result_${awaitPoint.index};`
+        );
+      }
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Note: We don't need separate await_future_X fields because we use the captured Future variables directly
+  emitter.emitDeclarationLine(`} ${structName};`);
+  emitter.emitDeclarationLine(``);
+
+  // Generate forward declaration for state machine dispose function
+  emitter.emitDeclarationLine(
+    `void ${disposeFunctionName}(void* sm_ptr);  // Dispose function for state machine`
+  );
+  emitter.emitDeclarationLine(``);
+
+  // Generate forward declaration for resume function
+  emitter.emitDeclarationLine(`void ${resumeFunctionName}(${structName}* sm);`);
+  emitter.emitDeclarationLine(``);
+
+  // Generate forward declaration for constructor function
+  if (
+    expr.$?.asyncBlockCapturedVariables &&
+    expr.$?.asyncBlockCapturedVariables.size > 0
+  ) {
+    const captureParams = Array.from(
+      expr.$.asyncBlockCapturedVariables.entries()
+    )
+      .map(([varName, varInfo]) => {
+        const varTypeCName = getTypeString(varInfo.type, context);
+        return `${varTypeCName} ${varName}`;
+      })
+      .join(", ");
+    emitter.emitDeclarationLine(
+      `${futureTypeCName}* ${constructorName}(${captureParams});`
+    );
+  } else {
+    emitter.emitDeclarationLine(`${futureTypeCName}* ${constructorName}();`);
+  }
+  emitter.emitDeclarationLine(``);
+
+  // Store information for deferred generation of implementations
+  if (!context.deferredAsyncBlocks) {
+    context.deferredAsyncBlocks = [];
+  }
+
+  context.deferredAsyncBlocks.push({
     bodyExpr,
     asyncBlockId,
     structName,
     resumeFunctionName,
     constructorName,
-    futureType as FutureType,
+    disposeFunctionName,
+    futureType: futureType as FutureType,
     futureTypeCName,
-    expr.$?.asyncBlockCapturedVariables,
-    context
-  );
+    capturedVariables: expr.$?.asyncBlockCapturedVariables,
+    analysis,
+  });
 
   // Generate the constructor call with captured variables
   const capturedVariables = expr.$?.asyncBlockCapturedVariables;
@@ -2060,149 +2150,6 @@ function generateAsyncBlock(
  * Generate the state machine struct, resume function, and constructor for an async block.
  * This reuses the async function state machine infrastructure.
  */
-function generateAsyncBlockStateMachine(
-  bodyExpr: Expr,
-  asyncBlockId: string,
-  structName: string,
-  resumeFunctionName: string,
-  constructorName: string,
-  futureType: FutureType,
-  futureTypeCName: string,
-  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
-  context: FunctionGenerationContext
-): void {
-  const emitter = context.emitter;
-
-  // Analyze the body for await points
-  const analysis = analyzeAwaitPoints(bodyExpr);
-
-  // const elementType = futureType.elementType;
-  // const isUnitResult = isUnitType(elementType);
-
-  // Generate the state machine struct
-  emitter.emitDeclarationLine(
-    `// State machine for async block ${asyncBlockId}`
-  );
-  emitter.emitDeclarationLine(`typedef struct {`);
-  emitter.emitDeclarationLine(
-    `  int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done)`
-  );
-  emitter.emitDeclarationLine(
-    `  ${futureTypeCName}* result;  // The Future this async block returns`
-  );
-  emitter.emitDeclarationLine(``);
-
-  // Add captured variables as fields
-  if (capturedVariables && capturedVariables.size > 0) {
-    emitter.emitDeclarationLine(`  // Captured variables from outer scope`);
-    for (const [varName, varInfo] of capturedVariables.entries()) {
-      const varTypeCName = getTypeString(varInfo.type, context);
-      emitter.emitDeclarationLine(`  ${varTypeCName} ${varName};`);
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  // Add local variables as fields
-  if (analysis.capturedVariables.length > 0) {
-    emitter.emitDeclarationLine(`  // Local variables`);
-    for (const variable of analysis.capturedVariables) {
-      const varTypeCName = getTypeString(variable.type, context);
-      const fieldName = getStateMachineFieldName(variable.id);
-      emitter.emitDeclarationLine(
-        `  ${varTypeCName} ${fieldName};  // ${variable.name}`
-      );
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  // Add await result temporaries
-  if (analysis.awaitPoints.length > 0) {
-    emitter.emitDeclarationLine(`  // Await result temporaries`);
-    for (const awaitPoint of analysis.awaitPoints) {
-      if (!isUnitType(awaitPoint.resultType)) {
-        const resultTypeCName = getTypeString(awaitPoint.resultType, context);
-        emitter.emitDeclarationLine(
-          `  ${resultTypeCName} await_result_${awaitPoint.index};`
-        );
-      }
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  // Add Future pointers for async calls
-  if (analysis.awaitPoints.length > 0) {
-    emitter.emitDeclarationLine(`  // Future pointers for async calls`);
-    for (const awaitPoint of analysis.awaitPoints) {
-      if (
-        awaitPoint.expr.tag === "FuncCall" &&
-        awaitPoint.expr.args.length > 0
-      ) {
-        const awaitArg = awaitPoint.expr.args[0];
-        const awaitFutureType = awaitArg?.$?.type;
-        if (awaitFutureType && isFutureType(awaitFutureType)) {
-          const awaitFutureTypeCName =
-            context.types[(awaitFutureType as FutureType).id]?.cName;
-          if (awaitFutureTypeCName) {
-            emitter.emitDeclarationLine(
-              `  ${awaitFutureTypeCName}* await_future_${awaitPoint.index};`
-            );
-          }
-        }
-      }
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  emitter.emitDeclarationLine(`} ${structName};`);
-  emitter.emitDeclarationLine(``);
-
-  // Generate forward declaration for state machine dispose function
-  const disposeFunctionName = `${asyncBlockId}_state_dispose`;
-  emitter.emitDeclarationLine(
-    `void ${disposeFunctionName}(void* sm_ptr);  // Dispose function for state machine`
-  );
-  emitter.emitDeclarationLine(``);
-
-  // Generate forward declaration for resume function
-  emitter.emitDeclarationLine(`void ${resumeFunctionName}(${structName}* sm);`);
-  emitter.emitDeclarationLine(``);
-
-  // Generate forward declaration for constructor function
-  if (capturedVariables && capturedVariables.size > 0) {
-    const captureParams = Array.from(capturedVariables.entries())
-      .map(([varName, varInfo]) => {
-        const varTypeCName = getTypeString(varInfo.type, context);
-        return `${varTypeCName} ${varName}`;
-      })
-      .join(", ");
-    emitter.emitDeclarationLine(
-      `${futureTypeCName}* ${constructorName}(${captureParams});`
-    );
-  } else {
-    emitter.emitDeclarationLine(`${futureTypeCName}* ${constructorName}();`);
-  }
-  emitter.emitDeclarationLine(``);
-
-  // Defer the generation of resume function and constructor implementations
-  // Store the information needed to generate them later
-  if (!context.deferredAsyncBlocks) {
-    context.deferredAsyncBlocks = [];
-  }
-
-  context.deferredAsyncBlocks.push({
-    bodyExpr,
-    asyncBlockId,
-    structName,
-    resumeFunctionName,
-    constructorName,
-    disposeFunctionName,
-    futureType,
-    futureTypeCName,
-    capturedVariables,
-    analysis,
-  });
-}
-
 /**
  * Generate the state machine dispose function for an async block.
  * This drops all captured variables before freeing the state machine.
@@ -2236,10 +2183,10 @@ function generateAsyncBlockStateDisposeFunction(
     emitter.emitLine(``);
   }
 
-  // NOTE: Local variables are NOT dropped here because they are handled by
-  // deferred drop expressions that run in the final state before completion.
-  // The dispose function only needs to clean up outer captured variables and
-  // the state machine struct itself.
+  // NOTE: Local variables are ALWAYS handled by deferred drop expressions
+  // that run in the final state before completion. The state machine dispose
+  // function only needs to clean up outer captured variables and free the
+  // state machine struct itself.
 
   // Free the state machine itself
   emitter.emitLine(`  // Free the state machine`);
@@ -2251,195 +2198,6 @@ function generateAsyncBlockStateDisposeFunction(
  * Generate the resume function for an async block.
  * This follows the same pattern as async function resume functions.
  */
-function generateAsyncBlockResumeFunction(
-  bodyExpr: Expr,
-  asyncBlockId: string,
-  structName: string,
-  resumeFunctionName: string,
-  analysis: AwaitAnalysisResult,
-  futureType: FutureType,
-  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
-  context: FunctionGenerationContext
-): void {
-  const emitter = context.emitter;
-
-  const elementType = futureType.elementType;
-  const isUnitResult = isUnitType(elementType);
-
-  // Split the body into state segments
-  const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
-
-  emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
-  emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
-  emitter.emitLine(
-    `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
-  );
-  emitter.emitLine(`  switch (sm->state) {`);
-
-  // Generate code for each state segment
-  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
-    const segment = segments[segmentIndex];
-    if (!segment) continue;
-
-    const stateNumber = segment.stateNumber;
-    const isLastSegment = segmentIndex === segments.length - 1;
-
-    // State case label
-    if (stateNumber > 0) {
-      emitter.emitLine(`
-    state_${stateNumber}:`);
-    }
-
-    emitter.emitLine(`    case ${stateNumber}: { // State ${stateNumber}`);
-    emitter.emitLine(
-      `      ASYNC_DEBUG("${asyncBlockId}: Entering state ${stateNumber}\\n");`
-    );
-
-    // If this is not the first state, extract the result from the previous await
-    if (stateNumber > 0 && analysis.awaitPoints[stateNumber - 1]) {
-      const prevAwait = analysis.awaitPoints[stateNumber - 1];
-      if (prevAwait && !isUnitType(prevAwait.resultType)) {
-        emitter.emitLine(
-          `      // Extract result from await ${stateNumber - 1}`
-        );
-        emitter.emitLine(
-          `      yo_future_state_t state_before_read = atomic_load_explicit(&sm->await_future_${stateNumber - 1}->state, memory_order_acquire);`
-        );
-        emitter.emitLine(
-          `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
-        );
-        emitter.emitLine(
-          `      sm->await_result_${stateNumber - 1} = sm->await_future_${stateNumber - 1}->result;`
-        );
-
-        // If this await has a target variable, assign the result to it
-        if (prevAwait.targetVariableId) {
-          const fieldName = getStateMachineFieldName(
-            prevAwait.targetVariableId
-          );
-          emitter.emitLine(
-            `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
-          );
-        }
-
-        emitter.emitLine(``);
-      }
-    }
-
-    // Set up state machine context
-    const previousInStateMachine = context.inStateMachine;
-    const previousStateMachineVariables = context.stateMachineVariables;
-
-    context.inStateMachine = { futureType };
-
-    // Combine outer captured variables and local variables into stateMachineVariables
-    // This allows generateAtom to find all variables that should be accessed via sm->
-    const combinedVariables = new Map<string, CapturedVariable>();
-
-    // Add local variables (with their IDs for var_{id} naming)
-    for (const v of analysis.capturedVariables) {
-      combinedVariables.set(v.id, v);
-    }
-
-    // Add outer captured variables (they use their actual names, not var_{id})
-    // We create synthetic entries with the variable name as the ID
-    if (capturedVariables) {
-      for (const [varName, varInfo] of capturedVariables.entries()) {
-        combinedVariables.set(varName, {
-          id: varName, // Use varName as ID so getStateMachineFieldName returns varName
-          name: varName,
-          type: varInfo.type,
-          kind: "outer",
-          isBorrowingTheARCValueOfVariable: undefined,
-        });
-      }
-    }
-
-    context.stateMachineVariables = combinedVariables;
-
-    // Generate the code for this segment
-    generateStateSegmentCode(segment, "      ", context);
-
-    emitter.emitLine(``);
-
-    if (segment.awaitPoint) {
-      // Restore previous context before await logic
-      context.inStateMachine = previousInStateMachine;
-      context.stateMachineVariables = previousStateMachineVariables;
-
-      // This segment ends with an await - generate the await logic
-      const awaitIndex = segment.awaitPoint.index;
-      const nextState = stateNumber + 1;
-
-      emitter.emitLine(`      // Transition to next state after await`);
-      emitter.emitLine(`      sm->state = ${nextState};`);
-      emitter.emitLine(``);
-      emitter.emitLine(`      // Check if future is ready`);
-      emitter.emitLine(
-        `      yo_future_state_t future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);`
-      );
-      emitter.emitLine(`      if (future_state == YO_FUTURE_COMPLETED) {`);
-      emitter.emitLine(
-        `        goto state_${nextState};  // Continue immediately`
-      );
-      emitter.emitLine(`      } else {`);
-      emitter.emitLine(
-        `        yo_async_register_continuation((void*)sm->await_future_${awaitIndex}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
-      );
-      emitter.emitLine(`        return;`);
-      emitter.emitLine(`      }`);
-    } else if (isLastSegment) {
-      // Last segment - complete the Future
-      const hasReturnStatement = segment.expressions.some((expr: Expr) =>
-        exprIsFunctionCallOf(expr, "return")
-      );
-
-      if (!hasReturnStatement) {
-        // Generate deferred drops for the body expression before completing the Future
-        // Keep state machine context active for this
-        if (bodyExpr.$?.deferredDropExpressions) {
-          emitter.emitLine(`      // Drop local variables before completion`);
-          for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
-            const dropCode = generateExpr(dropExpr, "      ", context);
-            if (dropCode) {
-              emitter.emitLine(`      ${dropCode};`);
-            }
-          }
-          emitter.emitLine(``);
-        }
-
-        emitter.emitLine(`      // Final state - complete the result Future`);
-        emitter.emitLine(
-          `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
-        );
-
-        if (!isUnitResult) {
-          emitter.emitLine(`      // TODO: Set result value`);
-        }
-
-        emitter.emitLine(
-          `      sm->state = ${stateNumber + 1};  // Terminal state`
-        );
-        emitter.emitLine(`      return;`);
-      }
-
-      // Restore previous context after final state
-      context.inStateMachine = previousInStateMachine;
-      context.stateMachineVariables = previousStateMachineVariables;
-    } else {
-      // Restore previous context for non-await, non-final segments
-      context.inStateMachine = previousInStateMachine;
-      context.stateMachineVariables = previousStateMachineVariables;
-    }
-
-    emitter.emitLine(`    }`);
-  }
-
-  emitter.emitLine(`  }`);
-  emitter.emitLine(`}`);
-  emitter.emitLine(``);
-}
-
 /**
  * Generate the constructor function for an async block.
  * The constructor allocates the state machine and Future, initializes captured variables,
@@ -2639,6 +2397,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     console.log(
       `[generateAtom] In state machine, checking variable: ${varName}, has env: ${!!expr.$?.env}`
     );
+
     // Check if this variable is in the state machine
     for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
       if (capturedVar.name === varName) {
@@ -2669,6 +2428,38 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         return `sm->${fieldName}`;
       }
     }
+
+    // Variable not found directly - check if it's borrowing from a captured variable
+    // This handles the case where we reference `future1` but only `temp_2198` (its owner) is captured
+    if (expr.$?.env) {
+      const variables = getVariablesFromEnv(expr.$.env, varName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.isBorrowingTheARCValueOfVariable) {
+          // This variable is borrowing - try to find the owner in state machine
+          const ownerName = variable.isBorrowingTheARCValueOfVariable.name;
+          const ownerId = variable.isBorrowingTheARCValueOfVariable.id;
+          console.log(
+            `[generateAtom] Variable ${varName} borrows from ${ownerName}, looking up owner`
+          );
+
+          for (const [
+            varId,
+            capturedVar,
+          ] of functionContext.stateMachineVariables) {
+            if (capturedVar.name === ownerName || varId === ownerId) {
+              const fieldName =
+                capturedVar.kind === "outer" ? ownerName : `var_${varId}`;
+              console.log(
+                `[generateAtom] FOUND OWNER: varName=${varName}, ownerName=${ownerName}, varId=${varId}, kind=${capturedVar.kind}, fieldName=${fieldName}`
+              );
+              return `sm->${fieldName}`;
+            }
+          }
+        }
+      }
+    }
+
     console.log(`[generateAtom] NOT FOUND in state machine: ${varName}`);
   }
 

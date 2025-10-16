@@ -229,20 +229,19 @@ function generateAwaitExpression(
     // in a variable or state machine field
     const futureCode = generateExpr(futureExpr, indent, context);
 
-    // Store the Future reference and lazy spawn if needed
-    emitter.emitLine(`${indent}// Prepare for await
-${indent}sm->await_future_${awaitPoint.index} = ${futureCode};
-
+    // The future should already be stored in a state machine variable field
+    // We don't need a separate await_future_ field - just use the existing variable
+    emitter.emitLine(`${indent}// Prepare for await (future already stored in state machine)
 ${indent}// Lazy spawn: start task if not started yet
 ${indent}yo_future_state_t expected = YO_FUTURE_PENDING;
 ${indent}if (atomic_compare_exchange_strong_explicit(
-${indent}      &sm->await_future_${awaitPoint.index}->state,
+${indent}      &${futureCode}->state,
 ${indent}      &expected,
 ${indent}      YO_FUTURE_RUNNING,
 ${indent}      memory_order_release,
 ${indent}      memory_order_acquire)) {
 ${indent}  ASYNC_DEBUG("Lazy spawn: starting task (first await)\\n");
-${indent}  yo_async_spawn_task(sm->await_future_${awaitPoint.index}->resume_fn, sm->await_future_${awaitPoint.index}->state_machine);
+${indent}  yo_async_spawn_task(${futureCode}->resume_fn, ${futureCode}->state_machine);
 ${indent}}`);
 
     return;
@@ -285,19 +284,17 @@ ${indent}}`);
       // Store the Future and lazy spawn if needed
       // The actual result extraction and variable assignment happens in the next state
       // (in generateAsyncBlockResumeFunction, after the result is extracted to await_result_X)
-      emitter.emitLine(`${indent}// Store Future for await (variable: ${varName})
-${indent}sm->await_future_${awaitPoint.index} = ${futureCode};
-
+      emitter.emitLine(`${indent}// Store Future for await (variable: ${varName}) - future already in state machine
 ${indent}// Lazy spawn: start task if not started yet
 ${indent}yo_future_state_t expected = YO_FUTURE_PENDING;
 ${indent}if (atomic_compare_exchange_strong_explicit(
-${indent}      &sm->await_future_${awaitPoint.index}->state,
+${indent}      &${futureCode}->state,
 ${indent}      &expected,
 ${indent}      YO_FUTURE_RUNNING,
 ${indent}      memory_order_release,
 ${indent}      memory_order_acquire)) {
 ${indent}  ASYNC_DEBUG("Lazy spawn: starting task (first await)\\n");
-${indent}  yo_async_spawn_task(sm->await_future_${awaitPoint.index}->resume_fn, sm->await_future_${awaitPoint.index}->state_machine);
+${indent}  yo_async_spawn_task(${futureCode}->resume_fn, ${futureCode}->state_machine);
 ${indent}}`);
 
       return;

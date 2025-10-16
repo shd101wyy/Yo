@@ -42,6 +42,12 @@ export interface AwaitPoint {
    * This is the variable ID from the captured variables
    */
   targetVariableId?: string;
+
+  /**
+   * The variable ID of the Future being awaited
+   * This is used to reference the captured Future variable instead of creating a separate await_future_X field
+   */
+  futureVariableId?: string;
 }
 
 /**
@@ -175,19 +181,24 @@ function walkExprForAwaits(
           // - Variables borrowing ARC values (like task1_future, task2_future)
           // - Temp variables owning ARC values
           // - Non-ARC variables (primitives, etc.)
-          if (variable && !capturedVariables.has(variable.id)) {
+          // But skip compile-time-only values (types, compile-time functions, etc.)
+          if (
+            variable &&
+            !capturedVariables.has(variable.id) &&
+            !variable.isCompileTimeOnly
+          ) {
             console.log(
               `[AWAIT ANALYSIS]   Variable not yet captured, will capture now`
             );
             // Check if this variable is borrowing from another variable
-            let borrowedFrom: CapturedVariable | undefined = undefined;
             if (variable.isBorrowingTheARCValueOfVariable) {
               const ownerVar = variable.isBorrowingTheARCValueOfVariable;
-              // Check if owner is already captured
-              if (capturedVariables.has(ownerVar.id)) {
-                borrowedFrom = capturedVariables.get(ownerVar.id);
-              } else {
-                // Capture the owner variable first
+              // Only capture the owner variable, not the borrower
+              // The borrower is just an alias and doesn't need separate storage
+              if (!capturedVariables.has(ownerVar.id)) {
+                console.log(
+                  `[AWAIT ANALYSIS]   Variable ${variable.name} is borrowing from ${ownerVar.name}, capturing owner instead`
+                );
                 const ownerCaptured: CapturedVariable = {
                   id: ownerVar.id,
                   name: ownerVar.name,
@@ -196,20 +207,25 @@ function walkExprForAwaits(
                   isBorrowingTheARCValueOfVariable: undefined,
                 };
                 capturedVariables.set(ownerVar.id, ownerCaptured);
-                borrowedFrom = ownerCaptured;
+              } else {
+                console.log(
+                  `[AWAIT ANALYSIS]   Variable ${variable.name} is borrowing from ${ownerVar.name}, owner already captured`
+                );
               }
+              // Don't capture the borrower itself - it's just an alias
+            } else {
+              // Variable is not borrowing - capture it normally
+              console.log(
+                `[AWAIT ANALYSIS]   Capturing variable: ${variable.name}, id=${variable.id}`
+              );
+              capturedVariables.set(variable.id, {
+                id: variable.id,
+                name: varName,
+                type: varType,
+                kind: "local",
+                isBorrowingTheARCValueOfVariable: undefined,
+              });
             }
-
-            console.log(
-              `[AWAIT ANALYSIS]   Capturing variable: ${variable.name}, id=${variable.id}`
-            );
-            capturedVariables.set(variable.id, {
-              id: variable.id,
-              name: varName,
-              type: varType,
-              kind: "local",
-              isBorrowingTheARCValueOfVariable: borrowedFrom,
-            });
           } else {
             console.log(
               `[AWAIT ANALYSIS]   Variable already captured or check failed: has=${capturedVariables.has(variable.id)}, var exists=${!!variable}`
@@ -232,6 +248,37 @@ function walkExprForAwaits(
 
         if (futureType && futureType.tag === TypeTag.Future) {
           const ft = futureType as FutureType;
+
+          // Get the Future variable ID from the await argument
+          let futureVariableId: string | undefined;
+          if (
+            awaitArg.tag === ExprTag.Atom &&
+            awaitArg.token.type === TokenType.Identifier &&
+            awaitArg.$
+          ) {
+            const futureVarName = awaitArg.token.value;
+            const futureVariables = getVariablesFromEnv(
+              awaitArg.$.env,
+              futureVarName
+            );
+            if (futureVariables.length > 0) {
+              const futureVar = futureVariables[futureVariables.length - 1]!;
+              // If the Future variable is borrowing from another variable, use the owner's ID
+              // This ensures we reference the correct field in the state machine struct
+              if (futureVar.isBorrowingTheARCValueOfVariable) {
+                futureVariableId =
+                  futureVar.isBorrowingTheARCValueOfVariable.id;
+                console.log(
+                  `[AWAIT ANALYSIS] await argument ${futureVarName} is borrowing from owner ${futureVar.isBorrowingTheARCValueOfVariable.name}, using owner ID: ${futureVariableId}`
+                );
+              } else {
+                futureVariableId = futureVar.id;
+                console.log(
+                  `[AWAIT ANALYSIS] await argument ${futureVarName} is not borrowing, using its ID: ${futureVariableId}`
+                );
+              }
+            }
+          }
 
           // Check if parent is an assignment to capture target variable
           let targetVariableId: string | undefined;
@@ -261,6 +308,7 @@ function walkExprForAwaits(
             expr,
             resultType: ft.elementType,
             targetVariableId,
+            futureVariableId,
           });
         }
       }
@@ -330,6 +378,7 @@ function collectVariableBindings(
                 if (
                   variable &&
                   !variable.isBorrowingTheARCValueOfVariable &&
+                  !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
                   variables.push({
@@ -361,6 +410,7 @@ function collectVariableBindings(
                 if (
                   variable &&
                   !variable.isBorrowingTheARCValueOfVariable &&
+                  !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
                   variables.push({

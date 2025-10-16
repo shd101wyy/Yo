@@ -4,17 +4,66 @@
  * Generates C code for async function state machines.
  */
 
-import { exprIsFunctionCallOf, exprToString } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import { Expr, exprIsFunctionCallOf } from "../../expr";
+import {
+  FunctionCapturedVariableInfo,
+  FunctionValue,
+} from "../../function-value";
 import { FutureType, isFutureType, isUnitType } from "../../types";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, sanitizeForCIdentifier } from "../utils";
-import { analyzeAwaitPoints, AwaitAnalysisResult } from "./await-analysis";
+import {
+  analyzeAwaitPoints,
+  AwaitAnalysisResult,
+  AwaitPoint,
+  CapturedVariable,
+} from "./await-analysis";
 import {
   generateStateSegmentCode,
   splitIntoStateSegments,
 } from "./state-code-gen";
+
+/**
+ * Get the state machine field name for the Future being awaited.
+ * Uses the captured Future variable instead of a separate await_future_X field.
+ */
+export function getFutureFieldName(
+  awaitPoint: AwaitPoint,
+  analysis: AwaitAnalysisResult
+): string {
+  console.log(
+    `[getFutureFieldName] awaitPoint.index=${awaitPoint.index}, futureVariableId=${awaitPoint.futureVariableId}`
+  );
+  console.log(
+    `[getFutureFieldName] analysis.capturedVariables count=${analysis.capturedVariables.length}`
+  );
+  analysis.capturedVariables.forEach((v, idx) => {
+    console.log(`  [${idx}] id=${v.id}, name=${v.name}, kind=${v.kind}`);
+  });
+
+  if (awaitPoint.futureVariableId) {
+    // Find the captured variable
+    const capturedVar = analysis.capturedVariables.find(
+      (v) => v.id === awaitPoint.futureVariableId
+    );
+    console.log(`[getFutureFieldName] Found capturedVar: ${!!capturedVar}`);
+    if (capturedVar) {
+      // Use the captured variable's field name
+      const fieldName =
+        capturedVar.kind === "outer"
+          ? capturedVar.name
+          : `var_${capturedVar.id}`;
+      console.log(`[getFutureFieldName] Returning field name: ${fieldName}`);
+      return fieldName;
+    }
+  }
+  // Fallback to old behavior (shouldn't happen)
+  console.log(
+    `[getFutureFieldName] FALLBACK! Returning await_future_${awaitPoint.index}`
+  );
+  return `await_future_${awaitPoint.index}`;
+}
 
 /**
  * Information about a generated state machine.
@@ -121,25 +170,7 @@ export function generateStateMachineStruct(
     emitter.emitDeclarationLine(``);
   }
 
-  // Add Future pointers for async calls
-  emitter.emitDeclarationLine(`  // Future pointers for async calls`);
-  for (const awaitPoint of analysis.awaitPoints) {
-    // Get the await argument (the Future being awaited)
-    if (awaitPoint.expr.tag === "FuncCall" && awaitPoint.expr.args.length > 0) {
-      const awaitArg = awaitPoint.expr.args[0];
-      const awaitFutureType = awaitArg?.$?.type;
-      if (awaitFutureType && isFutureType(awaitFutureType)) {
-        const awaitFutureTypeCName =
-          context.types[(awaitFutureType as FutureType).id]?.cName;
-        if (awaitFutureTypeCName) {
-          emitter.emitDeclarationLine(
-            `  ${awaitFutureTypeCName}* await_future_${awaitPoint.index};`
-          );
-        }
-      }
-    }
-  }
-
+  // Note: We don't need separate await_future_X fields because we use the captured Future variables directly
   emitter.emitDeclarationLine(`} ${structName};`);
   emitter.emitDeclarationLine(``);
 
@@ -172,58 +203,39 @@ export function getStateMachineFieldName(variableId: string): string {
 }
 
 /**
- * Generates the resume function implementation for a state machine.
- * The resume function contains a switch statement that dispatches on the state field.
- * Each state executes code until the next await point or return.
+ * Generates the resume function implementation for an async block state machine.
+ * This is the canonical implementation used for all async code (functions are just syntax sugar).
  */
-export function generateResumeFunctionImplementation(
-  functionValue: FunctionValue,
-  functionCName: string,
-  info: StateMachineInfo,
+export function generateAsyncBlockResumeFunction(
+  bodyExpr: Expr,
+  asyncBlockId: string,
+  structName: string,
+  resumeFunctionName: string,
+  analysis: AwaitAnalysisResult,
+  futureType: FutureType,
+  capturedVariables: Map<string, FunctionCapturedVariableInfo> | undefined,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
-  const functionType = functionValue.type;
-  const futureType = functionType.return.type as FutureType;
+
   const elementType = futureType.elementType;
   const isUnitResult = isUnitType(elementType);
-  // const futureTypeCName = context.types[futureType.id]?.cName;
 
-  // Split the function body into state segments
-  const segments = splitIntoStateSegments(
-    functionValue.body,
-    info.analysis.awaitPoints
-  );
+  // Split the body into state segments
+  const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
-  // Extract deferred drop expressions from the function body if it's a begin block
-  const deferredDropExpressions = functionValue.body.$?.deferredDropExpressions;
-
-  console.log(`[STATE MACHINE] Function ${functionCName}:`);
-  console.log(`  - Body tag: ${functionValue.body.tag}`);
-  console.log(`  - Has deferredDropExpressions: ${!!deferredDropExpressions}`);
-  if (deferredDropExpressions) {
-    console.log(`  - Deferred drops count: ${deferredDropExpressions.length}`);
-    deferredDropExpressions.forEach((dropExpr, idx) => {
-      console.log(`  - Drop ${idx}: ${exprToString(dropExpr)}`);
-    });
-  }
-
-  // Set current function context so return statements know we're in an async function
-  const previousFunctionName = context.currentFunctionName;
-  const previousFunctionType = context.currentFunctionType;
-  context.currentFunctionName = functionCName;
-  context.currentFunctionType = functionType;
-
-  emitter.emitLine(`// Resume function for ${functionCName}`);
-  emitter.emitLine(`void ${info.resumeFunctionName}(${info.structName}* sm) {`);
+  emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
+  emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
   emitter.emitLine(
-    `  ASYNC_DEBUG("${functionCName}_resume: state=%d\\n", sm->state);`
+    `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
   );
   emitter.emitLine(`  switch (sm->state) {`);
 
   // Generate code for each state segment
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
-    const segment = segments[segmentIndex]!;
+    const segment = segments[segmentIndex];
+    if (!segment) continue;
+
     const stateNumber = segment.stateNumber;
     const isLastSegment = segmentIndex === segments.length - 1;
 
@@ -235,30 +247,25 @@ export function generateResumeFunctionImplementation(
 
     emitter.emitLine(`    case ${stateNumber}: { // State ${stateNumber}`);
     emitter.emitLine(
-      `      ASYNC_DEBUG("${functionCName}: Entering state ${stateNumber}\\n");`
+      `      ASYNC_DEBUG("${asyncBlockId}: Entering state ${stateNumber}\\n");`
     );
 
     // If this is not the first state, extract the result from the previous await
-    if (stateNumber > 0 && info.analysis.awaitPoints[stateNumber - 1]) {
-      const prevAwait = info.analysis.awaitPoints[stateNumber - 1]!;
-      if (!isUnitType(prevAwait.resultType)) {
+    if (stateNumber > 0 && analysis.awaitPoints[stateNumber - 1]) {
+      const prevAwait = analysis.awaitPoints[stateNumber - 1];
+      if (prevAwait && !isUnitType(prevAwait.resultType)) {
+        const prevFutureFieldName = getFutureFieldName(prevAwait, analysis);
         emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
         );
         emitter.emitLine(
-          `      // Ensure we see all writes that happened before state was set to COMPLETED`
+          `      yo_future_state_t state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire);`
         );
         emitter.emitLine(
-          `      yo_future_state_t state_before_read = atomic_load_explicit(&sm->await_future_${stateNumber - 1}->state, memory_order_acquire);`
+          `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
         emitter.emitLine(
-          `      ASYNC_DEBUG("${functionCName}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
-        );
-        emitter.emitLine(
-          `      sm->await_result_${stateNumber - 1} = sm->await_future_${stateNumber - 1}->result;`
-        );
-        emitter.emitLine(
-          `      ASYNC_DEBUG("${functionCName}: Read result value = %d\\n", (int)sm->await_result_${stateNumber - 1});`
+          `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
         );
 
         // If this await has a target variable, assign the result to it
@@ -267,7 +274,7 @@ export function generateResumeFunctionImplementation(
             prevAwait.targetVariableId
           );
           emitter.emitLine(
-            `      sm->${fieldName} = sm->await_result_${stateNumber - 1};  // Assign to variable`
+            `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
           );
         }
 
@@ -275,14 +282,36 @@ export function generateResumeFunctionImplementation(
       }
     }
 
-    // Set up state machine context for expression generation
+    // Set up state machine context
     const previousInStateMachine = context.inStateMachine;
     const previousStateMachineVariables = context.stateMachineVariables;
 
     context.inStateMachine = { futureType };
-    context.stateMachineVariables = new Map(
-      info.analysis.capturedVariables.map((v) => [v.id, v])
-    );
+
+    // Combine outer captured variables and local variables into stateMachineVariables
+    // This allows generateAtom to find all variables that should be accessed via sm->
+    const combinedVariables = new Map<string, CapturedVariable>();
+
+    // Add local variables (with their IDs for var_{id} naming)
+    for (const v of analysis.capturedVariables) {
+      combinedVariables.set(v.id, v);
+    }
+
+    // Add outer captured variables (they use their actual names, not var_{id})
+    // We create synthetic entries with the variable name as the ID
+    if (capturedVariables) {
+      for (const [varName, varInfo] of capturedVariables.entries()) {
+        combinedVariables.set(varName, {
+          id: varName, // Use varName as ID so getStateMachineFieldName returns varName
+          name: varName,
+          type: varInfo.type,
+          kind: "outer",
+          isBorrowingTheARCValueOfVariable: undefined,
+        });
+      }
+    }
+
+    context.stateMachineVariables = combinedVariables;
 
     // Generate the code for this segment
     generateStateSegmentCode(segment, "      ", context);
@@ -290,69 +319,44 @@ export function generateResumeFunctionImplementation(
     emitter.emitLine(``);
 
     if (segment.awaitPoint) {
+      // Restore previous context before await logic
+      context.inStateMachine = previousInStateMachine;
+      context.stateMachineVariables = previousStateMachineVariables;
+
       // This segment ends with an await - generate the await logic
-      const awaitIndex = segment.awaitPoint.index;
       const nextState = stateNumber + 1;
+      const futureFieldName = getFutureFieldName(segment.awaitPoint, analysis);
 
-      emitter.emitLine(`      // Transition to next state after await
-      sm->state = ${nextState};
-
-      // Check if future is ready (lazy spawn if PENDING)
-      yo_future_state_t future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);
-      ASYNC_DEBUG("${functionCName}: Checking Future ${awaitIndex}, state=%d\\n", future_state);
-
-      if (future_state == YO_FUTURE_PENDING) {
-        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} is PENDING, spawning task now (lazy)\\n");
-        // Transition Future from PENDING to RUNNING atomically
-        yo_future_state_t expected = YO_FUTURE_PENDING;
-        if (atomic_compare_exchange_strong_explicit(
-              &sm->await_future_${awaitIndex}->state,
-              &expected,
-              YO_FUTURE_RUNNING,
-              memory_order_release,
-              memory_order_acquire)) {
-          ASYNC_DEBUG("${functionCName}: Successfully transitioned to RUNNING, spawning\\n");
-          // We won the race to spawn this task - spawn using the Future's resume function
-          void (*resume_fn)(void*) = sm->await_future_${awaitIndex}->resume_fn;
-          void* state_machine = sm->await_future_${awaitIndex}->state_machine;
-          yo_async_spawn_task(resume_fn, state_machine);
-        } else {
-          ASYNC_DEBUG("${functionCName}: Another thread spawned the task, continuing\\n");
-        }
-        // Fall through to register continuation or check if completed
-        future_state = atomic_load_explicit(&sm->await_future_${awaitIndex}->state, memory_order_acquire);
-      }
-
-      if (future_state == YO_FUTURE_COMPLETED) {
-        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} already completed, continuing immediately\\n");
-        goto state_${nextState};  // Continue immediately
-      } else {
-        ASYNC_DEBUG("${functionCName}: Future ${awaitIndex} not ready, registering continuation\\n");
-        // Register continuation to resume when Future completes
-        yo_async_register_continuation((void*)sm->await_future_${awaitIndex}, (void (*)(void*))${info.resumeFunctionName}, (void*)sm);
-        return;
-      }`);
+      emitter.emitLine(`      // Transition to next state after await`);
+      emitter.emitLine(`      sm->state = ${nextState};`);
+      emitter.emitLine(``);
+      emitter.emitLine(`      // Check if future is ready`);
+      emitter.emitLine(
+        `      yo_future_state_t future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+      );
+      emitter.emitLine(`      if (future_state == YO_FUTURE_COMPLETED) {`);
+      emitter.emitLine(
+        `        goto state_${nextState};  // Continue immediately`
+      );
+      emitter.emitLine(`      } else {`);
+      emitter.emitLine(
+        `        yo_async_register_continuation((void*)sm->${futureFieldName}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
+      );
+      emitter.emitLine(`        return;`);
+      emitter.emitLine(`      }`);
     } else if (isLastSegment) {
       // Last segment - complete the Future
-      // But only if the segment doesn't already contain a return statement
-      const hasReturnStatement = segment.expressions.some((expr) =>
+      const hasReturnStatement = segment.expressions.some((expr: Expr) =>
         exprIsFunctionCallOf(expr, "return")
       );
 
       if (!hasReturnStatement) {
-        // Generate deferred drop expressions before completing
-        // (keep state machine context active for this)
-        if (deferredDropExpressions && deferredDropExpressions.length > 0) {
-          emitter.emitLine(`      // Deferred drops before function completes`);
-          console.log(
-            `[STATE MACHINE] Generating ${deferredDropExpressions.length} deferred drops, inStateMachine=${!!context.inStateMachine}, stateMachineVariables=${context.stateMachineVariables?.size}`
-          );
-          for (const dropExpr of deferredDropExpressions) {
-            console.log(
-              `[STATE MACHINE] Generating drop: ${exprToString(dropExpr)}`
-            );
+        // Generate deferred drops for the body expression before completing the Future
+        // Keep state machine context active for this
+        if (bodyExpr.$?.deferredDropExpressions) {
+          emitter.emitLine(`      // Drop local variables before completion`);
+          for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
             const dropCode = generateExpr(dropExpr, "      ", context);
-            console.log(`[STATE MACHINE] Generated drop code: ${dropCode}`);
             if (dropCode) {
               emitter.emitLine(`      ${dropCode};`);
             }
@@ -362,33 +366,58 @@ export function generateResumeFunctionImplementation(
 
         emitter.emitLine(`      // Final state - complete the result Future`);
         emitter.emitLine(
-          `      ASYNC_DEBUG("${functionCName}: Completing async function\\n");`
-        );
-        emitter.emitLine(
           `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
         );
 
         if (!isUnitResult) {
           emitter.emitLine(`      // TODO: Set result value`);
-          emitter.emitLine(`      // sm->result->result = <final_result>;`);
         }
+
+        emitter.emitLine(``);
+        emitter.emitLine(`      // Check if there's a continuation to invoke`);
+        emitter.emitLine(
+          `      void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->result->continuation_fn, memory_order_acquire);`
+        );
+        emitter.emitLine(
+          `      void* continuation_sm = atomic_load_explicit(&sm->result->continuation_sm, memory_order_acquire);`
+        );
+        emitter.emitLine(``);
+        emitter.emitLine(`      if (continuation_fn != NULL) {`);
+        emitter.emitLine(
+          `        ASYNC_DEBUG("Future %p completed, spawning continuation: resume_fn=%p, sm=%p\\n", (void*)sm->result, (void*)continuation_fn, continuation_sm);`
+        );
+        emitter.emitLine(``);
+        emitter.emitLine(
+          `        // Clear the continuation (prevent double-spawn)`
+        );
+        emitter.emitLine(
+          `        atomic_store_explicit(&sm->result->continuation_fn, NULL, memory_order_relaxed);`
+        );
+        emitter.emitLine(
+          `        atomic_store_explicit(&sm->result->continuation_sm, NULL, memory_order_relaxed);`
+        );
+        emitter.emitLine(``);
+        emitter.emitLine(`        // Spawn the continuation as a new task`);
+        emitter.emitLine(
+          `        yo_async_spawn_task(continuation_fn, continuation_sm);`
+        );
+        emitter.emitLine(`      }`);
+        emitter.emitLine(``);
 
         emitter.emitLine(
           `      sm->state = ${stateNumber + 1};  // Terminal state`
         );
-        emitter.emitLine(``);
-
-        // State machine will be freed when Future is disposed
-        emitter.emitLine(
-          `      // State machine will be freed when Future is disposed (RC reaches 0)`
-        );
         emitter.emitLine(`      return;`);
       }
-    }
 
-    // Restore previous context AFTER all codegen for this state
-    context.inStateMachine = previousInStateMachine;
-    context.stateMachineVariables = previousStateMachineVariables;
+      // Restore previous context after final state
+      context.inStateMachine = previousInStateMachine;
+      context.stateMachineVariables = previousStateMachineVariables;
+    } else {
+      // Restore previous context for non-await, non-final segments
+      context.inStateMachine = previousInStateMachine;
+      context.stateMachineVariables = previousStateMachineVariables;
+    }
 
     emitter.emitLine(`    }`);
   }
@@ -396,8 +425,4 @@ export function generateResumeFunctionImplementation(
   emitter.emitLine(`  }`);
   emitter.emitLine(`}`);
   emitter.emitLine(``);
-
-  // Restore previous function context
-  context.currentFunctionName = previousFunctionName;
-  context.currentFunctionType = previousFunctionType;
 }
