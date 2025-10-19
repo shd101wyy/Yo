@@ -19,7 +19,7 @@ To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.t
 
 Or you can run `bun run src/yo-cli.ts src/tests/examples/fixme.yo -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-brc` to debug the biased reference counter, and `--debug-concurrency` to debug the concurrency model, and `--debug-async-await` for debugging async/await.
 
-Feel free to run `gdb` on `./a.out` to debug the generated C code.
+Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
 
 You can ignore the editor erros for the `.yo` files, because the vscode extension might not use the updated Yo language grammar or evaluator/compiler code.
 

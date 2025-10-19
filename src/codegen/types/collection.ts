@@ -114,53 +114,41 @@ export function collectTypesFromExpr(
 
       // Then collect the capture type with a special C name
       if (!context.types[captureType.id]) {
-        // Find the closure/future type's C name
-        const mainTypeEntry = Object.values(context.types).find(
-          (entry) => entry.type === exprType
-        );
+        // For closure/future capture types, use the type ID to generate a unique C name
+        // This ensures each unique capture struct gets its own type definition
+        context.types[captureType.id] = {
+          type: captureType,
+          cName: `yo_${captureType.id}`, // Use the capture struct's own ID for uniqueness
+        };
 
-        if (mainTypeEntry) {
-          // Register the capture type with the {main}_capture naming convention
-          context.types[captureType.id] = {
-            type: captureType,
-            cName: `${mainTypeEntry.cName}_capture`,
-          };
+        // Now collect the capture type's nested types and module functions (___drop, etc.)
+        // This is crucial for generating ARC functions for the capture struct
+        if (isStructType(captureType)) {
+          // Recursively collect types from struct elements
+          for (const element of captureType.elements) {
+            collectType(element.type, context);
+          }
 
-          // Now collect the capture type's nested types and module functions (___drop, etc.)
-          // This is crucial for generating ARC functions for the capture struct
-          if (isStructType(captureType)) {
-            // Recursively collect types from struct elements
-            for (const element of captureType.elements) {
-              collectType(element.type, context);
-            }
+          // Collect functions from the module (___dup, ___drop, etc.)
+          for (const element of captureType.module.elements) {
+            if (
+              element.assignedValue &&
+              isFunctionValue(element.assignedValue)
+            ) {
+              const functionValue = element.assignedValue;
+              if (!context.functions[functionValue.funcId]) {
+                context.functions[functionValue.funcId] = {
+                  value: functionValue,
+                  cName: functionValue.funcId,
+                };
 
-            // Collect functions from the module (___dup, ___drop, etc.)
-            for (const element of captureType.module.elements) {
-              if (
-                element.assignedValue &&
-                isFunctionValue(element.assignedValue)
-              ) {
-                const functionValue = element.assignedValue;
-                if (!context.functions[functionValue.funcId]) {
-                  context.functions[functionValue.funcId] = {
-                    value: functionValue,
-                    cName: functionValue.funcId,
-                  };
-
-                  // Recursively collect functions called by this struct member function
-                  findFunctionCallsInExpr(functionValue.body, context);
-                }
+                // Recursively collect functions called by this struct member function
+                findFunctionCallsInExpr(functionValue.body, context);
               }
             }
           }
-        } else {
-          // Fallback: just collect it normally
-          collectType(captureType, context);
         }
       }
-    } else {
-      // Not a closure/future, just collect normally
-      collectType(captureType, context);
     }
   }
 

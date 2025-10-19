@@ -183,26 +183,6 @@ export function tryToImplementFunctionByFunctionType({
     });
   }
 
-  // Update the function value with captured variables (if any)
-  if (capturedVariables && capturedVariables.size > 0) {
-    functionValue.capturedVariables = new Map();
-    for (const [name, info] of capturedVariables) {
-      if (info.frameLevel < finalCallerEnv.frames.length) {
-        const variable = finalCallerEnv.frames[info.frameLevel]?.variables.find(
-          (v) => v.name === name
-        );
-        if (variable && !variable.isCompileTimeOnly) {
-          // Only capture the runtime variables
-          functionValue.capturedVariables.set(name, {
-            ...info,
-            value: variable.value,
-            type: variable.type,
-          });
-        }
-      }
-    }
-  }
-
   // Reset the cache
   // functionValue.calledComptFunctionCaches = [];
 

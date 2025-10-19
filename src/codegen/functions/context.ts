@@ -21,6 +21,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   currentClosureCaptures?: string[]; // Variables captured by current closure function
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
   currentClosureType?: ClosureType; // Current closure type being generated
+  currentClosureCaptureTypeCName?: string; // C name of the capture struct type (e.g. "yo_struct_abc123_capture")
   // State machine context (when generating code inside async state machine)
   inStateMachine?: { futureType: FutureType }; // Set when generating code inside a state machine, contains the Future type being generated
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)

@@ -436,9 +436,17 @@ export function generateClosureDeclaration(
     `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Call function pointer`
   );
 
-  // Dispose function to handle closure cleanup
+  // Dispose function to handle cleanup of captured variables
+  // IMPORTANT: This function receives the CLOSURE pointer (not the capture pointer).
+  // It's called when the closure is dropped (RC reaches 0) to clean up captured variables.
+  // Each closure instance can have a different dispose function depending on its capture type.
+  // The dispose function should:
+  //   1. Cast void* to the specific closure type
+  //   2. Cast closure->data to the specific capture type
+  //   3. Call the capture type's drop function
+  //   4. Free the capture data
   emitter.emitDeclarationLine(
-    `  void (*dispose)(void* self); // Dispose closure function pointer`
+    `  void (*dispose)(void* self); // Dispose function for cleaning up captured variables`
   );
 
   emitter.emitDeclarationLine(`} ${vtableName};`);

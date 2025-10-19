@@ -538,24 +538,6 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-
-    // Synthesize the capture types
-    if (expectedClosure.captureType && givenClosure.captureType) {
-      const { expectedEnv: captureExpectedEnv, givenEnv: captureGivenEnv } =
-        synthesizeTypes(
-          {
-            type: expectedClosure.captureType,
-            env: expected.env,
-          },
-          {
-            type: givenClosure.captureType,
-            env: given.env,
-          },
-          checkedTypePairs
-        );
-      expected.env = captureExpectedEnv;
-      given.env = captureGivenEnv;
-    }
   } else if (
     isFunctionType(expected.type) &&
     isFunctionType(given.type) &&

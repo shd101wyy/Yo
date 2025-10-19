@@ -137,10 +137,6 @@ export function tryToImplementClosureByClosureType({
       ? enrichCapturedVariables({ capturedVariables, env: finalCallerEnv })
       : undefined;
 
-  if (capturedVariablesWithValues) {
-    functionValue.capturedVariables = capturedVariablesWithValues;
-  }
-
   // Create the proper capture type based on captured variables using helper function
   // We don't need the captureValue since closures are runtime-only
   const { captureType: inferredCaptureType } = createCaptureTypeAndValue({
@@ -169,6 +165,12 @@ export function tryToImplementClosureByClosureType({
       context,
     });
   finalCallerEnv = updatedEnv;
+
+  // Set the closure info on the function value for easy codegen access
+  functionValue.closureInfo = {
+    closureType: finalClosureType,
+    captureType: inferredCaptureType,
+  };
 
   // Set the result with the closure type
   expr.$ = {

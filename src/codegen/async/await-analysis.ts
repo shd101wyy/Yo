@@ -11,7 +11,6 @@ import {
   Expr,
   exprIsFunctionCallOf,
   ExprTag,
-  exprToString,
 } from "../../expr";
 import { TokenType } from "../../token";
 import { Type } from "../../types";
@@ -119,16 +118,7 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
 
   // Also walk through deferred drop expressions to capture variables referenced there
   if (body.$?.deferredDropExpressions) {
-    console.log(
-      `[AWAIT ANALYSIS] Walking ${body.$.deferredDropExpressions.length} deferred drop expressions`
-    );
-    console.log(
-      `[AWAIT ANALYSIS] Currently captured variables: ${Array.from(capturedVariables.keys()).join(", ")}`
-    );
     for (const dropExpr of body.$.deferredDropExpressions) {
-      console.log(
-        `[AWAIT ANALYSIS] Walking drop expression: ${exprToString(dropExpr)}`
-      );
       walkExprForAwaits(dropExpr, awaitPoints, capturedVariables);
     }
   }
@@ -162,17 +152,11 @@ function walkExprForAwaits(
         const varName = expr.token.value;
         const varType = expr.$.type;
 
-        console.log(`[AWAIT ANALYSIS] Found atom: ${varName}`);
-
         // Check if this variable should be captured in the state machine
         const variables = getVariablesFromEnv(expr.$.env, varName);
         if (variables.length > 0) {
           // Use the last element (most recent scope)
           const variable = variables[variables.length - 1]!;
-
-          console.log(
-            `[AWAIT ANALYSIS]   Variable found in env: ${variable.name}, id=${variable.id}, isBorrowing=${!!variable.isBorrowingTheARCValueOfVariable}`
-          );
 
           // In state machines, we need to capture ALL local variables that are used
           // across await points, regardless of whether they're borrowing or owning.
@@ -187,18 +171,12 @@ function walkExprForAwaits(
             !capturedVariables.has(variable.id) &&
             !variable.isCompileTimeOnly
           ) {
-            console.log(
-              `[AWAIT ANALYSIS]   Variable not yet captured, will capture now`
-            );
             // Check if this variable is borrowing from another variable
             if (variable.isBorrowingTheARCValueOfVariable) {
               const ownerVar = variable.isBorrowingTheARCValueOfVariable;
               // Only capture the owner variable, not the borrower
               // The borrower is just an alias and doesn't need separate storage
               if (!capturedVariables.has(ownerVar.id)) {
-                console.log(
-                  `[AWAIT ANALYSIS]   Variable ${variable.name} is borrowing from ${ownerVar.name}, capturing owner instead`
-                );
                 const ownerCaptured: CapturedVariable = {
                   id: ownerVar.id,
                   name: ownerVar.name,
@@ -207,17 +185,10 @@ function walkExprForAwaits(
                   isBorrowingTheARCValueOfVariable: undefined,
                 };
                 capturedVariables.set(ownerVar.id, ownerCaptured);
-              } else {
-                console.log(
-                  `[AWAIT ANALYSIS]   Variable ${variable.name} is borrowing from ${ownerVar.name}, owner already captured`
-                );
               }
               // Don't capture the borrower itself - it's just an alias
             } else {
               // Variable is not borrowing - capture it normally
-              console.log(
-                `[AWAIT ANALYSIS]   Capturing variable: ${variable.name}, id=${variable.id}`
-              );
               capturedVariables.set(variable.id, {
                 id: variable.id,
                 name: varName,
@@ -226,10 +197,6 @@ function walkExprForAwaits(
                 isBorrowingTheARCValueOfVariable: undefined,
               });
             }
-          } else {
-            console.log(
-              `[AWAIT ANALYSIS]   Variable already captured or check failed: has=${capturedVariables.has(variable.id)}, var exists=${!!variable}`
-            );
           }
         }
       }
@@ -268,14 +235,8 @@ function walkExprForAwaits(
               if (futureVar.isBorrowingTheARCValueOfVariable) {
                 futureVariableId =
                   futureVar.isBorrowingTheARCValueOfVariable.id;
-                console.log(
-                  `[AWAIT ANALYSIS] await argument ${futureVarName} is borrowing from owner ${futureVar.isBorrowingTheARCValueOfVariable.name}, using owner ID: ${futureVariableId}`
-                );
               } else {
                 futureVariableId = futureVar.id;
-                console.log(
-                  `[AWAIT ANALYSIS] await argument ${futureVarName} is not borrowing, using its ID: ${futureVariableId}`
-                );
               }
             }
           }

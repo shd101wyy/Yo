@@ -3,6 +3,7 @@ import { exprIsFunctionCall, exprIsFunctionCallOf } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ArrayType,
+  ClosureType,
   EnumType,
   EnumVariant,
   FunctionType,
@@ -13,6 +14,7 @@ import {
   isStructType,
   MutPtrType,
   SliceType,
+  StructType,
   Type,
   TypeId,
   TypeTag,
@@ -64,6 +66,20 @@ export interface CodeGenContext {
    * Maps signature string to the closure type
    */
   spawnedClosureSignatures: Map<string, { closureType: Type }>;
+
+  /**
+   * Closure-to-capture type mapping for generating dispose functions
+   * Maps closure type ID to its closure type, closure C name, capture type, and capture C name
+   */
+  closureCaptureMap: Map<
+    string,
+    {
+      closureType: ClosureType;
+      closureCName: string;
+      captureType: StructType;
+      captureCName: string;
+    }
+  >;
 
   /**
    * track the current function being generated for recur

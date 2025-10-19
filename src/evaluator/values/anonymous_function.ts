@@ -459,39 +459,11 @@ Got:      "${paramName}"`,
     | Map<string, FunctionCapturedVariableInfo>
     | undefined;
 
-  // DEBUG: Log closure creation details
-  if (isClosureFunction) {
-    console.log(
-      `[DEBUG] Closure function - capturedVariables size:`,
-      capturedVariables?.size || "undefined"
-    );
-  }
-
   if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
     capturedVariablesWithValues = enrichCapturedVariables({
       capturedVariables,
       env,
     });
-  }
-
-  // Update the function value with captured variables (if any)
-  if (capturedVariables && capturedVariables.size > 0) {
-    functionValue.capturedVariables = new Map();
-    for (const [name, info] of capturedVariables) {
-      if (info.frameLevel < env.frames.length) {
-        const variable = env.frames[info.frameLevel]?.variables.find(
-          (v) => v.name === name
-        );
-        if (variable && !variable.isCompileTimeOnly) {
-          // Only capture the runtime variables
-          functionValue.capturedVariables.set(name, {
-            ...info,
-            value: variable.value,
-            type: variable.type,
-          });
-        }
-      }
-    }
   }
 
   // Set the type and value of the expression
@@ -501,14 +473,6 @@ Got:      "${paramName}"`,
   let captureType: StructType | undefined;
 
   if (isCreatingClosure && expectedClosureType) {
-    // DEBUG: Log captured variables before creating capture type
-    console.log(
-      `[DEBUG] Creating closure - capturedVariablesWithValues:`,
-      capturedVariablesWithValues
-        ? Array.from(capturedVariablesWithValues.entries())
-        : "undefined"
-    );
-
     // Create a closure type and closure value using helper function
     // We don't need the captureValue since closures are runtime-only
     const result = createCaptureTypeAndValue({
@@ -541,7 +505,12 @@ Got:      "${paramName}"`,
 
     // Update the existing function value for closures
     functionValue.funcId = `closure_${randomId()}`;
-    functionValue.capturedVariables = capturedVariablesWithValues;
+
+    // Set the closure info for easy codegen access
+    functionValue.closureInfo = {
+      closureType: closureType,
+      captureType: captureType,
+    };
 
     // Closures are always runtime values - create an UnknownValue
     // The closure will be constructed at runtime in C code

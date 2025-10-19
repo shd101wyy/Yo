@@ -1,7 +1,7 @@
 import { Environment } from "./env";
 import { CapturedVariableInfo } from "./evaluator/context";
 import { Expr } from "./expr";
-import { FunctionType, Type } from "./types";
+import { ClosureType, FunctionType, Type } from "./types";
 import type { Value } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -101,14 +101,31 @@ export type FunctionValue = {
   specializedFunctionCaches: SpecializedFunctionCache[];
 
   /**
-   * For closures, this contains the variables captured from outer scopes.
-   * Maps variable name to capture information including frame level, usage type, token, value, and type.
-   * This will be useful for codegen to construct a closure struct.
+   * Closure-specific information.
+   * Only set for functions that are closure implementations (when type.isClosure is true).
+   * Contains the ClosureType and capture struct type for easy access during codegen.
    */
-  capturedVariables?: Map<string, FunctionCapturedVariableInfo>;
+  closureInfo?: ClosureInfo;
 };
 
 export interface FunctionCapturedVariableInfo extends CapturedVariableInfo {
   value: Value | undefined; // The actual captured value
   type: Type; // The type of the captured value
+}
+
+/**
+ * Information about a closure, stored on closure function values.
+ * This allows codegen to easily access the closure type and capture struct type
+ * without having to search through the type collection.
+ */
+export interface ClosureInfo {
+  /**
+   * The closure type that wraps this function
+   */
+  closureType: ClosureType; // ClosureType
+
+  /**
+   * The capture struct type that holds captured variables
+   */
+  captureType: Type | undefined; // StructType | undefined
 }

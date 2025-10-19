@@ -349,10 +349,7 @@ export function typeRequiresInference(type?: Type): boolean {
       return true;
     case TypeTag.Closure: {
       const closureType = type as ClosureType;
-      return (
-        typeRequiresInference(closureType.captureType) ||
-        typeRequiresInference(closureType.callType)
-      );
+      return typeRequiresInference(closureType.callType);
     }
     case TypeTag.Future:
       return typeRequiresInference((type as FutureType).elementType);
