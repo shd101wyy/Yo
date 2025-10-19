@@ -1762,8 +1762,9 @@ function generateFuncCall(
           }
         });
 
-        // Call through the vtable - closure->vtable.call(closure, args...)
-        const allArgs = [closureCode, ...args];
+        // Call through the vtable - closure->vtable.call(closure->data, args...)
+        // Note: The first argument to the call function is the capture data pointer, not the closure itself
+        const allArgs = [`(${closureCode})->data`, ...args];
         const closureCall = `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
 
         // Get return type from the closure's function signature
