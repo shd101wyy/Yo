@@ -517,6 +517,9 @@ export interface MutPtrType extends Type {
  * Examples:
  * - fn(elem : i32) => i32
  * - fn(x: i32, y: i32) => string
+ *
+ * The capture type (struct containing captured variables) is stored in
+ * the expression's EvaluatedExprData.captureType field, not in the type itself.
  */
 export interface ClosureType extends Type {
   tag: TypeTag.Closure;
@@ -526,18 +529,6 @@ export interface ClosureType extends Type {
    * This is a regular function type without closure kinds.
    */
   callType: FunctionType & { isClosure: true };
-
-  /**
-   * The type that contains the captured variables.
-   * This defines what variables the closure captures and how they are captured.
-   *
-   * For example:
-   *   struct(counter: &(i32), base: &(i32))
-   *
-   * - undefined: Base closure type that can accept any closure with the same call signature
-   * - StructType: Specific closure type with known captured variables
-   */
-  captureType: StructType | undefined;
 
   /**
    * The module that contains the closure's ARC functions (___drop, ___dup).

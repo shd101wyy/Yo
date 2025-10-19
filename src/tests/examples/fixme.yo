@@ -1,3 +1,4 @@
+/*
 open import "std";
 open import "std/libc/stdio.yo";
 
@@ -9,9 +10,9 @@ MyBox :: object
   };
 ;
 
-say :: (fn(s : *(u8), box: MyBox) -> Future(i32)) async {
+say :: (fn(s1 : *(u8), box: MyBox) -> Future(i32)) async {
   val := box.*;
-  printf("%s\n", s);
+  printf("%s\n", s1);
   printf("thread %zu sent %i\n", Concurrency.get_thread_id(), val);
   return val;
 };
@@ -25,13 +26,13 @@ main :: (fn() -> Future(unit)) async {
   
   // say2 is a closure;
   x := 18;
-  say2 := (fn(s : *(u8)) => Future(i32)) { // <= this is a closure
+  say2 := (fn(s2 : *(u8)) => Future(i32)) { // <= this is a closure
                                            // closure captures `x`
     printf("Creating closure say2 with x = %d\n", x);
     y := 2;
     return async { // <= this is an async block
-                   // async block captures `x` and `y` and `s`
-      printf("%s\n", s);
+                   // async block captures `x` and `y` and `s2`
+      printf("%s\n", s2);
       printf("thread %zu sent %i\n", Concurrency.get_thread_id(), (x + y));
       return (x + y);
     };
@@ -55,6 +56,34 @@ main :: (fn() -> Future(unit)) async {
 
   result := (t1_result + t2_result);
   printf("result: %d\n", result);
+};
+
+export main;
+*/
+
+open import "std";
+open import "std/libc/stdio";
+
+MyBox :: object
+  (*) : i32,
+
+  dispose :: (fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.*);
+  }
+;
+
+main :: (fn() -> unit) {
+  x := MyBox(1);
+  closure := ((fn(v : i32) => i32) {
+    x.* = (x.* + v);
+    return x.*;
+  });
+
+  closure(2);
+  closure(3);
+
+  result := closure(4);
+  printf("Final result: %d, %d\n", result, x.*);
 };
 
 export main;

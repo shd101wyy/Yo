@@ -60,6 +60,13 @@ export function evaluateAsync({
     });
   }
 
+  if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `async block must be evaluated within a function or another async block.`,
+    });
+  }
+
   const bodyExpr = expr.args[0]!;
 
   // Determine the expected return type for the body
@@ -151,7 +158,7 @@ export function evaluateAsync({
     value: undefined, // Runtime value (the Future handle)
     pathCollection: [],
     // Store metadata for async codegen
-    asyncBlockCaptureType: captureType, // Store the capture struct type for codegen
+    captureType: captureType, // Store the capture struct type for codegen (used for both closures and async blocks)
     capturedVariableDupExpressions:
       capturedVariableDupExpressions &&
       capturedVariableDupExpressions.length > 0

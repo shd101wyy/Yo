@@ -20,6 +20,7 @@ import {
 } from "./types";
 import { generateNewTempVariableName, isTempVariableName } from "./utils";
 import { isTypeValue, ModuleValue, Value } from "./value";
+import { ValueTag } from "./value-tag";
 
 /**
  * Eg:
@@ -215,14 +216,26 @@ export interface EvaluatedExprData {
   asyncStackSize?: Expr;
 
   /**
-   * For async block expressions, this contains the capture struct type that holds all
-   * captured variables from outer scope. This is similar to how closures work.
+   * For closure and async block expressions, this contains the capture struct type that holds all
+   * captured variables from outer scope.
    * The capture struct has ARC functions (___drop, ___dup, ___dispose) auto-generated.
    *
    * Example: For `async { printf("%d", x); }` where `x: MyBox` is from outer scope,
    * this would contain a StructType with a single field `x: MyBox`.
+   *
+   * For closures without captures, this is undefined.
    */
-  asyncBlockCaptureType?: StructType;
+  captureType?: StructType;
+
+  /**
+   * For closure construction expressions (calling a closure type with a body),
+   * this holds the FunctionValue that implements the closure body.
+   * This is used during C code generation to find the function to call.
+   *
+   * Example: For `(fn(x: i32) => i32)(begin(return(x + 1)))`, this contains
+   * the FunctionValue for the anonymous function implementation.
+   */
+  closureFunctionValue?: Value & { tag: ValueTag.Function };
 }
 
 export type AtomExpr = {

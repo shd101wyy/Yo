@@ -62,8 +62,7 @@ export interface EvaluatorContext {
   /**
    * For closures and async blocks, track variables captured from outer scopes.
    * Maps variable name to usage information (frame level, usage type, token).
-   * This is populated during evaluation when isEvaluatingFunctionBody is set
-   * (for closures) or when isEvaluatingAsyncBlock is set (for async blocks).
+   * This is populated during evaluation when isEvaluatingFunctionBodyOrAsyncBlock is set.
    */
   capturedVariables?: Map<string, CapturedVariableInfo>;
 

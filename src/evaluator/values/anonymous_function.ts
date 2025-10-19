@@ -27,11 +27,12 @@ import {
   FunctionType,
   isClosureType,
   isFunctionType,
+  StructType,
   Type,
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
-import { createClosureValue, createUnknownValue, Value } from "../../value";
+import { createUnknownValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
@@ -495,8 +496,9 @@ Got:      "${paramName}"`,
 
   // Set the type and value of the expression
   let finalType: Type;
-  let finalValue: Value;
+  let finalValue: Value | undefined;
   let capturedVariableDupExpressions: Expr[] | undefined;
+  let captureType: StructType | undefined;
 
   if (isCreatingClosure && expectedClosureType) {
     // DEBUG: Log captured variables before creating capture type
@@ -508,15 +510,17 @@ Got:      "${paramName}"`,
     );
 
     // Create a closure type and closure value using helper function
-    const { captureType, captureValue } = createCaptureTypeAndValue({
-      expectedCaptureType: expectedClosureType.captureType,
+    // We don't need the captureValue since closures are runtime-only
+    const result = createCaptureTypeAndValue({
+      expectedCaptureType: undefined, // Capture type is no longer part of ClosureType
       capturedVariablesWithValues,
       env,
       closureToken: expr.token,
       context: { ...context },
     });
+    captureType = result.captureType;
 
-    const closureType = createClosureType(newFunctionType, captureType, env);
+    const closureType = createClosureType(newFunctionType, env);
 
     // Add ARC functions to the closure type
     env = addARCFunctionsToClosureType({
@@ -539,13 +543,10 @@ Got:      "${paramName}"`,
     functionValue.funcId = `closure_${randomId()}`;
     functionValue.capturedVariables = capturedVariablesWithValues;
 
-    // Create the closure value
+    // Closures are always runtime values - create an UnknownValue
+    // The closure will be constructed at runtime in C code
     finalType = closureType;
-    finalValue = createClosureValue(
-      closureType,
-      captureValue, // captureValue is already typed as StructValue | undefined
-      functionValue
-    );
+    finalValue = undefined;
   } else {
     // Regular function - use the existing functionValue
     finalType = newFunctionType;
@@ -564,6 +565,8 @@ Got:      "${paramName}"`,
       isCreatingClosure && capturedVariableDupExpressions
         ? capturedVariableDupExpressions
         : undefined,
+    captureType: isCreatingClosure ? captureType : undefined, // Store the capture struct type for codegen (used for both closures and async blocks)
+    closureFunctionValue: isCreatingClosure ? functionValue : undefined,
   };
 
   // For closures, attach a temporary variable so they can be consumed

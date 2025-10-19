@@ -40,7 +40,6 @@ import {
 import {
   isArrayValue,
   isBooleanValue,
-  isClosureValue,
   isComptStringValue,
   isEnumValue,
   isFunctionValue,
@@ -757,14 +756,9 @@ function generateFuncCall(
                   functionContext.types
                 ).find((entry) => entry.type === currentClosureType);
                 if (closureTypeEntry) {
-                  // Use the existing struct type name instead of generating a new capture type name
-                  const captureType = currentClosureType.captureType;
-                  const existingCaptureTypeEntry = Object.values(
-                    functionContext.types
-                  ).find((entry) => entry.type === captureType);
-                  const captureStructName = existingCaptureTypeEntry
-                    ? existingCaptureTypeEntry.cName
-                    : `${closureTypeEntry.cName}_capture`; // fallback
+                  // Note: captureType is no longer on ClosureType, so we use a naming convention
+                  // The capture struct name follows the pattern: closure_type_name + "_capture"
+                  const captureStructName = `${closureTypeEntry.cName}_capture`;
                   rhsCode = `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(rhs.token.value)}`;
                 } else {
                   rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
@@ -915,7 +909,7 @@ function generateFuncCall(
       }
     } else {
       // Non-array assignment - use existing logic
-      let rhsCode = generateExpr(rhs, indent, context);
+      const rhsCode = generateExpr(rhs, indent, context);
 
       // Check if we need to cast closure types
       const lhsType = lhs.$.type;
@@ -926,15 +920,9 @@ function generateFuncCall(
         isClosureType(lhsType) &&
         isClosureType(rhsType)
       ) {
-        // Check if LHS is a base closure type and RHS is a specific closure type
-        if (
-          lhsType.captureType === undefined &&
-          rhsType.captureType !== undefined
-        ) {
-          // Cast from specific closure type to base closure type
-          const lhsTypeName = getTypeString(lhsType, context);
-          rhsCode = `(${lhsTypeName})${rhsCode}`;
-        }
+        // Note: All closure types are now the same (no base vs specific distinction)
+        // since captureType is no longer part of ClosureType
+        // No cast needed
       }
 
       if (!isUnitType(lhs.$.type)) {
@@ -1299,6 +1287,20 @@ function generateFuncCall(
   else {
     const functionType = expr.func.$?.type;
     const functionValue = expr.func.$?.value;
+
+    // Debug: Log what we're dealing with
+    console.log(
+      `[DEBUG FUNC CALL] functionType exists=${!!functionType}, functionValue exists=${!!functionValue}`
+    );
+    if (functionType) {
+      console.log(
+        `[DEBUG FUNC CALL] functionType: ${typeToString(functionType)}`
+      );
+      console.log(
+        `[DEBUG FUNC CALL] isFunctionType=${isFunctionType(functionType)}, isClosureType=${isClosureType(functionType)}`
+      );
+    }
+
     if (isFunctionType(functionType)) {
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
 
@@ -1566,6 +1568,17 @@ function generateFuncCall(
     } else if (isClosureType(functionType)) {
       // Handle closure calls with dynamic dispatch through vtable
       const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+
+      // Debug: Check what we have
+      console.log(
+        `[DEBUG CLOSURE] isClosureType=true, has runtimeArgExprs=${!!runtimeArgExprs}, args.length=${expr.args.length}`
+      );
+      console.log(
+        `[DEBUG CLOSURE] functionType: ${typeToString(functionType)}`
+      );
+      // Note: captureType is no longer part of ClosureType, it's in expr.$.captureType
+      // console.log(`[DEBUG CLOSURE] captureType: ...`);
+
       if (runtimeArgExprs) {
         // First, handle arguments that need temporary variables
         const functionContext = context as FunctionGenerationContext;
@@ -1688,6 +1701,8 @@ function generateFuncCall(
           }
         }
       } else {
+        // Note: Closure construction is now handled in the isTypeValue(functionValue) branch below
+        // by checking for expr.$?.closureFunctionValue
         return `// Error: No runtime args found for closure call`;
       }
     } else if (isTypeValue(functionValue)) {
@@ -1753,6 +1768,189 @@ function generateFuncCall(
             } else {
               return structValue;
             }
+          }
+        }
+      }
+      // closure type - closure construction
+      else if (isClosureType(functionValue.value)) {
+        const closureType = functionValue.value;
+
+        // Debug: log the closure type and capture type
+        console.log(
+          `[DEBUG CLOSURE CONSTRUCTION] Closure type: ${typeToString(closureType)}`
+        );
+        console.log(
+          `[DEBUG CLOSURE CONSTRUCTION] Capture type: ${expr.$?.captureType ? typeToString(expr.$.captureType) : "undefined"}`
+        );
+
+        // Closure construction: (fn(x: T) => R)(body)
+        // The body should have been evaluated and should have a function value
+        const bodyExpr = expr.args[0];
+        const closureFunctionValue = expr.$?.closureFunctionValue;
+
+        console.log(
+          `[DEBUG] Closure construction - has bodyExpr=${!!bodyExpr}, has closureFunctionValue=${!!closureFunctionValue}`
+        );
+        if (closureFunctionValue) {
+          console.log(
+            `[DEBUG] Closure function ID: ${closureFunctionValue.funcId}`
+          );
+          console.log(
+            `[DEBUG] Function in context: ${!!(context as FunctionGenerationContext).functions[closureFunctionValue.funcId]}`
+          );
+        }
+
+        if (!bodyExpr || !closureFunctionValue) {
+          return `// Error: Closure construction missing function value`;
+        }
+
+        const functionCName = (context as FunctionGenerationContext).functions[
+          closureFunctionValue.funcId
+        ]?.cName;
+
+        if (!functionCName) {
+          return `// Error: Closure implementation function not found in context`;
+        }
+
+        const closureTypeEntry = Object.values(context.types).find(
+          (entry) => entry.type === closureType
+        );
+
+        if (!closureTypeEntry) {
+          return `// Error: Closure type not found in context`;
+        }
+
+        const closureCName = closureTypeEntry.cName;
+
+        // Check if this closure has captures from expr.$ metadata
+        const captureType = expr.$?.captureType;
+        const hasCaptures =
+          captureType &&
+          isStructType(captureType) &&
+          captureType.elements.length > 0;
+
+        const constructorName = hasCaptures
+          ? `__yo_create_${closureCName}`
+          : `__yo_new_${closureCName}`;
+
+        if (hasCaptures && captureType && isStructType(captureType)) {
+          // Closure with captures
+          const captureTypeEntry = Object.values(context.types).find(
+            (entry) => entry.type === captureType
+          );
+
+          if (!captureTypeEntry) {
+            return `// Error: Capture type not found for closure`;
+          }
+
+          const captureCName = captureTypeEntry.cName;
+
+          // Check if we have captured variable dup expressions
+          const captureArgs = expr.$?.capturedVariableDupExpressions
+            ? expr.$.capturedVariableDupExpressions.map((dupExpr) =>
+                generateExpr(dupExpr, indent, context)
+              )
+            : captureType.elements.map((element) => {
+                // Generate proper variable access for captured variables
+                const functionContext = context as FunctionGenerationContext;
+                // Check if we're in a state machine or closure context
+                if (functionContext.inStateMachine) {
+                  return `sm->${sanitizeForCIdentifier(element.label)}`;
+                } else if (functionContext.currentClosureType) {
+                  const currentClosureType = functionContext.currentClosureType;
+                  // Note: captureType is no longer on ClosureType, use naming convention
+                  const closureTypeEntry = Object.values(
+                    functionContext.types
+                  ).find((entry) => entry.type === currentClosureType);
+                  if (closureTypeEntry) {
+                    const captureStructName = `${closureTypeEntry.cName}_capture`;
+                    return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(element.label)}`;
+                  }
+                  return `closure_context->${sanitizeForCIdentifier(element.label)}`;
+                } else {
+                  // Just use the variable name directly
+                  return element.label;
+                }
+              });
+
+          // Generate capture struct initialization
+          const captureDataCode = `(${captureCName}){ ${captureArgs
+            .map((arg, i) => {
+              const element = captureType.elements[i];
+              if (!element) {
+                return `/* Error: missing element at index ${i} */`;
+              }
+              return `.${sanitizeForCIdentifier(element.label)} = ${arg}`;
+            })
+            .join(", ")} }`;
+
+          // Allocate capture data on heap and get pointer
+          const captureDataPtr = `({ 
+        ${captureCName}* __capture_data = (${captureCName}*)__yo_malloc(sizeof(${captureCName}));
+        *__capture_data = ${captureDataCode};
+        __capture_data;
+      })`;
+
+          // Use the closure's dispose function
+          const closureDisposeFunctionName = `__yo_dispose_${closureCName}`;
+
+          // Cast function pointers to generic void* function types for constructor
+          const callType = closureType.callType;
+          const returnTypeStr = getTypeString(callType.return.type, context);
+          const callParamList = callType.parameters
+            .map((param) => {
+              const paramTypeStr = getTypeString(param.type, context);
+              return paramTypeStr;
+            })
+            .join(", ");
+
+          const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
+          const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
+
+          const closureValue = `${constructorName}(${captureDataPtr}, ${castCallFunction}, ${castDisposeFunction})`;
+
+          const tempVar = expr.$?.variableName;
+          if (tempVar && expr.$?.type) {
+            const varTypeAndName = getVariableTypeString(
+              expr.$.type,
+              tempVar,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${varTypeAndName} = ${closureValue};`
+            );
+            return tempVar;
+          } else {
+            return closureValue;
+          }
+        } else {
+          // Closure without captures
+          const callType = closureType.callType;
+          const returnTypeStr = getTypeString(callType.return.type, context);
+          const callParamList = callType.parameters
+            .map((param) => {
+              const paramTypeStr = getTypeString(param.type, context);
+              return paramTypeStr;
+            })
+            .join(", ");
+
+          const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
+
+          const closureValue = `${constructorName}(${castCallFunction}, NULL)`;
+
+          const tempVar = expr.$?.variableName;
+          if (tempVar && expr.$?.type) {
+            const varTypeAndName = getVariableTypeString(
+              expr.$.type,
+              tempVar,
+              context
+            );
+            context.emitter.emitLine(
+              `${indent}${varTypeAndName} = ${closureValue};`
+            );
+            return tempVar;
+          } else {
+            return closureValue;
           }
         }
       }
@@ -1995,8 +2193,8 @@ function generateAsyncBlock(
   emitter.emitDeclarationLine(``);
 
   // Add capture struct as a single field if there are captured variables
-  if (expr.$?.asyncBlockCaptureType) {
-    const captureType = expr.$.asyncBlockCaptureType;
+  if (expr.$?.captureType) {
+    const captureType = expr.$.captureType;
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
     );
@@ -2050,8 +2248,8 @@ function generateAsyncBlock(
   emitter.emitDeclarationLine(``);
 
   // Generate forward declaration for constructor function
-  if (expr.$?.asyncBlockCaptureType) {
-    const captureType = expr.$.asyncBlockCaptureType;
+  if (expr.$?.captureType) {
+    const captureType = expr.$.captureType;
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
     );
@@ -2080,12 +2278,12 @@ function generateAsyncBlock(
     disposeFunctionName,
     futureType: futureType as FutureType,
     futureTypeCName,
-    captureType: expr.$?.asyncBlockCaptureType,
+    captureType: expr.$?.captureType,
     analysis,
   });
 
   // Generate the constructor call with captured variables
-  const captureType = expr.$?.asyncBlockCaptureType;
+  const captureType = expr.$?.captureType;
 
   if (captureType) {
     // We have captured variables in a struct
@@ -2104,8 +2302,14 @@ function generateAsyncBlock(
         if (dupExpr) {
           return `.${elem.label} = ${generateExpr(dupExpr, indent, context)}`;
         }
-        // Fallback to direct variable reference
-        return `.${elem.label} = ${elem.label}`;
+        // Fallback: generate proper variable access using generateAtom
+        // This handles closure context and state machine access properly
+        const atomExpr: AtomExpr = {
+          tag: ExprTag.Atom,
+          token: elem.exprs.expr.token,
+          $: elem.exprs.expr.$,
+        };
+        return `.${elem.label} = ${generateAtom(atomExpr, context)}`;
       })
       .join(", ");
 
@@ -2401,6 +2605,15 @@ function generateDynCall(
  * Generate C code for an atom expression - extracted from original codegen-c.ts
  */
 function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
+  const functionContext = context as FunctionGenerationContext;
+
+  console.log(
+    `[DEBUG] generateAtom called for token: "${expr.token.value}", inStateMachine: ${!!functionContext.inStateMachine}, stateMachineVariables: ${functionContext.stateMachineVariables ? functionContext.stateMachineVariables.size : "undefined"}`
+  );
+  console.log(
+    `[DEBUG] generateAtom - currentClosureCaptures: ${functionContext.currentClosureCaptures}, currentClosureCaptureFrameLevel: ${functionContext.currentClosureCaptureFrameLevel}, currentClosureType: ${!!functionContext.currentClosureType}`
+  );
+
   // Handle control flow atoms first (before checking computed values or variable names)
   if (expr.token.value === "continue") {
     return "continue";
@@ -2415,11 +2628,21 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   }
 
   // Check if we're in a closure function and this variable is captured
-  const functionContext = context as FunctionGenerationContext; // Type assertion to access function-specific context
+  // Type assertion to access function-specific context
 
   // Check if we're in a state machine and this is a captured variable
   if (functionContext.inStateMachine && functionContext.stateMachineVariables) {
     const varName = expr.token.value;
+
+    console.log(
+      `[DEBUG] generateAtom - checking state machine variable: ${varName}`
+    );
+    console.log(
+      `[DEBUG] generateAtom - state machine variables:`,
+      Array.from(functionContext.stateMachineVariables.entries()).map(
+        ([id, var_]) => `${id} -> ${var_.name} (${var_.kind})`
+      )
+    );
 
     // Check if this variable is in the state machine
     for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
@@ -2511,17 +2734,40 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   }
 
   // Check if this variable should use closure access by comparing frame levels
+  console.log(
+    `[DEBUG] generateAtom - Checking closure access for ${expr.token.value}:`
+  );
+  console.log(
+    `[DEBUG]   currentClosureCaptures: ${functionContext.currentClosureCaptures}`
+  );
+  console.log(
+    `[DEBUG]   includes variable: ${functionContext.currentClosureCaptures && functionContext.currentClosureCaptures.includes(expr.token.value)}`
+  );
+  console.log(`[DEBUG]   has env: ${!!expr.$?.env}`);
+  console.log(
+    `[DEBUG]   has frame level: ${functionContext.currentClosureCaptureFrameLevel !== undefined}`
+  );
+
+  const isClosureCaptured =
+    expr.$?.env && functionContext.currentClosureCaptureFrameLevel !== undefined
+      ? checkVariableIsClosureCaptured(
+          expr.token.value,
+          expr.$.env,
+          functionContext.currentClosureCaptureFrameLevel
+        )
+      : false;
+  console.log(`[DEBUG]   checkVariableIsClosureCaptured: ${isClosureCaptured}`);
+
   if (
     functionContext.currentClosureCaptures &&
     functionContext.currentClosureCaptures.includes(expr.token.value) &&
     expr.$?.env &&
     functionContext.currentClosureCaptureFrameLevel !== undefined &&
-    checkVariableIsClosureCaptured(
-      expr.token.value,
-      expr.$.env,
-      functionContext.currentClosureCaptureFrameLevel
-    )
+    isClosureCaptured
   ) {
+    console.log(
+      `[DEBUG] generateAtom - Using closure access for variable: ${expr.token.value}`
+    );
     // We're accessing a captured variable in a closure function
     // With vtable approach, access captured variables through closure_context->data pointer
     // Need to cast data to the appropriate capture struct type
@@ -2531,14 +2777,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         (entry) => entry.type === currentClosureType
       );
       if (closureTypeEntry) {
-        // Use the existing struct type name instead of generating a new capture type name
-        const captureType = currentClosureType.captureType;
-        const existingCaptureTypeEntry = Object.values(
-          functionContext.types
-        ).find((entry) => entry.type === captureType);
-        const captureStructName = existingCaptureTypeEntry
-          ? existingCaptureTypeEntry.cName
-          : `${closureTypeEntry.cName}_capture`; // fallback
+        // Note: captureType is no longer on ClosureType, use naming convention
+        const captureStructName = `${closureTypeEntry.cName}_capture`;
         return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
       }
     }
@@ -2565,25 +2805,9 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       );
 
       if (closureTypeEntry) {
-        const closureType = closureTypeEntry.type as ClosureType;
-        const captureType = closureType.captureType;
-
-        if (captureType && captureType.tag === TypeTag.Struct) {
-          // Check if this variable is in the captured variables
-          const capturedVarNames = captureType.elements.map(
-            (elem) => elem.label
-          );
-          if (capturedVarNames.includes(expr.token.value)) {
-            // Use the existing struct type name instead of generating a new capture type name
-            const existingCaptureTypeEntry = Object.values(
-              functionContext.types
-            ).find((entry) => entry.type === captureType);
-            const captureStructName = existingCaptureTypeEntry
-              ? existingCaptureTypeEntry.cName
-              : `${closureTypeEntry.cName}_capture`; // fallback
-            return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
-          }
-        }
+        // Note: captureType is no longer on ClosureType, use naming convention
+        const captureStructName = `${closureTypeEntry.cName}_capture`;
+        return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
       }
     }
   }
@@ -2597,7 +2821,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
 function generateComptValue(
   value: Value,
   context: CodeGenContext,
-  sourceExpr?: Expr
+  _sourceExpr?: Expr
 ): string {
   if (isNumberValue(value)) {
     // For numbers, we can directly return the value as a string
@@ -2709,193 +2933,6 @@ function generateComptValue(
       generateComptValue(element, context)
     );
     return `(${arrayTypeName}){ .data = { ${elementCodes.join(", ")} } }`;
-  } else if (isClosureValue(value)) {
-    // For closure values, generate vtable-based dynamic dispatch structure
-    const closureType = value.type;
-    const cName = context.types[closureType.id]?.cName;
-    if (!cName) {
-      return `// Error: No C type name found for closure ${typeToString(closureType)}`;
-    }
-
-    // Get the function name for the closure implementation
-    const functionCName = context.functions[value.functionValue.funcId]?.cName;
-    if (!functionCName) {
-      return `// Error: No C function name found for closure function`;
-    }
-
-    // Determine if this closure has captures and choose the appropriate constructor
-    const hasCaptures =
-      (value.captureValue && isStructValue(value.captureValue)) ||
-      (closureType.captureType &&
-        isStructType(closureType.captureType) &&
-        closureType.captureType.elements.length > 0);
-
-    const constructorName = hasCaptures
-      ? `__yo_create_${cName}`
-      : `__yo_new_${cName}`;
-
-    // For compile-time closures, we need to generate the constructor call
-    if (value.captureValue && isStructValue(value.captureValue)) {
-      // Compile-time closure with captures
-      const captureStruct = value.captureValue;
-      const captureArgs: string[] = [];
-
-      for (let i = 0; i < captureStruct.elements.length; i++) {
-        const element = captureStruct.elements[i];
-        if (element) {
-          const fieldCode = generateComptValue(element, context);
-          captureArgs.push(fieldCode);
-        }
-      }
-
-      // Create capture data struct
-      const captureTypeId = closureType.captureType?.id;
-      const captureTypeName = captureTypeId
-        ? context.types[captureTypeId]?.cName
-        : undefined;
-
-      if (!captureTypeName) {
-        return `// Error: No C type name found for capture type`;
-      }
-
-      // Generate capture struct initialization
-      const captureDataCode = `(${captureTypeName}){ ${captureArgs
-        .map((arg, i) => {
-          const element = closureType.captureType!.elements[i];
-          if (!element) {
-            return `/* Error: missing element at index ${i} */`;
-          }
-          return `.${sanitizeForCIdentifier(element.label)} = ${arg}`;
-        })
-        .join(", ")} }`;
-
-      // Allocate capture data on heap and get pointer
-      const captureDataPtr = `({ 
-        ${captureTypeName}* __capture_data = (${captureTypeName}*)__yo_malloc(sizeof(${captureTypeName}));
-        *__capture_data = ${captureDataCode};
-        __capture_data;
-      })`;
-
-      // Use the closure's dispose function instead of the capture type's drop function
-      const closureDisposeFunctionName = `__yo_dispose_${cName}`;
-
-      // Cast function pointers to generic void* function types for constructor
-      const callType = closureType.callType;
-      const returnTypeStr = getTypeString(callType.return.type, context);
-      const callParamList = callType.parameters
-        .map((param) => {
-          const paramTypeStr = getTypeString(param.type, context);
-          return paramTypeStr;
-        })
-        .join(", ");
-
-      const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
-      const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
-
-      return `${constructorName}(${captureDataPtr}, ${castCallFunction}, ${castDisposeFunction})`;
-    } else if (
-      closureType.captureType &&
-      isStructType(closureType.captureType)
-    ) {
-      // Runtime closure with captures - generate constructor call
-      const captureType = closureType.captureType;
-
-      if (captureType.elements.length > 0) {
-        // Runtime closure with captures
-        // Check if we have captured variable dup expressions available from sourceExpr
-        let captureArgs: string[];
-
-        if (sourceExpr?.$?.capturedVariableDupExpressions) {
-          // Use the evaluated dup expressions for ARC variables
-          const capturedVariableDupExpressions =
-            sourceExpr.$.capturedVariableDupExpressions;
-
-          captureArgs = capturedVariableDupExpressions.map((dupExpr) =>
-            generateExpr(dupExpr, "", context)
-          );
-
-          // Fill in any remaining non-ARC captured variables with their labels
-          while (captureArgs.length < captureType.elements.length) {
-            const elementIndex = captureArgs.length;
-            const element = captureType.elements[elementIndex]!;
-            captureArgs.push(element.label);
-          }
-        } else {
-          // Fallback to original behavior - just use variable names
-          captureArgs = captureType.elements.map((element) => element.label);
-        }
-
-        // Get capture type name
-        const captureTypeId = captureType.id;
-        const captureTypeName = context.types[captureTypeId]?.cName;
-
-        if (!captureTypeName) {
-          return `// Error: No C type name found for capture type`;
-        }
-
-        // Generate capture struct initialization
-        const captureDataCode = `(${captureTypeName}){ ${captureArgs
-          .map((arg, i) => {
-            const element = captureType.elements[i];
-            if (!element) {
-              return `/* Error: missing element at index ${i} */`;
-            }
-            return `.${sanitizeForCIdentifier(element.label)} = ${arg}`;
-          })
-          .join(", ")} }`;
-
-        // Allocate capture data on heap and get pointer
-        const captureDataPtr = `({ 
-          ${captureTypeName}* __capture_data = (${captureTypeName}*)__yo_malloc(sizeof(${captureTypeName}));
-          *__capture_data = ${captureDataCode};
-          __capture_data;
-        })`;
-
-        // Use the closure's dispose function instead of the capture type's drop function
-        const closureDisposeFunctionName = `__yo_dispose_${cName}`;
-
-        // Cast function pointers to generic void* function types for constructor
-        const callType = closureType.callType;
-        const returnTypeStr = getTypeString(callType.return.type, context);
-        const callParamList = callType.parameters
-          .map((param) => {
-            const paramTypeStr = getTypeString(param.type, context);
-            return paramTypeStr;
-          })
-          .join(", ");
-
-        const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
-        const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
-
-        return `${constructorName}(${captureDataPtr}, ${castCallFunction}, ${castDisposeFunction})`;
-      } else {
-        // Empty closure - cast function pointer to generic void* function type
-        const callType = closureType.callType;
-        const returnTypeStr = getTypeString(callType.return.type, context);
-        const callParamList = callType.parameters
-          .map((param) => {
-            const paramTypeStr = getTypeString(param.type, context);
-            return paramTypeStr;
-          })
-          .join(", ");
-
-        const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
-        return `${constructorName}(${castCallFunction}, NULL)`;
-      }
-    } else {
-      // Closure without captures - cast function pointer to generic void* function type
-      const callType = closureType.callType;
-      const returnTypeStr = getTypeString(callType.return.type, context);
-      const callParamList = callType.parameters
-        .map((param) => {
-          const paramTypeStr = getTypeString(param.type, context);
-          return paramTypeStr;
-        })
-        .join(", ");
-
-      const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
-      return `${constructorName}(${castCallFunction}, NULL)`;
-    }
   } else if (isFunctionValue(value)) {
     // For function values, we need to register them and return their C function name
     const cName = context.functions[value.funcId]?.cName;
@@ -3179,20 +3216,9 @@ function generateCondExpression(
               );
 
               if (finalExprCode) {
-                // Special handling for closure types - add casting to base type
-                if (
-                  expr.$.type &&
-                  isClosureType(expr.$.type) &&
-                  valueType &&
-                  isClosureType(valueType) &&
-                  !valueType.captureType
-                ) {
-                  // Cast specific closure type to base closure type
-                  const baseTypeName = getTypeString(valueType, context);
-                  context.emitter.emitLine(
-                    `${indent}  ${tempVar} = (${baseTypeName})${finalExprCode};`
-                  );
-                } else if (!isUnit) {
+                // Note: Closure type casting is no longer needed since all closures are the same type
+                // (captureType is no longer part of ClosureType)
+                if (!isUnit) {
                   context.emitter.emitLine(
                     `${indent}  ${tempVar} = ${finalExprCode};`
                   );
@@ -3217,20 +3243,8 @@ function generateCondExpression(
               // For unit expressions, don't emit anything
             } else if (tempVar) {
               // For regular expressions, assign to temp variable (only if not unit type)
-              // Special handling for closure types - add casting to base type
-              if (
-                expr.$.type &&
-                isClosureType(expr.$.type) &&
-                valueType &&
-                isClosureType(valueType) &&
-                !valueType.captureType
-              ) {
-                // Cast specific closure type to base closure type
-                const baseTypeName = getTypeString(valueType, context);
-                context.emitter.emitLine(
-                  `${indent}  ${tempVar} = (${baseTypeName})${valueCode};`
-                );
-              } else if (!isUnit) {
+              // Note: Closure type casting is no longer needed since all closures are the same type
+              if (!isUnit) {
                 context.emitter.emitLine(
                   `${indent}  ${tempVar} = ${valueCode};`
                 );

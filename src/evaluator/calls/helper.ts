@@ -55,7 +55,6 @@ import {
   createTypeValue,
   createUnknownValue,
   ExprValue,
-  isClosureValue,
   isFunctionValue,
   isTypeValue,
   Value,
@@ -388,7 +387,8 @@ export function checkIfFunctionParameterMatchesArgument({
 }
 
 /**
- * Helper function to extract FunctionValue from either a FunctionValue or ClosureValue
+ * Helper function to extract FunctionValue from a Value
+ * Note: Closures are runtime-only values, so we can't extract FunctionValue from them at compile time
  */
 export function extractFunctionValue(
   value: Value | undefined
@@ -399,9 +399,7 @@ export function extractFunctionValue(
   if (isFunctionValue(value)) {
     return value;
   }
-  if (isClosureValue(value)) {
-    return value.functionValue;
-  }
+  // Closures are runtime-only, no FunctionValue available at compile time
   return undefined;
 }
 

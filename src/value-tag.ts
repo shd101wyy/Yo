@@ -19,7 +19,6 @@ export enum ValueTag {
   Boolean = "Boolean",
   Array = "Array",
   Function = "Function",
-  Closure = "Closure",
   Tuple = "Tuple",
   Struct = "Struct",
   Enum = "Enum",

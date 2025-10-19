@@ -6,7 +6,6 @@ import { TypeValue } from "./type-value";
 import {
   areTypesCompatible,
   ArrayType,
-  ClosureType,
   createBooleanType,
   createComptFloatType,
   createComptIntType,
@@ -105,21 +104,6 @@ export type ArrayValue = {
   elements: Value[];
 };
 
-export type ClosureValue = {
-  tag: ValueTag.Closure;
-  type: ClosureType;
-  /**
-   * The captured variables as a struct value.
-   * Can be undefined if the closure captures no variables,
-   * or UnknownValue if the capture type is inferred.
-   */
-  captureValue: StructValue | UnknownValue | undefined;
-  /**
-   * The function implementation.
-   */
-  functionValue: FunctionValue;
-};
-
 export type ExprValue = {
   tag: ValueTag.Expr;
   type: ExprType;
@@ -153,7 +137,6 @@ export type Value =
   | UnitValue
   | BooleanValue
   | ArrayValue
-  | ClosureValue
   | TupleValue
   | StructValue
   | EnumValue
@@ -246,9 +229,6 @@ export function valueToString(value?: Value): string {
         return `<fn ${value.type.typeName}>`;
       }
       return `<fn>`;
-    }
-    case ValueTag.Closure: {
-      return `<closure>`;
     }
     case ValueTag.Module: {
       return `${value.type.typeName ?? "_"}(${value.elements
@@ -762,27 +742,4 @@ export function areValuesEqual(
   } else {
     return false;
   }
-}
-
-/**
- * Create a closure value
- */
-export function createClosureValue(
-  type: ClosureType,
-  captureValue: StructValue | UnknownValue | undefined,
-  functionValue: FunctionValue
-): ClosureValue {
-  return {
-    tag: ValueTag.Closure,
-    type,
-    captureValue,
-    functionValue,
-  };
-}
-
-/**
- * Check if a value is a closure value
- */
-export function isClosureValue(value: Value): value is ClosureValue {
-  return value.tag === ValueTag.Closure;
 }

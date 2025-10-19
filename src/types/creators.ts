@@ -509,7 +509,6 @@ export function getFunctionParameterExprs({
 
 export function createClosureType(
   callType: FunctionType,
-  captureType: StructType | undefined,
   env: Environment
 ): ClosureType {
   if (!callType.isClosure) {
@@ -518,18 +517,14 @@ export function createClosureType(
     );
   }
 
-  // Use both call type and capture type for closure ID
-  // undefined captureType creates a base closure type that can accept any closure with the same call signature
-  const closureId = captureType
-    ? `closure_${callType.id}_${captureType.id}`
-    : `closure_${callType.id}_basetype`;
+  // Use only call type for closure ID
+  const closureId = `closure_${callType.id}`;
   const module = createModuleType(env);
 
   const closureType: ClosureType = {
     id: closureId,
     tag: TypeTag.Closure,
     callType: callType as FunctionType & { isClosure: true },
-    captureType,
     module,
     env,
   };

@@ -323,7 +323,9 @@ struct yo_thread_gc_state {
     if (isStructType(type)) {
       generateStructDeclaration(type, cName, context);
     } else if (isClosureType(type)) {
-      generateClosureDeclaration(type, cName, context);
+      // Pass undefined for captureType since this is just the type declaration
+      // Actual capture types are handled during closure construction in expressions/generation.ts
+      generateClosureDeclaration(type, cName, undefined, context);
     } else if (isDynType(type)) {
       generateDynDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
@@ -374,13 +376,14 @@ export function generateSliceStructDeclarations(context: CodeGenContext): void {
 export function generateClosureDeclaration(
   closureType: ClosureType,
   cName: string,
+  captureType: StructType | undefined,
   context: CodeGenContext
 ): void {
   const emitter = context.emitter;
 
+  // Note: Capture type is no longer part of ClosureType.
+  // It's passed as a separate parameter and stored in expr.$.captureType during closure construction.
   // Generate the capture data structure first (if there are captures)
-  const captureType = closureType.captureType;
-
   if (isStructType(captureType) && captureType.elements.length > 0) {
     // Check if the capture type already exists in the context (it should have been collected)
     const existingCaptureTypeEntry = Object.values(context.types).find(

@@ -1,11 +1,6 @@
 import { Expr, exprIsAtom, exprIsFunctionCall } from "../../expr";
 import { isFunctionType, typeContainsSomeType } from "../../types";
-import {
-  isClosureValue,
-  isFunctionValue,
-  isTypeValue,
-  ModuleValue,
-} from "../../value";
+import { isFunctionValue, isTypeValue, ModuleValue } from "../../value";
 import { collectType } from "../types";
 import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
 
@@ -54,6 +49,19 @@ export function findFunctionCallsInExpr(
   // For async expressions, also collect functions from the evaluated closure call
   if (expr.$ && expr.$.evaluatedClosure) {
     findFunctionCallsInExpr(expr.$.evaluatedClosure, context);
+  }
+
+  // For closure construction, collect the closure function
+  if (expr.$ && expr.$.closureFunctionValue) {
+    const closureFunctionValue = expr.$.closureFunctionValue;
+    if (!context.functions[closureFunctionValue.funcId]) {
+      context.functions[closureFunctionValue.funcId] = {
+        value: closureFunctionValue,
+        cName: sanitizeForCIdentifier(closureFunctionValue.funcId),
+      };
+      // Also recursively collect functions called by this closure function
+      findFunctionCallsInExpr(closureFunctionValue.body, context);
+    }
   }
 
   if (exprIsFunctionCall(expr)) {
@@ -137,34 +145,11 @@ export function findFunctionCallsInExpr(
       }
     }
   }
-  // expr might be a closure value
-  else if (functionValue && isClosureValue(functionValue)) {
-    const closureFunctionValue = functionValue.functionValue;
+  // Note: Closures are now runtime-only values, so we can't collect their function information at compile time
+  // The closure's function will be collected when it's defined (as a FunctionValue)
 
-    // Skip collecting functions that have generic types
-    if (
-      typeContainsSomeType(closureFunctionValue.type) &&
-      !closureFunctionValue.specializedType
-    ) {
-      return;
-    }
-
-    if (context.functions[closureFunctionValue.funcId]) {
-      // Already collected this function
-      return;
-    } else {
-      // Collect the closure's function if it's not already collected
-      context.functions[closureFunctionValue.funcId] = {
-        value: closureFunctionValue,
-        cName: sanitizeForCIdentifier(closureFunctionValue.funcId), // Use the function id as the C name
-      };
-
-      // Recursively collect functions called by this closure function
-      findFunctionCallsInExpr(closureFunctionValue.body, context);
-    }
-  }
   // expr might be a compt function call that returns a type
-  else if (isTypeValue(expr.$?.value)) {
+  if (isTypeValue(expr.$?.value)) {
     collectType(expr.$.value.value, context);
   }
 

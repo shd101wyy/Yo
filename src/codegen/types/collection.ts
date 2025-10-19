@@ -101,9 +101,39 @@ export function collectTypesFromExpr(
     collectTypesFromExpr(expr.$.evaluatedClosure, context);
   }
 
-  // For async block expressions, collect the capture struct type
-  if (expr.$ && expr.$.asyncBlockCaptureType) {
-    collectType(expr.$.asyncBlockCaptureType, context);
+  // For closure and async block expressions, collect the capture struct type
+  // The capture type needs a special C name: {closureTypeName}_capture
+  if (expr.$ && expr.$.captureType && expr.$.type) {
+    const captureType = expr.$.captureType;
+    const exprType = expr.$.type;
+
+    // Check if this is a closure or future type
+    if (isClosureType(exprType) || isFutureType(exprType)) {
+      // First collect the main type (closure or future)
+      collectType(exprType, context);
+
+      // Then collect the capture type with a special C name
+      if (!context.types[captureType.id]) {
+        // Find the closure/future type's C name
+        const mainTypeEntry = Object.values(context.types).find(
+          (entry) => entry.type === exprType
+        );
+
+        if (mainTypeEntry) {
+          // Register the capture type with the {main}_capture naming convention
+          context.types[captureType.id] = {
+            type: captureType,
+            cName: `${mainTypeEntry.cName}_capture`,
+          };
+        } else {
+          // Fallback: just collect it normally
+          collectType(captureType, context);
+        }
+      }
+    } else {
+      // Not a closure/future, just collect normally
+      collectType(captureType, context);
+    }
   }
 
   switch (expr.tag) {
@@ -218,27 +248,10 @@ export function collectType(type: Type, context: CodeGenContext): void {
       }
     }
 
-    // For closures, also collect the call type and capture type functions
+    // For closures, also collect the call type
     if (isClosureType(type)) {
       const closureType = type as ClosureType;
-      // Collect the capture type - it needs to be registered for function signatures
-      if (closureType.captureType && isStructType(closureType.captureType)) {
-        const captureStructType = closureType.captureType;
-        // Collect the capture struct type itself
-        collectType(captureStructType, context);
-        // Also collect functions from the capture type's module (___drop, ___dispose, etc.)
-        for (const element of captureStructType.module.elements) {
-          if (element.assignedValue && isFunctionValue(element.assignedValue)) {
-            const functionValue = element.assignedValue;
-            if (!context.functions[functionValue.funcId]) {
-              context.functions[functionValue.funcId] = {
-                value: functionValue,
-                cName: functionValue.funcId,
-              };
-            }
-          }
-        }
-      }
+      // Note: capture type is collected from expr.$.captureType above, not from the closure type itself
       collectTypesFromFunctionType(closureType.callType, context);
     }
 

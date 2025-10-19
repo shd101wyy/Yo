@@ -366,14 +366,9 @@ export function generateFunction(
     .currentClosureType;
   if (functionType.isClosure) {
     // This is a closure function - find the closure type by matching the function being generated
-    // The closure's callType points to the same function value (by funcId)
-    // We need to find the STRUCT VARIANT closure type (with captures), not the basetype
     const closureTypeEntry = Object.values(context.types).find((t) => {
       if (!isClosureType(t.type)) return false;
       const closureType = t.type;
-
-      // Skip basetype closures without captures - look for struct variants
-      if (!closureType.captureType) return false;
 
       // Find the function entry for this closure's callType
       // The callType's function value should have the same funcId as the function we're generating
@@ -390,22 +385,29 @@ export function generateFunction(
       return false;
     });
 
-    if (
-      closureTypeEntry &&
-      (closureTypeEntry.type as ClosureType).captureType
-    ) {
+    if (closureTypeEntry) {
       const closureType = closureTypeEntry.type as ClosureType;
-      const captureType = closureType.captureType;
       (context as FunctionGenerationContext).currentClosureType = closureType;
 
-      if (captureType && isStructType(captureType)) {
-        // Extract field names as captured variables
-        // Store the frame level separately
-        const captureFrameLevel = captureType.env.frames.length - 1;
-        context.currentClosureCaptures = captureType.elements.map(
-          (elem) => elem.label
+      // Get captured variables from the function value instead of the closure type
+      // Note: captureType is no longer part of ClosureType
+      if (
+        functionValue.capturedVariables &&
+        functionValue.capturedVariables.size > 0
+      ) {
+        // Extract variable names from captured variables
+        const capturedVarNames = Array.from(
+          functionValue.capturedVariables.keys()
         );
-        context.currentClosureCaptureFrameLevel = captureFrameLevel;
+        context.currentClosureCaptures = capturedVarNames;
+
+        // Get the frame level from one of the captured variables
+        const firstCapturedVar = functionValue.capturedVariables
+          .values()
+          .next().value;
+        if (firstCapturedVar) {
+          context.currentClosureCaptureFrameLevel = firstCapturedVar.frameLevel;
+        }
       }
     }
   }
@@ -749,8 +751,18 @@ export function generateClosureConstructorDeclarations(
       const constructorName = `__yo_new_${cName}`;
 
       // Generate closure constructor that takes captured values directly
-      const captureType = closureType.captureType;
-      if (isStructType(captureType) && captureType.elements.length > 0) {
+      // Note: captureType is no longer on ClosureType, look it up by naming convention
+      const captureTypeName = `${cName}_capture`;
+      const captureTypeEntry = Object.values(context.types).find(
+        (entry) => entry.cName === captureTypeName
+      );
+      const captureType = captureTypeEntry?.type;
+
+      if (
+        captureType &&
+        isStructType(captureType) &&
+        captureType.elements.length > 0
+      ) {
         // Constructor takes captured values, call function, and drop function
         const captureParams = captureType.elements
           .map((element) => {
@@ -1877,8 +1889,18 @@ export function generateClosureConstructorFunctions(
       const constructorName = `__yo_new_${cName}`;
 
       // Generate constructor implementation
-      const captureType = closureType.captureType;
-      if (isStructType(captureType) && captureType.elements.length > 0) {
+      // Note: captureType is no longer on ClosureType, look it up by naming convention
+      const captureTypeName = `${cName}_capture`;
+      const captureTypeEntry = Object.values(context.types).find(
+        (entry) => entry.cName === captureTypeName
+      );
+      const captureType = captureTypeEntry?.type;
+
+      if (
+        captureType &&
+        isStructType(captureType) &&
+        captureType.elements.length > 0
+      ) {
         // Constructor takes captured values directly
         const captureParams = captureType.elements
           .map((element) => {

@@ -3,14 +3,8 @@ import { formatErrorMessage } from "../../error";
 import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import {
-  areTypesCompatible,
-  ClosureType,
-  createClosureType,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible, ClosureType, typeToString } from "../../types";
 import { randomId } from "../../utils";
-import { createClosureValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
@@ -147,25 +141,18 @@ export function tryToImplementClosureByClosureType({
     functionValue.capturedVariables = capturedVariablesWithValues;
   }
 
-  // Create the proper capture value based on captured variables using helper function
-  const { captureType: inferredCaptureType, captureValue } =
-    createCaptureTypeAndValue({
-      expectedCaptureType: closureType.captureType,
-      capturedVariablesWithValues,
-      env: finalCallerEnv,
-      closureToken: expr.token,
-      context: { ...context },
-    });
+  // Create the proper capture type based on captured variables using helper function
+  // We don't need the captureValue since closures are runtime-only
+  const { captureType: inferredCaptureType } = createCaptureTypeAndValue({
+    expectedCaptureType: undefined, // Capture type is no longer part of ClosureType
+    capturedVariablesWithValues,
+    env: finalCallerEnv,
+    closureToken: expr.token,
+    context: { ...context },
+  });
 
-  // Update closure type with the inferred capture type if it was inferred
-  const finalClosureType =
-    closureType.captureType === undefined && inferredCaptureType !== undefined
-      ? createClosureType(
-          closureType.callType,
-          inferredCaptureType,
-          finalCallerEnv
-        )
-      : closureType;
+  // The closure type is already created with the correct callType
+  const finalClosureType = closureType;
 
   // Add ARC functions to the closure type
   finalCallerEnv = addARCFunctionsToClosureType({
@@ -173,13 +160,6 @@ export function tryToImplementClosureByClosureType({
     env: finalCallerEnv,
     context,
   });
-
-  // Create the closure value
-  const closureValue = createClosureValue(
-    finalClosureType, // Use the updated closure type with inferred capture type
-    captureValue,
-    functionValue
-  );
 
   // Generate ___dup expressions for captured ARC variables
   const { capturedVariableDupExpressions, env: updatedEnv } =
@@ -193,7 +173,7 @@ export function tryToImplementClosureByClosureType({
   // Set the result with the closure type
   expr.$ = {
     env: finalCallerEnv,
-    value: closureValue,
+    value: undefined,
     type: finalClosureType, // Use the updated closure type
     pathCollection:
       capturedVariables && capturedVariables.size > 0
@@ -204,6 +184,8 @@ export function tryToImplementClosureByClosureType({
       capturedVariableDupExpressions.length > 0
         ? capturedVariableDupExpressions
         : undefined,
+    captureType: inferredCaptureType, // Store the capture struct type for codegen (used for both closures and async blocks)
+    closureFunctionValue: functionValue,
   };
 
   // Attach a temp variable to the expr to hold the ARC value for closure
