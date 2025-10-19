@@ -72,18 +72,34 @@ MyBox :: object
   }
 ;
 
+some_condition :: (fn() -> boolean) {
+  return true;
+};
+
 main :: (fn() -> unit) {
-  x := MyBox(1);
-  closure := ((fn(v : i32) => i32) {
-    x.* = (x.* + v);
-    return x.*;
-  });
+  closure : (fn(v : i32) => i32);
+
+  closure = cond(
+    some_condition() => {
+      x := MyBox(1);
+      ((v) => {
+        x.* = (x.* + v);
+        return x.*;
+      })
+    },
+    true => {
+      y := MyBox(2);
+      ((v) => {
+        y.* = (y.* * v);
+        return y.*;
+      })
+    }
+  );
 
   closure(2);
   closure(3);
-
   result := closure(4);
-  printf("Final result: %d, %d\n", result, x.*);
+  printf("Result %d\n", result);
 };
 
 export main;

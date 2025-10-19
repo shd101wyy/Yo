@@ -125,6 +125,34 @@ export function collectTypesFromExpr(
             type: captureType,
             cName: `${mainTypeEntry.cName}_capture`,
           };
+
+          // Now collect the capture type's nested types and module functions (___drop, etc.)
+          // This is crucial for generating ARC functions for the capture struct
+          if (isStructType(captureType)) {
+            // Recursively collect types from struct elements
+            for (const element of captureType.elements) {
+              collectType(element.type, context);
+            }
+
+            // Collect functions from the module (___dup, ___drop, etc.)
+            for (const element of captureType.module.elements) {
+              if (
+                element.assignedValue &&
+                isFunctionValue(element.assignedValue)
+              ) {
+                const functionValue = element.assignedValue;
+                if (!context.functions[functionValue.funcId]) {
+                  context.functions[functionValue.funcId] = {
+                    value: functionValue,
+                    cName: functionValue.funcId,
+                  };
+
+                  // Recursively collect functions called by this struct member function
+                  findFunctionCallsInExpr(functionValue.body, context);
+                }
+              }
+            }
+          }
         } else {
           // Fallback: just collect it normally
           collectType(captureType, context);
