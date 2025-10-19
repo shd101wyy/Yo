@@ -120,13 +120,13 @@ export function evaluateComptFunctionCall({
     env: calleeEnv,
     context: {
       ...context,
-      isEvaluatingFunctionBody: {
+      isEvaluatingFunctionBodyOrAsyncBlock: {
+        kind: "function-body",
         type: functionType,
         value: functionValue,
 
         evaluationEnv: calleeEnv,
       },
-      isEvaluatingAsyncBlock: undefined,
       capturedVariables: functionType.isClosure
         ? new Map<string, CapturedVariableInfo>()
         : undefined,

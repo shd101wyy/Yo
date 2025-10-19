@@ -35,6 +35,7 @@ export function createFunctionBodyEvaluationContext(
   functionBodyContext: FunctionEvaluationContext;
 } {
   const functionBodyContext: FunctionEvaluationContext = {
+    kind: "function-body",
     type: functionType,
     value: functionValue,
     evaluationEnv: env,
@@ -49,8 +50,7 @@ export function createFunctionBodyEvaluationContext(
     ...context,
     isExecuting: false, // We're analyzing, not executing
     isValidatingFunctionDefinition: true, // We're validating function definition
-    isEvaluatingFunctionBody: functionBodyContext,
-    isEvaluatingAsyncBlock: undefined,
+    isEvaluatingFunctionBodyOrAsyncBlock: functionBodyContext,
     isEvaluatingFunctionType: false,
     capturedVariables, // Set the captured variables map here
     expectedType: {

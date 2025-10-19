@@ -19,13 +19,16 @@ export function evaluateRecur({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  const isEvaluatingFunctionBodyOfType = context.isEvaluatingFunctionBody?.type;
-  if (!isEvaluatingFunctionBodyOfType) {
+  if (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "function-body") {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected a function type for recur, got:\n${exprToString(expr)}`,
     });
   }
+
+  const isEvaluatingFunctionBodyOfType =
+    context.isEvaluatingFunctionBodyOrAsyncBlock.type;
+
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
     throw formatErrorMessage({
       token: expr.token,
@@ -38,7 +41,7 @@ export function evaluateRecur({
     env,
     givenFunc: {
       type: isEvaluatingFunctionBodyOfType,
-      value: context.isEvaluatingFunctionBody?.value ?? undefined,
+      value: context.isEvaluatingFunctionBodyOrAsyncBlock.value ?? undefined,
       // createTypeValue(isEvaluatingFunctionBodyOfType),
     },
     context: { ...context },

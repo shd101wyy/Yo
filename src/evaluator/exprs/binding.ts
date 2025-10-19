@@ -85,7 +85,8 @@ ${exprToString(rhs)}`,
 
   if (
     !isCompileTimeOnly &&
-    context.isEvaluatingFunctionBody?.type.return.isCompileTimeOnly
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.type.return.isCompileTimeOnly
   ) {
     throw formatErrorMessage({
       token: lhs.token,

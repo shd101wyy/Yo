@@ -1655,52 +1655,6 @@ export function setExprAsConsumed(
       ]);
     }
 
-    /*
-    // For Fn and FnMut closures, prevent consuming linear values from outer scope
-    if (context.isEvaluatingFunctionBody) {
-      const functionType = context.isEvaluatingFunctionBody.type;
-      // Check if this is a Fn or FnMut closure AND the variable is from outer scope
-      if (
-        (functionType.closureKind === "Fn" ||
-          functionType.closureKind === "FnMut") &&
-        context.isEvaluatingFunctionBody.evaluationEnv &&
-        variableToConsume.frameLevel <
-          context.isEvaluatingFunctionBody.evaluationEnv.frames.length
-      ) {
-        throw formatErrorMessages([
-          {
-            token: expr.token,
-            errorMessage: `Cannot consume a linear value from outer scope in ${functionType.closureKind} closure. ${functionType.closureKind} closures can only borrow variables from outer scope, not consume them.`,
-          },
-          {
-            token: variableToConsume.token,
-            errorMessage: `Linear variable defined here:`,
-          },
-        ]);
-      }
-    }
-
-    // Check if we are consuming a linear value defined outside the function body
-    // Allow FnMove closures to consume outer linear values, but prevent regular functions and Fn/FnMut closures
-    if (
-      context.isEvaluatingFunctionBody &&
-      variableToConsume.frameLevel <
-        context.isEvaluatingFunctionBody.evaluationEnv.frames.length - 1 && // -1 here to exclude the parameters/arguments frame.
-      !(context.isEvaluatingFunctionBody.type.closureKind === "FnMove")
-    ) {
-      throw formatErrorMessages([
-        {
-          token: expr.token,
-          errorMessage: `Cannot consume a linear value defined outside the function body.`,
-        },
-        {
-          token: variableToConsume.token,
-          errorMessage: `Defined here:`,
-        },
-      ]);
-    }
-    */
-
     // Set the variable as consumed
     env = updateExistingVariable(env, variableToConsume, {
       ...variableToConsume,

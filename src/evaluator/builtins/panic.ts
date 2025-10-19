@@ -14,7 +14,7 @@ export function evaluatePanic({
   context: EvaluatorContext;
 }): FuncCallExpr {
   // Check if panic is being called inside a function context
-  if (!context.isEvaluatingFunctionBody) {
+  if (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "function-body") {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `panic() can only be called inside a function body`,
@@ -22,7 +22,8 @@ export function evaluatePanic({
   }
 
   // Get the return type from the function context
-  const functionReturnType = context.isEvaluatingFunctionBody.type.return.type;
+  const functionReturnType =
+    context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type;
 
   // If there's an argument, evaluate it and use as the panic message
   if (expr.args.length > 0) {

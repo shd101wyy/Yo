@@ -1597,12 +1597,12 @@ function createSpecializedFunctionInline({
       //   type: functionType.return.type,
       //   env: specializedEnv,
       // },
-      isEvaluatingFunctionBody: {
+      isEvaluatingFunctionBodyOrAsyncBlock: {
+        kind: "function-body",
         type: functionType,
         value: originalFunction,
         evaluationEnv: specializedEnv,
       },
-      isEvaluatingAsyncBlock: undefined,
       capturedVariables: functionType.isClosure
         ? new Map<string, CapturedVariableInfo>()
         : undefined,

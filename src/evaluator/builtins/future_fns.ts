@@ -122,7 +122,7 @@ export function evaluateAwait({
   }
 
   // Check if we're in an async block
-  if (!context.isEvaluatingAsyncBlock) {
+  if (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "async-block") {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `"await" can only be used inside an "async" block.`,

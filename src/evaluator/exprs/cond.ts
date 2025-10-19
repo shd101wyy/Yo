@@ -414,22 +414,41 @@ export function evaluateCond({
 
       if (finalControlFlow === "return") {
         // All cases are returning from function
-        if (!context.isEvaluatingFunctionBody) {
+        if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
           throw formatErrorMessage({
             token: expr.token,
             errorMessage: `All cases in cond are returning from function, but not evaluating in function body.`,
           });
         }
-        const functionReturnType =
-          context.isEvaluatingFunctionBody.type.return.type;
+
+        let returnType: Type | undefined;
+        if (
+          context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
+        ) {
+          returnType =
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type;
+        } else if (context.expectedType) {
+          returnType = context.expectedType.type;
+        }
+
+        if (!returnType) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Failed to determine the return type for cond statement.`,
+          });
+        }
+
         expr.$ = {
           env,
-          type: context.expectedType?.type ?? functionReturnType,
-          value: isFunctionTypeAndReturnsComptValue(
-            context.isEvaluatingFunctionBody.type
-          )
-            ? createUnknownValue(functionReturnType)
-            : undefined,
+          type: returnType,
+          value:
+            context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
+              "function-body" &&
+            isFunctionTypeAndReturnsComptValue(
+              context.isEvaluatingFunctionBodyOrAsyncBlock.type
+            )
+              ? createUnknownValue(returnType)
+              : undefined,
           pathCollection: [],
           controlFlow: "return",
         };

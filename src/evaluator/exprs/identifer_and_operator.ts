@@ -507,19 +507,21 @@ export function evaluateIdentifierAndOperator({
 
       // For closures, track variables captured from outer scopes
       if (
-        context.isEvaluatingFunctionBody &&
-        context.isEvaluatingFunctionBody.type.isClosure &&
-        context.isEvaluatingFunctionBody.evaluationEnv
+        context.isEvaluatingFunctionBodyOrAsyncBlock &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body" &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock.type.isClosure &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv
       ) {
         const closureEvaluationFrameLevel =
-          context.isEvaluatingFunctionBody.evaluationEnv.frames.length;
+          context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv.frames
+            .length;
 
         // If variable is from an outer scope (lower frame level than closure evaluation), it's captured
         if (variable.frameLevel < closureEvaluationFrameLevel) {
           // Determine usage type based on closure kind
           const usageType = "own";
           /*
-            context.isEvaluatingFunctionBody.type.closureKind === "FnMove"
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.closureKind === "FnMove"
               ? "own"
               : "read";
           */
@@ -535,11 +537,11 @@ export function evaluateIdentifierAndOperator({
 
       // For async blocks, track variables captured from outer scopes
       if (
-        context.isEvaluatingAsyncBlock &&
-        context.isEvaluatingAsyncBlock.evaluationEnv
+        context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "async-block"
       ) {
         const asyncBlockEvaluationFrameLevel =
-          context.isEvaluatingAsyncBlock.evaluationEnv.frames.length;
+          context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv.frames
+            .length;
 
         // If variable is from an outer scope (lower frame level than async block evaluation), it's captured
         if (variable.frameLevel < asyncBlockEvaluationFrameLevel) {

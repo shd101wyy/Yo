@@ -7,6 +7,7 @@ import { FunctionType, ModuleType, Type } from "../types";
 import { ModuleValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
+  kind: "function-body";
   type: FunctionType;
   value?: FunctionValue;
   /**
@@ -14,6 +15,11 @@ export interface FunctionEvaluationContext {
    * This is used to determine the frame level for closure variable capture.
    * The evaluationEnv should contain the frame of parameters/arguments
    */
+  evaluationEnv: Environment;
+}
+
+export interface AsyncBlockEvaluationContext {
+  kind: "async-block";
   evaluationEnv: Environment;
 }
 
@@ -41,21 +47,17 @@ export interface EvaluatorContext {
   /**
    * Record the function that is currently being evaluated.
    * This is used for calling the `recur` function.
-   */
-  isEvaluatingFunctionBody?: FunctionEvaluationContext;
-
-  /**
+   *
    * Whether we are currently evaluating an async block.
    * This affects how we evaluate expressions within the async block.
    * For example, `await` expressions are only valid within async blocks.
    * Contains the environment at the time the async block started evaluation,
    * used to determine which variables are captured from outer scopes.
    *
-   * isEvaluatingAsyncBlock and isEvaluatingFunctionBody are mutually exclusive.
    */
-  isEvaluatingAsyncBlock?: {
-    evaluationEnv: Environment;
-  };
+  isEvaluatingFunctionBodyOrAsyncBlock?:
+    | FunctionEvaluationContext
+    | AsyncBlockEvaluationContext;
 
   /**
    * For closures and async blocks, track variables captured from outer scopes.
@@ -312,17 +314,15 @@ export function trackVariableUsage(
   context: EvaluatorContext
 ): void {
   // Only track for closures or async blocks
-  if (!context.isEvaluatingFunctionBody && !context.isEvaluatingAsyncBlock) {
+  if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
     return;
   }
 
   // Determine the evaluation environment
   // Note: Check async block first since we can be inside both a function and an async block
   let evaluationEnv: Environment | undefined;
-  if (context.isEvaluatingAsyncBlock) {
-    evaluationEnv = context.isEvaluatingAsyncBlock.evaluationEnv;
-  } else if (context.isEvaluatingFunctionBody) {
-    evaluationEnv = context.isEvaluatingFunctionBody.evaluationEnv;
+  if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
+    evaluationEnv = context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv;
   }
 
   // Only track variables from outer scopes (not local variables)

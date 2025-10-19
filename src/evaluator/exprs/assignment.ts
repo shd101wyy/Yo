@@ -399,9 +399,10 @@ export function evaluateAssignment({
 
       // Check if we are initializing a variable defined outside the current funciton body.
       if (
-        context.isEvaluatingFunctionBody &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+          "function-body" &&
         variable.frameLevel <
-          context.isEvaluatingFunctionBody.type.env.frames.length
+          context.isEvaluatingFunctionBodyOrAsyncBlock.type.env.frames.length
       ) {
         throw formatErrorMessages([
           {
@@ -491,19 +492,21 @@ export function evaluateAssignment({
     } else {
       // For closures, track variable writes to outer scope
       if (
-        context.isEvaluatingFunctionBody &&
-        context.isEvaluatingFunctionBody.type.isClosure &&
-        context.isEvaluatingFunctionBody.evaluationEnv
+        context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+          "function-body" &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock.type.isClosure &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv
       ) {
         const closureEvaluationFrameLevel =
-          context.isEvaluatingFunctionBody.evaluationEnv.frames.length;
+          context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv.frames
+            .length;
 
         // If variable is from an outer scope (lower frame level than closure evaluation), it's captured
         if (variable.frameLevel < closureEvaluationFrameLevel) {
           // Determine usage type based on closure kind
           const usageType = "own";
           /*
-            context.isEvaluatingFunctionBody.type.closureKind === "FnMove"
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.closureKind === "FnMove"
               ? "own"
               : "write";
           */
@@ -600,7 +603,10 @@ export function evaluateAssignment({
     }
 
     // Track variable usage for closure kind checking
-    if (context.isEvaluatingFunctionBody && evaluatedLhs.$.pathCollection) {
+    if (
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
+      evaluatedLhs.$.pathCollection
+    ) {
       for (const path of evaluatedLhs.$.pathCollection) {
         if (path.length > 0) {
           const variableName = path[0];

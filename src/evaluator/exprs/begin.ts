@@ -341,10 +341,7 @@ export function evaluateBeginExpression({
         expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
       }
 
-      if (
-        !context.isEvaluatingFunctionBody &&
-        !context.isEvaluatingAsyncBlock
-      ) {
+      if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
           errorMessage: `The "return" keyword can only be used inside a function body or async block.`,
@@ -377,12 +374,15 @@ export function evaluateBeginExpression({
           env,
           context: {
             ...context,
-            expectedType: context.isEvaluatingFunctionBody
-              ? {
-                  type: context.isEvaluatingFunctionBody.type.return.type,
-                  env: env,
-                }
-              : context.expectedType,
+            expectedType:
+              context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
+              "function-body"
+                ? {
+                    type: context.isEvaluatingFunctionBodyOrAsyncBlock.type
+                      .return.type,
+                    env: env,
+                  }
+                : context.expectedType,
           },
         });
         if (!evaluatedReturnExpr.$) {
@@ -517,12 +517,14 @@ export function evaluateBeginExpression({
 
   // Check if return type is compatible
   if (lastExpr.$.controlFlow === "return") {
-    if (context.isEvaluatingFunctionBody) {
+    if (
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+    ) {
       // First try to synthesize the types to handle cases like [i32; n] vs [i32; 5]
       try {
         synthesizeTypes(
           {
-            type: context.isEvaluatingFunctionBody!.type.return.type,
+            type: context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type,
             env: env,
           },
           {
@@ -535,7 +537,8 @@ export function evaluateBeginExpression({
         if (
           !areTypesCompatible(
             {
-              type: context.isEvaluatingFunctionBody!.type.return.type,
+              type: context.isEvaluatingFunctionBodyOrAsyncBlock.type.return
+                .type,
               env: env,
             },
             {
@@ -547,12 +550,15 @@ export function evaluateBeginExpression({
           throw formatErrorMessage({
             token: lastExpr.token,
             errorMessage: `Return type mismatch. Expected type "${typeToString(
-              context.isEvaluatingFunctionBody!.type.return.type
+              context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
             )}", but got "${typeToString(returnType)}".`,
           });
         }
       }
-    } else if (context.isEvaluatingAsyncBlock && context.expectedType) {
+    } else if (
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "async-block" &&
+      context.expectedType
+    ) {
       // First try to synthesize the types to handle cases like [i32; n] vs [i32; 5]
       try {
         synthesizeTypes(
