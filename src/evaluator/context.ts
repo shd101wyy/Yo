@@ -358,11 +358,6 @@ export function trackVariableUsage(
       ? existing.usageType
       : usageType;
 
-  // DEBUG: Log captured variable
-  console.log(
-    `[DEBUG] Capturing variable: ${variableName}, frameLevel: ${frameLevel}, usageType: ${newUsageType}`
-  );
-
   context.capturedVariables.set(variableName, {
     frameLevel,
     usageType: newUsageType,

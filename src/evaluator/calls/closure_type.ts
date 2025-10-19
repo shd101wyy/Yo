@@ -77,39 +77,13 @@ export function tryToImplementClosureByClosureType({
     env
   );
 
-  // DEBUG: Check if closure tracking is enabled
-  console.log(
-    `[DEBUG] closure_type.ts - closureType.callType.isClosure:`,
-    closureType.callType.isClosure
-  );
-  console.log(
-    `[DEBUG] closure_type.ts - evaluationContext.capturedVariables:`,
-    evaluationContext.capturedVariables !== undefined
-      ? "Map exists"
-      : "undefined"
-  );
-  console.log(
-    `[DEBUG] closure_type.ts - Before evaluation, capturedVariables size:`,
-    evaluationContext.capturedVariables?.size || "undefined"
-  );
-
   // Evaluate the closure body
-  console.log(
-    `[DEBUG] closure_type.ts - BEFORE evaluateBeginExpression, capturedVariables:`,
-    evaluationContext.capturedVariables?.size || "undefined"
-  );
-
   const evaluatedClosureBody = evaluateBeginExpression({
     expr: closureBodyExpr,
     env,
     context: evaluationContext,
     variablesToAdd: [],
   });
-
-  console.log(
-    `[DEBUG] closure_type.ts - AFTER evaluateBeginExpression, capturedVariables:`,
-    evaluationContext.capturedVariables?.size || "undefined"
-  );
 
   if (!evaluatedClosureBody.$) {
     throw formatErrorMessage({
@@ -121,18 +95,6 @@ export function tryToImplementClosureByClosureType({
 
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
-
-  // DEBUG: Check captured variables after evaluation
-  console.log(
-    `[DEBUG] closure_type.ts - After evaluation, capturedVariables:`,
-    capturedVariables?.size || "undefined"
-  );
-  if (capturedVariables) {
-    console.log(
-      `[DEBUG] closure_type.ts - Captured variable names:`,
-      Array.from(capturedVariables.keys())
-    );
-  }
 
   // Check if the closure body type matches the closure return type
   const closureBodyReturnType = evaluatedClosureBody.$.type;
@@ -180,16 +142,6 @@ export function tryToImplementClosureByClosureType({
     capturedVariables && capturedVariables.size > 0
       ? enrichCapturedVariables({ capturedVariables, env: finalCallerEnv })
       : undefined;
-
-  // DEBUG: Log captured variables state
-  console.log(
-    `[DEBUG] closure_type.ts - capturedVariables:`,
-    capturedVariables?.size || "undefined"
-  );
-  console.log(
-    `[DEBUG] closure_type.ts - capturedVariablesWithValues:`,
-    capturedVariablesWithValues?.size || "undefined"
-  );
 
   if (capturedVariablesWithValues) {
     functionValue.capturedVariables = capturedVariablesWithValues;
