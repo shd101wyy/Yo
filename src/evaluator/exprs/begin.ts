@@ -341,10 +341,13 @@ export function evaluateBeginExpression({
         expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
       }
 
-      if (!context.isEvaluatingFunctionBody) {
+      if (
+        !context.isEvaluatingFunctionBody &&
+        !context.isEvaluatingAsyncBlock
+      ) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
-          errorMessage: `The "return" keyword can only be used inside a function body.`,
+          errorMessage: `The "return" keyword can only be used inside a function body or async block.`,
         });
       }
       returnExpr = exprToEvaluate;
@@ -374,10 +377,12 @@ export function evaluateBeginExpression({
           env,
           context: {
             ...context,
-            expectedType: {
-              type: context.isEvaluatingFunctionBody!.type.return.type,
-              env: env,
-            },
+            expectedType: context.isEvaluatingFunctionBody
+              ? {
+                  type: context.isEvaluatingFunctionBody.type.return.type,
+                  env: env,
+                }
+              : context.expectedType,
           },
         });
         if (!evaluatedReturnExpr.$) {
@@ -512,22 +517,10 @@ export function evaluateBeginExpression({
 
   // Check if return type is compatible
   if (lastExpr.$.controlFlow === "return") {
-    // First try to synthesize the types to handle cases like [i32; n] vs [i32; 5]
-    try {
-      synthesizeTypes(
-        {
-          type: context.isEvaluatingFunctionBody!.type.return.type,
-          env: env,
-        },
-        {
-          type: returnType,
-          env: env,
-        }
-      );
-    } catch (synthesisError) {
-      // If synthesis fails, check basic compatibility as fallback
-      if (
-        !areTypesCompatible(
+    if (context.isEvaluatingFunctionBody) {
+      // First try to synthesize the types to handle cases like [i32; n] vs [i32; 5]
+      try {
+        synthesizeTypes(
           {
             type: context.isEvaluatingFunctionBody!.type.return.type,
             env: env,
@@ -536,14 +529,63 @@ export function evaluateBeginExpression({
             type: returnType,
             env: env,
           }
-        )
-      ) {
-        throw formatErrorMessage({
-          token: lastExpr.token,
-          errorMessage: `Return type mismatch. Expected type "${typeToString(
-            context.isEvaluatingFunctionBody!.type.return.type
-          )}", but got "${typeToString(returnType)}".`,
-        });
+        );
+      } catch (synthesisError) {
+        // If synthesis fails, check basic compatibility as fallback
+        if (
+          !areTypesCompatible(
+            {
+              type: context.isEvaluatingFunctionBody!.type.return.type,
+              env: env,
+            },
+            {
+              type: returnType,
+              env: env,
+            }
+          )
+        ) {
+          throw formatErrorMessage({
+            token: lastExpr.token,
+            errorMessage: `Return type mismatch. Expected type "${typeToString(
+              context.isEvaluatingFunctionBody!.type.return.type
+            )}", but got "${typeToString(returnType)}".`,
+          });
+        }
+      }
+    } else if (context.isEvaluatingAsyncBlock && context.expectedType) {
+      // First try to synthesize the types to handle cases like [i32; n] vs [i32; 5]
+      try {
+        synthesizeTypes(
+          {
+            type: context.expectedType.type,
+            env: context.expectedType.env,
+          },
+          {
+            type: returnType,
+            env: env,
+          }
+        );
+      } catch (synthesisError) {
+        // If synthesis fails, check basic compatibility as fallback
+        if (
+          !areTypesCompatible(
+            {
+              type: context.expectedType.type,
+              env: context.expectedType.env,
+            },
+            {
+              type: returnType,
+              env: env,
+            }
+          )
+        ) {
+          throw formatErrorMessage({
+            token: lastExpr.token,
+            errorMessage: `Return type mismatch. Expected type "${typeToString(
+              context.expectedType.type
+            )}", but got "${typeToString(returnType)}".`,
+          });
+        }
       }
     }
   }

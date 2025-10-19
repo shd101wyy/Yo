@@ -50,6 +50,7 @@ export function createFunctionBodyEvaluationContext(
     isExecuting: false, // We're analyzing, not executing
     isValidatingFunctionDefinition: true, // We're validating function definition
     isEvaluatingFunctionBody: functionBodyContext,
+    isEvaluatingAsyncBlock: undefined,
     isEvaluatingFunctionType: false,
     capturedVariables, // Set the captured variables map here
     expectedType: {

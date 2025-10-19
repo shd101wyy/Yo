@@ -25,10 +25,16 @@ main :: (fn() -> Future(unit)) async {
   
   // say2 is a closure;
   x := 18;
-  say2 := (fn(s : *(u8)) => Future(i32)) async {
-    printf("%s\n", s);
-    printf("thread %zu sent %i\n", Concurrency.get_thread_id(), x);
-    return x;
+  say2 := (fn(s : *(u8)) => Future(i32)) { // <= this is a closure
+                                           // closure captures `x`
+    printf("Creating closure say2 with x = %d\n", x);
+    y := 2;
+    return async { // <= this is an async block
+                   // async block captures `x` and `y` and `s`
+      printf("%s\n", s);
+      printf("thread %zu sent %i\n", Concurrency.get_thread_id(), (x + y));
+      return (x + y);
+    };
   };
 
   box1 := MyBox(16);

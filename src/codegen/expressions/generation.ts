@@ -2717,14 +2717,22 @@ function generateComptValue(
       return `// Error: No C type name found for closure ${typeToString(closureType)}`;
     }
 
-    // Generate closure initialization with vtable and captured data
-    const constructorName = `__yo_new_${cName}`;
-
     // Get the function name for the closure implementation
     const functionCName = context.functions[value.functionValue.funcId]?.cName;
     if (!functionCName) {
       return `// Error: No C function name found for closure function`;
     }
+
+    // Determine if this closure has captures and choose the appropriate constructor
+    const hasCaptures =
+      (value.captureValue && isStructValue(value.captureValue)) ||
+      (closureType.captureType &&
+        isStructType(closureType.captureType) &&
+        closureType.captureType.elements.length > 0);
+
+    const constructorName = hasCaptures
+      ? `__yo_create_${cName}`
+      : `__yo_new_${cName}`;
 
     // For compile-time closures, we need to generate the constructor call
     if (value.captureValue && isStructValue(value.captureValue)) {
@@ -2740,7 +2748,33 @@ function generateComptValue(
         }
       }
 
-      // Pass capture values directly, then function pointers
+      // Create capture data struct
+      const captureTypeId = closureType.captureType?.id;
+      const captureTypeName = captureTypeId
+        ? context.types[captureTypeId]?.cName
+        : undefined;
+
+      if (!captureTypeName) {
+        return `// Error: No C type name found for capture type`;
+      }
+
+      // Generate capture struct initialization
+      const captureDataCode = `(${captureTypeName}){ ${captureArgs
+        .map((arg, i) => {
+          const element = closureType.captureType!.elements[i];
+          if (!element) {
+            return `/* Error: missing element at index ${i} */`;
+          }
+          return `.${sanitizeForCIdentifier(element.label)} = ${arg}`;
+        })
+        .join(", ")} }`;
+
+      // Allocate capture data on heap and get pointer
+      const captureDataPtr = `({ 
+        ${captureTypeName}* __capture_data = (${captureTypeName}*)__yo_malloc(sizeof(${captureTypeName}));
+        *__capture_data = ${captureDataCode};
+        __capture_data;
+      })`;
 
       // Use the closure's dispose function instead of the capture type's drop function
       const closureDisposeFunctionName = `__yo_dispose_${cName}`;
@@ -2758,8 +2792,7 @@ function generateComptValue(
       const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
       const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
 
-      const allArgs = [...captureArgs, castCallFunction, castDisposeFunction];
-      return `${constructorName}(${allArgs.join(", ")})`;
+      return `${constructorName}(${captureDataPtr}, ${castCallFunction}, ${castDisposeFunction})`;
     } else if (
       closureType.captureType &&
       isStructType(closureType.captureType)
@@ -2768,6 +2801,7 @@ function generateComptValue(
       const captureType = closureType.captureType;
 
       if (captureType.elements.length > 0) {
+        // Runtime closure with captures
         // Check if we have captured variable dup expressions available from sourceExpr
         let captureArgs: string[];
 
@@ -2791,6 +2825,32 @@ function generateComptValue(
           captureArgs = captureType.elements.map((element) => element.label);
         }
 
+        // Get capture type name
+        const captureTypeId = captureType.id;
+        const captureTypeName = context.types[captureTypeId]?.cName;
+
+        if (!captureTypeName) {
+          return `// Error: No C type name found for capture type`;
+        }
+
+        // Generate capture struct initialization
+        const captureDataCode = `(${captureTypeName}){ ${captureArgs
+          .map((arg, i) => {
+            const element = captureType.elements[i];
+            if (!element) {
+              return `/* Error: missing element at index ${i} */`;
+            }
+            return `.${sanitizeForCIdentifier(element.label)} = ${arg}`;
+          })
+          .join(", ")} }`;
+
+        // Allocate capture data on heap and get pointer
+        const captureDataPtr = `({ 
+          ${captureTypeName}* __capture_data = (${captureTypeName}*)__yo_malloc(sizeof(${captureTypeName}));
+          *__capture_data = ${captureDataCode};
+          __capture_data;
+        })`;
+
         // Use the closure's dispose function instead of the capture type's drop function
         const closureDisposeFunctionName = `__yo_dispose_${cName}`;
 
@@ -2807,9 +2867,7 @@ function generateComptValue(
         const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
         const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
 
-        // Pass capture values directly, then function pointers
-        const allArgs = [...captureArgs, castCallFunction, castDisposeFunction];
-        return `${constructorName}(${allArgs.join(", ")})`;
+        return `${constructorName}(${captureDataPtr}, ${castCallFunction}, ${castDisposeFunction})`;
       } else {
         // Empty closure - cast function pointer to generic void* function type
         const callType = closureType.callType;

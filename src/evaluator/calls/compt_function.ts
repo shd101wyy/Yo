@@ -123,11 +123,13 @@ export function evaluateComptFunctionCall({
       isEvaluatingFunctionBody: {
         type: functionType,
         value: functionValue,
-        capturedVariables: functionType.isClosure
-          ? new Map<string, CapturedVariableInfo>()
-          : undefined,
+
         evaluationEnv: calleeEnv,
       },
+      isEvaluatingAsyncBlock: undefined,
+      capturedVariables: functionType.isClosure
+        ? new Map<string, CapturedVariableInfo>()
+        : undefined,
       // Only set isExecuting=true if we're not in validation mode
       isExecuting: context.isValidatingFunctionDefinition ? false : true,
     },

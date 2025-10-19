@@ -41,6 +41,7 @@ import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
   createCaptureTypeAndValue,
+  enrichCapturedVariables,
   generateCapturedVariableDupExpressions,
 } from "../utils/closure";
 
@@ -391,17 +392,16 @@ Got:      "${paramName}"`,
   // Evaluate the function body
   const isClosureFunction = functionType.isClosure;
   // eslint-disable-next-line prefer-const
-  let { evaluationContext, capturedVariables } =
-    createFunctionBodyEvaluationContext(
-      {
-        ...context,
-        isExecuting: false, // We're analyzing, not executing
-        isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
-      },
-      functionType,
-      functionValue,
-      env
-    );
+  let { evaluationContext } = createFunctionBodyEvaluationContext(
+    {
+      ...context,
+      isExecuting: false, // We're analyzing, not executing
+      isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
+    },
+    functionType,
+    functionValue,
+    env
+  );
 
   const evaluatedBody = evaluateBeginExpression({
     expr: functionBodyExpr,
@@ -417,6 +417,9 @@ Got:      "${paramName}"`,
     });
   }
   env = evaluatedBody.$.env;
+
+  // Get captured variables from the evaluation context
+  const capturedVariables = evaluationContext.capturedVariables;
 
   // Check if the return type is compatible
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
@@ -455,22 +458,19 @@ Got:      "${paramName}"`,
     | Map<string, FunctionCapturedVariableInfo>
     | undefined;
 
+  // DEBUG: Log closure creation details
+  if (isClosureFunction) {
+    console.log(
+      `[DEBUG] Closure function - capturedVariables size:`,
+      capturedVariables?.size || "undefined"
+    );
+  }
+
   if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
-    capturedVariablesWithValues = new Map();
-    for (const [varName, captureInfo] of capturedVariables.entries()) {
-      // Get the variable value and type from the specific frame level
-      if (captureInfo.frameLevel < env.frames.length) {
-        const frame = env.frames[captureInfo.frameLevel]!;
-        const variable = frame.variables.find((v) => v.name === varName);
-        if (variable) {
-          capturedVariablesWithValues.set(varName, {
-            ...captureInfo,
-            value: variable.value, // Can be undefined for runtime values
-            type: variable.type,
-          });
-        }
-      }
-    }
+    capturedVariablesWithValues = enrichCapturedVariables({
+      capturedVariables,
+      env,
+    });
   }
 
   // Update the function value with captured variables (if any)
@@ -499,6 +499,14 @@ Got:      "${paramName}"`,
   let capturedVariableDupExpressions: Expr[] | undefined;
 
   if (isCreatingClosure && expectedClosureType) {
+    // DEBUG: Log captured variables before creating capture type
+    console.log(
+      `[DEBUG] Creating closure - capturedVariablesWithValues:`,
+      capturedVariablesWithValues
+        ? Array.from(capturedVariablesWithValues.entries())
+        : "undefined"
+    );
+
     // Create a closure type and closure value using helper function
     const { captureType, captureValue } = createCaptureTypeAndValue({
       expectedCaptureType: expectedClosureType.captureType,

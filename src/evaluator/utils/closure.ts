@@ -21,6 +21,7 @@ import {
   StructValue,
   UnknownValue,
   Value,
+  valueToString,
 } from "../../value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { addARCFunctionsToStructType } from "../types/utils";
@@ -123,6 +124,25 @@ export function createCaptureTypeAndValue({
 
   // Handle capture type inference vs explicit struct type
   if (captureType === undefined) {
+    // DEBUG: Log captured variables and caller location
+    console.log(`[DEBUG] createCaptureTypeAndValue - inference case`);
+    console.log(`[DEBUG] Caller: ${new Error().stack?.split("\n")[2]?.trim()}`);
+    console.log(
+      `[DEBUG] capturedVariablesWithValues:`,
+      capturedVariablesWithValues
+        ? Array.from(capturedVariablesWithValues.entries())
+            .map(
+              ([name, info]) =>
+                `${name}: ${typeToString(info.type)} = ${info.value ? valueToString(info.value) : "runtime"}`
+            )
+            .join(", ")
+        : "undefined"
+    );
+    console.log(
+      `[DEBUG] capturedVariablesWithValues size:`,
+      capturedVariablesWithValues?.size
+    );
+
     // Inference case: create new anonymous struct from captured variables
     if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
       // Create a struct type using createStructType

@@ -84,7 +84,10 @@ export function evaluateAsync({
       isEvaluatingAsyncBlock: {
         evaluationEnv: env, // Track the env to determine captured variables
       },
-      capturedVariables: capturedVariablesMap, // Set the captured variables map
+      isEvaluatingFunctionBody: undefined, // Clear function body context for async block
+      isEvaluatingFunctionType: undefined, // Clear function type context for async block
+      isEvaluatingLoopBody: undefined, // Clear loop body context for async block
+      capturedVariables: capturedVariablesMap, // Set the async block's own captured variables map
       expectedType: unwrappedFutureExpectedType
         ? { type: unwrappedFutureExpectedType, env }
         : undefined,

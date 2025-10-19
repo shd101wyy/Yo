@@ -50,6 +50,8 @@ export interface EvaluatorContext {
    * For example, `await` expressions are only valid within async blocks.
    * Contains the environment at the time the async block started evaluation,
    * used to determine which variables are captured from outer scopes.
+   *
+   * isEvaluatingAsyncBlock and isEvaluatingFunctionBody are mutually exclusive.
    */
   isEvaluatingAsyncBlock?: {
     evaluationEnv: Environment;
@@ -82,12 +84,6 @@ export interface EvaluatorContext {
    * The innermost module that this function call is inside.
    */
   ModuleType?: ModuleType;
-
-  /**
-   * Whether we are spawning a function call in a separate thread.
-   * If yes, when we process the function call args, we need to call ___dup on them.
-   */
-  isSpawningFunctionCall?: Environment;
 
   /**
    * Whether we are currently evaluating a function type definition.
@@ -361,6 +357,11 @@ export function trackVariableUsage(
       (existing.usageType === "write" && usageType === "read"))
       ? existing.usageType
       : usageType;
+
+  // DEBUG: Log captured variable
+  console.log(
+    `[DEBUG] Capturing variable: ${variableName}, frameLevel: ${frameLevel}, usageType: ${newUsageType}`
+  );
 
   context.capturedVariables.set(variableName, {
     frameLevel,
