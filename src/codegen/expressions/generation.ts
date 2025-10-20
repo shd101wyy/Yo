@@ -1122,17 +1122,21 @@ function generateFuncCall(
       // Generate and emit code for each arg IMMEDIATELY to preserve order
       // This is important because generateExpr may have side effects that emit code
       const argsCode: string[] = [];
+      const isReturningValue = !isUnitType(valueType) && !expr.$?.controlFlow;
+
       for (let idx = 0; idx < expr.args.length; idx++) {
         const arg = expr.args[idx]!;
         const result = generateExpr(arg, indent + "  ", context);
         argsCode.push(result);
 
         // Emit immediately to preserve order (generateExpr might emit temp vars as side effects)
-        if (result) {
+        // But skip emitting the last expression if it's being used as the return value
+        const isLastExpr = idx === expr.args.length - 1;
+        if (result && !(isLastExpr && isReturningValue)) {
           context.emitter.emitLine(`${indent}  ${result};`);
         }
       }
-      if (!isUnitType(valueType) && !expr.$?.controlFlow) {
+      if (isReturningValue) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
         );
