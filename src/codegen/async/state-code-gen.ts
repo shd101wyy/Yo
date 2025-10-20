@@ -225,24 +225,11 @@ function generateAwaitExpression(
       return;
     }
 
-    // Generate the future expression - it should already be computed and stored
-    // in a variable or state machine field
-    const futureCode = generateExpr(futureExpr, indent, context);
-
     // The future should already be stored in a state machine variable field
-    // We don't need a separate await_future_ field - just use the existing variable
-    emitter.emitLine(`${indent}// Prepare for await (future already stored in state machine)
-${indent}// Lazy spawn: start task if not started yet
-${indent}yo_future_state_t expected = YO_FUTURE_PENDING;
-${indent}if (atomic_compare_exchange_strong_explicit(
-${indent}      &${futureCode}->state,
-${indent}      &expected,
-${indent}      YO_FUTURE_RUNNING,
-${indent}      memory_order_release,
-${indent}      memory_order_acquire)) {
-${indent}  ASYNC_DEBUG("Lazy spawn: starting task (first await)\\n");
-${indent}  yo_async_spawn_task(${futureCode}->resume_fn, ${futureCode}->state_machine);
-${indent}}`);
+    // We don't need to generate any code here - the await logic is in the resume function
+    emitter.emitLine(
+      `${indent}// Prepare for await (future already stored in state machine and already spawned)`
+    );
 
     return;
   }
@@ -271,9 +258,6 @@ ${indent}}`);
         return;
       }
 
-      // Generate the future expression (the async call before await)
-      const futureCode = generateExpr(futureExpr, indent, context);
-
       // Get the variable name
       const varName = varNameExpr.token?.value;
       if (!varName || !varNameExpr.$) {
@@ -281,21 +265,12 @@ ${indent}}`);
         return;
       }
 
-      // Store the Future and lazy spawn if needed
+      // Store the Future - it's already spawned eagerly
       // The actual result extraction and variable assignment happens in the next state
       // (in generateAsyncBlockResumeFunction, after the result is extracted to await_result_X)
-      emitter.emitLine(`${indent}// Store Future for await (variable: ${varName}) - future already in state machine
-${indent}// Lazy spawn: start task if not started yet
-${indent}yo_future_state_t expected = YO_FUTURE_PENDING;
-${indent}if (atomic_compare_exchange_strong_explicit(
-${indent}      &${futureCode}->state,
-${indent}      &expected,
-${indent}      YO_FUTURE_RUNNING,
-${indent}      memory_order_release,
-${indent}      memory_order_acquire)) {
-${indent}  ASYNC_DEBUG("Lazy spawn: starting task (first await)\\n");
-${indent}  yo_async_spawn_task(${futureCode}->resume_fn, ${futureCode}->state_machine);
-${indent}}`);
+      emitter.emitLine(
+        `${indent}// Store Future for await (variable: ${varName}) - future already in state machine and already spawned`
+      );
 
       return;
     }

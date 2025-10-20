@@ -4,6 +4,14 @@
 
 Yo uses **async/await with state machine transformation** for efficient concurrent programming. This is a stackless coroutine model similar to Rust, JavaScript, C#, and Python.
 
+**Spawning Model**: Yo uses **eager spawning** (JavaScript/Python-style) rather than lazy spawning (Rust-style). When you create an async block, the task starts executing immediately on a worker thread. This makes the behavior more intuitive and matches what most developers expect from async/await.
+
+```yo
+// Task starts immediately when async block is created
+task := async { expensive_computation() };  // Already running!
+result := await task;  // Just waits for it to finish
+```
+
 ## Motivation
 
 ### Why Stackless Coroutines?
@@ -63,13 +71,13 @@ await            // Suspend until Future ready (only in async functions and bloc
 1. Async functions **must** explicitly return `Future(T)` type
 2. Async blocks `async { ... }` return `Future(T)` where T is the block's result type
 3. `await` can **only** be used inside `async { ... }` blocks (async coloring)
-4. Async functions and blocks start executing when awaited.
+4. Async functions and blocks start executing **immediately** when created (eager spawning - JavaScript-style)
 5. `await` suspends the current async function/block until the Future completes
 
 ```yo
-task := fetch(url); // The task is not running
+task := fetch(url); // The task starts running IMMEDIATELY
 
-result := await task;  // The task starts running here
+result := await task;  // Wait for the task to complete
 ```
 
 ### Async Blocks
@@ -93,6 +101,8 @@ process :: fn() -> Future(unit) async {
   println(result);
 };
 ```
+
+**Note**: In Yo, async blocks use **eager spawning** (JavaScript-style). When you create an async block, it immediately starts executing on a worker thread. This is different from Rust's lazy Futures but matches JavaScript's Promise behavior, making it more intuitive for most developers.
 
 ### Future Type
 
@@ -363,14 +373,17 @@ main :: (fn() -> Future(unit)) async {
 
 ## Comparison with Other Languages
 
-| Language | Model | Memory/Task | Max Concurrency | Work Stealing |
-|----------|-------|-------------|-----------------|---------------|
-| **Yo** | Stackless state machines | ~200 bytes | Millions | ❌ No (thread affinity) |
-| **Rust** | Stackless futures | ~100 bytes | Millions | Depends on executor |
-| **JavaScript** | Stackless promises | ~100 bytes | Millions | N/A (single-threaded) |
-| **C#** | Stackless state machines | ~200 bytes | Millions | ✅ Yes |
-| **Go** | Stackful goroutines | 2KB+ (growable) | 100K-1M | ✅ Yes |
-| **Java Virtual Threads** | Stackful | 1MB | ~10K | ✅ Yes |
+| Language | Model | Spawning | Memory/Task | Max Concurrency | Work Stealing |
+|----------|-------|----------|-------------|-----------------|---------------|
+| **Yo** | Stackless state machines | **Eager** | ~200 bytes | Millions | ❌ No (thread affinity) |
+| **Rust** | Stackless futures | Lazy | ~100 bytes | Millions | Depends on executor |
+| **JavaScript** | Stackless promises | **Eager** | ~100 bytes | Millions | N/A (single-threaded) |
+| **Python (asyncio)** | Stackless coroutines | **Eager** | ~200 bytes | Millions | N/A (single-threaded) |
+| **C#** | Stackless state machines | **Eager** | ~200 bytes | Millions | ✅ Yes |
+| **Go** | Stackful goroutines | **Eager** | 2KB+ (growable) | 100K-1M | ✅ Yes |
+| **Java Virtual Threads** | Stackful | **Eager** | 1MB | ~10K | ✅ Yes |
+
+**Note**: Yo's eager spawning matches JavaScript, Python, C#, and Go, making it more familiar to developers from those backgrounds. Unlike Rust's lazy Futures, Yo's async blocks start running immediately when created.
 
 ## Summary
 
@@ -401,8 +414,8 @@ main :: (fn() -> Future(unit)) async {
 };
 
 // Spawn multiple tasks
-task1 := fetch("http://example.com");  // Starts immediately
-task2 := fetch("http://rust-lang.org");  // Starts immediately
+task1 := fetch("http://example.com");  // Starts immediately (eager spawn)
+task2 := fetch("http://rust-lang.org");  // Starts immediately (eager spawn)
 result1 := await task1;  // Wait for completion
 result2 := await task2;  // Wait for completion
 
@@ -419,7 +432,7 @@ compute :: fn() -> Future(i32) {
 ### Key Principles
 
 1. **`async { ... }` blocks** - create inline async tasks that return Future(T)
-2. **Lazy execution** - tasks start running when awaited
+2. **Eager execution** - tasks start running immediately when created (JavaScript-style)
 3. **`await` waits for result** - suspends until Future ready (only in async contexts)
 4. **State machines** - compiler transforms each `await` into state transition
 5. **Thread affinity** - async tasks stay on assigned worker thread (no migration)

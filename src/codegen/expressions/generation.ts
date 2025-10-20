@@ -2466,11 +2466,11 @@ function generateAsyncBlockConstructor(
     `  future->state_machine_dispose_fn = ${disposeFunctionName};`
   );
   emitter.emitLine(
-    `  atomic_store_explicit(&future->state, YO_FUTURE_PENDING, memory_order_relaxed);`
+    `  atomic_store_explicit(&future->state, YO_FUTURE_RUNNING, memory_order_relaxed);`
   );
   emitter.emitLine(`  future->state_machine = sm;`);
   emitter.emitLine(
-    `  future->resume_fn = (void (*)(void*))${resumeFunctionName}; // Store resume function for lazy spawn`
+    `  future->resume_fn = (void (*)(void*))${resumeFunctionName};`
   );
   emitter.emitLine(
     `  atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);`
@@ -2481,13 +2481,13 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(`  sm->result = future;`);
   emitter.emitLine(``);
 
-  // Do NOT spawn the task here - lazy evaluation!
-  // The task will be spawned when it's first awaited
+  // Spawn the task immediately (eager spawning - JavaScript-style)
+  emitter.emitLine(`  // Spawn task immediately (eager - JavaScript-style)`);
   emitter.emitLine(
-    `  // Task not started yet - will spawn lazily on first await (Rust-style)`
+    `  yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, sm);`
   );
   emitter.emitLine(
-    `  ASYNC_DEBUG("${asyncBlockId}: Created Future in PENDING state (not started)\\n");`
+    `  ASYNC_DEBUG("${asyncBlockId}: Created and spawned Future immediately\\n");`
   );
   emitter.emitLine(``);
 
