@@ -60,7 +60,6 @@ main :: (fn() -> Future(unit)) async {
 
 export main;
 */
-
 open import "std";
 open import "std/libc/stdio";
 
@@ -73,26 +72,26 @@ MyBox :: object
 ;
 
 some_condition :: (fn() -> boolean) {
-  return true;
+  return false;
 };
 
 main :: (fn() -> unit) {
   closure : (fn(v : i32) => i32);
 
-  closure = cond(
+  cond(
     some_condition() => {
       x := MyBox(1);
-      ((v) => {
+      closure = ((v) => {
         x.* = (x.* + v);
         return x.*;
-      })
+      }) // NOTE: No ';' here intentionally
     },
     true => {
       y := MyBox(2);
-      ((v) => {
+      closure = ((v) => {
         y.* = (y.* * v);
         return y.*;
-      })
+      });
     }
   );
 
