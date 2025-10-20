@@ -812,6 +812,11 @@ export function generateFutureDeclaration(
     `  _Atomic(void*) continuation_sm; // State machine to resume when Future completes (the AWAITING state machine)`
   );
 
+  // Detached flag - set when Future is dropped while still RUNNING
+  emitter.emitDeclarationLine(
+    `  _Atomic(bool) detached; // True if Future was dropped while RUNNING (should be freed when completed)`
+  );
+
   // Only include result field if not unit/void
   if (!isUnit) {
     emitter.emitDeclarationLine(

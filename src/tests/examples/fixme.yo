@@ -2,59 +2,38 @@ open import "std";
 open import "std/libc/stdio.yo";
 
 MyBox :: object
-  (*) : i32,
+  (*) : usize,
 
   dispose :: (fn(self: Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.*);
+    printf("Disposing MyBox with value: %zu\n", self.*);
   };
 ;
 
-say :: (fn(s1 : *(u8), box: MyBox) -> Future(i32)) async {
-  val := box.*;
-  printf("%s\n", s1);
-  printf("thread %zu sent %i\n", Concurrency.get_thread_id(), val);
-  return val;
-};
-
 // Pointer arithmetic example
-main :: (fn() -> Future(unit)) async {
+main :: (fn() -> unit) {
   // Auto-detect hardware threads (no need to call set_maximum_threads)
   hw_threads := Concurrency.get_hardware_threads();
   printf("Hardware threads available: %zu\n", hw_threads);
   // Will automatically use all hardware threads for parallel execution
-  
-  // say2 is a closure;
-  x := 18;
-  say2 := (fn(s2 : *(u8)) => Future(i32)) { // <= this is a closure
-                                           // closure captures `x`
-    printf("Creating closure say2 with x = %d\n", x);
-    y := 2;
-    return async { // <= this is an async block
-                   // async block captures `x` and `y` and `s2`
-      printf("%s\n", s2);
-      printf("thread %zu sent %i\n", Concurrency.get_thread_id(), (x + y));
-      return (x + y);
-    };
+
+  async {
+    printf("async block #1 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
+  }; 
+  async {
+    printf("async block #2 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
+  };   
+  async {
+    printf("async block #3 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
+  };   
+  async {
+    printf("async block #4 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
   };
 
-  box1 := MyBox(16);
-
-  // say2("world") and say("hello") will run in parallel on different threads
-  task1 := say2("world");
-  task2 := say("hello", box1);
-
-  t1_result := await task1;
-  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
-  // It should print
-  // "thread ? sent 16"
-
-  t2_result := await task2;
-  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t2_result);
-  // It should print
-  // "thread ? sent 18"
-
-  result := (t1_result + t2_result);
-  printf("result: %d\n", result);
+  printf("Done main\n");
 };
 
 export main;

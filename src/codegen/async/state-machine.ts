@@ -304,6 +304,26 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(``);
 
         emitter.emitLine(
+          `      // Check if Future was detached (dropped while RUNNING)`
+        );
+        emitter.emitLine(
+          `      bool was_detached = atomic_load_explicit(&sm->result->detached, memory_order_acquire);`
+        );
+        emitter.emitLine(`      if (was_detached) {`);
+        emitter.emitLine(
+          `        ASYNC_DEBUG("Future %p was detached, dropping now that it's completed\\n", (void*)sm->result);`
+        );
+        emitter.emitLine(
+          `        // Drop the Future - this will decrement RC from 1->0 and free it`
+        );
+        emitter.emitLine(
+          `        // The async runtime "owned" the last reference while it was RUNNING`
+        );
+        emitter.emitLine(`        __yo_future_drop((void*)sm->result);`);
+        emitter.emitLine(`      }`);
+        emitter.emitLine(``);
+
+        emitter.emitLine(
           `      sm->state = ${stateNumber + 1};  // Terminal state`
         );
         emitter.emitLine(`      return;`);

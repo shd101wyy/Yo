@@ -29,44 +29,47 @@ void __yo_future_drop(void* ptr) {
   if (!ptr) return;
   
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  yo_future_void_t* future = (yo_future_void_t*)ptr;
   
   ASYNC_DEBUG("__yo_future_drop: ptr=%p, owner_tid=%zu\\n", ptr, header->owner_thread_id);
   
-  // For Futures, we need to check the is_running flag
-  // The Future struct has is_running after the header
-  // We'll use a generic approach by checking the offset
+  // Load the current state atomically
+  yo_future_state_t current_state = atomic_load_explicit(&future->state, memory_order_acquire);
   
-  // All Future types have the same layout:
-  // - yo_ref_header_t header
-  // - _Atomic(yo_future_state_t) state
-  // - void* state_machine
-  // - result (optional)
+  // Calculate combined reference count (biased + shared)
+  uint64_t biased_word = header->biased_word;
+  uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
+  uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
+  int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
   
-  typedef struct {
-    yo_ref_header_t header;
-    int state;  // enum: YO_FUTURE_RUNNING/COMPLETED/ERROR
-    void* state_machine;
-  } yo_future_generic_t;
-  
-  yo_future_generic_t* future = (yo_future_generic_t*)ptr;
+  // Combined RC = biased + shared (BRC invariant I1)
+  int32_t combined_rc = (int32_t)biased_counter + shared_counter;
   
   #ifdef YO_DEBUG_ASYNC_AWAIT
-  uint64_t biased_before = header->biased_word;
-  uint32_t rc_before = BRC_GET_BIASED_COUNTER(biased_before);
-  uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
-  int32_t shared_rc = BRC_GET_SHARED_COUNTER(shared_word);
   size_t current_tid = __yo_get_thread_id();
-  ASYNC_DEBUG("__yo_future_drop: RC before decr = %u (biased=%u, shared=%d), current_tid=%zu, owner_tid=%zu, Calling __yo_decr_rc on Future\\n", rc_before, rc_before, shared_rc, current_tid, header->owner_thread_id);
+  ASYNC_DEBUG("__yo_future_drop: state=%d, combined_rc=%d (biased=%u, shared=%d), current_tid=%zu, owner_tid=%zu\\n", 
+    current_state, combined_rc, biased_counter, shared_counter, current_tid, header->owner_thread_id);
   #endif
 
-  // Decrement reference count and call dispose function if RC reaches 0
+  // Check if this will be the last reference (combined RC will become 0 after decrement)
+  bool is_last_ref = (combined_rc == 1);
+  
+  // If this is the last reference AND the Future is still RUNNING,
+  // mark it as detached and DON'T decrement RC
+  // The async runtime now owns this reference and will drop it when the task completes
+  if (is_last_ref && current_state == YO_FUTURE_RUNNING) {
+    ASYNC_DEBUG("__yo_future_drop: Future %p is still RUNNING with combined_rc=1, marking as detached (async runtime takes ownership)\\n", ptr);
+    atomic_store_explicit(&future->detached, true, memory_order_release);
+    // Don't decrement RC - async runtime now owns the last reference
+    // When task completes, it will drop the Future normally
+    return;
+  }
+  
+  // Otherwise, proceed with normal reference counting
+  ASYNC_DEBUG("__yo_future_drop: Calling __yo_decr_rc on Future (state=%d, is_last_ref=%d)\\n", current_state, is_last_ref);
   __yo_decr_rc(ptr, header->dispose_fn);
   
   ASYNC_DEBUG("__yo_future_drop: Returned from __yo_decr_rc\\n");
-  
-  // Note: The actual freeing is handled by __yo_decr_rc, which will
-  // call the dispose function if ref count reaches 0.
-  // The dispose function will free the state machine.
 }
 
 // Thread support

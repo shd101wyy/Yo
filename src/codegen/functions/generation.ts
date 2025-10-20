@@ -303,11 +303,20 @@ int main(void) {
 }
 `);
   } else {
-    // Sync main - just call it directly
+    // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
 // Main wrapper - calls yo_user_main directly
 int main(void) {
+  // Initialize async runtime (in case async blocks are used)
+  __yo_async_scheduler_init();
+  
+  // Call sync main
   yo_user_main();
+  
+  // Wait for all async tasks to complete
+  // This ensures any async blocks spawned in main finish before exit
+  __yo_async_wait_all();
+  
   return 0;
 }
 `);

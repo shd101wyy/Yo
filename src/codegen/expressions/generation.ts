@@ -2478,6 +2478,9 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(
     `  atomic_store_explicit(&future->continuation_sm, NULL, memory_order_relaxed);`
   );
+  emitter.emitLine(
+    `  atomic_store_explicit(&future->detached, false, memory_order_relaxed);`
+  );
   emitter.emitLine(`  sm->result = future;`);
   emitter.emitLine(``);
 
