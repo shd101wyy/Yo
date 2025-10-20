@@ -15,6 +15,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 20% slower than C).
 - Compile-time evaluation.
 - Modular implicits.
 - Homoiconicity and metaprogramming.
+- Closure
 - Async/await with zero-cost abstractions.
 
 ## Development

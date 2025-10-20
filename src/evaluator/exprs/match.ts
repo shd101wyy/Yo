@@ -284,6 +284,12 @@ export function evaluateMatch({
       });
       // We don't update the original env here since each pattern has its own scope
 
+      // If scrutinee is a runtime value, unset the body's compile-time value
+      // to force codegen to generate all statements
+      if (scrutineeValue === undefined && evaluatedBody.$) {
+        evaluatedBody.$.value = undefined;
+      }
+
       if (!evaluatedBody.$?.type) {
         throw formatErrorMessage({
           token: bodyExpr.token,
@@ -304,6 +310,15 @@ export function evaluateMatch({
             env: evaluatedBody.$.env,
             type: context.expectedType?.type ?? evaluatedBody.$.type,
             value: evaluatedBody.$.value,
+            pathCollection: evaluatedBody.$.pathCollection,
+            controlFlow: evaluatedBody.$.controlFlow,
+          };
+        } else if (scrutineeValue === undefined) {
+          // Scrutinee is a runtime value - don't propagate compile-time values
+          expr.$ = {
+            env: evaluatedBody.$.env,
+            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            value: undefined,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
           };
@@ -628,6 +643,12 @@ export function evaluateMatch({
         variablesToAdd: [],
       });
 
+      // If scrutinee is a runtime value, unset the body's compile-time value
+      // to force codegen to generate all statements
+      if (scrutineeValue === undefined && evaluatedBody.$) {
+        evaluatedBody.$.value = undefined;
+      }
+
       if (!evaluatedBody.$?.type) {
         throw formatErrorMessage({
           token: bodyExpr.token,
@@ -643,6 +664,15 @@ export function evaluateMatch({
             env: evaluatedBody.$.env,
             type: context.expectedType?.type ?? evaluatedBody.$.type,
             value: evaluatedBody.$.value,
+            pathCollection: evaluatedBody.$.pathCollection,
+            controlFlow: evaluatedBody.$.controlFlow,
+          };
+        } else if (scrutineeValue === undefined) {
+          // Scrutinee is a runtime value - don't propagate compile-time values
+          expr.$ = {
+            env: evaluatedBody.$.env,
+            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            value: undefined,
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
           };
@@ -759,9 +789,14 @@ Supported patterns:
     expr.$ = {
       env,
       type: context.expectedType?.type ?? resultType.type,
-      // TODO: Support the compile-time value.
-      // For compile-time evaluation, we'd determine which arm matches and set the value
-      value: undefined, // createUnknownValue(resultType),
+      // If scrutinee is a runtime value (scrutineeValue is undefined),
+      // the match expression result is also a runtime value.
+      // If scrutinee is a compile-time value, we might have evaluated a specific branch
+      // and can propagate that value.
+      value:
+        scrutineeValue === undefined
+          ? undefined
+          : createUnknownValue(resultType.type),
       pathCollection: [],
     };
     attachTempVariableToExpr(expr, true);
