@@ -2022,11 +2022,17 @@ function generateFuncCall(
           const variantName = enumType.selectedVariantName;
           const variant = enumType.variants.find((v) => v.name === variantName);
           if (variant) {
+            // Filter out unit type arguments - they don't need to be stored
+            const nonUnitElements =
+              variant.elements?.filter(
+                (element) => !isUnitType(element.type)
+              ) || [];
+
             const argsList = runtimeArgExprs
               .map((arg, index) => {
                 if (variant.elements) {
                   const element = variant.elements[index];
-                  if (element) {
+                  if (element && !isUnitType(element.type)) {
                     const sanitizedLabel = sanitizeForCIdentifier(
                       element.label
                     );
@@ -2035,14 +2041,19 @@ function generateFuncCall(
                       generateExpr(arg, indent, context)
                     );
                   }
-                  return ""; // Skip if no element matches
+                  return ""; // Skip if no element matches or if it's unit type
                 } else {
                   return "";
                 }
               })
               .filter((s) => s) // Remove empty strings
               .join(", ");
-            const enumValue = `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`;
+
+            // If there are no non-unit fields, we only need the tag
+            const enumValue =
+              nonUnitElements.length > 0
+                ? `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`
+                : `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)} }`;
             if (tempVar && expr.$?.type) {
               const varTypeAndName = getVariableTypeString(
                 expr.$.type,
@@ -2584,6 +2595,11 @@ function generateDynCall(
 function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   const functionContext = context as FunctionGenerationContext;
 
+  // If this atom is a unit type value, don't generate any code
+  if (expr.$?.type && isUnitType(expr.$.type)) {
+    return "";
+  }
+
   // Handle control flow atoms first (before checking computed values or variable names)
   if (expr.token.value === "continue") {
     return "continue";
@@ -2820,15 +2836,25 @@ function generateComptValue(
         return `// Error: Variant ${value.variantName} not found or has no elements`;
       }
 
-      const fields = value.elements.map((element, index) => {
-        const fieldName = sanitizeForCIdentifier(
-          variant.elements![index]!.label
-        );
-        const fieldCode = generateComptValue(element, context);
-        return `.${fieldName} = ${fieldCode}`;
-      });
+      // Filter out unit type fields
+      const nonUnitFields = value.elements
+        .map((element, index) => {
+          const variantElement = variant.elements![index];
+          if (variantElement && !isUnitType(variantElement.type)) {
+            const fieldName = sanitizeForCIdentifier(variantElement.label);
+            const fieldCode = generateComptValue(element, context);
+            return `.${fieldName} = ${fieldCode}`;
+          }
+          return null;
+        })
+        .filter((f) => f !== null);
 
-      return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${fields.join(", ")} } } }`;
+      // If all fields are unit types, just return the tag
+      if (nonUnitFields.length === 0) {
+        return `(${cName}){ .tag = ${variantTag} }`;
+      }
+
+      return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${nonUnitFields.join(", ")} } } }`;
     }
   } else if (isStructValue(value)) {
     // For structs, we need to generate a struct initialization
@@ -3088,6 +3114,7 @@ function generateCondExpression(
     }
 
     // Generate if-else chain for each condition => value pair
+    let hasGeneratedBranch = false; // Track if we've generated any if/else if
     for (let i = 0; i < expr.args.length; i++) {
       const arg = expr.args[i];
       if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "=>", 2)) {
@@ -3096,13 +3123,17 @@ function generateCondExpression(
         const value = arg.args[1];
 
         if (condition && value) {
-          const ifKeyword = i === 0 ? "if" : "else if";
-
           if (
             isBooleanValue(condition.$?.value) &&
             condition.$.value.value === true
           ) {
-            context.emitter.emitLine(`${indent}else {`);
+            // Compile-time true: generate else only if we have previous branches
+            if (hasGeneratedBranch) {
+              context.emitter.emitLine(`${indent}else {`);
+            } else {
+              context.emitter.emitLine(`${indent}{`);
+            }
+            hasGeneratedBranch = true;
           } else if (
             isBooleanValue(condition.$?.value) &&
             condition.$.value.value === false
@@ -3111,10 +3142,12 @@ function generateCondExpression(
             continue;
           } else {
             // Generate condition outside the block
+            const ifKeyword = hasGeneratedBranch ? "else if" : "if";
             const conditionCode = generateExpr(condition, indent, context);
             context.emitter.emitLine(
               `${indent}${ifKeyword} (${conditionCode}) {`
             );
+            hasGeneratedBranch = true;
           }
 
           // Handle begin blocks specially in conditional expressions
@@ -3461,6 +3494,11 @@ function generateMatchExpression(
               const variantElement = variant.elements[fieldIndex];
 
               if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+                // Skip unit type fields - they don't exist in the generated struct
+                if (isUnitType(variantElement.type)) {
+                  continue;
+                }
+
                 const varName = destructuredVar.token.value;
                 const fieldName = sanitizeForCIdentifier(variantElement.label);
                 const fieldType = getTypeString(variantElement.type, context);
@@ -3534,15 +3572,29 @@ function generateMatchExpression(
 
               // Skip if variable name is "_" (ignore pattern)
               if (varName !== "_") {
-                const fieldName = sanitizeForCIdentifier(variantElement.label);
-                const fieldType = getTypeString(variantElement.type, context);
+                // For unit type fields, generate a comment instead of a variable
+                // This allows the variable name to be "declared" without generating invalid C
+                if (isUnitType(variantElement.type)) {
+                  context.emitter.emitLine(
+                    `${indent}  // ${varName} is unit type (no value)`
+                  );
+                  // Register this as a unit variable so expression generation can handle it
+                  // (Expression generation should skip generating references to unit variables)
+                } else {
+                  const fieldName = sanitizeForCIdentifier(
+                    variantElement.label
+                  );
+                  const fieldType = getTypeString(variantElement.type, context);
 
-                // Generate variable declaration and assignment
-                const accessPrefix =
-                  ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
-                context.emitter.emitLine(
-                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
-                );
+                  // Generate variable declaration and assignment
+                  const accessPrefix =
+                    ptrOrRefType === "ref_semantics" || ptrOrRefType
+                      ? "->"
+                      : ".";
+                  context.emitter.emitLine(
+                    `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                  );
+                }
               }
             }
           }

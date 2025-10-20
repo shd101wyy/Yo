@@ -29,6 +29,89 @@ import {
 } from "../utils";
 
 /**
+ * Topologically sort enums to ensure dependencies are generated before dependents.
+ * This handles cases like: Result(unit, ArrayListError) depends on ArrayListError
+ */
+function topologicalSortEnums(
+  enums: Array<{ typeId: string; type: EnumType; cName: string }>,
+  context: CodeGenContext
+): Array<{ type: EnumType; cName: string }> {
+  // Build dependency graph and reverse mapping
+  const typeIdToData = new Map(enums.map((e) => [e.typeId, e]));
+  const cNameToTypeId = new Map(enums.map((e) => [e.cName, e.typeId]));
+
+  // Build reverse dependency graph (dependents -> dependencies)
+  const dependencies = new Map<string, Set<string>>();
+
+  for (const { typeId, type } of enums) {
+    dependencies.set(typeId, new Set());
+
+    // Check each variant's elements for enum type dependencies
+    for (const variant of type.variants) {
+      if (variant.elements) {
+        for (const element of variant.elements) {
+          if (isEnumType(element.type)) {
+            // Find the typeId for this enum dependency
+            const depCName = getTypeString(element.type, context);
+            const depTypeId = cNameToTypeId.get(depCName);
+            // If this enum depends on another enum in our set, record it
+            if (
+              depTypeId &&
+              depTypeId !== typeId &&
+              typeIdToData.has(depTypeId)
+            ) {
+              dependencies.get(typeId)!.add(depTypeId);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Calculate in-degrees (number of dependencies each enum has)
+  // An enum with in-degree 0 has no dependencies and can be generated first
+  const inDegree = new Map<string, number>();
+  for (const [typeId, deps] of dependencies) {
+    inDegree.set(typeId, deps.size);
+  }
+
+  // Start with enums that have no dependencies (in-degree 0)
+  const queue: string[] = [];
+  for (const [typeId, degree] of inDegree) {
+    if (degree === 0) {
+      queue.push(typeId);
+    }
+  }
+
+  const sorted: Array<{ type: EnumType; cName: string }> = [];
+
+  while (queue.length > 0) {
+    const typeId = queue.shift()!;
+    const enumData = typeIdToData.get(typeId)!;
+    sorted.push({ type: enumData.type, cName: enumData.cName });
+
+    // For each enum that depends on this enum, decrement its in-degree
+    // (this enum is now generated, so it's no longer a dependency)
+    for (const [otherTypeId, otherDeps] of dependencies) {
+      if (otherDeps.has(typeId)) {
+        const newDegree = (inDegree.get(otherTypeId) || 1) - 1;
+        inDegree.set(otherTypeId, newDegree);
+        if (newDegree === 0) {
+          queue.push(otherTypeId);
+        }
+      }
+    }
+  }
+
+  // If we didn't sort all enums, there's a cycle - just return in original order
+  if (sorted.length < enums.length) {
+    return enums;
+  }
+
+  return sorted;
+}
+
+/**
  * Generate type declarations for all collected types
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
@@ -263,6 +346,20 @@ struct yo_thread_gc_state {
   yo_thread_gc_state_t* next;                // Next thread in global thread list
   yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
 };
+
+// Generic Future type - used by async runtime for type-agnostic operations
+// All concrete Future types share this same layout for common fields
+typedef struct {
+  yo_ref_header_t header;
+  _Atomic(yo_future_state_t) state;
+  void* state_machine;
+  void (*state_machine_dispose_fn)(void*);
+  void (*resume_fn)(void*);
+  _Atomic(void*) continuation_fn;
+  _Atomic(void*) continuation_sm;
+  _Atomic(bool) detached;
+  // Note: concrete Future types may have additional fields (e.g., result) after this
+} yo_future_generic_t;
 `);
 
   // Forward declarations - generate struct and enum forward declarations first
@@ -301,19 +398,58 @@ struct yo_thread_gc_state {
   // Generate types in dependency order: enums first, then structs, then others
   // This handles circular dependencies where structs contain enums by value
 
-  // First pass: Generate enum declarations (they can be used by value in structs)
+  // First pass: Generate simple enum declarations (optimized as simple enum) first
+  // These are leaf types that can be used by other enums
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
-    if (isEnumType(type)) {
+    if (isEnumType(type) && canOptimizeAsSimpleEnum(type)) {
       generateEnumDeclaration(type, cName, context);
     }
   }
 
-  // Second pass: Generate struct and other type declarations
+  // Second pass: Generate complex enum declarations (not optimized as simple enum)
+  // These may contain references to simple enums or other types
+  // We need to sort them topologically to ensure dependencies are generated first
+  const complexEnums: Array<{ typeId: string; type: EnumType; cName: string }> =
+    [];
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (typeContainsSomeType(type)) {
+      continue; // Skip types that contain `SomeType` as they are not concrete types
+    }
+
+    if (
+      isEnumType(type) &&
+      !canOptimizeAsSimpleEnum(type) &&
+      !canOptimizeAsNullablePointer(type)
+    ) {
+      complexEnums.push({ typeId, type, cName });
+    }
+  }
+
+  // Topologically sort complex enums by dependencies
+  const sorted = topologicalSortEnums(complexEnums, context);
+  for (const { type, cName } of sorted) {
+    generateEnumDeclaration(type, cName, context);
+  }
+
+  // Third pass: Generate nullable pointer optimized enums
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (typeContainsSomeType(type)) {
+      continue; // Skip types that contain `SomeType` as they are not concrete types
+    }
+
+    if (isEnumType(type) && canOptimizeAsNullablePointer(type)) {
+      generateEnumDeclaration(type, cName, context);
+    }
+  }
+
+  // Fourth pass: Generate struct and other type declarations
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
@@ -336,7 +472,7 @@ struct yo_thread_gc_state {
     } else if (isFutureType(type)) {
       generateFutureDeclaration(type, cName, context);
     }
-    // Note: isEnumType is handled in the first pass above
+    // Note: isEnumType is handled in the passes above
   }
 }
 
@@ -616,17 +752,25 @@ export function generateEnumDeclaration(
 
   for (const variant of enumType.variants) {
     if (variant.elements && variant.elements.length > 0) {
-      // Variant has data - create a struct for its fields using just the variant name
-      const variantStructName = variant.name;
-      emitter.emitDeclarationLine(`  struct {`);
+      // Filter out unit type elements - they don't need to be stored
+      const nonUnitElements = variant.elements.filter(
+        (element) => !isUnitType(element.type)
+      );
 
-      for (const element of variant.elements) {
-        const fieldTypeStr = getTypeString(element.type, context);
-        const fieldName = sanitizeForCIdentifier(element.label);
-        emitter.emitDeclarationLine(`    ${fieldTypeStr} ${fieldName};`);
+      // Only generate struct if there are non-unit fields
+      if (nonUnitElements.length > 0) {
+        // Variant has data - create a struct for its fields using just the variant name
+        const variantStructName = variant.name;
+        emitter.emitDeclarationLine(`  struct {`);
+
+        for (const element of nonUnitElements) {
+          const fieldTypeStr = getTypeString(element.type, context);
+          const fieldName = sanitizeForCIdentifier(element.label);
+          emitter.emitDeclarationLine(`    ${fieldTypeStr} ${fieldName};`);
+        }
+
+        emitter.emitDeclarationLine(`  } ${variantStructName};`);
       }
-
-      emitter.emitDeclarationLine(`  } ${variantStructName};`);
     }
   }
 

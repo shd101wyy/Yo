@@ -32,6 +32,7 @@ import {
   generateReturnStatement,
 } from "../expressions";
 import {
+  canOptimizeAsNullablePointer,
   CodeGenContext,
   getTypeString,
   isComptFunction,
@@ -288,7 +289,7 @@ int main(void) {
   __yo_async_scheduler_init();
   
   // Call async main (returns Future(unit))
-  yo_future_void_t* main_future = yo_user_main();
+  yo_future_generic_t* main_future = (yo_future_generic_t*)yo_user_main();
   
   // Note: main async function is eagerly spawned when called (JavaScript-style)
   // No need to spawn it here - it's already running
@@ -1723,35 +1724,44 @@ function generateRefStructTraversalFunctions(
           // This field is an enum - we need to check if any variants contain references
           const enumType = fieldType as EnumType;
 
-          // Generate switch statement to handle enum variants
-          emitter.emitLine(`  switch (obj->${fieldName}.tag) {`);
+          // Check if this enum is optimized as a nullable pointer
+          const nullablePointerType = canOptimizeAsNullablePointer(enumType);
 
-          for (const variant of enumType.variants || []) {
-            // Check if any of the variant's elements contain references
-            if (variant.elements && variant.elements.length > 0) {
-              for (const element of variant.elements) {
-                if (
-                  isStructType(element.type) &&
-                  element.type.isReferenceSemantics
-                ) {
-                  // This variant contains a reference
-                  const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
-                  emitter.emitLine(`  case ${enumConstantName}:`);
-                  emitter.emitLine(
-                    `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(element.label)}) {`
-                  );
-                  emitter.emitLine(
-                    `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(element.label)});`
-                  );
-                  emitter.emitLine(`    }`);
-                  emitter.emitLine(`    break;`);
-                  break; // Only generate one case per variant
+          if (nullablePointerType) {
+            // This is a nullable pointer optimization - just check if it's non-null
+            // No need to visit the pointer itself since it's not a reference-counted object
+            // (it's just a raw pointer or primitive value wrapped in Option)
+          } else {
+            // Generate switch statement to handle enum variants
+            emitter.emitLine(`  switch (obj->${fieldName}.tag) {`);
+
+            for (const variant of enumType.variants || []) {
+              // Check if any of the variant's elements contain references
+              if (variant.elements && variant.elements.length > 0) {
+                for (const element of variant.elements) {
+                  if (
+                    isStructType(element.type) &&
+                    element.type.isReferenceSemantics
+                  ) {
+                    // This variant contains a reference
+                    const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
+                    emitter.emitLine(`  case ${enumConstantName}:`);
+                    emitter.emitLine(
+                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(element.label)}) {`
+                    );
+                    emitter.emitLine(
+                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(element.label)});`
+                    );
+                    emitter.emitLine(`    }`);
+                    emitter.emitLine(`    break;`);
+                    break; // Only generate one case per variant
+                  }
                 }
               }
             }
-          }
 
-          emitter.emitLine(`  }`);
+            emitter.emitLine(`  }`);
+          }
         }
       }
       emitter.emitLine(`}`);

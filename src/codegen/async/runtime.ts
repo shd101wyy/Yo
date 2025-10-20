@@ -29,7 +29,7 @@ void __yo_future_drop(void* ptr) {
   if (!ptr) return;
   
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
-  yo_future_void_t* future = (yo_future_void_t*)ptr;
+  yo_future_generic_t* future = (yo_future_generic_t*)ptr;
   
   ASYNC_DEBUG("__yo_future_drop: ptr=%p, owner_tid=%zu\\n", ptr, header->owner_thread_id);
   
@@ -456,17 +456,7 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
   ASYNC_DEBUG("Queue count: %zu\\n", yo_thread_async_queue.count);
 }
 
-// Generic Future type for runtime operations
-// All Future types have the same layout for the fields we care about in runtime code
-typedef struct {
-  yo_ref_header_t header;
-  _Atomic(yo_future_state_t) state;
-  void* state_machine;
-  void (*state_machine_dispose_fn)(void*); // Dispose function to clean up state machine variables
-  void (*resume_fn)(void*); // Resume function for lazy spawn
-  _Atomic(void*) continuation_fn;
-  _Atomic(void*) continuation_sm;
-} yo_future_generic_t;
+// Note: yo_future_generic_t is now defined in type declarations (after yo_ref_header_t)
 
 // Dispose function for Future types - frees the state machine
 void yo_future_dispose(void* future_ptr) {
