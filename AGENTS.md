@@ -15,7 +15,7 @@ Never hardcode any typescript or yo when you are trying to solve a problem.
 
 Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
-To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.ts src/tests/examples/fixme.yo --emit-c --skip-c-compiler` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
+To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.ts src/tests/examples/fixme.yo` to compile the `fixme.yo`. Or run `bun run src/yo-cli.ts src/tests/examples/fixme.yo --emit-c --skip-c-compiler` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
 Or you can run `bun run src/yo-cli.ts src/tests/examples/fixme.yo -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-brc` to debug the biased reference counter, and `--debug-concurrency` to debug the concurrency model, and `--debug-async-await` for debugging async/await.
 

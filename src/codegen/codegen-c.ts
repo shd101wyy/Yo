@@ -9,6 +9,7 @@ import { collectRequiredFunctions } from "./functions/collection";
 import { FunctionGenerationContext } from "./functions/context";
 import {
   generateAllFunctions,
+  generateClosureDisposeFunctions,
   generateFunctionDeclarations,
   generateSpecializedFunctionDeclarations,
   generateSpecializedFunctions,
@@ -104,6 +105,10 @@ typedef enum {
     // Generate deferred async block implementations
     // This must happen after all regular functions are generated to avoid nesting
     generateDeferredAsyncBlocks(context);
+
+    // Generate closure dispose functions after async blocks
+    // (async blocks can create closures, so we need to generate after deferred blocks)
+    generateClosureDisposeFunctions(context);
 
     // Fifth pass: Generate declarations for specialized functions (now that they're collected)
     generateSpecializedFunctionDeclarations(context);

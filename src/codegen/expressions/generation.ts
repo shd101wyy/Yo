@@ -180,31 +180,50 @@ function generateFuncCall(
       const captureCName = captureTypeEntry.cName;
 
       // Get captured variable values
-      const captureArgs = expr.$?.capturedVariableDupExpressions
-        ? expr.$.capturedVariableDupExpressions.map((dupExpr) =>
-            generateExpr(dupExpr, indent, context)
-          )
-        : captureType.elements.map((element) => {
-            // Generate proper variable access for captured variables
-            const functionContext = context as FunctionGenerationContext;
-            // Check if we're in a state machine or closure context
-            if (functionContext.inStateMachine) {
-              return `sm->${sanitizeForCIdentifier(element.label)}`;
-            } else if (functionContext.currentClosureType) {
-              const currentClosureType = functionContext.currentClosureType;
-              const closureTypeEntry = Object.values(
-                functionContext.types
-              ).find((entry) => entry.type === currentClosureType);
-              if (closureTypeEntry) {
-                const captureStructName = `${closureTypeEntry.cName}_capture`;
-                return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(element.label)}`;
+      // Dup expressions are created at evaluation time and don't have correct context for code generation
+      // When in a closure or state machine, always use generateAtom for proper context-aware access
+      // Otherwise, use dup expressions if available (they handle proper ARC semantics)
+      const functionContext = context as FunctionGenerationContext;
+      const inSpecialContext =
+        functionContext.currentClosureCaptures !== undefined ||
+        functionContext.inStateMachine !== undefined;
+
+      const captureArgs = captureType.elements.map((element) => {
+        // Find the dup expression for this variable by checking the variable name
+        // capturedVariableDupExpressions only contains dup expressions for ARC types,
+        // so we need to match by variable name, not by index
+        let dupExpr: Expr | undefined;
+        if (!inSpecialContext && expr.$?.capturedVariableDupExpressions) {
+          for (const possibleDupExpr of expr.$.capturedVariableDupExpressions) {
+            // Dup expression is in the form: ___dup(varName)
+            // Extract the variable name from the first argument
+            if (
+              exprIsFunctionCall(possibleDupExpr) &&
+              possibleDupExpr.args.length > 0 &&
+              exprIsAtom(possibleDupExpr.args[0])
+            ) {
+              const varName = possibleDupExpr.args[0].token.value;
+              if (varName === element.label) {
+                dupExpr = possibleDupExpr;
+                break;
               }
-              return `closure_context->${sanitizeForCIdentifier(element.label)}`;
-            } else {
-              // Just use the variable name directly
-              return element.label;
             }
-          });
+          }
+        }
+
+        if (dupExpr) {
+          return generateExpr(dupExpr, indent, context);
+        }
+
+        // Fallback: generate proper variable access using generateAtom
+        // This handles closure context and state machine access properly
+        const atomExpr: AtomExpr = {
+          tag: ExprTag.Atom,
+          token: element.exprs.expr.token,
+          $: element.exprs.expr.$,
+        };
+        return generateAtom(atomExpr, context);
+      });
 
       // Generate capture struct initialization
       const captureDataCode = `(${captureCName}){ ${captureArgs
@@ -2216,10 +2235,38 @@ function generateAsyncBlock(
       : `async_capture_${captureType.id}`;
 
     // Build the capture struct literal
+    // Dup expressions are created at evaluation time and don't have correct context for code generation
+    // When in a closure or state machine, always use generateAtom for proper context-aware access
+    // Otherwise, use dup expressions if available (they handle proper ARC semantics)
+    const functionContext = context as FunctionGenerationContext;
+    const inSpecialContext =
+      functionContext.currentClosureCaptures !== undefined ||
+      functionContext.inStateMachine !== undefined;
+
     const captureFields = captureType.elements
-      .map((elem, index) => {
-        // Find the dup expression by index (dup expressions are in same order as elements)
-        const dupExpr = expr.$?.capturedVariableDupExpressions?.[index];
+      .map((elem) => {
+        // Find the dup expression for this variable by checking the variable name
+        // capturedVariableDupExpressions only contains dup expressions for ARC types,
+        // so we need to match by variable name, not by index
+        let dupExpr: Expr | undefined;
+        if (!inSpecialContext && expr.$?.capturedVariableDupExpressions) {
+          for (const possibleDupExpr of expr.$.capturedVariableDupExpressions) {
+            // Dup expression is in the form: ___dup(varName)
+            // Extract the variable name from the first argument
+            if (
+              exprIsFunctionCall(possibleDupExpr) &&
+              possibleDupExpr.args.length > 0 &&
+              exprIsAtom(possibleDupExpr.args[0])
+            ) {
+              const varName = possibleDupExpr.args[0].token.value;
+              if (varName === elem.label) {
+                dupExpr = possibleDupExpr;
+                break;
+              }
+            }
+          }
+        }
+
         if (dupExpr) {
           return `.${elem.label} = ${generateExpr(dupExpr, indent, context)}`;
         }
@@ -2649,9 +2696,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   if (
     functionContext.currentClosureCaptures &&
     functionContext.currentClosureCaptures.includes(expr.token.value) &&
-    expr.$?.env &&
     functionContext.currentClosureCaptureFrameLevel !== undefined &&
-    isClosureCaptured
+    (expr.$?.env ? isClosureCaptured : true) // If no env info, trust currentClosureCaptures
   ) {
     // We're accessing a captured variable in a closure function
     // The closure_context parameter is a void* that points directly to the capture struct

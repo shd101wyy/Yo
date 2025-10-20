@@ -1,4 +1,3 @@
-/*
 open import "std";
 open import "std/libc/stdio.yo";
 
@@ -56,49 +55,6 @@ main :: (fn() -> Future(unit)) async {
 
   result := (t1_result + t2_result);
   printf("result: %d\n", result);
-};
-
-export main;
-*/
-open import "std";
-open import "std/libc/stdio";
-
-MyBox :: object
-  (*) : i32,
-
-  dispose :: (fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.*);
-  }
-;
-
-some_condition :: (fn() -> boolean) {
-  return false;
-};
-
-main :: (fn() -> unit) {
-  closure : (fn(v : i32) => i32);
-
-  cond(
-    some_condition() => {
-      x := MyBox(1);
-      closure = ((v) => {
-        x.* = (x.* + v);
-        return x.*;
-      }) // NOTE: No ';' here intentionally
-    },
-    true => {
-      y := MyBox(2);
-      closure = ((v) => {
-        y.* = (y.* * v);
-        return y.*;
-      });
-    }
-  );
-
-  closure(2);
-  closure(3);
-  result := closure(4);
-  printf("Result %d\n", result);
 };
 
 export main;

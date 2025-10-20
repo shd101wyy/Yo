@@ -228,10 +228,6 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
   // Generate main wrapper if user defined a main function
   generateMainWrapper(context);
-
-  // Generate closure dispose functions after all functions are generated
-  // (closures can be created in normal functions, not just async blocks)
-  generateCaptureDisposeFunctions(context);
 }
 
 /**
@@ -1985,7 +1981,7 @@ export function generateClosureConstructorFunctions(
  * 4. Calls the capture type's drop function
  * 5. Frees the capture data
  */
-export function generateCaptureDisposeFunctions(
+export function generateClosureDisposeFunctions(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
