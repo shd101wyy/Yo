@@ -29,7 +29,6 @@ import {
   isTypeHierarchyType,
   isU8Type,
   isUnionType,
-  isVoidType,
 } from "./guards";
 import { TypeTag } from "./tags";
 import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
@@ -426,9 +425,11 @@ export function areTypesCompatible(
 
   // *
   if (isMutPtrType(expected.type) && isMutPtrType(given.type)) {
-    if (isVoidType(expected.type.type)) {
-      return true; // *(void) is compatible with any pointer type
-    }
+    // NOTE: This causes some problem with type synthesize.
+    //       So let's be specific here.
+    // if (isVoidType(expected.type.type)) {
+    //   return true; // *(void) is compatible with any pointer type
+    // }
 
     // Mut pointers must have the same type
     return areTypesCompatible(

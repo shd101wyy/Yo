@@ -1,7 +1,7 @@
 # Yo
 
 A multi-paradigm, general-purpose, compiled programming language.
-Yo aims to be **Simple** and **Fast** (around 10% - 15% slower than C).
+Yo aims to be **Simple** and **Fast** (around 0% - 20% slower than C).
 
 - [Learn Yo in 10 Minutes](./LEARN_YO_IN_10_MINUTES.yo)
 - [Design](./DESIGN.md)

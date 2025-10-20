@@ -1,39 +1,59 @@
 open import "std";
-open import "std/libc/stdio.yo";
+{ printf } :: import "std/libc/stdio";
+{ ArrayList } :: import "std/collections/array_list";
 
-MyBox :: object
-  (*) : usize,
-
-  dispose :: (fn(self: Self) -> unit) {
-    printf("Disposing MyBox with value: %zu\n", self.*);
-  };
-;
-
-// Pointer arithmetic example
 main :: (fn() -> unit) {
-  // Auto-detect hardware threads (no need to call set_maximum_threads)
-  hw_threads := Concurrency.get_hardware_threads();
-  printf("Hardware threads available: %zu\n", hw_threads);
-  // Will automatically use all hardware threads for parallel execution
-
-  async {
-    printf("async block #1 started on %zu\n", Concurrency.get_thread_id());
-    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
-  }; 
-  async {
-    printf("async block #2 started on %zu\n", Concurrency.get_thread_id());
-    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
-  };   
-  async {
-    printf("async block #3 started on %zu\n", Concurrency.get_thread_id());
-    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
-  };   
-  async {
-    printf("async block #4 started on %zu\n", Concurrency.get_thread_id());
-    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
-  };
-
-  printf("Done main\n");
+  // Create a new ArrayList of i32
+  list := ArrayList(i32).new();
+  
+  /*
+  // Push some elements
+  list.push((42).as(i32));
+  list.push((100).as(i32));
+  list.push((200).as(i32));
+  
+  printf("ArrayList length: %zu\n", list.length);
+  printf("ArrayList capacity: %zu\n", list.capacity);
+  
+  // Get elements by index
+  first := list.get((0).as(usize));
+  match(first,
+    .Some(value) => printf("First element: %d\n", value),
+    .None => printf("No first element\n")
+  );
+  
+  // Set an element
+  list.set((1).as(usize), (150).as(i32));
+  
+  second := list.get((1).as(usize));
+  match(second,
+    .Some(value) => printf("Second element after set: %d\n", value),
+    .None => printf("No second element\n")
+  );
+  
+  // Pop an element
+  popped := list.pop();
+  match(popped,
+    .Some(value) => printf("Popped value: %d\n", value),
+    .None => printf("List is empty\n")
+  );
+  
+  printf("Length after pop: %zu\n", list.length);
+  
+  // Shrink to fit
+  list.shrink_to_fit();
+  printf("Capacity after shrink: %zu\n", list.capacity);
+  
+  // Create ArrayList with initial capacity
+  list2 := ArrayList(i32).with_capacity((10).as(usize));
+  printf("List2 initial capacity: %zu\n", list2.capacity);
+  
+  // Clear the list
+  list.clear();
+  printf("Length after clear: %zu\n", list.length);
+  
+  return;
+  */
 };
 
 export main;

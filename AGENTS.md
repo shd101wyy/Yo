@@ -23,7 +23,28 @@ Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better 
 
 You can ignore the editor erros for the `.yo` files, because the vscode extension might not use the updated Yo language grammar or evaluator/compiler code.
 
-{ expr } create a struct value. So if there is only one expression, don't use {...}. Use the expr directly.
+**CRITICAL SYNTAX RULES:**
+
+1. **Curly braces `{...}` behave differently based on separators:**
+   - `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
+   - `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
+   - **Rule:** If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
+   - **Example:** 
+     ```yo
+     // WRONG - creates a struct:
+     result := { .Ok(()) }
+     
+     // CORRECT - just the expression:
+     result := .Ok(())
+     
+     // CORRECT - begin block with statements:
+     result := { x := 1; y := 2; .Ok(()) }
+     ```
+
+2. **Always write `cond(...)` and `match(...)` with parentheses:**
+   - `cond(...)` - NOT `cond ...`
+   - `match(...)` - NOT `match ...`
+   - The parentheses are **required** and must not be omitted.
 
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
