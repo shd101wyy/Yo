@@ -518,10 +518,10 @@ ${exprToString(expr)}`,
           context: { ...context },
         });
       } else if (
-        exprIsFunctionCallOf(expr, BuiltinKeywords.and) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.or)
+        exprIsFunctionCallOf(expr, BuiltinKeywords.op_and) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.op_or)
       ) {
-        // and/or
+        // && ||
         return evaluateAndOr({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
         // ___drop

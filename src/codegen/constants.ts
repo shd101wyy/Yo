@@ -19,8 +19,6 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_op_gte, // >=
 
   // Logical
-  ...BuiltinFunctions.__yo_op_and, // &&
-  ...BuiltinFunctions.__yo_op_or, // ||
   ...BuiltinFunctions.__yo_op_not, // !
 
   // Bitwise

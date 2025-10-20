@@ -102,7 +102,8 @@ export function generateFunctionDeclarations(
     if (
       isGenericFunction(value) ||
       isComptFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
+      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+      typeContainsSomeType(value.type)
     ) {
       continue;
     }
@@ -217,7 +218,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     if (
       isGenericFunction(value) ||
       isComptFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
+      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+      typeContainsSomeType(value.type)
     ) {
       continue;
     }

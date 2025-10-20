@@ -470,8 +470,8 @@ export const BuiltinKeywords = {
   while: ["while"],
   for: ["for"],
   if: ["if"],
-  and: ["and", "&&"],
-  or: ["or", "||"],
+  op_and: ["&&"],
+  op_or: ["||"],
   not: ["not"],
   gensym: ["gensym"],
 
@@ -844,8 +844,6 @@ export const BuiltinFunctions = {
   __yo_op_gte: ["__yo_op_gte"], // >=
 
   /// Logical
-  __yo_op_and: ["__yo_op_and"], // &&
-  __yo_op_or: ["__yo_op_or"], // ||
   __yo_op_not: ["__yo_op_not"], // !
 
   /// Bitwise

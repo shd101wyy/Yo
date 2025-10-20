@@ -142,6 +142,9 @@ export function collectTypesFromExpr(
                   cName: functionValue.funcId,
                 };
 
+                // Collect types from the function signature (parameters and return type)
+                collectTypesFromFunctionType(functionValue.type, context);
+
                 // Recursively collect functions called by this struct member function
                 findFunctionCallsInExpr(functionValue.body, context);
               }
@@ -220,6 +223,9 @@ export function collectType(type: Type, context: CodeGenContext): void {
               cName: functionValue.funcId,
             };
 
+            // Collect types from the function signature (parameters and return type)
+            collectTypesFromFunctionType(functionValue.type, context);
+
             // Recursively collect functions called by this struct member function
             // This is needed to collect extern functions like printf used in dispose methods
             findFunctionCallsInExpr(functionValue.body, context);
@@ -248,6 +254,9 @@ export function collectType(type: Type, context: CodeGenContext): void {
               value: functionValue,
               cName: functionValue.funcId,
             };
+
+            // Collect types from the function signature (parameters and return type)
+            collectTypesFromFunctionType(functionValue.type, context);
 
             // Recursively collect functions called by this enum member function
             findFunctionCallsInExpr(functionValue.body, context);

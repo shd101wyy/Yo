@@ -51,7 +51,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      * Create an ArrayList with a specific initial capacity
      */
     with_capacity :: ((fn(capacity: usize) -> Self)
-      cond 
+      cond(
         (capacity == (0).as(usize)) => 
           Self.new(),
         true => {
@@ -66,6 +66,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .None => panic("malloc returned None")
           )
         }
+      )
     ),
 
     /**
@@ -73,7 +74,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     push :: ((fn(self: Self, value: T) -> Result(unit, ArrayListError))
       // Check if we need to grow
-      cond
+      cond(
         (self.length >= self.capacity) => {
           // Need to grow - calculate new capacity
           new_capacity := cond
@@ -104,7 +105,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
         },
         true =>
           // Have capacity - just add the element
-          match self.ptr,
+          match(self.ptr,
             .Some(ptr) => {
               target_ptr := (ptr + self.length);
               target_ptr.* = value;
@@ -112,6 +113,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
               .Ok(())
             },
             .None => panic("ArrayList has capacity but no ptr")
+          )
+      )
     ),
 
     /**
@@ -136,12 +139,13 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      * Get an element by index (bounds checked)
      */
     get :: ((fn(self: Self, index: usize) -> Option(T))
-      cond
+      cond(
         (index >= self.length) => .None,
         true =>
           match self.ptr,
             .None => .None,
             .Some(ptr) => .Some((ptr + index).*)
+      )
     ),
 
     /**
@@ -149,17 +153,19 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      * Returns Ok(()) on success, or Error with bounds information
      */
     set :: ((fn(self: Self, index: usize, value: T) -> Result(unit, ArrayListError))
-      cond
+      cond(
         (index >= self.length) => 
           .Error(.IndexOutOfBounds(index: index, length: self.length)),
         true =>
-          match self.ptr,
+          match(self.ptr,
             .None => panic("ArrayList has length but no ptr"),
             .Some(ptr) => {
               target_ptr := (ptr + index);
               target_ptr.* = value;
               .Ok(())
             }
+          )
+      )
     ),
 
     /**
@@ -211,11 +217,11 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
         T.contains_arc_type() => {
           i := (0).as(usize);
           base_ptr := self.ptr.unwrap();
-          while i < self.length, i = (i + (1).as(usize)), {
+          while(i < self.length, i = (i + (1).as(usize)), {
             element_ptr := (base_ptr + i);
             element := element_ptr.*;
             // element will be automatically dropped here
-          };
+          });
         },
         true => ()
       )
@@ -234,14 +240,15 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      * For `object`, this is called when the reference count drops to zero
      */
     dispose :: ((fn(self: Self) -> unit) {
-      match self.ptr,
+      match(self.ptr,
         .Some(ptr) => {
           self._free_elements();
           self.length = (0).as(usize);
           GlobalAllocator.free(.Some(ptr.cast(*(void))));
           self.ptr = .None;
         },
-        .None => ();
+        .None => ()
+      );
     })
   );
 

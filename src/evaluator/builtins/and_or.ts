@@ -25,7 +25,7 @@ export function evaluateAndOr({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  const kind: "and" | "or" = exprIsFunctionCallOf(expr, BuiltinKeywords.and)
+  const kind: "and" | "or" = exprIsFunctionCallOf(expr, BuiltinKeywords.op_and)
     ? "and"
     : "or";
   const args = expr.args;

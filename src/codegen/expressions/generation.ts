@@ -454,6 +454,32 @@ function generateFuncCall(
     return `__yo_concurrency_set_maximum_threads(${numCode})`;
   }
 
+  // op_and - && operator with short-circuit evaluation
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.op_and)) {
+    if (expr.args.length === 0) {
+      return `true`; // Empty && returns true
+    }
+    if (expr.args.length === 1) {
+      return generateExpr(expr.args[0]!, indent, context);
+    }
+    // Generate: (arg1 && arg2 && ... && argN)
+    const argCodes = expr.args.map((arg) => generateExpr(arg, indent, context));
+    return `(${argCodes.join(" && ")})`;
+  }
+
+  // op_or - || operator with short-circuit evaluation
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.op_or)) {
+    if (expr.args.length === 0) {
+      return `false`; // Empty || returns false
+    }
+    if (expr.args.length === 1) {
+      return generateExpr(expr.args[0]!, indent, context);
+    }
+    // Generate: (arg1 || arg2 || ... || argN)
+    const argCodes = expr.args.map((arg) => generateExpr(arg, indent, context));
+    return `(${argCodes.join(" || ")})`;
+  }
+
   // async - async block that creates a Future
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
     return generateAsyncBlock(expr, indent, context);
@@ -3077,6 +3103,12 @@ function generateCondExpression(
             condition.$.value.value === true
           ) {
             context.emitter.emitLine(`${indent}else {`);
+          } else if (
+            isBooleanValue(condition.$?.value) &&
+            condition.$.value.value === false
+          ) {
+            // Skip this branch entirely - don't generate any code for it
+            continue;
           } else {
             // Generate condition outside the block
             const conditionCode = generateExpr(condition, indent, context);
@@ -3629,14 +3661,6 @@ function generateYoInlineFunctionCall(
   // >=
   else if (BuiltinFunctions.__yo_op_gte.includes(functionName)) {
     return `((${args[0]!}) >= (${args[1]!}))`;
-  }
-  // &&
-  else if (BuiltinFunctions.__yo_op_and.includes(functionName)) {
-    return `((${args[0]!}) && (${args[1]!}))`;
-  }
-  // ||
-  else if (BuiltinFunctions.__yo_op_or.includes(functionName)) {
-    return `((${args[0]!}) || (${args[1]!}))`;
   }
   // !
   else if (BuiltinFunctions.__yo_op_not.includes(functionName)) {
