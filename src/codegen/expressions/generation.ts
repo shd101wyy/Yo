@@ -301,21 +301,11 @@ function generateFuncCall(
   // __yo_decr_rc - handle reference count decrement
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
     const selfArg = expr.args[0];
-    const disposeFnArg = expr.args[1];
     if (!selfArg) {
-      return `// Error: __yo_decr_rc requires at least 1 argument`;
+      return `// Error: __yo_decr_rc requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-
-    // If dispose function is provided, generate it; otherwise use NULL
-    let disposeFnCode = "NULL";
-    if (disposeFnArg) {
-      const rawDisposeFnCode = generateExpr(disposeFnArg, indent, context);
-      // Cast the function pointer to the expected void(*)(void*) type
-      disposeFnCode = `(void(*)(void*))${rawDisposeFnCode}`;
-    }
-
-    return `__yo_decr_rc(${selfCode}, ${disposeFnCode})`;
+    return `__yo_decr_rc(${selfCode})`;
   }
 
   // __yo_incr_rc - handle reference count increment
@@ -345,8 +335,8 @@ function generateFuncCall(
       return `// Error: __yo_dyn_drop requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    // Use the dispose function from vtable for the dyn object itself
-    return `__yo_decr_rc((void*)(${selfCode}), ${selfCode}->vtable.dispose)`;
+    // Decrement RC - dispose function is stored in header
+    return `__yo_decr_rc((void*)(${selfCode}))`;
   }
 
   // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
@@ -367,8 +357,8 @@ function generateFuncCall(
       return `// Error: __yo_closure_drop requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    // Use the dispose function from vtable to handle both captured data and closure cleanup
-    return `__yo_decr_rc((void*)(${selfCode}), ${selfCode}->vtable.dispose)`;
+    // Decrement RC - dispose function is stored in header
+    return `__yo_decr_rc((void*)(${selfCode}))`;
   }
 
   // __yo_closure_dup - call __yo_incr_rc on closure
@@ -1363,18 +1353,8 @@ function generateFuncCall(
   // __yo_decr_rc
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
     const arg = expr.args[0]!;
-    const disposeFnArg = expr.args[1];
     const argCode = generateExpr(arg, indent, context);
-
-    // If dispose function is provided, generate it; otherwise use NULL
-    let disposeFnCode = "NULL";
-    if (disposeFnArg) {
-      const rawDisposeFnCode = generateExpr(disposeFnArg, indent, context);
-      // Cast the function pointer to the expected void(*)(void*) type
-      disposeFnCode = `(void(*)(void*))${rawDisposeFnCode}`;
-    }
-
-    return `__yo_decr_rc(${argCode}, ${disposeFnCode})`;
+    return `__yo_decr_rc(${argCode})`;
   }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {
@@ -3709,13 +3689,7 @@ usleep((${args[0]!}) * 1000)
   }
   // __yo_decr_rc
   else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {
-    // Handle 1 or 2 arguments - second argument is dispose function (optional)
-    let disposeFnArg = "NULL";
-    if (args[1]) {
-      // Cast the function pointer to the expected void(*)(void*) type
-      disposeFnArg = `(void(*)(void*))${args[1]}`;
-    }
-    return `__yo_decr_rc((void*)(${args[0]!}), ${disposeFnArg})`;
+    return `__yo_decr_rc((void*)(${args[0]!}))`;
   }
   // __yo_ptr_cast
   else if (BuiltinFunctions.__yo_ptr_cast.includes(functionName)) {

@@ -23,7 +23,7 @@ export function evaluateYoDecrRc({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_decr_rc[0]!]);
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_decr_rc[0]!], 1);
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = context.evaluateExpression({
@@ -43,28 +43,6 @@ export function evaluateYoDecrRc({
     });
   }
   env = evaluatedArgExpr.$.env;
-
-  // Evaluate the second argument (dispose function) if provided
-  const disposeFnExpr = expr.args[1];
-  if (disposeFnExpr) {
-    const evaluatedDisposeFnExpr = context.evaluateExpression({
-      expr: disposeFnExpr,
-      env,
-      context: {
-        ...context,
-      },
-    });
-
-    if (!evaluatedDisposeFnExpr.$) {
-      throw formatErrorMessage({
-        token: disposeFnExpr.token,
-        errorMessage: `Failed to evaluate the dispose function expression for "${BuiltinFunctions.__yo_decr_rc[0]!}":\n${exprToString(
-          disposeFnExpr
-        )}`,
-      });
-    }
-    env = evaluatedDisposeFnExpr.$.env;
-  }
 
   expr.$ = {
     env,

@@ -1,0 +1,39 @@
+open import "std";
+open import "std/libc/stdio.yo";
+
+MyBox :: object
+  (*) : usize,
+
+  dispose :: (fn(self: Self) -> unit) {
+    printf("Disposing MyBox with value: %zu\n", self.*);
+  };
+;
+
+// Pointer arithmetic example
+main :: (fn() -> unit) {
+  // Auto-detect hardware threads (no need to call set_maximum_threads)
+  hw_threads := Concurrency.get_hardware_threads();
+  printf("Hardware threads available: %zu\n", hw_threads);
+  // Will automatically use all hardware threads for parallel execution
+
+  async {
+    printf("async block #1 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
+  }; 
+  async {
+    printf("async block #2 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
+  };   
+  async {
+    printf("async block #3 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
+  };   
+  async {
+    printf("async block #4 started on %zu\n", Concurrency.get_thread_id());
+    box := MyBox(Concurrency.get_thread_id()); // Expected to see the dispose message when box goes out of scope
+  };
+
+  printf("Done main\n");
+};
+
+export main;

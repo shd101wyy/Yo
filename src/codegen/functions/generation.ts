@@ -661,7 +661,7 @@ export function generateObjectConstructorDeclarations(
 
   // Generate builtin reference counting functions
   emitter.emitDeclarationLine(
-    `void __yo_decr_rc(void* ptr, void (*dispose_fn)(void*)); // Decrement reference count`
+    `void __yo_decr_rc(void* ptr); // Decrement reference count`
   );
   emitter.emitDeclarationLine(
     `void* __yo_incr_rc(void* ptr); // Increment reference count`
@@ -899,7 +899,7 @@ function generateAtomicGCRuntimeFunctions(
   const emitter = context.emitter;
 
   // Generate BRC __yo_decr_rc function following the paper's algorithm with split words
-  emitter.emitLine(`void __yo_decr_rc(void* ptr, void (*dispose_fn)(void*)) {
+  emitter.emitLine(`void __yo_decr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   // Get current thread ID for BRC logic using fast inline assembly
@@ -929,14 +929,8 @@ function generateAtomicGCRuntimeFunctions(
       // No shared references - deallocate
       BRC_DEBUG("FastDecr: Deallocating ptr=%p (biased=0, shared=0)\\n", ptr);
       __yo_gc_unregister(ptr);
-      /*
-      void (*actual_dispose_fn)(void*) = dispose_fn ? dispose_fn : header->dispose_fn;
-      if (actual_dispose_fn) {
-        actual_dispose_fn(ptr);
-      }
-      */
-      if (dispose_fn) {
-        dispose_fn(ptr);
+      if (header->dispose_fn) {
+        header->dispose_fn(ptr);
       }
       __yo_free(ptr);
     } else {
@@ -975,9 +969,8 @@ function generateAtomicGCRuntimeFunctions(
     } else if (BRC_HAS_FLAG(new_shared_word, BRC_FLAG_MERGED) && BRC_GET_SHARED_COUNTER(new_shared_word) == 0) {
       // Counters are merged and shared counter is zero - deallocate
       __yo_gc_unregister(ptr);
-      void (*actual_dispose_fn)(void*) = dispose_fn ? dispose_fn : header->dispose_fn;
-      if (actual_dispose_fn) {
-        actual_dispose_fn(ptr);
+      if (header->dispose_fn) {
+        header->dispose_fn(ptr);
       }
       __yo_free(ptr);
     }
@@ -1934,18 +1927,12 @@ export function generateClosureConstructorFunctions(
       );
       emitter.emitLine(`  obj->header.gc_next = NULL;`);
       emitter.emitLine(`  obj->header.gc_prev = NULL;`);
-      emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+      emitter.emitLine(`  obj->header.dispose_fn = dispose;`);
       emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
       emitter.emitLine(`  obj->data = data;`);
 
       // Set vtable function pointers directly
       emitter.emitLine(`  obj->vtable.call = call;`);
-      // IMPORTANT: The dispose function is closure-instance-specific.
-      // It receives the CLOSURE pointer, extracts the capture data from closure->data,
-      // calls the capture type's drop function, and frees the capture data.
-      // Different closure instances (same closure type with different capture types)
-      // will have different dispose functions stored here.
-      emitter.emitLine(`  obj->vtable.dispose = dispose;`);
 
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
@@ -2132,9 +2119,6 @@ export function generateDynConstructorFunctions(
         }
       }
 
-      // Set the dispose function pointer for the dyn object itself
-      emitter.emitLine(`  obj->vtable.dispose = dispose_fn;`);
-
       emitter.emitLine(`  va_end(args);`);
 
       emitter.emitLine(`  obj->data = data;`);
@@ -2147,7 +2131,7 @@ export function generateDynConstructorFunctions(
       emitter.emitLine(`void ${disposeFunctionName}(void* ptr) {`);
       emitter.emitLine(`  ${cName}* self = (${cName}*)ptr;`);
       emitter.emitLine(`  // Call the wrapped object's dispose function`);
-      emitter.emitLine(`  __yo_decr_rc(self->data, self->vtable.___dispose);`);
+      emitter.emitLine(`  __yo_decr_rc(self->data);`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);
       emitter.emitLine(``);

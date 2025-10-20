@@ -248,7 +248,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 
   const decrRcExpr = isARCType(structType)
     ? `
-  ${BuiltinFunctions.__yo_decr_rc[0]!}(self, Self.___dispose);`
+  ${BuiltinFunctions.__yo_decr_rc[0]!}(self);`
     : "";
 
   const dropDestructuringsExpr = isARCType(structType)
@@ -490,7 +490,7 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
 
   const decrRcExpr = isARCType(enumType)
     ? `
-  ${BuiltinFunctions.__yo_decr_rc[0]!}(self, Self.___dispose);`
+  ${BuiltinFunctions.__yo_decr_rc[0]!}(self);`
     : "";
 
   const dropVariantsExpr = isARCType(enumType)

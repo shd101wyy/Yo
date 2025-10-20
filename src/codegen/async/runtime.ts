@@ -67,7 +67,7 @@ void __yo_future_drop(void* ptr) {
   
   // Otherwise, proceed with normal reference counting
   ASYNC_DEBUG("__yo_future_drop: Calling __yo_decr_rc on Future (state=%d, is_last_ref=%d)\\n", current_state, is_last_ref);
-  __yo_decr_rc(ptr, header->dispose_fn);
+  __yo_decr_rc(ptr);
   
   ASYNC_DEBUG("__yo_future_drop: Returned from __yo_decr_rc\\n");
 }
