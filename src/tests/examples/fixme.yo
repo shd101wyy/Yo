@@ -1,4 +1,7 @@
-open import "std";
+extern "Yo",
+  __yo_ptr_cast :
+    fn(forall(Source: Type), source : *(Source), compt(Target) : Type) -> Target
+;
 
 KeyValuePair :: (fn(compt(K) : Type, compt(V) : Type) -> compt(Type))
   struct(
@@ -8,21 +11,22 @@ KeyValuePair :: (fn(compt(K) : Type, compt(V) : Type) -> compt(Type))
 
 ArrayList :: (fn(compt(T): Type) -> compt(Type))
   object(
-    ptr : ?*(T),
+    ptr : *(T),
 
-    _some_func :: ((fn(self : Self) -> boolean)
-      T.contains_arc_type()
-    ),
+    /**
+     * Add an element to the end of the ArrayList
+     */
+    push :: ((fn(self: Self, ptr: *(void)) -> unit) {
+      __yo_ptr_cast(ptr, *(T));
+    })
+  );
 
-    push :: (fn(self: Self, value: T) -> Result(unit, unit))
-      match(self.ptr,
-        .Some(p) => .Ok(()),
-        .None => .Error(())
-      )
+Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+  object(
+    entries : ArrayList(KeyValuePair(K, V))
   );
 
 main :: (fn() -> unit) {  
-  X :: ArrayList(KeyValuePair(i32, i32));  
   return;
 };
 

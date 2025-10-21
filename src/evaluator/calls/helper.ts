@@ -5,7 +5,6 @@ import {
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   getVariablesNeedingDrop,
-  popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
   Variable,
@@ -1451,7 +1450,7 @@ ${implicitVariables
 
   validateFunctionReturnType({
     returnType,
-    env: popEnvFrame(callerEnv, true), // Ignore check here, as we are adding deferred drop later
+    env: callerEnv, // Use callerEnv directly to check SomeTypes are in scope
     expr,
     context,
   });
@@ -1747,6 +1746,31 @@ export function validateFunctionReturnType({
   for (const returnTypeSomeType of returnTypeSomeTypes) {
     const variables = getVariablesFromEnv(env, returnTypeSomeType.name);
     if (!variables.length) {
+      // Check if this SomeType exists within the types of other variables
+      // For example, if T = KeyValuePair(K, V), and we're looking for K,
+      // then K exists transitively through T
+      const allVariables = getVariablesFromEnvByFilter(env, () => true);
+      let foundTransitively = false;
+
+      for (const variable of allVariables) {
+        if (isTypeValue(variable.value)) {
+          const typeValue = variable.value.value;
+          const transitiveTypes = getAllSomeTypes(typeValue);
+          for (const transitiveType of transitiveTypes) {
+            if (transitiveType.name === returnTypeSomeType.name) {
+              foundTransitively = true;
+              break;
+            }
+          }
+          if (foundTransitively) break;
+        }
+      }
+
+      if (foundTransitively) {
+        continue; // SomeType found transitively, validation passes
+      }
+
+      // Throw error if SomeType value is not found.
       throw formatErrorMessage({
         token: expr?.token ?? PlaceholderToken,
         errorMessage: `Failed to infer the function call return type.
