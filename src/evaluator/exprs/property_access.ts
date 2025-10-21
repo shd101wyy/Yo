@@ -294,10 +294,13 @@ export function evaluatePropertyAccess({
         propertyExpr.$ = expr.$;
         return expr;
       } else {
-        throw formatErrorMessage({
-          token: propertyExpr.token,
-          errorMessage: `Type property "${propertyName}" not found in type`,
-        });
+        // Property not found in type's own module
+        // Return expr with expr.$ = undefined to allow function.ts
+        // to handle this as a uniform function call (method call)
+        // function.ts will call getMethodsByNameFromEnv to find the method
+        // in implicit given implementations (like TypeMethods)
+        expr.$ = undefined;
+        return expr;
       }
     }
     // Accessing methods of an array type (e.g., Array(i32, 5).fill)

@@ -1,56 +1,28 @@
 open import "std";
-{ printf } :: import "std/libc/stdio";
-{ ArrayList } :: import "std/collections/array_list";
 
-main :: (fn() -> unit) {
-  // Create a new ArrayList of i32
-  list := ArrayList(i32).new();
-  
-  // Push some elements
-  list.push((42).as(i32));
-  list.push((100).as(i32));
-  list.push((200).as(i32));
-  
-  printf("ArrayList length: %zu\n", list.length);
-  printf("ArrayList capacity: %zu\n", list.capacity);
-  
-  // Get elements by index
-  first := list.get((0).as(usize));
-  match(first,
-    .Some(value) => printf("First element: %d\n", value),
-    .None => printf("No first element\n")
+KeyValuePair :: (fn(compt(K) : Type, compt(V) : Type) -> compt(Type))
+  struct(
+    key : K,
+    value : V
   );
-  
-  // Set an element
-  list.set((1).as(usize), (150).as(i32));
-  
-  second := list.get((1).as(usize));
-  match(second,
-    .Some(value) => printf("Second element after set: %d\n", value),
-    .None => printf("No second element\n")
+
+ArrayList :: (fn(compt(T): Type) -> compt(Type))
+  object(
+    ptr : ?*(T),
+
+    _some_func :: ((fn(self : Self) -> boolean)
+      T.contains_arc_type()
+    ),
+
+    push :: (fn(self: Self, value: T) -> Result(unit, unit))
+      match(self.ptr,
+        .Some(p) => .Ok(()),
+        .None => .Error(())
+      )
   );
-  
-  // Pop an element
-  popped := list.pop();
-  match(popped,
-    .Some(value) => printf("Popped value: %d\n", value),
-    .None => printf("List is empty\n")
-  );
-  
-  printf("Length after pop: %zu\n", list.length);
-  
-  // Shrink to fit
-  list.shrink_to_fit();
-  printf("Capacity after shrink: %zu\n", list.capacity);
-  
-  // Create ArrayList with initial capacity
-  list2 := ArrayList(i32).with_capacity((10).as(usize));
-  printf("List2 initial capacity: %zu\n", list2.capacity);
-  
-  // Clear the list
-  list.clear();
-  printf("Length after clear: %zu\n", list.length);
-  
+
+main :: (fn() -> unit) {  
+  X :: ArrayList(KeyValuePair(i32, i32));  
   return;
 };
 

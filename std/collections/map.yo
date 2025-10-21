@@ -1,0 +1,266 @@
+/**
+ * Map - An ordered map implementation for Yo language
+ * 
+ * This Map maintains insertion order, similar to Python's dict or JavaScript's Map.
+ * It uses an ArrayList internally to store key-value pairs.
+ * 
+ * Note: This is a simple linear-search based implementation.
+ * For large datasets, a hash table or tree-based implementation would be more efficient.
+ */
+{ GlobalAllocator, AllocError } :: import "../modules/allocator.yo";
+open import "../data/option.yo";
+open import "../data/result.yo";
+open import "../data/primitives";
+{ ArrayList, ArrayListError } :: import "./array_list.yo";
+
+/**
+ * Map error types
+ */
+MapError :: enum(
+  AllocError(error : AllocError),
+  KeyNotFound,
+  ListError(error: ArrayListError)
+);
+
+/**
+ * KeyValuePair - Internal structure to store key-value pairs
+ */
+KeyValuePair :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+  struct(
+    key : K,
+    value : V
+  );
+
+/**
+ * Map type - an ordered key-value map
+ * 
+ * Memory layout:
+ * - entries: ArrayList of KeyValuePair(K, V)
+ * 
+ * Operations are O(n) for lookup/insert/remove as we use linear search.
+ * For better performance with large datasets, use a hash table implementation.
+ */
+Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+  object(
+    entries : ArrayList(KeyValuePair(K, V)),
+
+    /**
+     * Create a new empty Map
+     */
+    new :: ((fn() -> Self)
+      Self(
+        entries: ArrayList(KeyValuePair(K, V)).new()
+      )),
+
+    /**
+     * Create a Map with a specific initial capacity
+     */
+    with_capacity :: ((fn(capacity: usize) -> Self)
+      Self(
+        entries: ArrayList(KeyValuePair(K, V)).with_capacity(capacity)
+      )
+    ),
+
+    /**
+     * Find the index of a key in the entries list
+     * Returns Some(index) if found, None otherwise
+     */
+    _find_key_index :: ((fn(self: Self, key: K) -> Option(usize))
+      {
+        i := (0).as(usize);
+        while(i < self.entries.length, i = (i + (1).as(usize)), {
+          entry_opt := self.entries.get(i);
+          match(entry_opt,
+            .Some(entry) => cond(
+              (entry.key == key) => return .Some(i),
+              true => ()
+            ),
+            .None => ()
+          );
+        });
+        .None
+      }
+    ),
+
+    /**
+     * Insert or update a key-value pair
+     * If the key exists, updates the value and returns Some(old_value)
+     * If the key doesn't exist, inserts the pair and returns None
+     */
+    insert :: ((fn(self: Self, key: K, value: V) -> Result(Option(V), MapError))
+      {
+        // First, check if the key already exists
+        index_opt := self._find_key_index(key);
+        match(index_opt,
+          .Some(index) => {
+            // Key exists - update the value
+            entry_opt := self.entries.get(index);
+            match(entry_opt,
+              .Some(entry) => {
+                old_value := entry.value;
+                new_entry := KeyValuePair(K, V).new(key, value);
+                result := self.entries.set(index, new_entry);
+                match(result,
+                  .Ok(_) => .Ok(.Some(old_value)),
+                  .Error(err) => .Error(.ListError(error: err))
+                )
+              },
+              .None => panic("Index found but entry is None")
+            )
+          },
+          .None => {
+            // Key doesn't exist - insert new pair
+            new_entry := KeyValuePair(K, V).new(key, value);
+            result := self.entries.push(new_entry);
+            match(result,
+              .Ok(_) => .Ok(.None),
+              .Error(err) => .Error(.ListError(error: err))
+            )
+          }
+        )
+      }
+    ),
+
+    /**
+     * Get a value by key
+     * Returns Some(value) if found, None otherwise
+     */
+    get :: ((fn(self: Self, key: K) -> Option(V))
+      {
+        index_opt := self._find_key_index(key);
+        match(index_opt,
+          .Some(index) => {
+            entry_opt := self.entries.get(index);
+            match(entry_opt,
+              .Some(entry) => .Some(entry.value),
+              .None => .None
+            )
+          },
+          .None => .None
+        )
+      }
+    ),
+
+    /**
+     * Check if a key exists in the map
+     */
+    contains_key :: ((fn(self: Self, key: K) -> bool)
+      {
+        index_opt := self._find_key_index(key);
+        match(index_opt,
+          .Some(_) => true,
+          .None => false
+        )
+      }
+    ),
+
+    /**
+     * Remove a key-value pair by key
+     * Returns Some(value) if the key was found and removed, None otherwise
+     */
+    remove :: ((fn(self: Self, key: K) -> Option(V))
+      {
+        index_opt := self._find_key_index(key);
+        match(index_opt,
+          .Some(index) => {
+            // Get the value before removing
+            entry_opt := self.entries.get(index);
+            match(entry_opt,
+              .Some(entry) => {
+                value := entry.value;
+                // Remove by shifting all elements after this index
+                i := index;
+                while((i + (1).as(usize)) < self.entries.length, 
+                      i = (i + (1).as(usize)), {
+                  next_entry_opt := self.entries.get((i + (1).as(usize)));
+                  match(next_entry_opt,
+                    .Some(next_entry) => {
+                      self.entries.set(i, next_entry);
+                    },
+                    .None => ()
+                  );
+                });
+                // Decrease length to "remove" the last element
+                self.entries.length = (self.entries.length - (1).as(usize));
+                .Some(value)
+              },
+              .None => .None
+            )
+          },
+          .None => .None
+        )
+      }
+    ),
+
+    /**
+     * Get the number of key-value pairs in the map
+     */
+    len :: ((fn(self: Self) -> usize)
+      self.entries.length
+    ),
+
+    /**
+     * Check if the map is empty
+     */
+    is_empty :: ((fn(self: Self) -> bool)
+      (self.entries.length == (0).as(usize))
+    ),
+
+    /**
+     * Clear all key-value pairs
+     */
+    clear :: ((fn(self: Self) -> unit)
+      self.entries.clear()
+    ),
+
+    /**
+     * Get a key by index (for iteration)
+     * Returns Some(key) if index is valid, None otherwise
+     */
+    get_key_at :: ((fn(self: Self, index: usize) -> Option(K))
+      {
+        entry_opt := self.entries.get(index);
+        match(entry_opt,
+          .Some(entry) => .Some(entry.key),
+          .None => .None
+        )
+      }
+    ),
+
+    /**
+     * Get a value by index (for iteration)
+     * Returns Some(value) if index is valid, None otherwise
+     */
+    get_value_at :: ((fn(self: Self, index: usize) -> Option(V))
+      {
+        entry_opt := self.entries.get(index);
+        match(entry_opt,
+          .Some(entry) => .Some(entry.value),
+          .None => .None
+        )
+      }
+    ),
+
+    /**
+     * Get a key-value pair by index (for iteration)
+     * Returns Some((key, value)) if index is valid, None otherwise
+     */
+    get_entry_at :: ((fn(self: Self, index: usize) -> Option(KeyValuePair(K, V)))
+      self.entries.get(index)
+    ),
+
+    /**
+     * RAII destructor - automatically called when Map goes out of scope
+     */
+    dispose :: ((fn(self: Self) -> unit)
+      // The ArrayList's dispose will be called automatically
+      // which will handle freeing the memory
+      ()
+    )
+  );
+
+export
+  Map,
+  MapError,
+  KeyValuePair
+;
