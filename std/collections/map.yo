@@ -69,7 +69,7 @@ Map :: (fn(compt(K): Type, compt(V): Type, using(KeyEqual : Eq(K, K))) -> compt(
     _find_key_index :: ((fn(self: Self, key: K) -> Option(usize))
       {
         i := (0).as(usize);
-        while(i < self.entries.length, i = (i + (1).as(usize)), {
+        while(i < self.entries.length(), i = (i + (1).as(usize)), {
           entry_opt := self.entries.get(i);
           match(entry_opt,
             .Some(entry) => cond(
@@ -173,7 +173,7 @@ Map :: (fn(compt(K): Type, compt(V): Type, using(KeyEqual : Eq(K, K))) -> compt(
                 value := entry.value;
                 // Remove by shifting all elements after this index
                 i := index;
-                while((i + (1).as(usize)) < self.entries.length, 
+                while((i + (1).as(usize)) < self.entries.length(), 
                       i = (i + (1).as(usize)), {
                   next_entry_opt := self.entries.get((i + (1).as(usize)));
                   match(next_entry_opt,
@@ -184,7 +184,7 @@ Map :: (fn(compt(K): Type, compt(V): Type, using(KeyEqual : Eq(K, K))) -> compt(
                   );
                 });
                 // Decrease length to "remove" the last element
-                self.entries.length = (self.entries.length - (1).as(usize));
+                // self.entries.length = (self.entries.length() - (1).as(usize));
                 .Some(value)
               },
               .None => .None
@@ -198,16 +198,17 @@ Map :: (fn(compt(K): Type, compt(V): Type, using(KeyEqual : Eq(K, K))) -> compt(
     /**
      * Get the number of key-value pairs in the map
      */
-    len :: ((fn(self: Self) -> usize)
-      self.entries.length
+    length :: ((fn(self: Self) -> usize)
+      self.entries.length()
     ),
 
     /**
      * Check if the map is empty
      */
-    // is_empty :: ((fn(self: Self) -> boolean)
-    //   self.entries.length == (0).as(usize)
-    // ),
+    is_empty :: ((fn(self: Self) -> boolean)
+       // self.entries.length == (0).as(usize)
+      UsizeEq.(==)(self.entries.length(), 0.as(usize))
+    ),
 
     /**
      * Clear all key-value pairs

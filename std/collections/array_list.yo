@@ -28,14 +28,22 @@ ArrayListError :: enum(
  * 
  * Memory layout:
  * - ptr: pointer to the heap-allocated buffer
- * - length: current number of elements
- * - capacity: total capacity of the buffer
+ * - _length: current number of elements
+ * - _capacity: total capacity of the buffer
  */
 ArrayList :: (fn(compt(T): Type) -> compt(Type))
   object(
     ptr : ?*(T),
-    length : usize,
-    capacity : usize,
+    _length : usize,
+    _capacity : usize,
+
+    length :: ((fn(self: Self) -> usize) {
+      return self._length;
+    }),
+
+    capacity :: ((fn(self: Self) -> usize) {
+      return self._capacity;
+    }),
 
     /**
      * Create a new empty ArrayList
@@ -43,8 +51,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     new :: ((fn() -> Self)
       Self(
         ptr: .None,
-        length: (0).as(usize),
-        capacity: (0).as(usize)
+        _length: (0).as(usize),
+        _capacity: (0).as(usize)
       )),
 
     /**
@@ -60,8 +68,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .Some(ptr) =>
               Self(
                 ptr: .Some(ptr.cast(*(T))),
-                length: (0).as(usize),
-                capacity: capacity
+                _length: (0).as(usize),
+                _capacity: capacity
               ),
             .None => panic("malloc returned None")
           )
@@ -75,11 +83,11 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     push :: ((fn(self: Self, value: T) -> Result(unit, ArrayListError))
       // Check if we need to grow
       cond(
-        (self.length >= self.capacity) => {
+        (self._length >= self._capacity) => {
           // Need to grow - calculate new capacity
           new_capacity := cond
-            (self.capacity == (0).as(usize)) => (4).as(usize),
-            true => (self.capacity * (2).as(usize));
+            (self._capacity == (0).as(usize)) => (4).as(usize),
+            true => (self._capacity * (2).as(usize));
           
           // Allocate or reallocate
           new_some_ptr := match self.ptr,
@@ -93,11 +101,11 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .Some(new_ptr) => {
               typed_ptr := new_ptr.cast(*(T));
               self.ptr = .Some(typed_ptr);
-              self.capacity = new_capacity;
+              self._capacity = new_capacity;
               // Now add the element at position length
-              target_ptr := (typed_ptr + self.length);
+              target_ptr := (typed_ptr + self._length);
               target_ptr.* = value;
-              self.length = (self.length + (1).as(usize));
+              self._length = (self._length + (1).as(usize));
               .Ok(())
             },
             .None => .Error(.AllocError(.OutOfMemory))
@@ -107,9 +115,9 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           // Have capacity - just add the element
           match(self.ptr,
             .Some(ptr) => {
-              target_ptr := (ptr + self.length);
+              target_ptr := (ptr + self._length);
               target_ptr.* = value;
-              self.length = (self.length + (1).as(usize));
+              self._length = (self._length + (1).as(usize));
               .Ok(())
             },
             .None => panic("ArrayList has capacity but no ptr")
@@ -122,13 +130,13 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     pop :: ((fn(self: Self) -> Option(T))
       cond(
-        (self.length == (0).as(usize)) => .None,
+        (self._length == (0).as(usize)) => .None,
         true => {
-          self.length = (self.length - (1).as(usize));
+          self._length = (self._length - (1).as(usize));
           match self.ptr,
             .None => .None,
             .Some(ptr) => {
-              last_element_ptr := (ptr + self.length);
+              last_element_ptr := (ptr + self._length);
               last_element := last_element_ptr.*;
               .Some(last_element)
             }
@@ -141,7 +149,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     get :: ((fn(self: Self, index: usize) -> Option(T))
       cond(
-        (index >= self.length) => .None,
+        (index >= self._length) => .None,
         true =>
           match self.ptr,
             .None => .None,
@@ -155,8 +163,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     set :: ((fn(self: Self, index: usize, value: T) -> Result(unit, ArrayListError))
       cond(
-        (index >= self.length) => 
-          .Error(.IndexOutOfBounds(index: index, length: self.length)),
+        (index >= self._length) => 
+          .Error(.IndexOutOfBounds(index: index, length: self._length)),
         true =>
           match(self.ptr,
             .None => panic("ArrayList has length but no ptr"),
@@ -176,16 +184,16 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     shrink_to_fit :: ((fn(self: Self) -> Result(unit, ArrayListError))
       // If length equals capacity or both are zero, nothing to do
       cond(
-        ((self.length == self.capacity) || (self.capacity == (0).as(usize))) => .Ok(()),
+        ((self._length == self._capacity) || (self._capacity == (0).as(usize))) => .Ok(()),
         true =>
           // If length is zero, free the buffer
           cond(
-            (self.length == (0).as(usize)) => {
+            (self._length == (0).as(usize)) => {
               match(self.ptr,
                 .Some(ptr) => {
                   GlobalAllocator.free(.Some(ptr.cast(*(void))));
                   self.ptr = .None;
-                  self.capacity = (0).as(usize);
+                  self._capacity = (0).as(usize);
                 },
                 .None => ());
               .Ok(())
@@ -197,12 +205,12 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                 .Some(old_ptr) => {
                   new_some_ptr := GlobalAllocator.realloc(
                     .Some(old_ptr.cast(*(void))),
-                    sizeof(T) * self.length
+                    sizeof(T) * self._length
                   );
                   match(new_some_ptr,
                     .Some(new_ptr) => {
                       self.ptr = .Some(new_ptr.cast(*(T)));
-                      self.capacity = self.length;
+                      self._capacity = self._length;
                       .Ok(())
                     },
                     .None => .Error(.AllocError(.OutOfMemory))
@@ -218,7 +226,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
         T.contains_arc_type() => {
           i := (0).as(usize);
           base_ptr := self.ptr.unwrap();
-          while(i < self.length, i = (i + (1).as(usize)), {
+          while(i < self._length, i = (i + (1).as(usize)), {
             element_ptr := (base_ptr + i);
             element := element_ptr.*;
             // element will be automatically dropped here
@@ -233,7 +241,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     clear :: ((fn(self: Self) -> unit) {
       self._free_elements();
-      self.length = (0).as(usize);
+      self._length = (0).as(usize);
     }),
 
     /**
@@ -244,7 +252,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
       match(self.ptr,
         .Some(ptr) => {
           self._free_elements();
-          self.length = (0).as(usize);
+          self._length = (0).as(usize);
           GlobalAllocator.free(.Some(ptr.cast(*(void))));
           self.ptr = .None;
         },
