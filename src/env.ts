@@ -584,20 +584,41 @@ export function getMethodsByNameFromEnv(
   ): { type: Type; value: Value | undefined }[] {
     const filtered = methods.filter((method) => {
       if (isFunctionType(method.type)) {
-        // Check if the first parameter is compatible with the receiverType
-        const isCompatible =
-          method.type.parameters.length > 0 &&
-          (typeContainsSomeType(method.type.parameters[0]!.type) || // Leave it to the later function call checker.
-            typeContainsSomeType(receiverType) ||
-            areTypesCompatible(
-              {
-                type: method.type.parameters[0]!.type,
-                env: method.type.env, // QUESTION: What should be the env here?
-              },
-              { type: receiverType, env },
-              true // isMethodReceiver
-            ));
-        return isCompatible;
+        if (method.type.parameters.length === 0) {
+          return false; // Methods must have at least one parameter (receiver)
+        }
+        const methodFirstParamType = method.type.parameters[0]!.type;
+
+        if (typeContainsSomeType(methodFirstParamType)) {
+          // Leave it to the later function call checker.
+          return true;
+        }
+
+        // If only method has SomeType but receiver doesn't
+        if (
+          typeContainsSomeType(methodFirstParamType) &&
+          !typeContainsSomeType(receiverType)
+        ) {
+          return true;
+        }
+
+        // If only receiver has SomeType, but method doesn't
+        if (
+          !typeContainsSomeType(methodFirstParamType) &&
+          typeContainsSomeType(receiverType)
+        ) {
+          return false;
+        }
+
+        // Check normal compatibility
+        return areTypesCompatible(
+          {
+            type: methodFirstParamType,
+            env: method.type.env,
+          },
+          { type: receiverType, env },
+          true // isMethodReceiver
+        );
       }
       return true; // QUESTION: How to handle non-function types?
     });

@@ -1,33 +1,35 @@
-extern "Yo",
-  __yo_ptr_cast :
-    fn(forall(Source: Type), source : *(Source), compt(Target) : Type) -> Target
-;
-
-KeyValuePair :: (fn(compt(K) : Type, compt(V) : Type) -> compt(Type))
+/*
+open import "std";
+/**
+ * KeyValuePair - Internal structure to store key-value pairs
+ */
+KeyValuePair :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
   struct(
     key : K,
     value : V
   );
 
-ArrayList :: (fn(compt(T): Type) -> compt(Type))
+Map :: (fn(compt(K): Type, compt(V): Type, using(KEqual : Eq(K, K))) -> compt(Type))
   object(
-    ptr : *(T),
+    entry : KeyValuePair(K, V),
 
-    /**
-     * Add an element to the end of the ArrayList
-     */
-    push :: ((fn(self: Self, ptr: *(void)) -> unit) {
-      __yo_ptr_cast(ptr, *(T));
+    _find :: ((fn(self : Self, key: K) -> boolean) {
+      // return KEqual.(==)(key, self.entry.key);
+      return key == self.entry.key;
     })
-  );
+  )
+;
 
-Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
-  object(
-    entries : ArrayList(KeyValuePair(K, V))
-  );
 
 main :: (fn() -> unit) {  
   return;
 };
 
 export main;
+*/
+
+open import "std";
+test :: (fn(compt(T) : Type, value : T) -> unit) {
+  p := &(value);
+  z := p.cast(*(void));
+};

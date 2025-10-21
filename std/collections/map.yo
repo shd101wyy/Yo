@@ -8,6 +8,7 @@
  * For large datasets, a hash table or tree-based implementation would be more efficient.
  */
 { GlobalAllocator, AllocError } :: import "../modules/allocator.yo";
+open import "../modules/eq.yo";
 open import "../data/option.yo";
 open import "../data/result.yo";
 open import "../data/primitives";
@@ -40,7 +41,7 @@ KeyValuePair :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
  * Operations are O(n) for lookup/insert/remove as we use linear search.
  * For better performance with large datasets, use a hash table implementation.
  */
-Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+Map :: (fn(compt(K): Type, compt(V): Type, using(KeyEqual : Eq(K, K))) -> compt(Type))
   object(
     entries : ArrayList(KeyValuePair(K, V)),
 
@@ -72,7 +73,9 @@ Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
           entry_opt := self.entries.get(i);
           match(entry_opt,
             .Some(entry) => cond(
-              (entry.key == key) => return .Some(i),
+              (KeyEqual.(==)(entry.key, key)) => { 
+                return .Some(i);
+              },
               true => ()
             ),
             .None => ()
@@ -98,7 +101,7 @@ Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
             match(entry_opt,
               .Some(entry) => {
                 old_value := entry.value;
-                new_entry := KeyValuePair(K, V).new(key, value);
+                new_entry := KeyValuePair(K, V)(key, value);
                 result := self.entries.set(index, new_entry);
                 match(result,
                   .Ok(_) => .Ok(.Some(old_value)),
@@ -110,7 +113,7 @@ Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
           },
           .None => {
             // Key doesn't exist - insert new pair
-            new_entry := KeyValuePair(K, V).new(key, value);
+            new_entry := KeyValuePair(K, V)(key, value);
             result := self.entries.push(new_entry);
             match(result,
               .Ok(_) => .Ok(.None),
@@ -144,7 +147,7 @@ Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
     /**
      * Check if a key exists in the map
      */
-    contains_key :: ((fn(self: Self, key: K) -> bool)
+    contains_key :: ((fn(self: Self, key: K) -> boolean)
       {
         index_opt := self._find_key_index(key);
         match(index_opt,
@@ -202,9 +205,9 @@ Map :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
     /**
      * Check if the map is empty
      */
-    is_empty :: ((fn(self: Self) -> bool)
-      (self.entries.length == (0).as(usize))
-    ),
+    // is_empty :: ((fn(self: Self) -> boolean)
+    //   self.entries.length == (0).as(usize)
+    // ),
 
     /**
      * Clear all key-value pairs
