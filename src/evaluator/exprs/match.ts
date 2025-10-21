@@ -371,7 +371,7 @@ export function evaluateMatch({
           resultType = { type: evaluatedBody.$.type, env: caseEnv };
         } else {
           throw formatErrorMessage({
-            token: scrutineeExpr.token,
+            token: evaluatedBody.token,
             errorMessage: `Incompatible types:
 - Previous: ${typeToString(resultType.type)}
 - Current : ${typeToString(evaluatedBody.$.type)}`,
@@ -709,7 +709,7 @@ export function evaluateMatch({
           resultType = { type: evaluatedBody.$.type, env: caseEnv };
         } else {
           throw formatErrorMessage({
-            token: scrutineeExpr.token,
+            token: evaluatedBody.token,
             errorMessage: `Incompatible types:
 - Previous: ${typeToString(resultType.type)}
 - Current : ${typeToString(evaluatedBody.$.type)}`,

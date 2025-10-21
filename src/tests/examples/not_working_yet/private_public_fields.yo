@@ -1,0 +1,38 @@
+Box :: struct
+  value : i32, // public field
+  _value : i32, // private field
+
+  new :: ((fn(value : i32) -> Self) { // public method
+    return Self(3, 3);
+  }),
+
+  get_value_1 :: ((fn(self : Self) -> i32) { // public method
+    return self._value; // private field is allowed to be accessed by "self"
+  }),
+
+  get_value_2 :: ((fn(self : *(Self)) -> i32) { // public method
+    return self.*._value; // private field is allowed to be accessed by "self"
+                          // QUESTION: Should we allow "self.*" to access private fields?
+  }),
+
+  _get_value_3 :: ((fn(self : Self) -> i32) { // private method
+                                              // Can only be accessed by "Self"
+    return self._value;
+  }),
+
+  _get_value_4 :: ((fn(self : Self) -> i32) { // private method
+                                                // Can only be accessed by "Self"
+    return Self._get_value_3(self);
+  })
+;
+
+main :: (fn() -> unit) {
+  x := Box.new(3);
+  v1 := x.value;               // Allowed
+  v2 := x._value;              // FIXME: should be an error
+  v3 := x.get_value_1();       // Allowed
+  v4 := &(x).get_value_2();    // Allowed
+  v5 := Box.get_value_1(x);    // Allowed
+  v6 := Box.get_value_2(&(x)); // Allowed
+  v7 := Box._get_value_3(x);   // FIXME: should be an error
+};

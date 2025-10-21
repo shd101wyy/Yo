@@ -1,38 +1,253 @@
-Box :: struct
-  value : i32, // public field
-  _value : i32, // private field
-
-  new :: ((fn(value : i32) -> Self) { // public method
-    return Self(3, 3);
-  }),
-
-  get_value_1 :: ((fn(self : Self) -> i32) { // public method
-    return self._value; // private field is allowed to be accessed by "self"
-  }),
-
-  get_value_2 :: ((fn(self : *(Self)) -> i32) { // public method
-    return self.*._value; // private field is allowed to be accessed by "self"
-                          // QUESTION: Should we allow "self.*" to access private fields?
-  }),
-
-  _get_value_3 :: ((fn(self : Self) -> i32) { // private method
-                                              // Can only be accessed by "Self"
-    return self._value;
-  }),
-
-  _get_value_4 :: ((fn(self : Self) -> i32) { // private method
-                                                // Can only be accessed by "Self"
-    return Self._get_value_3(self);
-  })
-;
+open import "std";
+{ printf } :: import "std/libc/stdio";
+{ ArrayList } :: import "std/collections/array_list";
 
 main :: (fn() -> unit) {
-  x := Box.new(3);
-  v1 := x.value;               // Allowed
-  v2 := x._value;              // FIXME: should be an error
-  v3 := x.get_value_1();       // Allowed
-  v4 := &(x).get_value_2();    // Allowed
-  v5 := Box.get_value_1(x);    // Allowed
-  v6 := Box.get_value_2(&(x)); // Allowed
-  v7 := Box._get_value_3(x);   // FIXME: should be an error
+  printf("=== ArrayList remove() and slice() tests ===\n\n");
+  
+  // Test 1: Basic remove operation
+  printf("Test 1: Basic remove operation\n");
+  list1 := ArrayList(i32).new();
+  list1.push((10).as(i32));
+  list1.push((20).as(i32));
+  list1.push((30).as(i32));
+  list1.push((40).as(i32));
+  list1.push((50).as(i32));
+  
+  printf("Initial list: [10, 20, 30, 40, 50], length: %zu\n", list1.length());
+  
+  // Remove 2 elements starting from index 1 (remove 20 and 30)
+  remove_result1 := list1.remove((1).as(usize), (2).as(usize));
+  match(remove_result1,
+    .Ok(removed) => printf("Removed %zu elements\n", removed),
+    .Error(err) => printf("Error removing elements\n")
+  );
+  
+  printf("After removing 2 elements from index 1: ");
+  i := (0).as(usize);
+  while(i < list1.length(), i = (i + (1).as(usize)), {
+    elem := list1.get(i);
+    match(elem,
+      .Some(val) => { printf("%d ", val); },
+      .None => ()
+    );
+  });
+  printf("(length: %zu)\n\n", list1.length());
+  
+  // Test 2: Remove from beginning
+  printf("Test 2: Remove from beginning\n");
+  list2 := ArrayList(i32).new();
+  list2.push((100).as(i32));
+  list2.push((200).as(i32));
+  list2.push((300).as(i32));
+  list2.push((400).as(i32));
+  
+  printf("Initial list: [100, 200, 300, 400]\n");
+  remove_result2 := list2.remove((0).as(usize), (2).as(usize));
+  match(remove_result2,
+    .Ok(removed) => printf("Removed %zu elements from beginning\n", removed),
+    .Error(err) => printf("Error\n")
+  );
+  
+  printf("After removal: ");
+  i2 := (0).as(usize);
+  while(i2 < list2.length(), i2 = (i2 + (1).as(usize)), {
+    elem := list2.get(i2);
+    match(elem,
+      .Some(val) => { printf("%d ", val); },
+      .None => ()
+    );
+  });
+  printf("\n\n");
+  
+  // Test 3: Remove from end
+  printf("Test 3: Remove from end\n");
+  list3 := ArrayList(i32).new();
+  list3.push((1).as(i32));
+  list3.push((2).as(i32));
+  list3.push((3).as(i32));
+  list3.push((4).as(i32));
+  list3.push((5).as(i32));
+  
+  printf("Initial list: [1, 2, 3, 4, 5]\n");
+  remove_result3 := list3.remove((3).as(usize), (5).as(usize));
+  match(remove_result3,
+    .Ok(removed) => printf("Removed %zu elements from end (requested 5, only 2 available)\n", removed),
+    .Error(err) => printf("Error\n")
+  );
+  
+  printf("After removal: ");
+  i3 := (0).as(usize);
+  while(i3 < list3.length(), i3 = (i3 + (1).as(usize)), {
+    elem := list3.get(i3);
+    match(elem,
+      .Some(val) => { printf("%d ", val); },
+      .None => ()
+    );
+  });
+  printf("\n\n");
+  
+  // Test 4: Remove with out of bounds index
+  printf("Test 4: Remove with out of bounds index\n");
+  list4 := ArrayList(i32).new();
+  list4.push((10).as(i32));
+  list4.push((20).as(i32));
+  
+  remove_result4 := list4.remove((5).as(usize), (1).as(usize));
+  match(remove_result4,
+    .Ok(removed) => printf("Unexpectedly succeeded\n"),
+    .Error(err) => printf("Correctly returned error for out of bounds index\n")
+  );
+  printf("\n");
+  
+  // Test 5: Basic slice operation
+  printf("Test 5: Basic slice operation\n");
+  list5 := ArrayList(i32).new();
+  list5.push((10).as(i32));
+  list5.push((20).as(i32));
+  list5.push((30).as(i32));
+  list5.push((40).as(i32));
+  list5.push((50).as(i32));
+  
+  printf("Original list: [10, 20, 30, 40, 50]\n");
+  
+  slice_result := list5.slice((1).as(usize), (4).as(usize));
+  match(slice_result,
+    .Ok(sliced) => {
+      printf("Sliced [1:4]: ");
+      i5 := (0).as(usize);
+      while(i5 < sliced.length(), i5 = (i5 + (1).as(usize)), {
+        elem := sliced.get(i5);
+        match(elem,
+          .Some(val) => { printf("%d ", val); },
+          .None => ()
+        );
+      });
+      printf("(length: %zu)\n", sliced.length());
+    },
+    .Error(err) => { printf("Error slicing\n"); }
+  );
+  
+  printf("Original list unchanged: ");
+  i5_check := (0).as(usize);
+  while(i5_check < list5.length(), i5_check = (i5_check + (1).as(usize)), {
+    elem := list5.get(i5_check);
+    match(elem,
+      .Some(val) => { printf("%d ", val); },
+      .None => ()
+    );
+  });
+  printf("\n\n");
+  
+  // Test 6: Slice from beginning
+  printf("Test 6: Slice from beginning\n");
+  slice_begin := list5.slice((0).as(usize), (3).as(usize));
+  match(slice_begin,
+    .Ok(sliced) => {
+      printf("Sliced [0:3]: ");
+      i6 := (0).as(usize);
+      while(i6 < sliced.length(), i6 = (i6 + (1).as(usize)), {
+        elem := sliced.get(i6);
+        match(elem,
+          .Some(val) => { printf("%d ", val); },
+          .None => ()
+        );
+      });
+      printf("\n");
+    },
+    .Error(err) => { printf("Error\n"); }
+  );
+  printf("\n");
+  
+  // Test 7: Slice to end
+  printf("Test 7: Slice to end\n");
+  slice_end := list5.slice((2).as(usize), (5).as(usize));
+  match(slice_end,
+    .Ok(sliced) => {
+      printf("Sliced [2:5]: ");
+      i7 := (0).as(usize);
+      while(i7 < sliced.length(), i7 = (i7 + (1).as(usize)), {
+        elem := sliced.get(i7);
+        match(elem,
+          .Some(val) => { printf("%d ", val); },
+          .None => ()
+        );
+      });
+      printf("\n");
+    },
+    .Error(err) => { printf("Error\n"); }
+  );
+  printf("\n");
+  
+  // Test 8: Empty slice
+  printf("Test 8: Empty slice\n");
+  empty_slice := list5.slice((2).as(usize), (2).as(usize));
+  match(empty_slice,
+    .Ok(sliced) => printf("Empty slice [2:2] length: %zu\n", sliced.length()),
+    .Error(err) => printf("Error\n")
+  );
+  printf("\n");
+  
+  // Test 9: Slice with invalid indices
+  printf("Test 9: Slice with invalid indices\n");
+  invalid_slice1 := list5.slice((3).as(usize), (2).as(usize));
+  match(invalid_slice1,
+    .Ok(sliced) => printf("Unexpectedly succeeded\n"),
+    .Error(err) => printf("Correctly returned error for start > end\n")
+  );
+  
+  invalid_slice2 := list5.slice((0).as(usize), (10).as(usize));
+  match(invalid_slice2,
+    .Ok(sliced) => printf("Unexpectedly succeeded\n"),
+    .Error(err) => printf("Correctly returned error for end > length\n")
+  );
+  printf("\n");
+  
+  // Test 10: Combined operations
+  printf("Test 10: Combined remove and slice operations\n");
+  list10 := ArrayList(i32).new();
+  list10.push((5).as(i32));
+  list10.push((10).as(i32));
+  list10.push((15).as(i32));
+  list10.push((20).as(i32));
+  list10.push((25).as(i32));
+  list10.push((30).as(i32));
+  
+  printf("Initial: [5, 10, 15, 20, 25, 30]\n");
+  
+  // First, slice [1:5] to get [10, 15, 20, 25]
+  combined_slice := list10.slice((1).as(usize), (5).as(usize));
+  match(combined_slice,
+    .Ok(sliced) => {
+      printf("After slice [1:5]: ");
+      ic := (0).as(usize);
+      while(ic < sliced.length(), ic = (ic + (1).as(usize)), {
+        elem := sliced.get(ic);
+        match(elem,
+          .Some(val) => { printf("%d ", val); },
+          .None => ()
+        );
+      });
+      printf("\n");
+      
+      // Then remove 2 elements from index 1 to get [10, 25]
+      sliced.remove((1).as(usize), (2).as(usize));
+      printf("After remove(1, 2): ");
+      ic2 := (0).as(usize);
+      while(ic2 < sliced.length(), ic2 = (ic2 + (1).as(usize)), {
+        elem := sliced.get(ic2);
+        match(elem,
+          .Some(val) => { printf("%d ", val); },
+          .None => ()
+        );
+      });
+      printf("\n");
+    },
+    .Error(err) => { printf("Error\n"); }
+  );
+  
+  printf("\n=== All tests completed ===\n");
+  return;
 };
+
+export main;
