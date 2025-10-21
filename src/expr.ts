@@ -1282,6 +1282,7 @@ export function mergeAndCheckEnvs(
 
   // Check each frame
   for (let i = 0; i <= maxFrameLevel; i++) {
+    const frameLevel = i; // Store frame level for use in nested loops
     const frame = env.frames[i]!;
     const frameVariables = [...frame.variables];
 
@@ -1293,12 +1294,14 @@ export function mergeAndCheckEnvs(
       consumedAtToken: Token | undefined;
       initializedAtToken: Token | undefined;
       type: Type;
+      isOwningTheARCValue: boolean;
     }[][] = [[]];
     frameVariables.forEach((variable) => {
       matrix[0]!.push({
         consumedAtToken: variable.consumedAtToken,
         initializedAtToken: variable.initializedAtToken,
         type: variable.type,
+        isOwningTheARCValue: variable.isOwningTheARCValue ?? false,
       });
     });
 
@@ -1343,6 +1346,7 @@ export function mergeAndCheckEnvs(
           consumedAtToken: variable.consumedAtToken,
           initializedAtToken: variable.initializedAtToken,
           type: variable.type,
+          isOwningTheARCValue: variable.isOwningTheARCValue ?? false,
         });
       });
     }
@@ -1360,7 +1364,14 @@ export function mergeAndCheckEnvs(
       const isOwningTheARCValueAtTokens: (Token | undefined)[] = [];
       const types: Type[] = [];
       for (let j = 1; j < rows; j++) {
+        const caseEnv = caseEnvs[j - 1]!;
+        const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
+        isOwningTheARCValueAtTokens.push(
+          matrix[j]![i]!.isOwningTheARCValue
+            ? caseEnvFrameVariables[i]!.token
+            : undefined
+        );
         types.push(matrix[j]![i]!.type);
       }
 
