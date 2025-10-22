@@ -28,12 +28,63 @@ String :: object(
   ),
 
   /**
-   * Create a string from UTF-8 bytes
-   * Returns None if the bytes are not valid UTF-8
+   * Create a string from raw bytes (assumes valid UTF-8)
+   * No validation is performed - the caller must ensure bytes are valid UTF-8
    */
-  from_utf8 :: ((fn(bytes: ArrayList(u8)) -> Result(Self, StringError))
-    .Ok(Self(_bytes: bytes))
+  from_bytes :: ((fn(bytes: ArrayList(u8)) -> Self)
+    Self(_bytes: bytes)
   ),
+
+  /**
+   * Create a string from a slice of bytes *([u8])
+   * The slice is a fat pointer containing data pointer and length
+   * Example: String.from(slice) where slice is *([u8])
+   */
+  from :: ((fn(slice: *([u8])) -> Self) {
+    // Create a new ArrayList and copy bytes from the slice
+    bytes := ArrayList(u8).with_capacity(slice.length);
+    
+    i := (0).as(usize);
+    while ((i < slice.length)),
+          (i = (i + (1).as(usize))),
+    {
+      byte := slice(i);
+      bytes.push(byte);
+    };
+    
+    return Self(_bytes: bytes);
+  }),
+
+  /**
+   * Create a string from a C null-terminated string *(u8)
+   * Copies bytes until it finds a null byte (0)
+   * Example: String.from_cstr(c_string_ptr)
+   * 
+   * Note: We manually search for the null terminator by iterating
+   */
+   /*
+  from_cstr :: ((fn(cstr: *(u8)) -> Result(Self, StringError)) {
+    // Create a new ArrayList to store the bytes
+    bytes := ArrayList(u8).new();
+    
+    // Iterate through the C string until we find the null terminator
+    i := (0).as(usize);
+    // FIXME: This is causing infinite loop during compile-time evaluation.
+    //        We need to check if the loop body has runtime expr, then we shouldn't consider it as infinite loop.
+    while true, (i = (i + (1).as(usize))), {
+      // Access byte at index i using pointer arithmetic/
+      byte_ptr := (cstr + i);
+      byte := byte_ptr.*;
+      
+      // Stop when we find the null terminator
+      cond(
+        (byte == (0).as(u8)) => break,
+        true => bytes.push(byte)
+      );
+    };
+      
+    return .Ok(Self(_bytes: bytes));/ `
+  }),*/
 
   /**
    * Get the length of the string in Unicode characters (runes)
@@ -65,13 +116,6 @@ String :: object(
     
     return count;
   }),
-
-  /**
-   * Get the length of the string in bytes
-   */
-  len_bytes :: ((fn(self: Self) -> usize)
-    self._bytes.length()
-  ),
 
   /**
    * Check if the string is empty
@@ -207,11 +251,11 @@ String :: object(
    * Concatenate two strings (like JavaScript +)
    */
   concat :: ((fn(self: Self, other: Self) -> Self) {
-    new_bytes := ArrayList(u8).with_capacity((self.len_bytes() + other.len_bytes()));
+    new_bytes := ArrayList(u8).with_capacity((self.as_bytes().length() + other.as_bytes().length()));
     
     // Copy bytes from self
     i := (0).as(usize);
-    while ((i < self.len_bytes())),
+    while ((i < self.as_bytes().length())),
           (i = (i + (1).as(usize))),
     {
       byte_opt := self._bytes.get(i);
@@ -223,7 +267,7 @@ String :: object(
     
     // Copy bytes from other
     j := (0).as(usize);
-    while ((j < other.len_bytes())),
+    while ((j < other.as_bytes().length())),
           (j = (j + (1).as(usize))),
     {
       byte_opt := other._bytes.get(j);
@@ -234,13 +278,6 @@ String :: object(
     };
     
     return Self(_bytes: new_bytes);
-  }),
-
-  /**
-   * Dispose the string and free its memory
-   */
-  dispose :: ((fn(self: Self) -> unit) {
-    self._bytes.dispose();
   })
 );
 

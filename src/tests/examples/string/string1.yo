@@ -31,7 +31,7 @@ main :: (fn() -> unit) {
   s1 := String.new();
   is_s1_empty := s1.is_empty();
   printf("Is empty string empty? %d\n", is_s1_empty);
-  s1_len := s1.len_bytes();
+  s1_len := s1.as_bytes().length();
   printf("Empty string byte length: %zu\n", s1_len);
 
   // Test 4: Create String from bytes
@@ -47,7 +47,7 @@ main :: (fn() -> unit) {
   match(s2_result,
     .Ok(s2) => {
       printf("Created string 'Hello'\n");
-      s2_len := s2.len_bytes();
+      s2_len := s2.as_bytes().length();
       printf("String byte length: %zu\n", s2_len);
     },
     .Error(_err) => {
@@ -73,7 +73,7 @@ main :: (fn() -> unit) {
         .Ok(str2) => {
           str3 := str1.concat(str2);
           printf("Concatenated 'Hi' + '!'\n");
-          s3_len := str3.len_bytes();
+          s3_len := str3.as_bytes().length();
           printf("Result byte length: %zu\n", s3_len); // Should be 3
         },
         .Error(_) => {

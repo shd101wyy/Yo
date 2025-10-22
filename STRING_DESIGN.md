@@ -2,9 +2,47 @@
 
 ## Overview
 
-Based on QuickJS Unicode library investigation, we can implement an immutable UTF-8 String type for Yo.
+Yo has an immutable UTF-8 String type implemented natively in Yo without external dependencies.
+The basic String implementation handles UTF-8 encoding/decoding, character indexing, and common operations.
+
+For advanced Unicode features (normalization, complex case conversion, property queries), we can optionally
+use the QuickJS Unicode library, but this is **not required** for basic String functionality.
+
+## Implementation Status
+
+### ✅ Implemented (Native Yo, No Dependencies)
+- `String` object type with `ArrayList(u8)` storage
+- `String.new()` - Create empty string
+- `String.from_bytes(ArrayList(u8))` - Create from byte array (assumes valid UTF-8)
+- `String.from(*([u8]))` - Create from byte slice by copying
+- UTF-8 decoding (1-4 byte sequences) in `_decode_rune_at()`
+- `length()` - Count Unicode characters (runes) by scanning UTF-8 start bytes
+- `at(index)` - Get rune at character index (returns `Option(rune)`)
+- `concat(other)` - Concatenate two strings
+- `is_empty()` - Check if string is empty
+- `as_bytes()` - Get internal byte array
+- `rune` type for Unicode code points (U+0000 to U+10FFFF, excluding surrogates)
+- Full emoji and multi-byte character support (tested with Chinese and emoji)
+
+### 🚧 Planned (Native Yo)
+- `String.from_utf8(bytes)` with validation - Returns `Result(String, StringError)` on invalid UTF-8
+- `slice(start, end)` - Substring extraction
+- `split(delimiter)` - String tokenization
+- `trim()`, `trim_start()`, `trim_end()` - Whitespace removal
+- `starts_with()`, `ends_with()`, `contains()` - Search operations
+- Comparison operators (`==`, `<`, `>`, etc.)
+- Hash implementation for HashMap keys
+
+### 🔮 Future (Using QuickJS - Optional)
+- Unicode normalization (NFC, NFD, NFKC, NFKD)
+- Full Unicode case conversion (beyond ASCII)
+- Unicode property queries (is_alphabetic, is_numeric with full Unicode tables)
+- Grapheme cluster segmentation for complex emoji
 
 ## QuickJS Unicode Library Features
+
+**Note:** The following QuickJS features are available but **NOT currently used** in the basic String implementation.
+They are documented here for future reference when implementing advanced Unicode features.
 
 ### Available in `vendor/quickjs/cutils.h` and `cutils.c`:
 
@@ -79,140 +117,103 @@ Based on QuickJS Unicode library investigation, we can implement an immutable UT
 ```yo
 String :: object(
   // Internal UTF-8 byte buffer (immutable)
-  _bytes : ArrayList(u8),
-  
-  // Cached character count (lazy computed)
-  _char_count : Option(usize),
-  
-  // Character offset index: maps char_index -> byte_index (lazy computed)
-  // This enables O(1) character indexing after first build
-  _char_offsets : Option(ArrayList(usize)),
-  
-  // Hash code (lazy computed, for use in HashMap)
-  _hash : Option(usize)
+  _bytes : ArrayList(u8)
 )
 ```
 
-## Character Representation: Do We Need a Rune Type?
+**Current Implementation:** The String type currently uses a simple design with just the byte buffer.
+Lazy caching of character count, offset indices, and hash codes are **not yet implemented** but planned for future optimization.
 
-### Option 1: Use `u32` directly (simpler)
+**Future Optimizations (Not Implemented):**
 ```yo
-char_at :: fn(self: Self, index: usize) -> Option(u32)
-String.from_char :: fn(codepoint: u32) -> Result(String, StringError)
-```
-**Pros:**
-- Simple, no new type needed
-- `u32` clearly indicates "this is a number"
-- Works for bit manipulation, conversion
-
-**Cons:**
-- Less type-safe: any `u32` can be passed (including invalid codepoints)
-- Less self-documenting: is this a codepoint or just a number?
-
-### Option 2: Introduce `Char` type (recommended)
-```yo
-// Character type - a Unicode code point (0x0 to 0x10FFFF)
-Char :: struct(c: u32)  // Named field for clarity
-
-// Methods on Char
-Char.from_u32 :: fn(value: u32) -> Option(Char)  // Validate range
-Char.to_u32 :: fn(self: Char) -> u32
-Char.is_ascii :: fn(self: Char) -> boolean
-Char.is_whitespace :: fn(self: Char) -> boolean
-Char.to_lowercase :: fn(self: Char) -> Char
-Char.to_uppercase :: fn(self: Char) -> Char
-
-// String now uses Char
-char_at :: fn(self: String, index: usize) -> Option(Char)
-String.from_char :: fn(ch: Char) -> String
-
-// Usage:
-my_char := Char.from_u32(0x1F389).unwrap()  // 🎉
-codepoint := my_char.c  // Direct field access
+// Potential future additions for performance
+_char_count : Option(usize),        // Cached character count
+_char_offsets : Option(ArrayList(usize)),  // Character-to-byte offset index
+_hash : Option(usize)                // Cached hash for HashMap
 ```
 
-**Pros:**
-- ✅ Type-safe: can't accidentally use invalid codepoint
-- ✅ Self-documenting: `Char` clearly means "Unicode character", `c` = codepoint
+## Character Representation: The `rune` Type
+
+**✅ IMPLEMENTED:** Yo uses the `rune` type (not `Char`) for Unicode characters.
+
+### Why `rune` instead of `Char`?
+
+The name `rune` is chosen to:
+- Avoid confusion with C's `char` type (which is 8-bit)
+- Match Go's terminology (Go's `rune` is an `int32` representing a Unicode code point)
+- Clearly indicate Unicode code points (32-bit values)
+
+### Current Implementation
+
+```yo
+// In std/data/rune.yo
+rune :: struct(c: u32)
+
+rune.from_u32 :: fn(value: u32) -> Option(rune)  // Validates 0x0 to 0x10FFFF, excluding surrogates
+rune.is_valid :: fn(value: u32) -> boolean
+// ... other methods
+
+// String uses rune
+String.at :: fn(self: Self, index: usize) -> Option(rune)
+```
+
+**Benefits:**
+- ✅ Type-safe: can't accidentally use invalid codepoints
+- ✅ Self-documenting: `rune` clearly means "Unicode code point"
 - ✅ Can add helper methods (is_digit, is_whitespace, etc.)
-- ✅ Matches intuition: `Char` feels right for character operations
-- ✅ Clear field access: `char.c` is more readable than `char.0` or unwrap
 - ✅ Zero runtime cost: struct with single field is optimized
+- ✅ No confusion with C's `char` type
+- ✅ Field access: `r.c` to get the codepoint value
 
-**Cons:**
-- Minor: Need to specify field name in struct literal
-
-### Option 3: Type alias (middle ground)
-```yo
-Char :: u32  // Type alias
-```
-**Pros:**
-- Zero runtime cost
-- Better documentation than raw `u32`
-
-**Cons:**
-- No type safety (just an alias)
-- Can't add methods
-
-## Recommendation: Use `Char` newtype
-
-Similar to:
+**Similar to:**
 - **Rust**: `char` is a distinct 4-byte type for Unicode scalar values
-- **Go**: `rune` is an alias for `int32` 
+- **Go**: `rune` is an alias for `int32` representing Unicode code points
 - **Swift**: `Character` is a distinct type
 - **Python**: `str` of length 1 serves this purpose
 
-### Updated Design with `Char`:
+### Updated Design with `rune`:
 
 ### Construction
 
 ```yo
-// From UTF-8 byte array
-String.from_utf8 :: fn(bytes: ArrayList(u8)) -> Result(String, StringError)
+// ✅ IMPLEMENTED
+String.new :: fn() -> String                           // Create empty string
+String.from_bytes :: fn(bytes: ArrayList(u8)) -> String // From byte array (assumes valid UTF-8)
+String.from :: fn(slice: *([u8])) -> String            // From byte slice by copying
 
-// From C string (null-terminated)
-String.from_cstr :: fn(ptr: *u8) -> String
-
-// From single character
-String.from_char :: fn(ch: Char) -> String
-
-// Empty string
-String.empty :: fn() -> String
-
-// Repeat a character n times
-String.repeat :: fn(ch: Char, count: usize) -> String
+// 🚧 PLANNED
+String.from_utf8 :: fn(bytes: ArrayList(u8)) -> Result(String, StringError)  // With validation
+String.from_cstr :: fn(ptr: *(u8)) -> String           // From C null-terminated string
+String.from_rune :: fn(r: rune) -> String              // From single character
+String.repeat :: fn(r: rune, count: usize) -> String   // Repeat a character n times
 ```
 
 ### Basic Operations (All Return New Strings)
 
 ```yo
-// Concatenation
-concat :: fn(self: Self, other: Self) -> String
+// ✅ IMPLEMENTED
+concat :: fn(self: Self, other: Self) -> String        // Concatenate two strings
+at :: fn(self: Self, index: usize) -> Option(rune)    // Get rune at character index (currently O(n))
+as_bytes :: fn(self: Self) -> ArrayList(u8)            // Get internal byte array
+is_empty :: fn(self: Self) -> boolean                  // Check if empty
+length :: fn(self: Self) -> usize                      // Character count (scans UTF-8 start bytes)
 
-// Substring by byte index
-slice_bytes :: fn(self: Self, start: usize, end: usize) -> Result(String, StringError)
-
-// Substring by character index (slower, must iterate)
-slice_chars :: fn(self: Self, start: usize, end: usize) -> Result(String, StringError)
-
-// Get character at position
-// O(n) on first call (builds index), O(1) thereafter
-char_at :: fn(self: Self, index: usize) -> Option(Char)
-
-// Split by delimiter
-split :: fn(self: Self, delimiter: String) -> ArrayList(String)
-
-// Trim whitespace
-trim :: fn(self: Self) -> String
+// 🚧 PLANNED
+slice :: fn(self: Self, start: usize, end: usize) -> String  // Substring by character index
+split :: fn(self: Self, delimiter: String) -> ArrayList(String)  // Split by delimiter
+trim :: fn(self: Self) -> String                       // Trim whitespace
 trim_start :: fn(self: Self) -> String
 trim_end :: fn(self: Self) -> String
 ```
+
+**Note on Performance:** The current `at()` implementation is O(n) as it scans from the beginning each time.
+Future optimization will add lazy character offset indexing for O(1) access after first build.
 
 ### Indexing Strategy
 
 **Lazy Character Offset Array:**
 
-When `char_at()` or `len_chars()` is called for the first time, we build an index array:
+When `at()` or `length()` is called for the first time, we build an index array:
 
 ```
 Example: String "Hi🎉"
@@ -225,8 +226,8 @@ _char_count: 3
 ```
 
 **Performance:**
-- First `char_at()` or `len_chars()`: O(n) - builds index
-- Subsequent `char_at()`: O(1) - uses cached index
+- First `at()` or `length()`: O(n) - builds index
+- Subsequent `at()`: O(1) - uses cached index
 - Memory cost: ~8 bytes per character (usize on 64-bit)
 
 **Implementation:**
@@ -265,34 +266,27 @@ uint32_t yo_string_char_at(String* s, size_t char_index) {
 ### Queries
 
 ```yo
-// Length in bytes (always O(1))
-len_bytes :: fn(self: Self) -> usize
-
-// Length in Unicode characters (O(n) first call, then O(1))
-len_chars :: fn(self: Self) -> usize
-
-// Check if empty
+// ✅ IMPLEMENTED
+length :: fn(self: Self) -> usize                      // O(n) - counts UTF-8 start bytes
 is_empty :: fn(self: Self) -> boolean
 
-// Check if starts/ends with
+// 🚧 PLANNED
 starts_with :: fn(self: Self, prefix: String) -> boolean
 ends_with :: fn(self: Self, suffix: String) -> boolean
-
-// Check if contains
 contains :: fn(self: Self, substring: String) -> boolean
-
-// Find substring (returns byte index)
-find :: fn(self: Self, substring: String) -> Option(usize)
+find :: fn(self: Self, substring: String) -> Option(usize)  // Returns character index
 ```
 
 ### Case Operations
 
 ```yo
-// Convert to lowercase (creates new string)
-to_lowercase :: fn(self: Self) -> String
+// 🔮 FUTURE (Will use QuickJS Unicode tables for full Unicode support)
+to_lowercase :: fn(self: Self) -> String              // Full Unicode case conversion
+to_uppercase :: fn(self: Self) -> String              // Full Unicode case conversion
 
-// Convert to uppercase (creates new string)
-to_uppercase :: fn(self: Self) -> String
+// Could implement ASCII-only versions first without QuickJS:
+to_ascii_lowercase :: fn(self: Self) -> String        // ASCII A-Z only
+to_ascii_uppercase :: fn(self: Self) -> String        // ASCII a-z only
 ```
 
 ### Comparison
@@ -342,160 +336,96 @@ bytes :: fn(self: Self) -> ByteIterator
 chars :: fn(self: Self) -> CharIterator  // yields Char
 ```
 
-## Char Type Definition
+## rune Type Definition
+
+**✅ IMPLEMENTED** in `std/data/rune.yo`
 
 ```yo
 /**
- * Char - A Unicode scalar value (code point)
+ * rune - A Unicode scalar value (code point)
  * 
  * Represents a single Unicode character in the range U+0000 to U+10FFFF,
  * excluding surrogate code points (U+D800 to U+DFFF).
  * 
  * The field `c` holds the codepoint value as a u32.
  * 
- * Similar to:
- * - Rust's `char` type
- * - Go's `rune` type  
- * - Swift's `Character` type
+ * Named `rune` (like Go) to avoid confusion with C's `char` type.
  */
-Char :: struct(c: u32)
+rune :: struct(c: u32)
 
-Char :: object(
-  /**
-   * Create a Char from a u32 value
-   * Returns None if the value is not a valid Unicode scalar value
-   */
-  from_u32 :: fn(value: u32) -> Option(Char)
-    cond(
-      // Valid Unicode: 0x0 to 0x10FFFF, excluding surrogates
-      (value <= 0x10FFFF) && !(value >= 0xD800 && value <= 0xDFFF) => .Some(Char(c: value)),
-      true => .None
-    ),
-  
-  /**
-   * Convert Char back to u32
-   */
-  to_u32 :: fn(self: Char) -> u32
-    self.c,  // Access codepoint field
-  
-  /**
-   * Check if this is an ASCII character (U+0000 to U+007F)
-   */
-  is_ascii :: fn(self: Char) -> boolean
-    self.c <= 0x7F,
-  
-  /**
-   * Check if this is whitespace
-   * Uses QuickJS's lre_is_space function
-   */
-  is_whitespace :: fn(self: Char) -> boolean
-    extern_lre_is_space(self.c),
-  
-  /**
-   * Check if this is a digit (0-9)
-   */
-  is_digit :: fn(self: Char) -> boolean
-    self.c >= 0x30 && self.c <= 0x39,  // '0' to '9'
-  
-  /**
-   * Check if this is alphabetic
-   * Uses QuickJS's Unicode tables
-   */
-  is_alphabetic :: fn(self: Char) -> boolean
-    extern_lre_is_id_start(self.c),
-  
-  /**
-   * Convert to lowercase
-   * Returns a String (case conversion can expand to multiple chars)
-   */
-  to_lowercase :: fn(self: Char) -> String
-    extern_char_to_lowercase(self.c),
-  
-  /**
-   * Convert to uppercase
-   * Returns a String (case conversion can expand to multiple chars)
-   */
-  to_uppercase :: fn(self: Char) -> String
-    extern_char_to_uppercase(self.c),
-  
-  /**
-   * Convert Char to a String
-   */
-  to_string :: fn(self: Char) -> String
-    String.from_char(self)
-)
+rune.from_u32 :: fn(value: u32) -> Option(rune)       // ✅ Validates Unicode range
+rune.is_valid :: fn(value: u32) -> boolean            // ✅ Check if valid codepoint
 
-// Implement Eq for Char
-CharEq :: Eq(Char, Char)(
-  (==) :: fn(a: Char, b: Char) -> boolean
-    U32Eq.(==)(a.c, b.c)
-)
+// 🚧 PLANNED - Basic character queries
+is_ascii :: fn(self: rune) -> boolean
+is_digit :: fn(self: rune) -> boolean
+to_string :: fn(self: rune) -> String
 
-// Implement Ord for Char
-CharOrd :: Ord(Char, Char)(
-  compare :: fn(a: Char, b: Char) -> Ordering
-    U32Ord.compare(a.c, b.c)
-)
+// 🔮 FUTURE - Advanced queries (may use QuickJS Unicode tables)
+is_whitespace :: fn(self: rune) -> boolean
+is_alphabetic :: fn(self: rune) -> boolean
+to_lowercase :: fn(self: rune) -> String              // Returns String (may expand to multiple chars)
+to_uppercase :: fn(self: rune) -> String
 ```
 
-### Common Character Constants
+### Common rune Constants (Future)
 
 ```yo
-// Useful character constants
-CharConstants :: module(
-  NUL        :: Char(c: 0x00),      // Null
-  TAB        :: Char(c: 0x09),      // Tab
-  NEWLINE    :: Char(c: 0x0A),      // Line feed
-  SPACE      :: Char(c: 0x20),      // Space
-  ZERO       :: Char(c: 0x30),      // '0'
-  NINE       :: Char(c: 0x39),      // '9'
-  UPPERCASE_A :: Char(c: 0x41),     // 'A'
-  UPPERCASE_Z :: Char(c: 0x5A),     // 'Z'
-  LOWERCASE_A :: Char(c: 0x61),     // 'a'
-  LOWERCASE_Z :: Char(c: 0x7A),     // 'z'
+// 🚧 PLANNED - Useful character constants
+RuneConstants :: module(
+  NUL        :: rune(c: 0x00),      // Null
+  TAB        :: rune(c: 0x09),      // Tab
+  NEWLINE    :: rune(c: 0x0A),      // Line feed
+  SPACE      :: rune(c: 0x20),      // Space
+  ZERO       :: rune(c: 0x30),      // '0'
+  NINE       :: rune(c: 0x39),      // '9'
+  UPPERCASE_A :: rune(c: 0x41),     // 'A'
+  UPPERCASE_Z :: rune(c: 0x5A),     // 'Z'
+  LOWERCASE_A :: rune(c: 0x61),     // 'a'
+  LOWERCASE_Z :: rune(c: 0x7A),     // 'z'
   
   // Unicode examples
-  EMOJI_PARTY :: Char(c: 0x1F389), // 🎉
-  SNOWMAN     :: Char(c: 0x2603),  // ☃
+  EMOJI_GRINNING :: rune(c: 0x1F600), // 😀
+  EMOJI_EARTH    :: rune(c: 0x1F30D), // 🌍
 )
-
-// Usage examples:
-// if (ch.c >= CharConstants.ZERO.c && ch.c <= CharConstants.NINE.c) { ... }
-// if (CharEq.(==)(ch, CharConstants.NEWLINE)) { ... }
 ```
 
 ## Implementation Strategy
 
-### Phase 1: Basic Immutable String
-- Implement core type with ArrayList(u8) storage
-- Add `from_utf8`, `from_cstr`, `empty` constructors
-- Implement `len_bytes`, `is_empty`, `as_bytes`
-- Add basic comparison (Eq trait)
+### ✅ Phase 1: Basic Immutable String (COMPLETED)
+- ✅ Implement core type with ArrayList(u8) storage
+- ✅ Add `new()`, `from_bytes()`, `from()` constructors
+- ✅ Implement `is_empty`, `as_bytes`, `length`, `concat`
+- ✅ Implement `rune` type for Unicode code points
+- ✅ Native UTF-8 decoding in `_decode_rune_at()` (1-4 byte sequences)
+- ✅ Character access with `at()` returning `Option(rune)`
+- ✅ Full emoji and multi-byte character support
 
-### Phase 2: UTF-8 Operations (using QuickJS)
-- Wrap `unicode_from_utf8` and `unicode_to_utf8`
-- Implement `len_chars`, `char_at`
-- Add `slice_chars` with proper UTF-8 boundary handling
-- Validate UTF-8 sequences on construction
-
-### Phase 3: String Operations
-- Implement `concat`, `split`, `trim`
+### 🚧 Phase 2: Essential String Operations (IN PROGRESS)
+- Add `from_utf8()` with UTF-8 validation
+- Implement `slice()`, `split()`, `trim()`
 - Add `starts_with`, `ends_with`, `contains`, `find`
-- Implement substring operations
+- Implement basic comparison (Eq, Ord traits)
+- Optimize `at()` with lazy character offset indexing
 
-### Phase 4: Advanced Unicode (using QuickJS libunicode)
-- Add `to_lowercase`, `to_uppercase` using `lre_case_conv`
-- Optional: normalization support (NFC, NFD, etc.)
-- Optional: Unicode property queries
-
-### Phase 5: Hashing and HashMap Integration
+### 🚧 Phase 3: Hashing and HashMap Integration
 - Implement Hash trait for String
-- Use in HashMap as key type
 - Add hash caching optimization
+- Use String as HashMap key type
 
-## C FFI Helpers Needed
+### 🔮 Phase 4: Advanced Unicode (Optional, Using QuickJS)
+- Full Unicode case conversion (`to_lowercase`, `to_uppercase`)
+- Unicode normalization (NFC, NFD, NFKC, NFKD)
+- Unicode property queries (is_alphabetic, is_numeric with full tables)
+- Grapheme cluster segmentation
 
-We'll need to create wrapper functions to call QuickJS utilities:
+**Decision:** QuickJS will only be used for advanced Unicode features, not basic String operations.
+
+## C FFI Helpers (Only for Advanced Unicode Features)
+
+**Note:** These are **NOT currently implemented** and will only be added if/when we need advanced Unicode features.
+
+If we decide to use QuickJS for advanced features, we'll need wrapper functions:
 
 ```c
 // yo_string.c - wrapper for QuickJS Unicode functions
@@ -555,31 +485,40 @@ bool yo_utf8_validate(const uint8_t* bytes, size_t byte_len) {
 
 1. **Immutability**: Like JavaScript strings, safe for concurrent access, easier to reason about
 2. **UTF-8 Native**: Efficient storage, compatible with C APIs and web standards
-3. **Battle-tested**: Uses QuickJS's proven Unicode implementation
-4. **Lazy Computation**: Character count, index, and hash computed only when needed
-5. **O(1) Indexing**: Character offset array provides fast indexing after first build
-6. **Memory Efficient**: Index only built when needed, shared across lifetime
-7. **Zero-copy Views**: Can potentially share underlying byte arrays for substrings
-8. **Type Safety**: Separate from raw byte arrays, enforces valid UTF-8
+3. **Self-Contained**: Basic UTF-8 operations implemented natively in Yo, no external dependencies
+4. **Type Safety**: `rune` type ensures valid Unicode code points, separate from raw `u32`
+5. **Extensible**: Can optionally add QuickJS for advanced Unicode features without breaking existing code
+6. **Zero Runtime Cost**: `rune` struct with single field compiles to same code as raw `u32`
+7. **Memory Efficient**: Simple `ArrayList(u8)` storage, no overhead for basic use
+8. **Future-Proof**: Design allows for optimizations (lazy indexing, hash caching) without API changes
 
 ## Comparison with Other Languages
 
-| Feature | JavaScript | Rust | Go | Python 3 | Proposed Yo |
-|---------|-----------|------|-----|----------|-------------|
+| Feature | JavaScript | Rust | Go | Python 3 | Yo (Current) |
+|---------|-----------|------|-----|----------|--------------|
 | Mutability | Immutable | Immutable | Immutable | Immutable | Immutable |
 | Encoding | UTF-16 | UTF-8 | UTF-8 | UTF-8/UTF-32 | UTF-8 |
-| Char Type | None (string[0]) | `char` (4 bytes) | `rune` (int32) | `str[0]` (str) | `Char` (u32) |
-| Indexing | O(1) by char | O(1) by byte | O(1) by byte | O(1) by char | O(1) by char* |
-| Concat | Copy | Zero-copy (Rc) | Copy | Copy | Copy (future: rope?) |
+| Char Type | None (string[0]) | `char` (4 bytes) | `rune` (int32) | `str[0]` (str) | `rune` (u32) |
+| Indexing | O(1) by char | O(1) by byte | O(1) by byte | O(1) by char | O(n) by char† |
+| Concat | Copy | Zero-copy (Rc) | Copy | Copy | Copy |
+| Dependencies | Built-in | Built-in | Built-in | Built-in | Self-contained |
 
-\* O(1) after lazy O(n) index build on first character access
+† Future optimization: O(1) after lazy O(n) index build on first character access
 
 ## Next Steps
 
-1. **Decision needed**: Should we implement this String type now, or proceed with HashMap using primitive types first?
-2. **Compilation**: Need to ensure QuickJS's cutils.c and libunicode.c are compiled and linked
-3. **Testing**: Create comprehensive test suite for UTF-8 edge cases
-4. **Documentation**: Add examples of common string operations
+### Immediate Priorities
+1. ✅ Basic String implementation (DONE)
+2. 🚧 Add UTF-8 validation to `from_utf8()`
+3. 🚧 Implement essential operations (`slice`, `split`, `trim`, `find`)
+4. 🚧 Add comparison operators and Hash trait
+5. 🚧 Optimize `at()` with lazy character offset indexing
+
+### Future Work
+- Consider using QuickJS for advanced Unicode features (case conversion, normalization)
+- Implement string interning for frequently used strings
+- Explore zero-copy string slicing (sharing byte arrays between parent and slices)
+- Add comprehensive test suite for UTF-8 edge cases and invalid sequences
 
 ## Indexing Tradeoffs Summary
 
@@ -595,11 +534,24 @@ bool yo_utf8_validate(const uint8_t* bytes, size_t byte_len) {
 - Access few/no characters: no overhead
 - Access once: same as scan approach
 
-## Questions to Consider
+## Design Questions for Future Discussion
 
-1. Should String own its data or use reference counting for large strings?
-2. Should we implement "string interning" for frequently used strings?
-3. Should we support string slicing with zero-copy views (like Rust's &str)?
-   - If yes, slices should share the parent's `_char_offsets` array
-4. Should we implement a "rope" data structure for efficient concatenation?
-5. Should `_char_offsets` be shared between parent and slice views?
+1. **QuickJS Integration**: When should we add QuickJS for advanced Unicode?
+   - Only when users need normalization/full case conversion?
+   - Make it optional via feature flag?
+   
+2. **Performance Optimizations**:
+   - Should we add lazy character offset indexing now or wait for benchmarks?
+   - Is hash caching worth the memory cost?
+   
+3. **Zero-Copy Slicing**:
+   - Should we support string slicing with shared byte arrays (like Rust's `&str`)?
+   - Would this complicate the ownership model?
+   
+4. **String Interning**:
+   - Should we implement string interning for frequently used strings?
+   - How would this interact with the garbage collector?
+
+5. **Data Structures**:
+   - Should we implement a "rope" data structure for efficient concatenation of large strings?
+   - Or is simple copy sufficient for most use cases?
