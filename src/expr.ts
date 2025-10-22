@@ -549,6 +549,9 @@ export const BuiltinFunctions = {
   __yo_ptr_gt: ["__yo_ptr_gt"],
   __yo_ptr_gte: ["__yo_ptr_gte"],
 
+  // Type casting for primitives (generic form)
+  __yo_as: ["__yo_as"],
+
   // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],
   __yo_expr_is_atom: ["__yo_expr_is_atom"],

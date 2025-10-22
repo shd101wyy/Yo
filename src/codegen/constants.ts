@@ -41,6 +41,9 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_ptr_gt, // __yo_ptr_gt
   ...BuiltinFunctions.__yo_ptr_gte, // __yo_ptr_gte
 
+  // Type casting
+  ...BuiltinFunctions.__yo_as, // __yo_as (generic primitive type cast)
+
   // Others
   ...BuiltinFunctions.__yo_noop, // __yo_noop
   ...BuiltinFunctions.__yo_return_self, // __yo_return_self
