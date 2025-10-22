@@ -308,7 +308,11 @@ export function checkIfFunctionParameterMatchesArgument({
     // but the parameter is not compt
     // we need to convert the argType to runtimeType
     // if (typeRequiresComptModifier(argType)) {
-    argType = convertComptTypeToRuntimeType(argType, parameterType);
+    argType = convertComptTypeToRuntimeType({
+      type: argType,
+      expectedType: parameterType,
+      expr: evaluatedArgExpr,
+    });
 
     if (typeRequiresComptModifier(argType)) {
       // We fail to convert to runtime type

@@ -111,7 +111,11 @@ export function evaluateAsync({
   env = evaluatedBody.$.env;
 
   // Infer the return type from the evaluated expression
-  const returnType = convertComptTypeToRuntimeType(evaluatedBody.$.type);
+  const returnType = convertComptTypeToRuntimeType({
+    type: evaluatedBody.$.type,
+    expectedType: undefined,
+    expr: evaluatedBody,
+  });
 
   // Create Future(returnType)
   const futureType = createFutureType(returnType, env);

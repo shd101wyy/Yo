@@ -277,7 +277,7 @@ export function evaluateFunctionParameter({
     }
     if (typeRequiresComptModifier(parameterType) && !isCompileTimeOnly) {
       // Try converting to runtime type first
-      parameterType = convertComptTypeToRuntimeType(parameterType);
+      parameterType = convertComptTypeToRuntimeType({ type: parameterType, expectedType: undefined, expr: undefined });
 
       // If it still requires compt modifier,
       // then throw an error
@@ -942,7 +942,7 @@ export function evaluateFunctionType({
 
   if (typeRequiresComptModifier(returnType) && !isReturnTypeCompileTimeOnly) {
     // Try converting to runtime type first
-    returnType = convertComptTypeToRuntimeType(returnType);
+    returnType = convertComptTypeToRuntimeType({ type: returnType, expectedType: undefined, expr: undefined });
     // If it still requires compt modifier,
     // then throw an error
     if (typeRequiresComptModifier(returnType)) {

@@ -145,7 +145,11 @@ export function evaluateInitializationAssignment({
       // etc...
       let lhsType = rhsType;
       if (!isCompileTimeOnly) {
-        lhsType = convertComptTypeToRuntimeType(rhsType);
+        lhsType = convertComptTypeToRuntimeType({
+          type: rhsType,
+          expectedType: undefined,
+          expr: rhs,
+        });
       }
 
       // user didn't specify the type

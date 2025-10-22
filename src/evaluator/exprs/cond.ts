@@ -317,7 +317,11 @@ export function evaluateCond({
           if (
             areTypesCompatible(
               {
-                type: convertComptTypeToRuntimeType(valueType.type),
+                type: convertComptTypeToRuntimeType({
+                  type: valueType.type,
+                  expectedType: undefined,
+                  expr: undefined,
+                }),
                 env: valueType.env,
               },
               {

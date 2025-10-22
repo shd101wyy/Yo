@@ -372,7 +372,7 @@ Given type: ${typeToString(defaultValueType)}`,
 
   /*
     if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
-      elementType = convertComptTypeToRuntimeType(elementType);
+      elementType = convertComptTypeToRuntimeType({ type: elementType, expectedType: undefined, expr: undefined });
       if (typeRequiresComptModifier(elementType)) {
         throw formatErrorMessage(
           labelExpr?.token ?? expr.token,

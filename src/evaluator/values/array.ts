@@ -95,7 +95,7 @@ export function evaluateArrayValue({
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType(arrayElementType),
+              type: convertComptTypeToRuntimeType({ type: arrayElementType, expectedType: undefined, expr: undefined }),
               env,
             },
             {

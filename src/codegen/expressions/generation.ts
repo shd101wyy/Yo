@@ -2784,7 +2784,26 @@ function generateComptValue(
     // For booleans, return true/false
     return value.value ? "true" : "false";
   } else if (isComptStringValue(value)) {
-    // For strings, return the C string literal with proper escaping
+    // Check if there's a converted runtime type (e.g., compt_string -> *([u8]))
+    const targetType =
+      _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
+
+    // Check if the target type is a pointer to a slice (e.g., *([u8]))
+    // In Yo, *([u8]) is a fat pointer (slice value), not a pointer to a slice struct
+    // So we generate a slice struct value directly
+    if (targetType && isMutPtrType(targetType)) {
+      const pointeeType = targetType.type;
+      if (isSliceType(pointeeType)) {
+        const sliceCType = getTypeString(pointeeType, context);
+        const stringLiteral = JSON.stringify(value.value);
+        const stringLength = Buffer.byteLength(value.value, "utf8");
+
+        // Generate slice struct value (fat pointer)
+        return `(${sliceCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
+      }
+    }
+
+    // For regular strings, return the C string literal with proper escaping
     return JSON.stringify(value.value);
   } else if (isEnumValue(value)) {
     // For enums, check if it's optimized as nullable pointer

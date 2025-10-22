@@ -1,6 +1,6 @@
 import { Environment, getVariablesFromEnv } from "../env";
 import { formatErrorMessages } from "../error";
-import { exprToString } from "../expr";
+import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
 import {
@@ -395,23 +395,39 @@ export function getValueOfSomeTypeFromEnv(
 
 /**
  * Convert compt types to their runtime equivalents.
+ * If expr is provided and a conversion happens, sets expr.$.convertedRuntimeType
  */
-export function convertComptTypeToRuntimeType(
-  type: Type,
-  expectedType?: Type
-): Type {
+export function convertComptTypeToRuntimeType({
+  type,
+  expectedType,
+  expr,
+}: {
+  type: Type;
+  expectedType?: Type;
+  expr?: Expr;
+}): Type {
+  let convertedType: Type | undefined;
+
   if (isComptIntType(type)) {
-    return createI32Type();
+    convertedType = createI32Type();
   } else if (isComptFloatType(type)) {
-    return createF64Type();
+    convertedType = createF64Type();
   } else if (isArrayType(type)) {
-    type.elementType = convertComptTypeToRuntimeType(type.elementType);
+    type.elementType = convertComptTypeToRuntimeType({
+      type: type.elementType,
+      expectedType: undefined,
+      expr: undefined,
+    });
     return type;
   } else if (isTupleType(type)) {
     type.elements = type.elements.map((element) => {
       return {
         ...element,
-        type: convertComptTypeToRuntimeType(element.type),
+        type: convertComptTypeToRuntimeType({
+          type: element.type,
+          expectedType: undefined,
+          expr: undefined,
+        }),
       };
     });
     return type;
@@ -424,7 +440,11 @@ export function convertComptTypeToRuntimeType(
     type.elements = type.elements.map((element) => {
       return {
         ...element,
-        type: convertComptTypeToRuntimeType(element.type),
+        type: convertComptTypeToRuntimeType({
+          type: element.type,
+          expectedType: undefined,
+          expr: undefined,
+        }),
       };
     });
     return type;
@@ -434,7 +454,11 @@ export function convertComptTypeToRuntimeType(
         variant.elements = variant.elements.map((param) => {
           return {
             ...param,
-            type: convertComptTypeToRuntimeType(param.type),
+            type: convertComptTypeToRuntimeType({
+              type: param.type,
+              expectedType: undefined,
+              expr: undefined,
+            }),
           };
         });
       }
@@ -450,16 +474,28 @@ export function convertComptTypeToRuntimeType(
         isMutPtrType(expectedType) && // *(u8) or *(char)
         (isU8Type(expectedType.type) || isCharType(expectedType.type))
       ) {
-        return expectedType;
+        convertedType = expectedType;
+      } else if (isMutPtrType(expectedType) && isSliceType(expectedType.type)) {
+        // *([u8]) in Yo is a fat pointer (the slice value itself)
+        convertedType = expectedType;
       }
     }
 
-    // Convert the compt_string to *([u8]);
-    return createMutPtrType(createSliceType(createU8Type()));
+    if (!convertedType) {
+      // Default: Convert the compt_string to *([u8])
+      convertedType = createMutPtrType(createSliceType(createU8Type()));
+    }
   } else {
     // No change
     return type;
   }
+
+  // If we have a converted type and an expr, store the conversion info
+  if (convertedType && expr?.$) {
+    expr.$.convertedRuntimeType = convertedType;
+  }
+
+  return convertedType ?? type;
 }
 
 /**

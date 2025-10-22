@@ -109,6 +109,12 @@ export interface EvaluatedExprData {
    */
   value?: Value;
   /**
+   * When a compile-time type needs to be converted to a different runtime type,
+   * this field stores the target runtime type.
+   * For example: string literal "hello" with type compt_string converted to *([u8])
+   */
+  convertedRuntimeType?: Type;
+  /**
    * If this is given, then it means there is a temporary variable holding the value in the `env` above.
    */
   variableName?: string;

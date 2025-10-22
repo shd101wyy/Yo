@@ -359,7 +359,7 @@ export function evaluateMatch({
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType(resultType.type),
+              type: convertComptTypeToRuntimeType({ type: resultType.type, expectedType: undefined, expr: undefined }),
               env: resultType.env,
             },
             {
@@ -697,7 +697,7 @@ export function evaluateMatch({
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType(resultType.type),
+              type: convertComptTypeToRuntimeType({ type: resultType.type, expectedType: undefined, expr: undefined }),
               env: resultType.env,
             },
             {
