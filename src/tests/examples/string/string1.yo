@@ -1,0 +1,92 @@
+open import "std";
+open import "std/libc/stdio";
+open import "std/collections";
+
+main :: (fn() -> unit) {
+  // Test 1: Create a rune from u32
+  printf("Test 1: Create rune from u32\n");
+  r1_opt := rune.from_u32((0x41).as(u32)); // 'A'
+  match(r1_opt,
+    .Some(r1) => {
+      printf("Created rune 'A'\n");
+      codepoint := r1.to_u32();
+      printf("Codepoint: %u\n", codepoint);
+    },
+    .None => {
+      printf("Failed to create rune\n");
+    }
+  );
+
+  // Test 2: Test rune methods
+  printf("\nTest 2: Test rune methods\n");
+  r2 := rune(c: (0x61).as(u32)); // 'a'
+  is_lower := r2.is_lowercase();
+  printf("Is 'a' lowercase? %d\n", is_lower);
+  
+  r2_upper := r2.to_uppercase();
+  printf("Uppercase of 'a' codepoint: %u\n", r2_upper.to_u32());
+
+  // Test 3: Create empty String
+  printf("\nTest 3: Create empty String\n");
+  s1 := String.new();
+  is_s1_empty := s1.is_empty();
+  printf("Is empty string empty? %d\n", is_s1_empty);
+  s1_len := s1.len_bytes();
+  printf("Empty string byte length: %zu\n", s1_len);
+
+  // Test 4: Create String from bytes
+  printf("\nTest 4: Create String from bytes\n");
+  bytes := ArrayList(u8).new();
+  bytes.push((0x48).as(u8)); // 'H'
+  bytes.push((0x65).as(u8)); // 'e'
+  bytes.push((0x6C).as(u8)); // 'l'
+  bytes.push((0x6C).as(u8)); // 'l'
+  bytes.push((0x6F).as(u8)); // 'o'
+  
+  s2_result := String.from_utf8(bytes);
+  match(s2_result,
+    .Ok(s2) => {
+      printf("Created string 'Hello'\n");
+      s2_len := s2.len_bytes();
+      printf("String byte length: %zu\n", s2_len);
+    },
+    .Error(_err) => {
+      printf("Failed to create string\n");
+    }
+  );
+
+  // Test 5: Test string concatenation
+  printf("\nTest 5: Test string concatenation\n");
+  bytes1 := ArrayList(u8).new();
+  bytes1.push((0x48).as(u8)); // 'H'
+  bytes1.push((0x69).as(u8)); // 'i'
+  
+  bytes2 := ArrayList(u8).new();
+  bytes2.push((0x21).as(u8)); // '!'
+  
+  str1_result := String.from_utf8(bytes1);
+  str2_result := String.from_utf8(bytes2);
+  
+  match(str1_result,
+    .Ok(str1) => {
+      match(str2_result,
+        .Ok(str2) => {
+          str3 := str1.concat(str2);
+          printf("Concatenated 'Hi' + '!'\n");
+          s3_len := str3.len_bytes();
+          printf("Result byte length: %zu\n", s3_len); // Should be 3
+        },
+        .Error(_) => {
+          printf("Failed to create str2\n");
+        }
+      );
+    },
+    .Error(_) => {
+      printf("Failed to create str1\n");
+    }
+  );
+
+  printf("\nAll tests completed!\n");
+};
+
+export main;

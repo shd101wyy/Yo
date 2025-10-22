@@ -395,11 +395,12 @@ typedef struct {
   // Generate slice struct types
   generateSliceStructDeclarations(context);
 
-  // Generate types in dependency order: enums first, then structs, then others
-  // This handles circular dependencies where structs contain enums by value
+  // Generate types in dependency order
+  // Order: simple enums -> structs -> complex enums -> nullable enums -> other types
+  // This ensures that structs are available before enums that contain them by value
 
   // First pass: Generate simple enum declarations (optimized as simple enum) first
-  // These are leaf types that can be used by other enums
+  // These are leaf types that can be used by other types
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
@@ -411,9 +412,22 @@ typedef struct {
     }
   }
 
-  // Second pass: Generate complex enum declarations (not optimized as simple enum)
-  // These may contain references to simple enums or other types
-  // We need to sort them topologically to ensure dependencies are generated first
+  // Second pass: Generate struct declarations
+  // These must come before complex enums because enums may contain structs by value
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (typeContainsSomeType(type)) {
+      continue; // Skip types that contain `SomeType` as they are not concrete types
+    }
+
+    if (isStructType(type)) {
+      generateStructDeclaration(type, cName, context);
+    }
+  }
+
+  // Third pass: Generate complex enum declarations (not optimized as simple enum)
+  // These may contain structs by value or references to simple enums
+  // We need to sort them topologically to ensure enum dependencies are generated first
   const complexEnums: Array<{ typeId: string; type: EnumType; cName: string }> =
     [];
   for (const typeId in context.types) {
@@ -437,7 +451,7 @@ typedef struct {
     generateEnumDeclaration(type, cName, context);
   }
 
-  // Third pass: Generate nullable pointer optimized enums
+  // Fourth pass: Generate nullable pointer optimized enums
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
@@ -449,16 +463,14 @@ typedef struct {
     }
   }
 
-  // Fourth pass: Generate struct and other type declarations
+  // Fifth pass: Generate other type declarations (closures, dyn, unions, tuples, futures)
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
-    if (isStructType(type)) {
-      generateStructDeclaration(type, cName, context);
-    } else if (isClosureType(type)) {
+    if (isClosureType(type)) {
       // Pass undefined for captureType since this is just the type declaration
       // Actual capture types are handled during closure construction in expressions/generation.ts
       generateClosureDeclaration(type, cName, undefined, context);
@@ -472,7 +484,7 @@ typedef struct {
     } else if (isFutureType(type)) {
       generateFutureDeclaration(type, cName, context);
     }
-    // Note: isEnumType is handled in the passes above
+    // Note: isEnumType and isStructType are handled in the passes above
   }
 }
 

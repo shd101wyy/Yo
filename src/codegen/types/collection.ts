@@ -220,7 +220,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
           if (!context.functions[functionValue.funcId]) {
             context.functions[functionValue.funcId] = {
               value: functionValue,
-              cName: functionValue.funcId,
+              cName: sanitizeForCIdentifier(functionValue.funcId),
             };
 
             // Collect types from the function signature (parameters and return type)
@@ -252,7 +252,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
           if (!context.functions[functionValue.funcId]) {
             context.functions[functionValue.funcId] = {
               value: functionValue,
-              cName: functionValue.funcId,
+              cName: sanitizeForCIdentifier(functionValue.funcId),
             };
 
             // Collect types from the function signature (parameters and return type)
