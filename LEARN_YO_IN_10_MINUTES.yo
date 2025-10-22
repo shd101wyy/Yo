@@ -370,10 +370,10 @@ MyPoint :: Tuple(i32, i32); // tuple type
 (p : MyPoint) = (3, 4); // valid
 
 // In Yo, you can define a struct like below:
-Point :: struct(i32, i32);
+Point :: struct(x : i32, y : i32);
 p := Point 3, 4;
 
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 p := Point(x: 3, y: 4);
 // destructure:
 Point(a, b) := p; // a: 3, b: 4
@@ -386,14 +386,14 @@ _(y: y) := p;       // y: 4
 { y, x: z } := p; // y: 4
 /// { y } gets converted to _(y: y, x: z);
 
-Cm := struct i32;
+Cm := struct(v : i32);
 x := Cm 200;
 
 // In Yo, struct/enum/union are nominal types.
 // This means that two types with the same structure are not the same type.
 // For example, the following two types are different:
-Point1 :: struct(i32, i32);
-Point2 :: struct(i32, i32);
+Point1 :: struct(x : i32, y : i32);
+Point2 :: struct(x : i32, y : i32);
 Point1 == Point2; // false
 p1 := Point1 3, 4;
 (p2: Point2) := p1; // error: type mismatch
@@ -403,7 +403,7 @@ p := { x : 3, y : 4 }; // Create an anonymous struct value.
 
 // Inferred struct
 // "_" here means to be a placeholder for the type that could be inferred later
-(p: struct(i32, i32)) := _(3, 4);
+(p: struct(x : i32, y : i32)) := _(3, 4);
 (p : Point) := _(x: 3, y: 4);
 (p: struct(a: i32, b: boolean)) := _(b: true, a: 3); // Valid!
 
@@ -545,11 +545,11 @@ Stringer((i32, i32)).to_string((3,4)); // "(3,4)"
 
 // Implement method to a type
 Cm :: struct(
-  i32,
+  v : i32,
 
   // Type method:
-  M :: (fn(_(cm): Self)-> i32) {
-    return cm / 100;
+  M :: (fn(self : Self)-> i32) {
+    return self.v / 100;
   }  
 );
 
@@ -663,7 +663,7 @@ cond  (x == 1) => std.println("x is 1"),
 factorial ::
   (fn(x: i32)-> i32) {
   result := 1;
-  while x > 1, do: {
+  while x > 1, {
     result = (result * x);
     x -= 1;
   };
@@ -676,7 +676,7 @@ factorial ::
   result := 1;
   while x > 1,  // condition
         x = (x - 1), // step
-  do: { // body
+  { // body
     result = (result * x);
   };
   result

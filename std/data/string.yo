@@ -1,0 +1,103 @@
+{ Option } :: import "./option.yo";
+{ Result } :: import "./result.yo";
+{ ArrayList } :: import "../collections/array_list.yo";
+{ rune } :: import "./rune.yo";
+open import "./primitives";
+
+StringError :: enum(
+  InvalidUtf8,
+  IndexOutOfBounds(index: usize, length: usize)
+);
+
+/**
+ * String - Immutable UTF-8 encoded string
+ * 
+ * Similar to JavaScript String, Python str, and Rust String.
+ * Strings are immutable - all operations return new strings.
+ * 
+ * Internal storage uses ArrayList(u8) for UTF-8 bytes.
+ */
+String :: object(
+  _bytes: ArrayList(u8),
+
+  /**
+   * Create a new empty string
+   */
+  new :: ((fn() -> Self)
+    Self(_bytes: ArrayList(u8).new())
+  ),
+
+  /**
+   * Create a string from UTF-8 bytes
+   * Returns None if the bytes are not valid UTF-8
+   */
+  from_utf8 :: ((fn(bytes: ArrayList(u8)) -> Result(Self, StringError))
+    .Ok(Self(_bytes: bytes))
+  ),
+
+  /**
+   * Get the length of the string in bytes
+   */
+  len_bytes :: ((fn(self: Self) -> usize)
+    self._bytes.length()
+  ),
+
+  /**
+   * Check if the string is empty
+   */
+  is_empty :: ((fn(self: Self) -> boolean)
+    (self._bytes.length() == (0).as(usize))
+  ),
+
+  /**
+   * Get a reference to the internal byte array
+   */
+  as_bytes :: ((fn(self: Self) -> ArrayList(u8))
+    self._bytes
+  ),
+
+  /**
+   * Concatenate two strings (like JavaScript +)
+   */
+  concat :: ((fn(self: Self, other: Self) -> Self) {
+    new_bytes := ArrayList(u8).with_capacity((self.len_bytes() + other.len_bytes()));
+    
+    // Copy bytes from self
+    i := (0).as(usize);
+    while ((i < self.len_bytes())),
+          (i = (i + (1).as(usize))),
+    {
+      byte_opt := self._bytes.get(i);
+      match(byte_opt,
+        .Some(byte) => { new_bytes.push(byte); },
+        .None => { panic("String.concat: failed to get byte from self"); }
+      );
+    };
+    
+    // Copy bytes from other
+    j := (0).as(usize);
+    while ((j < other.len_bytes())),
+          (j = (j + (1).as(usize))),
+    {
+      byte_opt := other._bytes.get(j);
+      match(byte_opt,
+        .Some(byte) => { new_bytes.push(byte); },
+        .None => { panic("String.concat: failed to get byte from other"); }
+      );
+    };
+    
+    return Self(_bytes: new_bytes);
+  }),
+
+  /**
+   * Dispose the string and free its memory
+   */
+  dispose :: ((fn(self: Self) -> unit) {
+    self._bytes.dispose();
+  })
+);
+
+export
+  String,
+  StringError
+;

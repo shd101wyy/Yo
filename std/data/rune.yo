@@ -1,0 +1,102 @@
+{ Option } :: import "./option.yo";
+open import "./primitives/u32";
+open import "../modules";
+
+rune :: struct(
+  c: u32,
+
+  from_u32 :: ((fn(value: u32) -> Option(Self))
+    cond(
+      ((value <= 0x10FFFF.as(u32)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
+      true => .None
+    )
+  ),
+
+  to_u32 :: ((fn(self: Self) -> u32)
+    self.c
+  ),
+
+  is_ascii :: ((fn(self: Self) -> boolean)
+    (self.c <= 0x7F)
+  ),
+
+  is_whitespace :: ((fn(self: Self) -> boolean)
+    (((self.c == 0x20) || (self.c == 0x09)) || ((self.c == 0x0A) || (self.c == 0x0D)))
+  ),
+
+  is_digit :: ((fn(self: Self) -> boolean)
+    ((self.c >= 0x30) && (self.c <= 0x39))
+  ),
+
+  is_alphabetic :: ((fn(self: Self) -> boolean)
+    (((self.c >= 0x41) && (self.c <= 0x5A)) || ((self.c >= 0x61) && (self.c <= 0x7A)))
+  ),
+
+  is_uppercase :: ((fn(self: Self) -> boolean)
+    ((self.c >= 0x41) && (self.c <= 0x5A))
+  ),
+
+  is_lowercase :: ((fn(self: Self) -> boolean)
+    ((self.c >= 0x61) && (self.c <= 0x7A))
+  ),
+
+  to_lowercase :: ((fn(self: Self) -> Self)
+    cond(
+      self.is_uppercase() => Self(c: (self.c + 32)),
+      true => self
+    )
+  ),
+
+  to_uppercase :: ((fn(self: Self) -> Self)
+    cond(
+      self.is_lowercase() => Self(c: (self.c - 32)),
+      true => self
+    )
+  ),
+
+  // Some constants
+  NUL        :: Self(c: 0x00),
+  TAB        :: Self(c: 0x09),
+  NEWLINE    :: Self(c: 0x0A),
+  SPACE      :: Self(c: 0x20),
+  ZERO       :: Self(c: 0x30),
+  NINE       :: Self(c: 0x39),
+  UPPERCASE_A :: Self(c: 0x41),
+  UPPERCASE_Z :: Self(c: 0x5A),
+  LOWERCASE_A :: Self(c: 0x61),
+  LOWERCASE_Z :: Self(c: 0x7A),
+
+  // Eq
+  ...(Eq(Self, Self)(
+    (==) : ((fn(a: Self, b: Self) -> boolean)
+      (a.c == b.c)
+    ),
+
+    (!=) : ((fn(a: Self, b: Self) -> boolean)
+      (a.c != b.c)
+    )
+  )),
+
+  // Ord
+  ...(Ord(Self, Self, using(Self))(
+    (<) : ((fn(a: Self, b: Self) -> boolean)
+      (a.c < b.c)
+    ),
+
+    (<=) : ((fn(a: Self, b: Self) -> boolean)
+      (a.c <= b.c)
+    ),
+
+    (>) : ((fn(a: Self, b: Self) -> boolean)
+      (a.c > b.c)
+    ),
+
+    (>=) : ((fn(a: Self, b: Self) -> boolean)
+      (a.c >= b.c)
+    )
+  ))
+);
+
+export
+  rune
+;

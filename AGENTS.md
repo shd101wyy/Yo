@@ -73,3 +73,32 @@ For understanding the async/await design, please read `ASYNC_AWAIT.md` document.
 While making design decisions, don't worry about making breaking changes to the Yo language! It is a new language and it is still evolving. Breaking changes are acceptable.
 
 While implementing the evaluate or codegen, no shortcuts or simplcations!
+
+**IMPORTANT DESIGN DECISIONS:**
+
+1. **Use `rune` for Unicode characters, not `Char`:**
+   - `char` is the C character type (8-bit)
+   - `rune` represents Unicode code points (32-bit, like Go's rune)
+   - File: `std/data/rune.yo`
+   - This avoids confusion with C's `char` type
+
+2. **Type naming conventions:**
+   - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `boolean`
+   - Use `struct(...)` for value types
+   - Use `object(...)` for reference-counted types
+
+3. **No operator precedence:**
+   - Always use parentheses to group operations: `((a + b) * c)` not `a + b * c`
+   - Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
+
+4. **Method definitions in struct:**
+   - Use double parentheses: `method :: ((fn(self: Self) -> ReturnType) body)`
+   - Use `Self` instead of the type name in method signatures
+   - Constants and methods are all part of the struct definition
+
+5. **Use `cond(...)` not `if`:**
+   - Always write `cond(condition => result, true => default)`
+   - Parentheses are required around `cond(...)`
+
+6. **Use `boolean` not `bool`:**
+   - The boolean type is spelled `boolean` in Yo
