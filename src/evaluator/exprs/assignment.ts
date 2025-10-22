@@ -21,6 +21,7 @@ import {
 import {
   areTypesCompatible,
   ArrayType,
+  convertComptTypeToRuntimeType,
   createArrayType,
   EnumType,
   isArrayType,
@@ -269,6 +270,16 @@ export function evaluateAssignment({
           )}\n${e}`,
         });
       }
+    }
+
+    // Convert compile-time types to runtime types if needed
+    // For example: compt_string -> *([u8]) when assigning to a *([u8]) variable
+    if (!variable.isCompileTimeOnly) {
+      rhsType = convertComptTypeToRuntimeType({
+        type: rhsType,
+        expectedType: variable.type,
+        expr: rhs,
+      });
     }
 
     // Check if the type matches
