@@ -36,6 +36,37 @@ String :: object(
   ),
 
   /**
+   * Get the length of the string in Unicode characters (runes)
+   * For "你好世界", this returns 4
+   */
+  length :: ((fn(self: Self) -> usize) {
+    count := (0).as(usize);
+    byte_index := (0).as(usize);
+    total_bytes := self._bytes.length();
+    
+    while ((byte_index < total_bytes)),
+          (byte_index = (byte_index + (1).as(usize))),
+    {
+      byte_opt := self._bytes.get(byte_index);
+      match(byte_opt,
+        .Some(byte) => {
+          // Count UTF-8 character start bytes (not continuation bytes)
+          // Continuation bytes have pattern 10xxxxxx (0x80-0xBF)
+          cond(
+            ((byte < (0x80).as(u8)) || (byte >= (0xC0).as(u8))) => {
+              count = (count + (1).as(usize));
+            },
+            true => ()
+          );
+        },
+        .None => ()
+      );
+    };
+    
+    return count;
+  }),
+
+  /**
    * Get the length of the string in bytes
    */
   len_bytes :: ((fn(self: Self) -> usize)
@@ -55,6 +86,122 @@ String :: object(
   as_bytes :: ((fn(self: Self) -> ArrayList(u8))
     self._bytes
   ),
+
+  /**
+   * Decode a UTF-8 encoded rune starting at the given byte index
+   * Internal helper method
+   */
+  _decode_rune_at :: ((fn(self: Self, byte_index: usize) -> Option(rune)) {
+    first_byte_opt := self._bytes.get(byte_index);
+    match(first_byte_opt,
+      .Some(first_byte) => {
+        // Determine how many bytes this UTF-8 character uses
+        (res : Option(rune)) = cond(
+          // 1-byte character: 0xxxxxxx (ASCII)
+          (first_byte < (0x80).as(u8)) => {
+            codepoint := first_byte.as(u32);
+            rune.from_u32(codepoint)
+          },
+          // 2-byte character: 110xxxxx 10xxxxxx
+          ((first_byte >= (0xC0).as(u8)) && (first_byte < (0xE0).as(u8))) => {
+            second_opt := self._bytes.get((byte_index + (1).as(usize)));
+            match(second_opt,
+              .Some(second) => {
+                codepoint := (((first_byte.as(u32) & (0x1F).as(u32)) << (6).as(u32)) | (second.as(u32) & (0x3F).as(u32)));
+                rune.from_u32(codepoint)
+              },
+              .None => .None
+            )
+          },
+          // 3-byte character: 1110xxxx 10xxxxxx 10xxxxxx
+          ((first_byte >= (0xE0).as(u8)) && (first_byte < (0xF0).as(u8))) => {
+            second_opt := self._bytes.get((byte_index + (1).as(usize)));
+            third_opt := self._bytes.get((byte_index + (2).as(usize)));
+            match(second_opt,
+              .Some(second) =>
+                match(third_opt,
+                  .Some(third) => {
+                    codepoint := ((((first_byte.as(u32) & (0x0F).as(u32)) << (12).as(u32)) | ((second.as(u32) & (0x3F).as(u32)) << (6).as(u32))) | (third.as(u32) & (0x3F).as(u32)));
+                    rune.from_u32(codepoint)
+                  },
+                  .None => .None
+                ),
+              .None => .None
+            )
+          },
+          // 4-byte character: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+          ((first_byte >= (0xF0).as(u8)) && (first_byte < (0xF8).as(u8))) => {
+            second_opt := self._bytes.get((byte_index + (1).as(usize)));
+            third_opt := self._bytes.get((byte_index + (2).as(usize)));
+            fourth_opt := self._bytes.get((byte_index + (3).as(usize)));
+            match(second_opt,
+              .Some(second) =>
+                match(third_opt,
+                  .Some(third) =>
+                    match(fourth_opt,
+                      .Some(fourth) => {
+                        codepoint := (((((first_byte.as(u32) & (0x07).as(u32)) << (18).as(u32)) | ((second.as(u32) & (0x3F).as(u32)) << (12).as(u32))) | ((third.as(u32) & (0x3F).as(u32)) << (6).as(u32))) | (fourth.as(u32) & (0x3F).as(u32)));
+                        rune.from_u32(codepoint)
+                      },
+                      .None => .None
+                    ),
+                  .None => .None
+                ),
+              .None => .None
+            )
+          },
+          // Invalid UTF-8 start byte
+          true => .None
+        );
+        return res;
+      },
+      .None => .None
+    )
+  }),
+
+  /**
+   * Get the rune at the specified character index (0-based)
+   * Returns None if index is out of bounds
+   * For "你好世界", at(0) returns '你', at(1) returns '好', etc.
+   */
+  at :: ((fn(self: Self, index: usize) -> Option(rune)) {
+    char_count := (0).as(usize);
+    byte_index := (0).as(usize);
+    total_bytes := self._bytes.length();
+    
+    // Find the byte position of the character at the given index
+    while ((byte_index < total_bytes)),
+          (byte_index = (byte_index + (1).as(usize))),
+    {
+      byte_opt := self._bytes.get(byte_index);
+      match(byte_opt,
+        .Some(byte) => {
+          // Check if this is a UTF-8 character start byte
+          is_start := ((byte < (0x80).as(u8)) || (byte >= (0xC0).as(u8)));
+          cond(
+            is_start => {
+              // Found a character start byte
+              cond(
+                (char_count == index) => {
+                  // This is the character we want, decode it
+                  return self._decode_rune_at(byte_index);
+                },
+                true => {
+                  // Not the right character yet, keep counting
+                  char_count = (char_count + (1).as(usize));
+                }
+              );
+            },
+            true => ()
+          );
+        },
+        .None => ()
+      );
+    };
+    
+    // Index out of bounds
+    return .None;
+  }),
 
   /**
    * Concatenate two strings (like JavaScript +)
