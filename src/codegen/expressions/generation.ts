@@ -2687,7 +2687,13 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  // If this atom has a temp variable name (e.g., for ARC values), use that instead of the computed value
+  // Check if this atom has a compile-time value first (before checking variable names)
+  // This ensures that compile-time constants are inlined even if they have variable names
+  if (expr.$?.value && !isUnknownValue(expr.$.value)) {
+    return generateComptValue(expr.$.value, context, expr);
+  }
+
+  // If this atom has a temp variable name (e.g., for ARC values), use that instead of regenerating code
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
   if (expr.$?.variableName) {
@@ -2707,10 +2713,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     } else {
       return sanitizeForCIdentifier(expr.$.variableName);
     }
-  }
-
-  if (expr.$?.value && !isUnknownValue(expr.$.value)) {
-    return generateComptValue(expr.$.value, context, expr);
   }
 
   const isClosureCaptured =
