@@ -3,6 +3,7 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
 /**
@@ -80,6 +81,13 @@ given(UsizeOrd) :: Ord(usize, usize, using(UsizeEq))
   (<=) : ((a, b) -> __yo_op_lte(a, b)),
   (>) : ((a, b) -> __yo_op_gt(a, b)),
   (>=) : ((a, b) -> __yo_op_gte(a, b))
+;
+
+/**
+ * hash
+ */
+given(UsizeHash) :: Hash(usize)
+  (hash): ((value) -> __yo_as(value, u64))
 ;
 
 given(UsizeDrop) :: Drop(usize)
@@ -185,6 +193,7 @@ export
   UsizeBitXor,
   UsizeEq,
   UsizeOrd,
+  UsizeHash,
   UsizeDrop,
   UsizeClone,
   UsizeComptMethods

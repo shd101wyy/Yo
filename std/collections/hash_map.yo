@@ -1,0 +1,485 @@
+/**
+ * HashMap - A high-performance hash map implementation using SwissTable algorithm
+ * 
+ * SwissTable is a state-of-the-art hash table design developed by Google for Abseil.
+ * Key features:
+ * - SIMD-accelerated lookup using control bytes
+ * - Quadratic probing for collision resolution
+ * - 7/8 max load factor for good performance
+ * - Compact memory layout with metadata array
+ * 
+ * Memory layout:
+ * - ctrl: Array of control bytes (metadata), one per bucket
+ * - data: Array of key-value pairs
+ * 
+ * Control byte values:
+ * - 0xFF (EMPTY): Bucket is empty and never used
+ * - 0xFE (DELETED): Bucket was used but is now deleted
+ * - 0x00-0x7F: Lower 7 bits of hash (H2 hash), indicates occupied bucket
+ * 
+ * Hash function splits hash into two parts:
+ * - H1: Upper bits used to find bucket group
+ * - H2: Lower 7 bits stored in control byte for fast SIMD comparison
+ */
+{ GlobalAllocator, AllocError } :: import "../modules/allocator.yo";
+{ malloc, calloc, realloc, free } :: GlobalAllocator;
+open import "../modules/eq.yo";
+open import "../modules/hash.yo";
+open import "../data/option.yo";
+open import "../data/result.yo";
+open import "../data/primitives";
+
+/**
+ * HashMap error types
+ */
+HashMapError :: enum(
+  AllocError(error : AllocError),
+  KeyNotFound,
+  CapacityOverflow
+);
+
+/**
+ * Control byte constants for SwissTable
+ */
+CTRL_EMPTY :: (255).as(u8);
+CTRL_DELETED :: (254).as(u8);
+
+/**
+ * Default initial capacity (must be power of 2)
+ */
+DEFAULT_CAPACITY :: (16).as(usize);
+
+/**
+ * Maximum load factor: 7/8 = 0.875
+ * We resize when: size > capacity * 7 / 8
+ */
+MAX_LOAD_FACTOR_NUMERATOR :: (7).as(usize);
+MAX_LOAD_FACTOR_DENOMINATOR :: (8).as(usize);
+
+/**
+ * Bucket - Internal structure to store key-value pairs
+ */
+Bucket :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+  struct(
+    key : K,
+    value : V
+  );
+
+/**
+ * Extract H2 hash (lower 7 bits) from full hash
+ */
+h2_hash :: (fn(hash: u64) -> u8)
+  ((hash & (127).as(u64)).as(u8))
+;
+
+/**
+ * Extract H1 hash (upper bits) for bucket index
+ */
+h1_hash :: (fn(hash: u64, capacity: usize) -> usize)
+  (((hash >> (7).as(u64)).as(usize) % capacity))
+;
+
+/**
+ * HashMap type - high-performance hash table using SwissTable
+ * 
+ * Memory layout:
+ * - ctrl: Pointer to control bytes array (length = capacity)
+ * - data: Pointer to buckets array (length = capacity)
+ * - capacity: Total number of buckets (always power of 2)
+ * - size: Current number of occupied buckets
+ */
+HashMap :: (fn(
+  compt(K): Type,
+  compt(V): Type,
+  using(KeyEqual : Eq(K, K), KeyHash : Hash(K))
+) -> compt(Type))
+  object(
+    ctrl : ?*(u8),
+    data : ?*(Bucket(K, V)),
+    capacity : usize,
+    size : usize,
+
+    /**
+     * Allocate memory for HashMap with given capacity
+     * Initializes all control bytes to EMPTY
+     */
+    _alloc_with_capacity :: ((fn(capacity: usize) -> Result(Self, HashMapError))
+      {
+        bucket_size :: sizeof(Bucket(K, V));
+        ctrl_size := capacity;
+        data_size := (capacity * bucket_size);
+        
+        ctrl_result := malloc(ctrl_size);
+        match(ctrl_result,
+          .None => .Error(.AllocError(error: .OutOfMemory)),
+          .Some(ctrl_void_ptr) => {
+            ctrl_ptr := ctrl_void_ptr.cast(*(u8));
+            
+            data_result := malloc(data_size);
+            match(data_result,
+              .None => {
+                free(.Some(ctrl_ptr.cast(*(void))));
+                .Error(.AllocError(error: .OutOfMemory))
+              },
+              .Some(data_void_ptr) => {
+                data_ptr := data_void_ptr.cast(*(Bucket(K, V)));
+                
+                i := (0).as(usize);
+                while(i < capacity, i = (i + (1).as(usize)), {
+                  (ctrl_ptr + i).* = CTRL_EMPTY;
+                });
+                
+                .Ok(Self(
+                  ctrl: .Some(ctrl_ptr),
+                  data: .Some(data_ptr),
+                  capacity: capacity,
+                  size: (0).as(usize)
+                ))
+              }
+            )
+          }
+        )
+      }
+    ),
+
+    /**
+     * Create a new empty HashMap with default capacity
+     */
+    new :: ((fn() -> Self)
+      {
+        result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
+        match(result,
+          .Ok(map) => map,
+          .Error(_) => panic("Failed to allocate HashMap")
+        )
+      }
+    ),
+
+    /**
+     * Create a HashMap with a specific initial capacity
+     * Capacity will be rounded up to next power of 2
+     */
+    with_capacity :: ((fn(requested_capacity: usize) -> Self)
+      {
+        capacity := cond(
+          (requested_capacity < DEFAULT_CAPACITY) => DEFAULT_CAPACITY,
+          true => {
+            c := requested_capacity;
+            c = (c - (1).as(usize));
+            c = (c | (c >> (1).as(usize)));
+            c = (c | (c >> (2).as(usize)));
+            c = (c | (c >> (4).as(usize)));
+            c = (c | (c >> (8).as(usize)));
+            c = (c | (c >> (16).as(usize)));
+            (c + (1).as(usize))
+          }
+        );
+        
+        result := Self._alloc_with_capacity(capacity);
+        match(result,
+          .Ok(map) => map,
+          .Error(_) => panic("Failed to allocate HashMap")
+        )
+      }
+    ),
+
+    /**
+     * Get ctrl pointer (unwrapped for internal use)
+     */
+    _ctrl_ptr :: ((fn(self: Self) -> *(u8))
+      match(self.ctrl,
+        .Some(ptr) => ptr,
+        .None => panic("HashMap ctrl pointer is null")
+      )
+    ),
+
+    /**
+     * Get data pointer (unwrapped for internal use)
+     */
+    _data_ptr :: ((fn(self: Self) -> *(Bucket(K, V)))
+      match(self.data,
+        .Some(ptr) => ptr,
+        .None => panic("HashMap data pointer is null")
+      )
+    ),
+
+    /**
+     * Find bucket index for a given key using quadratic probing
+     * Returns Some(index) if key is found, None otherwise
+     */
+    _find_bucket :: ((fn(self: Self, key: K, hash: u64) -> Option(usize))
+      {
+        h2 := h2_hash(hash);
+        index := h1_hash(hash, self.capacity);
+        probe := (0).as(usize);
+        ctrl_ptr := self._ctrl_ptr();
+        data_ptr := self._data_ptr();
+        
+        while(probe < self.capacity, probe = (probe + (1).as(usize)), {
+          probe_index := ((index + probe) % self.capacity);
+          ctrl_byte := (ctrl_ptr + probe_index).*;
+          
+          cond(
+            (U8Eq.(==)(ctrl_byte, CTRL_EMPTY)) => {
+              return .None;
+            },
+            (U8Eq.(==)(ctrl_byte, h2)) => {
+              bucket := (data_ptr + probe_index).*;
+              cond(
+                (KeyEqual.(==)(bucket.key, key)) => {
+                  return .Some(probe_index);
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+        });
+        
+        .None
+      }
+    ),
+
+    /**
+     * Find first available bucket (EMPTY or DELETED) for insertion
+     * Returns bucket index using quadratic probing
+     */
+    _find_insert_bucket :: ((fn(self: Self, hash: u64) -> usize)
+      {
+        index := h1_hash(hash, self.capacity);
+        probe := (0).as(usize);
+        ctrl_ptr := self._ctrl_ptr();
+        
+        while(probe < self.capacity, probe = (probe + (1).as(usize)), {
+          probe_index := ((index + probe) % self.capacity);
+          ctrl_byte := (ctrl_ptr + probe_index).*;
+          
+          cond(
+            (U8Eq.(==)(ctrl_byte, CTRL_EMPTY) || U8Eq.(==)(ctrl_byte, CTRL_DELETED)) => {
+              return probe_index;
+            },
+            true => ()
+          );
+        });
+        
+        panic("HashMap is full - should have resized")
+      }
+    ),
+
+    /**
+     * Check if HashMap needs resizing based on load factor
+     */
+    _needs_resize :: ((fn(self: Self) -> boolean)
+      {
+        threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
+        (self.size >= threshold)
+      }
+    ),
+
+    /**
+     * Resize and rehash the HashMap to a new capacity
+     */
+    _resize :: ((fn(self: Self, new_capacity: usize) -> Result(unit, HashMapError))
+      {
+        result := Self._alloc_with_capacity(new_capacity);
+        match(result,
+          .Error(err) => .Error(err),
+          .Ok(new_map) => {
+            i := (0).as(usize);
+            ctrl_ptr := self._ctrl_ptr();
+            data_ptr := self._data_ptr();
+            while(i < self.capacity, i = (i + (1).as(usize)), {
+              ctrl_byte := (ctrl_ptr + i).*;
+              cond(
+                ((U8Eq.(!=)(ctrl_byte, CTRL_EMPTY)) && (U8Eq.(!=)(ctrl_byte, CTRL_DELETED))) => {
+                  bucket := (data_ptr + i).*;
+                  hash := KeyHash.(hash)(bucket.key);
+                  h2 := h2_hash(hash);
+                  new_index := new_map._find_insert_bucket(hash);
+                  
+                  new_ctrl_ptr := new_map._ctrl_ptr();
+                  new_data_ptr := new_map._data_ptr();
+                  (new_ctrl_ptr + new_index).* = h2;
+                  (new_data_ptr + new_index).* = bucket;
+                  new_map.size = (new_map.size + (1).as(usize));
+                },
+                true => ()
+              );
+            });
+            
+            match(self.ctrl,
+              .Some(ptr) => free(.Some(ptr.cast(*(void)))),
+              .None => ()
+            );
+            match(self.data,
+              .Some(ptr) => free(.Some(ptr.cast(*(void)))),
+              .None => ()
+            );
+            
+            self.ctrl = new_map.ctrl;
+            self.data = new_map.data;
+            self.capacity = new_map.capacity;
+            
+            .Ok(())
+          }
+        )
+      }
+    ),
+
+    /**
+     * Insert or update a key-value pair
+     * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
+     */
+    insert :: ((fn(self: Self, key: K, value: V) -> Result(Option(V), HashMapError))
+      {
+        hash := KeyHash.(hash)(key);
+        bucket_opt := self._find_bucket(key, hash);
+        
+        match(bucket_opt,
+          .Some(index) => {
+            data_ptr := self._data_ptr();
+            old_bucket := (data_ptr + index).*;
+            old_value := old_bucket.value;
+            new_bucket := Bucket(K, V)(key: key, value: value);
+            (data_ptr + index).* = new_bucket;
+            .Ok(.Some(old_value))
+          },
+          .None => {
+            resize_check := cond(
+              (self._needs_resize()) => {
+                new_capacity := (self.capacity * (2).as(usize));
+                self._resize(new_capacity)
+              },
+              true => (Result(unit, HashMapError).Ok(()))
+            );
+            
+            match(resize_check,
+              .Error(err) => .Error(err),
+              .Ok(_) => {
+                h2 := h2_hash(hash);
+                index := self._find_insert_bucket(hash);
+                
+                ctrl_ptr := self._ctrl_ptr();
+                data_ptr := self._data_ptr();
+                (ctrl_ptr + index).* = h2;
+                new_bucket := Bucket(K, V)(key: key, value: value);
+                (data_ptr + index).* = new_bucket;
+                self.size = (self.size + (1).as(usize));
+                
+                .Ok(.None)
+              }
+            )
+          }
+        )
+      }
+    ),
+
+    /**
+     * Get a value by key
+     * Returns Some(value) if found, None otherwise
+     */
+    get :: ((fn(self: Self, key: K) -> Option(V))
+      {
+        hash := KeyHash.(hash)(key);
+        bucket_opt := self._find_bucket(key, hash);
+        match(bucket_opt,
+          .Some(index) => {
+            data_ptr := self._data_ptr();
+            bucket := (data_ptr + index).*;
+            .Some(bucket.value)
+          },
+          .None => .None
+        )
+      }
+    ),
+
+    /**
+     * Check if a key exists in the map
+     */
+    contains_key :: ((fn(self: Self, key: K) -> boolean)
+      {
+        hash := KeyHash.(hash)(key);
+        bucket_opt := self._find_bucket(key, hash);
+        match(bucket_opt,
+          .Some(_) => true,
+          .None => false
+        )
+      }
+    ),
+
+    /**
+     * Remove a key-value pair by key
+     * Returns Some(value) if the key was found and removed, None otherwise
+     */
+    remove :: ((fn(self: Self, key: K) -> Option(V))
+      {
+        hash := KeyHash.(hash)(key);
+        bucket_opt := self._find_bucket(key, hash);
+        match(bucket_opt,
+          .Some(index) => {
+            data_ptr := self._data_ptr();
+            ctrl_ptr := self._ctrl_ptr();
+            bucket := (data_ptr + index).*;
+            value := bucket.value;
+            
+            (ctrl_ptr + index).* = CTRL_DELETED;
+            self.size = (self.size - (1).as(usize));
+            
+            .Some(value)
+          },
+          .None => .None
+        )
+      }
+    ),
+
+    /**
+     * Get the number of key-value pairs in the map
+     */
+    length :: ((fn(self: Self) -> usize)
+      self.size
+    ),
+
+    /**
+     * Check if the map is empty
+     */
+    is_empty :: ((fn(self: Self) -> boolean)
+      UsizeEq.(==)(self.size, (0).as(usize))
+    ),
+
+    /**
+     * Clear all key-value pairs
+     * Resets all control bytes to EMPTY
+     */
+    clear :: ((fn(self: Self) -> unit)
+      {
+        ctrl_ptr := self._ctrl_ptr();
+        i := (0).as(usize);
+        while(i < self.capacity, i = (i + (1).as(usize)), {
+          (ctrl_ptr + i).* = CTRL_EMPTY;
+        });
+        self.size = (0).as(usize);
+      }
+    ),
+
+    /**
+     * RAII destructor - automatically called when HashMap goes out of scope
+     */
+    dispose :: ((fn(self: Self) -> unit)
+      {
+        match(self.ctrl,
+          .Some(ptr) => free(.Some(ptr.cast(*(void)))),
+          .None => ()
+        );
+        match(self.data,
+          .Some(ptr) => free(.Some(ptr.cast(*(void)))),
+          .None => ()
+        );
+      }
+    )
+  );
+
+export
+  HashMap,
+  HashMapError,
+  Bucket
+;

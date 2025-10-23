@@ -1,66 +1,278 @@
 open import "std";
+open import "std/collections";
 open import "std/libc/stdio";
-// open import "std/collections";
 
-main :: (fn() -> unit) {
-  // Test 1: Create String from a string literal (which becomes *([u8]))
-  slice1 := "Hello, 世界!";
-  str1 := String.from(slice1);
-  printf("Test 1 - String from literal:\n");
-  printf("  Length: %zu characters\n", str1.length());
-  printf("  Bytes: %zu bytes\n", str1.as_bytes().length());
-  printf("\n");
+test_basic_insert_and_get :: (fn() -> unit) {
+  printf("\n[Test] Basic insert and get\n");
   
-  // Test 2: Create String from explicit slice with Chinese text
-  slice2 := "你好世界";
-  str2 := String.from(slice2);
-  printf("Test 2 - Chinese string:\n");
-  printf("  Length: %zu characters (expected 4)\n", str2.length());
-  printf("  Bytes: %zu bytes (expected 12)\n", str2.as_bytes().length());
-  printf("\n");
+  map := HashMap(i32, i32, using(I32Eq, I32Hash)).new();
   
-  // Test 3: Create String from emoji slice
-  slice3 := "😀🌍";
-  str3 := String.from(slice3);
-  printf("Test 3 - Emoji string:\n");
-  printf("  Length: %zu characters (expected 2)\n", str3.length());
-  printf("  Bytes: %zu bytes (expected 8)\n", str3.as_bytes().length());
-  printf("\n");
-  
-  // Test 4: Access characters from created strings
-  printf("Test 4 - Character access:\n");
-  char0_opt := str2.at((0).as(usize));
-  match(char0_opt,
-    .Some(c) => printf("  str2[0] = U+%X\n", c.c),
-    .None => printf("  str2[0] = None\n")
+  result := map.insert(1.as(i32), 100.as(i32));
+  match(result,
+    .Ok(opt) => match(opt,
+      .None => { printf("✓ Inserted new key: 1 -> 100\n"); },
+      .Some(_) => { panic("Expected None for new key"); }
+    ),
+    .Error(_) => panic("Insert failed")
   );
-  char1_opt := str2.at((1).as(usize));
-  match(char1_opt,
-    .Some(c) => printf("  str2[1] = U+%X\n", c.c),
-    .None => printf("  str2[1] = None\n")
-  );
-  printf("\n");
   
-  // Test 5: String concatenation
-  str4 := str1.concat(str2);
-  printf("Test 5 - Concatenation:\n");
-  printf("  Combined length: %zu characters\n", str4.length());
-  printf("  Combined bytes: %zu bytes\n", str4.as_bytes().length());
-  printf("\n");
+  value_opt := map.get(1.as(i32));
+  match(value_opt,
+    .Some(v) => cond(
+      (I32Eq.(==)(v, 100.as(i32))) => {
+        printf("✓ Retrieved value: 100\n");
+      },
+      true => {
+        panic("Got wrong value");
+      }
+    ),
+    .None => panic("Expected Some value")
+  );
   
-  // Test 6: Access and display emoji characters
-  printf("Test 6 - Emoji characters:\n");
-  emoji0_opt := str3.at((0).as(usize));
-  match(emoji0_opt,
-    .Some(c) => printf("  str3[0] = U+%X (😀)\n", c.c),
-    .None => printf("  str3[0] = None\n")
+  printf("✓ Basic insert and get works\n");
+};
+
+test_update_existing_key :: (fn() -> unit) {
+  printf("\n[Test] Update existing key\n");
+  
+  map := HashMap(i32, i32, using(I32Eq, I32Hash)).new();
+  
+  map.insert(42.as(i32), 1.as(i32));
+  
+  result := map.insert(42.as(i32), 2.as(i32));
+  match(result,
+    .Ok(opt) => match(opt,
+      .Some(old_val) => cond(
+        (I32Eq.(==)(old_val, 1.as(i32))) => {
+          printf("✓ Got old value: 1\n");
+        },
+        true => {
+          panic("Wrong old value");
+        }
+      ),
+      .None => panic("Expected Some(old_value)")
+    ),
+    .Error(_) => panic("Update failed")
   );
-  emoji1_opt := str3.at((1).as(usize));
-  match(emoji1_opt,
-    .Some(c) => printf("  str3[1] = U+%X (🌍)\n", c.c),
-    .None => printf("  str3[1] = None\n")
+  
+  value_opt := map.get(42.as(i32));
+  match(value_opt,
+    .Some(v) => cond(
+      (I32Eq.(==)(v, 2.as(i32))) => {
+        printf("✓ Updated value: 2\n");
+      },
+      true => {
+        panic("Got wrong value");
+      }
+    ),
+    .None => panic("Key not found after update")
   );
-  printf("\n");
+  
+  printf("✓ Update existing key works\n");
+};
+
+test_remove :: (fn() -> unit) {
+  printf("\n[Test] Remove key\n");
+  
+  map := HashMap(i32, i32, using(I32Eq, I32Hash)).new();
+  
+  map.insert(10.as(i32), 20.as(i32));
+  map.insert(30.as(i32), 40.as(i32));
+  
+  removed := map.remove(10.as(i32));
+  match(removed,
+    .Some(v) => cond(
+      (I32Eq.(==)(v, 20.as(i32))) => {
+        printf("✓ Removed value: 20\n");
+      },
+      true => panic("Wrong removed value")
+    ),
+    .None => panic("Expected Some value")
+  );
+  
+  check := map.get(10.as(i32));
+  match(check,
+    .None => { 
+      printf("✓ Key no longer exists\n");
+    },
+    .Some(_) => panic("Key should be removed")
+  );
+  
+  still_exists := map.get(30.as(i32));
+  match(still_exists,
+    .Some(v) => cond(
+      (I32Eq.(==)(v, 40.as(i32))) => {
+        printf("✓ Other key still exists\n");
+      },
+      true => panic("Wrong value")
+    ),
+    .None => panic("Other key should still exist")
+  );
+  
+  printf("✓ Remove works\n");
+};
+
+test_contains_key :: (fn() -> unit) {
+  printf("\n[Test] Contains key\n");
+  
+  map := HashMap(i32, i32, using(I32Eq, I32Hash)).new();
+  
+  map.insert(5.as(i32), 10.as(i32));
+  
+  cond(
+    (map.contains_key(5.as(i32))) => {
+      printf("✓ Contains key 5\n");
+    },
+    true => panic("Should contain key 5")
+  );
+  
+  cond(
+    (map.contains_key(99.as(i32))) => panic("Should not contain key 99"),
+    true => {
+      printf("✓ Does not contain key 99\n");
+    }
+  );
+  
+  printf("✓ Contains key works\n");
+};
+
+test_resize :: (fn() -> unit) {
+  printf("\n[Test] Automatic resize\n");
+  
+  map := HashMap(i32, i32, using(I32Eq, I32Hash)).new();
+  
+  i := (0).as(i32);
+  while(i < (20).as(i32), i = (i + (1).as(i32)), {
+    map.insert(i, (i * (2).as(i32)));
+  });
+  
+  printf("✓ Inserted 20 elements (triggers resize)\n");
+  
+  cond(
+    (UsizeEq.(==)(map.length(), (20).as(usize))) => {
+      printf("✓ Length is 20\n");
+    },
+    true => panic("Wrong length")
+  );
+  
+  j := (0).as(i32);
+  while(j < (20).as(i32), j = (j + (1).as(i32)), {
+    value_opt := map.get(j);
+    match(value_opt,
+      .Some(v) => cond(
+        (I32Eq.(==)(v, (j * (2).as(i32)))) => (),
+        true => panic("Wrong value after resize")
+      ),
+      .None => panic("Key not found after resize")
+    );
+  });
+  
+  printf("✓ All values correct after resize\n");
+};
+
+test_multiple_insertions :: (fn() -> unit) {
+  printf("\n[Test] Multiple insertions\n");
+  
+  map := HashMap(i32, i32, using(I32Eq, I32Hash)).new();
+  
+  map.insert(1.as(i32), 10.as(i32));
+  map.insert(2.as(i32), 20.as(i32));
+  map.insert(3.as(i32), 30.as(i32));
+  map.insert(4.as(i32), 40.as(i32));
+  map.insert(5.as(i32), 50.as(i32));
+  
+  cond(
+    (UsizeEq.(==)(map.length(), (5).as(usize))) => {
+      printf("✓ Length is 5\n");
+    },
+    true => panic("Wrong length")
+  );
+  
+  cond(
+    (map.is_empty()) => panic("Map should not be empty"),
+    true => {
+      printf("✓ Map is not empty\n");
+    }
+  );
+  
+  map.clear();
+  
+  cond(
+    (UsizeEq.(==)(map.length(), (0).as(usize))) => {
+      printf("✓ Length is 0 after clear\n");
+    },
+    true => panic("Wrong length after clear")
+  );
+  
+  cond(
+    (map.is_empty()) => {
+      printf("✓ Map is empty after clear\n");
+    },
+    true => panic("Map should be empty")
+  );
+  
+  printf("✓ Multiple insertions and clear work\n");
+};
+
+test_collision_handling :: (fn() -> unit) {
+  printf("\n[Test] Collision handling\n");
+  
+  map := HashMap(i32, i32, using(I32Eq, I32Hash)).new();
+  
+  map.insert(16.as(i32), 1.as(i32));
+  map.insert(32.as(i32), 2.as(i32));
+  map.insert(48.as(i32), 3.as(i32));
+  
+  v1 := map.get(16.as(i32));
+  v2 := map.get(32.as(i32));
+  v3 := map.get(48.as(i32));
+  
+  match(v1,
+    .Some(v) => cond(
+      (I32Eq.(==)(v, 1.as(i32))) => {
+        printf("✓ Key 16 has value 1\n");
+      },
+      true => panic("Wrong value for key 16")
+    ),
+    .None => panic("Key 16 not found")
+  );
+  
+  match(v2,
+    .Some(v) => cond(
+      (I32Eq.(==)(v, 2.as(i32))) => {
+        printf("✓ Key 32 has value 2\n");
+      },
+      true => panic("Wrong value for key 32")
+    ),
+    .None => panic("Key 32 not found")
+  );
+  
+  match(v3,
+    .Some(v) => cond(
+      (I32Eq.(==)(v, 3.as(i32))) => {
+        printf("✓ Key 48 has value 3\n");
+      },
+      true => panic("Wrong value for key 48")
+    ),
+    .None => panic("Key 48 not found")
+  );
+  
+  printf("✓ Collision handling works\n");
+};
+
+main :: (fn() -> unit) {  
+  printf("=== HashMap Tests ===\n");
+  
+  test_basic_insert_and_get();
+  test_update_existing_key();
+  test_remove();
+  test_contains_key();
+  test_resize();
+  test_multiple_insertions();
+  test_collision_handling();
+  
+  printf("All HashMap tests passed!");
+  return;
 };
 
 export main;

@@ -3,6 +3,7 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
 /**
@@ -80,6 +81,13 @@ given(I32Ord) :: Ord(i32, i32, using(I32Eq))
   (<=) : ((a, b) -> __yo_op_lte(a, b)),
   (>) : ((a, b) -> __yo_op_gt(a, b)),
   (>=) : ((a, b) -> __yo_op_gte(a, b))
+;
+
+/**
+ * hash
+ */
+given(I32Hash) :: Hash(i32)
+  (hash): ((value) -> __yo_as(value, u64))
 ;
 
 given(I32Drop) :: Drop(i32)
@@ -189,6 +197,13 @@ given(I32ComptMethods) :: impl {
   ;
 };
 
+// TODO: Instead of creating this many modules, let's put everything inside
+// I32
+// so we can have:
+// I32.(+)
+// I32.(*)
+// etc...
+
 export
   I32Add,
   I32Sub,
@@ -205,6 +220,7 @@ export
   I32BitXor,
   I32Eq,
   I32Ord,
+  I32Hash,
   I32Drop,
   I32Clone,
   I32Methods,
