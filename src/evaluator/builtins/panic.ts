@@ -1,7 +1,8 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FuncCallExpr } from "../../expr";
-import { isComptStringValue } from "../../value";
+import { isComptStringType } from "../../types";
+import { isComptStringValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
 export function evaluatePanic({
@@ -44,7 +45,11 @@ export function evaluatePanic({
     }
     if (
       !evaluatedMessageExpr.$.value ||
-      !isComptStringValue(evaluatedMessageExpr.$.value)
+      (!isComptStringValue(evaluatedMessageExpr.$.value) &&
+        !(
+          isUnknownValue(evaluatedMessageExpr.$.value) &&
+          isComptStringType(evaluatedMessageExpr.$.value.type)
+        ))
     ) {
       throw formatErrorMessage({
         token: messageExpr.token,
