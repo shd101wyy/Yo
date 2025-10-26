@@ -1,49 +1,26 @@
 open import "std/libc/stdio";
 
-Option :: (fn(compt(T) : Type) -> compt(Type))
-  enum
-    None,
-    Some(value: T)
-;
-
 MyBox :: object(
   (*) : i32,
 
-  dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.*);
-  })
+  dispose :: (fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.(*));
+  }
 );
 
-some_cond :: (fn() -> boolean) {
-  return true;
+// QUESTION: Should we use "own", "owned", or "owning"?
+use_my_box :: (fn(own(box) : MyBox) -> unit) {
+  printf("Using MyBox with value: %d\n", box.(*));
+
+  // Expected the `box` to be disposed here.
 };
 
-test :: (fn(val : i32) -> unit) {
-  temp := Option(MyBox).Some(MyBox(val));
-  x := temp;
-  ret_val := 0;
-  match(x,
-    .Some(v) => {
-      printf("Got value: %d\n", v.*);
-      ret_val = v.*;
-    },
-    .None => {
-      printf("No value\n");
-    }
-  );
+main :: (fn() -> unit) {  
+  box := MyBox(42);
+  use_my_box(box);
 
-  cond(
-    some_cond() => {
-      printf("Condition met!\n");
-    },
-    true => {
-      printf("Default condition met!\n");
-    }
-  );
-};
-
-main :: (fn() -> unit) {
-  test(42);
+  printf("Back in main.\n");
+  // Expected the `box` not to be disposed here.  
 };
 
 export main;

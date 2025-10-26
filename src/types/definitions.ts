@@ -239,10 +239,31 @@ export type FunctionParameterExprs = {
 };
 
 export interface FunctionParameter {
+  /**
+   * The label of the parameter.
+   */
   label: string;
+  /**
+   * The type of the parameter.
+   */
   type: Type;
+  /**
+   * Whether this parameter is compile-time only.
+   */
   isCompileTimeOnly: boolean;
+  /**
+   * Whether this parameter is a quote parameter for constructing macro.
+   */
   isQuote: boolean;
+  /**
+   * Whether this parameter takes ownership of ARC values.
+   * When true, the caller must dup the value before passing.
+   * The parameter becomes the owner and will be dropped at function exit.
+   */
+  isOwningTheARCValue: boolean;
+  /**
+   * The expression information of the parameter.
+   */
   exprs: FunctionParameterExprs;
 }
 

@@ -71,6 +71,7 @@ export function evaluateFunctionParameter({
   let label: string | undefined = undefined;
   let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
+  let isOwningTheARCValue: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -139,6 +140,17 @@ export function evaluateFunctionParameter({
         throw formatErrorMessage({
           token: lhsExpr.token,
           errorMessage: `Expected one argument for "compt" , got ${lhsExpr.args.length}`,
+        });
+      }
+      lhsExpr = lhsExpr.args[0]!;
+    }
+
+    if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "own")) {
+      isOwningTheARCValue = true;
+      if (lhsExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected one argument for "own", got ${lhsExpr.args.length}`,
         });
       }
       lhsExpr = lhsExpr.args[0]!;
@@ -277,7 +289,11 @@ export function evaluateFunctionParameter({
     }
     if (typeRequiresComptModifier(parameterType) && !isCompileTimeOnly) {
       // Try converting to runtime type first
-      parameterType = convertComptTypeToRuntimeType({ type: parameterType, expectedType: undefined, expr: undefined });
+      parameterType = convertComptTypeToRuntimeType({
+        type: parameterType,
+        expectedType: undefined,
+        expr: undefined,
+      });
 
       // If it still requires compt modifier,
       // then throw an error
@@ -343,6 +359,7 @@ ${typeToString(parameterType)}`,
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
+      isOwningTheARCValue: isOwningTheARCValue,
     },
     skipCheckingFunctionOverloading: true,
   });
@@ -384,6 +401,7 @@ ${typeToString(parameterType)}`,
       }),
       isCompileTimeOnly,
       isQuote,
+      isOwningTheARCValue,
     },
     env,
   };
@@ -622,6 +640,7 @@ export function evaluateFunctionParameters({
         isQuote,
         label: parameterName,
         type: parameterType,
+        isOwningTheARCValue: false,
       };
 
       if (parameterName !== "...") {
@@ -942,7 +961,11 @@ export function evaluateFunctionType({
 
   if (typeRequiresComptModifier(returnType) && !isReturnTypeCompileTimeOnly) {
     // Try converting to runtime type first
-    returnType = convertComptTypeToRuntimeType({ type: returnType, expectedType: undefined, expr: undefined });
+    returnType = convertComptTypeToRuntimeType({
+      type: returnType,
+      expectedType: undefined,
+      expr: undefined,
+    });
     // If it still requires compt modifier,
     // then throw an error
     if (typeRequiresComptModifier(returnType)) {
