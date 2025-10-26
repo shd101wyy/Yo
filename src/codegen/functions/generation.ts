@@ -460,9 +460,6 @@ export function generateFunctionBody(
     if (!findReturn && args.length > 0) {
       const lastExpr = args[args.length - 1];
 
-      // Generate deferred drop expressions before the return statement
-      generateDeferredDropExpressions(expr, indent, context);
-
       // Check if this is an async function - async functions return Future(T)
       const isAsyncFunction = isFutureType(functionType.return.type);
 
@@ -570,6 +567,10 @@ export function generateFunctionBody(
           generateReturnStatement(lastExpr, indent, context);
         }
       }
+
+      // Generate deferred drop expressions AFTER generating the last expression
+      // This ensures that variables used in the last expression are not dropped prematurely
+      generateDeferredDropExpressions(expr, indent, context);
     } else if (findReturn && args.length > 0) {
       // We found an explicit return statement, but there might be a trailing unit expression
       // that we should ignore (don't generate as a statement)
