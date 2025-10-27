@@ -271,9 +271,11 @@ build_http_response :: fn(request: String) -> String {
   return "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
 };
 
-main :: (fn() -> Future(unit)) async {
-  Concurrency.set_maximum_threads(4);  // 4 worker threads
-  await http_server();
+main :: (fn() -> unit) {
+  async {
+    Concurrency.set_maximum_threads(4);  // 4 worker threads
+    await http_server();
+  };
 };
 
 export main;

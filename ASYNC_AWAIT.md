@@ -39,11 +39,13 @@ process :: (fn() -> Future(unit)) async {
 };
 
 // Main entry point
-main :: (fn() -> Future(unit)) async {
-  // Spawn and await
-  future := fetch("http://example.com");  // Task not started yet
-  result := await future;  // Wait for completion (only in async block!)
-  println(result);
+main :: (fn() -> unit) {
+  async {
+    // Spawn and await
+    future := fetch("http://example.com");  // Task not started yet
+    result := await future;  // Wait for completion (only in async block!)
+    println(result);
+  };
 };
 
 // Async blocks - spawn inline async tasks
@@ -356,18 +358,20 @@ compute_with_block :: fn() -> Future(i32) {
 };
 
 // Main entry point
-main :: (fn() -> Future(unit)) async {
-  // Set worker threads
-  Concurrency.set_maximum_threads(4);
-  
-  // Run tasks
-  await fetch_many(10);
-  
-  // Use async block
-  block_result := await compute_with_block();
-  printf("Block result: %d\n", block_result);
-  
-  printf("All tasks completed\n");
+main :: (fn() -> unit) {
+  async {
+    // Set worker threads
+    Concurrency.set_maximum_threads(4);
+    
+    // Run tasks
+    await fetch_many(10);
+    
+    // Use async block
+    block_result := await compute_with_block();
+    printf("Block result: %d\n", block_result);
+    
+    printf("All tasks completed\n");
+  };
 };
 ```
 
@@ -408,9 +412,11 @@ fetch :: (fn(url: String) -> Future(Data)) async {
 };
 
 // Call async function
-main :: (fn() -> Future(unit)) async {
-  data := await fetch("http://example.com");
-  println(data);
+main :: (fn() -> unit) {
+  async {
+    data := await fetch("http://example.com");
+    println(data);
+  };
 };
 
 // Spawn multiple tasks

@@ -17,31 +17,33 @@ say :: (fn(s : *(u8), box: MyBox) -> Future(i32)) async {
 };
 
 // Pointer arithmetic example
-main :: (fn() -> Future(unit)) async {
-  // Auto-detect hardware threads (no need to call set_maximum_threads)
-  hw_threads := Concurrency.get_hardware_threads();
-  printf("Hardware threads available: %zu\n", hw_threads);
-  // Will automatically use all hardware threads for parallel execution
-  
-  box1 := MyBox(16);
-  box2 := MyBox(18);
+main :: (fn() -> unit) {
+  async {
+    // Auto-detect hardware threads (no need to call set_maximum_threads)
+    hw_threads := Concurrency.get_hardware_threads();
+    printf("Hardware threads available: %zu\n", hw_threads);
+    // Will automatically use all hardware threads for parallel execution
+    
+    box1 := MyBox(16);
+    box2 := MyBox(18);
 
-  // say2("world") and say("hello") will run in parallel on different threads
-  task1 := say("world", box1);
-  task2 := say("hello", box2);
+    // say2("world") and say("hello") will run in parallel on different threads
+    task1 := say("world", box1);
+    task2 := say("hello", box2);
 
-  t1_result := await task1;
-  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
-  // It should print
-  // "thread ? sent 16"
+    t1_result := await task1;
+    printf("thread %zu received %d\n", Concurrency.get_thread_id(), t1_result);
+    // It should print
+    // "thread ? sent 16"
 
-  t2_result := await task2;
-  printf("thread %zu received %d\n", Concurrency.get_thread_id(), t2_result);
-  // It should print
-  // "thread ? sent 18"
+    t2_result := await task2;
+    printf("thread %zu received %d\n", Concurrency.get_thread_id(), t2_result);
+    // It should print
+    // "thread ? sent 18"
 
-  result := (t1_result + t2_result);
-  printf("result: %d\n", result);
+    result := (t1_result + t2_result);
+    printf("result: %d\n", result);
+  };
 };
 
 export main;

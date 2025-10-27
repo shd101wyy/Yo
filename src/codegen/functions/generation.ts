@@ -257,22 +257,11 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     return; // No main function, nothing to wrap
   }
 
-  // Check if main is an async function
-  const isAsyncMain = isFutureType(mainFunctionValue.type.return.type);
-
   // REQUIREMENT: main must return unit (or Future(unit) for async)
   const returnType = mainFunctionValue.type.return.type;
   const returnsUnit = isUnitType(returnType);
-  const returnsFutureUnit =
-    isFutureType(returnType) &&
-    isUnitType((returnType as FutureType).elementType);
 
-  if (isAsyncMain && !returnsFutureUnit) {
-    throw new Error(
-      `async main function must return Future(unit), but it returns ${typeToString(returnType)}. ` +
-        `Use 'main :: (async(fn() -> Future(unit)))' instead.`
-    );
-  } else if (!isAsyncMain && !returnsUnit) {
+  if (!returnsUnit) {
     throw new Error(
       `main function must return unit, but it returns ${typeToString(returnType)}. ` +
         `Use 'main :: (fn() -> unit)' instead. ` +
@@ -280,32 +269,7 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     );
   }
 
-  if (isAsyncMain) {
-    // Async main - call it and run the event loop
-    emitter.emitLine(`
-// Main wrapper - calls async yo_user_main and waits for workers
-int main(void) {
-  // Initialize async runtime
-  __yo_async_scheduler_init();
-  
-  // Call async main (returns Future(unit))
-  yo_future_generic_t* main_future = (yo_future_generic_t*)yo_user_main();
-  
-  // Note: main async function is eagerly spawned when called (JavaScript-style)
-  // No need to spawn it here - it's already running
-  
-  // Wait for all async tasks to complete
-  // This waits for all worker threads to finish their tasks
-  __yo_async_wait_all();
-  
-  // Clean up main Future
-  // Note: The Future should already be completed and ref count should be 1
-  __yo_future_drop(main_future);
-  
-  return 0;
-}
-`);
-  } else {
+  {
     // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
 // Main wrapper - calls yo_user_main directly

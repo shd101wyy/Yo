@@ -9,21 +9,23 @@ MyBox :: object
   }
 ;
 
-main :: (fn() -> Future(unit)) async {
-  box1 := MyBox(666);
-  printf("Created MyBox with value %d\n", box1.(*));
+main :: (fn() -> unit) {
+  async {
+    box1 := MyBox(666);
+    printf("Created MyBox with value %d\n", box1.(*));
 
-  future1 := async {
-    st := { box : box1 }; // Create an anonymous struct capturing `box1`;
-    box2 := MyBox(777);
-    printf("In future1, box1 value is %d\n", st.box.(*));
-    printf("In future1, box2 value is %d\n", box2.(*));
+    future1 := async {
+      st := { box : box1 }; // Create an anonymous struct capturing `box1`;
+      box2 := MyBox(777);
+      printf("In future1, box1 value is %d\n", st.box.(*));
+      printf("In future1, box2 value is %d\n", box2.(*));
+    };
+    printf("Created future1\n");
+
+    await future1;
+
+    printf("After await future1\n");
   };
-  printf("Created future1\n");
-
-  await future1;
-
-  printf("After await future1\n");
 };
 
 export main;

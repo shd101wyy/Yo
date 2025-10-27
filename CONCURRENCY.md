@@ -223,23 +223,25 @@ Objects created on one thread can be passed to tasks on other threads:
 ```yo
 open import "std";
 
-main :: (fn() -> Future(unit)) async {
-  // Create 2 OS worker threads
-  Concurrency.set_maximum_threads(2);
-  
-  // Spawn 4 async tasks (distributed round-robin to 2 workers)
-  task1 := worker(1);  // → Worker 0
-  task2 := worker(2);  // → Worker 1
-  task3 := worker(3);  // → Worker 0
-  task4 := worker(4);  // → Worker 1
-  
-  // Await all results
-  result1 := await task1;
-  result2 := await task2;
-  result3 := await task3;
-  result4 := await task4;
-  
-  printf("All tasks completed: %d, %d, %d, %d\n", result1, result2, result3, result4);
+main :: (fn() -> unit) {
+  async {
+    // Create 2 OS worker threads
+    Concurrency.set_maximum_threads(2);
+    
+    // Spawn 4 async tasks (distributed round-robin to 2 workers)
+    task1 := worker(1);  // → Worker 0
+    task2 := worker(2);  // → Worker 1
+    task3 := worker(3);  // → Worker 0
+    task4 := worker(4);  // → Worker 1
+    
+    // Await all results
+    result1 := await task1;
+    result2 := await task2;
+    result3 := await task3;
+    result4 := await task4;
+    
+    printf("All tasks completed: %d, %d, %d, %d\n", result1, result2, result3, result4);
+  };
 };
 
 worker :: (fn(id: i32) -> Future(i32)) async {
