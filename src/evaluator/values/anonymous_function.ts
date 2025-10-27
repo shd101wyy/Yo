@@ -409,6 +409,7 @@ Got:      "${paramName}"`,
     env,
     context: evaluationContext,
     variablesToAdd: [],
+    isEvaluatingFunctionBodyBeginBlock: true,
   });
 
   if (!evaluatedBody.$) {

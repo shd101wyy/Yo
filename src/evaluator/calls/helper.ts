@@ -66,6 +66,7 @@ import {
   EvaluatorContext,
   FunctionCallResult,
 } from "../context";
+import { evaluateBeginExpression } from "../exprs/begin";
 import {
   evaluateFunctionParameterTypeAgain,
   evaluateFunctionReturnTypeAgain,
@@ -1598,7 +1599,7 @@ function createSpecializedFunctionInline({
   const clonedBody = cloneExpr(originalFunction.body);
 
   // Evaluate the function body in the specialized environment
-  const specializedBody = context.evaluateExpression({
+  const specializedBody = evaluateBeginExpression({
     expr: clonedBody,
     env: specializedEnv,
     context: {
@@ -1618,6 +1619,8 @@ function createSpecializedFunctionInline({
         ? new Map<string, CapturedVariableInfo>()
         : undefined,
     },
+    variablesToAdd: [],
+    isEvaluatingFunctionBodyBeginBlock: true,
   });
   if (!specializedBody.$) {
     throw formatErrorMessage({

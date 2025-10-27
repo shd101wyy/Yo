@@ -246,11 +246,18 @@ export function evaluateBeginExpression({
   env,
   context,
   variablesToAdd = [],
+  isEvaluatingFunctionBodyBeginBlock = false,
 }: {
   expr: Expr;
   env: Environment;
   context: EvaluatorContext;
   variablesToAdd: Omit<Variable, "frameLevel" | "id">[];
+  /**
+   * Whether we are evaluating a function body's begin block.
+   * When true, don't push a new frame because the parameters frame
+   * should be reused as the function body frame.
+   */
+  isEvaluatingFunctionBodyBeginBlock?: boolean;
 }): Expr {
   if (
     !exprIsFunctionCall(expr) ||
@@ -681,7 +688,19 @@ export function evaluateBeginExpression({
 
   // Handle automatic drop insertion for RAII before popping the frame
   // Get variables that need drop calls using the helper function
-  const variablesNeedingDrop = getVariablesNeedingDrop(env);
+  // When evaluating function body begin block, also check the parameters frame (previous frame)
+  let variablesNeedingDrop = getVariablesNeedingDrop(env);
+
+  if (isEvaluatingFunctionBodyBeginBlock && env.frames.length >= 2) {
+    // Also get variables from the parameters frame (one level down)
+    const parametersFrameEnv = {
+      ...env,
+      frames: env.frames.slice(0, -1), // Remove the current frame, keep parameters frame as top
+    };
+    const parametersNeedingDrop = getVariablesNeedingDrop(parametersFrameEnv);
+    // Combine both lists, parameters first (they should be dropped last, in reverse order)
+    variablesNeedingDrop = [...variablesNeedingDrop, ...parametersNeedingDrop];
+  }
 
   // Optimization: Track ___dup calls that can be canceled with ___drop calls
   const dupCallsToOptimize = new Map<string, FuncCallExpr[]>(); // borrowed-from variable name -> array of dup call exprs

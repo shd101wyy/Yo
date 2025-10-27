@@ -124,6 +124,7 @@ export function tryToImplementFunctionByFunctionType({
     env,
     context: evaluationContext,
     variablesToAdd: [],
+    isEvaluatingFunctionBodyBeginBlock: true,
   });
   if (!evaluatedFunctionBody.$) {
     throw formatErrorMessage({

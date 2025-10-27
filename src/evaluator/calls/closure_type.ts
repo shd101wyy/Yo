@@ -77,6 +77,7 @@ export function tryToImplementClosureByClosureType({
     env,
     context: evaluationContext,
     variablesToAdd: [],
+    isEvaluatingFunctionBodyBeginBlock: true,
   });
 
   if (!evaluatedClosureBody.$) {
