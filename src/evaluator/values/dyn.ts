@@ -267,6 +267,81 @@ export function evaluateDynValue({
       continue;
     }
 
+    // Check if the value type's module elements contain a ModuleValue that matches
+    let foundInModuleElements = false;
+    for (const moduleElement of valueType.module.elements) {
+      if (!moduleElement.assignedValue) {
+        continue;
+      }
+
+      if (!isModuleValue(moduleElement.assignedValue)) {
+        continue;
+      }
+
+      const moduleValue = moduleElement.assignedValue;
+      if (!isModuleType(moduleValue.type)) {
+        continue;
+      }
+
+      // Check if the module has a 'Self' type
+      const selfElementIndex = moduleValue.type.elements.findIndex(
+        (element) => element.label === "Self"
+      );
+      if (selfElementIndex === -1) {
+        continue;
+      }
+
+      // Get the Self value from the module
+      const selfValue = moduleValue.elements[selfElementIndex];
+      if (!selfValue || !isTypeValue(selfValue)) {
+        continue;
+      }
+
+      const selfType = selfValue.value;
+
+      // Check if the value type is compatible with the module's Self type
+      if (
+        !areTypesCompatible({ type: selfType, env }, { type: valueType, env })
+      ) {
+        continue;
+      }
+
+      // Check if the module type is compatible with the required module type
+      if (
+        !areTypesCompatible(
+          { type: requiredModuleType, env },
+          { type: moduleValue.type, env }
+        )
+      ) {
+        continue;
+      }
+
+      // Create the module value from the found module
+      const elements: (Value | undefined)[] = [];
+      for (let i = 0; i < requiredModuleType.elements.length; i++) {
+        const element = requiredModuleType.elements[i]!;
+        const moduleValueElementIndex = moduleValue.type.elements.findIndex(
+          (e) => e.label === element.label
+        );
+        if (moduleValueElementIndex === -1) {
+          elements.push(undefined);
+        } else {
+          elements.push(moduleValue.elements[moduleValueElementIndex]);
+        }
+      }
+      const newModuleValue = createModuleValue(requiredModuleType, elements);
+
+      moduleValues.push(newModuleValue);
+      moduleTypes.push(newModuleValue.type);
+      checkedModuleTypes.add(requiredModuleType);
+      foundInModuleElements = true;
+      break;
+    }
+
+    if (foundInModuleElements) {
+      continue;
+    }
+
     // Find implicit variables that match this module type
     const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
       if (!variable.isImplicit) {

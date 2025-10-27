@@ -1,5 +1,5 @@
 open import "std";
-open import "../../../../std/libc/stdio.yo";
+open import "std/libc/stdio.yo";
 
 Speak :: module(
   Self: Type,
@@ -21,7 +21,7 @@ Dog :: object(
   )
 );
 
-main :: ((fn() -> i32) {
+main :: ((fn() -> unit) {
   dog := Dog();
   (dyn_dog : Dyn(Speak)) = dyn(dog);
   // We insert ___dup: 
@@ -31,7 +31,7 @@ main :: ((fn() -> i32) {
 
   // ___drop(dyn_dog);
   // ___drop(dog);
-  return result;
+  printf("result %d\n", result);
 });
 
 export main;
