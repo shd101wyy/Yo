@@ -1,64 +1,37 @@
 open import "std";
-open import "std/libc/stdio";
+open import "std/libc/stdio.yo";
 
-Id :: module
-  Self : Type,
-  id : (fn(self : Self) -> Self)
-;
+Speak :: module(
+  Self: Type,
+  speak : (fn(self : Self) -> i32)
+);
 
-given(MyBox) :: object
-  (*) : i32,
-
+// Dog :: struct(); // This should give error working with `dyn`.
+Dog :: object(
   dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.(*));
+    printf("Disposing Dog\n");
   }),
 
-  // Implement the Id module
-  Id :: Id(
+  Speak :: (Speak
     Self : Self,
-    id : ((self) -> {
-      return self;
+    speak : ((self : Self) -> {
+      printf("Woof!\n");
+      return 1;
     })
   )
-;
+);
 
-// DEFAULT_SIZE :: 16.as(usize);
+main :: ((fn() -> i32) {
+  dog := Dog();
+  (dyn_dog : Dyn(Speak)) = dyn(dog);
+  // We insert ___dup: 
+  //    dyn(___dup(dog), DogSpeak);
 
-// test :: (fn(v : usize) -> i32) {
-//   return v.as(i32); 
-// };
+  result := dyn_dog.speak();
 
-use_id :: (fn(forall(T : Type), x : T, using(MyId : (T <: Id))) -> T) {
-  return MyId.id(x);
-};
-
-main :: (fn() -> unit) {
-  // test(DEFAULT_SIZE); // This is for testing C codegen with compile-time known value.
-  box := MyBox(42);
-  x := MyBox.Id.id(box);
-  printf("x from id: %d\n", x.(*));
-
-  y := box.id(); // Expected this to work.
-                 // Type methods have higher priority than type modules.  
-                 // If type method is not found, we check the type modules, recursively (because a module might have modules in it).
-  printf("y from id: %d\n", y.(*));
-  
-  compt_expect_error({
-    z := use_id(y, using(MyBox));
-    printf("z from id: %d\n", z.(*));
-  });
-  
-  
-  z := use_id(y, using(MyBox.Id));
-  printf("z from id: %d\n", z.(*));
-
-  compt_expect_error({
-    m := use_id(z, using(MyBox)); // This should be error, because we should pass MyBox.Id, not MyBox.
-    printf("m from use_id with MyBox: %d\n", m.(*));
-  });
-
-  m := use_id(z); // I expect it automatically finds MyBox.Id module.
-  printf("m from use_id with inferred Id module: %d\n", m.(*));
-};
+  // ___drop(dyn_dog);
+  // ___drop(dog);
+  return result;
+});
 
 export main;

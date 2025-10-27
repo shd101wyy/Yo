@@ -8,18 +8,8 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  createStructType,
-  isStructType,
-  ModuleElement,
-  TupleElement,
-} from "../../types";
-import {
-  areValuesEqual,
-  createTypeValue,
-  isModuleValue,
-  isTypeValue,
-} from "../../value";
+import { createStructType, ModuleElement, TupleElement } from "../../types";
+import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "./element";
 import {
@@ -64,6 +54,9 @@ export function evaluateStructType({
   for (let i = 0; i < expr.args.length; i++) {
     const arg = expr.args[i]!;
 
+    /*
+    // NOTE: ... spread operator is not supported anymore as it causes confusion. 
+    //           It's hard to tell if it extends runtime fields or allso the module fields.
     // spread operator for extending another struct type or module value.
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
       const extendedExpr = arg.args[0]!;
@@ -169,7 +162,9 @@ export function evaluateStructType({
       }
     }
     // tuple element
-    else {
+    else 
+    */
+    {
       const { type, env: nextEnv } = evaluateElementType({
         expr: arg,
         env,
