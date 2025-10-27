@@ -206,14 +206,6 @@ export interface EvaluatedExprData {
   deferredDropExpressions?: Expr[];
 
   /**
-   * For async expressions, this contains the evaluated closure call that wraps
-   * the async body. Used by C codegen to generate the task spawn code.
-   *
-   * Example: For `async say("hello")`, this contains the evaluated closure call `(fn() => unit) { say("hello") }`
-   */
-  evaluatedClosure?: Expr;
-
-  /**
    * For async expressions, this contains the optional stack size configuration (runtime-known).
    * If undefined, the default stack size (16KB) is used.
    *

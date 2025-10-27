@@ -96,11 +96,6 @@ export function collectTypesFromExpr(
     collectType(expr.$.type, context);
   }
 
-  // For async expressions, also collect types from the evaluated closure call
-  if (expr.$ && expr.$.evaluatedClosure) {
-    collectTypesFromExpr(expr.$.evaluatedClosure, context);
-  }
-
   // For closure and async block expressions, collect the capture struct type
   // The capture type needs a special C name: {closureTypeName}_capture
   if (expr.$ && expr.$.captureType && expr.$.type) {
