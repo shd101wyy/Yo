@@ -130,6 +130,13 @@ function generateFuncCall(
 ): string {
   const emitter = context.emitter;
 
+  // Handle macro function calls (functions with isUnquote return type)
+  // If expr.$.macroExpansion is set, this macro call has already been expanded
+  // during evaluation. Generate code for the expanded form instead.
+  if (expr.$?.macroExpansion) {
+    return generateExpr(expr.$.macroExpansion, indent, context);
+  }
+
   // Handle anonymous function/closure construction
   // If expr.$.closureFunctionValue is set, this is a closure that needs to be constructed
   if (

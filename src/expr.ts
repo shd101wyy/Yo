@@ -242,6 +242,17 @@ export interface EvaluatedExprData {
    * the FunctionValue for the anonymous function implementation.
    */
   closureFunctionValue?: Value & { tag: ValueTag.Function };
+
+  /**
+   * For macro function calls (functions with isUnquote return type),
+   * this holds the evaluated expanded expression.
+   * Used by C codegen to generate code for the expanded form.
+   *
+   * Example: For `if(cond, thenBranch, elseBranch)` which expands to
+   * `cond(cond => thenBranch, true => elseBranch)`, this contains the
+   * evaluated cond(...) expression.
+   */
+  macroExpansion?: Expr;
 }
 
 export type AtomExpr = {

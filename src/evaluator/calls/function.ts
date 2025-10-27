@@ -857,13 +857,26 @@ ${functionsWithMatchingTypes
       // if yes, then we continue to evaluate the returnValue which should be an Expr value.
       if (functionType.return.isUnquote) {
         if (isExprValue(returnValue)) {
-          return context.evaluateExpression({
+          const expandedExpr = context.evaluateExpression({
             expr: returnValue.value,
             env,
             context: {
               ...context,
             },
           });
+
+          // Store the expanded expression on the original expr for C codegen
+          expr.$ = {
+            env: expandedExpr.$?.env || env,
+            type: expandedExpr.$?.type || returnType,
+            value: expandedExpr.$?.value,
+            originType:
+              expandedExpr.$?.originType || expandedExpr.$?.type || returnType,
+            pathCollection: expandedExpr.$?.pathCollection || [],
+            macroExpansion: expandedExpr,
+          };
+
+          return expr;
         } else {
           throw formatErrorMessage({
             token: expr.token,
@@ -925,13 +938,26 @@ ${functionsWithMatchingTypes
     // if yes, then we continue to evaluate the returnValue which should be an Expr value.
     if (closureType.callType.return.isUnquote) {
       if (isExprValue(returnValue)) {
-        return context.evaluateExpression({
+        const expandedExpr = context.evaluateExpression({
           expr: returnValue.value,
           env,
           context: {
             ...context,
           },
         });
+
+        // Store the expanded expression on the original expr for C codegen
+        expr.$ = {
+          env: expandedExpr.$?.env || env,
+          type: expandedExpr.$?.type || returnType,
+          value: expandedExpr.$?.value,
+          originType:
+            expandedExpr.$?.originType || expandedExpr.$?.type || returnType,
+          pathCollection: expandedExpr.$?.pathCollection || [],
+          macroExpansion: expandedExpr,
+        };
+
+        return expr;
       } else {
         throw formatErrorMessage({
           token: expr.token,
