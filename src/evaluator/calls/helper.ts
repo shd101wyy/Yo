@@ -886,18 +886,14 @@ Got:   ${argExprs.length} arguments`,
     ) {
       returnType = context.expectedType.type;
     } else {
-      // QUESTION: Should we throw error here?
-      // ANSWER: It seems like if we throw error here, then some code examples will be broken. I am not sure why
-      //       throw formatErrorMessage({
-      //         token: expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
-      //         errorMessage: `Function return type mismatch:
-      // Expected: ${typeToString(context.expectedType.type)}
-      // Got:   ${typeToString(returnType)}`,
-      //       });
+      throw formatErrorMessage({
+        token: expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
+        errorMessage: `Function return type mismatch:
+Expected: ${typeToString(context.expectedType.type)}
+Got:      ${typeToString(returnType)}`,
+      });
     }
-  }
-
-  // Check if the implicit parameters are provided
+  } // Check if the implicit parameters are provided
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParameter = functionType.implicitParameters[i]!;
 
@@ -1640,10 +1636,26 @@ function createSpecializedFunctionInline({
   }
 
   // Create specialized environment with compile-time arguments bound
-  const specializedEnv = calleeEnv;
+  let specializedEnv = calleeEnv;
 
   // Clone the function body and evaluate it in the specialized environment
   const clonedBody = cloneExpr(originalFunction.body);
+
+  // Resolve the return type by re-evaluating it in the specialized environment
+  // This is analogous to how we resolve parameter types using evaluateFunctionParameterTypeAgain
+  const {
+    returnType: specializedReturnType,
+    calleeEnv: _updatedSpecializedEnv,
+  } = evaluateFunctionReturnTypeAgain({
+    functionType,
+    calleeEnv: specializedEnv,
+    context: {
+      ...context,
+      isEvaluatingFunctionType: true,
+    },
+    functionCalleeExpr: undefined,
+  });
+  specializedEnv = _updatedSpecializedEnv;
 
   // Evaluate the function body in the specialized environment
   const specializedBody = evaluateBeginExpression({
@@ -1651,11 +1663,10 @@ function createSpecializedFunctionInline({
     env: specializedEnv,
     context: {
       ...context,
-      // expectedType: { // NOTE: Using functionType.return.type as expected type is wrong if it contains SomeType.
-      // QUESTION: Should we call resolveSomeTypeInType here?
-      //   type: functionType.return.type,
-      //   env: specializedEnv,
-      // },
+      expectedType: {
+        type: specializedReturnType,
+        env: specializedEnv,
+      },
       isEvaluatingFunctionBodyOrAsyncBlock: {
         kind: "function-body",
         type: functionType,
@@ -1675,21 +1686,6 @@ function createSpecializedFunctionInline({
       errorMessage: `Failed to evaluate function body for specialization.`,
     });
   }
-
-  // Resolve the return type by re-evaluating it in the specialized environment
-  // This is analogous to how we resolve parameter types using evaluateFunctionParameterTypeAgain
-  const {
-    returnType: specializedReturnType,
-    calleeEnv: _updatedSpecializedEnv,
-  } = evaluateFunctionReturnTypeAgain({
-    functionType,
-    calleeEnv: specializedEnv,
-    context: {
-      ...context,
-      isEvaluatingFunctionType: true,
-    },
-    functionCalleeExpr: undefined,
-  });
 
   // Create signature for the specialized function
   const compileTimeSignatureParts: string[] = [];

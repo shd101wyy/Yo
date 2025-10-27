@@ -20,6 +20,7 @@ import {
   isTupleType,
   isTypeHierarchyType,
   Type,
+  typeToString,
 } from "../../types";
 import { TypeTag } from "../../types/tags";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
@@ -44,6 +45,58 @@ export function canAssignTypeHierarchy(expected: Type, given: Type): boolean {
  * Synthesize the types, such as
  * compt(T): Type, i32  => T = i32
  */
+/**
+ * Occurs check: Check if a SomeType occurs within another type.
+ * This prevents infinite types like T = Option(T).
+ * Returns true if someType occurs in the type structure.
+ */
+function occursCheck(someTypeName: string, type: Type): boolean {
+  if (isSomeType(type)) {
+    return someTypeName === type.name;
+  }
+
+  if (isStructType(type)) {
+    return type.elements.some((el) => occursCheck(someTypeName, el.type));
+  }
+
+  if (isEnumType(type)) {
+    return type.variants.some((v) =>
+      v.elements
+        ? v.elements.some((el) => occursCheck(someTypeName, el.type))
+        : false
+    );
+  }
+
+  if (isTupleType(type)) {
+    return type.elements.some((el) => occursCheck(someTypeName, el.type));
+  }
+
+  if (isArrayType(type) || isSliceType(type)) {
+    return occursCheck(someTypeName, type.elementType);
+  }
+
+  if (isMutPtrType(type)) {
+    return occursCheck(someTypeName, type.type);
+  }
+
+  if (isFunctionType(type)) {
+    return (
+      type.parameters.some((p) => occursCheck(someTypeName, p.type)) ||
+      occursCheck(someTypeName, type.return.type)
+    );
+  }
+
+  if (isFutureType(type)) {
+    return occursCheck(someTypeName, type.elementType);
+  }
+
+  if (isClosureType(type)) {
+    return occursCheck(someTypeName, type.callType);
+  }
+
+  return false;
+}
+
 export function synthesizeTypes(
   expected: {
     type: Type;
@@ -210,6 +263,13 @@ export function synthesizeTypes(
       isSomeType(type) &&
       type.name === expected.type.name
     ) {
+      // Occurs check: prevent infinite types like T = Option(T)
+      if (occursCheck(expected.type.name, given.type)) {
+        throw new Error(
+          `Cannot unify type variable "${expected.type.name}" with type "${typeToString(given.type)}" because it would create an infinite type.`
+        );
+      }
+
       const value = createTypeValue(given.type);
       // console.log("(1) addVariableToEnv");
 
@@ -267,6 +327,13 @@ export function synthesizeTypes(
       expected.env = expectedEnv;
       given.env = givenEnv;
     } else {
+      // Occurs check: prevent infinite types like T = Option(T)
+      if (occursCheck(given.type.name, expected.type)) {
+        throw new Error(
+          `Cannot unify type variable "${given.type.name}" with type "${typeToString(expected.type)}" because it would create an infinite type.`
+        );
+      }
+
       // Bind the given SomeType to the expected type
       const value = createTypeValue(expected.type);
 

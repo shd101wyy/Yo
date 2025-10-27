@@ -140,22 +140,20 @@ export function tryToImplementFunctionByFunctionType({
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$.type;
 
-  {
-    // Regular function: body type must match return type exactly
-    if (
-      !areTypesCompatible(
-        { type: functionType.return.type, env },
-        { type: functionBodyReturnType, env }
-      )
-    ) {
-      // console.trace();
-      throw formatErrorMessage({
-        token: functionType.return.expr?.token ?? PlaceholderToken,
-        errorMessage: `Incompatible function return type for:
+  // Regular function: body type must match return type exactly
+  if (
+    !areTypesCompatible(
+      { type: functionType.return.type, env },
+      { type: functionBodyReturnType, env }
+    )
+  ) {
+    // console.trace();
+    throw formatErrorMessage({
+      token: functionType.return.expr?.token ?? PlaceholderToken,
+      errorMessage: `Incompatible function return type for:
 - Expected: ${typeToString(functionType.return.type)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
-      });
-    }
+    });
   }
 
   if (functionType.return.isCompileTimeOnly && !evaluatedFunctionBody.$.value) {
