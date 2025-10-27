@@ -1171,7 +1171,10 @@ Got:   ${typeToString(argType)}`,
             const module = type.module;
             for (let i = 0; i < module.elements.length; i++) {
               const moduleElement = module.elements[i]!;
-              if (isModuleValue(moduleElement.assignedValue)) {
+              if (
+                isModuleValue(moduleElement.assignedValue) &&
+                moduleElement.isImplicit // QUESTION: Should we check this?
+              ) {
                 const moduleValue = moduleElement.assignedValue;
                 if (
                   areTypesCompatible(
