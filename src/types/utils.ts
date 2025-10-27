@@ -3,12 +3,7 @@ import { formatErrorMessages } from "../error";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
-import {
-  isNumberValue,
-  isTypeValue,
-  isUnknownValue,
-  valueToString,
-} from "../value";
+import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
 import {
   createF64Type,
@@ -1446,6 +1441,7 @@ function typeCanReferenceCyclicRefStruct(
  * @param type
  * @param env
  */
+/*
 export function resolveSomeTypeInType(
   type: Type,
   env: Environment,
@@ -1541,3 +1537,4 @@ export function resolveSomeTypeInType(
   checkedTypes.add(type);
   return type;
 }
+*/

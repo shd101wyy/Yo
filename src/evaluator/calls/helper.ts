@@ -1265,6 +1265,7 @@ ${implicitVariables
         argType: returnType,
         parameterType: implicitParameterType,
       });
+      // NOTE: In theory, all implicitParameter are compile-time-only now.
       if (!implicitParameter.isCompileTimeOnly) {
         runtimeArgExprsInOrder.push({
           tag: ExprTag.FuncCall,
@@ -1675,7 +1676,20 @@ function createSpecializedFunctionInline({
     });
   }
 
-  const specializedReturnType = specializedBody.$.type;
+  // Resolve the return type by re-evaluating it in the specialized environment
+  // This is analogous to how we resolve parameter types using evaluateFunctionParameterTypeAgain
+  const {
+    returnType: specializedReturnType,
+    calleeEnv: _updatedSpecializedEnv,
+  } = evaluateFunctionReturnTypeAgain({
+    functionType,
+    calleeEnv: specializedEnv,
+    context: {
+      ...context,
+      isEvaluatingFunctionType: true,
+    },
+    functionCalleeExpr: undefined,
+  });
 
   // Create signature for the specialized function
   const compileTimeSignatureParts: string[] = [];

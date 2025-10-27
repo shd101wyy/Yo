@@ -132,7 +132,6 @@ export function generateFunctionPrototype(
   const runtimeParams = functionType.parameters.filter(
     (param) => !param.isCompileTimeOnly
   );
-
   const paramStrings: string[] = [];
 
   // For closure functions, add a generic closure context as the first parameter
