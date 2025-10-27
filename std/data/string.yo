@@ -62,7 +62,7 @@ String :: object(
    * 
    * Note: We manually search for the null terminator by iterating
    */
-   /*
+  /*
   from_cstr :: ((fn(cstr: *(u8)) -> Result(Self, StringError)) {
     // Create a new ArrayList to store the bytes
     bytes := ArrayList(u8).new();
@@ -71,7 +71,7 @@ String :: object(
     i := (0).as(usize);
     // FIXME: This is causing infinite loop during compile-time evaluation.
     //        We need to check if the loop body has runtime expr, then we shouldn't consider it as infinite loop.
-    while true, (i = (i + (1).as(usize))), {
+    while {f := true; f}, (i = (i + (1).as(usize))), {
       // Access byte at index i using pointer arithmetic/
       byte_ptr := (cstr + i);
       byte := byte_ptr.*;
@@ -83,8 +83,9 @@ String :: object(
       );
     };
       
-    return .Ok(Self(_bytes: bytes));/ `
-  }),*/
+    return .Ok(Self(_bytes: bytes));
+  }),
+  */
 
   /**
    * Get the length of the string in Unicode characters (runes)

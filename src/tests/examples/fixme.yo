@@ -1,12 +1,27 @@
 open import "std";
 open import "std/libc/stdio";
 
+my_if :: (fn(quote(condition) : Expr,
+        quote(then) : Expr,
+        (quote(else) : Expr) ?= quote(())
+      ) -> unquote(Expr))
+  quote
+    cond 
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+;
+
+
 some_cond :: (fn() -> boolean) {
   return true;
 };
 
 main :: (fn() -> unit) {
-  if runtval(true),
+  my_if true,
+    printf("runtval returned true\n"),
+    printf("runtval returned false\n");
+
+  if true,
     printf("runtval returned true\n"),
     printf("runtval returned false\n");
 };

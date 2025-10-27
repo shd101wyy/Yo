@@ -213,7 +213,7 @@ export function activate(context: vscode.ExtensionContext) {
   const moduleManager = new ModuleManager();
 
   // Function to analyze Yo file and show diagnostics
-  const analyzeMoFile = async (document: vscode.TextDocument) => {
+  const analyzeYoFile = async (document: vscode.TextDocument) => {
     // Only analyze Yo files
     if (!document.languageId.match(/^yo$/i)) {
       return;
@@ -1389,18 +1389,18 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Analyze the current active editor when extension is activated
   if (vscode.window.activeTextEditor) {
-    analyzeMoFile(vscode.window.activeTextEditor.document);
+    analyzeYoFile(vscode.window.activeTextEditor.document);
   }
 
   // Analyze when a document is opened
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(analyzeMoFile)
+    vscode.workspace.onDidOpenTextDocument(analyzeYoFile)
   );
 
   // Analyze when a document is changed
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
-      analyzeMoFile(event.document);
+      analyzeYoFile(event.document);
     })
   );
 
@@ -1408,7 +1408,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (editor) {
-        analyzeMoFile(editor.document);
+        analyzeYoFile(editor.document);
       }
     })
   );
