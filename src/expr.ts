@@ -1217,17 +1217,22 @@ ${exprToString(expr)}`);
   const modulePath = env.modulePath;
   const tempVariableName = generateNewTempVariableName(modulePath);
 
+  // NOTE: For now let's make all the iwOwningTheARCValue variable runtime-only
+  // so the `object` value can only be used in runtime.
+  // Actually, all C pointer related should be runtime-only.
+  const _isOwningTheARCValue = isOwningTheARCValue && typeContainsARCType(type);
+
   // Add temp variable to the environment
   const { env: nextEnv } = addVariableToEnv({
     env,
     variable: {
       name: tempVariableName,
       type,
-      value,
-      isCompileTimeOnly: Boolean(value),
+      value: _isOwningTheARCValue ? undefined : value,
+      isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       isImplicit: false,
       initializedAtToken: expr.token,
-      isOwningTheARCValue: isOwningTheARCValue && typeContainsARCType(type),
+      isOwningTheARCValue: _isOwningTheARCValue,
       consumedAtToken: undefined,
       token: expr.token,
     },

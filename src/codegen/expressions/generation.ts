@@ -2694,16 +2694,22 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  // Check if this atom has a compile-time value first (before checking variable names)
-  // This ensures that compile-time constants are inlined even if they have variable names
-  if (expr.$?.value && !isUnknownValue(expr.$.value)) {
-    return generateComptValue(expr.$.value, context, expr);
-  }
-
   // If this atom has a temp variable name (e.g., for ARC values), use that instead of regenerating code
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
+  // ALSO: if this is a compile-time only variable with a value, inline it instead
   if (expr.$?.variableName) {
+    // Check if this is a compile-time only variable - if so, inline the value
+    if (expr.$?.env && expr.$?.value && !isUnknownValue(expr.$.value)) {
+      const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+      if (
+        variables.length > 0 &&
+        variables[variables.length - 1]!.isCompileTimeOnly
+      ) {
+        return generateComptValue(expr.$.value, context, expr);
+      }
+    }
+
     // Check if this is a captured variable in a closure - if so, don't use temp variable name
     if (
       functionContext.currentClosureCaptures &&
@@ -2720,6 +2726,21 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     } else {
       return sanitizeForCIdentifier(expr.$.variableName);
     }
+  }
+
+  // Check if this atom has a compile-time value
+  // This is only reached for closure-captured variables (non-closure variables return early above)
+  // For closure-captured variables, we should NOT inline their values - we access them via closure context
+  // So this code path should never actually inline a value for variables
+  if (expr.$?.value) {
+    if (isUnknownValue(expr.$.value)) {
+      throw new Error(
+        `Cannot generate code for unknown compile-time value of atom: ${exprToString(expr)}`
+      );
+    }
+    // Only inline if this is NOT a variable (e.g., it's a literal constant without a variable name)
+    // But all variables should have been handled above, so this is just for safety
+    return generateComptValue(expr.$.value, context, expr);
   }
 
   const isClosureCaptured =

@@ -1,29 +1,42 @@
 open import "std";
 open import "std/libc/stdio";
 
-my_if :: (fn(quote(condition) : Expr,
-        quote(then) : Expr,
-        (quote(else) : Expr) ?= quote(())
-      ) -> unquote(Expr))
-  quote
-    cond 
-      unquote(condition) => unquote(then),
-      true => unquote(else)
+Id :: module
+  Self : Type,
+  id : (fn(self : Self) -> Self)
 ;
 
+MyBox :: object
+  (*) : i32,
 
-some_cond :: (fn() -> boolean) {
-  return true;
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.(*));
+  })/* ,
+
+  // Implement the Id module
+  Id :: Id(
+    Self : Self,
+    id : ((self) -> {
+      return self;
+    })
+  )
+  */
+;
+
+DEFAULT_SIZE :: 16.as(usize);
+
+test :: (fn(v : usize) -> i32) {
+  return v.as(i32); 
 };
 
 main :: (fn() -> unit) {
-  my_if true,
-    printf("runtval returned true\n"),
-    printf("runtval returned false\n");
+  test(DEFAULT_SIZE);
 
-  if true,
-    printf("runtval returned true\n"),
-    printf("runtval returned false\n");
+  box := MyBox(42);
+  // x := MyBox.Id.id(box);
+  // y := box.id(); // Expected this to work.
+                 // Type methods have higher priority than type modules.  
+                 // If type method is not found, we check the type modules, recursively (because a module might have modules in it).
 };
 
 export main;
