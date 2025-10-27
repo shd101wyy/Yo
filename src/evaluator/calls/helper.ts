@@ -886,14 +886,18 @@ Got:   ${argExprs.length} arguments`,
     ) {
       returnType = context.expectedType.type;
     } else {
-      throw formatErrorMessage({
-        token: expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
-        errorMessage: `Function return type mismatch:
-Expected: ${typeToString(context.expectedType.type)}
-Got:      ${typeToString(returnType)}`,
-      });
+      // QUESTION: Should we throw error here?
+      // ANSWER: It seems like if we throw error here, then some code examples will be broken. I am not sure why
+      //       throw formatErrorMessage({
+      //         token: expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
+      //         errorMessage: `Function return type mismatch:
+      // Expected: ${typeToString(context.expectedType.type)}
+      // Got:   ${typeToString(returnType)}`,
+      //       });
     }
-  } // Check if the implicit parameters are provided
+  }
+
+  // Check if the implicit parameters are provided
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParameter = functionType.implicitParameters[i]!;
 

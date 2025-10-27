@@ -42,10 +42,6 @@ export function canAssignTypeHierarchy(expected: Type, given: Type): boolean {
 }
 
 /**
- * Synthesize the types, such as
- * compt(T): Type, i32  => T = i32
- */
-/**
  * Occurs check: Check if a SomeType occurs within another type.
  * This prevents infinite types like T = Option(T).
  * Returns true if someType occurs in the type structure.
@@ -97,6 +93,10 @@ function occursCheck(someTypeName: string, type: Type): boolean {
   return false;
 }
 
+/**
+ * Synthesize the types, such as
+ * compt(T): Type, i32  => T = i32
+ */
 export function synthesizeTypes(
   expected: {
     type: Type;
