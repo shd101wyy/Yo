@@ -11,7 +11,7 @@ MyBox :: object
 
   dispose :: ((fn(self : Self) -> unit) {
     printf("Disposing MyBox with value: %d\n", self.(*));
-  })/* ,
+  }),
 
   // Implement the Id module
   Id :: Id(
@@ -20,7 +20,6 @@ MyBox :: object
       return self;
     })
   )
-  */
 ;
 
 DEFAULT_SIZE :: 16.as(usize);
@@ -31,12 +30,13 @@ test :: (fn(v : usize) -> i32) {
 
 main :: (fn() -> unit) {
   test(DEFAULT_SIZE);
-
   box := MyBox(42);
-  // x := MyBox.Id.id(box);
-  // y := box.id(); // Expected this to work.
+  x := MyBox.Id.id(box);
+  y := box.id(); // Expected this to work.
                  // Type methods have higher priority than type modules.  
                  // If type method is not found, we check the type modules, recursively (because a module might have modules in it).
+
+  printf("Value from id: %d\n", x.(*));
 };
 
 export main;

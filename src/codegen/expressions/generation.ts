@@ -2995,7 +2995,16 @@ function generateFieldAccess(
   if (exprIsAtom(fieldExpr)) {
     const fieldName = fieldExpr.token.value;
 
-    // Check if this is an ARC method call (___drop, ___dup, ___dispose)
+    // Check if this field access is actually a method access (function from type's module or nested modules)
+    // This includes both direct type methods and methods from nested modules
+    if (expr.$?.value && isFunctionValue(expr.$.value)) {
+      const functionValue = expr.$.value;
+      const cFunctionName =
+        context.functions[functionValue.funcId]?.cName || functionValue.funcId;
+      return cFunctionName;
+    }
+
+    // Fallback: Check if this is an ARC method call (___drop, ___dup, ___dispose)
     // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
     // So they are using the `undefined` function value, before we actually update its module elements.
     if (

@@ -631,6 +631,42 @@ export function getMethodsByNameFromEnv(
     dereferencedReceiverType = dereferencedReceiverType.type;
   }
 
+  // Helper function to recursively check a module for methods
+  function checkModuleForMethod(
+    moduleType: ModuleType,
+    methodName: string,
+    visitedModules: Set<string> = new Set()
+  ): void {
+    // Prevent infinite recursion for circular module references
+    if (visitedModules.has(moduleType.id)) {
+      return;
+    }
+    visitedModules.add(moduleType.id);
+
+    // First, check direct methods in this module
+    const directMethod = moduleType.elements.find(
+      (element) => element.label === methodName && isFunctionType(element.type)
+    );
+
+    if (directMethod && isFunctionType(directMethod.type)) {
+      let value: Value | undefined = directMethod.assignedValue;
+      if (isUnknownValue(value)) {
+        value = createUnknownValue(directMethod.type, directMethod.label);
+      }
+      methods.push({ type: directMethod.type, value });
+      return; // Found the method, no need to search nested modules
+    }
+
+    // If not found, recursively check nested modules
+    for (const element of moduleType.elements) {
+      if (isModuleType(element.type) && element.assignedValue) {
+        // We need to use checkModule here to properly handle the module value
+        // which might contain the actual function values
+        checkModule(element.type, element.assignedValue);
+      }
+    }
+  }
+
   // Check if the dereferencedReceiverType itself has method that can be called
   if (
     isStructType(dereferencedReceiverType) ||
@@ -639,26 +675,20 @@ export function getMethodsByNameFromEnv(
     isClosureType(dereferencedReceiverType) ||
     isFutureType(dereferencedReceiverType)
   ) {
-    const method = dereferencedReceiverType.module.elements.find(
-      (element) =>
-        element.label === methodName &&
-        (isFunctionType(element.type) || isModuleType(element.type))
+    // First check direct methods
+    const directMethod = dereferencedReceiverType.module.elements.find(
+      (element) => element.label === methodName && isFunctionType(element.type)
     );
-    if (method) {
-      let value: Value | undefined = undefined;
-      if (isFunctionType(method.type)) {
-        value = method.assignedValue;
-        if (isUnknownValue(value)) {
-          value = createUnknownValue(method.type, method.label);
-        }
-        methods.push({ type: method.type, value });
-      } else if (isModuleType(method.type)) {
-        // Find the module value
-        const moduleValue = method.assignedValue;
-        if (isModuleValue(moduleValue)) {
-          checkModuleSelfCall(moduleValue);
-        }
+
+    if (directMethod && isFunctionType(directMethod.type)) {
+      let value: Value | undefined = directMethod.assignedValue;
+      if (isUnknownValue(value)) {
+        value = createUnknownValue(directMethod.type, directMethod.label);
       }
+      methods.push({ type: directMethod.type, value });
+    } else {
+      // If no direct method found, recursively check nested modules
+      checkModuleForMethod(dereferencedReceiverType.module, methodName);
     }
   }
 
