@@ -38,11 +38,17 @@ import {
   FunctionType,
   getAllSomeTypes,
   getValueOfSomeTypeFromEnv,
+  isClosureType,
+  isEnumType,
   isExprListType,
   isExprType,
   isFunctionSpecializable,
   isFunctionType,
+  isFutureType,
+  isModuleType,
+  isStructType,
   isTypeHierarchyType,
+  isUnionType,
   Type,
   TypeHierarchyType,
   typeRequiresComptModifier,
@@ -56,6 +62,7 @@ import {
   createUnknownValue,
   ExprValue,
   isFunctionValue,
+  isModuleValue,
   isTypeValue,
   Value,
   valueToString,
@@ -1148,6 +1155,44 @@ Got:   ${typeToString(argType)}`,
           }
         }
 
+        // Check if the variable module value matches the expected implicitParameterType
+        if (
+          isModuleType(implicitParameterType) &&
+          isTypeValue(variable.value)
+        ) {
+          const type = variable.value.value;
+          if (
+            isStructType(type) ||
+            isEnumType(type) ||
+            isUnionType(type) ||
+            isClosureType(type) ||
+            isFutureType(type)
+          ) {
+            const module = type.module;
+            for (let i = 0; i < module.elements.length; i++) {
+              const moduleElement = module.elements[i]!;
+              if (isModuleValue(moduleElement.assignedValue)) {
+                const moduleValue = moduleElement.assignedValue;
+                if (
+                  areTypesCompatible(
+                    { type: moduleValue.type, env: callerEnv },
+                    { type: implicitParameterType, env: calleeEnv }
+                  )
+                ) {
+                  implicitFunctionCalls.push({
+                    returnType: moduleValue.type,
+                    returnValue: moduleValue,
+                    calleeEnv,
+                    callerEnv,
+                    variable,
+                  });
+                  return true;
+                }
+              }
+            }
+          }
+        }
+
         return false;
       }
     );
@@ -1187,9 +1232,10 @@ ${implicitVariables
     // Add the implicit variable to the function env
     const implicitVariable = implicitVariables[0]!;
 
-    // Check if it's from an implicit function call
+    // Check if it's from an implicit function call or type module
     if (
-      isFunctionType(implicitVariable.type) &&
+      (isFunctionType(implicitVariable.type) || // implicit function
+        isTypeValue(implicitVariable.value)) && // implicit type module
       implicitFunctionCalls.find((c) => c.variable === implicitVariable)
     ) {
       const implicitFunctionCallResult = implicitFunctionCalls.find(

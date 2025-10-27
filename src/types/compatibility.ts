@@ -3,7 +3,7 @@ import {
   canAssignTypeHierarchy,
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
-import { areValuesEqual } from "../value";
+import { areValuesEqual, isTypeValue } from "../value";
 import { ClosureType, FunctionType, ModuleElement, Type } from "./definitions";
 import {
   isArrayType,
@@ -377,6 +377,26 @@ export function areTypesCompatible(
             )
           ) {
             return false;
+          }
+        }
+
+        if (expectedElement.label === "Self" && expected.type.subtype) {
+          const subtype = expected.type.subtype;
+          if (
+            !givenElement.assignedValue ||
+            !isTypeValue(givenElement.assignedValue)
+          ) {
+            return false;
+          } else {
+            const givenSubtype = givenElement.assignedValue.value;
+            if (
+              !areTypesCompatible(
+                { type: subtype, env: expected.env },
+                { type: givenSubtype, env: given.env }
+              )
+            ) {
+              return false;
+            }
           }
         }
       }
