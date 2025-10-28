@@ -3,119 +3,111 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
-/**
- * arithmetic
- */
-LongLongAdd :: Add(longlong, longlong)
-  (+): ((a, b) -> __yo_op_add(a, b))
-;
-
-LongLongSub :: Sub(longlong, longlong)
-  (-): ((a, b) -> __yo_op_sub(a, b))
-;
-
-LongLongMul :: Mul(longlong, longlong)
-  (*): ((a, b) -> __yo_op_mul(a, b))
-;
-
-LongLongDiv :: Div(longlong, longlong)
-  (/): ((a, b) -> __yo_op_div(a, b))
-;
-
-LongLongMod :: Mod(longlong, longlong)
-  (%): ((a, b) -> __yo_op_mod(a, b))
-;
-
-LongLongNegate :: Negate(longlong)
-  (neg): ((a) -> __yo_op_neg(a))
-;
-
-/**
- * logic
- */
-LongLongLogicalNot :: LogicalNot(longlong)
-  (!): ((a) -> __yo_op_not(a))
-;
-
-LongLongBitNot :: BitNot(longlong)
-  (~): ((a) -> __yo_op_bit_complement(a))
-;
-
-LongLongBitAnd :: BitAnd(longlong, longlong)
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
-;
-
-LongLongBitOr :: BitOr(longlong, longlong)
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
-;
-
-LongLongBitXor :: BitXor(longlong, longlong)
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
-;
-
-
-/**
- * eq
- */
-LongLongEq :: Eq(longlong, longlong)
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
-;
-
-/**
- * ord
- */
-LongLongOrd :: Ord(longlong, longlong, using(LongLongEq))
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
-;
-
-LongLongDrop :: Drop(longlong)
-  drop: ((self) ->
-    // No-op for longlong, as it does not require any special cleanup
-    __yo_noop()
-  )
-;
-
-LongLongClone :: Clone(longlong)
-  clone: ((self) ->
-    // No-op for longlong, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
-
-LongLongMethods :: impl {
+LongLong :: impl {
   Self :: longlong;
+  export Self;
 
+  // === Arithmetic ===
+  _Add :: Add(longlong, longlong)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ;
+  _Sub :: Sub(longlong, longlong)
+    (-): ((a, b) -> __yo_op_sub(a, b))
+  ;
+  _Mul :: Mul(longlong, longlong)
+    (*): ((a, b) -> __yo_op_mul(a, b))
+  ;
+  _Div :: Div(longlong, longlong)
+    (/): ((a, b) -> __yo_op_div(a, b))
+  ;
+  _Mod :: Mod(longlong, longlong)
+    (%): ((a, b) -> __yo_op_mod(a, b))
+  ;
+  _Negate :: Negate(longlong)
+    (neg): ((a) -> __yo_op_neg(a))
+  ;
+  export
+    Add : _Add,
+    Sub : _Sub,
+    Mul : _Mul,
+    Div : _Div,
+    Mod : _Mod,
+    Negate : _Negate
+  ;
+
+  // === Logic ===
+  _LogicalNot :: LogicalNot(longlong)
+    (!): ((a) -> __yo_op_not(a))
+  ;
+  _BitNot :: BitNot(longlong)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ;
+  _BitAnd :: BitAnd(longlong, longlong)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ;
+  _BitOr :: BitOr(longlong, longlong)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ;
+  _BitXor :: BitXor(longlong, longlong)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ;
+  export
+    LogicalNot : _LogicalNot,
+    BitNot : _BitNot,
+    BitAnd : _BitAnd,
+    BitOr : _BitOr,
+    BitXor : _BitXor
+  ;
+
+  // === Eq ===
+  _Eq :: Eq(longlong, longlong)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ;
+  export Eq : _Eq;
+
+  // === Ord ===
+  _Ord :: Ord(longlong, longlong, using(_Eq))
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ;
+  export Ord : _Ord;
+
+  // === Hash ===
+  _Hash :: Hash(longlong)
+    (hash): ((value) -> __yo_as(value, u64))
+  ;
+  export Hash : _Hash;
+
+  // === Drop ===
+  _Drop :: Drop(longlong)
+    drop: ((self) ->
+      // No-op for longlong, as it does not require any special cleanup
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
+
+  // === Clone ===
+  _Clone :: Clone(longlong)
+    clone: ((self) ->
+      // No-op for longlong, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
+
+  // === Other methods ===
   as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_as(self, Target)
   ;
+  export as;
 
-  export
-    Self,
-    as
-  ;
 };
 
-export
-  LongLongAdd,
-  LongLongSub,
-  LongLongMul,
-  LongLongDiv,
-  LongLongMod,
-  LongLongNegate,
-  LongLongLogicalNot,
-  LongLongBitNot,
-  LongLongBitAnd,
-  LongLongBitOr,
-  LongLongBitXor,
-  LongLongEq,
-  LongLongOrd,
-  LongLongDrop,
-  LongLongClone,
-  LongLongMethods
-;
+export LongLong;

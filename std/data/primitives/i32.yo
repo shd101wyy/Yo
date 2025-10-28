@@ -7,6 +7,9 @@ open import "../../modules/logic.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
 I32 :: impl {
+  Self :: i32;
+  export Self;
+
   // === Arithmetic ===
   _Add :: Add(i32, i32)
     (+): ((a, b) -> __yo_op_add(a, b))
@@ -42,122 +45,88 @@ I32 :: impl {
     BitLeftShift : _BitLeftShift,
     BitRightShift : _BitRightShift
   ;
-};
 
-/**
- * arithmetic
- */
-I32Add :: Add(i32, i32)
-  (+): ((a, b) -> __yo_op_add(a, b))
-;
+  // === Logic ===
+  _LogicalNot :: LogicalNot(i32)
+    (!): ((a) -> __yo_op_not(a))
+  ;
 
-I32Sub :: Sub(i32, i32)
-  (-): ((a, b) -> __yo_op_sub(a, b))
-;
+  _BitNot :: BitNot(i32)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ;
 
-I32Mul :: Mul(i32, i32)
-  (*): ((a, b) -> __yo_op_mul(a, b))
-;
+  _BitAnd :: BitAnd(i32, i32)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ;
 
-I32Div :: Div(i32, i32)
-  (/): ((a, b) -> __yo_op_div(a, b))
-;
+  _BitOr :: BitOr(i32, i32)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ;
 
-I32Mod :: Mod(i32, i32)
-  (%): ((a, b) -> __yo_op_mod(a, b))
-;
+  _BitXor :: BitXor(i32, i32)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ;
+  export
+    LogicalNot : _LogicalNot,
+    BitNot : _BitNot,
+    BitAnd : _BitAnd,
+    BitOr : _BitOr,
+    BitXor : _BitXor
+  ;
 
-I32Negate :: Negate(i32)
-  (neg): ((a) -> __yo_op_neg(a))
-;
+  // === Eq ===
+  _Eq :: Eq(i32, i32)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ;
+  export Eq : _Eq;
 
-I32BitLeftShift :: BitLeftShift(i32, i32)
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-;
+  // === Ord ===
+  _Ord :: Ord(i32, i32, using(_Eq))
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ;
+  export Ord : _Ord;
 
-I32BitRightShift :: BitRightShift(i32, i32)
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-;
+  // === Hash ===
+  _Hash :: Hash(i32)
+    (hash): ((value) -> __yo_as(value, u64))
+  ;
+  export Hash : _Hash;
 
-/**
- * logic
- */
-I32LogicalNot :: LogicalNot(i32)
-  (!): ((a) -> __yo_op_not(a))
-;
+  // === Drop ===
+  _Drop :: Drop(i32)
+    drop: ((self) ->
+      // No-op for i32, as it does not require any special cleanup
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
 
-I32BitNot :: BitNot(i32)
-  (~): ((a) -> __yo_op_bit_complement(a))
-;
+  // === Clone ===
+  _Clone :: Clone(i32)
+    clone: ((self) ->
+      // No-op for i32, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
 
-I32BitAnd :: BitAnd(i32, i32)
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
-;
-
-I32BitOr :: BitOr(i32, i32)
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
-;
-
-I32BitXor :: BitXor(i32, i32)
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
-;
-
-
-/**
- * eq
- */
-I32Eq :: Eq(i32, i32)
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
-;
-
-/**
- * ord
- */
-I32Ord :: Ord(i32, i32, using(I32Eq))
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
-;
-
-/**
- * hash
- */
-I32Hash :: Hash(i32)
-  (hash): ((value) -> __yo_as(value, u64))
-;
-
-I32Drop :: Drop(i32)
-  drop: ((self) ->
-    // No-op for i32, as it does not require any special cleanup
-    __yo_noop()
-  )
-;
-
-I32Clone :: Clone(i32)
-  clone: ((self) ->
-    // No-op for i32, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
-
-I32Methods :: impl {
-  Self :: i32;
-
+  // === Other methods ===
   (as) :: (fn(self: Self, compt(Target): Type) -> Target)
     __yo_as(self, Target)
   ;
-  
-  export Self,
-    as
-  ;
+  export as;
+
 };
+
 
 /**
  * Methods for compt i32
  */
-I32ComptMethods :: impl {
+ComptI32 :: impl {
   Self :: i32;
 
   (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
@@ -244,24 +213,5 @@ I32ComptMethods :: impl {
 
 export
   I32,
-  I32Add,
-  I32Sub,
-  I32Mul,
-  I32Div,
-  I32Mod,
-  I32BitLeftShift,
-  I32BitRightShift,
-  I32Negate,
-  I32LogicalNot,
-  I32BitNot,
-  I32BitAnd,
-  I32BitOr,
-  I32BitXor,
-  I32Eq,
-  I32Ord,
-  I32Hash,
-  I32Drop,
-  I32Clone,
-  I32Methods,
-  I32ComptMethods
+  ComptI32
 ;

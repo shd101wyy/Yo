@@ -3,120 +3,111 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
-/**
- * arithmetic
- */
-ShortAdd :: Add(short, short)
-  (+): ((a, b) -> __yo_op_add(a, b))
-;
-
-ShortSub :: Sub(short, short)
-  (-): ((a, b) -> __yo_op_sub(a, b))
-;
-
-ShortMul :: Mul(short, short)
-  (*): ((a, b) -> __yo_op_mul(a, b))
-;
-
-ShortDiv :: Div(short, short)
-  (/): ((a, b) -> __yo_op_div(a, b))
-;
-
-ShortMod :: Mod(short, short)
-  (%): ((a, b) -> __yo_op_mod(a, b))
-;
-
-ShortNegate :: Negate(short)
-  (neg): ((a) -> __yo_op_neg(a))
-;
-
-/**
- * logic
- */
-ShortLogicalNot :: LogicalNot(short)
-  (!): ((a) -> __yo_op_not(a))
-;
-
-ShortBitNot :: BitNot(short)
-  (~): ((a) -> __yo_op_bit_complement(a))
-;
-
-ShortBitAnd :: BitAnd(short, short)
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
-;
-
-ShortBitOr :: BitOr(short, short)
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
-;
-
-ShortBitXor :: BitXor(short, short)
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
-;
-
-
-
-/**
- * eq
- */
-ShortEq :: Eq(short, short)
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
-;
-
-/**
- * ord
- */
-ShortOrd :: Ord(short, short, using(ShortEq))
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
-;
-
-ShortDrop :: Drop(short)
-  drop: ((self) ->
-    // No-op for short, as it does not require any special cleanup
-    __yo_noop()
-  )
-;
-
-ShortClone :: Clone(short)
-  clone: ((self) ->
-    // No-op for short, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
-
-ShortMethods :: impl {
+Short :: impl {
   Self :: short;
+  export Self;
 
+  // === Arithmetic ===
+  _Add :: Add(short, short)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ;
+  _Sub :: Sub(short, short)
+    (-): ((a, b) -> __yo_op_sub(a, b))
+  ;
+  _Mul :: Mul(short, short)
+    (*): ((a, b) -> __yo_op_mul(a, b))
+  ;
+  _Div :: Div(short, short)
+    (/): ((a, b) -> __yo_op_div(a, b))
+  ;
+  _Mod :: Mod(short, short)
+    (%): ((a, b) -> __yo_op_mod(a, b))
+  ;
+  _Negate :: Negate(short)
+    (neg): ((a) -> __yo_op_neg(a))
+  ;
+  export
+    Add : _Add,
+    Sub : _Sub,
+    Mul : _Mul,
+    Div : _Div,
+    Mod : _Mod,
+    Negate : _Negate
+  ;
+
+  // === Logic ===
+  _LogicalNot :: LogicalNot(short)
+    (!): ((a) -> __yo_op_not(a))
+  ;
+  _BitNot :: BitNot(short)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ;
+  _BitAnd :: BitAnd(short, short)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ;
+  _BitOr :: BitOr(short, short)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ;
+  _BitXor :: BitXor(short, short)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ;
+  export
+    LogicalNot : _LogicalNot,
+    BitNot : _BitNot,
+    BitAnd : _BitAnd,
+    BitOr : _BitOr,
+    BitXor : _BitXor
+  ;
+
+  // === Eq ===
+  _Eq :: Eq(short, short)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ;
+  export Eq : _Eq;
+
+  // === Ord ===
+  _Ord :: Ord(short, short, using(_Eq))
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ;
+  export Ord : _Ord;
+
+  // === Hash ===
+  _Hash :: Hash(short)
+    (hash): ((value) -> __yo_as(value, u64))
+  ;
+  export Hash : _Hash;
+
+  // === Drop ===
+  _Drop :: Drop(short)
+    drop: ((self) ->
+      // No-op for short, as it does not require any special cleanup
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
+
+  // === Clone ===
+  _Clone :: Clone(short)
+    clone: ((self) ->
+      // No-op for short, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
+
+  // === Other methods ===
   as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_as(self, Target)
   ;
+  export as;
 
-  export
-    Self,
-    as
-  ;
 };
 
-export
-  ShortAdd,
-  ShortSub,
-  ShortMul,
-  ShortDiv,
-  ShortMod,
-  ShortNegate,
-  ShortLogicalNot,
-  ShortBitNot,
-  ShortBitAnd,
-  ShortBitOr,
-  ShortBitXor,
-  ShortEq,
-  ShortOrd,
-  ShortDrop,
-  ShortClone,
-  ShortMethods
-;
+export Short;

@@ -3,105 +3,115 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
-/**
- * arithmetic
- */
-F32Add :: Add(f32, f32)
-  (+): ((a, b) -> __yo_op_add(a, b))
-;
-
-F32Sub :: Sub(f32, f32)
-  (-): ((a, b) -> __yo_op_sub(a, b))
-;
-
-F32Mul :: Mul(f32, f32)
-  (*): ((a, b) -> __yo_op_mul(a, b))
-;
-
-F32Div :: Div(f32, f32)
-  (/): ((a, b) -> __yo_op_div(a, b))
-;
-
-F32Mod :: Mod(f32, f32)
-  (%): ((a, b) -> __yo_op_mod(a, b))
-;
-
-F32Negate :: Negate(f32)
-  (neg): ((a) -> __yo_op_neg(a))
-;
-
-/**
- * logic
- */
-F32LogicalNot :: LogicalNot(f32)
-  (!): ((a) -> __yo_op_not(a))
-;
-
-F32BitNot :: BitNot(f32)
-  (~): ((a) -> __yo_op_bit_complement(a))
-;
-
-F32BitAnd :: BitAnd(f32, f32)
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
-;
-
-F32BitOr :: BitOr(f32, f32)
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
-;
-
-F32BitXor :: BitXor(f32, f32)
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
-;
-
-
-/**
- * eq
- */
-F32Eq :: Eq(f32, f32)
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
-;
-
-/**
- * ord
- */
-F32Ord :: Ord(f32, f32, using(F32Eq))
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
-;
-
-F32Drop :: Drop(f32)
-  drop: ((self) ->
-    // No-op for f32, as it does not require any special cleanup
-    __yo_noop()
-  )
-;
-
-F32Clone :: Clone(f32)
-  clone: ((self) ->
-    // No-op for f32, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
-
-F32Methods :: impl {
+F32 :: impl {
   Self :: f32;
+  export Self;
 
+  // === Arithmetic ===
+  _Add :: Add(f32, f32)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ;
+  _Sub :: Sub(f32, f32)
+    (-): ((a, b) -> __yo_op_sub(a, b))
+  ;
+  _Mul :: Mul(f32, f32)
+    (*): ((a, b) -> __yo_op_mul(a, b))
+  ;
+  _Div :: Div(f32, f32)
+    (/): ((a, b) -> __yo_op_div(a, b))
+  ;
+  _Mod :: Mod(f32, f32)
+    (%): ((a, b) -> __yo_op_mod(a, b))
+  ;
+  _Negate :: Negate(f32)
+    (neg): ((a) -> __yo_op_neg(a))
+  ;
+  export
+    Add : _Add,
+    Sub : _Sub,
+    Mul : _Mul,
+    Div : _Div,
+    Mod : _Mod,
+    Negate : _Negate
+  ;
+
+  // === Logic ===
+  _LogicalNot :: LogicalNot(f32)
+    (!): ((a) -> __yo_op_not(a))
+  ;
+  _BitNot :: BitNot(f32)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ;
+  _BitAnd :: BitAnd(f32, f32)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ;
+  _BitOr :: BitOr(f32, f32)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ;
+  _BitXor :: BitXor(f32, f32)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ;
+  export
+    LogicalNot : _LogicalNot,
+    BitNot : _BitNot,
+    BitAnd : _BitAnd,
+    BitOr : _BitOr,
+    BitXor : _BitXor
+  ;
+
+  // === Eq ===
+  _Eq :: Eq(f32, f32)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ;
+  export Eq : _Eq;
+
+  // === Ord ===
+  _Ord :: Ord(f32, f32, using(_Eq))
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ;
+  export Ord : _Ord;
+
+  // === Hash ===
+  _Hash :: Hash(f32)
+    (hash): ((value) -> __yo_as(__yo_as(value, i32), u64))
+  ;
+  export Hash : _Hash;
+
+  // === Drop ===
+  _Drop :: Drop(f32)
+    drop: ((self) ->
+      // No-op for f32, as it does not require any special cleanup
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
+
+  // === Clone ===
+    _Clone :: Clone(f32)
+    clone: ((self) ->
+      // No-op for f32, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
+
+  // === Other methods ===
   (as) :: (fn(self: Self, compt(Target): Type) -> Target)
     __yo_as(self, Target)
   ;
-  
-  export Self,
-    as
-  ;
+  export as;
+
 };
 
 
-F32ComptMethods :: impl {
+ComptF32 :: impl {
   Self :: f32;
 
   (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
@@ -175,20 +185,5 @@ F32ComptMethods :: impl {
 };
 
 export
-  F32Add,
-  F32Sub,
-  F32Mul,
-  F32Div,
-  F32Mod,
-  F32Negate,
-  F32LogicalNot,
-  F32BitNot,
-  F32BitAnd,
-  F32BitOr,
-  F32BitXor,
-  F32Eq,
-  F32Ord,
-  F32Drop,
-  F32Clone,
-  F32Methods,
-  F32ComptMethods;
+  F32,
+  ComptF32;

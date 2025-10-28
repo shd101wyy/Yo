@@ -3,111 +3,123 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
-/**
- * arithmetic
- */
-I8Add :: Add(i8, i8)
-  (+): ((a, b) -> __yo_op_add(a, b))
-;
-
-I8Sub :: Sub(i8, i8)
-  (-): ((a, b) -> __yo_op_sub(a, b))
-;
-
-I8Mul :: Mul(i8, i8)
-  (*): ((a, b) -> __yo_op_mul(a, b))
-;
-
-I8Div :: Div(i8, i8)
-  (/): ((a, b) -> __yo_op_div(a, b))
-;
-
-I8Mod :: Mod(i8, i8)
-  (%): ((a, b) -> __yo_op_mod(a, b))
-;
-
-I8Negate :: Negate(i8)
-  (neg): ((a) -> __yo_op_neg(a))
-;
-
-I8BitLeftShift :: BitLeftShift(i8, i8)
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-;
-
-I8BitRightShift :: BitRightShift(i8, i8)
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-;
-
-/**
- * logic
- */
-I8LogicalNot :: LogicalNot(i8)
-  (!): ((a) -> __yo_op_not(a))
-;
-
-I8BitNot :: BitNot(i8)
-  (~): ((a) -> __yo_op_bit_complement(a))
-;
-
-I8BitAnd :: BitAnd(i8, i8)
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
-;
-
-I8BitOr :: BitOr(i8, i8)
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
-;
-
-I8BitXor :: BitXor(i8, i8)
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
-;
-
-/**
- * eq
- */
-I8Eq :: Eq(i8, i8)
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
-;
-
-/**
- * ord
- */
-I8Ord :: Ord(i8, i8, using(I8Eq))
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
-;
-
-I8Drop :: Drop(i8)
-  drop: ((self) ->
-    // No-op for i8, as it does not require any special cleanup
-    __yo_noop()
-  )
-;
-
-I8Clone :: Clone(i8)
-  clone: ((self) ->
-    // No-op for i8, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
-
-I8Methods :: impl {
+I8 :: impl {
   Self :: i8;
+  export Self;
 
+  // === Arithmetic ===
+  _Add :: Add(i8, i8)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ;
+  _Sub :: Sub(i8, i8)
+    (-): ((a, b) -> __yo_op_sub(a, b))
+  ;
+  _Mul :: Mul(i8, i8)
+    (*): ((a, b) -> __yo_op_mul(a, b))
+  ;
+  _Div :: Div(i8, i8)
+    (/): ((a, b) -> __yo_op_div(a, b))
+  ;
+  _Mod :: Mod(i8, i8)
+    (%): ((a, b) -> __yo_op_mod(a, b))
+  ;
+  _Negate :: Negate(i8)
+    (neg): ((a) -> __yo_op_neg(a))
+  ;
+  _BitLeftShift :: BitLeftShift(i8, i8)
+    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  ;
+  _BitRightShift :: BitRightShift(i8, i8)
+    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  ;
+  export
+    Add : _Add,
+    Sub : _Sub,
+    Mul : _Mul,
+    Div : _Div,
+    Mod : _Mod,
+    Negate : _Negate,
+    BitLeftShift : _BitLeftShift,
+    BitRightShift : _BitRightShift
+  ;
+
+  // === Logic ===
+  _LogicalNot :: LogicalNot(i8)
+    (!): ((a) -> __yo_op_not(a))
+  ;
+  _BitNot :: BitNot(i8)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ;
+  _BitAnd :: BitAnd(i8, i8)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ;
+  _BitOr :: BitOr(i8, i8)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ;
+  _BitXor :: BitXor(i8, i8)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ;
+  export
+    LogicalNot : _LogicalNot,
+    BitNot : _BitNot,
+    BitAnd : _BitAnd,
+    BitOr : _BitOr,
+    BitXor : _BitXor
+  ;
+
+  // === Eq ===
+  _Eq :: Eq(i8, i8)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ;
+  export Eq : _Eq;
+
+  // === Ord ===
+  _Ord :: Ord(i8, i8, using(_Eq))
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ;
+  export Ord : _Ord;
+
+  // === Hash ===
+  _Hash :: Hash(i8)
+    (hash): ((value) -> __yo_as(value, u64))
+  ;
+  export Hash : _Hash;
+
+  // === Drop ===
+  _Drop :: Drop(i8)
+    drop: ((self) ->
+      // No-op for i8, as it does not require any special cleanup
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
+
+  // === Clone ===
+  _Clone :: Clone(i8)
+    clone: ((self) ->
+      // No-op for i8, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
+
+  // === Other methods ===
   (as) :: (fn(self: Self, compt(Target): Type) -> Target)
     __yo_as(self, Target)
   ;
-  
-  export Self,
-    as
-  ;
+  export as;
+
 };
 
-I8ComptMethods :: impl {
+
+ComptI8 :: impl {
   Self :: i8;
 
   (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
@@ -186,23 +198,6 @@ I8ComptMethods :: impl {
 };
 
 export
-  I8Add,
-  I8Sub,
-  I8Mul,
-  I8Div,
-  I8Mod,
-  I8BitLeftShift,
-  I8BitRightShift,
-  I8Negate,
-  I8LogicalNot,
-  I8BitNot,
-  I8BitAnd,
-  I8BitOr,
-  I8BitXor,
-  I8Eq,
-  I8Ord,
-  I8Drop,
-  I8Clone,
-  I8Methods,
-  I8ComptMethods
-;
+  I8,
+  ComptI8;
+

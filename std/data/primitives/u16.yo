@@ -3,113 +3,123 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
-/**
- * arithmetic
- */
-U16Add :: Add(u16, u16)
-  (+): ((a, b) -> __yo_op_add(a, b))
-;
-
-U16Sub :: Sub(u16, u16)
-  (-): ((a, b) -> __yo_op_sub(a, b))
-;
-
-U16Mul :: Mul(u16, u16)
-  (*): ((a, b) -> __yo_op_mul(a, b))
-;
-
-U16Div :: Div(u16, u16)
-  (/): ((a, b) -> __yo_op_div(a, b))
-;
-
-U16Mod :: Mod(u16, u16)
-  (%): ((a, b) -> __yo_op_mod(a, b))
-;
-
-U16Negate :: Negate(u16)
-  (neg): ((a) -> __yo_op_neg(a))
-;
-
-U16BitLeftShift :: BitLeftShift(u16, u16)
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-;
-
-U16BitRightShift :: BitRightShift(u16, u16)
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-;
-
-/**
- * logic
- */
-U16LogicalNot :: LogicalNot(u16)
-  (!): ((a) -> __yo_op_not(a))
-;
-
-U16BitNot :: BitNot(u16)
-  (~): ((a) -> __yo_op_bit_complement(a))
-;
-
-U16BitAnd :: BitAnd(u16, u16)
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
-;
-
-U16BitOr :: BitOr(u16, u16)
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
-;
-
-U16BitXor :: BitXor(u16, u16)
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
-;
-
-
-/**
- * eq
- */
-U16Eq :: Eq(u16, u16)
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
-;
-
-/**
- * ord
- */
-U16Ord :: Ord(u16, u16, using(U16Eq))
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
-;
-
-U16Drop :: Drop(u16)
-  drop: ((self) ->
-    // No-op for u16, as it does not require any special cleanup
-    __yo_noop()
-  )
-;
-
-U16Clone :: Clone(u16)
-  clone: ((self) ->
-    // No-op for u16, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
-
-U16Methods :: impl {
+U16 :: impl {
   Self :: u16;
+  export Self;
 
+  // === Arithmetic ===
+  _Add :: Add(u16, u16)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ;
+  _Sub :: Sub(u16, u16)
+    (-): ((a, b) -> __yo_op_sub(a, b))
+  ;
+  _Mul :: Mul(u16, u16)
+    (*): ((a, b) -> __yo_op_mul(a, b))
+  ;
+  _Div :: Div(u16, u16)
+    (/): ((a, b) -> __yo_op_div(a, b))
+  ;
+  _Mod :: Mod(u16, u16)
+    (%): ((a, b) -> __yo_op_mod(a, b))
+  ;
+  _Negate :: Negate(u16)
+    (neg): ((a) -> __yo_op_neg(a))
+  ;
+  _BitLeftShift :: BitLeftShift(u16, u16)
+    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  ;
+  _BitRightShift :: BitRightShift(u16, u16)
+    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  ;
+  export
+    Add : _Add,
+    Sub : _Sub,
+    Mul : _Mul,
+    Div : _Div,
+    Mod : _Mod,
+    Negate : _Negate,
+    BitLeftShift : _BitLeftShift,
+    BitRightShift : _BitRightShift
+  ;
+
+  // === Logic ===
+  _LogicalNot :: LogicalNot(u16)
+    (!): ((a) -> __yo_op_not(a))
+  ;
+  _BitNot :: BitNot(u16)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ;
+  _BitAnd :: BitAnd(u16, u16)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ;
+  _BitOr :: BitOr(u16, u16)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ;
+  _BitXor :: BitXor(u16, u16)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ;
+  export
+    LogicalNot : _LogicalNot,
+    BitNot : _BitNot,
+    BitAnd : _BitAnd,
+    BitOr : _BitOr,
+    BitXor : _BitXor
+  ;
+
+  // === Eq ===
+  _Eq :: Eq(u16, u16)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ;
+  export Eq : _Eq;
+
+  // === Ord ===
+  _Ord :: Ord(u16, u16, using(_Eq))
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ;
+  export Ord : _Ord;
+
+  // === Hash ===
+  _Hash :: Hash(u16)
+    (hash): ((value) -> __yo_as(value, u64))
+  ;
+  export Hash : _Hash;
+
+  // === Drop ===
+  _Drop :: Drop(u16)
+    drop: ((self) ->
+      // No-op for u16, as it does not require any special cleanup
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
+
+  // === Clone ===
+  _Clone :: Clone(u16)
+    clone: ((self) ->
+      // No-op for u16, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
+
+  // === Other methods ===
   (as) :: (fn(self: Self, compt(Target): Type) -> Target)
     __yo_as(self, Target)
   ;
-  
-  export Self,
-    as
-  ;
+  export as;
+
 };
 
 
-U16ComptMethods :: impl {
+ComptU16 :: impl {
   Self :: u16;
 
   (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
@@ -183,23 +193,6 @@ U16ComptMethods :: impl {
 };
 
 export
-  U16Add,
-  U16Sub,
-  U16Mul,
-  U16Div,
-  U16Mod,
-  U16BitLeftShift,
-  U16BitRightShift,
-  U16Negate,
-  U16LogicalNot,
-  U16BitNot,
-  U16BitAnd,
-  U16BitOr,
-  U16BitXor,
-  U16Eq,
-  U16Ord,
-  U16Drop,
-  U16Clone,
-  U16Methods,
-  U16ComptMethods
-;
+  U16,
+  ComptU16;
+

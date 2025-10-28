@@ -3,120 +3,111 @@ open import "../../modules/arithmetic.yo";
 open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 { Ord } :: import "../../modules/ord.yo";
+{ Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
-/**
- * arithmetic
- */
-IntAdd :: Add(int, int)
-  (+): ((a, b) -> __yo_op_add(a, b))
-;
-
-IntSub :: Sub(int, int)
-  (-): ((a, b) -> __yo_op_sub(a, b))
-;
-
-IntMul :: Mul(int, int)
-  (*): ((a, b) -> __yo_op_mul(a, b))
-;
-
-IntDiv :: Div(int, int)
-  (/): ((a, b) -> __yo_op_div(a, b))
-;
-
-IntMod :: Mod(int, int)
-  (%): ((a, b) -> __yo_op_mod(a, b))
-;
-
-IntNegate :: Negate(int)
-  (neg): ((a) -> __yo_op_neg(a))
-;
-
-/**
- * logic
- */
-IntLogicalNot :: LogicalNot(int)
-  (!): ((a) -> __yo_op_not(a))
-;
-
-
-IntBitNot :: BitNot(int)
-  (~): ((a) -> __yo_op_bit_complement(a))
-;
-
-IntBitAnd :: BitAnd(int, int)
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
-;
-
-IntBitOr :: BitOr(int, int)
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
-;
-
-IntBitXor :: BitXor(int, int)
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
-;
-
-
-/**
- * eq
- */
-IntEq :: Eq(int, int)
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
-;
-
-/**
- * ord
- */
-IntOrd :: Ord(int, int, using(IntEq))
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
-;
-
-IntDrop :: Drop(int)
-  drop: ((self) ->
-    // No-op for int, as it does not require any special cleanup
-    __yo_noop()
-  )
-;
-
-IntClone :: Clone(int)
-  clone: ((self) ->
-    // No-op for int, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
-
-IntMethods :: impl {
+Int :: impl {
   Self :: int;
+  export Self;
 
+  // === Arithmetic ===
+  _Add :: Add(int, int)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ;
+  _Sub :: Sub(int, int)
+    (-): ((a, b) -> __yo_op_sub(a, b))
+  ;
+  _Mul :: Mul(int, int)
+    (*): ((a, b) -> __yo_op_mul(a, b))
+  ;
+  _Div :: Div(int, int)
+    (/): ((a, b) -> __yo_op_div(a, b))
+  ;
+  _Mod :: Mod(int, int)
+    (%): ((a, b) -> __yo_op_mod(a, b))
+  ;
+  _Negate :: Negate(int)
+    (neg): ((a) -> __yo_op_neg(a))
+  ;
+  export
+    Add : _Add,
+    Sub : _Sub,
+    Mul : _Mul,
+    Div : _Div,
+    Mod : _Mod,
+    Negate : _Negate
+  ;
+
+  // === Logic ===
+  _LogicalNot :: LogicalNot(int)
+    (!): ((a) -> __yo_op_not(a))
+  ;
+  _BitNot :: BitNot(int)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ;
+  _BitAnd :: BitAnd(int, int)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ;
+  _BitOr :: BitOr(int, int)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ;
+  _BitXor :: BitXor(int, int)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ;
+  export
+    LogicalNot : _LogicalNot,
+    BitNot : _BitNot,
+    BitAnd : _BitAnd,
+    BitOr : _BitOr,
+    BitXor : _BitXor
+  ;
+
+  // === Eq ===
+  _Eq :: Eq(int, int)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ;
+  export Eq : _Eq;
+
+  // === Ord ===
+  _Ord :: Ord(int, int, using(_Eq))
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ;
+  export Ord : _Ord;
+
+  // === Hash ===
+  _Hash :: Hash(int)
+    (hash): ((value) -> __yo_as(value, u64))
+  ;
+  export Hash : _Hash;
+
+  // === Drop ===
+  _Drop :: Drop(int)
+    drop: ((self) ->
+      // No-op for int, as it does not require any special cleanup
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
+
+  // === Clone ===
+  _Clone :: Clone(int)
+    clone: ((self) ->
+      // No-op for int, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
+
+  // === Other methods ===
   as :: (fn(self: Self, compt(Target) : Type) -> Target)
     __yo_as(self, Target)
   ;
+  export as;
 
-  export
-    Self,
-    as
-  ;
 };
 
-export
-  IntAdd,
-  IntSub,
-  IntMul,
-  IntDiv,
-  IntMod,
-  IntNegate,
-  IntLogicalNot,
-  IntBitNot,
-  IntBitAnd,
-  IntBitOr,
-  IntBitXor,
-  IntEq,
-  IntOrd,
-  IntDrop,
-  IntClone,
-  IntMethods
-;
+export Int;

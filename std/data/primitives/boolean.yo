@@ -4,40 +4,38 @@ open import "../../modules/logic.yo";
 { Eq } :: import "../../modules/eq.yo";
 
 
-/**
- * eq
- */
-BooleanEq :: Eq(boolean, boolean)
-  (==): ((a, b) ->
-    __yo_op_eq(a, b)
-  )
-;
+Boolean :: impl {
+  Self :: boolean;
+  export Self;
 
-/**
-  * Drop
-  * 
-  * This is a no-op for boolean type, as it does not require any special cleanup.
-  */
-BooleanDrop :: Drop(boolean)
-  drop: ((self)->
-    // No-op for boolean
-    __yo_noop()
-  )
-;
+  // === Eq ===
+  _Eq :: Eq(boolean, boolean)
+    (==): ((a, b) ->
+      __yo_op_eq(a, b)
+    )
+  ;
+  export Eq : _Eq;
 
-/**
-  * Clone
-  * 
-  * Just returns the same boolean value, as it is a primitive type.
-  */
-BooleanClone :: Clone(boolean)
-  clone: ((self) ->
-    // No-op for boolean, as it is a primitive type
-    __yo_return_self(self.*)
-  )
-;
+  // === Drop ===
+  _Drop :: Drop(boolean)
+    drop: ((self)->
+      // No-op for boolean
+      __yo_noop()
+    )
+  ;
+  export Drop : _Drop;
 
-ComptBooleanMethods :: impl {
+  // === Clone ===
+  _Clone :: Clone(boolean)
+    clone: ((self) ->
+      // No-op for boolean, as it is a primitive type
+      __yo_return_self(self.*)
+    )
+  ;
+  export Clone : _Clone;
+};
+
+ComptBoolean :: impl {
   Self :: boolean;
 
   (&&) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
@@ -78,8 +76,6 @@ ComptBooleanMethods :: impl {
 
 
 export
-  BooleanEq,
-  BooleanDrop,
-  BooleanClone,
-  ComptBooleanMethods
+  Boolean,
+  ComptBoolean
 ;
