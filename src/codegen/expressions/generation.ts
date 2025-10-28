@@ -651,21 +651,13 @@ function generateFuncCall(
 
   // bindings
   if (exprIsFunctionCallOf(expr, ":", 2)) {
-    let lhs = expr.args[0]!;
+    const lhs = expr.args[0]!;
     if (
       exprIsFunctionCall(lhs) &&
       exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
     ) {
       // compile-time variable
       return "";
-    }
-
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
-    ) {
-      // implicit variable, just use the inner expression
-      lhs = lhs.args[0]!;
     }
 
     if (!lhs.$?.type) {
@@ -682,7 +674,7 @@ function generateFuncCall(
   }
   // Initialization assignment
   else if (exprIsFunctionCallOf(expr, ":=", 2)) {
-    let lhs = expr.args[0]!;
+    const lhs = expr.args[0]!;
     const rhs = expr.args[1]!;
 
     // Debug: Log all := assignments in state machines
@@ -758,15 +750,6 @@ function generateFuncCall(
         );
       });
       return "";
-    }
-
-    // let isImplicit = false;
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
-    ) {
-      // isImplicit = true;
-      lhs = lhs.args[0]!; // Get the actual variable being assigned
     }
 
     if (exprIsAtom(lhs)) {
@@ -1008,13 +991,6 @@ function generateFuncCall(
     ) {
       // compile-time variable
       return "";
-    }
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
-    ) {
-      // implicit variable, just use the inner expression
-      lhs = lhs.args[0]!;
     }
 
     if (!lhs.$?.type) {

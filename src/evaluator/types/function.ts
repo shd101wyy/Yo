@@ -350,7 +350,6 @@ ${typeToString(parameterType)}`,
       name: label,
       type: parameterType,
       isCompileTimeOnly: isCompileTimeOnly,
-      isImplicit: false,
       value:
         // defaultValue ?? // NOTE: No need to use the default value here.
         isCompileTimeOnly
@@ -651,7 +650,6 @@ export function evaluateFunctionParameters({
             name: parameterName,
             type: parameterType,
             isCompileTimeOnly: variadicParameter.isCompileTimeOnly,
-            isImplicit: false,
             value: isCompileTimeOnly
               ? createUnknownValue(parameterType, parameterName)
               : undefined,
@@ -1126,7 +1124,6 @@ export function evaluateFunctionParameterTypeAgain({
     //       type: parameterType,
     //       isMutable: parameter.isMutable,
     //       isCompileTimeOnly: parameter.isCompileTimeOnly,
-    //       isImplicit: false,
     //       value: parameter.isCompileTimeOnly
     //         ? createUnknownValue(parameterType, parameter.label)
     //         : undefined,

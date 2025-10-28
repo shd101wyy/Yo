@@ -476,19 +476,12 @@ export function activate(context: vscode.ExtensionContext) {
             variables &&
             variables.length > 0 &&
             variables[variables.length - 1]!.isCompileTimeOnly;
-          const isImplicit =
-            variables &&
-            variables.length > 0 &&
-            variables[variables.length - 1]!.isImplicit;
 
           isUndefined =
             variables &&
             variables.length > 0 &&
             !variables[variables.length - 1]!.initializedAtToken;
 
-          if (isImplicit) {
-            tokenText = `given(${tokenText})`;
-          }
           if (isCompileTimeOnly) {
             tokenText = `compt(${tokenText})`;
           }

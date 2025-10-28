@@ -136,7 +136,6 @@ export function createCaptureTypeAndValue({
           label: varName,
           type: captureInfo.type,
           isCompileTimeOnly: false, // Captured variables are runtime values
-          isImplicit: false,
           assignedValue: undefined,
           exprs: {
             expr: {

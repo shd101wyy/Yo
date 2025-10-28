@@ -1,7 +1,6 @@
 import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -65,26 +64,8 @@ export function evaluateInitializationAssignment({
     });
   }
 
-  let isImplicit = false;
-
-  let lhs = expr.args[0]!;
+  const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
-
-  // Check if the variale is implicit
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
-  ) {
-    isImplicit = true;
-    // Check if the lhs is a variable
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected one argument for implicit, got ${lhs.args.length}`,
-      });
-    }
-    lhs = lhs.args[0]!;
-  }
 
   // Prevent declaring variable type using :: or :=
   if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":")) {
@@ -275,7 +256,6 @@ ${exprToString(rhs)}`,
         name: lhs.token.value,
         type: lhs.$.type,
         isCompileTimeOnly,
-        isImplicit,
         value: lhs.$.value,
         token: lhs.token,
         initializedAtToken: lhs.token,

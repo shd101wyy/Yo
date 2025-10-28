@@ -212,7 +212,6 @@ export function evaluateFor({
       consumedAtToken: undefined,
       initializedAtToken: elementVariableExpr.token,
       isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency
-      isImplicit: false, // Not an implicit variable
       token: elementVariableExpr.token,
 
       // TODO: Support reference value
@@ -226,7 +225,6 @@ export function evaluateFor({
         consumedAtToken: undefined,
         initializedAtToken: elementIndexExpr!.token,
         isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency
-        isImplicit: false, // Not an implicit variable
         token: elementIndexExpr!.token,
         value: isCompileTime
           ? createNumberValue(ValueTag.Usize, index)

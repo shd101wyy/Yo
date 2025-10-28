@@ -223,7 +223,6 @@ export function evaluateAnonymousStructValue({
         type,
         label: label ?? `$element_${randomId()}`,
         isCompileTimeOnly: false, // TODO: Fix this
-        isImplicit: false,
       };
       elements.push(element);
       runtimeArgExprsInOrder.push(evaluatedArg);
@@ -261,7 +260,6 @@ export function evaluateAnonymousStructValue({
     pathCollection: [],
   };
 
-  // NOTE: We add anonymous struct value's type as isImplicit = true.
   // Add the struct type value to the environment
   const { env: nextEnv } = addVariableToEnv({
     env,
@@ -272,7 +270,6 @@ export function evaluateAnonymousStructValue({
       initializedAtToken: expr.token,
       token: expr.token,
       isCompileTimeOnly: true,
-      isImplicit: true,
       consumedAtToken: undefined,
     },
   });

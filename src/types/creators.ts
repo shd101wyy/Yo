@@ -310,7 +310,6 @@ export function createStructType(
     type: typeValue.type,
     label: "Self",
     isCompileTimeOnly: true,
-    isImplicit: false,
     defaultValue: undefined,
     assignedValue: typeValue,
     exprs: {
@@ -351,7 +350,6 @@ export function createEnumType(env: Environment): EnumType {
     type: typeValue.type,
     label: "Self",
     isCompileTimeOnly: true,
-    isImplicit: false,
     defaultValue: undefined,
     assignedValue: typeValue,
     exprs: {
@@ -383,7 +381,6 @@ export function createUnionType(env: Environment): UnionType {
     type: typeValue.type,
     label: "Self",
     isCompileTimeOnly: true,
-    isImplicit: false,
     defaultValue: undefined,
     assignedValue: typeValue,
     exprs: {
@@ -535,7 +532,6 @@ export function createClosureType(
     type: typeValue.type,
     label: "Self",
     isCompileTimeOnly: true,
-    isImplicit: false,
     defaultValue: undefined,
     assignedValue: typeValue,
     exprs: {
@@ -570,7 +566,6 @@ export function createDynType(
     type: typeValue.type,
     label: "Self",
     isCompileTimeOnly: true,
-    isImplicit: false,
     defaultValue: undefined,
     assignedValue: typeValue,
     exprs: {
@@ -606,7 +601,6 @@ export function createFutureType(
     assignedValue: typeValue,
     label: "Self",
     isCompileTimeOnly: true,
-    isImplicit: true,
     exprs: {
       expr: {
         tag: ExprTag.Atom,

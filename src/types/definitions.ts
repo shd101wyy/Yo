@@ -202,7 +202,6 @@ export interface ElementType {
   type: Type;
   label: string;
   isCompileTimeOnly: boolean;
-  isImplicit: boolean;
 
   // The default value and assigned value are compile-time known.
   // eg:
@@ -307,7 +306,6 @@ export interface ModuleElement {
   type: Type;
   label: string;
   isCompileTimeOnly: true;
-  isImplicit: boolean;
 
   // The default value and assigned value are compile-time known.
   defaultValue?: Value;

@@ -65,10 +65,6 @@ export interface Variable {
    * x :: 1;
    */
   isCompileTimeOnly: boolean;
-  /**
-   * Whether the variable is implicit or not.
-   */
-  isImplicit: boolean;
 
   /**
    * Whether the variable is owning the ARC value or borrowing the ARC value.
@@ -467,7 +463,6 @@ export function printEnvVarNames(env: Environment) {
         typeId: variable.type.id,
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
-        isImplicit: variable.isImplicit,
         isUndefined: !variable.initializedAtToken,
         isOwningTheARCValue: !!variable.isOwningTheARCValue,
         isBorrowingTheARCValueOfVariable:
@@ -487,7 +482,6 @@ export function printEnvFrame(frame: Frame) {
       typeId: variable.type.id,
       value: valueToString(variable.value),
       isCompileTimeOnly: variable.isCompileTimeOnly,
-      isImplicit: variable.isImplicit,
       isUndefined: !variable.initializedAtToken,
       isOwningTheARCValue: !!variable.isOwningTheARCValue,
       isBorrowingTheARCValueOfVariable:

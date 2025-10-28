@@ -600,9 +600,6 @@ export function tupleElementToString(
   if (stringIsOperator(label)) {
     label = `(${label})`;
   }
-  if (element.isImplicit) {
-    label = `given(${label})`;
-  }
   if (element.isCompileTimeOnly) {
     label = `compt(${label})`;
   }
@@ -636,9 +633,6 @@ function moduleElementToString(
   let label = element.label;
   if (stringIsOperator(label)) {
     label = `(${label})`;
-  }
-  if (element.isImplicit) {
-    label = `given(${label})`;
   }
 
   const defaultValueStr = element.defaultValue

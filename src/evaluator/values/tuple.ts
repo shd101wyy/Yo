@@ -120,7 +120,11 @@ ${typeToString(expectedTupleType)}`,
 
   // Tuple can only accept runtime values, so we convert the type
   // to runtime type.
-  elementType = convertComptTypeToRuntimeType({ type: evaluatedRhs.$.type, expectedType: undefined, expr: undefined });
+  elementType = convertComptTypeToRuntimeType({
+    type: evaluatedRhs.$.type,
+    expectedType: undefined,
+    expr: undefined,
+  });
 
   // Add to runtimeArgExprsInOrder
   runtimeArgExprsInOrder.push(evaluatedRhs);
@@ -141,7 +145,6 @@ ${typeToString(expectedTupleType)}`,
         assignedValueExpr: undefined,
       },
       isCompileTimeOnly: false,
-      isImplicit: false,
       type: elementType,
       label: elementIndex.toString(), // `$element_${randomId()}`,
     },

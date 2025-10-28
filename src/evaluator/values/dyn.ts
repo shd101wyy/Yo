@@ -344,10 +344,6 @@ export function evaluateDynValue({
 
     // Find implicit variables that match this module type
     const implicitVariables = getVariablesFromEnvByFilter(env, (variable) => {
-      if (!variable.isImplicit) {
-        return false;
-      }
-
       // Check if it's a module value
       if (!isModuleValue(variable.value)) {
         return false;

@@ -204,7 +204,6 @@ export function evaluateAnonymousModuleBeginExprs({
                   label: extendedStructElement.label,
                   type: extendedStructElement.type,
                   isCompileTimeOnly: extendedStructElement.isCompileTimeOnly,
-                  isImplicit: extendedStructElement.isImplicit,
                   assignedValue: extendedStructElement.isCompileTimeOnly
                     ? extendedStructElement.assignedValue
                     : undefined,
@@ -325,7 +324,6 @@ export function evaluateAnonymousModuleBeginExprs({
                 label: variableName,
                 type: variable.type,
                 isCompileTimeOnly: variable.isCompileTimeOnly,
-                isImplicit: variable.isImplicit,
                 assignedValue: variable.isCompileTimeOnly
                   ? variable.value
                   : undefined,

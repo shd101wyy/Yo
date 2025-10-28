@@ -250,7 +250,6 @@ export function evaluateMatch({
             name: variableName,
             type: variableType,
             isCompileTimeOnly: false,
-            isImplicit: false,
             value: evaluatedScrutineeExpr.$.value,
             token: evaluatedScrutineeExpr.token,
             initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
@@ -359,7 +358,11 @@ export function evaluateMatch({
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType({ type: resultType.type, expectedType: undefined, expr: undefined }),
+              type: convertComptTypeToRuntimeType({
+                type: resultType.type,
+                expectedType: undefined,
+                expr: undefined,
+              }),
               env: resultType.env,
             },
             {
@@ -528,7 +531,6 @@ export function evaluateMatch({
                     name: variableName,
                     type: element.type,
                     isCompileTimeOnly: false,
-                    isImplicit: false,
                     value: undefined,
                     token: variableExpr.token,
                     initializedAtToken: variableExpr.token,
@@ -572,7 +574,6 @@ export function evaluateMatch({
                   name: paramName,
                   type: element.type,
                   isCompileTimeOnly: false,
-                  isImplicit: false,
                   value: undefined,
                   token: param.token,
                   initializedAtToken: param.token,
@@ -608,7 +609,6 @@ export function evaluateMatch({
             name: variableName,
             type: variableType,
             isCompileTimeOnly: false,
-            isImplicit: false,
             value: evaluatedScrutineeExpr.$.value,
             token: evaluatedScrutineeExpr.token,
             initializedAtToken: evaluatedScrutineeExpr.token,
@@ -697,7 +697,11 @@ export function evaluateMatch({
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType({ type: resultType.type, expectedType: undefined, expr: undefined }),
+              type: convertComptTypeToRuntimeType({
+                type: resultType.type,
+                expectedType: undefined,
+                expr: undefined,
+              }),
               env: resultType.env,
             },
             {

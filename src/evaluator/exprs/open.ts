@@ -67,7 +67,6 @@ export function evaluateOpen({
           name: element.label,
           type: element.type,
           isCompileTimeOnly: element.isCompileTimeOnly,
-          isImplicit: element.isImplicit,
           value: value,
           token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
           initializedAtToken:
@@ -96,7 +95,6 @@ export function evaluateOpen({
             name: element.label,
             type: element.type,
             isCompileTimeOnly: element.isCompileTimeOnly,
-            isImplicit: element.isImplicit,
             value: value,
             token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
             initializedAtToken:

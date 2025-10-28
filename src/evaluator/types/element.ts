@@ -64,7 +64,6 @@ export function evaluateElementType({
   let assignedValue: Value | undefined = undefined;
 
   let isCompileTimeOnly = false;
-  let isImplicit = false;
 
   let elementType: Type | undefined = undefined;
 
@@ -84,15 +83,6 @@ export function evaluateElementType({
       isCompileTimeOnly = true;
 
       labelExpr = expr_.args[0]!;
-
-      // Check isImplicit
-      if (
-        exprIsFunctionCall(labelExpr) &&
-        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
-      ) {
-        isImplicit = true;
-        labelExpr = labelExpr.args[0]!;
-      }
 
       if (!isValidVariableName(labelExpr)) {
         throw formatErrorMessage({
@@ -137,15 +127,6 @@ export function evaluateElementType({
       labelExpr = labelExpr.args[0]!;
     }
 
-    // Check isImplicit
-    if (
-      exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
-    ) {
-      isImplicit = true;
-      labelExpr = labelExpr.args[0]!;
-    }
-
     if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
@@ -168,15 +149,6 @@ export function evaluateElementType({
 
     isCompileTimeOnly = true;
     labelExpr = expr_.args[0]!;
-
-    // Check isImplicit
-    if (
-      exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
-    ) {
-      isImplicit = true;
-      labelExpr = labelExpr.args[0]!;
-    }
 
     // Check if labelExpr is an atom
     if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
@@ -395,7 +367,11 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
-    elementType = convertComptTypeToRuntimeType({ type: elementType, expectedType: undefined, expr: undefined });
+    elementType = convertComptTypeToRuntimeType({
+      type: elementType,
+      expectedType: undefined,
+      expr: undefined,
+    });
     if (typeRequiresComptModifier(elementType)) {
       throw formatErrorMessage({
         token: labelExpr?.token ?? expr.token,
@@ -448,7 +424,6 @@ Given type: ${typeToString(defaultValueType)}`,
       assignedValueExpr,
     },
     isCompileTimeOnly,
-    isImplicit,
     defaultValue,
     assignedValue,
   };

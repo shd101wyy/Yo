@@ -442,7 +442,6 @@ export const BuiltinKeywords = {
 
   // implicit: ["implicit" /*"?"*/], // deprecated in favor of `using` and `given` like scala
   using: ["using"],
-  given: ["given"],
 
   forall: ["forall", "∀"],
   // Exists: ["exists", "∃"],
@@ -1230,7 +1229,6 @@ ${exprToString(expr)}`);
       type,
       value: _isOwningTheARCValue ? undefined : value,
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
-      isImplicit: false,
       initializedAtToken: expr.token,
       isOwningTheARCValue: _isOwningTheARCValue,
       consumedAtToken: undefined,

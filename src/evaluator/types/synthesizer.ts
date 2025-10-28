@@ -145,7 +145,6 @@ export function synthesizeTypes(
             value: value,
             type: value.type,
             isCompileTimeOnly: true,
-            isImplicit: false,
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
             consumedAtToken: undefined,
@@ -174,7 +173,6 @@ export function synthesizeTypes(
             value: value,
             type: value.type,
             isCompileTimeOnly: true,
-            isImplicit: false,
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
             consumedAtToken: undefined,
@@ -213,7 +211,6 @@ export function synthesizeTypes(
               value: value,
               type: value.type,
               isCompileTimeOnly: true,
-              isImplicit: false,
               token: PlaceholderToken,
               initializedAtToken: PlaceholderToken,
               consumedAtToken: undefined,
@@ -243,7 +240,6 @@ export function synthesizeTypes(
               value: value,
               type: value.type,
               isCompileTimeOnly: true,
-              isImplicit: false,
               token: PlaceholderToken,
               initializedAtToken: PlaceholderToken,
               consumedAtToken: undefined,
@@ -290,7 +286,6 @@ export function synthesizeTypes(
             value: value,
             type: value.type,
             isCompileTimeOnly: true,
-            isImplicit: false,
             token: PlaceholderToken, // FIXME: What should be `token` here?
             initializedAtToken: PlaceholderToken, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
@@ -350,7 +345,6 @@ export function synthesizeTypes(
             value: value,
             type: value.type,
             isCompileTimeOnly: true,
-            isImplicit: false,
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
             consumedAtToken: undefined,
@@ -544,7 +538,6 @@ export function synthesizeTypes(
             value: givenLength,
             type: given.type.length.type,
             isCompileTimeOnly: true,
-            isImplicit: false,
             token: PlaceholderToken, // FIXME: What should be `token` here?
             initializedAtToken: PlaceholderToken, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet

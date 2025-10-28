@@ -350,7 +350,6 @@ export function checkIfFunctionParameterMatchesArgument({
       type: argType, // QUESTION: Should we use parameterType here or argType?
       // This might affect assigning Free type arg to Type parameter
       isCompileTimeOnly: parameter.isCompileTimeOnly,
-      isImplicit: false,
       value: argValue,
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
@@ -551,7 +550,6 @@ export function tryToCallFunctionWithArguments({
         isCompileTimeOnly: true,
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
-        isImplicit: false,
         value: typeValue,
       },
     });
@@ -572,7 +570,6 @@ export function tryToCallFunctionWithArguments({
           name: forallParameter.label,
           type: forallParameter.type,
           isCompileTimeOnly: true,
-          isImplicit: false,
           value: createUnknownValue(
             forallParameter.type,
             forallParameter.label
@@ -757,7 +754,6 @@ Got:   ${typeToString(typeValue.type)}`,
               name: forallParameter.label,
               type: typeValue.type,
               isCompileTimeOnly: true,
-              isImplicit: false,
               value: typeValue,
               token: token,
               initializedAtToken: token, // Set as initialized
@@ -932,7 +928,6 @@ Got:   ${argExprs.length} arguments`,
           name: implicitParameter.label,
           type: implicitParameterType,
           isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-          isImplicit: false,
           value: unknownValue,
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
@@ -1019,7 +1014,6 @@ Got:   ${argExprs.length} arguments`,
             name: implicitParameter.label,
             type: argType,
             isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-            isImplicit: false,
             value: argValue,
             token: implicitArgExpr.token,
             initializedAtToken: implicitArgExpr.token, // Set as initialized
@@ -1069,7 +1063,6 @@ Got:   ${typeToString(argType)}`,
       callerEnv,
       (variable) => {
         if (
-          !variable.isImplicit ||
           variable.isCompileTimeOnly !== implicitParameter.isCompileTimeOnly
         ) {
           return false;
@@ -1171,10 +1164,7 @@ Got:   ${typeToString(argType)}`,
             const module = type.module;
             for (let i = 0; i < module.elements.length; i++) {
               const moduleElement = module.elements[i]!;
-              if (
-                isModuleValue(moduleElement.assignedValue) &&
-                moduleElement.isImplicit // QUESTION: Should we check this?
-              ) {
+              if (isModuleValue(moduleElement.assignedValue)) {
                 const moduleValue = moduleElement.assignedValue;
                 if (
                   areTypesCompatible(
@@ -1252,7 +1242,6 @@ ${implicitVariables
           name: implicitParameter.label,
           type: returnType,
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
-          isImplicit: implicitVariable.isImplicit,
           value: returnValue,
           token: functionCalleeExpr?.token ?? PlaceholderToken,
           initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken, // Set as initialized
@@ -1312,7 +1301,6 @@ ${implicitVariables
           name: implicitParameter.label,
           type: implicitVariable.type,
           isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
-          isImplicit: implicitVariable.isImplicit,
           value: implicitVariable.value,
           token: functionCalleeExpr?.token ?? PlaceholderToken,
           initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken, // Set as initialized
@@ -1414,7 +1402,6 @@ ${implicitVariables
           type: exprListValue.type, // QUESTION: Should we use parameterType here or argType?
           // This might affect assigning Free type arg to Type parameter
           isCompileTimeOnly: functionType.variadicParameter.isCompileTimeOnly,
-          isImplicit: false,
           value: exprListValue,
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,

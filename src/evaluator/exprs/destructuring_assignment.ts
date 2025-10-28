@@ -4,7 +4,6 @@ import {
   BuiltinKeywords,
   Expr,
   exprIsAtom,
-  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -167,94 +166,6 @@ export function handleMemberDestructuring({
             value: elementValue,
             type: element.type,
             isCompileTimeOnly,
-            isImplicit: false,
-            token: lhsElement.token,
-            initializedAtToken: lhsElement.token,
-            consumedAtToken: undefined,
-            isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
-          },
-        });
-        env = nextEnv;
-      }
-
-      // Set the type and value of the lhsElement
-      lhsElement.$ = {
-        env,
-        type: rhsType,
-        value: rhsValue,
-        pathCollection: [],
-      };
-
-      continue;
-    }
-
-    // Handle destructuring with implicit members
-    // This only works with the module destructuring
-    // - ( ...(given) ) or ( ...(not(given)) )
-    else if (
-      exprIsFunctionCall(lhsElement) &&
-      exprIsFunctionCallOf(lhsElement, "...", 1) &&
-      lhsElement.args.length === 1 &&
-      (exprIsAtomOf(lhsElement.args[0]!, BuiltinKeywords.given) ||
-        (exprIsFunctionCall(lhsElement.args[0]) &&
-          exprIsFunctionCallOf(lhsElement.args[0]!, BuiltinKeywords.not) &&
-          exprIsAtomOf(lhsElement.args[0]!.args[0]!, BuiltinKeywords.given))) // TODO: not implicit
-    ) {
-      const expectedImplicits = exprIsAtomOf(
-        lhsElement.args[0]!,
-        BuiltinKeywords.given
-      );
-
-      if (!isModuleType(rhsType) || !isModuleValue(rhsValue)) {
-        throw formatErrorMessage({
-          token: lhsElement.token,
-          errorMessage: `Expected module value for destructuring with ${expectedImplicits ? "implicit" : "non-implicit"} members, got ${typeToString(
-            rhsType
-          )}`,
-        });
-      }
-
-      // We can destructure all elements
-      for (let j = 0; j < rhsElements.length; j++) {
-        const element = rhsElements[j]!;
-
-        if (destructuredRhsElements[element.label]) {
-          continue; // Skip already destructured elements
-        } else {
-          destructuredRhsElements[element.label] = {
-            label: element.label,
-            variableName: element.label,
-            type: element.type,
-          };
-        }
-
-        const memberTypeIndex = rhsType.elements.findIndex(
-          (m) => m.label === element.label
-        )!;
-        const memberType = rhsType.elements[memberTypeIndex]!;
-        if (memberType.isImplicit !== expectedImplicits) {
-          continue;
-        }
-
-        const memberValue = rhsValue.elements[memberTypeIndex];
-
-        if (!memberValue && isCompileTimeOnly) {
-          throw formatErrorMessage({
-            token: lhsElement.token,
-            errorMessage: `Destructuring member "${element.label}" is not defined in compile-time only context.`,
-          });
-        }
-
-        // Add to environment
-        // console.log("(3) addVariableToEnv");
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: element.label,
-            value: memberValue,
-            type: element.type,
-            isCompileTimeOnly,
-            isImplicit: false,
             token: lhsElement.token,
             initializedAtToken: lhsElement.token,
             consumedAtToken: undefined,
@@ -434,7 +345,6 @@ export function handleMemberDestructuring({
         variable: {
           name: variableName,
           type: rhsElement.type,
-          isImplicit: false,
           isCompileTimeOnly: isCompileTimeOnly,
           value: elementValue,
           token: variableToken,

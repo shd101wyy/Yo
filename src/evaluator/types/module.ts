@@ -68,8 +68,6 @@ export function evaluateModuleElementType({
   let assignedValueExpr: Expr | undefined = undefined;
   let assignedValue: Value | undefined = undefined;
 
-  let isImplicit = false;
-
   let elementType: Type | undefined = undefined;
 
   // Check the default value
@@ -121,15 +119,6 @@ All module elements are compile-time only by default.`,
       });
     }
 
-    // Check isImplicit
-    if (
-      exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
-    ) {
-      isImplicit = true;
-      labelExpr = labelExpr.args[0]!;
-    }
-
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
@@ -156,15 +145,6 @@ All module elements are compile-time only by default.`,
     //  eg:
     //    Output ?= Self
     labelExpr = expr_;
-
-    // Check isImplicit
-    if (
-      exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.given, 1)
-    ) {
-      isImplicit = true;
-      labelExpr = labelExpr.args[0]!;
-    }
 
     if (!isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
@@ -411,7 +391,6 @@ Given type: ${typeToString(defaultValueType)}`,
         assignedValueExpr,
       },
       isCompileTimeOnly: true,
-      isImplicit,
       defaultValue,
       assignedValue,
     },
@@ -544,7 +523,6 @@ export function evaluateModuleType({
                     extendedModuleElement.label
                   ),
                 isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
-                isImplicit: extendedModuleElement.isImplicit,
                 token: extendedModuleElement.exprs.expr.token,
                 initializedAtToken: extendedModuleElement.exprs.expr.token,
                 consumedAtToken: undefined,
@@ -605,7 +583,6 @@ export function evaluateModuleType({
                 type: extendedModuleElement.type,
                 value: elementValue,
                 isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
-                isImplicit: extendedModuleElement.isImplicit,
                 token: extendedModuleElement.exprs.expr.token,
                 initializedAtToken: extendedModuleElement.exprs.expr.token,
                 consumedAtToken: undefined,
@@ -670,7 +647,6 @@ export function evaluateModuleType({
             element.assignedValue ??
             createUnknownValue(element.type, element.label),
           isCompileTimeOnly: element.isCompileTimeOnly,
-          isImplicit: element.isImplicit,
           token: element.exprs.expr.token,
           initializedAtToken: element.exprs.expr.token,
           consumedAtToken: undefined,

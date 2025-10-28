@@ -68,7 +68,6 @@ ${exprToString(rhs)}`,
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;
-  let isImplicit = false;
   if (
     exprIsFunctionCall(lhs) &&
     exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
@@ -92,20 +91,6 @@ ${exprToString(rhs)}`,
       token: lhs.token,
       errorMessage: `Unexpected runtime variable binding in a compile-time only function body.`,
     });
-  }
-
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
-  ) {
-    isImplicit = true;
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected one argument for "given", got ${lhs.args.length}`,
-      });
-    }
-    lhs = lhs.args[0]!;
   }
 
   if (!isValidVariableName(lhs)) {
@@ -138,7 +123,6 @@ ${exprToString(rhs)}`,
       name: variableName,
       type: userDefinedType,
       isCompileTimeOnly,
-      isImplicit,
       value: isCompileTimeOnly
         ? createUnknownValue(userDefinedType, variableName)
         : undefined,

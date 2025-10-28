@@ -92,7 +92,6 @@ export function addFunctionSignatureToSelfTypeModule({
         type: functionType,
         assignedValue: undefined, // NOTE: We have to use the `undefined` here.
         isCompileTimeOnly: true,
-        isImplicit: false,
         exprs: {
           expr: functionExpr,
           labelExpr: functionExpr.args[0],
@@ -157,7 +156,6 @@ export function addFunctionCodeToSelfTypeModule({
         type: functionExpr.$.type,
         assignedValue: functionExpr.$.value,
         isCompileTimeOnly: true,
-        isImplicit: false,
         exprs: {
           expr: functionExpr,
           labelExpr: functionExpr.args[0],
