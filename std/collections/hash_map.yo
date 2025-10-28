@@ -220,10 +220,10 @@ HashMap :: (fn(
           ctrl_byte := (ctrl_ptr + probe_index).*;
           
           cond(
-            (U8Eq.(==)(ctrl_byte, CTRL_EMPTY)) => {
+            (U8.Eq.(==)(ctrl_byte, CTRL_EMPTY)) => {
               return .None;
             },
-            (U8Eq.(==)(ctrl_byte, h2)) => {
+            (U8.Eq.(==)(ctrl_byte, h2)) => {
               bucket := (data_ptr + probe_index).*;
               cond(
                 (KeyEqual.(==)(bucket.key, key)) => {
@@ -255,7 +255,7 @@ HashMap :: (fn(
           ctrl_byte := (ctrl_ptr + probe_index).*;
           
           cond(
-            (U8Eq.(==)(ctrl_byte, CTRL_EMPTY) || U8Eq.(==)(ctrl_byte, CTRL_DELETED)) => {
+            (U8.Eq.(==)(ctrl_byte, CTRL_EMPTY) || U8.Eq.(==)(ctrl_byte, CTRL_DELETED)) => {
               return probe_index;
             },
             true => ()
@@ -291,7 +291,7 @@ HashMap :: (fn(
             while(i < self.capacity, i = (i + (1).as(usize)), {
               ctrl_byte := (ctrl_ptr + i).*;
               cond(
-                ((U8Eq.(!=)(ctrl_byte, CTRL_EMPTY)) && (U8Eq.(!=)(ctrl_byte, CTRL_DELETED))) => {
+                ((U8.Eq.(!=)(ctrl_byte, CTRL_EMPTY)) && (U8.Eq.(!=)(ctrl_byte, CTRL_DELETED))) => {
                   bucket := (data_ptr + i).*;
                   hash := KeyHash.(hash)(bucket.key);
                   h2 := h2_hash(hash);
@@ -443,7 +443,7 @@ HashMap :: (fn(
      * Check if the map is empty
      */
     is_empty :: ((fn(self: Self) -> boolean)
-      UsizeEq.(==)(self.size, (0).as(usize))
+      Usize.Eq.(==)(self.size, (0).as(usize))
     ),
 
     /**
