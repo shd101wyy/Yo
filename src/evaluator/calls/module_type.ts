@@ -275,20 +275,42 @@ Got:   ${typeToString(argType)}`,
         }
       }
 
-      // Check if moduleMember has default or required value
-      if (!defaultValue && !assignedValue) {
+      // Re-evaluate default value in the current context if it exists
+      let resolvedValue: Value | undefined = assignedValue;
+      if (!assignedValue && moduleElement.exprs.defaultValueExpr) {
+        // Re-evaluate the default value expression with the current callerEnv
+        // This allows default values to reference previously defined module elements
+        const evaluatedDefaultExpr = context.evaluateExpression({
+          expr: cloneExpr(moduleElement.exprs.defaultValueExpr),
+          env: pushEnvFrame(
+            moduleType.env,
+            callerEnv.frames[callerEnv.frames.length - 1]
+          ),
+          context: {
+            ...context,
+            expectedType: undefined,
+            SelfType: undefined,
+          },
+        });
+        resolvedValue = evaluatedDefaultExpr.$?.value;
+        if (!resolvedValue) {
+          throw formatErrorMessage({
+            token: moduleExpr.token,
+            errorMessage: `Failed to evaluate default value for module member "${moduleElement.label}".`,
+          });
+        }
+      } else if (!assignedValue && !defaultValue) {
+        // Check if moduleMember has default or required value
         throw formatErrorMessage({
           token: moduleExpr.token,
           errorMessage: `Module member "${moduleElement.label}" is not provided and has no required/default value.`,
         });
+      } else if (!assignedValue) {
+        // Use precomputed defaultValue if no expression is available
+        resolvedValue = defaultValue;
       }
 
-      if (defaultValue) {
-        elements[i] = defaultValue;
-      }
-      if (assignedValue) {
-        elements[i] = assignedValue;
-      }
+      elements[i] = resolvedValue;
 
       // Add to the env
       const { env: nextEnv } = addVariableToEnv({
@@ -297,7 +319,7 @@ Got:   ${typeToString(argType)}`,
           name: moduleElement.label,
           type: moduleElement.type,
           isCompileTimeOnly: true,
-          value: defaultValue ?? assignedValue,
+          value: resolvedValue,
           token: moduleExpr.token,
           initializedAtToken: moduleExpr.token,
           consumedAtToken: undefined,
