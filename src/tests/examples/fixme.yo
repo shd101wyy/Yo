@@ -1,39 +1,18 @@
-// Example showing infinite loop with nested module instantiation and implicit resolution
-
-Eq :: module
+Id :: module
   Self : Type,
-  Rhs ?= Self
+  Output ?= Self,
+  id : (fn(value : Self) -> Output)
 ;
 
-// Ord requires Eq for both Self and Rhs
-Ord :: module
-  Self : Type,
-  Rhs ?= Self,
-  using(EqSelf) : (Self <: Eq),
-  using(EqRhs) : (Rhs <: Eq)
-;
-
-// When we try to instantiate Ord(i32):
-// 1. Process Self : i32 ✓
-// 2. Process Rhs ?= Self
-//    - Need to re-evaluate "Self" in current context
-//    - This checks if "Self" is in callerEnv
-//    - It is! Self = i32
-//    - So Rhs = i32 ✓
-// 3. Process using(EqSelf) : (Self <: Eq(Rhs))
-//    - This is an implicit parameter
-//    - When checking (i32 <: Eq(i32)), we need to instantiate Eq(i32)
-//    - But Eq has Rhs ?= Self
-//    - Evaluating this triggers ANOTHER Ord instantiation
-//    - → INFINITE LOOP!
-
-I32Eq :: Eq(Self : i32);
-
-I32Ord :: Ord(
+I32Id :: Id(
   Self : i32,
-  EqSelf : I32Eq
+  id : ((value) -> value)
+  // , Output : Self // FIXME: Expected to still work without this line.
 );
 
 main :: (fn() -> unit) {
-  return ();
+  x := 12;
+  y := I32Id.id(x);
 };
+
+export main;

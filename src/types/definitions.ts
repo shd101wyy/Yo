@@ -327,10 +327,8 @@ export interface ModuleElement {
    */
   isImplicit?: boolean;
 
-  // The assigned value is compile-time known.
-  // Note: We don't pre-compute defaultValue anymore - it's always re-evaluated
-  // from exprs.defaultValueExpr during module instantiation to handle dependencies
-  // on other module elements (e.g., Output ?= Self).
+  // The default value and assigned value are compile-time known.
+  defaultValue?: Value;
   assignedValue?: Value;
 
   exprs: ElementExprs;

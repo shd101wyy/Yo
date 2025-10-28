@@ -17,8 +17,6 @@ import {
 import {
   areTypesCompatible,
   createModuleType,
-  isClosureType,
-  isFunctionType,
   isModuleType,
   ModuleElement,
   ModuleType,
@@ -65,7 +63,7 @@ export function evaluateModuleElementType({
   let typeExpr: Expr | undefined = undefined;
 
   let defaultValueExpr: Expr | undefined = undefined;
-  // Note: defaultValue is not pre-computed anymore - removed to avoid circular dependencies
+  let defaultValue: Value | undefined = undefined;
 
   let assignedValueExpr: Expr | undefined = undefined;
   let assignedValue: Value | undefined = undefined;
@@ -330,9 +328,6 @@ Given type: ${typeToString(assignedValueType)}`,
   }
 
   // Evaluate defaultValueExpr if it exists
-  // Note: We only validate type compatibility here during module type definition.
-  // The actual default value will be re-evaluated during module instantiation
-  // to handle dependencies on other module elements (e.g., Output ?= Self).
   if (defaultValueExpr) {
     const expectedType = elementType
       ? { type: elementType, env }
@@ -359,6 +354,16 @@ Given type: ${typeToString(assignedValueType)}`,
       });
     }
     env = evaluatedDefaultValueExpr.$.env;
+
+    defaultValue = evaluatedDefaultValueExpr.$?.value;
+    if (!defaultValue) {
+      throw formatErrorMessage({
+        token: defaultValueExpr.token,
+        errorMessage: `Expected compile-time known value for default value, got ${exprToString(
+          defaultValueExpr
+        )}`,
+      });
+    }
 
     const defaultValueType = evaluatedDefaultValueExpr.$.type;
 
@@ -388,19 +393,6 @@ Given type: ${typeToString(defaultValueType)}`,
       token: expr.token,
       errorMessage: `Failed to infer the element type`,
     });
-  }
-
-  // Validate default value expression restrictions
-  if (defaultValueExpr) {
-    if (!isFunctionType(elementType) || isClosureType(elementType)) {
-      throw formatErrorMessage({
-        token: defaultValueExpr.token,
-        errorMessage: `Default values (?=) are only allowed for function type module elements (excluding closures).
-Module element "${label ?? "unnamed"}" has type: ${typeToString(elementType)}
-
-To avoid circular dependency issues, please explicitly provide the value for this element.`,
-      });
-    }
   }
 
   /*
@@ -445,8 +437,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
       },
       isCompileTimeOnly: true,
       isImplicit,
-      // Note: defaultValue is not pre-computed anymore - it will be re-evaluated
-      // during module instantiation from defaultValueExpr
+      defaultValue,
       assignedValue,
     },
     env,

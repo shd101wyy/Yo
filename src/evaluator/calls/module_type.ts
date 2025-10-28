@@ -235,10 +235,11 @@ Got:   ${typeToString(argType)}`,
     }
 
     if (!foundArgExpr) {
+      const defaultValue = moduleElement.defaultValue;
       const assignedValue = moduleElement.assignedValue;
 
       // Check if it's an implicit parameter that needs to be resolved
-      if (!assignedValue && moduleElement.isImplicit) {
+      if (!defaultValue && !assignedValue && moduleElement.isImplicit) {
         try {
           // Try to resolve the implicit value from the environment
           const { value: resolvedValue, type: resolvedType } =
@@ -274,7 +275,7 @@ Got:   ${typeToString(argType)}`,
         }
       }
 
-      // Re-evaluate default value in the current context if needed
+      // Re-evaluate default value in the current context if it exists
       let resolvedValue: Value | undefined = assignedValue;
       if (!assignedValue && moduleElement.exprs.defaultValueExpr) {
         // Re-evaluate the default value expression with the current callerEnv
@@ -298,12 +299,15 @@ Got:   ${typeToString(argType)}`,
             errorMessage: `Failed to evaluate default value for module member "${moduleElement.label}".`,
           });
         }
-      } else {
+      } else if (!assignedValue && !defaultValue) {
         // Check if moduleMember has default or required value
         throw formatErrorMessage({
           token: moduleExpr.token,
           errorMessage: `Module member "${moduleElement.label}" is not provided and has no required/default value.`,
         });
+      } else if (!assignedValue) {
+        // Use precomputed defaultValue if no expression is available
+        resolvedValue = defaultValue;
       }
 
       elements[i] = resolvedValue;
