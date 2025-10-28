@@ -1,14 +1,12 @@
-Clone ::
-  (fn(compt(Self): Type)-> compt(Module))
-  module
-    Self  := Self,
-    clone : 
-      fn(self: *(Self))-> Self
+Clone :: module
+  Self  : Type,
+  clone : 
+    fn(self: *(Self))-> Self
 ;
 
 clone :: (fn( forall(Self : Type),
             self : *(Self), 
-            using(CloneMethod : Clone(Self))
+            using(CloneMethod : (Self <: Clone))
           ) -> Self)
   CloneMethod.clone(self)
 ;
@@ -16,11 +14,10 @@ clone :: (fn( forall(Self : Type),
 % :: clone; // IDEA: two circles and a slash perfectly represent clone!
 
 
-Drop :: (fn(compt(Self): Type) -> compt(Module))
-  module
-    Self := Self,
-    drop :
-      fn(self: Self) -> unit
+Drop :: module
+  Self : Type,
+  drop :
+    fn(self: Self) -> unit
 ;
 
 

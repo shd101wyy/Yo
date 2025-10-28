@@ -2,81 +2,87 @@
  * There is no operator precedence in Yo
  */
 
-Add :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+Add :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (+)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (+)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-Sub :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+Sub :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (-)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (-)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-Mul :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+Mul :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (*)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (*)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-Div :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+Div :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (/)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (/)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-Mod :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+Mod :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (%)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (%)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-BitLeftShift :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+BitLeftShift :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (<<)   : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (<<)   : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-BitRightShift :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+BitRightShift :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (>>)   : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (>>)   : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
 
-Exponentiation :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+Exponentiation :: (fn(compt(Rhs) : Type)-> compt(Module))
   module
-    Self   := Lhs,
-    (**)   : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Rhs,
+    (**)   : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-Negate ::
-  (fn(compt(Self): Type, compt(Output) ?= Self)-> compt(Module))
-  module
-    Self   := Self,
+Negate :: module
+    Self   : Type,
+    Output ?= Self,
     (neg): (fn(self: Self)-> Output)
 ;
 
 
-ComptNegate ::
-  (fn(compt(Self): Type)-> compt(Module))
-  module
-    Self  := Self,
-    (neg) : (fn(compt(self): Self)-> compt(Self))
+ComptNegate :: module
+    Self   : Type,
+    Output ?= Self,
+    (neg) : (fn(compt(self): Self)-> compt(Output))
 ;
 
 (-) :: impl {
   (neg) :: (fn( forall(Self : Type), 
             self : Self,
-            using(NegateMethod : Negate(Self))
+            using(NegateMethod : (Self <: Negate))
           ) -> Self)
     NegateMethod.neg(self)
   ;
 
   (compt_neg) :: (fn(forall(Self : Type), 
           compt(self) : Self,
-          using(NegateMethod : ComptNegate(Self))
+          using(NegateMethod : (Self <: ComptNegate))
         ) -> compt(Self))
     NegateMethod.neg(self)
   ;

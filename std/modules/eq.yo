@@ -1,11 +1,13 @@
 { not, BooleanLogicalNot } :: import "./logic.yo";
 
 Eq ::
-  (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs) -> compt(Module))
+  (fn(compt(Rhs) : Type) -> compt(Module))
   module
-    (==): (fn(lhs: Lhs, rhs: Rhs) -> boolean),
+    Self : Type,
 
-    ((!=) : (fn(lhs: Lhs, rhs: Rhs) -> boolean)) ?= 
+    (==): (fn(lhs: Self, rhs: Rhs) -> boolean),
+
+    ((!=) : (fn(lhs: Self, rhs: Rhs) -> boolean)) ?= 
       ((lhs, rhs) ->
         not((==)(lhs, rhs), using(BooleanLogicalNot))
       )

@@ -1,27 +1,9 @@
-extern "yo",
-  __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T)
+Id :: module
+  Self : Type,
+
+  id : (fn(self : Self) -> Self)
 ;
 
-Add :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
-  module
-    Self   := Lhs,
-    (+)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
-;
-
-I32 :: impl {
-  Self :: i32;
-  export Self;
-
-  // === Arithmetic ===
-  _Add :: Add(i32, i32)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ;
-  export Add : _Add;
-};
-
-main :: (fn() -> unit) {
-  x := 12;
-  y := 3;
-  z1 := I32.Add.(+)(x, y); // <= This works
-  z2 := (x + y); // <= This gives an error: FIXME
+use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
+  return ValId.id(val);
 };

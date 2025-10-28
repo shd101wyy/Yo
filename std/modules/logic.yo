@@ -17,56 +17,54 @@ LogicalOr :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs)-> compt(Module))
 ;
 */
 
-LogicalNot :: (fn(compt(Self): Type) -> compt(Module))
-  module
-    Self := Self,
-    (!)  : (fn(self: Self)-> boolean)
+LogicalNot :: module
+  Self : Type,
+  (!)  : (fn(self: Self)-> boolean)
 ;
 
-BitNot :: (fn(compt(Self): Type) -> compt(Module))
-  module
-    Self   := Self,
-    Output := Self,
+BitNot :: module
+    Self   : Type,
+    Output ?= Self,
     (~)  : (fn(self: Self)-> Output)
 ;
 
-BitAnd :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs) -> compt(Module)) 
+BitAnd :: (fn(compt(Rhs) : Type) -> compt(Module)) 
   module
-    Self   := Lhs,
-    Output := Lhs,
-    (&)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   : Type,
+    Output ?= Self,
+    (&)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-BitOr :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs) -> compt(Module))
+BitOr :: (fn(compt(Rhs) : Type) -> compt(Module))
   module
-    Self   := Lhs,
-    Output := Lhs,
-    (|)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   :  Type,
+    Output ?= Self,
+    (|)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-BitXor :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs) -> compt(Module)) 
+BitXor :: (fn(compt(Rhs) : Type) -> compt(Module)) 
   module
-    Self   := Lhs,
-    (^)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    Self   :  Type,
+    Output ?= Self,
+    (^)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
-ComptLogicalNot :: (fn(compt(Self): Type) -> compt(Module))
-  module
-    Self := Self,
-    (!)  : (fn(compt(self): Self) -> compt(boolean))
-  ;
+ComptLogicalNot :: module
+  Self : Type,
+  (!)  : (fn(compt(self): Self) -> compt(boolean))
+;
 
 (!) :: impl {
   (not) :: (fn( forall(Self : Type),
             self : Self,
-            using(LogicalNotMethod : LogicalNot(Self))
+            using(LogicalNotMethod : (Self <: LogicalNot))
           ) -> boolean)
     LogicalNotMethod.(!)(self)
   ;
 
   (compt_not) :: (fn(forall(Self : Type), 
           compt(self) : Self,
-          using(LogicalNotMethod : ComptLogicalNot(Self))
+          using(LogicalNotMethod : (Self <: ComptLogicalNot))
         ) -> compt(boolean))
     LogicalNotMethod.(!)(self)
   ;
@@ -84,13 +82,15 @@ ComptLogicalNot :: (fn(compt(Self): Type) -> compt(Module))
 /**
  * logic for boolean
  */
-BooleanLogicalNot :: LogicalNot(boolean)
+BooleanLogicalNot :: LogicalNot
+  Self : boolean,
   (!): ((a) ->
     __yo_op_not(a)
   )
 ;
 
-ComptBooleanLogicalNot :: ComptLogicalNot(boolean)
+ComptBooleanLogicalNot :: ComptLogicalNot
+  Self : boolean,
   (!): ((self) ->
     cond
       self => false,

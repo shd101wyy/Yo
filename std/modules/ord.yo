@@ -7,19 +7,21 @@ Ordering :: enum
 ;
 
 Ord :: (
-  fn( compt(Lhs): Type,
-    compt(Rhs) ?= Lhs,
-    using(EqSelf : Eq(Lhs, Rhs))
+  fn(
+    compt(Rhs) : Type
   ) -> compt(Module))
   module
+    Self : Type,
+    using(EqSelf) : (Self <: Eq(Rhs)),
+
     (<) :
-      fn(lhs: Lhs, rhs: Rhs) -> boolean,
+      fn(lhs: Self, rhs: Rhs) -> boolean,
     (<=) :
-      fn(lhs: Lhs, rhs: Rhs) -> boolean,
+      fn(lhs: Self, rhs: Rhs) -> boolean,
     (>) :
-      fn(lhs: Lhs, rhs: Rhs) -> boolean,
+      fn(lhs: Self, rhs: Rhs) -> boolean,
     (>=) :
-      fn(lhs: Lhs, rhs: Rhs) -> boolean
+      fn(lhs: Self, rhs: Rhs) -> boolean
 ;
 
 export 
