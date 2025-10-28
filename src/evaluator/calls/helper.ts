@@ -1031,6 +1031,15 @@ Expected: ${typeToString(implicitParameterType)}
 Got:   ${typeToString(argType)}`,
         });
       }
+
+      // Add the explicitly provided implicit argument to implicitArgValues
+      const argValue = evaluatedImplicitArg.$?.value;
+      implicitArgValues.push({
+        value: argValue,
+        argType: argType,
+        parameterType: implicitParameterType,
+      });
+
       continue; // Found the correct implicit argument
     }
 
@@ -1592,7 +1601,8 @@ function createSpecializedFunctionInline({
     }
   });
 
-  // Add implicit compile-time parameters
+  // Add compile-time implicit parameters to the cache key
+  // Different implicit values should create different specialized functions
   if (argValues.implicitArgs) {
     functionType.implicitParameters.forEach((param, index) => {
       const implicitArg = argValues.implicitArgs![index]!;
@@ -1723,18 +1733,21 @@ function createSpecializedFunctionInline({
   });
 
   // Include compile-time implicit parameters
-  functionType.implicitParameters.forEach((param, index) => {
-    if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
-      const arg = argValues.implicitArgs![index];
-      if (arg) {
-        compileTimeSignatureParts.push(
-          sanitizeForCIdentifier(valueToString(arg.value))
-        );
-      } else {
-        compileTimeSignatureParts.push("unknown");
+  // Different implicit values should create different specialized function signatures
+  if (argValues.implicitArgs) {
+    functionType.implicitParameters.forEach((param, index) => {
+      if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
+        const arg = argValues.implicitArgs![index];
+        if (arg) {
+          compileTimeSignatureParts.push(
+            sanitizeForCIdentifier(valueToString(arg.value))
+          );
+        } else {
+          compileTimeSignatureParts.push("unknown");
+        }
       }
-    }
-  });
+    });
+  }
 
   const compileTimeSignature = compileTimeSignatureParts.join("_");
 
