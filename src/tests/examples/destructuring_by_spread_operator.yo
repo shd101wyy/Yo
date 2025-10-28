@@ -1,7 +1,7 @@
 main :: (fn() -> unit) {
   SomeModule :: impl {
     id :: (fn(x: i32)-> i32) x;
-    given(implicit_id) :: (fn(x: i32)-> i32) x;
+    implicit_id :: (fn(x: i32)-> i32) x;
     x :: 1;
     y :: 2;
     export id, implicit_id, x, y;
@@ -20,13 +20,10 @@ main :: (fn() -> unit) {
   };
 
   {
-    // Use ...(given) to destructure all implicits
-    { ...(given) } :: SomeModule;
+    // Use ...(given) to destructure all implicits // NOTE: "given" is no longer supported
+    open SomeModule;
     
     implicit_id(3);
-    
-    compt_expect_error(
-      id(3) // "id" is not imported here, so it should not be accessible
-    );
+    id(3);
   }
 };

@@ -6,30 +6,30 @@ open import "../../modules/logic.yo";
 { Hash } :: import "../../modules/hash.yo";
 { Clone, Drop } :: import "../../modules/common.yo";
 
-given(I32) :: impl {
+I32 :: impl {
   // === Arithmetic ===
-  given(_Add) :: Add(i32, i32)
+  _Add :: Add(i32, i32)
     (+): ((a, b) -> __yo_op_add(a, b))
   ;
-  given(_Sub) :: Sub(i32, i32)
+  _Sub :: Sub(i32, i32)
     (-): ((a, b) -> __yo_op_sub(a, b))
   ;
-  given(_Mul) :: Mul(i32, i32)
+  _Mul :: Mul(i32, i32)
     (*): ((a, b) -> __yo_op_mul(a, b))
   ;
-  given(_Div) :: Div(i32, i32)
+  _Div :: Div(i32, i32)
     (/): ((a, b) -> __yo_op_div(a, b))
   ;
-  given(_Mod) :: Mod(i32, i32)
+  _Mod :: Mod(i32, i32)
     (%): ((a, b) -> __yo_op_mod(a, b))
   ;
-  given(_Negate) :: Negate(i32)
+  _Negate :: Negate(i32)
     (neg): ((a) -> __yo_op_neg(a))
   ;
-  given(_BitLeftShift) :: BitLeftShift(i32, i32)
+  _BitLeftShift :: BitLeftShift(i32, i32)
     (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
   ;
-  given(_BitRightShift) :: BitRightShift(i32, i32)
+  _BitRightShift :: BitRightShift(i32, i32)
     (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
   ;
   export
@@ -47,58 +47,58 @@ given(I32) :: impl {
 /**
  * arithmetic
  */
-given(I32Add) :: Add(i32, i32)
+I32Add :: Add(i32, i32)
   (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
-given(I32Sub) :: Sub(i32, i32)
+I32Sub :: Sub(i32, i32)
   (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
-given(I32Mul) :: Mul(i32, i32)
+I32Mul :: Mul(i32, i32)
   (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
-given(I32Div) :: Div(i32, i32)
+I32Div :: Div(i32, i32)
   (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
-given(I32Mod) :: Mod(i32, i32)
+I32Mod :: Mod(i32, i32)
   (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
-given(I32Negate) :: Negate(i32)
+I32Negate :: Negate(i32)
   (neg): ((a) -> __yo_op_neg(a))
 ;
 
-given(I32BitLeftShift) :: BitLeftShift(i32, i32)
+I32BitLeftShift :: BitLeftShift(i32, i32)
   (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
 ;
 
-given(I32BitRightShift) :: BitRightShift(i32, i32)
+I32BitRightShift :: BitRightShift(i32, i32)
   (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
 ;
 
 /**
  * logic
  */
-given(I32LogicalNot) :: LogicalNot(i32)
+I32LogicalNot :: LogicalNot(i32)
   (!): ((a) -> __yo_op_not(a))
 ;
 
-given(I32BitNot) :: BitNot(i32)
+I32BitNot :: BitNot(i32)
   (~): ((a) -> __yo_op_bit_complement(a))
 ;
 
-given(I32BitAnd) :: BitAnd(i32, i32)
+I32BitAnd :: BitAnd(i32, i32)
   (&): ((a, b) -> __yo_op_bit_and(a, b))
 ;
 
-given(I32BitOr) :: BitOr(i32, i32)
+I32BitOr :: BitOr(i32, i32)
   (|): ((a, b) -> __yo_op_bit_or(a, b))
 ;
 
-given(I32BitXor) :: BitXor(i32, i32)
+I32BitXor :: BitXor(i32, i32)
   (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
@@ -106,7 +106,7 @@ given(I32BitXor) :: BitXor(i32, i32)
 /**
  * eq
  */
-given(I32Eq) :: Eq(i32, i32)
+I32Eq :: Eq(i32, i32)
   (==) : ((a, b) -> __yo_op_eq(a, b)),
   (!=) : ((a, b) -> __yo_op_neq(a, b))
 ;
@@ -114,7 +114,7 @@ given(I32Eq) :: Eq(i32, i32)
 /**
  * ord
  */
-given(I32Ord) :: Ord(i32, i32, using(I32Eq))
+I32Ord :: Ord(i32, i32, using(I32Eq))
   (<) : ((a, b) -> __yo_op_lt(a, b)),
   (<=) : ((a, b) -> __yo_op_lte(a, b)),
   (>) : ((a, b) -> __yo_op_gt(a, b)),
@@ -124,25 +124,25 @@ given(I32Ord) :: Ord(i32, i32, using(I32Eq))
 /**
  * hash
  */
-given(I32Hash) :: Hash(i32)
+I32Hash :: Hash(i32)
   (hash): ((value) -> __yo_as(value, u64))
 ;
 
-given(I32Drop) :: Drop(i32)
+I32Drop :: Drop(i32)
   drop: ((self) ->
     // No-op for i32, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
-given(I32Clone) :: Clone(i32)
+I32Clone :: Clone(i32)
   clone: ((self) ->
     // No-op for i32, as it is a primitive type
     __yo_return_self(self.*)
   )
 ;
 
-given(I32Methods) :: impl {
+I32Methods :: impl {
   Self :: i32;
 
   (as) :: (fn(self: Self, compt(Target): Type) -> Target)
@@ -157,7 +157,7 @@ given(I32Methods) :: impl {
 /**
  * Methods for compt i32
  */
-given(I32ComptMethods) :: impl {
+I32ComptMethods :: impl {
   Self :: i32;
 
   (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))

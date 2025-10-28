@@ -9,58 +9,58 @@ open import "../../modules/logic.yo";
 /**
  * arithmetic
  */
-given(U64Add) :: Add(u64, u64)
+U64Add :: Add(u64, u64)
   (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
-given(U64Sub) :: Sub(u64, u64)
+U64Sub :: Sub(u64, u64)
   (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
-given(U64Mul) :: Mul(u64, u64)
+U64Mul :: Mul(u64, u64)
   (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
-given(U64Div) :: Div(u64, u64)
+U64Div :: Div(u64, u64)
   (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
-given(U64Mod) :: Mod(u64, u64)
+U64Mod :: Mod(u64, u64)
   (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
-given(U64Negate) :: Negate(u64)
+U64Negate :: Negate(u64)
   (neg): ((a) -> __yo_op_neg(a))
 ;
 
-given(U64BitLeftShift) :: BitLeftShift(u64, u64)
+U64BitLeftShift :: BitLeftShift(u64, u64)
   (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
 ;
 
-given(U64BitRightShift) :: BitRightShift(u64, u64)
+U64BitRightShift :: BitRightShift(u64, u64)
   (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
 ;
 
 /**
  * logic
  */
-given(U64LogicalNot) :: LogicalNot(u64)
+U64LogicalNot :: LogicalNot(u64)
   (!): ((a) -> __yo_op_not(a))
 ;
 
-given(U64BitNot) :: BitNot(u64)
+U64BitNot :: BitNot(u64)
   (~): ((a) -> __yo_op_bit_complement(a))
 ;
 
-given(U64BitAnd) :: BitAnd(u64, u64)
+U64BitAnd :: BitAnd(u64, u64)
   (&): ((a, b) -> __yo_op_bit_and(a, b))
 ;
 
-given(U64BitOr) :: BitOr(u64, u64)
+U64BitOr :: BitOr(u64, u64)
   (|): ((a, b) -> __yo_op_bit_or(a, b))
 ;
 
-given(U64BitXor) :: BitXor(u64, u64)
+U64BitXor :: BitXor(u64, u64)
   (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
@@ -68,7 +68,7 @@ given(U64BitXor) :: BitXor(u64, u64)
 /**
  * eq
  */
-given(U64Eq) :: Eq(u64, u64)
+U64Eq :: Eq(u64, u64)
   (==) : ((a, b) -> __yo_op_eq(a, b)),
   (!=) : ((a, b) -> __yo_op_neq(a, b))
 ;
@@ -76,7 +76,7 @@ given(U64Eq) :: Eq(u64, u64)
 /**
  * ord
  */
-given(U64Ord) :: Ord(u64, u64, using(U64Eq))
+U64Ord :: Ord(u64, u64, using(U64Eq))
   (<) : ((a, b) -> __yo_op_lt(a, b)),
   (<=) : ((a, b) -> __yo_op_lte(a, b)),
   (>) : ((a, b) -> __yo_op_gt(a, b)),
@@ -86,25 +86,25 @@ given(U64Ord) :: Ord(u64, u64, using(U64Eq))
 /**
  * hash
  */
-given(U64Hash) :: Hash(u64)
+U64Hash :: Hash(u64)
   (hash): ((value) -> value)
 ;
 
-given(U64Drop) :: Drop(u64)
+U64Drop :: Drop(u64)
   drop: ((self) ->
     // No-op for u64, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
-given(U64Clone) :: Clone(u64)
+U64Clone :: Clone(u64)
   clone: ((self) ->
     // No-op for u64, as it is a primitive type
     __yo_return_self(self.*)
   )
 ;
 
-given(U64Methods) :: impl {
+U64Methods :: impl {
   Self :: u64;
 
   (as) :: (fn(self: Self, compt(Target): Type) -> Target)
@@ -117,7 +117,7 @@ given(U64Methods) :: impl {
 };
 
 
-given(U64ComptMethods) :: impl {
+U64ComptMethods :: impl {
   Self :: u64;
 
   (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))

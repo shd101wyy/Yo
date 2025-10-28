@@ -8,51 +8,51 @@ open import "../../modules/logic.yo";
 /**
  * arithmetic
  */
-given(IntAdd) :: Add(int, int)
+IntAdd :: Add(int, int)
   (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
-given(IntSub) :: Sub(int, int)
+IntSub :: Sub(int, int)
   (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
-given(IntMul) :: Mul(int, int)
+IntMul :: Mul(int, int)
   (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
-given(IntDiv) :: Div(int, int)
+IntDiv :: Div(int, int)
   (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
-given(IntMod) :: Mod(int, int)
+IntMod :: Mod(int, int)
   (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
-given(IntNegate) :: Negate(int)
+IntNegate :: Negate(int)
   (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
-given(IntLogicalNot) :: LogicalNot(int)
+IntLogicalNot :: LogicalNot(int)
   (!): ((a) -> __yo_op_not(a))
 ;
 
 
-given(IntBitNot) :: BitNot(int)
+IntBitNot :: BitNot(int)
   (~): ((a) -> __yo_op_bit_complement(a))
 ;
 
-given(IntBitAnd) :: BitAnd(int, int)
+IntBitAnd :: BitAnd(int, int)
   (&): ((a, b) -> __yo_op_bit_and(a, b))
 ;
 
-given(IntBitOr) :: BitOr(int, int)
+IntBitOr :: BitOr(int, int)
   (|): ((a, b) -> __yo_op_bit_or(a, b))
 ;
 
-given(IntBitXor) :: BitXor(int, int)
+IntBitXor :: BitXor(int, int)
   (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
@@ -60,7 +60,7 @@ given(IntBitXor) :: BitXor(int, int)
 /**
  * eq
  */
-given(IntEq) :: Eq(int, int)
+IntEq :: Eq(int, int)
   (==) : ((a, b) -> __yo_op_eq(a, b)),
   (!=) : ((a, b) -> __yo_op_neq(a, b))
 ;
@@ -68,28 +68,28 @@ given(IntEq) :: Eq(int, int)
 /**
  * ord
  */
-given(IntOrd) :: Ord(int, int, using(IntEq))
+IntOrd :: Ord(int, int, using(IntEq))
   (<) : ((a, b) -> __yo_op_lt(a, b)),
   (<=) : ((a, b) -> __yo_op_lte(a, b)),
   (>) : ((a, b) -> __yo_op_gt(a, b)),
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
-given(IntDrop) :: Drop(int)
+IntDrop :: Drop(int)
   drop: ((self) ->
     // No-op for int, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
-given(IntClone) :: Clone(int)
+IntClone :: Clone(int)
   clone: ((self) ->
     // No-op for int, as it is a primitive type
     __yo_return_self(self.*)
   )
 ;
 
-given(IntMethods) :: impl {
+IntMethods :: impl {
   Self :: int;
 
   as :: (fn(self: Self, compt(Target) : Type) -> Target)

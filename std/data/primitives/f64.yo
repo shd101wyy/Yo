@@ -8,50 +8,50 @@ open import "../../modules/logic.yo";
 /**
  * arithmetic
  */
-given(F64Add) :: Add(f64, f64)
+F64Add :: Add(f64, f64)
   (+): ((a, b) -> __yo_op_add(a, b))
 ;
 
-given(F64Sub) :: Sub(f64, f64)
+F64Sub :: Sub(f64, f64)
   (-): ((a, b) -> __yo_op_sub(a, b))
 ;
 
-given(F64Mul) :: Mul(f64, f64)
+F64Mul :: Mul(f64, f64)
   (*): ((a, b) -> __yo_op_mul(a, b))
 ;
 
-given(F64Div) :: Div(f64, f64)
+F64Div :: Div(f64, f64)
   (/): ((a, b) -> __yo_op_div(a, b))
 ;
 
-given(F64Mod) :: Mod(f64, f64)
+F64Mod :: Mod(f64, f64)
   (%): ((a, b) -> __yo_op_mod(a, b))
 ;
 
-given(F64Negate) :: Negate(f64)
+F64Negate :: Negate(f64)
   (neg): ((a) -> __yo_op_neg(a))
 ;
 
 /**
  * logic
  */
-given(F64LogicalNot) :: LogicalNot(f64)
+F64LogicalNot :: LogicalNot(f64)
   (!): ((a) -> __yo_op_not(a))
 ;
 
-given(F64BitNot) :: BitNot(f64)
+F64BitNot :: BitNot(f64)
   (~): ((a) -> __yo_op_bit_complement(a))
 ;
 
-given(F64BitAnd) :: BitAnd(f64, f64)
+F64BitAnd :: BitAnd(f64, f64)
   (&): ((a, b) -> __yo_op_bit_and(a, b))
 ;
 
-given(F64BitOr) :: BitOr(f64, f64)
+F64BitOr :: BitOr(f64, f64)
   (|): ((a, b) -> __yo_op_bit_or(a, b))
 ;
 
-given(F64BitXor) :: BitXor(f64, f64)
+F64BitXor :: BitXor(f64, f64)
   (^): ((a, b) -> __yo_op_bit_xor(a, b))
 ;
 
@@ -59,7 +59,7 @@ given(F64BitXor) :: BitXor(f64, f64)
 /**
  * eq
  */
-given(F64Eq) :: Eq(f64, f64)
+F64Eq :: Eq(f64, f64)
   (==) : ((a, b) -> __yo_op_eq(a, b)),
   (!=) : ((a, b) -> __yo_op_neq(a, b))
 ;
@@ -67,28 +67,28 @@ given(F64Eq) :: Eq(f64, f64)
 /**
  * ord
  */
-given(F64Ord) :: Ord(f64, f64, using(F64Eq))
+F64Ord :: Ord(f64, f64, using(F64Eq))
   (<) : ((a, b) -> __yo_op_lt(a, b)),
   (<=) : ((a, b) -> __yo_op_lte(a, b)),
   (>) : ((a, b) -> __yo_op_gt(a, b)),
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ;
 
-given(F64Drop) :: Drop(f64)
+F64Drop :: Drop(f64)
   drop: ((self) ->
     // No-op for f64, as it does not require any special cleanup
     __yo_noop()
   )
 ;
 
-given(F64Clone) :: Clone(f64)
+F64Clone :: Clone(f64)
   clone: ((self) ->
     // No-op for f64, as it is a primitive type
     __yo_return_self(self.*)
   )
 ;
 
-given(F64Methods) :: impl {
+F64Methods :: impl {
   Self :: f64;
 
   (as) :: (fn(self: Self, compt(Target): Type) -> Target)
@@ -100,7 +100,7 @@ given(F64Methods) :: impl {
   ;
 };
 
-given(F64ComptMethods) :: impl {
+F64ComptMethods :: impl {
   Self :: f64;
 
   (+) :: (fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))

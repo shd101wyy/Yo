@@ -32,32 +32,32 @@ extern "Yo",
     ) -> Eff(B)
 ;
 
-given(EffFunctor) :: Functor(Eff)
+EffFunctor :: Functor(Eff)
   map : 
     ((eff, f) ->
       __yo_eff_map(eff, f))
 ;
 
-given(EffApply) :: Apply(Eff, using(EffFunctor))
+EffApply :: Apply(Eff, using(EffFunctor))
   apply : 
     ((f, a) ->
       __yo_eff_apply(f, a))
 ;
 
-given(EffApplicative) :: Applicative(Eff, using(EffApply))
+EffApplicative :: Applicative(Eff, using(EffApply))
   pure : 
     ((a) ->
       __yo_eff_pure(a)
     )
 ;
 
-given(EffBind) :: Bind(Eff, using(EffApply))
+EffBind :: Bind(Eff, using(EffApply))
   bind : 
     ((a, f) ->
       __yo_eff_bind(a, f))
 ;
 
-given(EffMonad) :: Monad(Eff, using(EffApplicative, EffBind))(
+EffMonad :: Monad(Eff, using(EffApplicative, EffBind))(
 );
 
 export

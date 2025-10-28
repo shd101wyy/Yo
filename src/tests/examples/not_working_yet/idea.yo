@@ -68,7 +68,7 @@ traverse :: (fn(xs : List(int), using(yield: Yield)) -> unit)
 ;
 
 print_elems :: (fn() -> unit) {
-  (given(yield) : Yield) =
+  (yield : Yield) =
     ( i )-> {
       println("yielded" ++ i.show());
       resume(i <= 2);
@@ -88,7 +88,7 @@ safe_divide :: (fn(x : i32, y : i32, using(raise: Raise)) -> i32)
 ;
 
 raise_const :: (fn() -> i32) {
-  (given(raise) : Raise) =
+  (raise : Raise) =
     (msg)-> 42; // Abort with 42, which matches the return type of `raise_const`.
   8 + safe_divide(1, 0, using(raise))
 };
@@ -123,7 +123,7 @@ traverse :: (fn(xs : List(int), using(yield: Yield)) -> K(unit))
   );
 
 print_elems :: (fn() -> K(i32)) {
-  (given(yield) : Yield) =
+  (yield : Yield) =
     (i)-> {
       println("yielded" ++ i.show());
       resume(i <= 2);
@@ -147,7 +147,7 @@ safe_divide :: (fn(x : i32, y : i32, using(raise: Raise)) -> K(i32))
 ;
 
 raise_const :: (fn() -> K(i32)) {
-  (given(raise) : Raise) =
+  (raise : Raise) =
     (msg) -> 42; // Abort with 42, which matches the return type of `raise_const`.
   8 + do safe_divide(1, 0, using(raise)) + 10
 };

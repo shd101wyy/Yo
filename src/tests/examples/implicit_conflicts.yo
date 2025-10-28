@@ -4,13 +4,13 @@ extern
 ;
 
 // outer scope implicit add
-given(add1) :: (fn(x: i32, y: i32)-> i32)
+add1 :: (fn(x: i32, y: i32)-> i32)
   add(x, y)
 ;
 
 main :: (fn() -> unit) {
   // inner scope implicit add
-  given(add2) :: (fn(x: i32, y: i32)-> i32)
+  add2 :: (fn(x: i32, y: i32)-> i32)
     add(x, y)
   ;
 
@@ -24,9 +24,9 @@ main :: (fn() -> unit) {
   // If we define another implicit add at the same scope of `add2`
   // then calling use_add(3, 4) will have ambiguous implicit add args:
   /// 
-  /// given(add3) :: ((x: i32, y: i32)-> i32)
-  ///   add(x, y)
-  /// ;
+  // add3 :: (fn(x: i32, y: i32)-> i32)
+  //   add(x, y)
+  // ;
 
   use_add(3, 4);
 };
