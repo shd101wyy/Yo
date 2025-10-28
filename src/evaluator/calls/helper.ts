@@ -1059,136 +1059,149 @@ Got:   ${typeToString(argType)}`,
       variable: Variable;
     }[] = [];
 
-    let implicitVariables = getVariablesFromEnvByFilter(
-      callerEnv,
-      (variable) => {
-        if (
-          variable.isCompileTimeOnly !== implicitParameter.isCompileTimeOnly
-        ) {
-          return false;
-        }
+    // Search implicit variables from the callerEnv frames top-down
+    let implicitVariables: Variable[] = [];
+    for (let i = callerEnv.frames.length - 1; i >= 0; i--) {
+      const foundImplicitVariables = callerEnv.frames[i]!.variables.filter(
+        (variable) => {
+          if (
+            variable.isCompileTimeOnly !== implicitParameter.isCompileTimeOnly
+          ) {
+            return false;
+          }
 
-        // First synthesize types to allow unification of SomeTypes with concrete types
-        const {
-          expectedEnv: synthesizedCalleeEnv,
-          givenEnv: synthesizedCallerEnv,
-        } = synthesizeTypes(
-          { type: implicitParameterType, env: calleeEnv },
-          { type: variable.type, env: callerEnv }
-        );
+          // First synthesize types to allow unification of SomeTypes with concrete types
+          const {
+            expectedEnv: synthesizedCalleeEnv,
+            givenEnv: synthesizedCallerEnv,
+          } = synthesizeTypes(
+            { type: implicitParameterType, env: calleeEnv },
+            { type: variable.type, env: callerEnv }
+          );
 
-        // Check if type matches
-        const isCompatible = areTypesCompatible(
-          { type: implicitParameterType, env: synthesizedCalleeEnv },
-          { type: variable.type, env: synthesizedCallerEnv }
-        );
+          // Check if type matches
+          const isCompatible = areTypesCompatible(
+            { type: implicitParameterType, env: synthesizedCalleeEnv },
+            { type: variable.type, env: synthesizedCallerEnv }
+          );
 
-        if (isCompatible) {
-          return true;
-        }
+          if (isCompatible) {
+            return true;
+          }
 
-        // Check if it's a function that has no parameters.
-        // (can have type parameters, and implicit parameters).
-        // Then try to call that function to check if its return type can
-        // match the implicit parameter type
-        if (isFunctionType(variable.type)) {
-          const funcType = variable.type;
-          if (funcType.parameters.length === 0) {
-            const funcValue = variable.value;
+          // Check if it's a function that has no parameters.
+          // (can have type parameters, and implicit parameters).
+          // Then try to call that function to check if its return type can
+          // match the implicit parameter type
+          if (isFunctionType(variable.type)) {
+            const funcType = variable.type;
+            if (funcType.parameters.length === 0) {
+              const funcValue = variable.value;
 
-            if (!!funcValue && !!functionValue && funcValue === functionValue) {
-              // Prevent infinite loop
-              return false;
-            }
+              if (
+                !!funcValue &&
+                !!functionValue &&
+                funcValue === functionValue
+              ) {
+                // Prevent infinite loop
+                return false;
+              }
 
-            if (!(!funcValue || isFunctionValue(funcValue))) {
-              return false;
-            }
+              if (!(!funcValue || isFunctionValue(funcValue))) {
+                return false;
+              }
 
-            try {
-              // FIXME: Prevent circular call
-              const {
-                returnType,
-                returnValue,
-                calleeEnv: nextCalleeEnv,
-                callerEnv: nextCallerEnv,
-              } = tryToCallFunctionWithArguments({
-                argExprs: [],
-                callerEnv,
-                functionType: funcType,
-                functionValue: funcValue,
-                functionCalleeExpr: undefined, // FIXME: <- this is the wrong expr
-                context: {
-                  ...context,
-                  expectedType: {
-                    type: implicitParameterType,
-                    env: calleeEnv,
-                  },
-                },
-                isMethodCall: false,
-              });
-              const matched = areTypesCompatible(
-                { type: returnType, env: nextCallerEnv },
-                { type: implicitParameterType, env: nextCalleeEnv }
-              );
-              if (matched) {
-                implicitFunctionCalls.push({
+              try {
+                // FIXME: Prevent circular call
+                const {
                   returnType,
                   returnValue,
                   calleeEnv: nextCalleeEnv,
                   callerEnv: nextCallerEnv,
-                  variable,
+                } = tryToCallFunctionWithArguments({
+                  argExprs: [],
+                  callerEnv,
+                  functionType: funcType,
+                  functionValue: funcValue,
+                  functionCalleeExpr: undefined, // FIXME: <- this is the wrong expr
+                  context: {
+                    ...context,
+                    expectedType: {
+                      type: implicitParameterType,
+                      env: calleeEnv,
+                    },
+                  },
+                  isMethodCall: false,
                 });
-              }
-
-              return matched;
-            } catch {
-              // Failed
-            }
-          }
-        }
-
-        // Check if the variable module value matches the expected implicitParameterType
-        if (
-          isModuleType(implicitParameterType) &&
-          isTypeValue(variable.value)
-        ) {
-          const type = variable.value.value;
-          if (
-            isStructType(type) ||
-            isEnumType(type) ||
-            isUnionType(type) ||
-            isClosureType(type) ||
-            isFutureType(type)
-          ) {
-            const module = type.module;
-            for (let i = 0; i < module.elements.length; i++) {
-              const moduleElement = module.elements[i]!;
-              if (isModuleValue(moduleElement.assignedValue)) {
-                const moduleValue = moduleElement.assignedValue;
-                if (
-                  areTypesCompatible(
-                    { type: moduleValue.type, env: callerEnv },
-                    { type: implicitParameterType, env: calleeEnv }
-                  )
-                ) {
+                const matched = areTypesCompatible(
+                  { type: returnType, env: nextCallerEnv },
+                  { type: implicitParameterType, env: nextCalleeEnv }
+                );
+                if (matched) {
                   implicitFunctionCalls.push({
-                    returnType: moduleValue.type,
-                    returnValue: moduleValue,
-                    calleeEnv,
-                    callerEnv,
+                    returnType,
+                    returnValue,
+                    calleeEnv: nextCalleeEnv,
+                    callerEnv: nextCallerEnv,
                     variable,
                   });
-                  return true;
+                }
+
+                return matched;
+              } catch {
+                // Failed
+              }
+            }
+          }
+
+          // Check if the variable module value matches the expected implicitParameterType
+          if (
+            isModuleType(implicitParameterType) &&
+            isTypeValue(variable.value)
+          ) {
+            const type = variable.value.value;
+            if (
+              isStructType(type) ||
+              isEnumType(type) ||
+              isUnionType(type) ||
+              isClosureType(type) ||
+              isFutureType(type)
+            ) {
+              const module = type.module;
+              for (let i = 0; i < module.elements.length; i++) {
+                const moduleElement = module.elements[i]!;
+                if (isModuleValue(moduleElement.assignedValue)) {
+                  const moduleValue = moduleElement.assignedValue;
+                  if (
+                    areTypesCompatible(
+                      { type: moduleValue.type, env: callerEnv },
+                      { type: implicitParameterType, env: calleeEnv }
+                    )
+                  ) {
+                    implicitFunctionCalls.push({
+                      returnType: moduleValue.type,
+                      returnValue: moduleValue,
+                      calleeEnv,
+                      callerEnv,
+                      variable,
+                    });
+                    return true;
+                  }
                 }
               }
             }
           }
-        }
 
-        return false;
+          return false;
+        }
+      );
+      // No need to continue searching if we found implicit variables in this frame
+      if (foundImplicitVariables.length) {
+        implicitVariables = implicitVariables.concat(foundImplicitVariables);
+        break;
       }
-    );
+    }
+
     // Get the max frame level of the implicit variables
     // This is to ensure that we get the most recent implicit variable
     const maxImplicitVariableFrameLevel = Math.max(
