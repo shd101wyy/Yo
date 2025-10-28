@@ -482,6 +482,20 @@ export function evaluateFunctionParameters({
       exprIsFunctionCall(parameterExpr.args[0]!) &&
       exprIsFunctionCallOf(parameterExpr.args[0]!, BuiltinKeywords.using, 1)
     ) {
+      // Enforce ordering: using(...) parameters must come after all regular parameters
+      if (parameters.length === 0 && i > 0) {
+        // We have implicit params but haven't seen any regular params yet
+        // This is only okay if we're right after forall
+        const hasForallBefore = forallParameters.length > 0;
+        if (!hasForallBefore && i > 0) {
+          throw formatErrorMessage({
+            token: parameterExpr.token,
+            errorMessage: `Implicit parameters using(...) must come after regular parameters.
+Expected order: forall(...), regular parameters, using(...)`,
+          });
+        }
+      }
+
       // New syntax: using(name) : Type
       const usingCall = parameterExpr.args[0]! as FuncCallExpr;
       const nameExpr = usingCall.args[0]!;
@@ -674,6 +688,15 @@ export function evaluateFunctionParameters({
     }
     // Normal function parameters
     else {
+      // Enforce ordering: cannot have regular parameters after using(...) parameters
+      if (implicitParameters.length > 0) {
+        throw formatErrorMessage({
+          token: parameterExpr.token,
+          errorMessage: `Regular parameters must come before implicit parameters using(...).
+Expected order: forall(...), regular parameters, using(...)`,
+        });
+      }
+
       if (findVariadicParameter) {
         throw formatErrorMessage({
           token: parameterExpr.token,

@@ -454,7 +454,6 @@ export function tryToCallFunctionWithArguments({
   }
 
   let forallArgsExpr: FuncCallExpr | undefined = undefined;
-  let implicitArgExprs: Expr[] = [];
 
   const forallArgValues: {
     value: Value;
@@ -474,47 +473,34 @@ export function tryToCallFunctionWithArguments({
 
   const runtimeArgExprsInOrder: Expr[] = [];
 
-  // Check if there is `forall(...)` argument zone.
+  // Check if there is `forall(...)` argument.
   // If yes, then it should be the first argument
-  //
-  // Check if there is `using(...)` argument zone.
-  // If yes, then it should be the last argument
-  const newArgExprs: Expr[] = [];
-  for (let i = 0; i < argExprs.length; i++) {
-    const argExpr = argExprs[i]!;
-    if (
-      exprIsFunctionCall(argExpr) &&
-      exprIsFunctionCallOf(argExpr, BuiltinKeywords.forall)
-    ) {
-      if (i !== 0) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Expected forall argument to be the first argument, got:\n${exprToString(
-            argExpr
-          )}`,
-        });
-      }
-      forallArgsExpr = argExpr;
-      continue;
-    }
-
-    if (
-      exprIsFunctionCall(argExpr) &&
-      exprIsFunctionCallOf(argExpr, BuiltinKeywords.using)
-    ) {
-      if (i !== argExprs.length - 1) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Expected implicit argument to be the last argument, got:\n${exprToString(argExpr)}`,
-        });
-      }
-      implicitArgExprs = argExpr.args;
-      break;
-    }
-
-    newArgExprs.push(argExpr);
+  let regularArgStartIndex = 0;
+  if (
+    argExprs.length > 0 &&
+    exprIsFunctionCall(argExprs[0]!) &&
+    exprIsFunctionCallOf(argExprs[0]!, BuiltinKeywords.forall)
+  ) {
+    forallArgsExpr = argExprs[0]! as FuncCallExpr;
+    regularArgStartIndex = 1;
   }
-  argExprs = newArgExprs;
+
+  // Split arguments into regular and implicit
+  // Regular parameters come first, implicit parameters come after
+  const regularArgCount = functionType.parameters.length;
+  const implicitArgCount = functionType.implicitParameters.length;
+
+  const regularArgExprs = argExprs.slice(
+    regularArgStartIndex,
+    regularArgStartIndex + regularArgCount
+  );
+  const implicitArgExprs = argExprs.slice(
+    regularArgStartIndex + regularArgCount,
+    regularArgStartIndex + regularArgCount + implicitArgCount
+  );
+
+  // Replace argExprs with just regular args for the rest of the function
+  argExprs = regularArgExprs;
 
   // Push new frame to env
   callerEnv = pushEnvFrame(callerEnv);

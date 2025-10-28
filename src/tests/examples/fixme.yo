@@ -16,9 +16,21 @@ I32Id :: Id(
   })
 );
 
+BooleanId :: Id(
+  Self : boolean,
+
+  id : ((self) -> {
+    return self;
+  })
+);
+
 main :: (fn() -> unit) {
   x := 12;
   y := use_id(x);
+  z := use_id(y, I32Id);
+  m := use_id(z, ValId : I32Id);
+  n := use_id(m, _);
+  p := use_id(n, ValId : _);
 };
 
 export main;

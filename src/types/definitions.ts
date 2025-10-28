@@ -485,11 +485,15 @@ export interface FunctionType extends Type {
   forallParameters: FunctionParameter[];
 
   /**
-   * The implicit parameters (aka contextual parameters), usually define in implicit(...):
-   * eg:
-   *   (compt(T): Type, p: Point(T), using(ShowT) : (T <: Show))-> String
+   * The implicit parameters (aka contextual parameters).
+   * These must appear after all regular parameters in the function signature.
    *
-   * ShowT here is the implicit parameter.
+   * Syntax: using(name) : Type
+   *
+   * Example:
+   *   fn(forall(T : Type), val : T, using(ShowT) : (T <: Show)) -> String
+   *
+   * Expected order: forall(...), regular parameters, using(...)
    */
   implicitParameters: FunctionImplicitParameter[];
 
