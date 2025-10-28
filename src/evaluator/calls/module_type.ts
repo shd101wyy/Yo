@@ -277,37 +277,14 @@ Got:   ${typeToString(argType)}`,
 
       // Re-evaluate default value in the current context if it exists
       let resolvedValue: Value | undefined = assignedValue;
-      if (!assignedValue && moduleElement.exprs.defaultValueExpr) {
-        // Re-evaluate the default value expression with the current callerEnv
-        // This allows default values to reference previously defined module elements
-        const evaluatedDefaultExpr = context.evaluateExpression({
-          expr: cloneExpr(moduleElement.exprs.defaultValueExpr),
-          env: pushEnvFrame(
-            moduleType.env,
-            callerEnv.frames[callerEnv.frames.length - 1]
-          ),
-          context: {
-            ...context,
-            expectedType: undefined,
-            SelfType: undefined,
-          },
-        });
-        resolvedValue = evaluatedDefaultExpr.$?.value;
-        if (!resolvedValue) {
-          throw formatErrorMessage({
-            token: moduleExpr.token,
-            errorMessage: `Failed to evaluate default value for module member "${moduleElement.label}".`,
-          });
-        }
-      } else if (!assignedValue && !defaultValue) {
+      if (!assignedValue && defaultValue) {
+        resolvedValue = defaultValue;
+      } else {
         // Check if moduleMember has default or required value
         throw formatErrorMessage({
           token: moduleExpr.token,
           errorMessage: `Module member "${moduleElement.label}" is not provided and has no required/default value.`,
         });
-      } else if (!assignedValue) {
-        // Use precomputed defaultValue if no expression is available
-        resolvedValue = defaultValue;
       }
 
       elements[i] = resolvedValue;

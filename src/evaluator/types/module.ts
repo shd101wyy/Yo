@@ -17,6 +17,8 @@ import {
 import {
   areTypesCompatible,
   createModuleType,
+  isClosureType,
+  isFunctionType,
   isModuleType,
   ModuleElement,
   ModuleType,
@@ -393,6 +395,20 @@ Given type: ${typeToString(defaultValueType)}`,
       token: expr.token,
       errorMessage: `Failed to infer the element type`,
     });
+  }
+
+  // Validate default value expression restrictions
+  if (defaultValueExpr) {
+    if (!isFunctionType(elementType) || isClosureType(elementType)) {
+      throw formatErrorMessage({
+        token: defaultValueExpr.token,
+        errorMessage: `Default values (?=) are only allowed for function type module elemen
+ts (excluding closures).
+Module element "${label ?? "unnamed"}" has type: ${typeToString(elementType)}
+
+To avoid circular dependency issues, please explicitly provide the value for this element.`,
+      });
+    }
   }
 
   /*
