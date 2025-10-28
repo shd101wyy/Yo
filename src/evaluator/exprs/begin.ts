@@ -804,7 +804,10 @@ export function evaluateBeginExpression({
   // Attach deferredDropExpressions to returnExpr if exists
   if (returnExpr && returnExpr.$) {
     returnExpr.$.deferredDropExpressions = deferredDropExpressions;
-    attachTempVariableToExpr(returnExpr, true);
+    // NOTE: Don't attach temp variable to the return expression itself
+    // The temp variable should be attached to the value being returned, if needed
+    // attachTempVariableToExpr(returnExpr, true);
+    // ^ This line will cause C codegen problem.
   }
 
   // Now pop the environment frame
