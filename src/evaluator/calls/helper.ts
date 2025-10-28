@@ -19,7 +19,6 @@ import {
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  ExprTag,
   exprToString,
   FuncCallExpr,
   PathCollection,
@@ -27,7 +26,7 @@ import {
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
 import { generateExprFromCode } from "../../parser";
-import { PlaceholderToken, TokenType } from "../../token";
+import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
@@ -38,17 +37,10 @@ import {
   FunctionType,
   getAllSomeTypes,
   getValueOfSomeTypeFromEnv,
-  isClosureType,
-  isEnumType,
   isExprListType,
   isExprType,
   isFunctionSpecializable,
-  isFunctionType,
-  isFutureType,
-  isModuleType,
-  isStructType,
   isTypeHierarchyType,
-  isUnionType,
   Type,
   TypeHierarchyType,
   typeRequiresComptModifier,
@@ -62,7 +54,6 @@ import {
   createUnknownValue,
   ExprValue,
   isFunctionValue,
-  isModuleValue,
   isTypeValue,
   Value,
   valueToString,
@@ -80,6 +71,7 @@ import {
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptFunctionCall } from "./compt_function";
+import { resolveImplicitValue } from "./implicit_resolver";
 
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.
@@ -1043,306 +1035,64 @@ Got:   ${typeToString(argType)}`,
       continue; // Found the correct implicit argument
     }
 
-    // =====
+    // Use the common implicit resolver
+    const { value: resolvedValue, type: resolvedType } = resolveImplicitValue({
+      expectedType: implicitParameterType,
+      label: implicitParameter.label,
+      isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
+      calleeEnv,
+      callerEnv,
+      context,
+      errorToken: functionCalleeExpr?.token ?? PlaceholderToken,
+      preventCircularCall: functionValue,
+    });
 
-    // Check in the env if implicit variable of such type exists
-    const implicitFunctionCalls: {
-      returnType: Type;
-      returnValue: Value | undefined;
-      calleeEnv: Environment;
-      callerEnv: Environment;
-      variable: Variable;
-    }[] = [];
-
-    // Search implicit variables from the callerEnv frames top-down
-    let implicitVariables: Variable[] = [];
-    for (let i = callerEnv.frames.length - 1; i >= 0; i--) {
-      const foundImplicitVariables = callerEnv.frames[i]!.variables.filter(
-        (variable) => {
-          if (
-            variable.isCompileTimeOnly !== implicitParameter.isCompileTimeOnly
-          ) {
-            return false;
-          }
-
-          // First synthesize types to allow unification of SomeTypes with concrete types
-          const {
-            expectedEnv: synthesizedCalleeEnv,
-            givenEnv: synthesizedCallerEnv,
-          } = synthesizeTypes(
-            { type: implicitParameterType, env: calleeEnv },
-            { type: variable.type, env: callerEnv }
-          );
-
-          // Check if type matches
-          const isCompatible = areTypesCompatible(
-            { type: implicitParameterType, env: synthesizedCalleeEnv },
-            { type: variable.type, env: synthesizedCallerEnv }
-          );
-
-          if (isCompatible) {
-            return true;
-          }
-
-          // Check if it's a function that has no parameters.
-          // (can have type parameters, and implicit parameters).
-          // Then try to call that function to check if its return type can
-          // match the implicit parameter type
-          if (isFunctionType(variable.type)) {
-            const funcType = variable.type;
-            if (funcType.parameters.length === 0) {
-              const funcValue = variable.value;
-
-              if (
-                !!funcValue &&
-                !!functionValue &&
-                funcValue === functionValue
-              ) {
-                // Prevent infinite loop
-                return false;
-              }
-
-              if (!(!funcValue || isFunctionValue(funcValue))) {
-                return false;
-              }
-
-              try {
-                // FIXME: Prevent circular call
-                const {
-                  returnType,
-                  returnValue,
-                  calleeEnv: nextCalleeEnv,
-                  callerEnv: nextCallerEnv,
-                } = tryToCallFunctionWithArguments({
-                  argExprs: [],
-                  callerEnv,
-                  functionType: funcType,
-                  functionValue: funcValue,
-                  functionCalleeExpr: undefined, // FIXME: <- this is the wrong expr
-                  context: {
-                    ...context,
-                    expectedType: {
-                      type: implicitParameterType,
-                      env: calleeEnv,
-                    },
-                  },
-                  isMethodCall: false,
-                });
-                const matched = areTypesCompatible(
-                  { type: returnType, env: nextCallerEnv },
-                  { type: implicitParameterType, env: nextCalleeEnv }
-                );
-                if (matched) {
-                  implicitFunctionCalls.push({
-                    returnType,
-                    returnValue,
-                    calleeEnv: nextCalleeEnv,
-                    callerEnv: nextCallerEnv,
-                    variable,
-                  });
-                }
-
-                return matched;
-              } catch {
-                // Failed
-              }
-            }
-          }
-
-          // Check if the variable module value matches the expected implicitParameterType
-          if (
-            isModuleType(implicitParameterType) &&
-            isTypeValue(variable.value)
-          ) {
-            const type = variable.value.value;
-            if (
-              isStructType(type) ||
-              isEnumType(type) ||
-              isUnionType(type) ||
-              isClosureType(type) ||
-              isFutureType(type)
-            ) {
-              const module = type.module;
-              for (let i = 0; i < module.elements.length; i++) {
-                const moduleElement = module.elements[i]!;
-                if (isModuleValue(moduleElement.assignedValue)) {
-                  const moduleValue = moduleElement.assignedValue;
-                  if (
-                    areTypesCompatible(
-                      { type: moduleValue.type, env: callerEnv },
-                      { type: implicitParameterType, env: calleeEnv }
-                    )
-                  ) {
-                    implicitFunctionCalls.push({
-                      returnType: moduleValue.type,
-                      returnValue: moduleValue,
-                      calleeEnv,
-                      callerEnv,
-                      variable,
-                    });
-                    return true;
-                  }
-                }
-              }
-            }
-          }
-
-          return false;
-        }
-      );
-      // No need to continue searching if we found implicit variables in this frame
-      if (foundImplicitVariables.length) {
-        implicitVariables = implicitVariables.concat(foundImplicitVariables);
-        break;
-      }
-    }
-
-    // Get the max frame level of the implicit variables
-    // This is to ensure that we get the most recent implicit variable
-    const maxImplicitVariableFrameLevel = Math.max(
-      ...implicitVariables.map((variable) => variable.frameLevel)
-    );
-    implicitVariables = implicitVariables.filter(
-      (variable) => variable.frameLevel === maxImplicitVariableFrameLevel
-    );
-
-    if (implicitVariables.length === 0) {
-      throw formatErrorMessage({
+    // Add the resolved implicit variable to the function env
+    const { env: nextEnv } = addVariableToEnv({
+      env: calleeEnv,
+      variable: {
+        name: implicitParameter.label,
+        type: resolvedType,
+        isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
+        value: resolvedValue,
         token: functionCalleeExpr?.token ?? PlaceholderToken,
-        errorMessage: `Implicit parameter is not provided. Expected:
-given(${implicitParameter.label}) :\n  ${typeToString(implicitParameterType)}`,
-      });
-    }
+        initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken,
+        consumedAtToken: undefined,
+      },
+      skipCheckingFunctionOverloading: true,
+    });
+    calleeEnv = nextEnv;
 
-    if (implicitVariables.length > 1) {
-      throw formatErrorMessage({
-        token: functionCalleeExpr?.token ?? PlaceholderToken,
-        errorMessage: `Ambiguous implicit parameter:
-${implicitParameter.label ? `(${implicitParameter.label} : ${typeToString(implicitParameterType)})` : typeToString(implicitParameterType)}
+    // Add the implicit variable value to the implicitArgValues
+    implicitArgValues.push({
+      value: resolvedValue,
+      argType: resolvedType,
+      parameterType: implicitParameterType,
+    });
 
-Found:
-${implicitVariables
-  .map((variable) => {
-    return `- ${variable.name} : ${typeToString(variable.type)}`;
-  })
-  .join("\n")}
-`,
-      });
-    }
-
-    // Add the implicit variable to the function env
-    const implicitVariable = implicitVariables[0]!;
-
-    // Check if it's from an implicit function call or type module
-    if (
-      (isFunctionType(implicitVariable.type) || // implicit function
-        isTypeValue(implicitVariable.value)) && // implicit type module
-      implicitFunctionCalls.find((c) => c.variable === implicitVariable)
-    ) {
-      const implicitFunctionCallResult = implicitFunctionCalls.find(
-        (c) => c.variable === implicitVariable
-      )!;
-      const { returnType, returnValue } = implicitFunctionCallResult;
-
-      const { env: nextEnv } = addVariableToEnv({
-        env: calleeEnv,
-        variable: {
-          name: implicitParameter.label,
-          type: returnType,
-          isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
-          value: returnValue,
-          token: functionCalleeExpr?.token ?? PlaceholderToken,
-          initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken, // Set as initialized
-          consumedAtToken: undefined, // Not consumed yet
+    /*
+    // In theory this shouldn't happen
+    // All implicitParameter should be isCompileTimeOnly
+    if (!implicitParameter.isCompileTimeOnly) {
+      // For runtime implicit parameters, we need to generate the expression
+      // This is a simplified version - the actual implementation would need
+      // to determine whether it's a function call or direct variable access
+      runtimeArgExprsInOrder.push({
+        tag: ExprTag.Atom,
+        token: {
+          ...implicitVariable.token,
+          type: TokenType.Identifier,
+          value: implicitVariable.name,
         },
-        skipCheckingFunctionOverloading: true,
-      });
-      calleeEnv = nextEnv;
-
-      // Add the implicit variable value to the implicitArgValues
-      implicitArgValues.push({
-        value: returnValue,
-        argType: returnType,
-        parameterType: implicitParameterType,
-      });
-      // NOTE: In theory, all implicitParameter are compile-time-only now.
-      if (!implicitParameter.isCompileTimeOnly) {
-        runtimeArgExprsInOrder.push({
-          tag: ExprTag.FuncCall,
-          func: {
-            tag: ExprTag.Atom,
-            token: {
-              type: TokenType.Identifier,
-              value: implicitVariable.name,
-              inputString: implicitVariable.token.inputString,
-              modulePath: implicitVariable.token.modulePath,
-              position: implicitVariable.token.position,
-            },
-            $: {
-              env: calleeEnv,
-              type: implicitVariable.type,
-              value: implicitVariable.value,
-              pathCollection: [],
-            },
-          },
-          args: [],
-          token: {
-            type: TokenType.Identifier,
-            value: implicitVariable.name,
-            inputString: implicitVariable.token.inputString,
-            modulePath: implicitVariable.token.modulePath,
-            position: implicitVariable.token.position,
-          },
-          $: {
-            env: calleeEnv,
-            type: returnType,
-            value: returnValue,
-            pathCollection: [],
-          },
-        });
-      }
-    } else {
-      // console.log("(15) addVariableToEnv");
-      const { env: nextEnv } = addVariableToEnv({
-        env: calleeEnv,
-        variable: {
-          name: implicitParameter.label,
-          type: implicitVariable.type,
-          isCompileTimeOnly: implicitVariable.isCompileTimeOnly,
-          value: implicitVariable.value,
-          token: functionCalleeExpr?.token ?? PlaceholderToken,
-          initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken, // Set as initialized
-          consumedAtToken: undefined, // Not consumed yet
+        $: {
+          env: calleeEnv,
+          type: resolvedType,
+          value: resolvedValue,
+          pathCollection: [],
         },
-        skipCheckingFunctionOverloading: true,
       });
-      calleeEnv = nextEnv;
-
-      // Add the implicit variable value to the implicitArgValues
-      implicitArgValues.push({
-        value: implicitVariable.value,
-        argType: implicitVariable.type,
-        parameterType: implicitParameterType,
-      });
-      if (!implicitParameter.isCompileTimeOnly) {
-        runtimeArgExprsInOrder.push({
-          tag: ExprTag.Atom,
-          token: {
-            type: TokenType.Identifier,
-            value: implicitVariable.name,
-            inputString: implicitVariable.token.inputString,
-            modulePath: implicitVariable.token.modulePath,
-            position: implicitVariable.token.position,
-          },
-          $: {
-            env: calleeEnv,
-            type: implicitVariable.type,
-            value: implicitVariable.value,
-            pathCollection: [],
-          },
-        });
-      }
     }
+    */
   }
 
   // Check the variadic parameters

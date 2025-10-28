@@ -27,6 +27,7 @@ import {
   valueToString,
 } from "../../value";
 import { EvaluatorContext, ModuleTypeCallResult } from "../context";
+import { resolveImplicitValue } from "./implicit_resolver";
 
 export function tryToImplementModuleWithArgumentsByModuleType({
   moduleExpr,
@@ -236,6 +237,44 @@ Got:   ${typeToString(argType)}`,
     if (!foundArgExpr) {
       const defaultValue = moduleElement.defaultValue;
       const assignedValue = moduleElement.assignedValue;
+
+      // Check if it's an implicit parameter that needs to be resolved
+      if (!defaultValue && !assignedValue && moduleElement.isImplicit) {
+        try {
+          // Try to resolve the implicit value from the environment
+          const { value: resolvedValue, type: resolvedType } =
+            resolveImplicitValue({
+              expectedType: moduleElement.type,
+              label: moduleElement.label,
+              isCompileTimeOnly: true, // Module elements are always compile-time
+              calleeEnv: callerEnv,
+              callerEnv,
+              context,
+              errorToken: moduleExpr.token,
+            });
+
+          elements[i] = resolvedValue;
+
+          // Add to the env
+          const { env: nextEnv } = addVariableToEnv({
+            env: callerEnv,
+            variable: {
+              name: moduleElement.label,
+              type: resolvedType,
+              isCompileTimeOnly: true,
+              value: resolvedValue,
+              token: moduleExpr.token,
+              initializedAtToken: moduleExpr.token,
+              consumedAtToken: undefined,
+            },
+          });
+          callerEnv = nextEnv;
+          continue; // Successfully resolved implicit parameter
+        } catch (error) {
+          // If implicit resolution fails, fall through to the error below
+        }
+      }
+
       // Check if moduleMember has default or required value
       if (!defaultValue && !assignedValue) {
         throw formatErrorMessage({

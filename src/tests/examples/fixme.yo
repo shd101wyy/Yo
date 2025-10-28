@@ -1,51 +1,36 @@
-Id :: module
-  Self : Type,
+Eq ::
+  (fn(compt(Rhs) : Type) -> compt(Module))
+  module
+    Self : Type,
 
-  id : (fn(self : Self) -> Self)
+    (==): (fn(lhs: Self, rhs: Rhs) -> boolean)
 ;
 
-/*
-// Works
-use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T)
-  ValId.id(val)
+Ord :: (
+  fn(
+    compt(Rhs) : Type
+  ) -> compt(Module))
+  module
+    Self : Type,
+    using(EqSelf) : (Self <: Eq(Rhs)),
+
+    (<) :
+      fn(lhs: Self, rhs: Rhs) -> boolean
 ;
-*/
-/*
-// Works
-use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
-  x := ValId.id(val);
-  return x;
-};
-*/
 
-// FIXME: This doesn't work
-use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
-  return ValId.id(val);
-};
-
-I32Id :: Id(
+I32Eq :: Eq(i32)(
   Self : i32,
 
-  id : ((self) -> {
-    return self;
-  })
+  (==) : ((lhs, rhs) -> true)
 );
 
-BooleanId :: Id(
-  Self : boolean,
+I32Ord :: Ord(i32)(
+  Self : i32,
 
-  id : ((self) -> {
-    return self;
-  })
+  // Commented out the line below should still work
+  // because we can implicitly inject I32Eq for `using(EqSelf)`
+  // 
+  // EqSelf : I32Eq,
+
+  (<) : ((lhs, rhs) -> true)
 );
-
-main :: (fn() -> unit) {
-  x := 12;
-  y := use_id(x);
-  z := use_id(y, I32Id);
-  m := use_id(z, ValId : I32Id);
-  n := use_id(m, _);
-  p := use_id(n, ValId : _);
-};
-
-export main;

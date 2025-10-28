@@ -1,0 +1,51 @@
+Id :: module
+  Self : Type,
+
+  id : (fn(self : Self) -> Self)
+;
+
+/*
+// Works
+use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T)
+  ValId.id(val)
+;
+*/
+/*
+// Works
+use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
+  x := ValId.id(val);
+  return x;
+};
+*/
+
+// FIXME: This doesn't work
+use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
+  return ValId.id(val);
+};
+
+I32Id :: Id(
+  Self : i32,
+
+  id : ((self) -> {
+    return self;
+  })
+);
+
+BooleanId :: Id(
+  Self : boolean,
+
+  id : ((self) -> {
+    return self;
+  })
+);
+
+main :: (fn() -> unit) {
+  x := 12;
+  y := use_id(x);
+  z := use_id(y, I32Id);
+  m := use_id(z, ValId : I32Id);
+  n := use_id(m, _);
+  p := use_id(n, ValId : _);
+};
+
+export main;

@@ -371,7 +371,7 @@ export function evaluateBeginExpression({
         expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
         const returnArg = exprToEvaluate.args[0]!;
 
-        const evaluatedReturnExpr = context.evaluateExpression({
+        const evaluatedReturnArgExpr = context.evaluateExpression({
           expr: returnArg,
           env,
           context: {
@@ -387,20 +387,20 @@ export function evaluateBeginExpression({
                 : context.expectedType,
           },
         });
-        if (!evaluatedReturnExpr.$) {
+        if (!evaluatedReturnArgExpr.$) {
           throw formatErrorMessage({
             token: returnArg.token,
             errorMessage: `Return expression is not evaluated correctly:\n${exprToString(returnArg)}`,
           });
         }
-        env = evaluatedReturnExpr.$.env;
+        env = evaluatedReturnArgExpr.$.env;
 
         exprToEvaluate.$ = {
           env,
-          type: evaluatedReturnExpr.$.type,
-          value: evaluatedReturnExpr.$.value,
-          pathCollection: evaluatedReturnExpr.$.pathCollection,
-          variableName: evaluatedReturnExpr.$.variableName,
+          type: evaluatedReturnArgExpr.$.type,
+          value: evaluatedReturnArgExpr.$.value,
+          pathCollection: evaluatedReturnArgExpr.$.pathCollection,
+          variableName: evaluatedReturnArgExpr.$.variableName,
           controlFlow: "return",
         };
         lastExpr = exprToEvaluate;
