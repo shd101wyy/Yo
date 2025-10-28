@@ -11,22 +11,28 @@ LongDouble :: impl {
   export Self;
 
   // === Arithmetic ===
-  _Add :: Add(longdouble, longdouble)
+  _Add :: Add(Self)
+    Self : Self,
     (+): ((a, b) -> __yo_op_add(a, b))
   ;
-  _Sub :: Sub(longdouble, longdouble)
+  _Sub :: Sub(Self)
+    Self : Self,
     (-): ((a, b) -> __yo_op_sub(a, b))
   ;
-  _Mul :: Mul(longdouble, longdouble)
+  _Mul :: Mul(Self)
+    Self : Self,
     (*): ((a, b) -> __yo_op_mul(a, b))
   ;
-  _Div :: Div(longdouble, longdouble)
+  _Div :: Div(Self)
+    Self : Self,
     (/): ((a, b) -> __yo_op_div(a, b))
   ;
-  _Mod :: Mod(longdouble, longdouble)
+  _Mod :: Mod(Self)
+    Self : Self,
     (%): ((a, b) -> __yo_op_mod(a, b))
   ;
-  _Negate :: Negate(longdouble)
+  _Negate :: Negate
+    Self : Self,
     (neg): ((a) -> __yo_op_neg(a))
   ;
   export
@@ -39,19 +45,24 @@ LongDouble :: impl {
   ;
 
   // === Logic ===
-  _LogicalNot :: LogicalNot(longdouble)
+  _LogicalNot :: LogicalNot
+    Self : Self,
     (!): ((a) -> __yo_op_not(a))
   ;
-  _BitNot :: BitNot(longdouble)
+  _BitNot :: BitNot
+    Self : Self,
     (~): ((a) -> __yo_op_bit_complement(a))
   ;
-  _BitAnd :: BitAnd(longdouble, longdouble)
+  _BitAnd :: BitAnd(Self)
+    Self : Self,
     (&): ((a, b) -> __yo_op_bit_and(a, b))
   ;
-  _BitOr :: BitOr(longdouble, longdouble)
+  _BitOr :: BitOr(Self)
+    Self : Self,
     (|): ((a, b) -> __yo_op_bit_or(a, b))
   ;
-  _BitXor :: BitXor(longdouble, longdouble)
+  _BitXor :: BitXor(Self)
+    Self : Self,
     (^): ((a, b) -> __yo_op_bit_xor(a, b))
   ;
   export
@@ -63,14 +74,16 @@ LongDouble :: impl {
   ;
 
   // === Eq ===
-  _Eq :: Eq(longdouble, longdouble)
+  _Eq :: Eq(Self)
+    Self : Self,
     (==) : ((a, b) -> __yo_op_eq(a, b)),
     (!=) : ((a, b) -> __yo_op_neq(a, b))
   ;
   export Eq : _Eq;
 
   // === Ord ===
-  _Ord :: Ord(longdouble, longdouble, using(_Eq))
+  _Ord :: Ord(Self)
+    Self : Self,
     (<) : ((a, b) -> __yo_op_lt(a, b)),
     (<=) : ((a, b) -> __yo_op_lte(a, b)),
     (>) : ((a, b) -> __yo_op_gt(a, b)),
@@ -79,13 +92,15 @@ LongDouble :: impl {
   export Ord : _Ord;
 
   // === Hash ===
-  _Hash :: Hash(longdouble)
+  _Hash :: Hash
+    Self : Self,
     (hash): ((value) -> __yo_as(__yo_as(value, i64), u64))
   ;
   export Hash : _Hash;
 
   // === Drop ===
-  _Drop :: Drop(longdouble)
+  _Drop :: Drop
+    Self : Self,
     drop: ((self) ->
       // No-op for longdouble, as it does not require any special cleanup
       __yo_noop()
@@ -94,7 +109,8 @@ LongDouble :: impl {
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone(longdouble)
+  _Clone :: Clone
+    Self : Self,
     clone: ((self) ->
       // No-op for longdouble, as it is a primitive type
       __yo_return_self(self.*)

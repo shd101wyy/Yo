@@ -1,36 +1,15 @@
-Eq ::
-  (fn(compt(Rhs) : Type) -> compt(Module))
-  module
-    Self : Type,
-
-    (==): (fn(lhs: Self, rhs: Rhs) -> boolean)
+Id :: module
+  Self : Type,
+  Output ?= Self,
+  id : (fn(value : Self) -> Output)
 ;
 
-Ord :: (
-  fn(
-    compt(Rhs) : Type
-  ) -> compt(Module))
-  module
-    Self : Type,
-    using(EqSelf) : (Self <: Eq(Rhs)),
-
-    (<) :
-      fn(lhs: Self, rhs: Rhs) -> boolean
-;
-
-I32Eq :: Eq(i32)(
+I32Id :: Id(
   Self : i32,
-
-  (==) : ((lhs, rhs) -> true)
+  id : ((value) -> value)
 );
 
-I32Ord :: Ord(i32)(
-  Self : i32,
-
-  // Commented out the line below should still work
-  // because we can implicitly inject I32Eq for `using(EqSelf)`
-  // 
-  // EqSelf : I32Eq,
-
-  (<) : ((lhs, rhs) -> true)
-);
+main :: (fn() -> unit) {
+  x := 12;
+  y := I32Id.id(x);
+};

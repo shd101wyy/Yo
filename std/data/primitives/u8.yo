@@ -11,28 +11,36 @@ U8 :: impl {
   export Self;
 
   // === Arithmetic ===
-  _Add :: Add(u8, u8)
+  _Add :: Add(Self)
+    Self : Self,
     (+): ((a, b) -> __yo_op_add(a, b))
   ;
-  _Sub :: Sub(u8, u8)
+  _Sub :: Sub(Self)
+    Self : Self,
     (-): ((a, b) -> __yo_op_sub(a, b))
   ;
-  _Mul :: Mul(u8, u8)
+  _Mul :: Mul(Self)
+    Self : Self,
     (*): ((a, b) -> __yo_op_mul(a, b))
   ;
-  _Div :: Div(u8, u8)
+  _Div :: Div(Self)
+    Self : Self,
     (/): ((a, b) -> __yo_op_div(a, b))
   ;
-  _Mod :: Mod(u8, u8)
+  _Mod :: Mod(Self)
+    Self : Self,
     (%): ((a, b) -> __yo_op_mod(a, b))
   ;
-  _Negate :: Negate(u8)
+  _Negate :: Negate
+    Self : Self,
     (neg): ((a) -> __yo_op_neg(a))
   ;
-  _BitLeftShift :: BitLeftShift(u8, u8)
+  _BitLeftShift :: BitLeftShift(Self)
+    Self : Self,
     (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
   ;
-  _BitRightShift :: BitRightShift(u8, u8)
+  _BitRightShift :: BitRightShift(Self)
+    Self : Self,
     (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
   ;
   export
@@ -47,19 +55,24 @@ U8 :: impl {
   ;
 
   // === Logic ===
-  _LogicalNot :: LogicalNot(u8)
+  _LogicalNot :: LogicalNot
+    Self : Self,
     (!): ((a) -> __yo_op_not(a))
   ;
-  _BitNot :: BitNot(u8)
+  _BitNot :: BitNot
+    Self : Self,
     (~): ((a) -> __yo_op_bit_complement(a))
   ;
-  _BitAnd :: BitAnd(u8, u8)
+  _BitAnd :: BitAnd(Self)
+    Self : Self,
     (&): ((a, b) -> __yo_op_bit_and(a, b))
   ;
-  _BitOr :: BitOr(u8, u8)
+  _BitOr :: BitOr(Self)
+    Self : Self,
     (|): ((a, b) -> __yo_op_bit_or(a, b))
   ;
-  _BitXor :: BitXor(u8, u8)
+  _BitXor :: BitXor(Self)
+    Self : Self,
     (^): ((a, b) -> __yo_op_bit_xor(a, b))
   ;
   export
@@ -71,14 +84,16 @@ U8 :: impl {
   ;
 
   // === Eq ===
-  _Eq :: Eq(u8, u8)
+  _Eq :: Eq(Self)
+    Self : Self,
     (==) : ((a, b) -> __yo_op_eq(a, b)),
     (!=) : ((a, b) -> __yo_op_neq(a, b))
   ;
   export Eq : _Eq;
 
   // === Ord ===
-  _Ord :: Ord(u8, u8, using(_Eq))
+  _Ord :: Ord(Self)
+    Self : Self,
     (<) : ((a, b) -> __yo_op_lt(a, b)),
     (<=) : ((a, b) -> __yo_op_lte(a, b)),
     (>) : ((a, b) -> __yo_op_gt(a, b)),
@@ -87,13 +102,15 @@ U8 :: impl {
   export Ord : _Ord;
 
   // === Hash ===
-  _Hash :: Hash(u8)
+  _Hash :: Hash
+    Self : Self,
     (hash): ((value) -> __yo_as(value, u64))
   ;
   export Hash : _Hash;
 
   // === Drop ===
-  _Drop :: Drop(u8)
+  _Drop :: Drop
+    Self : Self,
     drop: ((self) ->
       // No-op for u8, as it does not require any special cleanup
       __yo_noop()
@@ -102,7 +119,8 @@ U8 :: impl {
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone(u8)
+  _Clone :: Clone
+    Self : Self,
     clone: ((self) ->
       // No-op for u8, as it is a primitive type
       __yo_return_self(self.*)

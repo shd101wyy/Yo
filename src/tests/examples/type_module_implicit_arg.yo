@@ -28,7 +28,7 @@ MyBox :: object
 //   return v.as(i32); 
 // };
 
-use_id :: (fn(forall(T : Type), x : T, using(MyId : (T <: Id))) -> T) {
+use_id :: (fn(forall(T : Type), x : T, using(MyId) : (T <: Id)) -> T) {
   return MyId.id(x);
 };
 
@@ -44,16 +44,16 @@ main :: (fn() -> unit) {
   printf("y from id: %d\n", y.(*));
   
   compt_expect_error({
-    z := use_id(y, using(MyBox));
+    z := use_id(y, MyBox);
     printf("z from id: %d\n", z.(*));
   });
   
   
-  z := use_id(y, using(MyBox.Id));
+  z := use_id(y, MyBox.Id);
   printf("z from id: %d\n", z.(*));
 
   compt_expect_error({
-    m := use_id(z, using(MyBox)); // This should be error, because we should pass MyBox.Id, not MyBox.
+    m := use_id(z, MyBox); // This should be error, because we should pass MyBox.Id, not MyBox.
     printf("m from use_id with MyBox: %d\n", m.(*));
   });
 

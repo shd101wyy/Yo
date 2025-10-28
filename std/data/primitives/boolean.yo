@@ -9,7 +9,8 @@ Boolean :: impl {
   export Self;
 
   // === Eq ===
-  _Eq :: Eq(boolean, boolean)
+  _Eq :: Eq(Self)
+    Self : Self,
     (==): ((a, b) ->
       __yo_op_eq(a, b)
     )
@@ -17,7 +18,8 @@ Boolean :: impl {
   export Eq : _Eq;
 
   // === Drop ===
-  _Drop :: Drop(boolean)
+  _Drop :: Drop
+    Self : Self,
     drop: ((self)->
       // No-op for boolean
       __yo_noop()
@@ -26,7 +28,8 @@ Boolean :: impl {
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone(boolean)
+  _Clone :: Clone
+    Self : Self,
     clone: ((self) ->
       // No-op for boolean, as it is a primitive type
       __yo_return_self(self.*)

@@ -16,7 +16,7 @@ pure :: (fn(
     Wrapper2 : (fn(compt(W2) : Type) -> compt(Type))
   ),
   a2 : A2,
-  using(ApplicativeInstance : Applicative(Wrapper2))
+  using(ApplicativeInstance) : Applicative(Wrapper2)
 ) -> Wrapper2(A2))
   ApplicativeInstance.pure(a2)
 ;
@@ -34,7 +34,7 @@ DataApplicative :: Applicative(Data)
 ;
 
 test1 :: (fn() -> Data(boolean))
-  pure(true, using(DataApplicative))
+  pure(true, DataApplicative)
 ;
 
 test1_2 :: (fn() -> Data(boolean))
@@ -47,13 +47,13 @@ test2 :: (fn() -> Data(boolean))
 ;
 
 test3 :: (fn() -> Data(boolean)) {
-  (x : Data(boolean)) = pure(true, using(DataApplicative));
+  (x : Data(boolean)) = pure(true, DataApplicative);
   return x;
 };
 
 test4 :: (fn() -> Data(boolean)) {
   compt_expect_error(
-    x := pure(true, using(DataApplicative))
+    x := pure(true, DataApplicative)
   );
   compt_expect_error(
     x := pure(true)

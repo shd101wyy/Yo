@@ -3,9 +3,10 @@
 
 DropArray :: (fn(
   forall(T : Type, S : usize), 
-  using(DropT : Drop(T)))
-  -> compt(Drop(Array(T, S))))
-  Drop(Array(T, S))
+  using(DropT) : (T <: Drop) )
+  -> compt(Drop))
+  Drop
+    Self : Array(T, S),
     drop : 
       (self)-> 
         for self, elem => {

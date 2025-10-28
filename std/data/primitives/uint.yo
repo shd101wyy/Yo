@@ -11,22 +11,28 @@ UInt :: impl {
   export Self;
 
   // === Arithmetic ===
-  _Add :: Add(uint, uint)
+  _Add :: Add(Self)
+    Self : Self,
     (+): ((a, b) -> __yo_op_add(a, b))
   ;
-  _Sub :: Sub(uint, uint)
+  _Sub :: Sub(Self)
+    Self : Self,
     (-): ((a, b) -> __yo_op_sub(a, b))
   ;
-  _Mul :: Mul(uint, uint)
+  _Mul :: Mul(Self)
+    Self : Self,
     (*): ((a, b) -> __yo_op_mul(a, b))
   ;
-  _Div :: Div(uint, uint)
+  _Div :: Div(Self)
+    Self : Self,
     (/): ((a, b) -> __yo_op_div(a, b))
   ;
-  _Mod :: Mod(uint, uint)
+  _Mod :: Mod(Self)
+    Self : Self,
     (%): ((a, b) -> __yo_op_mod(a, b))
   ;
-  _Negate :: Negate(uint)
+  _Negate :: Negate
+    Self : Self,
     (neg): ((a) -> __yo_op_neg(a))
   ;
   export
@@ -39,19 +45,24 @@ UInt :: impl {
   ;
 
   // === Logic ===
-  _LogicalNot :: LogicalNot(uint)
+  _LogicalNot :: LogicalNot
+    Self : Self,
     (!): ((a) -> __yo_op_not(a))
   ;
-  _BitNot :: BitNot(uint)
+  _BitNot :: BitNot
+    Self : Self,
     (~): ((a) -> __yo_op_bit_complement(a))
   ;
-  _BitAnd :: BitAnd(uint, uint)
+  _BitAnd :: BitAnd(Self)
+    Self : Self,
     (&): ((a, b) -> __yo_op_bit_and(a, b))
   ;
-  _BitOr :: BitOr(uint, uint)
+  _BitOr :: BitOr(Self)
+    Self : Self,
     (|): ((a, b) -> __yo_op_bit_or(a, b))
   ;
-  _BitXor :: BitXor(uint, uint)
+  _BitXor :: BitXor(Self)
+    Self : Self,
     (^): ((a, b) -> __yo_op_bit_xor(a, b))
   ;
   export
@@ -63,14 +74,16 @@ UInt :: impl {
   ;
 
   // === Eq ===
-  _Eq :: Eq(uint, uint)
+  _Eq :: Eq(Self)
+    Self : Self,
     (==) : ((a, b) -> __yo_op_eq(a, b)),
     (!=) : ((a, b) -> __yo_op_neq(a, b))
   ;
   export Eq : _Eq;
 
   // === Ord ===
-  _Ord :: Ord(uint, uint, using(_Eq))
+  _Ord :: Ord(Self)
+    Self : Self,
     (<) : ((a, b) -> __yo_op_lt(a, b)),
     (<=) : ((a, b) -> __yo_op_lte(a, b)),
     (>) : ((a, b) -> __yo_op_gt(a, b)),
@@ -79,13 +92,15 @@ UInt :: impl {
   export Ord : _Ord;
 
   // === Hash ===
-  _Hash :: Hash(uint)
+  _Hash :: Hash
+    Self : Self,
     (hash): ((value) -> __yo_as(value, u64))
   ;
   export Hash : _Hash;
 
   // === Drop ===
-  _Drop :: Drop(uint)
+  _Drop :: Drop
+    Self : Self,
     drop: ((self) ->
       // No-op for uint, as it does not require any special cleanup
       __yo_noop()
@@ -94,7 +109,8 @@ UInt :: impl {
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone(uint)
+  _Clone :: Clone
+    Self : Self,
     clone: ((self) ->
       // No-op for uint, as it is a primitive type
       __yo_return_self(self.*)

@@ -11,28 +11,36 @@ Usize :: impl {
   export Self;
 
   // === Arithmetic ===
-  _Add :: Add(usize, usize)
+  _Add :: Add(Self)
+    Self : Self,
     (+): ((a, b) -> __yo_op_add(a, b))
   ;
-  _Sub :: Sub(usize, usize)
+  _Sub :: Sub(Self)
+    Self : Self,
     (-): ((a, b) -> __yo_op_sub(a, b))
   ;
-  _Mul :: Mul(usize, usize)
+  _Mul :: Mul(Self)
+    Self : Self,
     (*): ((a, b) -> __yo_op_mul(a, b))
   ;
-  _Div :: Div(usize, usize)
+  _Div :: Div(Self)
+    Self : Self,
     (/): ((a, b) -> __yo_op_div(a, b))
   ;
-  _Mod :: Mod(usize, usize)
+  _Mod :: Mod(Self)
+    Self : Self,
     (%): ((a, b) -> __yo_op_mod(a, b))
   ;
-  _Negate :: Negate(usize)
+  _Negate :: Negate
+    Self : Self,
     (neg): ((a) -> __yo_op_neg(a))
   ;
-  _BitLeftShift :: BitLeftShift(usize, usize)
+  _BitLeftShift :: BitLeftShift(Self)
+    Self : Self,
     (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
   ;
-  _BitRightShift :: BitRightShift(usize, usize)
+  _BitRightShift :: BitRightShift(Self)
+    Self : Self,
     (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
   ;
   export
@@ -47,19 +55,24 @@ Usize :: impl {
   ;
 
   // === Logic ===
-  _LogicalNot :: LogicalNot(usize)
+  _LogicalNot :: LogicalNot
+    Self : Self,
     (!): ((a) -> __yo_op_not(a))
   ;
-  _BitNot :: BitNot(usize)
+  _BitNot :: BitNot
+    Self : Self,
     (~): ((a) -> __yo_op_bit_complement(a))
   ;
-  _BitAnd :: BitAnd(usize, usize)
+  _BitAnd :: BitAnd(Self)
+    Self : Self,
     (&): ((a, b) -> __yo_op_bit_and(a, b))
   ;
-  _BitOr :: BitOr(usize, usize)
+  _BitOr :: BitOr(Self)
+    Self : Self,
     (|): ((a, b) -> __yo_op_bit_or(a, b))
   ;
-  _BitXor :: BitXor(usize, usize)
+  _BitXor :: BitXor(Self)
+    Self : Self,
     (^): ((a, b) -> __yo_op_bit_xor(a, b))
   ;
   export
@@ -71,14 +84,16 @@ Usize :: impl {
   ;
 
   // === Eq ===
-  _Eq :: Eq(usize, usize)
+  _Eq :: Eq(Self)
+    Self : Self,
     (==) : ((a, b) -> __yo_op_eq(a, b)),
     (!=) : ((a, b) -> __yo_op_neq(a, b))
   ;
   export Eq : _Eq;
 
   // === Ord ===
-  _Ord :: Ord(usize, usize, using(_Eq))
+  _Ord :: Ord(Self)
+    Self : Self,
     (<) : ((a, b) -> __yo_op_lt(a, b)),
     (<=) : ((a, b) -> __yo_op_lte(a, b)),
     (>) : ((a, b) -> __yo_op_gt(a, b)),
@@ -87,13 +102,15 @@ Usize :: impl {
   export Ord : _Ord;
 
   // === Hash ===
-  _Hash :: Hash(usize)
+  _Hash :: Hash
+    Self : Self,
     (hash): ((value) -> __yo_as(value, u64))
   ;
   export Hash : _Hash;
 
   // === Drop ===
-  _Drop :: Drop(usize)
+  _Drop :: Drop
+    Self : Self,
     drop: ((self) ->
       // No-op for usize, as it does not require any special cleanup
       __yo_noop()
@@ -102,7 +119,8 @@ Usize :: impl {
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone(usize)
+  _Clone :: Clone
+    Self : Self,
     clone: ((self) ->
       // No-op for usize, as it is a primitive type
       __yo_return_self(self.*)
@@ -194,5 +212,6 @@ ComptUsize :: impl {
 
 export
   Usize,
-  ComptUsize;
+  ComptUsize
+;
 

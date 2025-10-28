@@ -23,7 +23,7 @@ Layout :: struct(
 /**
  * Get the memory layout for a type T
  */
-layout_of :: 
+layout_of ::
   (fn(compt(T): Type) -> compt(Layout))
     Layout(
       size: sizeof(T),
@@ -38,7 +38,7 @@ size_would_overflow ::
   (fn(compt(T): Type, count: usize) -> boolean) {
     type_size :: sizeof(T);
     cond(
-      (type_size == (0).as(usize)) => false,
+      ComptUsize.(==)(type_size, (0).as(usize)) => false,
       true => (count > (SIZE_MAX / type_size))
     )
   };

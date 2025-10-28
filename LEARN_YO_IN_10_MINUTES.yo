@@ -509,10 +509,8 @@ Id ::
       fn(val : Self)-> Self
 ;
 
-Stringer ::
-  fn(compt(Self) : Type)-> compt(Module)
-  module
-    (Self : Type) = Self,
+Stringer :: module
+    Self : Type,
     to_string: (fn(val : Self)-> String)
 ;
 
@@ -524,7 +522,8 @@ IdI32 :: Id(i32)
 
 MakeStringer ::
   fn(forall(T: Type, Y: Type),
-   using(Stringer(T), Stringer(U))) ->
+   using(TStringer) : (T <: Stringer(T)), 
+   using(UStringer) : (U <: Stringer(U))) ->
   compt(Stringer((T, Y))) {
   return Stringer((T, Y))
     to_string:

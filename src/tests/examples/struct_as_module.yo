@@ -38,13 +38,12 @@ Point.clone(&(Point(1, 2))); // This should also work, we can clone a Point usin
 
 some_func :: (fn( forall(Self : Type ), 
                 self : *(Self),
-                using(CloneMethod : Clone(Self))
+                using(CloneMethod) : Clone(Self)
               ) -> unit)
   CloneMethod.clone(self)
 ;
 
 point := Point(3, 4);
-some_func(&(point), using(Point)); // This should work. We can say Point also implements Clone(Point) because it has a clone method.
-some_func(&(point), using(_));
-some_func(&(point), using());
-some_func(&(point));
+some_func(&(point), Point); // This should work. We can say Point also implements Clone(Point) because it has a clone method.
+// some_func(&(point), _);
+// some_func(&(point));

@@ -11,22 +11,28 @@ F64 :: impl {
   export Self;
 
   // === Arithmetic ===
-  _Add :: Add(f64, f64)
+  _Add :: Add(Self)
+    Self : Self,
     (+): ((a, b) -> __yo_op_add(a, b))
   ;
-  _Sub :: Sub(f64, f64)
+  _Sub :: Sub(Self)
+    Self : Self,
     (-): ((a, b) -> __yo_op_sub(a, b))
   ;
-  _Mul :: Mul(f64, f64)
+  _Mul :: Mul(Self)
+    Self : Self,
     (*): ((a, b) -> __yo_op_mul(a, b))
   ;
-  _Div :: Div(f64, f64)
+  _Div :: Div(Self)
+    Self : Self,
     (/): ((a, b) -> __yo_op_div(a, b))
   ;
-  _Mod :: Mod(f64, f64)
+  _Mod :: Mod(Self)
+    Self : Self,
     (%): ((a, b) -> __yo_op_mod(a, b))
   ;
-  _Negate :: Negate(f64)
+  _Negate :: Negate
+    Self : Self,
     (neg): ((a) -> __yo_op_neg(a))
   ;
   export
@@ -39,19 +45,24 @@ F64 :: impl {
   ;
 
   // === Logic ===
-  _LogicalNot :: LogicalNot(f64)
+  _LogicalNot :: LogicalNot
+    Self : Self,
     (!): ((a) -> __yo_op_not(a))
   ;
-  _BitNot :: BitNot(f64)
+  _BitNot :: BitNot
+    Self : Self,
     (~): ((a) -> __yo_op_bit_complement(a))
   ;
-  _BitAnd :: BitAnd(f64, f64)
+  _BitAnd :: BitAnd(Self)
+     Self : Self,
     (&): ((a, b) -> __yo_op_bit_and(a, b))
   ;
-  _BitOr :: BitOr(f64, f64)
+  _BitOr :: BitOr(Self)
+     Self : Self,
     (|): ((a, b) -> __yo_op_bit_or(a, b))
   ;
-  _BitXor :: BitXor(f64, f64)
+  _BitXor :: BitXor(Self)
+     Self : Self,
     (^): ((a, b) -> __yo_op_bit_xor(a, b))
   ;
   export
@@ -63,14 +74,16 @@ F64 :: impl {
   ;
 
   // === Eq ===
-  _Eq :: Eq(f64, f64)
+  _Eq :: Eq(Self)
+     Self : Self,
     (==) : ((a, b) -> __yo_op_eq(a, b)),
     (!=) : ((a, b) -> __yo_op_neq(a, b))
   ;
   export Eq : _Eq;
 
   // === Ord ===
-  _Ord :: Ord(f64, f64, using(_Eq))
+  _Ord :: Ord(Self)
+    Self : Self,
     (<) : ((a, b) -> __yo_op_lt(a, b)),
     (<=) : ((a, b) -> __yo_op_lte(a, b)),
     (>) : ((a, b) -> __yo_op_gt(a, b)),
@@ -79,13 +92,15 @@ F64 :: impl {
   export Ord : _Ord;
 
   // === Hash ===
-  _Hash :: Hash(f64)
+  _Hash :: Hash
+    Self : Self,
     (hash): ((value) -> __yo_as(__yo_as(value, i64), u64))
   ;
   export Hash : _Hash;
 
   // === Drop ===
-  _Drop :: Drop(f64)
+  _Drop :: Drop
+    Self : Self,
     drop: ((self) ->
       // No-op for f64, as it does not require any special cleanup
       __yo_noop()
@@ -94,7 +109,8 @@ F64 :: impl {
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone(f64)
+  _Clone :: Clone
+    Self : Self,
     clone: ((self) ->
       // No-op for f64, as it is a primitive type
       __yo_return_self(self.*)
