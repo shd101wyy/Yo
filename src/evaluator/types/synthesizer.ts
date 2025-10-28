@@ -46,48 +46,51 @@ export function canAssignTypeHierarchy(expected: Type, given: Type): boolean {
  * This prevents infinite types like T = Option(T).
  * Returns true if someType occurs in the type structure.
  */
-function occursCheck(someTypeName: string, type: Type): boolean {
+function occursCheck(someTypeId: string, type: Type): boolean {
   if (isSomeType(type)) {
-    return someTypeName === type.name;
+    return someTypeId === type.id;
   }
 
   if (isStructType(type)) {
-    return type.elements.some((el) => occursCheck(someTypeName, el.type));
+    return type.elements.some((el) => occursCheck(someTypeId, el.type));
   }
 
   if (isEnumType(type)) {
     return type.variants.some((v) =>
       v.elements
-        ? v.elements.some((el) => occursCheck(someTypeName, el.type))
+        ? v.elements.some((el) => occursCheck(someTypeId, el.type))
         : false
     );
   }
 
   if (isTupleType(type)) {
-    return type.elements.some((el) => occursCheck(someTypeName, el.type));
+    return type.elements.some((el) => occursCheck(someTypeId, el.type));
   }
 
   if (isArrayType(type) || isSliceType(type)) {
-    return occursCheck(someTypeName, type.elementType);
+    return occursCheck(someTypeId, type.elementType);
   }
 
   if (isMutPtrType(type)) {
-    return occursCheck(someTypeName, type.type);
+    // Don't check inside pointer types for occurs check
+    // This prevents false positives like trying to bind X to *(X)
+    // This is a valid indirection.
+    return false;
   }
 
   if (isFunctionType(type)) {
     return (
-      type.parameters.some((p) => occursCheck(someTypeName, p.type)) ||
-      occursCheck(someTypeName, type.return.type)
+      type.parameters.some((p) => occursCheck(someTypeId, p.type)) ||
+      occursCheck(someTypeId, type.return.type)
     );
   }
 
   if (isFutureType(type)) {
-    return occursCheck(someTypeName, type.elementType);
+    return occursCheck(someTypeId, type.elementType);
   }
 
   if (isClosureType(type)) {
-    return occursCheck(someTypeName, type.callType);
+    return occursCheck(someTypeId, type.callType);
   }
 
   return false;
@@ -261,10 +264,10 @@ export function synthesizeTypes(
     if (
       //type === expected.type
       isSomeType(type) &&
-      type.name === expected.type.name
+      type.id === expected.type.id
     ) {
       // Occurs check: prevent infinite types like T = Option(T)
-      if (occursCheck(expected.type.name, given.type)) {
+      if (occursCheck(expected.type.id, given.type)) {
         throw new Error(
           `Cannot unify type variable "${expected.type.name}" with type "${typeToString(given.type)}" because it would create an infinite type.`
         );
@@ -328,7 +331,7 @@ export function synthesizeTypes(
       given.env = givenEnv;
     } else {
       // Occurs check: prevent infinite types like T = Option(T)
-      if (occursCheck(given.type.name, expected.type)) {
+      if (occursCheck(given.type.id, expected.type)) {
         throw new Error(
           `Cannot unify type variable "${given.type.name}" with type "${typeToString(expected.type)}" because it would create an infinite type.`
         );

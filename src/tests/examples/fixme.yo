@@ -1,64 +1,12 @@
 open import "std";
 open import "std/libc/stdio";
 
-Id :: module
-  Self : Type,
-  id : (fn(self : Self) -> Self)
-;
+MyBox :: (fn(compt(X) : Type) -> compt(Type)) 
+  object(
+    ptr : *(X),
 
-given(MyBox) :: object
-  (*) : i32,
-
-  dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.(*));
-  }),
-
-  // Implement the Id module
-  given(Id) :: Id(
-    Self : Self,
-    id : ((self) -> {
-      return self;
-    })
-  )
-;
-
-// DEFAULT_SIZE :: 16.as(usize);
-
-// test :: (fn(v : usize) -> i32) {
-//   return v.as(i32); 
-// };
-
-use_id :: (fn(forall(T : Type), x : T, using(MyId : (T <: Id))) -> T) {
-  return MyId.id(x);
-};
-
-main :: (fn() -> unit) {
-  // test(DEFAULT_SIZE); // This is for testing C codegen with compile-time known value.
-  box := MyBox(42);
-  x := MyBox.Id.id(box);
-  printf("x from id: %d\n", x.(*));
-
-  y := box.id(); // Expected this to work.
-                 // Type methods have higher priority than type modules.  
-                 // If type method is not found, we check the type modules, recursively (because a module might have modules in it).
-  printf("y from id: %d\n", y.(*));
-  
-  compt_expect_error({
-    z := use_id(y, using(MyBox));
-    printf("z from id: %d\n", z.(*));
-  });
-  
-  
-  z := use_id(y, using(MyBox.Id));
-  printf("z from id: %d\n", z.(*));
-
-  compt_expect_error({
-    m := use_id(z, using(MyBox)); // This should be error, because we should pass MyBox.Id, not MyBox.
-    printf("m from use_id with MyBox: %d\n", m.(*));
-  });
-
-  m := use_id(z); // I expect it automatically finds MyBox.Id module.
-  printf("m from use_id with inferred Id module: %d\n", m.(*));
-};
-
-export main;
+    get :: (fn(self : Self) -> Option(X)) {
+      // return .Some(self.ptr.*); // This works
+      return .Some((self.ptr + 0).*);
+    }
+  );
