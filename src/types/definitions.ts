@@ -250,6 +250,7 @@ export interface FunctionParameter {
    * Whether this parameter is compile-time only.
    */
   isCompileTimeOnly: boolean;
+
   /**
    * Whether this parameter is a quote parameter for constructing macro.
    */
@@ -265,6 +266,14 @@ export interface FunctionParameter {
    */
   exprs: FunctionParameterExprs;
 }
+
+export type FunctionForallParameter = FunctionParameter & {
+  isCompileTimeOnly: true;
+};
+
+export type FunctionImplicitParameter = FunctionParameter & {
+  isCompileTimeOnly: true;
+};
 
 export interface StructType extends Type {
   tag: TypeTag.Struct;
@@ -305,7 +314,18 @@ export interface StructType extends Type {
 export interface ModuleElement {
   type: Type;
   label: string;
+  /**
+   * Whether this element is compile-time only.
+   * In theory, all module elements are compile-time only.
+   */
   isCompileTimeOnly: true;
+
+  /**
+   * Whether this element is an implicit constraint (using syntax).
+   * For example: using(EqSelf) : (Self <: Eq(Rhs))
+   * Implicit elements are constraints that must be satisfied but are not directly accessible members.
+   */
+  isImplicit?: boolean;
 
   // The default value and assigned value are compile-time known.
   defaultValue?: Value;
@@ -455,7 +475,7 @@ export interface FunctionType extends Type {
   /**
    * The normal parameters of the function.
    */
-  parameters: FunctionParameter[];
+  parameters: FunctionForallParameter[];
 
   /**
    * The type parameters, usually defined in forall(...):
@@ -467,9 +487,11 @@ export interface FunctionType extends Type {
   /**
    * The implicit parameters (aka contextual parameters), usually define in implicit(...):
    * eg:
-   *   (compt(T): Type, p: Point(T), implicit(Show(T)))-> String
+   *   (compt(T): Type, p: Point(T), using(ShowT) : (T <: Show))-> String
+   *
+   * ShowT here is the implicit parameter.
    */
-  implicitParameters: FunctionParameter[];
+  implicitParameters: FunctionImplicitParameter[];
 
   /**
    * Variadic parameters are parameters that can take a variable number of arguments.

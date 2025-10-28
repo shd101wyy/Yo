@@ -475,69 +475,70 @@ export function evaluateFunctionParameters({
         env = nextEnv;
       }
     }
-    // Check if it's the implicit parameters
+    // Check if it's an implicit parameter with new syntax: using(name) : Type
     else if (
       exprIsFunctionCall(parameterExpr) &&
-      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.using)
+      exprIsFunctionCallOf(parameterExpr, ":", 2) &&
+      exprIsFunctionCall(parameterExpr.args[0]!) &&
+      exprIsFunctionCallOf(parameterExpr.args[0]!, BuiltinKeywords.using, 1)
     ) {
-      if (i !== parameterExprs.length - 1) {
+      // New syntax: using(name) : Type
+      const usingCall = parameterExpr.args[0]! as FuncCallExpr;
+      const nameExpr = usingCall.args[0]!;
+      const typeExpr = parameterExpr.args[1]!;
+
+      // Reconstruct as (name : Type) for evaluateFunctionParameter
+      const reconstructedExpr: FuncCallExpr = {
+        ...parameterExpr,
+        args: [nameExpr, typeExpr],
+      };
+
+      const { parameter, env: nextEnv } = evaluateFunctionParameter({
+        expr: reconstructedExpr,
+        env,
+        context: {
+          ...context,
+        },
+        isParameterComptByDefault: true,
+      });
+
+      // Implicit parameter cannot have default value
+      if (parameter.exprs.defaultValueExpr) {
         throw formatErrorMessage({
           token: parameterExpr.token,
-          errorMessage: `Expected implicit parameters to be the last argument, got ${i + 1}`,
+          errorMessage: `Implicit parameter cannot have default value, got ${exprToString(
+            parameterExpr
+          )}`,
         });
       }
 
-      const implicitParameterExprs = parameterExpr.args;
-
-      for (let j = 0; j < implicitParameterExprs.length; j++) {
-        const implicitParameterExpr = implicitParameterExprs[j]!;
-        const { parameter, env: nextEnv } = evaluateFunctionParameter({
-          expr: implicitParameterExpr,
-          env,
-          context: {
-            ...context,
-          },
-          isParameterComptByDefault: true,
+      // Check if there is duplicate labels
+      const duplicateLabel = implicitParameters.find(
+        (element) => element.label === parameter.label
+      );
+      if (duplicateLabel) {
+        throw formatErrorMessage({
+          token: nameExpr.token,
+          errorMessage: `Duplicate label "${parameter.label}" in implicit parameter`,
         });
+      }
 
-        // Implicit parameter cannot have default value
-        if (parameter.exprs.defaultValueExpr) {
-          throw formatErrorMessage({
-            token: implicitParameterExpr.token,
-            errorMessage: `Implicit parameter cannot have default value, got ${exprToString(
-              implicitParameterExpr
-            )}`,
-          });
-        }
-
-        // Check if there is duplicate labels
-        const duplicateLabel = implicitParameters.find(
-          (element) => element.label === parameter.label
+      // If parameter is compile-time only, then
+      // require there is no runtime implicitParameters before it
+      if (parameter.isCompileTimeOnly) {
+        const runtimeImplicitParameters = implicitParameters.filter(
+          (p) => !p.isCompileTimeOnly
         );
-        if (duplicateLabel) {
+        if (runtimeImplicitParameters.length > 0) {
           throw formatErrorMessage({
-            token: implicitParameterExpr.token,
-            errorMessage: `Duplicate label "${parameter.label}" in implicit parameter`,
+            token: nameExpr.token,
+            errorMessage: `Compile-time parameters must appear first in the implicit parameter list.`,
           });
         }
-
-        // If parameter is compile-time only, then
-        // require there is no runtime implicitParameters before it
-        if (parameter.isCompileTimeOnly) {
-          const runtimeImplicitParameters = implicitParameters.filter(
-            (p) => !p.isCompileTimeOnly
-          );
-          if (runtimeImplicitParameters.length > 0) {
-            throw formatErrorMessage({
-              token: implicitParameterExpr.token,
-              errorMessage: `Compile-time parameters must appear first in the implicit parameter list.`,
-            });
-          }
-        }
-
-        implicitParameters.push(parameter);
-        env = nextEnv;
       }
+
+      implicitParameters.push(parameter);
+      env = nextEnv;
     }
     // Check if it's the variadic parameter
     else if (
