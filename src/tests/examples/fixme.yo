@@ -1,17 +1,27 @@
-open import "std";
-open import "std/libc/stdio";
+extern "yo",
+  __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T)
+;
 
-MyBox :: (fn(compt(X) : Type) -> compt(Type)) 
-  object(
-    ptr : *(X),
+Add :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs, compt(Output) ?= Lhs)-> compt(Module))
+  module
+    Self   := Lhs,
+    (+)    : (fn(lhs: Lhs, rhs: Rhs)-> Output)
+;
 
-    get :: (fn(self : Self) -> Option(X)) {
-      // return .Some(self.ptr.*); // This works
-      return .Some((self.ptr + 0).*);
-    }
-  );
+I32 :: impl {
+  Self :: i32;
+  export Self;
+
+  // === Arithmetic ===
+  _Add :: Add(i32, i32)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ;
+  export Add : _Add;
+};
 
 main :: (fn() -> unit) {
   x := 12;
-  // y := (x + 3);
+  y := 3;
+  z1 := I32.Add.(+)(x, y); // <= This works
+  z2 := (x + y); // <= This gives an error: FIXME
 };

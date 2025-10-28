@@ -546,6 +546,16 @@ export function getMethodsByNameFromEnv(
         }
       }
     }
+
+    // If method not found directly, search in nested modules
+    if (!method) {
+      for (const element of moduleType.elements) {
+        if (isModuleType(element.type) && element.assignedValue) {
+          // Recursively check nested modules
+          checkModule(element.type, element.assignedValue);
+        }
+      }
+    }
   }
 
   function checkModuleSelfCall(moduleValue: ModuleValue) {
@@ -742,9 +752,12 @@ export function getMethodsByNameFromEnv(
     return filterMethodsByReceiverType(methods);
   }
 
-  // Check the modules
+  // Check the modules from innermost to outermost scope
+  // Stop at the first frame level where we find matching methods (shadowing)
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i]!;
+    const methodsInThisFrame: { type: Type; value: Value | undefined }[] = [];
+
     for (let j = frame.variables.length - 1; j >= 0; j--) {
       const variable = frame.variables[j]!;
       const moduleType = variable.type;
@@ -754,8 +767,18 @@ export function getMethodsByNameFromEnv(
         isModuleType(moduleType) &&
         moduleValue
       ) {
+        const methodsBeforeCheck = methods.length;
         checkModule(moduleType, moduleValue);
+        // Collect methods found in this frame
+        if (methods.length > methodsBeforeCheck) {
+          methodsInThisFrame.push(...methods.slice(methodsBeforeCheck));
+        }
       }
+    }
+
+    // If we found methods in this frame, stop searching outer frames (shadowing)
+    if (methodsInThisFrame.length > 0) {
+      break;
     }
   }
 
