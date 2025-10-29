@@ -17,7 +17,8 @@ import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateElementType } from "../types/element";
 
-const extendedTypes = new Set<string>();
+// NOTE: Checking this currently has some problem for vscode extension.
+// const extendedTypes = new Set<string>();
 
 function isPrimitiveType(typeId: string): boolean {
   return Object.values(PrimitiveTypes).some(
@@ -82,19 +83,19 @@ export function evaluateYoSetTypeModule({
     });
   }
 
-  if (extendedTypes.has(targetType.id)) {
-    throw formatErrorMessage({
-      token: typeExpr.token,
-      errorMessage: `Type "${typeToString(targetType)}" has already been extended with __yo_set_type_module. Cannot extend a type more than once.`,
-    });
-  }
+  /// if (extendedTypes.has(targetType.id)) {
+  ///   throw formatErrorMessage({
+  ///     token: typeExpr.token,
+  ///     errorMessage: `Type "${typeToString(targetType)}" has already been extended with __yo_set_type_module. Cannot extend a type more than once.`,
+  ///   });
+  /// }
 
-  if (targetType.module) {
-    throw formatErrorMessage({
-      token: typeExpr.token,
-      errorMessage: `Type "${typeToString(targetType)}" already has a module. Cannot extend it again.`,
-    });
-  }
+  /// if (targetType.module) {
+  ///   throw formatErrorMessage({
+  ///     token: typeExpr.token,
+  ///     errorMessage: `Type "${typeToString(targetType)}" already has a module. Cannot extend it again.`,
+  ///   });
+  /// }
 
   const moduleType = createModuleType(env);
 
@@ -132,7 +133,7 @@ export function evaluateYoSetTypeModule({
 
   targetType.module = moduleType;
 
-  extendedTypes.add(targetType.id);
+  /// extendedTypes.add(targetType.id);
 
   expr.$ = {
     env,
