@@ -3,36 +3,8 @@ import { formatErrorMessage } from "../../error";
 import { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
 import {
-  createBooleanType,
-  createCharType,
-  createComptFloatType,
-  createComptIntType,
-  createComptStringType,
-  createExprListType,
-  createExprType,
-  createF32Type,
-  createF64Type,
-  createI16Type,
-  createI32Type,
-  createI64Type,
-  createI8Type,
-  createIntType,
-  createIsizeType,
-  createLongDoubleType,
-  createLongLongType,
-  createLongType,
-  createShortType,
   createType0,
   createTypeHierarchy,
-  createU16Type,
-  createU32Type,
-  createU64Type,
-  createU8Type,
-  createUIntType,
-  createULongLongType,
-  createULongType,
-  createUnitType,
-  createUsizeType,
   createVoidType,
   isClosureType,
   isDynType,
@@ -41,6 +13,7 @@ import {
   isFutureType,
   isStructType,
   isUnionType,
+  PrimitiveTypes,
   TypeTag,
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
@@ -88,7 +61,7 @@ export function evaluateIdentifierAndOperator({
   }
   // unit
   else if (identifier === TypeTag.Unit) {
-    const value = createTypeValue(createUnitType());
+    const value = createTypeValue(PrimitiveTypes.unit);
     expr.$ = {
       env,
       type: value.type,
@@ -100,7 +73,7 @@ export function evaluateIdentifierAndOperator({
   }
   // compt_int
   else if (identifier === TypeTag.ComptInt) {
-    const value = createTypeValue(createComptIntType());
+    const value = createTypeValue(PrimitiveTypes.compt_int);
     expr.$ = {
       env,
       type: value.type,
@@ -112,7 +85,7 @@ export function evaluateIdentifierAndOperator({
   }
   // compt_float
   else if (identifier === TypeTag.ComptFloat) {
-    const value = createTypeValue(createComptFloatType());
+    const value = createTypeValue(PrimitiveTypes.compt_float);
     expr.$ = {
       env,
       type: value.type,
@@ -124,7 +97,7 @@ export function evaluateIdentifierAndOperator({
   }
   // compt_string
   else if (identifier === TypeTag.ComptString) {
-    const value = createTypeValue(createComptStringType());
+    const value = createTypeValue(PrimitiveTypes.compt_string);
     expr.$ = {
       env,
       type: value.type,
@@ -136,7 +109,7 @@ export function evaluateIdentifierAndOperator({
   }
   // boolean
   else if (identifier === TypeTag.Boolean) {
-    const value = createTypeValue(createBooleanType());
+    const value = createTypeValue(PrimitiveTypes.boolean);
     expr.$ = {
       env,
       type: value.type,
@@ -148,7 +121,7 @@ export function evaluateIdentifierAndOperator({
   }
   // usize
   else if (identifier === TypeTag.Usize) {
-    const value = createTypeValue(createUsizeType());
+    const value = createTypeValue(PrimitiveTypes.usize);
     expr.$ = {
       env,
       type: value.type,
@@ -160,7 +133,7 @@ export function evaluateIdentifierAndOperator({
   }
   // isize
   else if (identifier === TypeTag.Isize) {
-    const value = createTypeValue(createIsizeType());
+    const value = createTypeValue(PrimitiveTypes.isize);
     expr.$ = {
       env,
       type: value.type,
@@ -172,7 +145,7 @@ export function evaluateIdentifierAndOperator({
   }
   // u8
   else if (identifier === TypeTag.U8) {
-    const value = createTypeValue(createU8Type());
+    const value = createTypeValue(PrimitiveTypes.u8);
     expr.$ = {
       env,
       type: value.type,
@@ -184,7 +157,7 @@ export function evaluateIdentifierAndOperator({
   }
   // i8
   else if (identifier === TypeTag.I8) {
-    const value = createTypeValue(createI8Type());
+    const value = createTypeValue(PrimitiveTypes.i8);
     expr.$ = {
       env,
       type: value.type,
@@ -196,7 +169,7 @@ export function evaluateIdentifierAndOperator({
   }
   // u16
   else if (identifier === TypeTag.U16) {
-    const value = createTypeValue(createU16Type());
+    const value = createTypeValue(PrimitiveTypes.u16);
     expr.$ = {
       env,
       type: value.type,
@@ -208,7 +181,7 @@ export function evaluateIdentifierAndOperator({
   }
   // i16
   else if (identifier === TypeTag.I16) {
-    const value = createTypeValue(createI16Type());
+    const value = createTypeValue(PrimitiveTypes.i16);
     expr.$ = {
       env,
       type: value.type,
@@ -220,7 +193,7 @@ export function evaluateIdentifierAndOperator({
   }
   // u32
   else if (identifier === TypeTag.U32) {
-    const value = createTypeValue(createU32Type());
+    const value = createTypeValue(PrimitiveTypes.u32);
     expr.$ = {
       env,
       type: value.type,
@@ -232,7 +205,7 @@ export function evaluateIdentifierAndOperator({
   }
   // i32
   else if (identifier === TypeTag.I32) {
-    const value = createTypeValue(createI32Type());
+    const value = createTypeValue(PrimitiveTypes.i32);
     expr.$ = {
       env,
       type: value.type,
@@ -244,7 +217,7 @@ export function evaluateIdentifierAndOperator({
   }
   // u64
   else if (identifier === TypeTag.U64) {
-    const value = createTypeValue(createU64Type());
+    const value = createTypeValue(PrimitiveTypes.u64);
     expr.$ = {
       env,
       type: value.type,
@@ -256,7 +229,7 @@ export function evaluateIdentifierAndOperator({
   }
   // i64
   else if (identifier === TypeTag.I64) {
-    const value = createTypeValue(createI64Type());
+    const value = createTypeValue(PrimitiveTypes.i64);
     expr.$ = {
       env,
       type: value.type,
@@ -268,7 +241,7 @@ export function evaluateIdentifierAndOperator({
   }
   // f32
   else if (identifier === TypeTag.F32) {
-    const value = createTypeValue(createF32Type());
+    const value = createTypeValue(PrimitiveTypes.f32);
     expr.$ = {
       env,
       type: value.type,
@@ -280,7 +253,7 @@ export function evaluateIdentifierAndOperator({
   }
   // f64
   else if (identifier === TypeTag.F64) {
-    const value = createTypeValue(createF64Type());
+    const value = createTypeValue(PrimitiveTypes.f64);
     expr.$ = {
       env,
       type: value.type,
@@ -292,7 +265,7 @@ export function evaluateIdentifierAndOperator({
   }
   // char
   else if (identifier === TypeTag.Char) {
-    const value = createTypeValue(createCharType());
+    const value = createTypeValue(PrimitiveTypes.char);
     expr.$ = {
       env,
       type: value.type,
@@ -304,7 +277,7 @@ export function evaluateIdentifierAndOperator({
   }
   // short
   else if (identifier === TypeTag.Short) {
-    const value = createTypeValue(createShortType());
+    const value = createTypeValue(PrimitiveTypes.short);
     expr.$ = {
       env,
       type: value.type,
@@ -316,7 +289,7 @@ export function evaluateIdentifierAndOperator({
   }
   //  ushort
   else if (identifier === TypeTag.UShort) {
-    const value = createTypeValue(createShortType());
+    const value = createTypeValue(PrimitiveTypes.short);
     expr.$ = {
       env,
       type: value.type,
@@ -328,7 +301,7 @@ export function evaluateIdentifierAndOperator({
   }
   // int
   else if (identifier === TypeTag.Int) {
-    const value = createTypeValue(createIntType());
+    const value = createTypeValue(PrimitiveTypes.int);
     expr.$ = {
       env,
       type: value.type,
@@ -340,7 +313,7 @@ export function evaluateIdentifierAndOperator({
   }
   // uint
   else if (identifier === TypeTag.UInt) {
-    const value = createTypeValue(createUIntType());
+    const value = createTypeValue(PrimitiveTypes.uint);
     expr.$ = {
       env,
       type: value.type,
@@ -352,7 +325,7 @@ export function evaluateIdentifierAndOperator({
   }
   // long
   else if (identifier === TypeTag.Long) {
-    const value = createTypeValue(createLongType());
+    const value = createTypeValue(PrimitiveTypes.long);
     expr.$ = {
       env,
       type: value.type,
@@ -364,7 +337,7 @@ export function evaluateIdentifierAndOperator({
   }
   // ulong
   else if (identifier === TypeTag.ULong) {
-    const value = createTypeValue(createULongType());
+    const value = createTypeValue(PrimitiveTypes.ulong);
     expr.$ = {
       env,
       type: value.type,
@@ -376,7 +349,7 @@ export function evaluateIdentifierAndOperator({
   }
   // longlong
   else if (identifier === TypeTag.LongLong) {
-    const value = createTypeValue(createLongLongType());
+    const value = createTypeValue(PrimitiveTypes.longlong);
     expr.$ = {
       env,
       type: value.type,
@@ -388,7 +361,7 @@ export function evaluateIdentifierAndOperator({
   }
   // ulonglong
   else if (identifier === TypeTag.ULongLong) {
-    const value = createTypeValue(createULongLongType());
+    const value = createTypeValue(PrimitiveTypes.ulonglong);
     expr.$ = {
       env,
       type: value.type,
@@ -400,7 +373,7 @@ export function evaluateIdentifierAndOperator({
   }
   // longdouble
   else if (identifier === TypeTag.LongDouble) {
-    const value = createTypeValue(createLongDoubleType());
+    const value = createTypeValue(PrimitiveTypes.longdouble);
     expr.$ = {
       env,
       type: value.type,
@@ -424,7 +397,7 @@ export function evaluateIdentifierAndOperator({
   }
   // Expr
   else if (identifier === TypeTag.Expr) {
-    const value = createTypeValue(createExprType());
+    const value = createTypeValue(PrimitiveTypes.Expr);
     expr.$ = {
       env,
       type: value.type,
@@ -436,7 +409,7 @@ export function evaluateIdentifierAndOperator({
   }
   // ExprList
   else if (identifier === TypeTag.ExprList) {
-    const value = createTypeValue(createExprListType());
+    const value = createTypeValue(PrimitiveTypes.ExprList);
     expr.$ = {
       env,
       type: value.type,

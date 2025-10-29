@@ -6,7 +6,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createBooleanType, isBooleanType } from "../../types";
+import { isBooleanType, PrimitiveTypes } from "../../types";
 import {
   createBooleanValue,
   createUnknownValue,
@@ -35,7 +35,7 @@ export function evaluateAndOr({
     const value = createBooleanValue(kind === "and");
     expr.$ = {
       env: env,
-      type: createBooleanType(),
+      type: PrimitiveTypes.boolean,
       value,
       pathCollection: [],
       isAccessingProperty: false,
@@ -117,13 +117,13 @@ export function evaluateAndOr({
     if (hasRuntime) {
       resultValue = undefined; // Runtime evaluation needed
     } else {
-      resultValue = createUnknownValue(createBooleanType()); // Only unknowns
+      resultValue = createUnknownValue(PrimitiveTypes.boolean); // Only unknowns
     }
   }
 
   expr.$ = {
     env: currentEnv,
-    type: createBooleanType(),
+    type: PrimitiveTypes.boolean,
     value: resultValue,
     pathCollection: [],
     isAccessingProperty: false,

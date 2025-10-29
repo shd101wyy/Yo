@@ -5,7 +5,7 @@ import {
   expectExprToBeFunctionCallOf,
   FuncCallExpr,
 } from "../../expr";
-import { createUsizeType, getSizeOfType, Type } from "../../types";
+import { getSizeOfType, PrimitiveTypes, Type } from "../../types";
 import {
   createNumberValue,
   createUnknownValue,
@@ -54,7 +54,7 @@ export function evaluateSizeOf({
   const typeSizeInBits = getSizeOfType(typeToCheck);
   let typeSizeValue: UnknownValue | NumberValue;
   if (typeSizeInBits === null) {
-    typeSizeValue = createUnknownValue(createUsizeType()) as UnknownValue;
+    typeSizeValue = createUnknownValue(PrimitiveTypes.usize) as UnknownValue;
   } else {
     typeSizeValue = createNumberValue(
       ValueTag.Usize,
@@ -64,7 +64,7 @@ export function evaluateSizeOf({
 
   expr.$ = {
     env,
-    type: createUsizeType(),
+    type: PrimitiveTypes.usize,
     value: typeSizeValue,
     pathCollection: [],
   };

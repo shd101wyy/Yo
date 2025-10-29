@@ -6,11 +6,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  createBooleanType,
-  createComptStringType,
-  isBooleanType,
-} from "../../types";
+import { isBooleanType, PrimitiveTypes } from "../../types";
 import {
   createBooleanValue,
   createComptStringValue,
@@ -57,7 +53,7 @@ export function evaluateYoComptBooleanFunctions({
       if (isBooleanValue(arg.$.value)) {
         value = createBooleanValue(!arg.$.value.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // to_string(x)
@@ -67,7 +63,7 @@ export function evaluateYoComptBooleanFunctions({
       if (isBooleanValue(arg.$.value)) {
         value = createComptStringValue(arg.$.value.value.toString());
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(PrimitiveTypes.compt_string);
       }
     } else {
       throw formatErrorMessage({
@@ -128,7 +124,7 @@ export function evaluateYoComptBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value && rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x || y
@@ -138,7 +134,7 @@ export function evaluateYoComptBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value || rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x == y
@@ -148,7 +144,7 @@ export function evaluateYoComptBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x != y
@@ -158,7 +154,7 @@ export function evaluateYoComptBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     } else {
       throw formatErrorMessage({

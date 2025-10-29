@@ -12,11 +12,11 @@ import {
 } from "../../expr";
 import {
   createMutPtrType,
-  createUsizeType,
   isArrayType,
   isMutPtrType,
   isSliceType,
   isUnitType,
+  PrimitiveTypes,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -181,10 +181,10 @@ export function evaluateFor({
   if (elementIndexName) {
     /// Add type information to the element index variable expr
     elementIndexExpr!.$ = {
-      type: createUsizeType(),
+      type: PrimitiveTypes.usize,
       env,
       value: evaluatedItemsExpr.$.value
-        ? createUnknownValue(createUsizeType(), elementIndexName) // Initialize it to 0
+        ? createUnknownValue(PrimitiveTypes.usize, elementIndexName) // Initialize it to 0
         : undefined,
       pathCollection: [],
     };
@@ -221,7 +221,7 @@ export function evaluateFor({
     if (elementIndexExpr && elementIndexName) {
       variables.push({
         name: elementIndexName,
-        type: createUsizeType(),
+        type: PrimitiveTypes.usize,
         consumedAtToken: undefined,
         initializedAtToken: elementIndexExpr!.token,
         isCompileTimeOnly: isCompileTime, // Use isCompileTime flag for consistency

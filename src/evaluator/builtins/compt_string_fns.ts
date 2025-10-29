@@ -6,13 +6,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  createBooleanType,
-  createComptIntType,
-  createComptStringType,
-  isComptIntType,
-  isComptStringType,
-} from "../../types";
+import { isComptIntType, isComptStringType, PrimitiveTypes } from "../../types";
 import {
   createBooleanValue,
   createComptIntValue,
@@ -62,7 +56,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(arg.$.value)) {
         value = createComptIntValue(arg.$.value.value.length);
       } else {
-        value = createUnknownValue(createComptIntType());
+        value = createUnknownValue(PrimitiveTypes.compt_int);
       }
     }
     // to_upper(x)
@@ -72,7 +66,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(arg.$.value)) {
         value = createComptStringValue(arg.$.value.value.toUpperCase());
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(PrimitiveTypes.compt_string);
       }
     }
     // to_lower(x)
@@ -82,7 +76,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(arg.$.value)) {
         value = createComptStringValue(arg.$.value.value.toLowerCase());
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(PrimitiveTypes.compt_string);
       }
     } else {
       throw formatErrorMessage({
@@ -195,7 +189,7 @@ export function evaluateYoComptStringFunctions({
       // Use JavaScript's slice semantics
       value = createComptStringValue(str.slice(start, end));
     } else {
-      value = createUnknownValue(createComptStringType());
+      value = createUnknownValue(PrimitiveTypes.compt_string);
     }
 
     expr.$ = {
@@ -251,7 +245,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
         value = createComptStringValue(lhsValue.value + rhsValue.value);
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(PrimitiveTypes.compt_string);
       }
     }
     // x == y
@@ -261,7 +255,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x != y
@@ -271,7 +265,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x < y (lexicographic comparison)
@@ -281,7 +275,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value < rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x <= y
@@ -291,7 +285,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value <= rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x > y
@@ -301,7 +295,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value > rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     }
     // x >= y
@@ -311,7 +305,7 @@ export function evaluateYoComptStringFunctions({
       if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value >= rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(PrimitiveTypes.boolean);
       }
     } else {
       throw formatErrorMessage({

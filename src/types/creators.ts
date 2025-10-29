@@ -8,7 +8,8 @@ import {
   ClosureType,
   DynType,
   EnumType,
-  ExprType,
+  FunctionForallParameter,
+  FunctionImplicitParameter,
   FunctionParameter,
   FunctionParameterExprs,
   FunctionReturn,
@@ -29,228 +30,165 @@ import {
 } from "./definitions";
 import { TypeTag } from "./tags";
 
+/**
+ * Singleton primitive types
+ */
+export const PrimitiveTypes: Record<
+  | TypeTag.ComptInt
+  | TypeTag.ComptFloat
+  | TypeTag.ComptString
+  | TypeTag.ExprList
+  | TypeTag.Expr
+  | TypeTag.Boolean
+  | TypeTag.Usize
+  | TypeTag.Isize
+  | TypeTag.U8
+  | TypeTag.I8
+  | TypeTag.U16
+  | TypeTag.I16
+  | TypeTag.U32
+  | TypeTag.I32
+  | TypeTag.U64
+  | TypeTag.I64
+  | TypeTag.F32
+  | TypeTag.F64
+  | TypeTag.Unit
+  | TypeTag.Char
+  | TypeTag.Short
+  | TypeTag.UShort
+  | TypeTag.Int
+  | TypeTag.UInt
+  | TypeTag.Long
+  | TypeTag.ULong
+  | TypeTag.LongLong
+  | TypeTag.ULongLong
+  | TypeTag.LongDouble,
+  Type
+> = {
+  [TypeTag.ComptInt]: {
+    id: TypeTag.ComptInt,
+    tag: TypeTag.ComptInt,
+  },
+  [TypeTag.ComptFloat]: {
+    id: TypeTag.ComptFloat,
+    tag: TypeTag.ComptFloat,
+  },
+  [TypeTag.ComptString]: {
+    id: TypeTag.ComptString,
+    tag: TypeTag.ComptString,
+  },
+  [TypeTag.ExprList]: {
+    id: TypeTag.ExprList,
+    tag: TypeTag.ExprList,
+  },
+  [TypeTag.Expr]: {
+    id: TypeTag.Expr,
+    tag: TypeTag.Expr,
+  },
+  [TypeTag.Boolean]: {
+    id: TypeTag.Boolean,
+    tag: TypeTag.Boolean,
+  },
+  [TypeTag.Usize]: {
+    id: TypeTag.Usize,
+    tag: TypeTag.Usize,
+  },
+  [TypeTag.Isize]: {
+    id: TypeTag.Isize,
+    tag: TypeTag.Isize,
+  },
+  [TypeTag.U8]: {
+    id: TypeTag.U8,
+    tag: TypeTag.U8,
+  },
+  [TypeTag.I8]: {
+    id: TypeTag.I8,
+    tag: TypeTag.I8,
+  },
+  [TypeTag.U16]: {
+    id: TypeTag.U16,
+    tag: TypeTag.U16,
+  },
+  [TypeTag.I16]: {
+    id: TypeTag.I16,
+    tag: TypeTag.I16,
+  },
+  [TypeTag.U32]: {
+    id: TypeTag.U32,
+    tag: TypeTag.U32,
+  },
+  [TypeTag.I32]: {
+    id: TypeTag.I32,
+    tag: TypeTag.I32,
+  },
+  [TypeTag.U64]: {
+    id: TypeTag.U64,
+    tag: TypeTag.U64,
+  },
+  [TypeTag.I64]: {
+    id: TypeTag.I64,
+    tag: TypeTag.I64,
+  },
+  [TypeTag.F32]: {
+    id: TypeTag.F32,
+    tag: TypeTag.F32,
+  },
+  [TypeTag.F64]: {
+    id: TypeTag.F64,
+    tag: TypeTag.F64,
+  },
+  [TypeTag.Unit]: {
+    id: TypeTag.Unit,
+    tag: TypeTag.Unit,
+  },
+  [TypeTag.Char]: {
+    id: TypeTag.Char,
+    tag: TypeTag.Char,
+  },
+  [TypeTag.Short]: {
+    id: TypeTag.Short,
+    tag: TypeTag.Short,
+  },
+  [TypeTag.UShort]: {
+    id: TypeTag.UShort,
+    tag: TypeTag.UShort,
+  },
+  [TypeTag.Int]: {
+    id: TypeTag.Int,
+    tag: TypeTag.Int,
+  },
+  [TypeTag.UInt]: {
+    id: TypeTag.UInt,
+    tag: TypeTag.UInt,
+  },
+  [TypeTag.Long]: {
+    id: TypeTag.Long,
+    tag: TypeTag.Long,
+  },
+  [TypeTag.ULong]: {
+    id: TypeTag.ULong,
+    tag: TypeTag.ULong,
+  },
+  [TypeTag.LongLong]: {
+    id: TypeTag.LongLong,
+    tag: TypeTag.LongLong,
+  },
+  [TypeTag.ULongLong]: {
+    id: TypeTag.ULongLong,
+    tag: TypeTag.ULongLong,
+  },
+  [TypeTag.LongDouble]: {
+    id: TypeTag.LongDouble,
+    tag: TypeTag.LongDouble,
+  },
+};
+
 export function createType0(baseType?: Type): TypeHierarchyType {
   return {
     id: "Type(0)",
     tag: TypeTag.Type,
     level: 0,
     baseType,
-  };
-}
-
-export function createComptIntType(): Type {
-  return {
-    id: TypeTag.ComptInt,
-    tag: TypeTag.ComptInt,
-  };
-}
-
-export function createComptFloatType(): Type {
-  return {
-    id: TypeTag.ComptFloat,
-    tag: TypeTag.ComptFloat,
-  };
-}
-
-export function createComptStringType(): Type {
-  return {
-    id: TypeTag.ComptString,
-    tag: TypeTag.ComptString,
-  };
-}
-
-export function createExprListType(): Type {
-  return {
-    id: TypeTag.ExprList,
-    tag: TypeTag.ExprList,
-  };
-}
-
-export function createBooleanType(): Type {
-  return {
-    id: TypeTag.Boolean,
-    tag: TypeTag.Boolean,
-  };
-}
-
-export function createExprType(): ExprType {
-  return {
-    id: TypeTag.Expr,
-    tag: TypeTag.Expr,
-  };
-}
-
-/**
- * 4 bytes unicode
- */
-/*
-export function createCharType(): Type {
-  return {
-    tag: TypeTag.Char,
-    // size: 4 * 8, // 4 bytes for unicode character
-  };
-}
-*/
-
-export function createUsizeType(): Type {
-  return {
-    id: TypeTag.Usize,
-    tag: TypeTag.Usize,
-  };
-}
-
-export function createIsizeType(): Type {
-  return {
-    id: TypeTag.Isize,
-    tag: TypeTag.Isize,
-  };
-}
-
-export function createU8Type(): Type {
-  return {
-    id: TypeTag.U8,
-    tag: TypeTag.U8,
-  };
-}
-
-export function createI8Type(): Type {
-  return {
-    id: TypeTag.I8,
-    tag: TypeTag.I8,
-  };
-}
-
-export function createU16Type(): Type {
-  return {
-    id: TypeTag.U16,
-    tag: TypeTag.U16,
-  };
-}
-
-export function createI16Type(): Type {
-  return {
-    id: TypeTag.I16,
-    tag: TypeTag.I16,
-  };
-}
-
-export function createU32Type(): Type {
-  return {
-    id: TypeTag.U32,
-    tag: TypeTag.U32,
-  };
-}
-
-export function createI32Type(): Type {
-  return {
-    id: TypeTag.I32,
-    tag: TypeTag.I32,
-  };
-}
-
-export function createU64Type(): Type {
-  return {
-    id: TypeTag.U64,
-    tag: TypeTag.U64,
-  };
-}
-
-export function createI64Type(): Type {
-  return {
-    id: TypeTag.I64,
-    tag: TypeTag.I64,
-  };
-}
-
-export function createF32Type(): Type {
-  return {
-    id: TypeTag.F32,
-    tag: TypeTag.F32,
-  };
-}
-
-export function createF64Type(): Type {
-  return {
-    id: TypeTag.F64,
-    tag: TypeTag.F64,
-  };
-}
-
-export function createUnitType(): Type {
-  return {
-    id: TypeTag.Unit,
-    tag: TypeTag.Unit,
-  };
-}
-
-// C Compatible types
-export function createCharType(): Type {
-  return {
-    id: TypeTag.Char,
-    tag: TypeTag.Char,
-  };
-}
-
-export function createShortType(): Type {
-  return {
-    id: TypeTag.Short,
-    tag: TypeTag.Short,
-  };
-}
-
-export function createUShortType(): Type {
-  return {
-    id: TypeTag.UShort,
-    tag: TypeTag.UShort,
-  };
-}
-
-export function createIntType(): Type {
-  return {
-    id: TypeTag.Int,
-    tag: TypeTag.Int,
-  };
-}
-
-export function createUIntType(): Type {
-  return {
-    id: TypeTag.UInt,
-    tag: TypeTag.UInt,
-  };
-}
-
-export function createLongType(): Type {
-  return {
-    id: TypeTag.Long,
-    tag: TypeTag.Long,
-  };
-}
-
-export function createULongType(): Type {
-  return {
-    id: TypeTag.ULong,
-    tag: TypeTag.ULong,
-  };
-}
-
-export function createLongLongType(): Type {
-  return {
-    id: TypeTag.LongLong,
-    tag: TypeTag.LongLong,
-  };
-}
-
-export function createULongLongType(): Type {
-  return {
-    id: TypeTag.ULongLong,
-    tag: TypeTag.ULongLong,
-  };
-}
-
-export function createLongDoubleType(): Type {
-  return {
-    id: TypeTag.LongDouble,
-    tag: TypeTag.LongDouble,
   };
 }
 
@@ -408,8 +346,8 @@ export function createFunctionType({
   isClosure,
 }: {
   parameters: FunctionParameter[];
-  forallParameters: FunctionParameter[];
-  implicitParameters: FunctionParameter[];
+  forallParameters: FunctionForallParameter[];
+  implicitParameters: FunctionImplicitParameter[];
   variadicParameter: FunctionParameter | undefined;
   return_: FunctionReturn;
   env: Environment;

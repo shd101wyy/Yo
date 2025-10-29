@@ -2,9 +2,9 @@ import { Environment } from "../../env";
 import { formatErrorMessage, YoError } from "../../error";
 import { exprIsFunctionCall, exprToString, FuncCallExpr } from "../../expr";
 import {
-  createExprType,
   isComptIntType,
   isExprType,
+  PrimitiveTypes,
   typeToString,
 } from "../../types";
 import { createExprValue, isComptIntValue, isExprValue } from "../../value";
@@ -168,7 +168,7 @@ export function evaluateMacroExpand({
 
     expr.$ = {
       env: currentEnv,
-      type: createExprType(),
+      type: PrimitiveTypes.Expr,
       value: createExprValue(currentExpr),
       pathCollection: evaluatedArgExpr.$.pathCollection,
     };

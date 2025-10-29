@@ -15,7 +15,6 @@ import { TypeValue } from "../../type-value";
 import {
   ArrayType,
   ClosureType,
-  createExprType,
   isArrayType,
   isClosureType,
   isEnumType,
@@ -26,6 +25,7 @@ import {
   isSomeType,
   isStructType,
   isUnionType,
+  PrimitiveTypes,
   SliceType,
   Type,
   typeOfType,
@@ -815,9 +815,9 @@ ${functionsWithMatchingTypes
 
       expr.$ = {
         env,
-        type: createExprType(),
+        type: PrimitiveTypes.Expr,
         value: returnValue,
-        originType: createExprType(), // Macro result's origin type is the expression type
+        originType: PrimitiveTypes.Expr, // Macro result's origin type is the expression type
         pathCollection: pathCollection,
         deferredDropExpressions,
       };

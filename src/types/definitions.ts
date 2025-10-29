@@ -74,6 +74,14 @@ export interface Type {
    * Only applicable for extern "c" types.
    */
   cInclude?: string;
+
+  /**
+   * The module of the struct, which contains
+   * the compile-time methods, properties, etc.
+   * For builtin types, this is undefined by default,
+   * and it can be set by `__yo_set_type_module` builtin function.
+   */
+  module?: ModuleType;
 }
 
 /*
@@ -475,14 +483,14 @@ export interface FunctionType extends Type {
   /**
    * The normal parameters of the function.
    */
-  parameters: FunctionForallParameter[];
+  parameters: FunctionParameter[];
 
   /**
    * The type parameters, usually defined in forall(...):
    * eg:
    *   (forall(T: Type), x: T)-> T;
    */
-  forallParameters: FunctionParameter[];
+  forallParameters: FunctionForallParameter[];
 
   /**
    * The implicit parameters (aka contextual parameters).

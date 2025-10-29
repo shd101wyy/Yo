@@ -21,8 +21,9 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   createClosureType,
-  createExprListType,
   createFunctionType,
+  FunctionForallParameter,
+  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
   getFunctionParameterExprs,
@@ -33,6 +34,7 @@ import {
   isExprType,
   isModuleType,
   isSomeType,
+  PrimitiveTypes,
   prohibitDynamicSizedType,
   Type,
   typeOfType,
@@ -641,7 +643,7 @@ Expected order: forall(...), regular parameters, using(...)`,
             }
             labelExpr = argExpr.args[0]!;
             parameterName = argExpr.args[0]!.token.value;
-            parameterType = createExprListType();
+            parameterType = PrimitiveTypes.ExprList;
           } else {
             if (!isValidVariableName(argExpr)) {
               throw formatErrorMessage({
@@ -1082,8 +1084,8 @@ ${typeToString(returnType)}`,
   // Create the function type
   const functionType = createFunctionType({
     parameters,
-    forallParameters,
-    implicitParameters,
+    forallParameters: forallParameters as FunctionForallParameter[],
+    implicitParameters: implicitParameters as FunctionImplicitParameter[],
     variadicParameter,
     return_: {
       type: returnType,

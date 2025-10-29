@@ -13,7 +13,7 @@ import {
   areTypesCompatible,
   ArrayType,
   createSliceType,
-  createUsizeType,
+  PrimitiveTypes,
   SliceType,
   typeToString,
 } from "../../types";
@@ -88,7 +88,7 @@ export function tryToCallArrayWithArguments({
       if (
         !areTypesCompatible(
           {
-            type: createUsizeType(),
+            type: PrimitiveTypes.usize,
             env: callerEnv,
           },
           {
@@ -123,7 +123,7 @@ export function tryToCallArrayWithArguments({
       if (
         !areTypesCompatible(
           {
-            type: createUsizeType(),
+            type: PrimitiveTypes.usize,
             env: callerEnv,
           },
           {
@@ -167,7 +167,7 @@ export function tryToCallArrayWithArguments({
     if (
       !areTypesCompatible(
         {
-          type: createUsizeType(),
+          type: PrimitiveTypes.usize,
           env: callerEnv,
         },
         {

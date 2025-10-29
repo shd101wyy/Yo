@@ -6,13 +6,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import {
-  createExprListType,
-  createExprType,
-  createUsizeType,
-  isExprListType,
-  isExprType,
-} from "../../types";
+import { isExprListType, isExprType, PrimitiveTypes } from "../../types";
 import {
   createExprListValue,
   createNumberValue,
@@ -70,8 +64,8 @@ export function evaluateYoExprListCar({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: createExprType(),
-    value: createUnknownValue(createExprType()), // Will be updated later
+    type: PrimitiveTypes.Expr,
+    value: createUnknownValue(PrimitiveTypes.Expr), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -138,8 +132,8 @@ export function evaluateYoExprListCdr({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: createExprListType(),
-    value: createUnknownValue(createExprListType()), // Will be updated later
+    type: PrimitiveTypes.ExprList,
+    value: createUnknownValue(PrimitiveTypes.ExprList), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -242,8 +236,8 @@ export function evaluateYoExprListCons({
 
   expr.$ = {
     env: env,
-    type: createExprListType(),
-    value: createUnknownValue(createExprListType()), // Will be updated later
+    type: PrimitiveTypes.ExprList,
+    value: createUnknownValue(PrimitiveTypes.ExprList), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -346,8 +340,8 @@ export function evaluateYoExprListAppend({
 
   expr.$ = {
     env: env,
-    type: createExprListType(),
-    value: createUnknownValue(createExprListType()), // Will be updated later
+    type: PrimitiveTypes.ExprList,
+    value: createUnknownValue(PrimitiveTypes.ExprList), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -417,8 +411,8 @@ export function evaluateYoExprListLength({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: createUsizeType(),
-    value: createUnknownValue(createUsizeType()), // Will be updated later
+    type: PrimitiveTypes.usize,
+    value: createUnknownValue(PrimitiveTypes.usize), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };

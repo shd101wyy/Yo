@@ -3,7 +3,7 @@ import { formatErrorMessage } from "../../error";
 import { Expr, exprIsFunctionCall, FuncCallExpr } from "../../expr";
 import {
   createTupleType,
-  createUnitType,
+  PrimitiveTypes,
   TupleElement,
   TupleType,
   typeOfType,
@@ -84,7 +84,7 @@ export function evaluateTupleType({
   context: EvaluatorContext;
 }): FuncCallExpr {
   if (expr.args.length === 0) {
-    const value = createTypeValue(createUnitType());
+    const value = createTypeValue(PrimitiveTypes.unit);
     expr.$ = {
       env,
       value,

@@ -1,36 +1,16 @@
-open import "std";
-open import "std/libc/stdio";
+// Builtin function to set the type module.  
+// This function should only be called once.  
+// Calling more than once should throw error.  
+__yo_set_type_module i32,
+  id :: ((fn(self : Self) -> Self) {
+    return self;
+  })
+;
 
-Point :: struct(
-  x : i32,
-  y : i32,
-
-  Add :: Add(Self)(
-    Self : Self,
-    (+) : ((self, rhs) -> {
-      printf("Called + from Point.Add.(+)");
-      Self(self.x + rhs.x, self.y + rhs.y)
-    })
-  )
-);
-
-Another :: impl {
-  Self :: Point;
-  _Add :: Add(Self)(
-    Self : Self,
-    (+) : ((self, rhs) ->{
-      printf("Called + from Another._Add.(+)");
-      Self(self.x - rhs.x, self.y - rhs.y)
-    })
-  );
-  export Self, Add: _Add;
-};
-
+/*
 main :: (fn() -> unit) {
-  a := Point(3, 4);
-  b := Point(1, 2);
-  c := (a + b); // Should call Point.Add.(+)
-                // Because type methods have higher priority than other module methods.
+  x := 12;
+  y := i32.id(x);
+  z := x.id();
 };
-
-export main;
+*/
