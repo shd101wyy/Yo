@@ -378,7 +378,7 @@ export function areTypesCompatible(
           }
         }
 
-        if (expectedElement.label === "Self" && expected.type.subtype) {
+        if (expectedElement.label === "This" && expected.type.subtype) {
           const subtype = expected.type.subtype;
           if (
             !givenElement.assignedValue ||

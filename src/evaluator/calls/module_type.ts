@@ -122,7 +122,7 @@ ${valueToString(moduleElement.assignedValue)}`,
             context: {
               ...context,
               expectedType: undefined,
-              SelfType: undefined,
+              SelfType: moduleType, // Self refers to the module itself
             },
           });
           const evaluatedModuleMemberTypeValue = evaluatedModuleMember.$?.value;
@@ -143,7 +143,7 @@ ${valueToString(moduleElement.assignedValue)}`,
             context: {
               ...context,
               expectedType: undefined,
-              SelfType: undefined,
+              SelfType: moduleType, // Self refers to the module itself
             },
           });
           const value = evaluatedValueExpr.$?.value;
@@ -310,26 +310,9 @@ Got:   ${typeToString(argType)}`,
 
   callerEnv = popEnvFrame(callerEnv);
 
-  // Check if the module value has "Self" element
-  // If yes, set the typeValue as the assignedValue.
-  const selfElementIndex = moduleType.elements.findIndex(
-    (e) => e.label === "Self"
-  );
-  if (selfElementIndex >= 0) {
-    const newModuleType: ModuleType = {
-      ...moduleType,
-      elements: moduleType.elements.map((e, index) => {
-        if (index === selfElementIndex) {
-          return {
-            ...e,
-            assignedValue: elements[index],
-          };
-        }
-        return e;
-      }),
-    };
-    moduleType = newModuleType;
-  }
+  // Note: Modules no longer have a "Self" element as a parameter.
+  // "This" is the receiver type parameter, and "Self" refers to the module itself.
+  // We don't need to set assignedValue for "This" here as it's just a type parameter.
 
   // Create the module value
   const moduleValue = createModuleValue(moduleType, elements);

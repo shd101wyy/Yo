@@ -78,31 +78,31 @@ export function evaluateSubtypeOf({
   env = evaluatedRhs.$.env;
   const moduleType = evaluatedRhs.$.value.value;
 
-  // Expect the moduleType has Self element, but has no assigned value there.
-  const selfElement = moduleType.elements.find(
-    (element) => element.label === "Self"
+  // Expect the moduleType has This element (the receiver type parameter), but has no assigned value there.
+  const thisElement = moduleType.elements.find(
+    (element) => element.label === "This"
   );
-  if (!selfElement) {
+  if (!thisElement) {
     throw formatErrorMessage({
       token: rhsExpr.token,
-      errorMessage: `Expected module type to have a Self element.`,
+      errorMessage: `Expected module type to have a This element (receiver type parameter).`,
     });
   }
-  if (selfElement.assignedValue) {
+  if (thisElement.assignedValue) {
     throw formatErrorMessage({
       token: rhsExpr.token,
-      errorMessage: `Expected module type Self element to not have an assigned value.`,
+      errorMessage: `Expected module type This element to not have an assigned value.`,
     });
   }
 
-  /// Override the assigned value of the Self element with the typeValue.
+  /// Override the assigned value of the This element with the typeValue.
   const newModuleType: ModuleType = {
     ...moduleType,
     elements: moduleType.elements.map((element) => {
-      if (element.label === "Self") {
+      if (element.label === "This") {
         return {
           ...element,
-          assignedValue: typeValue, // Assign the typeValue to the Self element
+          assignedValue: typeValue, // Assign the typeValue to the This element
         };
       } else {
         return element;

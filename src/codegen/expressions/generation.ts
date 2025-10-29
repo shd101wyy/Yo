@@ -2549,8 +2549,8 @@ function generateDynCall(
 
       if (element && isFunctionValue(element) && elementType) {
         const methodName = elementType.label;
-        // Skip 'Self' type declarations
-        if (methodName !== "Self") {
+        // Skip 'Self' and 'This' type declarations (compile-time only)
+        if (methodName !== "Self" && methodName !== "This") {
           const functionId = element.funcId;
           // Check if function exists in context
           if (context.functions[functionId]) {

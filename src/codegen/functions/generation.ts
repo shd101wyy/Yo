@@ -2077,8 +2077,8 @@ export function generateDynConstructorFunctions(
       const processedMethods = new Set<string>();
       for (const moduleType of dynType.moduleTypes) {
         for (const element of moduleType.elements) {
-          // Skip 'Self' type declarations
-          if (element.label === "Self") {
+          // Skip 'Self' and 'This' type declarations (compile-time only)
+          if (element.label === "Self" || element.label === "This") {
             continue;
           }
 

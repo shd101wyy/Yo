@@ -347,21 +347,21 @@ ${typeToString(parameterType)}`,
 
   // Check if the parameterType is a valid module type
   if (isModuleType(parameterType)) {
-    // Check if the "Self" exists and has assignedValue
+    // Check if the "This" exists and has assignedValue
     // If not then throw error
-    const selfElement = parameterType.elements.find(
-      (element) => element.label === "Self"
+    const thisElement = parameterType.elements.find(
+      (element) => element.label === "This"
     );
-    if (selfElement && !selfElement.assignedValue) {
+    if (thisElement && !thisElement.assignedValue) {
       throw formatErrorMessage({
         token: typeExpr?.token ?? expr.token,
-        errorMessage: `Module type cannot be used as function parameter type without specifying "Self" element assigned value.
+        errorMessage: `Module type cannot be used as function parameter type without specifying "This" element assigned value.
         
-Please consider using "<:" to specify the "Self" value, for example:
+Please consider using "<:" to specify the "This" value, for example:
 
 Id :: module
-  Self : Type,
-  id   : (fn(self : Self) -> Self)
+  This : Type,
+  id   : (fn(self : This) -> This)
 ;
 
 use_id :: (fn(forall(T : Type),
@@ -1097,7 +1097,6 @@ ${typeToString(returnType)}`,
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
-    ModuleType: context.ModuleType,
     isClosure: isClosure,
   });
 

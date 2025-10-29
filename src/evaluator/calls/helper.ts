@@ -500,21 +500,6 @@ export function tryToCallFunctionWithArguments({
   let calleeEnv = pushEnvFrame(functionType.env);
 
   if (functionType.SelfType) {
-    /*
-      let typeValue: TypeValue;
-      if (isModuleType(functionType.SelfType)) {
-        const existingSelfElement = functionType.SelfType.elements.find(
-          (e) => e.label === "Self" && isTypeValue(e.assignedValue)
-        );
-        if (existingSelfElement) {
-          typeValue = existingSelfElement.assignedValue as TypeValue;
-        } else {
-          typeValue = createTypeValue(functionType.SelfType);
-        }
-      } else {
-        typeValue = createTypeValue(functionType.SelfType);
-      }
-      */
     const typeValue = createTypeValue(functionType.SelfType);
 
     // Add "Self" to the calleeEnv
@@ -1513,7 +1498,6 @@ function createSpecializedFunctionInline({
     parametersFrame: specializedEnv.frames[specializedEnv.frames.length - 1]!, // QUESTION: This could be wrong
     env: functionType.env,
     SelfType: functionType.SelfType,
-    ModuleType: functionType.ModuleType,
     isClosure: functionType.isClosure, // Preserve closure property
   });
 

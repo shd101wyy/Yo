@@ -513,18 +513,18 @@ export function getMethodsByNameFromEnv(
   }
 
   function checkModule(moduleType: ModuleType, moduleValue: Value) {
-    // Check if "Self" exists and is compatible with receiverType
+    // Check if "This" exists and is compatible with receiverType
     if (isModuleValue(moduleValue)) {
-      const selfElementIndex = moduleType.elements.findIndex(
-        (element) => element.label === "Self"
+      const thisElementIndex = moduleType.elements.findIndex(
+        (element) => element.label === "This"
       );
-      if (selfElementIndex >= 0) {
-        const selfElementValue = moduleValue.elements[selfElementIndex]!;
-        if (isTypeValue(selfElementValue)) {
-          const selfType = selfElementValue.value;
+      if (thisElementIndex >= 0) {
+        const thisElementValue = moduleValue.elements[thisElementIndex]!;
+        if (isTypeValue(thisElementValue)) {
+          const thisType = thisElementValue.value;
           if (
             !areTypesCompatible(
-              { type: selfType, env: moduleValue.type.env },
+              { type: thisType, env: moduleValue.type.env },
               { type: receiverType, env },
               true // isMethodReceiver
             )
@@ -535,7 +535,7 @@ export function getMethodsByNameFromEnv(
               // Continue checking with the dereferencedReceiverType
               if (
                 !areTypesCompatible(
-                  { type: selfType, env: moduleValue.type.env },
+                  { type: thisType, env: moduleValue.type.env },
                   { type: dereferencedReceiverType, env },
                   true // isMethodReceiver
                 )
@@ -588,15 +588,15 @@ export function getMethodsByNameFromEnv(
   }
 
   function checkModuleSelfCall(moduleValue: ModuleValue) {
-    const SelfTypeIndex = moduleValue.type.elements.findIndex(
-      (element) => element.label === "Self"
+    const ThisTypeIndex = moduleValue.type.elements.findIndex(
+      (element) => element.label === "This"
     );
-    if (SelfTypeIndex >= 0) {
-      const SelfType = moduleValue.type.elements[SelfTypeIndex]!;
-      if (SelfType.assignedValue) {
-        const SelfValue = SelfType.assignedValue;
-        if (isTupleValue(SelfValue)) {
-          SelfValue.elements.forEach((element) => {
+    if (ThisTypeIndex >= 0) {
+      const ThisType = moduleValue.type.elements[ThisTypeIndex]!;
+      if (ThisType.assignedValue) {
+        const ThisValue = ThisType.assignedValue;
+        if (isTupleValue(ThisValue)) {
+          ThisValue.elements.forEach((element) => {
             methods.push({
               type: element.type,
               value: element,
@@ -604,8 +604,8 @@ export function getMethodsByNameFromEnv(
           });
         } else {
           methods.push({
-            type: SelfValue.type,
-            value: SelfValue,
+            type: ThisValue.type,
+            value: ThisValue,
           });
         }
       }

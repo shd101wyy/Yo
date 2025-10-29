@@ -541,11 +541,6 @@ export interface FunctionType extends Type {
   SelfType?: Type;
 
   /**
-   * Under which module this function is defined.
-   */
-  ModuleType?: ModuleType;
-
-  /**
    * Whether this function is a closure (uses => syntax) or a regular function (uses -> syntax).
    *
    * - true: fn(x: i32) => i32  (closure that can capture variables)

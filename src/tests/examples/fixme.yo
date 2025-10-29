@@ -1,16 +1,19 @@
-// Builtin function to set the type module.  
-// This function should only be called once.  
-// Calling more than once should throw error.  
-__yo_set_type_module i32,
-  id :: ((fn(self : Self) -> Self) {
-    return self;
-  })
+Id :: (fn(compt(Output) : Type)-> compt(Module))
+  module
+    This     :  Type,
+    Output   := Output,
+    (id)     :  (fn(self: Self.This)-> Self.Output)
 ;
 
-main :: (fn() -> unit) {
-  x := 12;
-  y := i32.id(x);
-  z := x.id();
-};
+Point :: struct(
+  x : i32,
+  y : i32,
 
-export main;
+  Id :: { 
+    This :: Self, 
+    Id(This)(
+      This : This,
+      id : ((self) -> self)
+    )
+  }
+);

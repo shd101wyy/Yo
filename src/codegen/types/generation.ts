@@ -826,7 +826,7 @@ export function generateDynDeclaration(
   for (const moduleType of dynType.moduleTypes) {
     for (const element of moduleType.elements) {
       // Skip 'Self' type declarations as they're not methods
-      if (element.label === "Self") {
+      if (element.label === "Self" || element.label === "This") {
         continue;
       }
 

@@ -706,7 +706,7 @@ function functionTypeToString(
   const paramsString = [typeParams, params, variadicParam, implicitParams]
     .filter((x) => !!x)
     .join(", ");
-  const from = func.SelfType?.typeName ?? func.ModuleType?.typeName;
+  const from = func.SelfType?.typeName;
   const fnKind = "fn";
   return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) ${func.isClosure ? "=>" : "->"} ${returnString}`;
 }

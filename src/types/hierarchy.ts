@@ -230,7 +230,7 @@ export function getFunctionParameterToken(parameter: FunctionParameter): Token {
  */
 export function getModuleReceiverType(moduleType: ModuleType): Type | null {
   const receiverType = moduleType.elements.find(
-    (element) => element.label === "Self" && element.isCompileTimeOnly
+    (element) => element.label === "This" && element.isCompileTimeOnly
   );
   if (!receiverType || !receiverType.assignedValue) {
     return null;

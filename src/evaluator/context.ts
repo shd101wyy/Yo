@@ -3,7 +3,7 @@ import { YoError } from "../error";
 import { Expr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
-import { FunctionType, ModuleType, Type } from "../types";
+import { FunctionType, Type } from "../types";
 import { ModuleValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
@@ -80,11 +80,6 @@ export interface EvaluatorContext {
    * This can be useful for an anonymous struct that needs to refer to itself
    */
   SelfType?: Type;
-
-  /**
-   * The innermost module that this function call is inside.
-   */
-  ModuleType?: ModuleType;
 
   /**
    * Whether we are currently evaluating a function type definition.

@@ -342,7 +342,6 @@ export function createFunctionType({
   env,
   parametersFrame,
   SelfType,
-  ModuleType,
   isClosure,
 }: {
   parameters: FunctionParameter[];
@@ -353,7 +352,6 @@ export function createFunctionType({
   env: Environment;
   parametersFrame: Frame;
   SelfType?: Type;
-  ModuleType?: ModuleType;
   isClosure?: boolean;
 }): FunctionType {
   return {
@@ -367,7 +365,6 @@ export function createFunctionType({
     env,
     parametersFrame,
     SelfType,
-    ModuleType,
     isClosure: isClosure ?? false,
   };
 }

@@ -1,9 +1,4 @@
-import {
-  addVariableToEnv,
-  Environment,
-  popEnvFrame,
-  pushEnvFrame,
-} from "../../env";
+import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -31,7 +26,6 @@ import { randomId } from "../../utils";
 import {
   areValuesEqual,
   createTypeValue,
-  createUnknownValue,
   isModuleValue,
   isTypeValue,
   isUnknownValue,
@@ -420,9 +414,9 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     !isFunctionType(elementType) &&
     !isModuleType(elementType)
   ) {
-    // NOTE: We allow "Self" to not have a value assigned
-    // "Self" is a special case.
-    if (label !== "Self") {
+    // NOTE: We allow "This" to not have a value assigned
+    // "This" is a special case for the receiver type parameter.
+    if (label !== "This") {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected an assigned value for module element "${label ?? "unnamed"}"`,
@@ -500,13 +494,13 @@ export function evaluateModuleType({
   const elements: ModuleElement[] = [];
   moduleType.elements = elements;
 
-  // Push env frame
-  env = pushEnvFrame(env);
+  // Don't push env frame - module elements shouldn't be in env
 
   const args = expr.args;
 
-  // Check if "Self" label exists in any of the module elements
-  let hasSelfLabel = false;
+  // Check if "This" label exists in any of the module elements
+  let hasThisLabel = false;
+
   for (const arg of args) {
     // Skip spread operators for this check
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
@@ -548,20 +542,36 @@ export function evaluateModuleType({
         labelExpr = labelExpr.args[0]!;
       }
 
-      if (exprIsAtom(labelExpr) && labelExpr.token.value === "Self") {
-        hasSelfLabel = true;
-        break;
+      if (exprIsAtom(labelExpr)) {
+        if (labelExpr.token.value === "This") {
+          hasThisLabel = true;
+        } else if (labelExpr.token.value === "Self") {
+          throw formatErrorMessage({
+            token: labelExpr.token,
+            errorMessage: `"Self" cannot be defined in a module type.
+In module types, "Self" refers to the module itself, not a configurable type parameter.
+Use "This" instead as the receiver type parameter.
+
+Example:
+  Add :: (fn(compt(Rhs): Type, compt(Output) ?= Rhs) -> compt(Module))
+    module
+      This     : Type,
+      Output   := Output,
+      (+)      : (fn(lhs: Self.This, rhs: Rhs) -> Self.Output)
+    ;`,
+          });
+        }
       }
     }
   }
 
-  // If "Self" is not found, automatically insert "Self : Type" at the beginning
-  if (!hasSelfLabel) {
-    // Create "Self : Type" element
-    const selfType = createTypeHierarchy(0);
-    const selfElement: ModuleElement = {
-      label: "Self",
-      type: selfType,
+  // If "This" is not found, automatically insert "This : Type" at the beginning
+  if (!hasThisLabel) {
+    // Create "This : Type" element
+    const thisType = createTypeHierarchy(0);
+    const thisElement: ModuleElement = {
+      label: "This",
+      type: thisType,
       isCompileTimeOnly: true,
       assignedValue: undefined,
       defaultValue: undefined,
@@ -575,22 +585,8 @@ export function evaluateModuleType({
       },
     };
 
-    elements.push(selfElement);
-
-    // Add "Self" to the environment as an unknown value
-    const { env: nextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: "Self",
-        type: selfType,
-        value: createUnknownValue(selfType, "Self"),
-        isCompileTimeOnly: true,
-        token: expr.token,
-        initializedAtToken: expr.token,
-        consumedAtToken: undefined,
-      },
-    });
-    env = nextEnv;
+    elements.push(thisElement);
+    // Don't add to environment - module elements are accessed via Self.This
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -606,8 +602,7 @@ export function evaluateModuleType({
         env,
         context: {
           ...context,
-          SelfType: undefined, // No SelfType in module context
-          ModuleType: moduleType,
+          SelfType: moduleType, // Self refers to the module itself
         },
       });
       if (!evaluatedExtendedModuleExpr.$) {
@@ -679,26 +674,7 @@ export function evaluateModuleType({
           } else {
             // Add the element to the module
             elements.push(extendedModuleElement);
-
-            // Add the element to the environment
-            const { env: nextEnv } = addVariableToEnv({
-              env,
-              variable: {
-                name: extendedModuleElement.label,
-                type: extendedModuleElement.type,
-                value:
-                  extendedModuleElement.assignedValue ??
-                  createUnknownValue(
-                    extendedModuleElement.type,
-                    extendedModuleElement.label
-                  ),
-                isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
-                token: extendedModuleElement.exprs.expr.token,
-                initializedAtToken: extendedModuleElement.exprs.expr.token,
-                consumedAtToken: undefined,
-              },
-            });
-            env = nextEnv;
+            // Don't add to environment - module elements are accessed via Self.XXX
           }
         }
       }
@@ -744,21 +720,7 @@ export function evaluateModuleType({
               ...moduleValue.type.elements[i]!,
               assignedValue: elementValue,
             });
-
-            // Add the element to the environment
-            const { env: nextEnv } = addVariableToEnv({
-              env,
-              variable: {
-                name: extendedModuleElement.label,
-                type: extendedModuleElement.type,
-                value: elementValue,
-                isCompileTimeOnly: extendedModuleElement.isCompileTimeOnly,
-                token: extendedModuleElement.exprs.expr.token,
-                initializedAtToken: extendedModuleElement.exprs.expr.token,
-                consumedAtToken: undefined,
-              },
-            });
-            env = nextEnv;
+            // Don't add to environment - module elements are accessed via Self.XXX
           }
         }
       } else {
@@ -778,8 +740,7 @@ export function evaluateModuleType({
         moduleElementIndex: i,
         context: {
           ...context,
-          SelfType: undefined, // No SelfType in module context
-          ModuleType: moduleType,
+          SelfType: moduleType, // Self refers to the module itself
         },
         isForEvaluatingModuleType: true,
       });
@@ -808,27 +769,9 @@ export function evaluateModuleType({
         });
       }
 
-      // Add element to env
-      const { env: nextNextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: element.label,
-          type: element.type,
-          value:
-            element.assignedValue ??
-            createUnknownValue(element.type, element.label),
-          isCompileTimeOnly: element.isCompileTimeOnly,
-          token: element.exprs.expr.token,
-          initializedAtToken: element.exprs.expr.token,
-          consumedAtToken: undefined,
-        },
-      });
-      env = nextNextEnv;
+      // Don't add element to env - module elements are accessed via Self.XXX
     }
   }
-
-  // Pop env frame
-  env = popEnvFrame(env);
 
   const moduleTypeValue = createTypeValue(moduleType);
   expr.$ = {

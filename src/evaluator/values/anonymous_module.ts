@@ -81,8 +81,7 @@ export function evaluateAnonymousModuleBeginExprs({
               env,
               context: {
                 ...context,
-                SelfType: undefined, // NOTE: Module doesn't have SelfType
-                ModuleType: moduleType,
+                SelfType: moduleType, // Self refers to the module being built
               },
             });
             if (!evaluatedExtendedModuleExpr.$) {
@@ -355,8 +354,7 @@ export function evaluateAnonymousModuleBeginExprs({
           context: {
             ...context,
             expectedType: undefined,
-            SelfType: undefined, // NOTE: Module doesn't have SelfType
-            ModuleType: moduleType,
+            SelfType: moduleType, // Self refers to the module being built
           },
         });
         if (evaluatedExpr.$?.env) {

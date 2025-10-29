@@ -135,43 +135,43 @@ export function evaluateDynValue({
         });
       }
 
-      // Check if the module has a 'Self' type
-      const selfElementIndex = moduleValue.type.elements.findIndex(
-        (element) => element.label === "Self"
+      // Check if the module has a 'This' type
+      const thisElementIndex = moduleValue.type.elements.findIndex(
+        (element) => element.label === "This"
       );
-      if (selfElementIndex === -1) {
+      if (thisElementIndex === -1) {
         throw formatErrorMessage({
           token: singleModuleExpr.token,
-          errorMessage: `Module for 'dyn' must have a 'Self' type.`,
+          errorMessage: `Module for 'dyn' must have a 'This' type.`,
         });
       }
 
-      // Get the actual Self value from the module
-      const selfValue = moduleValue.elements[selfElementIndex];
-      if (!selfValue) {
+      // Get the actual This value from the module
+      const thisValue = moduleValue.elements[thisElementIndex];
+      if (!thisValue) {
         throw formatErrorMessage({
           token: singleModuleExpr.token,
-          errorMessage: `Module's 'Self' element is missing a value.`,
+          errorMessage: `Module's 'This' element is missing a value.`,
         });
       }
 
-      // The selfValue should be a TypeValue containing the actual type
-      if (!isTypeValue(selfValue)) {
+      // The thisValue should be a TypeValue containing the actual type
+      if (!isTypeValue(thisValue)) {
         throw formatErrorMessage({
           token: singleModuleExpr.token,
-          errorMessage: `Module's 'Self' must be a type value.`,
+          errorMessage: `Module's 'This' must be a type value.`,
         });
       }
 
-      const selfType = selfValue.value;
+      const thisType = thisValue.value;
 
-      // Check if the value type is compatible with the module's Self type
+      // Check if the value type is compatible with the module's This type
       if (
-        !areTypesCompatible({ type: selfType, env }, { type: valueType, env })
+        !areTypesCompatible({ type: thisType, env }, { type: valueType, env })
       ) {
         throw formatErrorMessage({
           token: valueExpr.token,
-          errorMessage: `Value type ${typeToString(valueType)} is not compatible with module's Self type ${typeToString(selfType)}.`,
+          errorMessage: `Value type ${typeToString(valueType)} is not compatible with module's This type ${typeToString(thisType)}.`,
         });
       }
 
@@ -283,25 +283,25 @@ export function evaluateDynValue({
         continue;
       }
 
-      // Check if the module has a 'Self' type
-      const selfElementIndex = moduleValue.type.elements.findIndex(
-        (element) => element.label === "Self"
+      // Check if the module has a 'This' type
+      const thisElementIndex = moduleValue.type.elements.findIndex(
+        (element) => element.label === "This"
       );
-      if (selfElementIndex === -1) {
+      if (thisElementIndex === -1) {
         continue;
       }
 
-      // Get the Self value from the module
-      const selfValue = moduleValue.elements[selfElementIndex];
-      if (!selfValue || !isTypeValue(selfValue)) {
+      // Get the This value from the module
+      const thisValue = moduleValue.elements[thisElementIndex];
+      if (!thisValue || !isTypeValue(thisValue)) {
         continue;
       }
 
-      const selfType = selfValue.value;
+      const thisType = thisValue.value;
 
-      // Check if the value type is compatible with the module's Self type
+      // Check if the value type is compatible with the module's This type
       if (
-        !areTypesCompatible({ type: selfType, env }, { type: valueType, env })
+        !areTypesCompatible({ type: thisType, env }, { type: valueType, env })
       ) {
         continue;
       }
@@ -354,25 +354,25 @@ export function evaluateDynValue({
         return false;
       }
 
-      // Check if the module has a 'Self' type
-      const selfElementIndex = moduleValue.type.elements.findIndex(
-        (element) => element.label === "Self"
+      // Check if the module has a 'This' type
+      const thisElementIndex = moduleValue.type.elements.findIndex(
+        (element) => element.label === "This"
       );
-      if (selfElementIndex === -1) {
+      if (thisElementIndex === -1) {
         return false;
       }
 
-      // Get the Self value from the module
-      const selfValue = moduleValue.elements[selfElementIndex];
-      if (!selfValue || !isTypeValue(selfValue)) {
+      // Get the This value from the module
+      const thisValue = moduleValue.elements[thisElementIndex];
+      if (!thisValue || !isTypeValue(thisValue)) {
         return false;
       }
 
-      const selfType = selfValue.value;
+      const thisType = thisValue.value;
 
-      // Check if the value type is compatible with the module's Self type
+      // Check if the value type is compatible with the module's This type
       if (
-        !areTypesCompatible({ type: selfType, env }, { type: valueType, env })
+        !areTypesCompatible({ type: thisType, env }, { type: valueType, env })
       ) {
         return false;
       }
@@ -396,7 +396,7 @@ export function evaluateDynValue({
     if (filteredImplicitVariables.length === 0) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `No implicit module found for type ${typeToString(requiredModuleType)} with Self type compatible with ${typeToString(valueType)}.`,
+        errorMessage: `No implicit module found for type ${typeToString(requiredModuleType)} with This type compatible with ${typeToString(valueType)}.`,
       });
     }
 
