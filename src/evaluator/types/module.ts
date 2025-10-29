@@ -14,9 +14,11 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { generateExprFromCode } from "../../parser";
 import {
   areTypesCompatible,
   createModuleType,
+  createTypeHierarchy,
   isFunctionType,
   isModuleType,
   ModuleElement,
@@ -499,6 +501,94 @@ export function evaluateModuleType({
   env = pushEnvFrame(env);
 
   const args = expr.args;
+
+  // Check if "Self" label exists in any of the module elements
+  let hasSelfLabel = false;
+  for (const arg of args) {
+    // Skip spread operators for this check
+    if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
+      continue;
+    }
+
+    // Extract label from the element expression
+    let checkExpr = arg;
+
+    // Handle default value: label ?= value
+    if (
+      exprIsFunctionCall(checkExpr) &&
+      exprIsFunctionCallOf(checkExpr, "?=", 2)
+    ) {
+      checkExpr = checkExpr.args[0]!;
+    }
+
+    // Handle assigned value: label := value or label :: value
+    if (
+      exprIsFunctionCall(checkExpr) &&
+      (exprIsFunctionCallOf(checkExpr, "=", 2) ||
+        exprIsFunctionCallOf(checkExpr, "::", 2))
+    ) {
+      checkExpr = checkExpr.args[0]!;
+    }
+
+    // Handle typed element: label : type
+    if (
+      exprIsFunctionCall(checkExpr) &&
+      exprIsFunctionCallOf(checkExpr, ":", 2)
+    ) {
+      const labelExpr = checkExpr.args[0]!;
+      // Handle using(label)
+      let finalLabelExpr = labelExpr;
+      if (
+        exprIsFunctionCall(labelExpr) &&
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.using, 1)
+      ) {
+        finalLabelExpr = labelExpr.args[0]!;
+      }
+      if (exprIsAtom(finalLabelExpr) && finalLabelExpr.token.value === "Self") {
+        hasSelfLabel = true;
+        break;
+      }
+    }
+  }
+
+  // If "Self" is not found, automatically insert "Self : Type" at the beginning
+  if (!hasSelfLabel) {
+    // Create "Self : Type" element
+    const selfType = createTypeHierarchy(0);
+    const selfElement: ModuleElement = {
+      label: "Self",
+      type: selfType,
+      isCompileTimeOnly: true,
+      assignedValue: undefined,
+      defaultValue: undefined,
+      isImplicit: false,
+      exprs: {
+        expr: expr,
+        labelExpr: undefined,
+        typeExpr: generateExprFromCode("Type"),
+        defaultValueExpr: undefined,
+        assignedValueExpr: undefined,
+      },
+    };
+
+    elements.push(selfElement);
+
+    // Add "Self" to the environment as an unknown value
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: "Self",
+        type: selfType,
+        value: createUnknownValue(selfType, "Self"),
+        isCompileTimeOnly: true,
+        token: expr.token,
+        initializedAtToken: expr.token,
+        consumedAtToken: undefined,
+      },
+    });
+    env = nextEnv;
+  }
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
