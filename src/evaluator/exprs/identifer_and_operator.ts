@@ -6,13 +6,7 @@ import {
   createType0,
   createTypeHierarchy,
   createVoidType,
-  isClosureType,
-  isDynType,
-  isEnumType,
   isFunctionType,
-  isFutureType,
-  isStructType,
-  isUnionType,
   PrimitiveTypes,
   TypeTag,
 } from "../../types";
@@ -420,16 +414,7 @@ export function evaluateIdentifierAndOperator({
     return expr;
   }
   // Self
-  else if (
-    identifier === "Self" &&
-    context.SelfType &&
-    (isStructType(context.SelfType) ||
-      isEnumType(context.SelfType) ||
-      isUnionType(context.SelfType) ||
-      isDynType(context.SelfType) ||
-      isClosureType(context.SelfType) ||
-      isFutureType(context.SelfType))
-  ) {
+  else if (identifier === "Self" && context.SelfType) {
     const typeValue = createTypeValue(context.SelfType);
 
     expr.$ = {

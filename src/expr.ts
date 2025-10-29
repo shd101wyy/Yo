@@ -560,6 +560,9 @@ export const BuiltinFunctions = {
   // Type casting for primitives (generic form)
   __yo_as: ["__yo_as"],
 
+  // Type module extension
+  __yo_set_type_module: ["__yo_set_type_module"],
+
   // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],
   __yo_expr_is_atom: ["__yo_expr_is_atom"],
