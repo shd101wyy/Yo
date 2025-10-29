@@ -22,6 +22,7 @@ import {
   createUnknownValue,
   isModuleValue,
   isTupleValue,
+  isTypeValue,
   isUnknownValue,
   ModuleValue,
   Value,
@@ -510,14 +511,47 @@ export function getMethodsByNameFromEnv(
 ): { type: Type; value: Value | undefined }[] {
   const methods: { type: Type; value: Value | undefined }[] = [];
 
+  // Automatically dereference if it's pointer/reference type
+  let dereferencedReceiverType = receiverType;
+  while (isMutPtrType(dereferencedReceiverType)) {
+    dereferencedReceiverType = dereferencedReceiverType.type;
+  }
+
   function checkModule(moduleType: ModuleType, moduleValue: Value) {
-    // NOTE: We stop checking the moduleReceiverType
-    //       It is only used for dynamic dispatching now.
-    // const moduleReceiverType = getModuleReceiverType(moduleType);
-    // if (!moduleReceiverType) {
-    //   // NOTE: We require receiverType to be defined with "This"
-    //   return;
-    // }
+    // Check if "Self" exists and is compatible with receiverType
+    if (isModuleValue(moduleValue)) {
+      const selfElementIndex = moduleType.elements.findIndex(
+        (element) => element.label === "Self"
+      );
+      if (selfElementIndex >= 0) {
+        const selfElementValue = moduleValue.elements[selfElementIndex]!;
+        if (isTypeValue(selfElementValue)) {
+          const selfType = selfElementValue.value;
+          if (
+            !areTypesCompatible(
+              { type: selfType, env: moduleValue.type.env },
+              { type: receiverType, env },
+              true // isMethodReceiver
+            )
+          ) {
+            if (dereferencedReceiverType === receiverType) {
+              return;
+            } else {
+              // Continue checking with the dereferencedReceiverType
+              if (
+                !areTypesCompatible(
+                  { type: selfType, env: moduleValue.type.env },
+                  { type: dereferencedReceiverType, env },
+                  true // isMethodReceiver
+                )
+              ) {
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
 
     const method = moduleType.elements.find(
       (element) =>
@@ -626,13 +660,8 @@ export function getMethodsByNameFromEnv(
       }
       return true; // QUESTION: How to handle non-function types?
     });
-    return filtered;
-  }
 
-  // Automatically dereference if it's pointer/reference type
-  let dereferencedReceiverType = receiverType;
-  while (isMutPtrType(dereferencedReceiverType)) {
-    dereferencedReceiverType = dereferencedReceiverType.type;
+    return filtered;
   }
 
   // Helper function to recursively check a module for methods
@@ -753,10 +782,13 @@ export function getMethodsByNameFromEnv(
   }
 
   // Check the modules from innermost to outermost scope
-  // Stop at the first frame level where we find matching methods (shadowing)
+  // ~~Stop at the first frame level where we find matching methods (shadowing)~~
+  // NOTE: ^^^ This is wrong. We shouldn't stop at the latest frame level,
+  // One example is the hash_map.yo where the HashMap has a parameter
+  //    using(KeyEqual) : (K <: Eq(K, K))
+  // When we compare (3 == 4) it only finds KeyEqual but not I32
   for (let i = env.frames.length - 1; i >= 0; i--) {
     const frame = env.frames[i]!;
-    const methodsInThisFrame: { type: Type; value: Value | undefined }[] = [];
 
     for (let j = frame.variables.length - 1; j >= 0; j--) {
       const variable = frame.variables[j]!;
@@ -767,18 +799,8 @@ export function getMethodsByNameFromEnv(
         isModuleType(moduleType) &&
         moduleValue
       ) {
-        const methodsBeforeCheck = methods.length;
         checkModule(moduleType, moduleValue);
-        // Collect methods found in this frame
-        if (methods.length > methodsBeforeCheck) {
-          methodsInThisFrame.push(...methods.slice(methodsBeforeCheck));
-        }
       }
-    }
-
-    // If we found methods in this frame, stop searching outer frames (shadowing)
-    if (methodsInThisFrame.length > 0) {
-      break;
     }
   }
 
