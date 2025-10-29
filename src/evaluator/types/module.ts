@@ -514,40 +514,41 @@ export function evaluateModuleType({
     }
 
     // Extract label from the element expression
-    let checkExpr = arg;
+    let labelExpr: Expr | undefined = undefined;
 
-    // Handle default value: label ?= value
+    // Handle default value:  label ?= value or
+    //        assigned value: label := value
     if (
-      exprIsFunctionCall(checkExpr) &&
-      exprIsFunctionCallOf(checkExpr, "?=", 2)
+      exprIsFunctionCall(arg) &&
+      (exprIsFunctionCallOf(arg, "?=", 2) || exprIsFunctionCallOf(arg, ":=", 2))
     ) {
-      checkExpr = checkExpr.args[0]!;
+      labelExpr = arg.args[0]!;
+    }
+    // Handle assigned value: (label : Type) = value
+    else if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "=", 2)) {
+      const lhsExpr = arg.args[0]!;
+      if (
+        exprIsFunctionCall(lhsExpr) &&
+        exprIsFunctionCallOf(lhsExpr, ":", 2)
+      ) {
+        labelExpr = lhsExpr.args[0]!;
+      }
+    }
+    // Handle type annotation: label : Type
+    else if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
+      labelExpr = arg.args[0]!;
     }
 
-    // Handle assigned value: label := value or label :: value
-    if (
-      exprIsFunctionCall(checkExpr) &&
-      (exprIsFunctionCallOf(checkExpr, "=", 2) ||
-        exprIsFunctionCallOf(checkExpr, "::", 2))
-    ) {
-      checkExpr = checkExpr.args[0]!;
-    }
-
-    // Handle typed element: label : type
-    if (
-      exprIsFunctionCall(checkExpr) &&
-      exprIsFunctionCallOf(checkExpr, ":", 2)
-    ) {
-      const labelExpr = checkExpr.args[0]!;
-      // Handle using(label)
-      let finalLabelExpr = labelExpr;
+    // Analyze labelExpr
+    if (labelExpr) {
       if (
         exprIsFunctionCall(labelExpr) &&
-        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.using, 1)
+        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.using)
       ) {
-        finalLabelExpr = labelExpr.args[0]!;
+        labelExpr = labelExpr.args[0]!;
       }
-      if (exprIsAtom(finalLabelExpr) && finalLabelExpr.token.value === "Self") {
+
+      if (exprIsAtom(labelExpr) && labelExpr.token.value === "Self") {
         hasSelfLabel = true;
         break;
       }
