@@ -1,9 +1,4 @@
-import {
-  addVariableToEnv,
-  Environment,
-  popEnvFrame,
-  pushEnvFrame,
-} from "../../env";
+import { Environment, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   cloneExpr,
@@ -49,11 +44,20 @@ export function tryToImplementModuleWithArgumentsByModuleType({
     });
   }
 
-  callerEnv = pushEnvFrame(callerEnv);
-
   const elements: (Value | undefined)[] = Array(
     moduleType.elements.length
   ).fill(undefined);
+
+  // Create a working module type that we'll progressively update with concrete values
+  // This allows Self.X references to resolve to concrete types as we bind values
+  const workingModuleType: ModuleType = {
+    ...moduleType,
+    elements: moduleType.elements.map((element, idx) => ({
+      ...element,
+      assignedValue: elements[idx],
+    })),
+  };
+
   for (let i = 0; i < moduleType.elements.length; i++) {
     const moduleElement = moduleType.elements[i]!;
     let foundArgExpr = false;
@@ -122,7 +126,7 @@ ${valueToString(moduleElement.assignedValue)}`,
             context: {
               ...context,
               expectedType: undefined,
-              SelfType: moduleType, // Self refers to the module itself
+              SelfType: workingModuleType, // Use working module with progressively bound values
             },
           });
           const evaluatedModuleMemberTypeValue = evaluatedModuleMember.$?.value;
@@ -143,7 +147,7 @@ ${valueToString(moduleElement.assignedValue)}`,
             context: {
               ...context,
               expectedType: undefined,
-              SelfType: moduleType, // Self refers to the module itself
+              SelfType: workingModuleType, // Use working module with progressively bound values
             },
           });
           const value = evaluatedValueExpr.$?.value;
@@ -200,25 +204,25 @@ Got:   ${typeToString(argType)}`,
 
         if (isFunctionValue(argValue)) {
           argValue.funcId += `_${moduleElement.label}`;
+          // If the function value's type contains SomeType but moduleElementType doesn't,
+          // set the specializedType to the resolved moduleElementType
+          // This ensures that generic functions in modules get their types specialized
+          // when the module is instantiated with concrete type arguments
+          if (
+            !argValue.specializedType &&
+            moduleElementType.tag === "Function"
+          ) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            argValue.specializedType = moduleElementType as any;
+          }
         }
 
         // Save the value to the members
         elements[i] = argValue;
-        // Add to the env
-        const { env: nextEnv } = addVariableToEnv({
-          env: callerEnv,
-          variable: {
-            name: label,
-            type: argType,
-            isCompileTimeOnly: true,
-            value: argValue,
-            token: argExpr.token,
-            initializedAtToken: argExpr.token,
-            consumedAtToken: undefined,
-          },
-          skipCheckingFunctionOverloading: true,
-        });
-        callerEnv = nextEnv;
+
+        // Update the working module type with the newly bound value
+        // This allows subsequent Self.X references to resolve to this concrete value
+        workingModuleType.elements[i]!.assignedValue = argValue;
 
         // Add the type information to argExpr
         argExpr.$ = {
@@ -242,33 +246,21 @@ Got:   ${typeToString(argType)}`,
       if (!defaultValue && !assignedValue && moduleElement.isImplicit) {
         try {
           // Try to resolve the implicit value from the environment
-          const { value: resolvedValue, type: resolvedType } =
-            resolveImplicitValue({
-              expectedType: moduleElement.type,
-              label: moduleElement.label,
-              isCompileTimeOnly: true, // Module elements are always compile-time
-              calleeEnv: callerEnv,
-              callerEnv,
-              context,
-              errorToken: moduleExpr.token,
-            });
+          const { value: resolvedValue } = resolveImplicitValue({
+            expectedType: moduleElement.type,
+            label: moduleElement.label,
+            isCompileTimeOnly: true, // Module elements are always compile-time
+            calleeEnv: callerEnv,
+            callerEnv,
+            context,
+            errorToken: moduleExpr.token,
+          });
 
           elements[i] = resolvedValue;
 
-          // Add to the env
-          const { env: nextEnv } = addVariableToEnv({
-            env: callerEnv,
-            variable: {
-              name: moduleElement.label,
-              type: resolvedType,
-              isCompileTimeOnly: true,
-              value: resolvedValue,
-              token: moduleExpr.token,
-              initializedAtToken: moduleExpr.token,
-              consumedAtToken: undefined,
-            },
-          });
-          callerEnv = nextEnv;
+          // Update the working module type
+          workingModuleType.elements[i]!.assignedValue = resolvedValue;
+
           continue; // Successfully resolved implicit parameter
         } catch (error) {
           // If implicit resolution fails, fall through to the error below
@@ -291,24 +283,10 @@ Got:   ${typeToString(argType)}`,
 
       elements[i] = resolvedValue;
 
-      // Add to the env
-      const { env: nextEnv } = addVariableToEnv({
-        env: callerEnv,
-        variable: {
-          name: moduleElement.label,
-          type: moduleElement.type,
-          isCompileTimeOnly: true,
-          value: resolvedValue,
-          token: moduleExpr.token,
-          initializedAtToken: moduleExpr.token,
-          consumedAtToken: undefined,
-        },
-      });
-      callerEnv = nextEnv;
+      // Update the working module type
+      workingModuleType.elements[i]!.assignedValue = resolvedValue;
     }
   }
-
-  callerEnv = popEnvFrame(callerEnv);
 
   // Note: Modules no longer have a "Self" element as a parameter.
   // "This" is the receiver type parameter, and "Self" refers to the module itself.

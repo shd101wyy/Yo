@@ -10,6 +10,7 @@ import {
   isDynType,
   isEnumType,
   isFutureType,
+  isModuleType,
   isMutPtrType,
   isStructType,
   isTupleType,
@@ -21,12 +22,16 @@ import {
 } from "../../types";
 import {
   isFunctionValue,
+  isModuleValue,
   isNumberValue,
   isTypeValue,
   ModuleValue,
 } from "../../value";
 import { PrimitiveTypeTags } from "../constants";
-import { findFunctionCallsInExpr } from "../functions";
+import {
+  collectRequiredFunctions,
+  findFunctionCallsInExpr,
+} from "../functions";
 import {
   CodeGenContext,
   getTypeString,
@@ -191,7 +196,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isTupleType(type) ||
     isClosureType(type) ||
     isDynType(type) ||
-    isFutureType(type)
+    isFutureType(type) ||
+    isModuleType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName = isFutureType(type)
@@ -251,6 +257,41 @@ export function collectType(type: Type, context: CodeGenContext): void {
       const futureType = type as FutureType;
       // Recursively collect the element type
       collectType(futureType.elementType, context);
+    }
+
+    // For module types, collect types and functions from the module's elements directly
+    // (module types don't have a .module field - they ARE the module)
+    if (isModuleType(type)) {
+      // First, collect types from all module elements (like struct does)
+      for (const element of type.elements) {
+        collectType(element.type, context);
+      }
+
+      // Then, collect functions from the module's elements
+      for (const element of type.elements) {
+        if (element.assignedValue && isFunctionValue(element.assignedValue)) {
+          const functionValue = element.assignedValue;
+          if (!context.functions[functionValue.funcId]) {
+            context.functions[functionValue.funcId] = {
+              value: functionValue,
+              cName: sanitizeForCIdentifier(functionValue.funcId),
+            };
+
+            // Collect types from the function signature (parameters and return type)
+            collectTypesFromFunctionType(functionValue.type, context);
+
+            // Recursively collect functions called by this module function
+            findFunctionCallsInExpr(functionValue.body, context);
+          }
+        } else if (
+          element.assignedValue &&
+          isModuleValue(element.assignedValue)
+        ) {
+          // Module element has a module value - recursively collect its functions
+          const moduleValue = element.assignedValue;
+          collectRequiredFunctions(moduleValue, context);
+        }
+      }
     }
   }
   // Check if it's array types
@@ -332,24 +373,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     }
     */
 
+  // For other types (struct/enum/union/etc), collect types and functions from their .module property
   if (type.module) {
-    for (const element of type.module.elements) {
-      if (element.assignedValue && isFunctionValue(element.assignedValue)) {
-        const functionValue = element.assignedValue;
-        if (!context.functions[functionValue.funcId]) {
-          context.functions[functionValue.funcId] = {
-            value: functionValue,
-            cName: sanitizeForCIdentifier(functionValue.funcId),
-          };
-
-          // Collect types from the function signature (parameters and return type)
-          collectTypesFromFunctionType(functionValue.type, context);
-
-          // Recursively collect functions called by this struct member function
-          // This is needed to collect extern functions like printf used in dispose methods
-          findFunctionCallsInExpr(functionValue.body, context);
-        }
-      }
-    }
+    collectType(type.module, context);
   }
 }

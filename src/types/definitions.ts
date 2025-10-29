@@ -365,6 +365,12 @@ export interface ModuleType extends Type {
   elements: ModuleElement[];
 
   /**
+   * ModuleType doesn't have a module field because it IS the module itself.
+   * This is different from StructType/EnumType/UnionType which have a separate module.
+   */
+  module: undefined;
+
+  /**
    * The env when the module type is created.
    * The env is also useful to show the frame level at which the module is defined.
    */
