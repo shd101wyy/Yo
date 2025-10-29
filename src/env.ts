@@ -2,15 +2,10 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
-  isClosureType,
   isDynType,
-  isEnumType,
   isFunctionType,
-  isFutureType,
   isModuleType,
   isMutPtrType,
-  isStructType,
-  isUnionType,
   ModuleType,
   Type,
   typeContainsARCType,
@@ -701,13 +696,7 @@ export function getMethodsByNameFromEnv(
   }
 
   // Check if the dereferencedReceiverType itself has method that can be called
-  if (
-    isStructType(dereferencedReceiverType) ||
-    isEnumType(dereferencedReceiverType) ||
-    isUnionType(dereferencedReceiverType) ||
-    isClosureType(dereferencedReceiverType) ||
-    isFutureType(dereferencedReceiverType)
-  ) {
+  if (dereferencedReceiverType.module) {
     // First check direct methods
     const directMethod = dereferencedReceiverType.module.elements.find(
       (element) => element.label === methodName && isFunctionType(element.type)

@@ -334,9 +334,7 @@ export function areTypesCompatible(
     } else if (
       isTypeHierarchyType(given.type) &&
       given.type.baseType &&
-      (isStructType(given.type.baseType) ||
-        isEnumType(given.type.baseType) ||
-        isUnionType(given.type.baseType))
+      given.type.baseType.module
     ) {
       givenElements = given.type.baseType.module.elements;
     }

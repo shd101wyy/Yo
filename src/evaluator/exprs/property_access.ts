@@ -12,8 +12,6 @@ import { TokenType } from "../../token";
 import {
   EnumType,
   isArrayType,
-  isClosureType,
-  isDynType,
   isEnumType,
   isModuleType,
   isMutPtrType,
@@ -263,13 +261,8 @@ export function evaluatePropertyAccess({
       }
       return expr;
     }
-    // Accessing compt fields of a struct/union/dyn type.
-    else if (
-      isStructType(typeValue.value) ||
-      isUnionType(typeValue.value) ||
-      isDynType(typeValue.value) ||
-      isClosureType(typeValue.value)
-    ) {
+    // Accessing compt fields of a struct/union/dyn etc type.
+    else if (typeValue.value.module) {
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({
           token: propertyExpr.token,

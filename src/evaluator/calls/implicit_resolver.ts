@@ -3,13 +3,8 @@ import { formatErrorMessage } from "../../error";
 import { PlaceholderToken, Token } from "../../token";
 import {
   areTypesCompatible,
-  isClosureType,
-  isEnumType,
   isFunctionType,
-  isFutureType,
   isModuleType,
-  isStructType,
-  isUnionType,
   Type,
   typeToString,
 } from "../../types";
@@ -158,13 +153,7 @@ export function resolveImplicitValue({
         // Check if the variable module value matches the expected expectedType
         if (isModuleType(expectedType) && isTypeValue(variable.value)) {
           const type = variable.value.value;
-          if (
-            isStructType(type) ||
-            isEnumType(type) ||
-            isUnionType(type) ||
-            isClosureType(type) ||
-            isFutureType(type)
-          ) {
+          if (type.module) {
             const module = type.module;
             for (let i = 0; i < module.elements.length; i++) {
               const moduleElement = module.elements[i]!;

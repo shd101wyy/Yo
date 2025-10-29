@@ -1062,64 +1062,6 @@ export function activate(context: vscode.ExtensionContext) {
               documentation: `Access ${element.label} field of type ${typeToString(element.type)}`,
             });
           }
-
-          // Also check for methods defined in the struct's module (using original type for method calls)
-          if (fieldAccessType.module && fieldAccessType.module.elements) {
-            // Get environment from the target expression for type compatibility checking
-            let env: unknown = null;
-            if (targetExpr && exprIsAtom(targetExpr)) {
-              const atomExpr = targetExpr as AtomExpr;
-              const evalInfo = atomExpr.$ as { env?: unknown } | undefined;
-              env = evalInfo?.env;
-            }
-
-            for (const element of fieldAccessType.module.elements) {
-              if (isFunctionType(element.type)) {
-                // Check if the first parameter of the function matches the original receiver type (not dereferenced)
-                if (element.type.parameters.length > 0 && env) {
-                  const firstParamType = element.type.parameters[0]!.type;
-
-                  // Check type compatibility between original receiver and first parameter
-                  try {
-                    const receiverTypeInfo = {
-                      type: originalReceiverType, // Use original type for method calls
-                      env: env as Parameters<
-                        typeof areTypesCompatible
-                      >[0]["env"],
-                    };
-                    const paramTypeInfo = {
-                      type: firstParamType,
-                      env: env as Parameters<
-                        typeof areTypesCompatible
-                      >[1]["env"],
-                    };
-
-                    if (areTypesCompatible(receiverTypeInfo, paramTypeInfo)) {
-                      methods.push({
-                        name: element.label,
-                        detail: typeToString(element.type),
-                        documentation: `Method ${element.label} on ${fieldAccessType.typeName || "struct"}`,
-                      });
-                    }
-                  } catch (error) {
-                    // If type compatibility check fails, include the method anyway
-                    methods.push({
-                      name: element.label,
-                      detail: typeToString(element.type),
-                      documentation: `Method ${element.label} on ${fieldAccessType.typeName || "struct"}`,
-                    });
-                  }
-                } else {
-                  // If no first parameter or no env, include the method
-                  methods.push({
-                    name: element.label,
-                    detail: typeToString(element.type),
-                    documentation: `Method ${element.label} on ${fieldAccessType.typeName || "struct"}`,
-                  });
-                }
-              }
-            }
-          }
         } else if (isEnumType(fieldAccessType)) {
           // For enum types, show all available variants
           for (const variant of fieldAccessType.variants) {
@@ -1131,64 +1073,6 @@ export function activate(context: vscode.ExtensionContext) {
               documentation: `Access ${variant.name} variant of enum`,
             });
           }
-
-          // Also check for methods defined in the enum's module
-          if (fieldAccessType.module && fieldAccessType.module.elements) {
-            // Get environment from the target expression for type compatibility checking
-            let env: unknown = null;
-            if (targetExpr && exprIsAtom(targetExpr)) {
-              const atomExpr = targetExpr as AtomExpr;
-              const evalInfo = atomExpr.$ as { env?: unknown } | undefined;
-              env = evalInfo?.env;
-            }
-
-            for (const element of fieldAccessType.module.elements) {
-              if (isFunctionType(element.type)) {
-                // Check if the first parameter of the function matches the original receiver type (not dereferenced)
-                if (element.type.parameters.length > 0 && env) {
-                  const firstParamType = element.type.parameters[0]!.type;
-
-                  // Check type compatibility between original receiver and first parameter
-                  try {
-                    const receiverTypeInfo = {
-                      type: originalReceiverType, // Use original type for method calls
-                      env: env as Parameters<
-                        typeof areTypesCompatible
-                      >[0]["env"],
-                    };
-                    const paramTypeInfo = {
-                      type: firstParamType,
-                      env: env as Parameters<
-                        typeof areTypesCompatible
-                      >[1]["env"],
-                    };
-
-                    if (areTypesCompatible(receiverTypeInfo, paramTypeInfo)) {
-                      methods.push({
-                        name: element.label,
-                        detail: typeToString(element.type),
-                        documentation: `Method ${element.label} on ${fieldAccessType.typeName || "enum"}`,
-                      });
-                    }
-                  } catch (error) {
-                    // If type compatibility check fails, include the method anyway
-                    methods.push({
-                      name: element.label,
-                      detail: typeToString(element.type),
-                      documentation: `Method ${element.label} on ${fieldAccessType.typeName || "enum"}`,
-                    });
-                  }
-                } else {
-                  // If no first parameter or no env, include the method
-                  methods.push({
-                    name: element.label,
-                    detail: typeToString(element.type),
-                    documentation: `Method ${element.label} on ${fieldAccessType.typeName || "enum"}`,
-                  });
-                }
-              }
-            }
-          }
         } else if (isUnionType(fieldAccessType)) {
           // For union types, show all possible type elements (use dereferenced type for field access)
           for (const element of fieldAccessType.elements) {
@@ -1197,64 +1081,6 @@ export function activate(context: vscode.ExtensionContext) {
               detail: typeToString(element.type),
               documentation: `Access ${element.label} variant of union`,
             });
-          }
-
-          // Also check for methods defined in the union's module (use original type for method calls)
-          if (fieldAccessType.module && fieldAccessType.module.elements) {
-            // Get environment from the target expression for type compatibility checking
-            let env: unknown = null;
-            if (targetExpr && exprIsAtom(targetExpr)) {
-              const atomExpr = targetExpr as AtomExpr;
-              const evalInfo = atomExpr.$ as { env?: unknown } | undefined;
-              env = evalInfo?.env;
-            }
-
-            for (const element of fieldAccessType.module.elements) {
-              if (isFunctionType(element.type)) {
-                // Check if the first parameter of the function matches the original receiver type (not dereferenced)
-                if (element.type.parameters.length > 0 && env) {
-                  const firstParamType = element.type.parameters[0]!.type;
-
-                  // Check type compatibility between original receiver and first parameter
-                  try {
-                    const receiverTypeInfo = {
-                      type: originalReceiverType, // Use original type for method calls
-                      env: env as Parameters<
-                        typeof areTypesCompatible
-                      >[0]["env"],
-                    };
-                    const paramTypeInfo = {
-                      type: firstParamType,
-                      env: env as Parameters<
-                        typeof areTypesCompatible
-                      >[1]["env"],
-                    };
-
-                    if (areTypesCompatible(receiverTypeInfo, paramTypeInfo)) {
-                      methods.push({
-                        name: element.label,
-                        detail: typeToString(element.type),
-                        documentation: `Method ${element.label} on ${fieldAccessType.typeName || "union"}`,
-                      });
-                    }
-                  } catch (error) {
-                    // If type compatibility check fails, include the method anyway
-                    methods.push({
-                      name: element.label,
-                      detail: typeToString(element.type),
-                      documentation: `Method ${element.label} on ${fieldAccessType.typeName || "union"}`,
-                    });
-                  }
-                } else {
-                  // If no first parameter or no env, include the method
-                  methods.push({
-                    name: element.label,
-                    detail: typeToString(element.type),
-                    documentation: `Method ${element.label} on ${fieldAccessType.typeName || "union"}`,
-                  });
-                }
-              }
-            }
           }
         } else {
           // For other types, try to find methods using getMethodsByNameFromEnv
@@ -1349,6 +1175,60 @@ export function activate(context: vscode.ExtensionContext) {
                 } catch (error) {
                   // Ignore errors for individual method lookups
                 }
+              }
+            }
+          }
+        }
+
+        if (fieldAccessType.module) {
+          // Also check for methods defined in the struct's module (using original type for method calls)
+          // Get environment from the target expression for type compatibility checking
+          let env: unknown = null;
+          if (targetExpr && exprIsAtom(targetExpr)) {
+            const atomExpr = targetExpr as AtomExpr;
+            const evalInfo = atomExpr.$ as { env?: unknown } | undefined;
+            env = evalInfo?.env;
+          }
+
+          for (const element of fieldAccessType.module.elements) {
+            if (isFunctionType(element.type)) {
+              // Check if the first parameter of the function matches the original receiver type (not dereferenced)
+              if (element.type.parameters.length > 0 && env) {
+                const firstParamType = element.type.parameters[0]!.type;
+
+                // Check type compatibility between original receiver and first parameter
+                try {
+                  const receiverTypeInfo = {
+                    type: originalReceiverType, // Use original type for method calls
+                    env: env as Parameters<typeof areTypesCompatible>[0]["env"],
+                  };
+                  const paramTypeInfo = {
+                    type: firstParamType,
+                    env: env as Parameters<typeof areTypesCompatible>[1]["env"],
+                  };
+
+                  if (areTypesCompatible(receiverTypeInfo, paramTypeInfo)) {
+                    methods.push({
+                      name: element.label,
+                      detail: typeToString(element.type),
+                      documentation: `Method ${element.label} on ${fieldAccessType.typeName ?? fieldAccessType.tag}`,
+                    });
+                  }
+                } catch (error) {
+                  // If type compatibility check fails, include the method anyway
+                  methods.push({
+                    name: element.label,
+                    detail: typeToString(element.type),
+                    documentation: `Method ${element.label} on ${fieldAccessType.typeName ?? fieldAccessType.tag}`,
+                  });
+                }
+              } else {
+                // If no first parameter or no env, include the method
+                methods.push({
+                  name: element.label,
+                  detail: typeToString(element.type),
+                  documentation: `Method ${element.label} on ${fieldAccessType.typeName ?? fieldAccessType.tag}`,
+                });
               }
             }
           }

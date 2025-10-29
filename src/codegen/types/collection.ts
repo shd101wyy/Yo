@@ -208,25 +208,6 @@ export function collectType(type: Type, context: CodeGenContext): void {
       for (const element of type.elements) {
         collectType(element.type, context);
       }
-
-      for (const element of type.module.elements) {
-        if (element.assignedValue && isFunctionValue(element.assignedValue)) {
-          const functionValue = element.assignedValue;
-          if (!context.functions[functionValue.funcId]) {
-            context.functions[functionValue.funcId] = {
-              value: functionValue,
-              cName: sanitizeForCIdentifier(functionValue.funcId),
-            };
-
-            // Collect types from the function signature (parameters and return type)
-            collectTypesFromFunctionType(functionValue.type, context);
-
-            // Recursively collect functions called by this struct member function
-            // This is needed to collect extern functions like printf used in dispose methods
-            findFunctionCallsInExpr(functionValue.body, context);
-          }
-        }
-      }
     }
 
     // For enum types, collect functions from the module and types from variants
@@ -236,25 +217,6 @@ export function collectType(type: Type, context: CodeGenContext): void {
         if (variant.elements) {
           for (const element of variant.elements) {
             collectType(element.type, context);
-          }
-        }
-      }
-
-      // Collect functions from the enum's module (___dup, ___drop, etc.)
-      for (const element of type.module.elements) {
-        if (element.assignedValue && isFunctionValue(element.assignedValue)) {
-          const functionValue = element.assignedValue;
-          if (!context.functions[functionValue.funcId]) {
-            context.functions[functionValue.funcId] = {
-              value: functionValue,
-              cName: sanitizeForCIdentifier(functionValue.funcId),
-            };
-
-            // Collect types from the function signature (parameters and return type)
-            collectTypesFromFunctionType(functionValue.type, context);
-
-            // Recursively collect functions called by this enum member function
-            findFunctionCallsInExpr(functionValue.body, context);
           }
         }
       }
@@ -369,4 +331,25 @@ export function collectType(type: Type, context: CodeGenContext): void {
       };
     }
     */
+
+  if (type.module) {
+    for (const element of type.module.elements) {
+      if (element.assignedValue && isFunctionValue(element.assignedValue)) {
+        const functionValue = element.assignedValue;
+        if (!context.functions[functionValue.funcId]) {
+          context.functions[functionValue.funcId] = {
+            value: functionValue,
+            cName: sanitizeForCIdentifier(functionValue.funcId),
+          };
+
+          // Collect types from the function signature (parameters and return type)
+          collectTypesFromFunctionType(functionValue.type, context);
+
+          // Recursively collect functions called by this struct member function
+          // This is needed to collect extern functions like printf used in dispose methods
+          findFunctionCallsInExpr(functionValue.body, context);
+        }
+      }
+    }
+  }
 }
