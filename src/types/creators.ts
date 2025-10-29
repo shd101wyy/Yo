@@ -242,11 +242,11 @@ export function createStructType(
     env,
   };
 
-  // Add "Self" to struct type module if not already present
+  // Add "This" to struct type module if not already present
   const typeValue = createTypeValue(structType);
-  const selfElement: ModuleElement = {
+  const thisElement: ModuleElement = {
     type: typeValue.type,
-    label: "Self",
+    label: "This",
     isCompileTimeOnly: true,
     defaultValue: undefined,
     assignedValue: typeValue,
@@ -257,7 +257,7 @@ export function createStructType(
       },
     },
   };
-  module.elements.push(selfElement);
+  module.elements.push(thisElement);
 
   return structType;
 }
@@ -269,22 +269,6 @@ export function createModuleType(env: Environment): ModuleType {
     elements: [],
     env,
   };
-
-  const typeValue = createTypeValue(moduleType);
-  const selfElement: ModuleElement = {
-    type: typeValue.type,
-    label: "Self",
-    isCompileTimeOnly: true,
-    defaultValue: undefined,
-    assignedValue: typeValue,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  moduleType.elements.push(selfElement);
   return moduleType;
 }
 
@@ -299,11 +283,11 @@ export function createEnumType(env: Environment): EnumType {
     env,
   };
 
-  // Add "Self" to enum type if not already present
+  // Add "This" to enum type if not already present
   const typeValue = createTypeValue(enumType);
-  const selfElement: ModuleElement = {
+  const thisElement: ModuleElement = {
     type: typeValue.type,
-    label: "Self",
+    label: "This",
     isCompileTimeOnly: true,
     defaultValue: undefined,
     assignedValue: typeValue,
@@ -314,7 +298,7 @@ export function createEnumType(env: Environment): EnumType {
       },
     },
   };
-  module.elements.push(selfElement);
+  module.elements.push(thisElement);
 
   return enumType;
 }
@@ -330,11 +314,11 @@ export function createUnionType(env: Environment): UnionType {
     env,
   };
 
-  // Add "Self" to struct type if not already present
+  // Add "This" to union type if not already present
   const typeValue = createTypeValue(unionType);
-  const selfElement: ModuleElement = {
+  const thisElement: ModuleElement = {
     type: typeValue.type,
-    label: "Self",
+    label: "This",
     isCompileTimeOnly: true,
     defaultValue: undefined,
     assignedValue: typeValue,
@@ -345,7 +329,7 @@ export function createUnionType(env: Environment): UnionType {
       },
     },
   };
-  module.elements.push(selfElement);
+  module.elements.push(thisElement);
 
   return unionType;
 }
@@ -478,11 +462,11 @@ export function createClosureType(
     env,
   };
 
-  // Add "Self" to closure type module, similar to struct type
+  // Add "This" to closure type module, similar to struct type
   const typeValue = createTypeValue(closureType);
-  const selfElement: ModuleElement = {
+  const thisElement: ModuleElement = {
     type: typeValue.type,
-    label: "Self",
+    label: "This",
     isCompileTimeOnly: true,
     defaultValue: undefined,
     assignedValue: typeValue,
@@ -493,7 +477,7 @@ export function createClosureType(
       },
     },
   };
-  module.elements.push(selfElement);
+  module.elements.push(thisElement);
 
   return closureType;
 }
@@ -512,11 +496,11 @@ export function createDynType(
     env,
   };
 
-  // Add "Self" to dyn type module if not already present
+  // Add "This" to dyn type module if not already present
   const typeValue = createTypeValue(dynType);
-  const selfElement: ModuleElement = {
+  const thisElement: ModuleElement = {
     type: typeValue.type,
-    label: "Self",
+    label: "This",
     isCompileTimeOnly: true,
     defaultValue: undefined,
     assignedValue: typeValue,
@@ -527,7 +511,7 @@ export function createDynType(
       },
     },
   };
-  module.elements.push(selfElement);
+  module.elements.push(thisElement);
 
   return dynType;
 }
@@ -546,12 +530,12 @@ export function createFutureType(
     env,
   };
 
-  // Add "Self" to future type module, similar to other ARC types
+  // Add "This" to future type module, similar to other ARC types
   const typeValue = createTypeValue(futureType);
-  const selfElement: ModuleElement = {
+  const thisElement: ModuleElement = {
     type: typeValue.type,
     assignedValue: typeValue,
-    label: "Self",
+    label: "This",
     isCompileTimeOnly: true,
     exprs: {
       expr: {
@@ -570,7 +554,7 @@ export function createFutureType(
       },
     },
   };
-  futureType.module.elements.push(selfElement);
+  futureType.module.elements.push(thisElement);
 
   return futureType;
 }

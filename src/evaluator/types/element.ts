@@ -437,9 +437,11 @@ Given type: ${typeToString(defaultValueType)}`,
       });
     } else {
       // Attach .typeName info if necessary
+      // But don't modify SelfType - it's a reference to the enclosing type
       if (
         isTypeValue(element.assignedValue) &&
-        !element.assignedValue.value.typeName
+        !element.assignedValue.value.typeName &&
+        element.assignedValue.value !== context.SelfType
       ) {
         element.assignedValue.value.typeName = element.label;
       } else if (
@@ -450,7 +452,8 @@ Given type: ${typeToString(defaultValueType)}`,
         element.assignedValue.funcId += `_${element.label}`;
       } else if (
         isModuleValue(element.assignedValue) &&
-        !element.assignedValue.type.typeName
+        !element.assignedValue.type.typeName &&
+        element.assignedValue.type !== context.SelfType
       ) {
         element.assignedValue.type.typeName = element.label;
       }

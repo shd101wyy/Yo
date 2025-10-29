@@ -197,6 +197,7 @@ ${exprToString(expr)}`,
     }
 
     // Add .typeName info if necessary
+    // But don't modify context.SelfType - it refers to the enclosing type
     const rhsValue = rhs.$?.value;
     if (
       isTypeValue(rhsValue) &&
@@ -206,13 +207,18 @@ ${exprToString(expr)}`,
           isUnionType(rhsValue.value) ||
           isModuleType(rhsValue.value)) &&
         */
-      !rhsValue.value.typeName
+      !rhsValue.value.typeName &&
+      rhsValue.value !== context.SelfType
     ) {
       rhsValue.value.typeName = lhs.token.value;
     } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
       rhsValue.funcName = lhs.token.value;
       rhsValue.funcId += `_${lhs.token.value}`;
-    } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {
+    } else if (
+      isModuleValue(rhsValue) &&
+      !rhsValue.type.typeName &&
+      rhsValue.type !== context.SelfType
+    ) {
       rhsValue.type.typeName = lhs.token.value;
     }
 

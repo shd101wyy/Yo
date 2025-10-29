@@ -359,7 +359,11 @@ export function evaluateAssignment({
     // Add .typeName info if necessary
     const rhsValue = rhs.$?.value;
     if (isTypeValue(rhsValue) && !rhsValue.value.typeName) {
-      rhsValue.value.typeName = variableName;
+      // Don't set typeName if this is a reference to Self (context.SelfType)
+      // This prevents mutating the enclosing type's typeName
+      if (rhsValue.value !== context.SelfType) {
+        rhsValue.value.typeName = variableName;
+      }
 
       if (
         isTypeHierarchyType(updatedVariable.type) &&
@@ -372,7 +376,10 @@ export function evaluateAssignment({
       rhsValue.funcName = variableName;
       rhsValue.funcId += `_${lhs.token.value}`;
     } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {
-      rhsValue.type.typeName = variableName;
+      // Don't set typeName if this is a reference to Self (context.SelfType)
+      if (rhsValue.type !== context.SelfType) {
+        rhsValue.type.typeName = variableName;
+      }
     }
 
     // No consumption logic needed
