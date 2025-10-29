@@ -82,6 +82,7 @@ export function evaluateExtern({
         ...context,
         SelfType: undefined, // No SelfType in module context
       },
+      isForEvaluatingModuleType: false,
     });
 
     // Check if there is duplicate labels

@@ -53,11 +53,13 @@ export function evaluateModuleElementType({
   moduleElementIndex,
   env,
   context,
+  isForEvaluatingModuleType,
 }: {
   expr: Expr;
   moduleElementIndex: number;
   env: Environment;
   context: EvaluatorContext;
+  isForEvaluatingModuleType: boolean;
 }): { type: ModuleElement; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
@@ -399,7 +401,7 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   // Validate default value expression restrictions
-  if (defaultValueExpr) {
+  if (isForEvaluatingModuleType && defaultValueExpr) {
     if (!isFunctionType(elementType)) {
       throw formatErrorMessage({
         token: defaultValueExpr.token,
@@ -413,6 +415,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
   }
 
   if (
+    isForEvaluatingModuleType &&
     !assignedValueExpr &&
     !isFunctionType(elementType) &&
     !isModuleType(elementType)
@@ -777,6 +780,7 @@ export function evaluateModuleType({
           SelfType: undefined, // No SelfType in module context
           ModuleType: moduleType,
         },
+        isForEvaluatingModuleType: true,
       });
 
       // Check if there is duplicate labels

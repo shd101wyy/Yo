@@ -81,6 +81,7 @@ c_include "<stdio.h>" ...;`,
         ...context,
         SelfType: undefined, // No SelfType in module context
       },
+      isForEvaluatingModuleType: false,
     });
 
     // Check if there is duplicate labels
