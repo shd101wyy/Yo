@@ -213,9 +213,13 @@ export function evaluateFunctionParameter({
         context: { ...context },
       });
       if (!evaluatedRhs.$) {
+        console.log(
+          context.SelfType ? typeToString(context.SelfType) : undefined,
+          exprToString(typeExpr)
+        );
         throw formatErrorMessage({
           token: typeExpr.token,
-          errorMessage: `Failed to evaluate type expression: ${exprToString(typeExpr)}`,
+          errorMessage: `(3) Failed to evaluate type expression: ${exprToString(typeExpr)}`,
         });
       }
       env = evaluatedRhs.$.env;

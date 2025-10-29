@@ -320,6 +320,42 @@ export function evaluatePropertyAccess({
         });
       }
     }
+    // Accessing module field
+    else if (isModuleType(typeValue.value)) {
+      if (!isValidVariableName(propertyExpr)) {
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage: `Expected identifier for type method, got:\n${exprToString(
+            propertyExpr
+          )}`,
+        });
+      }
+      const propertyName = propertyExpr.token.value;
+      // Check if the type method exists
+      const field = typeValue.value.elements.find(
+        (property) => property.label === propertyName
+      );
+      if (field) {
+        expr.$ = {
+          env,
+          type: field.type,
+          value:
+            field.assignedValue ?? createUnknownValue(field.type, field.label),
+          pathCollection: [],
+          isAccessingProperty: true,
+        };
+        propertyExpr.$ = expr.$;
+        return expr;
+      } else {
+        // Property not found in type's own module
+        // Return expr with expr.$ = undefined to allow function.ts
+        // to handle this as a uniform function call (method call)
+        // function.ts will call getMethodsByNameFromEnv to find the method
+        // in implicit given implementations (like TypeMethods)
+        expr.$ = undefined;
+        return expr;
+      }
+    }
   }
 
   let objectType = objectExpr.$?.type;

@@ -263,12 +263,29 @@ export function createStructType(
 }
 
 export function createModuleType(env: Environment): ModuleType {
-  return {
+  const moduleType: ModuleType = {
     id: `module_${randomId()}`,
     tag: TypeTag.Module,
     elements: [],
     env,
   };
+
+  const typeValue = createTypeValue(moduleType);
+  const selfElement: ModuleElement = {
+    type: typeValue.type,
+    label: "Self",
+    isCompileTimeOnly: true,
+    defaultValue: undefined,
+    assignedValue: typeValue,
+    exprs: {
+      expr: {
+        tag: ExprTag.Atom,
+        token: PlaceholderToken,
+      },
+    },
+  };
+  moduleType.elements.push(selfElement);
+  return moduleType;
 }
 
 export function createEnumType(env: Environment): EnumType {

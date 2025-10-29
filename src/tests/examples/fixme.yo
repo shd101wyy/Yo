@@ -9,11 +9,19 @@ Point :: struct(
   x : i32,
   y : i32,
 
-  Id :: { 
-    This :: Self, 
-    Id(This)(
-      This : This,
+  Id :: {
+    This_ :: Self;
+    Id(This_)(
+      This : This_,
       id : ((self) -> self)
     )
   }
 );
+
+main :: (fn() -> unit) {
+  p := Point(3, 4);
+  // q := p.id();
+  q := Point.Id.id(p);
+};
+
+export main;
