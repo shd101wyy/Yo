@@ -31,6 +31,7 @@ import {
   isClosureType,
   isExprListType,
   isExprType,
+  isModuleType,
   isSomeType,
   prohibitDynamicSizedType,
   Type,
@@ -341,6 +342,36 @@ ${typeToString(parameterType)}`,
 
   // Prohibit dynamic sized type
   prohibitDynamicSizedType(parameterType, typeExpr?.token ?? expr.token);
+
+  // Check if the parameterType is a valid module type
+  if (isModuleType(parameterType)) {
+    // Check if the "Self" exists and has assignedValue
+    // If not then throw error
+    const selfElement = parameterType.elements.find(
+      (element) => element.label === "Self"
+    );
+    if (selfElement && !selfElement.assignedValue) {
+      throw formatErrorMessage({
+        token: typeExpr?.token ?? expr.token,
+        errorMessage: `Module type cannot be used as function parameter type without specifying "Self" element assigned value.
+        
+Please consider using "<:" to specify the "Self" value, for example:
+
+Id :: module
+  Self : Type,
+  id   : (fn(self : Self) -> Self)
+;
+
+use_id :: (fn(forall(T : Type),
+              val : T, 
+              using(IdModule) : (T <: Id)
+          ) -> T) {
+  return IdModule.id(val);
+}
+`,
+      });
+    }
+  }
 
   // Add the parameter to the env
   // console.log("(9) addVariableToEnv");

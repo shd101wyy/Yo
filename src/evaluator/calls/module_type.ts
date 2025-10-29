@@ -279,7 +279,9 @@ Got:   ${typeToString(argType)}`,
       let resolvedValue: Value | undefined = assignedValue;
       if (!assignedValue && defaultValue) {
         resolvedValue = defaultValue;
-      } else {
+      }
+
+      if (!resolvedValue) {
         // Check if moduleMember has default or required value
         throw formatErrorMessage({
           token: moduleExpr.token,

@@ -644,14 +644,14 @@ function moduleElementToString(
     : "";
 
   if (defaultValueStr) {
-    return `(${label}: ${typeToString(element.type, visited)}) ?= ${defaultValueStr}`;
+    return `(${label} : ${typeToString(element.type, visited)}) ?= ${defaultValueStr}`;
   }
 
   if (assignedValueStr) {
-    return `(${label}: ${typeToString(element.type, visited)}) = ${assignedValueStr}`;
+    return `(${label} : ${typeToString(element.type, visited)}) = ${assignedValueStr}`;
   }
 
-  return `${label}: ${typeToString(element.type, visited)}`;
+  return `${label} : ${typeToString(element.type, visited)}`;
 }
 
 function functionTypeToString(

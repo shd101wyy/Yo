@@ -17,7 +17,6 @@ import {
 import {
   areTypesCompatible,
   createModuleType,
-  isClosureType,
   isFunctionType,
   isModuleType,
   ModuleElement,
@@ -399,7 +398,7 @@ Given type: ${typeToString(defaultValueType)}`,
 
   // Validate default value expression restrictions
   if (defaultValueExpr) {
-    if (!isFunctionType(elementType) || isClosureType(elementType)) {
+    if (!isFunctionType(elementType)) {
       throw formatErrorMessage({
         token: defaultValueExpr.token,
         errorMessage: `Default values (?=) are only allowed for function type module elemen
@@ -407,6 +406,21 @@ ts (excluding closures).
 Module element "${label ?? "unnamed"}" has type: ${typeToString(elementType)}
 
 To avoid circular dependency issues, please explicitly provide the value for this element.`,
+      });
+    }
+  }
+
+  if (
+    !assignedValueExpr &&
+    !isFunctionType(elementType) &&
+    !isModuleType(elementType)
+  ) {
+    // NOTE: We allow "Self" to not have a value assigned
+    // "Self" is a special case.
+    if (label !== "Self") {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected an assigned value for module element "${label ?? "unnamed"}"`,
       });
     }
   }
