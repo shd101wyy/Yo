@@ -5,70 +5,89 @@
 
 extern "Yo",
   __yo_ptr_cast :
-    fn(forall(Source: Type), source : *(Source), compt(Target) : Type) -> Target,
+    fn(forall(Source: Type), source : __yo_Ptr(Source), compt(Target) : Type) -> Target,
 
   // Pointer arithmetic operations
   __yo_ptr_add :
-    fn(forall(T: Type), ptr : *(T), offset : usize) -> *(T),
+    fn(forall(T: Type), ptr : __yo_Ptr(T), offset : usize) -> __yo_Ptr(T),
   __yo_ptr_sub :
-    fn(forall(T: Type), ptr : *(T), offset : usize) -> *(T),
+    fn(forall(T: Type), ptr : __yo_Ptr(T), offset : usize) -> __yo_Ptr(T),
   __yo_ptr_diff :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> isize,
+    fn(forall(T: Type), ptr1 : __yo_Ptr(T), ptr2 : __yo_Ptr(T)) -> isize,
   __yo_ptr_eq :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean,
+    fn(forall(T: Type), ptr1 : __yo_Ptr(T), ptr2 : __yo_Ptr(T)) -> boolean,
   __yo_ptr_neq :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean,
+    fn(forall(T: Type), ptr1 : __yo_Ptr(T), ptr2 : __yo_Ptr(T)) -> boolean,
   __yo_ptr_lt :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean,
+    fn(forall(T: Type), ptr1 : __yo_Ptr(T), ptr2 : __yo_Ptr(T)) -> boolean,
   __yo_ptr_lte :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean,
+    fn(forall(T: Type), ptr1 : __yo_Ptr(T), ptr2 : __yo_Ptr(T)) -> boolean,
   __yo_ptr_gt :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean,
+    fn(forall(T: Type), ptr1 : __yo_Ptr(T), ptr2 : __yo_Ptr(T)) -> boolean,
   __yo_ptr_gte :
-    fn(forall(T: Type), ptr1 : *(T), ptr2 : *(T)) -> boolean
+    fn(forall(T: Type), ptr1 : __yo_Ptr(T), ptr2 : __yo_Ptr(T)) -> boolean
 ;
 
-/**
- * Pointer operations module
- */
-Ptr :: impl {
-  // Pointer arithmetic: ptr + offset
-  (+) :: __yo_ptr_add;
-  
-  // Pointer subtraction: ptr - offset  
-  (-) :: __yo_ptr_sub;
-  
-  // Pointer difference: ptr1 - ptr2 (when both operands are pointers)
-  diff :: __yo_ptr_diff;
-  
-  // Pointer comparison
-  (==) :: __yo_ptr_eq;
-  
-  (!=) :: __yo_ptr_neq;
-  
-  (<) :: __yo_ptr_lt;
-  
-  (<=) :: __yo_ptr_lte;
-  
-  (>) :: __yo_ptr_gt;
-  
-  (>=) :: __yo_ptr_gte;
-  
-  // Cast pointer to another type
-  cast :: __yo_ptr_cast;
-  
-  export 
-    (+),
-    (-),
-    diff,
-    (==),
-    (!=),
-    (<),
-    (<=),
-    (>),
-    (>=),
-    cast
+(*) :: impl {
+  // Pointer type wrapper
+  (*) :: (fn(compt(T) : Type) -> compt(Type)) {
+    return struct(
+      raw_ptr : __yo_Ptr(T),
+
+      // Pointer arithmetic: ptr + offset
+      // === Add ===
+      Add :: impl(Self, Add(usize, Self)(
+        (+) : ((lhs, rhs) -> Self(__yo_ptr_add(lhs.raw_ptr, rhs)))
+      )),
+
+      // Pointer subtraction: ptr - offset  
+      // === Sub ===
+      Sub :: impl(Self, Sub(usize, Self)(
+        (-) : ((lhs, rhs) -> Self(__yo_ptr_sub(lhs.raw_ptr, rhs)))
+      )),
+
+      // === Eq ===
+      Eq :: impl(Self, Eq(Self)(
+        (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs.raw_ptr, rhs.raw_ptr)),
+        (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs.raw_ptr, rhs.raw_ptr))
+      )),
+
+      // === Ord ===
+      Ord :: impl(Self, Ord(Self)(
+        (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs.raw_ptr, rhs.raw_ptr)),
+        (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs.raw_ptr, rhs.raw_ptr)),
+        (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs.raw_ptr, rhs.raw_ptr)),
+        (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs.raw_ptr, rhs.raw_ptr))
+      )),
+
+      // === Other methods ===
+      // Pointer difference: ptr1 - ptr2 (when both operands are pointers)
+      diff :: ((fn(lhs : Self, rhs : Self) -> isize) {
+        return __yo_ptr_diff(lhs.raw_ptr, rhs.raw_ptr);
+      }),
+
+      // Cast pointer to another type
+      cast :: (fn(self : Self, compt(Target) : Type) -> Target) {
+        // TODO: This function needs special handling
+        return __yo_ptr_cast(self.raw_ptr, Target);
+      }
+    );
+  };
+
+  // Dereference pointer
+  (ptr_deref) :: (fn(forall(T : Type), ptr : *(T)) -> T) {
+    return __yo_ptr_deref(ptr.raw_ptr);
+  };
+
+  Self :: (*, ptr_deref);
+  export Self;
 };
+
+// Address-of operator
+(&) :: (fn(quote(value) : Expr) -> unquote(Expr))
+  quote (*)(typeof(unquote(value)))(__yo_address_of(unquote(value)))
+;
+
 
 // Nullable pointer
 (?*) :: (fn(compt(T): Type) -> compt(Type))
@@ -81,7 +100,8 @@ Ptr :: impl {
 ;
 
 export
-  Ptr,
-  ?*,
-  ?*!
+  (*),
+  (&),
+  (?*),
+  (?*!)
 ;

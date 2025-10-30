@@ -1175,7 +1175,7 @@ function generateFuncCall(
     return generateMatchExpression(expr, indent, context);
   }
   // ptr value
-  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.AddressOf, 1)) {
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_address_of, 1)) {
     const type = expr.$?.type;
     if (!type) {
       return `// Error: No type information for pointer/reference expression ${exprToString(expr)}\n`;

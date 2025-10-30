@@ -1,11 +1,12 @@
-Clone :: module
-  clone : 
-    fn(self: *(Self))-> Self
+Clone :: (fn(compt(Output) : Type) -> compt(Module))
+  module
+    clone : 
+      fn(self: Self) -> Output
 ;
 
 clone :: (fn( forall(_Self : Type),
-            self : *(_Self), 
-            using(CloneMethod) : (_Self <: Clone)
+            self : _Self, 
+            using(CloneMethod) : (_Self <: Clone(_Self))
           ) -> _Self)
   CloneMethod.clone(self)
 ;

@@ -1,23 +1,24 @@
-Eq :: (fn(compt(Rhs) : Type) -> compt(Module))
-  module()
+(*) :: impl {
+  (*) :: (fn(compt(T) : Type) -> compt(Type)) {
+    return struct(
+      ptr : __yo_Ptr(T)
+    );
+  };
+
+  (ptr_deref) :: (fn(forall(T : Type), ptr : *(T)) -> T) {
+    return __yo_ptr_deref(ptr.ptr);
+  };
+
+  Self :: (*, ptr_deref);
+  export Self;
+};
+
+(&) :: (fn(quote(value) : Expr) -> unquote(Expr))
+  quote (*)(typeof(unquote(value)))(__yo_address_of(unquote(value)))
 ;
 
-Ord :: (
-  fn(
-    compt(Rhs) : Type
-  ) -> compt(Module))
-  module(
-    using(Eq) : (Self <: Eq(Rhs))
-  )
-;
-
-rune :: struct(
-  c : u32,
-
-  Eq :: impl(Self, Eq(Self)(
-  )),
-
-  Ord :: impl(Self, Ord(Self)(
-    Eq  : Self.Eq
-  ))
-);
+main :: (fn() -> unit) {
+  x := 12;
+  y := &(x);
+  z := *(y);
+};

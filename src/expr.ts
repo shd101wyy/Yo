@@ -499,8 +499,8 @@ export const BuiltinKeywords = {
   // data types
   unique: ["unique", "^"],
 
-  MutPtr: ["*"],
-  AddressOf: ["&"],
+  MutPtr: ["__yo_Ptr"],
+
   // Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],
   Array: ["Array"],
@@ -556,6 +556,8 @@ export const BuiltinFunctions = {
   __yo_ptr_lte: ["__yo_ptr_lte"],
   __yo_ptr_gt: ["__yo_ptr_gt"],
   __yo_ptr_gte: ["__yo_ptr_gte"],
+  __yo_ptr_deref: ["__yo_ptr_deref"],
+  __yo_address_of: ["__yo_address_of"],
 
   // Type casting for primitives (generic form)
   __yo_as: ["__yo_as"],
