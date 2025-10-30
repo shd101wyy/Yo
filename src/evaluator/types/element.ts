@@ -397,6 +397,7 @@ Given type: ${typeToString(defaultValueType)}`,
     labelExpr.$ = {
       env,
       type: elementType,
+      value: assignedValue ?? defaultValue ?? undefined,
       pathCollection: [],
     };
   }
