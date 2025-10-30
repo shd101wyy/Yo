@@ -1,44 +1,24 @@
-Id :: module
-  id : (fn(self : Self) -> Self)
+Eq :: (fn(compt(Rhs) : Type) -> compt(Module))
+  module()
 ;
 
-/*
-// Works
-use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T)
-  ValId.id(val)
+Ord :: (
+  fn(
+    compt(Rhs) : Type
+  ) -> compt(Module))
+  module(
+    using(Eq) : (Self <: Eq(Rhs))
+  )
 ;
-*/
-/*
-// Works
-use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
-  x := ValId.id(val);
-  return x;
-};
-*/
 
-use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
-  return ValId.id(val);
-};
+rune :: struct(
+  c : u32,
 
-I32Id :: impl(i32, Id(
-  id : ((self) -> {
-    return self;
-  })
-));
+  Eq :: impl(Self, Eq(Self)(
+  )),
 
-BooleanId :: impl(boolean, Id(
-  id : ((self) -> {
-    return self;
-  })
-));
-
-main :: (fn() -> unit) {
-  x := 12;
-  y := use_id(x);
-  z := use_id(y, I32Id);
-  m := use_id(z, ValId : I32Id);
-  n := use_id(m, _);
-  p := use_id(n, ValId : _);
-};
-
-export main;
+  Ord :: impl(Self, Ord(Self)(
+    Eq  : Self.Eq // FIXME: This line should be working
+                   // as we just defined the `Eq` implementation above.
+  ))
+);

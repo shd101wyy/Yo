@@ -273,13 +273,17 @@ export function evaluatePropertyAccess({
       }
       const propertyName = propertyExpr.token.value;
       // Check if the type method exists
-      const field = typeValue.value.module.elements.find(
+      // Use findLast to get the most recently added element (handles duplicates from impl blocks)
+      const field = typeValue.value.module.elements.findLast(
         (property) => property.label === propertyName
       );
       if (field) {
+        // Use the type from the assigned value if it exists, otherwise use field.type
+        const actualType = field.assignedValue?.type ?? field.type;
+
         expr.$ = {
           env,
-          type: field.type,
+          type: actualType,
           value: field.assignedValue!,
           pathCollection: [],
           isAccessingProperty: true,
