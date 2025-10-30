@@ -15,7 +15,7 @@ import {
   isModuleType,
   isStructType,
   isTupleType,
-  prohibitDynamicSizedType,
+  prohibitVoidType,
   Type,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
@@ -411,8 +411,8 @@ Given type: ${typeToString(defaultValueType)}`,
     };
   }
 
-  // Prohibit dynamic sized type
-  prohibitDynamicSizedType(elementType, expr.token);
+  // Prohibit void type
+  prohibitVoidType(elementType, expr.token);
 
   const element: ElementType = {
     label: label ?? `${tupleElementIndex}`,

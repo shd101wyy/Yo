@@ -64,6 +64,7 @@ import {
   isUnionType,
   isUnitType,
   isUsizeType,
+  isVoidType,
 } from "./guards";
 import { TypeTag } from "./tags";
 
@@ -1100,9 +1101,6 @@ function getUnionType(type: UnionType): number | null {
  * @param type
  */
 export function getAlignmentOfType(type: Type): number | null {
-  if (type.isDynamicSized) {
-    return null; // Dynamic sized types have unknown alignment
-  }
   if (isSomeType(type)) {
     // SomeType is a placeholder, so it has unknown alignment
     return null;
@@ -1207,10 +1205,6 @@ export function getAlignmentOfType(type: Type): number | null {
  * @param type
  */
 export function getSizeOfType(type: Type): number | null {
-  if (type.isDynamicSized) {
-    return -1; // Dynamic sized types have size -1
-    // eg, Slice, Void, Dyn
-  }
   if (isSomeType(type)) {
     // SomeType is a placeholder, so it has unknown size
     return null;
@@ -1266,16 +1260,15 @@ export function getSizeOfType(type: Type): number | null {
   return null;
 }
 
-export function prohibitDynamicSizedType(type: Type, token: Token): void {
-  if (type.isDynamicSized) {
+export function prohibitVoidType(type: Type, token: Token): void {
+  if (isVoidType(type)) {
     throw formatErrorMessages([
       {
         token,
-        errorMessage: `Cannot use the DST (Dynamic Sized Type) directly:
+        errorMessage: `Cannot use 'void' type here.:
 ${typeToString(type)}
 
-Please consider using a pointer or reference to this type instead, like:
-&(${typeToString(type)}), *(${typeToString(type)}), etc
+Please consider use 'unit' type instead.
 `,
       },
     ]);

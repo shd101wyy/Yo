@@ -204,7 +204,6 @@ export function createSliceType(elementType: Type): SliceType {
     id: `slice_${elementType.id}`,
     tag: TypeTag.Slice,
     elementType,
-    isDynamicSized: true,
   };
 }
 
@@ -212,7 +211,6 @@ export function createVoidType(): VoidType {
   return {
     id: TypeTag.Void,
     tag: TypeTag.Void,
-    isDynamicSized: true,
   };
 }
 

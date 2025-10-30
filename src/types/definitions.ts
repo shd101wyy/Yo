@@ -40,18 +40,6 @@ export interface Type {
   typeName?: string;
 
   /**
-   *  Whether this type is a dynamic sized type.
-   *  Dynamic sized types are types whose size cannot be determined at compile time.
-   *  For example:
-   *  - Slice
-   *  - dyn Module (dynamic dispatch object)
-   *  - void
-   *
-   *  DST also doesn't have type universe. So it cannot be Free/Linear/Type.
-   */
-  isDynamicSized?: boolean;
-
-  /**
    * Whether the type is from the extern.
    * If undefined, then it's not an extern type.
    */
@@ -164,13 +152,11 @@ export interface ArrayType extends Type {
 
 export interface SliceType extends Type {
   tag: TypeTag.Slice;
-  isDynamicSized: true;
   elementType: Type;
 }
 
 export interface VoidType extends Type {
   tag: TypeTag.Void;
-  isDynamicSized: true;
 }
 
 export type ElementExprs = {

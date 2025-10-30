@@ -1,24 +1,16 @@
-(*) :: impl {
-  (*) :: (fn(compt(T) : Type) -> compt(Type)) {
-    return struct(
-      ptr : __yo_Ptr(T)
-    );
-  };
+open import "../../../std/data/primitives/ptr.yo";
 
-  (ptr_deref) :: (fn(forall(T : Type), ptr : *(T)) -> T) {
-    return __yo_ptr_deref(ptr.ptr);
-  };
-
-  Self :: (*, ptr_deref);
-  export Self;
-};
-
-(&) :: (fn(quote(value) : Expr) -> unquote(Expr))
-  quote (*)(typeof(unquote(value)))(__yo_address_of(unquote(value)))
+extern "Yo",
+  __yo_malloc : 
+    fn(size: usize) -> ?*(void)
 ;
 
+GlobalAllocator :: impl {
+  malloc :: __yo_malloc;
+  export malloc;
+};
+{ malloc } :: GlobalAllocator;
+
 main :: (fn() -> unit) {
-  x := 12;
-  y := &(x);
-  z := *(y);
+  x := malloc(sizeof(i32));
 };

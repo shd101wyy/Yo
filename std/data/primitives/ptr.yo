@@ -7,6 +7,18 @@ extern "Yo",
   __yo_ptr_cast :
     fn(forall(Source: Type), source : __yo_Ptr(Source), compt(Target) : Type) -> Target,
 
+  // Create a pointer to a value
+  __yo_address_of :
+    fn(forall(T: Type), value : T) -> __yo_Ptr(T),
+  
+  // Dereference a pointer to get the value
+  __yo_ptr_deref :
+    fn(forall(T: Type), ptr : __yo_Ptr(T)) -> T,
+
+  // Set the value at a pointer location
+  __yo_ptr_set :
+    fn(forall(T: Type), ptr : __yo_Ptr(T), own(value) : T) -> T,
+
   // Pointer arithmetic operations
   __yo_ptr_add :
     fn(forall(T: Type), ptr : __yo_Ptr(T), offset : usize) -> __yo_Ptr(T),
@@ -32,51 +44,59 @@ extern "Yo",
   // Pointer type wrapper
   (*) :: (fn(compt(T) : Type) -> compt(Type)) {
     return struct(
-      raw_ptr : __yo_Ptr(T),
+      _raw_ptr : __yo_Ptr(T),
 
       // Pointer arithmetic: ptr + offset
       // === Add ===
       Add :: impl(Self, Add(usize, Self)(
-        (+) : ((lhs, rhs) -> Self(__yo_ptr_add(lhs.raw_ptr, rhs)))
+        (+) : ((lhs, rhs) -> Self(__yo_ptr_add(lhs._raw_ptr, rhs)))
       )),
 
       // Pointer subtraction: ptr - offset  
       // === Sub ===
       Sub :: impl(Self, Sub(usize, Self)(
-        (-) : ((lhs, rhs) -> Self(__yo_ptr_sub(lhs.raw_ptr, rhs)))
+        (-) : ((lhs, rhs) -> Self(__yo_ptr_sub(lhs._raw_ptr, rhs)))
       )),
 
       // === Eq ===
       Eq :: impl(Self, Eq(Self)(
-        (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs.raw_ptr, rhs.raw_ptr)),
-        (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs.raw_ptr, rhs.raw_ptr))
+        (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs._raw_ptr, rhs._raw_ptr)),
+        (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs._raw_ptr, rhs._raw_ptr))
       )),
 
       // === Ord ===
       Ord :: impl(Self, Ord(Self)(
-        (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs.raw_ptr, rhs.raw_ptr)),
-        (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs.raw_ptr, rhs.raw_ptr)),
-        (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs.raw_ptr, rhs.raw_ptr)),
-        (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs.raw_ptr, rhs.raw_ptr))
+        (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs._raw_ptr, rhs._raw_ptr)),
+        (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs._raw_ptr, rhs._raw_ptr)),
+        (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs._raw_ptr, rhs._raw_ptr)),
+        (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs._raw_ptr, rhs._raw_ptr))
       )),
 
       // === Other methods ===
       // Pointer difference: ptr1 - ptr2 (when both operands are pointers)
       diff :: ((fn(lhs : Self, rhs : Self) -> isize) {
-        return __yo_ptr_diff(lhs.raw_ptr, rhs.raw_ptr);
+        return __yo_ptr_diff(lhs._raw_ptr, rhs._raw_ptr);
       }),
 
       // Cast pointer to another type
-      cast :: (fn(self : Self, compt(Target) : Type) -> Target) {
+      cast :: ((fn(self : Self, compt(Target) : Type) -> Target) {
         // TODO: This function needs special handling
-        return __yo_ptr_cast(self.raw_ptr, Target);
-      }
+        return __yo_ptr_cast(self._raw_ptr, Target);
+      }),
+
+      deref :: ((fn(self : Self) -> T) {
+        return __yo_ptr_deref(self._raw_ptr);
+      }),
+
+      set :: ((fn(self : Self, own(value) : T) -> T) {
+        return __yo_ptr_set(self._raw_ptr, value);
+      })
     );
   };
 
   // Dereference pointer
   (ptr_deref) :: (fn(forall(T : Type), ptr : *(T)) -> T) {
-    return __yo_ptr_deref(ptr.raw_ptr);
+    return __yo_ptr_deref(ptr._raw_ptr);
   };
 
   Self :: (*, ptr_deref);

@@ -116,10 +116,6 @@ export function typeOfType(
    */
   checkedTupleElements: TupleElement[] = []
 ): Type {
-  if (type.isDynamicSized) {
-    return createType0(type); // All types are now level 0
-  }
-
   if (isDynType(type)) {
     return createType0(type); // All types are now level 0
   }

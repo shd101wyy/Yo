@@ -9,7 +9,7 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import {
-  prohibitDynamicSizedType,
+  prohibitVoidType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -64,7 +64,7 @@ ${exprToString(rhs)}`,
   const userDefinedType = typeValue.value;
 
   // Prohibit the user defined type to be DST
-  prohibitDynamicSizedType(userDefinedType, evaluatedRhs.token);
+  prohibitVoidType(userDefinedType, evaluatedRhs.token);
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;

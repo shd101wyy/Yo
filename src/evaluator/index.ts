@@ -65,10 +65,6 @@ import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluatePanic } from "./builtins/panic";
-import {
-  evaluateAddressCall,
-  evaluatePtrDereference,
-} from "./builtins/ptr_fns";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
 import { evaluateThe } from "./builtins/the";
@@ -438,24 +434,6 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
         // * raw pointer
         return evaluateRawPointerCall({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_address_of, 1)
-      ) {
-        // & to create pointer value
-        return evaluateAddressCall({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_deref, 1)
-      ) {
-        // * to dereference raw pointer
-        return evaluatePtrDereference({
           expr,
           env,
           context: { ...context },

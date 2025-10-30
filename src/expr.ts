@@ -546,6 +546,7 @@ export const BuiltinFunctions = {
   ],
 
   // Pointer related functions
+  // Check std/data/primitives/ptr.yo
   __yo_ptr_cast: ["__yo_ptr_cast"],
   __yo_ptr_add: ["__yo_ptr_add"],
   __yo_ptr_sub: ["__yo_ptr_sub"],
@@ -556,8 +557,9 @@ export const BuiltinFunctions = {
   __yo_ptr_lte: ["__yo_ptr_lte"],
   __yo_ptr_gt: ["__yo_ptr_gt"],
   __yo_ptr_gte: ["__yo_ptr_gte"],
-  __yo_ptr_deref: ["__yo_ptr_deref"],
   __yo_address_of: ["__yo_address_of"],
+  __yo_ptr_deref: ["__yo_ptr_deref"],
+  __yo_ptr_set: ["__yo_ptr_set"],
 
   // Type casting for primitives (generic form)
   __yo_as: ["__yo_as"],

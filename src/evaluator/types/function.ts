@@ -35,7 +35,7 @@ import {
   isModuleType,
   isSomeType,
   PrimitiveTypes,
-  prohibitDynamicSizedType,
+  prohibitVoidType,
   Type,
   typeOfType,
   typeProhibitsComptModifier,
@@ -354,8 +354,8 @@ ${typeToString(parameterType)}`,
     ? createUnknownValue(parameterType, label)
     : undefined;
 
-  // Prohibit dynamic sized type
-  prohibitDynamicSizedType(parameterType, typeExpr?.token ?? expr.token);
+  // Prohibit void type as parameter type
+  prohibitVoidType(parameterType, typeExpr?.token ?? expr.token);
 
   // Check if the parameterType is a valid module type
   if (isModuleType(parameterType)) {
@@ -1041,8 +1041,8 @@ ${typeToString(returnType)}`,
     }
   }
 
-  // Prohibit the return type to be dynamic sized type
-  prohibitDynamicSizedType(returnType, returnTypeExpr.token);
+  // Prohibit the return type to be void
+  prohibitVoidType(returnType, returnTypeExpr.token);
 
   if (isReturnTypeCompileTimeOnly && typeProhibitsComptModifier(returnType)) {
     throw formatErrorMessage({

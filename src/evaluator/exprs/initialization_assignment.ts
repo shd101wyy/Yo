@@ -10,7 +10,7 @@ import {
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
-  prohibitDynamicSizedType,
+  prohibitVoidType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -93,8 +93,8 @@ export function evaluateInitializationAssignment({
   }
 
   if (rhs.$?.type) {
-    // Prohibit the rhs to be a DST
-    prohibitDynamicSizedType(rhs.$.type, rhs.token);
+    // Prohibit the rhs to be a void
+    prohibitVoidType(rhs.$.type, rhs.token);
   }
 
   if (rhs.$?.controlFlow) {
