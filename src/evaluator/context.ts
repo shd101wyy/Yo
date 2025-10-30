@@ -107,6 +107,11 @@ export interface EvaluatorContext {
     moduleValue: ModuleValue;
     moduleError: Error | undefined;
   };
+
+  /**
+   * Whether the function type being evaluated is marked as unsafe.
+   */
+  isUnsafeFunctionType?: boolean;
 }
 
 /**

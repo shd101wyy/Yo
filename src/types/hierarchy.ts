@@ -28,6 +28,7 @@ import {
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
+  isVoidType,
 } from "./guards";
 import { TypeTag } from "./tags";
 
@@ -200,8 +201,10 @@ export function typeOfType(
     return createType0(type);
   } else if (isFutureType(type)) {
     return createType0(type);
+  } else if (isVoidType(type)) {
+    return createType0(type);
   } else {
-    throw new Error(`Unknown type tag: ${type}`);
+    throw new Error(`Unknown type tag: ${type.tag}`);
   }
 }
 

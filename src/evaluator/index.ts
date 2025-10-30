@@ -253,12 +253,19 @@ ${exprToString(expr)}`,
         if (
           // (fn(x : i32) -> i32)
           exprIsFunctionCall(expr.args[0]) &&
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn)
+          (exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn) ||
+            exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn))
         ) {
           return evaluateFunctionType({
             expr,
             env,
-            context: { ...context },
+            context: {
+              ...context,
+              isUnsafeFunctionType: exprIsFunctionCallOf(
+                expr.args[0],
+                BuiltinKeywords.unsafe_fn
+              ),
+            },
           });
         }
 

@@ -1265,9 +1265,7 @@ export function prohibitVoidType(type: Type, token: Token): void {
     throw formatErrorMessages([
       {
         token,
-        errorMessage: `Cannot use 'void' type here.:
-${typeToString(type)}
-
+        errorMessage: `Cannot use 'void' type here.
 Please consider use 'unit' type instead.
 `,
       },

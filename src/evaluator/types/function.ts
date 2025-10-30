@@ -355,7 +355,9 @@ ${typeToString(parameterType)}`,
     : undefined;
 
   // Prohibit void type as parameter type
-  prohibitVoidType(parameterType, typeExpr?.token ?? expr.token);
+  if (!context.isUnsafeFunctionType) {
+    prohibitVoidType(parameterType, typeExpr?.token ?? expr.token);
+  }
 
   // Check if the parameterType is a valid module type
   if (isModuleType(parameterType)) {
@@ -843,7 +845,8 @@ export function evaluateFunctionType({
   // For both regular functions and closures, expect fn(...) syntax
   if (
     exprIsFunctionCall(argListExpr) &&
-    exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn)
+    (exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.unsafe_fn))
   ) {
     argList = argListExpr.args;
   } else {
@@ -1042,7 +1045,9 @@ ${typeToString(returnType)}`,
   }
 
   // Prohibit the return type to be void
-  prohibitVoidType(returnType, returnTypeExpr.token);
+  if (!context.isUnsafeFunctionType) {
+    prohibitVoidType(returnType, returnTypeExpr.token);
+  }
 
   if (isReturnTypeCompileTimeOnly && typeProhibitsComptModifier(returnType)) {
     throw formatErrorMessage({
