@@ -82,6 +82,18 @@ export interface EvaluatorContext {
   SelfType?: Type;
 
   /**
+   * The receiverType for implementing the module value.
+   * Like:
+   *
+   * impl Point, Add(Point)(
+   *   (+) : ((lhs, rhs) -> Point(lhs.x + rhs.x, lhs.y + rhs.y))
+   * );
+   *
+   * here Point is the ReceiverType.
+   */
+  ReceiverType?: Type;
+
+  /**
    * Whether we are currently evaluating a function type definition.
    * When true, implicit parameters dependencies are deferred and assumed to be satisfied.
    * This allows clean type declarations like `M3 :: (fn(using(M2Instance : M2())) -> Module)`

@@ -78,37 +78,17 @@ export function evaluateSubtypeOf({
   env = evaluatedRhs.$.env;
   const moduleType = evaluatedRhs.$.value.value;
 
-  // Expect the moduleType has This element (the receiver type parameter), but has no assigned value there.
-  const thisElement = moduleType.elements.find(
-    (element) => element.label === "This"
-  );
-  if (!thisElement) {
+  if (moduleType.receiverType) {
     throw formatErrorMessage({
       token: rhsExpr.token,
-      errorMessage: `Expected module type to have a This element (receiver type parameter).`,
-    });
-  }
-  if (thisElement.assignedValue) {
-    throw formatErrorMessage({
-      token: rhsExpr.token,
-      errorMessage: `Expected module type This element to not have an assigned value.`,
+      errorMessage: `Expected module type already has a receiver type assigned.`,
     });
   }
 
   /// Override the assigned value of the This element with the typeValue.
   const newModuleType: ModuleType = {
     ...moduleType,
-    elements: moduleType.elements.map((element) => {
-      if (element.label === "This") {
-        return {
-          ...element,
-          assignedValue: typeValue, // Assign the typeValue to the This element
-        };
-      } else {
-        return element;
-      }
-    }),
-    subtype: typeValue.value, // Set the subtype to the typeValue
+    receiverType: typeValue.value, // Set the subtype to the typeValue
   };
   const newModuleTypeValue = createTypeValue(newModuleType);
 

@@ -1,26 +1,23 @@
 Id :: (fn(compt(Output) : Type)-> compt(Module))
   module
-    // This     :  Type,
     Output   := Output,
-    (id)     :  (fn(self: Self.This)-> Self.Output)
+    (id)     :  (fn(self: Self) -> Self.Output)
 ;
 
 Point :: struct(
   x : i32,
   y : i32,
 
-  Id :: {
-    This :: Self;
-    Id(This)(
-      This : This,
-      id : ((self) -> self)
-    )
-  }
+  Id :: impl(Self, Id(Self)(
+    id : ((self) -> self)
+  ))
 );
 
+/*
 main :: (fn() -> unit) {
   p := Point(3, 4);
   q := Point.Id.id(p);
 };
 
 export main;
+*/

@@ -2078,7 +2078,7 @@ export function generateDynConstructorFunctions(
       for (const moduleType of dynType.moduleTypes) {
         for (const element of moduleType.elements) {
           // Skip 'Self' and 'This' type declarations (compile-time only)
-          if (element.label === "Self" || element.label === "This") {
+          if (element.label === "Self") {
             continue;
           }
 

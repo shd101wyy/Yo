@@ -17,7 +17,6 @@ import {
   createUnknownValue,
   isModuleValue,
   isTupleValue,
-  isTypeValue,
   isUnknownValue,
   ModuleValue,
   Value,
@@ -513,35 +512,29 @@ export function getMethodsByNameFromEnv(
   }
 
   function checkModule(moduleType: ModuleType, moduleValue: Value) {
-    // Check if "This" exists and is compatible with receiverType
+    // Check if the module receiverType compatible with receiverType
     if (isModuleValue(moduleValue)) {
-      const thisElementIndex = moduleType.elements.findIndex(
-        (element) => element.label === "This"
-      );
-      if (thisElementIndex >= 0) {
-        const thisElementValue = moduleValue.elements[thisElementIndex]!;
-        if (isTypeValue(thisElementValue)) {
-          const thisType = thisElementValue.value;
-          if (
-            !areTypesCompatible(
-              { type: thisType, env: moduleValue.type.env },
-              { type: receiverType, env },
-              true // isMethodReceiver
-            )
-          ) {
-            if (dereferencedReceiverType === receiverType) {
+      const moduleReceiverType = moduleType.receiverType;
+      if (moduleReceiverType) {
+        if (
+          !areTypesCompatible(
+            { type: moduleReceiverType, env: moduleValue.type.env },
+            { type: receiverType, env },
+            true // isMethodReceiver
+          )
+        ) {
+          if (dereferencedReceiverType === receiverType) {
+            return;
+          } else {
+            // Continue checking with the dereferencedReceiverType
+            if (
+              !areTypesCompatible(
+                { type: moduleReceiverType, env: moduleValue.type.env },
+                { type: dereferencedReceiverType, env },
+                true // isMethodReceiver
+              )
+            ) {
               return;
-            } else {
-              // Continue checking with the dereferencedReceiverType
-              if (
-                !areTypesCompatible(
-                  { type: thisType, env: moduleValue.type.env },
-                  { type: dereferencedReceiverType, env },
-                  true // isMethodReceiver
-                )
-              ) {
-                return;
-              }
             }
           }
         }
@@ -588,15 +581,15 @@ export function getMethodsByNameFromEnv(
   }
 
   function checkModuleSelfCall(moduleValue: ModuleValue) {
-    const ThisTypeIndex = moduleValue.type.elements.findIndex(
-      (element) => element.label === "This"
+    const selfTypeIndex = moduleValue.type.elements.findIndex(
+      (element) => element.label === "Self"
     );
-    if (ThisTypeIndex >= 0) {
-      const ThisType = moduleValue.type.elements[ThisTypeIndex]!;
-      if (ThisType.assignedValue) {
-        const ThisValue = ThisType.assignedValue;
-        if (isTupleValue(ThisValue)) {
-          ThisValue.elements.forEach((element) => {
+    if (selfTypeIndex >= 0) {
+      const selfType = moduleValue.type.elements[selfTypeIndex]!;
+      if (selfType.assignedValue) {
+        const selfValue = selfType.assignedValue;
+        if (isTupleValue(selfValue)) {
+          selfValue.elements.forEach((element) => {
             methods.push({
               type: element.type,
               value: element,
@@ -604,8 +597,8 @@ export function getMethodsByNameFromEnv(
           });
         } else {
           methods.push({
-            type: ThisValue.type,
-            value: ThisValue,
+            type: selfValue.type,
+            value: selfValue,
           });
         }
       }

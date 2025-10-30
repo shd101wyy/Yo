@@ -55,17 +55,6 @@ export function evaluateDynType({
 
     const moduleType = evaluatedModule.$.value.value;
 
-    // Check if moduleType has `This` type
-    if (
-      moduleType.elements.findIndex((element) => element.label === "This") ===
-      -1
-    ) {
-      throw formatErrorMessage({
-        token: moduleExpr.token,
-        errorMessage: `Module type for argument ${i + 1} of '${BuiltinKeywords.Dyn}' expression must have a 'This' type.`,
-      });
-    }
-
     // Check if the moduleType already exists in moduleTypes
     if (moduleTypes.some((mt) => mt.id === moduleType.id)) {
       throw formatErrorMessage({
@@ -83,24 +72,14 @@ export function evaluateDynType({
     for (let j = i + 1; j < moduleTypes.length; j++) {
       const moduleTypeB = moduleTypes[j]!;
       for (const elementA of moduleTypeA.elements) {
-        if (
-          moduleTypeB.elements.findIndex(
-            (elementB) =>
-              elementA.label === elementB.label &&
-              elementA.label !== "This" && // Allow `This` to be in multiple module types
-              isFunctionType(elementA.type) &&
-              isFunctionType(elementB.type)
-          ) !== -1
-        ) {
-          throw formatErrorMessage({
-            token: expr.token,
-            errorMessage: `Module types ${typeToString(
-              moduleTypeA
-            )} and ${typeToString(
-              moduleTypeB
-            )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
-          });
-        }
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Module types ${typeToString(
+            moduleTypeA
+          )} and ${typeToString(
+            moduleTypeB
+          )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
+        });
       }
     }
   }

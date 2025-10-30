@@ -3,7 +3,6 @@ import { Token } from "../token";
 import { createType0, createTypeHierarchy } from "./creators";
 import {
   FunctionParameter,
-  ModuleType,
   TupleElement,
   Type,
   TypeHierarchyType,
@@ -223,19 +222,4 @@ export function getFunctionParameterToken(parameter: FunctionParameter): Token {
   } else {
     throw new Error(`Cannot get token for function parameter`);
   }
-}
-
-/**
- * Get the module receiver type from a module type.
- */
-export function getModuleReceiverType(moduleType: ModuleType): Type | null {
-  const receiverType = moduleType.elements.find(
-    (element) => element.label === "This" && element.isCompileTimeOnly
-  );
-  if (!receiverType || !receiverType.assignedValue) {
-    return null;
-  }
-
-  // This would need proper TypeValue handling in practice
-  return null; // Simplified
 }

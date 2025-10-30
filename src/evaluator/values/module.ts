@@ -7,6 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { isModuleValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
 
@@ -26,6 +27,7 @@ export function evaluateModuleValue({
     });
   }
 
+  // Anonymous module value
   if (
     expr.args.length === 1 &&
     exprIsFunctionCall(expr.args[0]) &&
@@ -51,6 +53,67 @@ export function evaluateModuleValue({
     expr.$ = {
       env,
       type: moduleType,
+      value: moduleValue,
+      pathCollection: [],
+    };
+
+    return expr;
+  }
+  // Impl a module for a type
+  else if (expr.args.length === 2) {
+    const receiverTypeArg = expr.args[0]!;
+    const moduleCallArg = expr.args[1]!;
+
+    // Evaluate the receiver type
+    const evaluatedReceiverTypeArg = context.evaluateExpression({
+      expr: receiverTypeArg,
+      env,
+      context: {
+        ...context,
+      },
+    });
+
+    // Expect the receiver type to be a type
+    if (
+      !evaluatedReceiverTypeArg.$ ||
+      !evaluatedReceiverTypeArg.$.value ||
+      !isTypeValue(evaluatedReceiverTypeArg.$.value)
+    ) {
+      throw formatErrorMessage({
+        token: receiverTypeArg.token,
+        errorMessage: `Expected type for receiver type argument.`,
+      });
+    }
+    env = evaluatedReceiverTypeArg.$.env;
+    const receiverType = evaluatedReceiverTypeArg.$.value.value;
+
+    // Evaluate the module call
+    const evaluatedModuleCallArg = context.evaluateExpression({
+      expr: moduleCallArg,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+        ReceiverType: receiverType,
+      },
+    });
+    // Expect the module call to be a module value
+    if (
+      !evaluatedModuleCallArg.$ ||
+      !isModuleValue(evaluatedModuleCallArg.$.value)
+    ) {
+      throw formatErrorMessage({
+        token: moduleCallArg.token,
+        errorMessage: `Expected module value for module call argument.`,
+      });
+    }
+    env = evaluatedModuleCallArg.$.env;
+    const moduleValue = evaluatedModuleCallArg.$.value;
+
+    // Set the module value to the expr
+    expr.$ = {
+      env,
+      type: evaluatedModuleCallArg.$.type,
       value: moduleValue,
       pathCollection: [],
     };

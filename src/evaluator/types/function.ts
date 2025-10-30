@@ -351,17 +351,12 @@ ${typeToString(parameterType)}`,
 
   // Check if the parameterType is a valid module type
   if (isModuleType(parameterType)) {
-    // Check if the "This" exists and has assignedValue
-    // If not then throw error
-    const thisElement = parameterType.elements.find(
-      (element) => element.label === "This"
-    );
-    if (thisElement && !thisElement.assignedValue) {
+    if (!parameterType.receiverType) {
       throw formatErrorMessage({
         token: typeExpr?.token ?? expr.token,
-        errorMessage: `Module type cannot be used as function parameter type without specifying "This" element assigned value.
+        errorMessage: `Module type without receiver type set cannot be used as function parameter type.
         
-Please consider using "<:" to specify the "This" value, for example:
+Please consider using "<:" to specify the receiver type for a module type, for example:
 
 Id :: module
   This : Type,

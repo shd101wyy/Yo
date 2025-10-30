@@ -315,23 +315,23 @@ export function evaluateFunctionCall({
         }
 
         // Check if func is a module value,
-        // If yes, then we extract the This from it.
+        // If yes, then we extract the Self from it.
         if (isModuleType(functionToCall.$.type)) {
           const moduleType = functionToCall.$.type;
-          const ThisIndex = moduleType.elements.findIndex(
-            (e) => e.label === "This"
+          const selfIndex = moduleType.elements.findIndex(
+            (e) => e.label === "Self"
           );
-          if (ThisIndex < 0) {
+          if (selfIndex < 0) {
             throw formatErrorMessage({
               token: func.token,
-              errorMessage: `Calling a module value which does not have "This" element is not allowed.`,
+              errorMessage: `Calling a module value which does not have "Self" element is not allowed.`,
             });
           }
-          const ThisType = moduleType.elements[ThisIndex]!;
-          if (ThisType.assignedValue) {
-            const ThisValue = ThisType.assignedValue;
-            if (isTupleValue(ThisValue)) {
-              functions = ThisValue.elements.map((element) => {
+          const selfType = moduleType.elements[selfIndex]!;
+          if (selfType.assignedValue) {
+            const selfValue = selfType.assignedValue;
+            if (isTupleValue(selfValue)) {
+              functions = selfValue.elements.map((element) => {
                 return {
                   type: element.type,
                   value: element,
@@ -340,15 +340,15 @@ export function evaluateFunctionCall({
             } else {
               functions = [
                 {
-                  type: ThisValue.type,
-                  value: ThisValue,
+                  type: selfValue.type,
+                  value: selfValue,
                 },
               ];
             }
           } else {
             throw formatErrorMessage({
               token: func.token,
-              errorMessage: `Calling a module value whose "This" element doesn't have assigned value is not allowed.`,
+              errorMessage: `Calling a module value whose "Self" element doesn't have assigned value is not allowed.`,
             });
           }
         } else {

@@ -905,8 +905,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         }module(${moduleType.elements.map((element) => moduleElementToString(element, visited)).join(", ")})`;
       }
 
-      if (moduleType.subtype) {
-        moduleTypeString = `(${typeToString(moduleType.subtype, visited)} <: ${moduleTypeString})`;
+      if (moduleType.receiverType) {
+        moduleTypeString = `(${typeToString(moduleType.receiverType, visited)} <: ${moduleTypeString})`;
       }
 
       return moduleTypeString;

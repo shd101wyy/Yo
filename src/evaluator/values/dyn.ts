@@ -21,7 +21,6 @@ import {
 import {
   createModuleValue,
   isModuleValue,
-  isTypeValue,
   ModuleValue,
   Value,
 } from "../../value";
@@ -135,43 +134,27 @@ export function evaluateDynValue({
         });
       }
 
-      // Check if the module has a 'This' type
-      const thisElementIndex = moduleValue.type.elements.findIndex(
-        (element) => element.label === "This"
-      );
-      if (thisElementIndex === -1) {
+      // Check if the module has a receiverType
+      if (!moduleValue.type.receiverType) {
         throw formatErrorMessage({
           token: singleModuleExpr.token,
-          errorMessage: `Module for 'dyn' must have a 'This' type.`,
+          errorMessage: `Module for 'dyn' must have receiver type set.`,
         });
       }
 
-      // Get the actual This value from the module
-      const thisValue = moduleValue.elements[thisElementIndex];
-      if (!thisValue) {
-        throw formatErrorMessage({
-          token: singleModuleExpr.token,
-          errorMessage: `Module's 'This' element is missing a value.`,
-        });
-      }
-
-      // The thisValue should be a TypeValue containing the actual type
-      if (!isTypeValue(thisValue)) {
-        throw formatErrorMessage({
-          token: singleModuleExpr.token,
-          errorMessage: `Module's 'This' must be a type value.`,
-        });
-      }
-
-      const thisType = thisValue.value;
+      // Get the actual receiverType from the module
+      const receiverType = moduleValue.type.receiverType;
 
       // Check if the value type is compatible with the module's This type
       if (
-        !areTypesCompatible({ type: thisType, env }, { type: valueType, env })
+        !areTypesCompatible(
+          { type: receiverType, env },
+          { type: valueType, env }
+        )
       ) {
         throw formatErrorMessage({
           token: valueExpr.token,
-          errorMessage: `Value type ${typeToString(valueType)} is not compatible with module's This type ${typeToString(thisType)}.`,
+          errorMessage: `Value type ${typeToString(valueType)} is not compatible with module's This type ${typeToString(receiverType)}.`,
         });
       }
 
@@ -283,25 +266,20 @@ export function evaluateDynValue({
         continue;
       }
 
-      // Check if the module has a 'This' type
-      const thisElementIndex = moduleValue.type.elements.findIndex(
-        (element) => element.label === "This"
-      );
-      if (thisElementIndex === -1) {
+      // Check if the module has a receiver type
+      if (!moduleValue.type.receiverType) {
         continue;
       }
 
-      // Get the This value from the module
-      const thisValue = moduleValue.elements[thisElementIndex];
-      if (!thisValue || !isTypeValue(thisValue)) {
-        continue;
-      }
+      // Get the receiver type from the module
+      const receiverType = moduleValue.type.receiverType;
 
-      const thisType = thisValue.value;
-
-      // Check if the value type is compatible with the module's This type
+      // Check if the value type is compatible with the module's receiver type
       if (
-        !areTypesCompatible({ type: thisType, env }, { type: valueType, env })
+        !areTypesCompatible(
+          { type: receiverType, env },
+          { type: valueType, env }
+        )
       ) {
         continue;
       }
@@ -354,25 +332,20 @@ export function evaluateDynValue({
         return false;
       }
 
-      // Check if the module has a 'This' type
-      const thisElementIndex = moduleValue.type.elements.findIndex(
-        (element) => element.label === "This"
-      );
-      if (thisElementIndex === -1) {
+      // Check if the module has a receiver type
+      if (!moduleValue.type.receiverType) {
         return false;
       }
 
-      // Get the This value from the module
-      const thisValue = moduleValue.elements[thisElementIndex];
-      if (!thisValue || !isTypeValue(thisValue)) {
-        return false;
-      }
-
-      const thisType = thisValue.value;
+      // Get the receiver type from the module
+      const receiverType = moduleValue.type.receiverType;
 
       // Check if the value type is compatible with the module's This type
       if (
-        !areTypesCompatible({ type: thisType, env }, { type: valueType, env })
+        !areTypesCompatible(
+          { type: receiverType, env },
+          { type: valueType, env }
+        )
       ) {
         return false;
       }

@@ -377,13 +377,13 @@ export interface ModuleType extends Type {
   env: Environment;
 
   /**
-   * The type that is the subtype of this module.
+   * The type that is the receiverType of this module.
    * eg:
    *
    *   T <: Id
    *
    */
-  subtype?: Type;
+  receiverType?: Type;
 }
 
 export interface EnumVariant {

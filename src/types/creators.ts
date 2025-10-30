@@ -1,8 +1,7 @@
 import { Environment, Frame } from "../env";
-import { Expr, ExprTag } from "../expr";
-import { PlaceholderToken } from "../token";
+import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
-import { createTypeValue, Value, valueToString } from "../value";
+import { Value, valueToString } from "../value";
 import {
   ArrayType,
   ClosureType,
@@ -15,7 +14,6 @@ import {
   FunctionReturn,
   FunctionType,
   FutureType,
-  ModuleElement,
   ModuleType,
   MutPtrType,
   SliceType,
@@ -242,22 +240,7 @@ export function createStructType(
     env,
   };
 
-  // Add "This" to struct type module if not already present
-  const typeValue = createTypeValue(structType);
-  const thisElement: ModuleElement = {
-    type: typeValue.type,
-    label: "This",
-    isCompileTimeOnly: true,
-    defaultValue: undefined,
-    assignedValue: typeValue,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  module.elements.push(thisElement);
+  module.receiverType = structType;
 
   return structType;
 }
@@ -268,6 +251,7 @@ export function createModuleType(env: Environment): ModuleType {
     tag: TypeTag.Module,
     elements: [],
     env,
+    module: undefined,
   };
   return moduleType;
 }
@@ -283,22 +267,7 @@ export function createEnumType(env: Environment): EnumType {
     env,
   };
 
-  // Add "This" to enum type if not already present
-  const typeValue = createTypeValue(enumType);
-  const thisElement: ModuleElement = {
-    type: typeValue.type,
-    label: "This",
-    isCompileTimeOnly: true,
-    defaultValue: undefined,
-    assignedValue: typeValue,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  module.elements.push(thisElement);
+  module.receiverType = enumType;
 
   return enumType;
 }
@@ -314,22 +283,7 @@ export function createUnionType(env: Environment): UnionType {
     env,
   };
 
-  // Add "This" to union type if not already present
-  const typeValue = createTypeValue(unionType);
-  const thisElement: ModuleElement = {
-    type: typeValue.type,
-    label: "This",
-    isCompileTimeOnly: true,
-    defaultValue: undefined,
-    assignedValue: typeValue,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  module.elements.push(thisElement);
+  module.receiverType = unionType;
 
   return unionType;
 }
@@ -462,22 +416,7 @@ export function createClosureType(
     env,
   };
 
-  // Add "This" to closure type module, similar to struct type
-  const typeValue = createTypeValue(closureType);
-  const thisElement: ModuleElement = {
-    type: typeValue.type,
-    label: "This",
-    isCompileTimeOnly: true,
-    defaultValue: undefined,
-    assignedValue: typeValue,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  module.elements.push(thisElement);
+  module.receiverType = closureType;
 
   return closureType;
 }
@@ -496,22 +435,7 @@ export function createDynType(
     env,
   };
 
-  // Add "This" to dyn type module if not already present
-  const typeValue = createTypeValue(dynType);
-  const thisElement: ModuleElement = {
-    type: typeValue.type,
-    label: "This",
-    isCompileTimeOnly: true,
-    defaultValue: undefined,
-    assignedValue: typeValue,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  module.elements.push(thisElement);
+  module.receiverType = dynType;
 
   return dynType;
 }
@@ -530,31 +454,7 @@ export function createFutureType(
     env,
   };
 
-  // Add "This" to future type module, similar to other ARC types
-  const typeValue = createTypeValue(futureType);
-  const thisElement: ModuleElement = {
-    type: typeValue.type,
-    assignedValue: typeValue,
-    label: "This",
-    isCompileTimeOnly: true,
-    exprs: {
-      expr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-      labelExpr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-      typeExpr: undefined,
-      defaultValueExpr: undefined,
-      assignedValueExpr: {
-        tag: ExprTag.Atom,
-        token: PlaceholderToken,
-      },
-    },
-  };
-  futureType.module.elements.push(thisElement);
+  module.receiverType = futureType;
 
   return futureType;
 }

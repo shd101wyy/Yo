@@ -9,11 +9,11 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { generateExprFromCode } from "../../parser";
 import {
   areTypesCompatible,
   createModuleType,
-  createTypeHierarchy,
+  createSomeType,
+  createType0,
   isFunctionType,
   isModuleType,
   ModuleElement,
@@ -408,34 +408,6 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     }
   }
 
-  if (
-    isForEvaluatingModuleType &&
-    !assignedValueExpr &&
-    !isFunctionType(elementType) &&
-    !isModuleType(elementType)
-  ) {
-    // NOTE: We allow "This" to not have a value assigned
-    // "This" is a special case for the receiver type parameter.
-    if (label !== "This") {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Expected an assigned value for module element "${label ?? "unnamed"}"`,
-      });
-    }
-  }
-
-  /*
-    if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
-      elementType = convertComptTypeToRuntimeType({ type: elementType, expectedType: undefined, expr: undefined });
-      if (typeRequiresComptModifier(elementType)) {
-        throw formatErrorMessage(
-          labelExpr?.token ?? expr.token,
-          `Expected "compt"  modifier for compile-time known value binding.`
-        );
-      }
-    }
-    */
-
   if (labelExpr) {
     labelExpr.$ = {
       env,
@@ -498,96 +470,9 @@ export function evaluateModuleType({
 
   const args = expr.args;
 
-  // Check if "This" label exists in any of the module elements
-  let hasThisLabel = false;
-
-  for (const arg of args) {
-    // Skip spread operators for this check
-    if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
-      continue;
-    }
-
-    // Extract label from the element expression
-    let labelExpr: Expr | undefined = undefined;
-
-    // Handle default value:  label ?= value or
-    //        assigned value: label := value
-    if (
-      exprIsFunctionCall(arg) &&
-      (exprIsFunctionCallOf(arg, "?=", 2) || exprIsFunctionCallOf(arg, ":=", 2))
-    ) {
-      labelExpr = arg.args[0]!;
-    }
-    // Handle assigned value: (label : Type) = value
-    else if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "=", 2)) {
-      const lhsExpr = arg.args[0]!;
-      if (
-        exprIsFunctionCall(lhsExpr) &&
-        exprIsFunctionCallOf(lhsExpr, ":", 2)
-      ) {
-        labelExpr = lhsExpr.args[0]!;
-      }
-    }
-    // Handle type annotation: label : Type
-    else if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
-      labelExpr = arg.args[0]!;
-    }
-
-    // Analyze labelExpr
-    if (labelExpr) {
-      if (
-        exprIsFunctionCall(labelExpr) &&
-        exprIsFunctionCallOf(labelExpr, BuiltinKeywords.using)
-      ) {
-        labelExpr = labelExpr.args[0]!;
-      }
-
-      if (exprIsAtom(labelExpr)) {
-        if (labelExpr.token.value === "This") {
-          hasThisLabel = true;
-        } else if (labelExpr.token.value === "Self") {
-          throw formatErrorMessage({
-            token: labelExpr.token,
-            errorMessage: `"Self" cannot be defined in a module type.
-In module types, "Self" refers to the module itself, not a configurable type parameter.
-Use "This" instead as the receiver type parameter.
-
-Example:
-  Add :: (fn(compt(Rhs): Type, compt(Output) ?= Rhs) -> compt(Module))
-    module
-      This     : Type,
-      Output   := Output,
-      (+)      : (fn(lhs: Self.This, rhs: Rhs) -> Self.Output)
-    ;`,
-          });
-        }
-      }
-    }
-  }
-
-  // If "This" is not found, automatically insert "This : Type" at the beginning
-  if (!hasThisLabel) {
-    // Create "This : Type" element
-    const thisType = createTypeHierarchy(0);
-    const thisElement: ModuleElement = {
-      label: "This",
-      type: thisType,
-      isCompileTimeOnly: true,
-      assignedValue: undefined,
-      defaultValue: undefined,
-      isImplicit: false,
-      exprs: {
-        expr: expr,
-        labelExpr: undefined,
-        typeExpr: generateExprFromCode("Type"),
-        defaultValueExpr: undefined,
-        assignedValueExpr: undefined,
-      },
-    };
-
-    elements.push(thisElement);
-    // Don't add to environment - module elements are accessed via Self.This
-  }
+  // Create "Self" type, which is a SomeType containing the current moduleType
+  const selfType = createSomeType(createType0(), "Self");
+  selfType.module = moduleType;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -602,7 +487,7 @@ Example:
         env,
         context: {
           ...context,
-          SelfType: moduleType, // Self refers to the module itself
+          SelfType: selfType, // Self refers to the module itself
         },
       });
       if (!evaluatedExtendedModuleExpr.$) {
@@ -740,7 +625,7 @@ Example:
         moduleElementIndex: i,
         context: {
           ...context,
-          SelfType: moduleType, // Self refers to the module itself
+          SelfType: selfType, // Self refers to the module itself
         },
         isForEvaluatingModuleType: true,
       });
