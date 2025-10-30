@@ -361,6 +361,9 @@ Got:   ${typeToString(argType)}`,
   }
 
   // Create the module value
-  const moduleValue = createModuleValue(moduleType, elements);
+  const moduleValue = createModuleValue(
+    { ...moduleType, receiverType },
+    elements
+  );
   return { moduleValue, callerEnv };
 }
