@@ -1054,30 +1054,6 @@ Got:   ${typeToString(argType)}`,
       argType: resolvedType,
       parameterType: implicitParameterType,
     });
-
-    /*
-    // In theory this shouldn't happen
-    // All implicitParameter should be isCompileTimeOnly
-    if (!implicitParameter.isCompileTimeOnly) {
-      // For runtime implicit parameters, we need to generate the expression
-      // This is a simplified version - the actual implementation would need
-      // to determine whether it's a function call or direct variable access
-      runtimeArgExprsInOrder.push({
-        tag: ExprTag.Atom,
-        token: {
-          ...implicitVariable.token,
-          type: TokenType.Identifier,
-          value: implicitVariable.name,
-        },
-        $: {
-          env: calleeEnv,
-          type: resolvedType,
-          value: resolvedValue,
-          pathCollection: [],
-        },
-      });
-    }
-    */
   }
 
   // Check the variadic parameters

@@ -22,7 +22,6 @@ import { tryToCallFunctionWithArguments } from "./helper";
 export interface ImplicitResolutionResult {
   value: Value | undefined;
   type: Type;
-  implicitVariable: Variable;
   calleeEnv: Environment;
   callerEnv: Environment;
 }
@@ -58,6 +57,34 @@ export function resolveImplicitValue({
     callerEnv: Environment;
     variable: Variable;
   }[] = [];
+
+  // First, check if the implicit can be resolved from context.SelfType
+  // This allows accessing module implementations defined in the same struct
+  if (context.SelfType && isModuleType(expectedType)) {
+    const selfTypeModule = context.SelfType.module;
+    if (selfTypeModule) {
+      // Use findLast to get the most recently added element (with assignedValue)
+      const matchingElement = selfTypeModule.elements.findLast((element) => {
+        if (!isModuleValue(element.assignedValue)) {
+          return false;
+        }
+        const moduleValue = element.assignedValue;
+        return areTypesCompatible(
+          { type: moduleValue.type, env: callerEnv },
+          { type: expectedType, env: calleeEnv }
+        );
+      });
+
+      if (matchingElement && isModuleValue(matchingElement.assignedValue)) {
+        return {
+          value: matchingElement.assignedValue,
+          type: matchingElement.assignedValue.type,
+          calleeEnv,
+          callerEnv,
+        };
+      }
+    }
+  }
 
   // Search implicit variables from the callerEnv frames top-down
   let implicitVariables: Variable[] = [];
@@ -243,7 +270,6 @@ ${implicitVariables
       type: functionCallResult.returnType,
       calleeEnv: functionCallResult.calleeEnv,
       callerEnv: functionCallResult.callerEnv,
-      implicitVariable,
     };
   }
 
@@ -253,6 +279,5 @@ ${implicitVariables
     type: implicitVariable.type,
     calleeEnv,
     callerEnv,
-    implicitVariable,
   };
 }
