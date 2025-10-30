@@ -284,14 +284,42 @@ Got:   ${typeToString(argType)}`,
       // Check if it's an implicit parameter that needs to be resolved
       if (!defaultValue && !assignedValue && moduleElement.isImplicit) {
         try {
+          // Re-evaluate the implicit constraint type in the context of the receiver type
+          // This ensures that Self references resolve to the receiver type
+          let implicitConstraintType = moduleElement.type;
+          const typeExpr = moduleElement.exprs.typeExpr;
+          if (typeExpr) {
+            const evaluatedTypeExpr = context.evaluateExpression({
+              expr: cloneExpr(typeExpr),
+              env: pushEnvFrame(
+                moduleType.env,
+                callerEnv.frames[callerEnv.frames.length - 1]
+              ),
+              context: {
+                ...context,
+                expectedType: undefined,
+                ReceiverType: undefined,
+                SelfType: selfType,
+              },
+            });
+            const typeValue = evaluatedTypeExpr.$?.value;
+            if (isTypeValue(typeValue)) {
+              implicitConstraintType = typeValue.value;
+            }
+          }
+
           // Try to resolve the implicit value from the environment
           const { value: resolvedValue } = resolveImplicitValue({
-            expectedType: moduleElement.type,
+            expectedType: implicitConstraintType,
             label: moduleElement.label,
             isCompileTimeOnly: true, // Module elements are always compile-time
             calleeEnv: callerEnv,
             callerEnv,
-            context,
+            context: {
+              ...context,
+              ReceiverType: undefined,
+              SelfType: selfType,
+            },
             errorToken: moduleExpr.token,
           });
 

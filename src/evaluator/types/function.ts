@@ -203,6 +203,14 @@ export function evaluateFunctionParameter({
     // label = generateNewTempVariableName(this.modulePath);
   }
 
+  // Disallow to have label "Self" as it causes a lot of problem
+  if (label === "Self") {
+    throw formatErrorMessage({
+      token: labelExpr?.token ?? expr.token,
+      errorMessage: "Not allowed to use 'Self' as the label.",
+    });
+  }
+
   {
     // Evaluate the typeExpr if exists
     if (typeExpr) {

@@ -5,6 +5,7 @@ import {
   areTypesCompatible,
   isFunctionType,
   isModuleType,
+  isTypeHierarchyType,
   Type,
   typeToString,
 } from "../../types";
@@ -64,6 +65,12 @@ export function resolveImplicitValue({
     const foundImplicitVariables = callerEnv.frames[i]!.variables.filter(
       (variable) => {
         if (variable.isCompileTimeOnly !== isCompileTimeOnly) {
+          return false;
+        }
+
+        // Don't match TypeHierarchy types (like Type, Module) as implicit values
+        // These are type-level values, not module implementations
+        if (isTypeHierarchyType(variable.type)) {
           return false;
         }
 

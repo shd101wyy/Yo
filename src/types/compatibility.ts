@@ -329,17 +329,43 @@ export function areTypesCompatible(
   // NOTE: Module type is a structural type.
   if (isModuleType(expected.type)) {
     let givenElements: ModuleElement[] | undefined = undefined;
+    let givenReceiverType: Type | undefined = undefined;
+
     if (isModuleType(given.type)) {
       givenElements = given.type.elements;
+      givenReceiverType = given.type.receiverType;
     } else if (
       isTypeHierarchyType(given.type) &&
       given.type.baseType &&
       given.type.baseType.module
     ) {
       givenElements = given.type.baseType.module.elements;
+      givenReceiverType = given.type.baseType.module.receiverType;
     }
 
     if (givenElements) {
+      // Check receiverType constraint if present (e.g., for (i32 <: Eq(i32)))
+      if (expected.type.receiverType && givenReceiverType) {
+        // Both have receiverType, they must be compatible
+        if (
+          !areTypesCompatible(
+            { type: expected.type.receiverType, env: expected.env },
+            { type: givenReceiverType, env: given.env }
+          )
+        ) {
+          return false;
+        }
+      } else if (expected.type.receiverType && !givenReceiverType) {
+        // Expected has receiverType constraint but given doesn't
+        // This means we're checking if a type implements a subtype constraint
+        // The given type should satisfy the receiverType constraint
+        // For now, we'll only check the module elements, not the receiverType
+        // The receiverType constraint should be checked elsewhere when implementing
+      } else if (!expected.type.receiverType && givenReceiverType) {
+        // Expected doesn't have receiverType but given does
+        // This is OK - the given type is more specific
+      }
+
       // Modules must have same elements and compatible types
       for (let i = 0; i < expected.type.elements.length; i++) {
         const expectedElement = expected.type.elements[i]!;

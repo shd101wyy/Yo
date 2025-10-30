@@ -413,7 +413,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // Self
+  // Self - check context.SelfType BEFORE looking up variables
+  // This ensures that Self from the type context takes precedence over
+  // any variable named "Self" in the environment
   else if (identifier === "Self" && context.SelfType) {
     const typeValue = createTypeValue(context.SelfType);
 
