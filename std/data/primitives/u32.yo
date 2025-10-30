@@ -29,14 +29,12 @@ U32 :: impl {
   _Negate :: impl(Self, Negate(Self)
     (neg): ((a) -> __yo_op_neg(a))
   );
-  _BitLeftShift :: BitLeftShift(Self)
-    Self : Self,
+  _BitLeftShift :: impl(Self, BitLeftShift(Self)
     (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ;
-  _BitRightShift :: BitRightShift(Self)
-    Self : Self,
+  );
+  _BitRightShift :: impl(Self, BitRightShift(Self)
     (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ;
+  );
   export
     Add : _Add,
     Sub : _Sub,
@@ -89,30 +87,25 @@ U32 :: impl {
   export Ord : _Ord;
 
   // === Hash ===
-  _Hash :: Hash
-    Self : Self,
+  _Hash :: impl(Self, Hash
     (hash): ((value) -> __yo_as(value, u64))
-  ;
+  );
   export Hash : _Hash;
 
   // === Drop ===
-  _Drop :: Drop
-    Self : Self,
+  _Drop :: impl(Self, Drop
     drop: ((self) ->
-      // No-op for u32, as it does not require any special cleanup
       __yo_noop()
     )
-  ;
+  );
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone
-    Self : Self,
+  _Clone :: impl(Self, Clone
     clone: ((self) ->
-      // No-op for u32, as it is a primitive type
       __yo_return_self(self.*)
     )
-  ;
+  );
   export Clone : _Clone;
 
   // === Other methods ===

@@ -2,33 +2,29 @@ open import "std";
 open import "../../../../std/libc/stdio.yo";
 
 Speak :: module(
-  Self: Type,
   speak : (fn(self : Self) -> i32)
 );
 
 Run :: module(
-  Self: Type,
   run : (fn(self : Self) -> i32)
 );
 
 // Dog :: struct(); // This should give error working with `dyn`.
 Dog :: object();
 
-DogSpeak :: Speak
-  Self : Dog,
+DogSpeak :: impl(Dog, Speak
   speak : ((self : Self) -> {
     printf("Woof!\n");
     return 1;
   })
-;
+);
 
-DogRun :: Run
-  Self : Dog,
+DogRun :: impl(Dog, Run
   run : ((self : Self) -> {
     printf("The dog is running!\n");
     return 2;
   })
-;
+);
 
 act :: (fn(s : Dyn(Speak, Run)) -> i32)
   s.speak() + s.run()

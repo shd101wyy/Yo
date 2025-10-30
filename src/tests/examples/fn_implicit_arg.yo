@@ -1,6 +1,4 @@
 Id :: module
-  Self : Type,
-
   id : (fn(self : Self) -> Self)
 ;
 
@@ -23,21 +21,17 @@ use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
   return ValId.id(val);
 };
 
-I32Id :: Id(
-  Self : i32,
-
+I32Id :: impl(i32, Id(
   id : ((self) -> {
     return self;
   })
-);
+));
 
-BooleanId :: Id(
-  Self : boolean,
-
+BooleanId :: impl(boolean, Id(
   id : ((self) -> {
     return self;
   })
-);
+));
 
 main :: (fn() -> unit) {
   x := 12;

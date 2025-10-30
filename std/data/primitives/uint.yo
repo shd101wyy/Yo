@@ -79,30 +79,25 @@ UInt :: impl {
   export Ord : _Ord;
 
   // === Hash ===
-  _Hash :: Hash
-    Self : Self,
+  _Hash :: impl(Self, Hash
     (hash): ((value) -> __yo_as(value, u64))
-  ;
+  );
   export Hash : _Hash;
 
   // === Drop ===
-  _Drop :: Drop
-    Self : Self,
+  _Drop :: impl(Self, Drop
     drop: ((self) ->
-      // No-op for uint, as it does not require any special cleanup
       __yo_noop()
     )
-  ;
+  );
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone
-    Self : Self,
+  _Clone :: impl(Self, Clone
     clone: ((self) ->
-      // No-op for uint, as it is a primitive type
       __yo_return_self(self.*)
     )
-  ;
+  );
   export Clone : _Clone;
 
   // === Other methods ===

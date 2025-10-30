@@ -1,29 +1,44 @@
-Eq ::
-  (fn(compt(Rhs) : Type) -> compt(Module))
-  module
-    (==) : (fn(lhs: Self, rhs: Rhs) -> boolean)
+Id :: module
+  id : (fn(self : Self) -> Self)
 ;
 
-
-Ord :: (
-  fn(
-    compt(Rhs) : Type
-  ) -> compt(Module))
-  module
-    using(Eq) : (Self <: Eq(Rhs)),
-
-    (<) :
-      fn(lhs: Self, rhs: Rhs) -> boolean
+/*
+// Works
+use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T)
+  ValId.id(val)
 ;
-
-impl {
-  Self :: i32; // Commenting this line will make it work.
-
-  _Eq :: impl(i32, Eq(i32)
-    (==) : ((a, b) -> true)
-  );
-
-  _Ord :: impl(i32, Ord(i32)
-    (<) : ((a, b) -> true)
-  );
+*/
+/*
+// Works
+use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
+  x := ValId.id(val);
+  return x;
 };
+*/
+
+use_id :: (fn(forall(T : Type), val : T, using(ValId) : (T <: Id)) -> T) {
+  return ValId.id(val);
+};
+
+I32Id :: impl(i32, Id(
+  id : ((self) -> {
+    return self;
+  })
+));
+
+BooleanId :: impl(boolean, Id(
+  id : ((self) -> {
+    return self;
+  })
+));
+
+main :: (fn() -> unit) {
+  x := 12;
+  y := use_id(x);
+  z := use_id(y, I32Id);
+  m := use_id(z, ValId : I32Id);
+  n := use_id(m, _);
+  p := use_id(n, ValId : _);
+};
+
+export main;

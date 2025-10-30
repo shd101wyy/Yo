@@ -1,7 +1,6 @@
 open import "std";
 
 GiveInt :: module(
-  Self : Type,
   give_int :
     fn(self : *(Self)) -> int
 );
@@ -9,23 +8,20 @@ GiveInt :: module(
 BoxedBoolean :: Box(boolean);
 BoxedI32 :: Box(i32);
 
-BooleanGiveInt :: GiveInt(
-  Self : BoxedBoolean,
+BooleanGiveInt :: impl(BoxedBoolean, GiveInt(
   give_int :
     (self) -> 0
-);
+  ));
 
-I32GiveInt :: GiveInt(
-  Self : BoxedI32,
+I32GiveInt :: impl(BoxedI32, GiveInt(
   give_int :
     (self) -> 1
-);
+));
 
-I32GiveAnotherInt :: GiveInt(
-  Self : BoxedI32,
+I32GiveAnotherInt :: impl(BoxedI32, GiveInt(
   give_int :
     (self) -> 2
-);
+));
 
 use_id :: 
   (fn(

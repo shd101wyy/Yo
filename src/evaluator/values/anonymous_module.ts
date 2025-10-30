@@ -81,6 +81,8 @@ export function evaluateAnonymousModuleBeginExprs({
               env,
               context: {
                 ...context,
+                // NOTE: This is intended to set SelfType to undefined,
+                // because there might be variable "Self" in the begin block.
                 SelfType: undefined, // moduleType, // Self refers to the module being built
               },
             });
