@@ -18,54 +18,48 @@ LogicalOr :: (fn(compt(Lhs): Type, compt(Rhs) ?= Lhs)-> compt(Module))
 */
 
 LogicalNot :: module
-  Self : Type,
   (!)  : (fn(self: Self)-> boolean)
 ;
 
 BitNot :: (fn(compt(Output) : Type) -> compt(Module))
   module
-    Self   :  Type,
     Output := Output,
     (~)    :  (fn(self: Self)-> Output)
 ;
 
 BitAnd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module)) 
   module
-    Self   :  Type,
     Output := Output,
     (&)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
 BitOr :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module))
   module
-    Self   :  Type,
     Output := Output,
     (|)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
 BitXor :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module)) 
   module
-    Self   :  Type,
     Output := Output,
     (^)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 
 ComptLogicalNot :: module
-  Self : Type,
   (!)  : (fn(compt(self): Self) -> compt(boolean))
 ;
 
 (!) :: impl {
-  (not) :: (fn( forall(Self : Type),
-            self : Self,
-            using(LogicalNotMethod) : (Self <: LogicalNot)
+  (not) :: (fn( forall(_Self : Type),
+            self : _Self,
+            using(LogicalNotMethod) : (_Self <: LogicalNot)
           ) -> boolean)
     LogicalNotMethod.(!)(self)
   ;
 
-  (compt_not) :: (fn(forall(Self : Type), 
-          compt(self) : Self,
-          using(LogicalNotMethod) : (Self <: ComptLogicalNot)
+  (compt_not) :: (fn(forall(_Self : Type), 
+          compt(self) : _Self,
+          using(LogicalNotMethod) : (_Self <: ComptLogicalNot)
         ) -> compt(boolean))
     LogicalNotMethod.(!)(self)
   ;
@@ -83,21 +77,19 @@ ComptLogicalNot :: module
 /**
  * logic for boolean
  */
-BooleanLogicalNot :: LogicalNot
-  Self : boolean,
+BooleanLogicalNot :: impl boolean, LogicalNot(
   (!): ((a) ->
     __yo_op_not(a)
   )
-;
+);
 
-ComptBooleanLogicalNot :: ComptLogicalNot
-  Self : boolean,
+ComptBooleanLogicalNot :: impl boolean, ComptLogicalNot(
   (!): ((self) ->
     cond
       self => false,
       true => true
   )
-;
+);
 
 export
   LogicalNot,

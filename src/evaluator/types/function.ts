@@ -359,8 +359,7 @@ ${typeToString(parameterType)}`,
 Please consider using "<:" to specify the receiver type for a module type, for example:
 
 Id :: module
-  This : Type,
-  id   : (fn(self : This) -> This)
+  id   : (fn(self : Self) -> Self)
 ;
 
 use_id :: (fn(forall(T : Type),

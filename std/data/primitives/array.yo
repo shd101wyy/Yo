@@ -5,13 +5,13 @@ DropArray :: (fn(
   forall(T : Type, S : usize), 
   using(DropT) : (T <: Drop) )
   -> compt(Drop))
-  Drop
-    Self : Array(T, S),
+  impl Array(T, S), Drop(
     drop : 
       (self)-> 
         for self, elem => {
           DropT.drop(elem);
-        };
+        }
+  );
   ;
 
 export DropArray;

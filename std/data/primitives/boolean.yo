@@ -9,32 +9,30 @@ Boolean :: impl {
   export Self;
 
   // === Eq ===
-  _Eq :: Eq(Self)
-    Self : Self,
+  _Eq :: impl(Self, Eq(Self)
     (==): ((a, b) ->
       __yo_op_eq(a, b)
     )
+  )
   ;
   export Eq : _Eq;
 
   // === Drop ===
-  _Drop :: Drop
-    Self : Self,
+  _Drop :: impl(Self, Drop
     drop: ((self)->
       // No-op for boolean
       __yo_noop()
     )
-  ;
+  );
   export Drop : _Drop;
 
   // === Clone ===
-  _Clone :: Clone
-    Self : Self,
+  _Clone :: impl(Self, Clone
     clone: ((self) ->
       // No-op for boolean, as it is a primitive type
       __yo_return_self(self.*)
     )
-  ;
+  );
   export Clone : _Clone;
 };
 

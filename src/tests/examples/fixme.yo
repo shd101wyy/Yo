@@ -1,21 +1,29 @@
-Id :: (fn(compt(Output) : Type)-> compt(Module))
+Eq ::
+  (fn(compt(Rhs) : Type) -> compt(Module))
   module
-    Output   := Output,
-    (id)     :  (fn(self: Self) -> Self.Output)
+    (==) : (fn(lhs: Self, rhs: Rhs) -> boolean)
 ;
 
-Point :: struct(
-  x : i32,
-  y : i32,
 
-  Id :: impl(Self, Id(Self)(
-    id : ((self) -> self)
-  ))
-);
+Ord :: (
+  fn(
+    compt(Rhs) : Type
+  ) -> compt(Module))
+  module
+    using(Eq) : (Self <: Eq(Rhs)),
 
-main :: (fn() -> unit) {
-  p := Point(3, 4);
-  q := Point.Id.id(p);
+    (<) :
+      fn(lhs: Self, rhs: Rhs) -> boolean
+;
+
+impl {
+  Self :: i32;
+
+  _Eq :: impl(i32, Eq(i32)
+    (==) : ((a, b) -> true)
+  );
+
+  _Ord :: impl(i32, Ord(i32)
+    (<) : ((a, b) -> true)
+  );
 };
-
-export main;

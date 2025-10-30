@@ -498,41 +498,35 @@ Option ::
 
 // module
 // All the fields of the module are compile-time known by default
-Id ::
-  fn(compt(Self): Type)-> compt(Module)
-  module
-    (Self : Type) = Self, 
-    // ^ `Self` in module here means the receiver type. 
-    // It enables the dynamic dispatch (not support yet)
-    // `=` here means the Self has to be equal to Self.
-    id:
-      fn(val : Self)-> Self
+Id :: module
+  // `Self` in module here means the receiver type. 
+  id:
+    fn(val : Self)-> Self
 ;
 
 Stringer :: module
-    Self : Type,
     to_string: (fn(val : Self)-> String)
 ;
 
 /// Implement the module
-IdI32 :: Id(i32)
+IdI32 :: impl i32, Id(
   id:
     (self)-> self
-;
+);
 
 MakeStringer ::
   fn(forall(T: Type, Y: Type),
    using(TStringer) : (T <: Stringer(T)), 
    using(UStringer) : (U <: Stringer(U))) ->
   compt(Stringer((T, Y))) {
-  return Stringer((T, Y))
+  return impl (T, Y), Stringer(
     to_string:
       ((x, y))->
         "(" + 
         x.to_string() + 
         "," + 
         y.to_string() + 
-        ")"
+        ")")
 };
 
 /// method call
