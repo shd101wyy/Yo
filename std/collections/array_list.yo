@@ -104,7 +104,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
               self._capacity = new_capacity;
               // Now add the element at position length
               target_ptr := (typed_ptr + self._length);
-              target_ptr.* = value;
+              target_ptr.set value;
               self._length = (self._length + (1).as(usize));
               .Ok(())
             },
@@ -116,7 +116,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           match(self.ptr,
             .Some(ptr) => {
               target_ptr := (ptr + self._length);
-              target_ptr.* = value;
+              target_ptr.set value;
               self._length = (self._length + (1).as(usize));
               .Ok(())
             },
@@ -137,7 +137,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .None => .None,
             .Some(ptr) => {
               last_element_ptr := (ptr + self._length);
-              last_element := last_element_ptr.*;
+              last_element := *(last_element_ptr);
               .Some(last_element)
             }
         }
@@ -153,7 +153,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
         true =>
           match self.ptr,
             .None => .None,
-            .Some(ptr) => .Some((ptr + index).*)
+            .Some(ptr) => .Some(*(ptr + index))
       )
     ),
 
@@ -170,7 +170,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .None => panic("ArrayList has length but no ptr"),
             .Some(ptr) => {
               target_ptr := (ptr + index);
-              target_ptr.* = value;
+              target_ptr.set value;
               .Ok(())
             }
           )
@@ -228,7 +228,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           base_ptr := self.ptr.unwrap();
           while(i < self._length, i = (i + (1).as(usize)), {
             element_ptr := (base_ptr + i);
-            element := element_ptr.*;
+            element := *(element_ptr);
             // element will be automatically dropped here
           });
         },
@@ -267,7 +267,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                       i := (0).as(usize);
                       while(i < actual_count, i = (i + (1).as(usize)), {
                         element_ptr := (ptr + (start + i));
-                        element := element_ptr.*;
+                        element := *(element_ptr);
                         // element will be automatically dropped here
                       });
                     },
@@ -286,7 +286,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                       while(i < elements_after, i = (i + (1).as(usize)), {
                         src := (src_ptr + i);
                         dst := (dst_ptr + i);
-                        dst.* = src.*;
+                        dst.set *(src);
                       });
                     },
                     true => ()
@@ -338,7 +338,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                       while(i < slice_length, i = (i + (1).as(usize)), {
                         src := (src_ptr + (start + i));
                         dst := (dst_ptr + i);
-                        dst.* = src.*;
+                        dst.set *(src);
                       });
                       
                       // Set the length of the new list

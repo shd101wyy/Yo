@@ -127,7 +127,7 @@ HashMap :: (fn(
                 
                 i := (0).as(usize);
                 while(i < capacity, i = (i + (1).as(usize)), {
-                  (ctrl_ptr + i).* = CTRL_EMPTY;
+                  (ctrl_ptr + i).set(CTRL_EMPTY);
                 });
                 
                 .Ok(Self(
@@ -218,14 +218,14 @@ HashMap :: (fn(
         
         while(probe < self.capacity, probe = (probe + (1).as(usize)), {
           probe_index := ((index + probe) % self.capacity);
-          ctrl_byte := (ctrl_ptr + probe_index).*;
+          ctrl_byte := *(ctrl_ptr + probe_index);
           
           cond(
             (U8.Eq.(==)(ctrl_byte, CTRL_EMPTY)) => {
               return .None;
             },
             (U8.Eq.(==)(ctrl_byte, h2)) => {
-              bucket := (data_ptr + probe_index).*;
+              bucket := *(data_ptr + probe_index);
               cond(
                 (KeyEqual.(==)(bucket.key, key)) => {
                   return .Some(probe_index);
@@ -253,7 +253,7 @@ HashMap :: (fn(
         
         while(probe < self.capacity, probe = (probe + (1).as(usize)), {
           probe_index := ((index + probe) % self.capacity);
-          ctrl_byte := (ctrl_ptr + probe_index).*;
+          ctrl_byte := *(ctrl_ptr + probe_index);
           
           cond(
             (U8.Eq.(==)(ctrl_byte, CTRL_EMPTY) || U8.Eq.(==)(ctrl_byte, CTRL_DELETED)) => {
@@ -290,18 +290,18 @@ HashMap :: (fn(
             ctrl_ptr := self._ctrl_ptr();
             data_ptr := self._data_ptr();
             while(i < self.capacity, i = (i + (1).as(usize)), {
-              ctrl_byte := (ctrl_ptr + i).*;
+              ctrl_byte := *(ctrl_ptr + i);
               cond(
                 ((U8.Eq.(!=)(ctrl_byte, CTRL_EMPTY)) && (U8.Eq.(!=)(ctrl_byte, CTRL_DELETED))) => {
-                  bucket := (data_ptr + i).*;
+                  bucket := *(data_ptr + i);
                   hash := KeyHash.(hash)(bucket.key);
                   h2 := h2_hash(hash);
                   new_index := new_map._find_insert_bucket(hash);
                   
                   new_ctrl_ptr := new_map._ctrl_ptr();
                   new_data_ptr := new_map._data_ptr();
-                  (new_ctrl_ptr + new_index).* = h2;
-                  (new_data_ptr + new_index).* = bucket;
+                  (new_ctrl_ptr + new_index).set h2;
+                  (new_data_ptr + new_index).set bucket;
                   new_map.size = (new_map.size + (1).as(usize));
                 },
                 true => ()
@@ -339,10 +339,10 @@ HashMap :: (fn(
         match(bucket_opt,
           .Some(index) => {
             data_ptr := self._data_ptr();
-            old_bucket := (data_ptr + index).*;
+            old_bucket := *(data_ptr + index);
             old_value := old_bucket.value;
             new_bucket := Bucket(K, V)(key: key, value: value);
-            (data_ptr + index).* = new_bucket;
+            (data_ptr + index).set new_bucket;
             .Ok(.Some(old_value))
           },
           .None => {
@@ -362,9 +362,9 @@ HashMap :: (fn(
                 
                 ctrl_ptr := self._ctrl_ptr();
                 data_ptr := self._data_ptr();
-                (ctrl_ptr + index).* = h2;
+                (ctrl_ptr + index).set h2;
                 new_bucket := Bucket(K, V)(key: key, value: value);
-                (data_ptr + index).* = new_bucket;
+                (data_ptr + index).set new_bucket;
                 self.size = (self.size + (1).as(usize));
                 
                 .Ok(.None)
@@ -386,7 +386,7 @@ HashMap :: (fn(
         match(bucket_opt,
           .Some(index) => {
             data_ptr := self._data_ptr();
-            bucket := (data_ptr + index).*;
+            bucket := *(data_ptr + index);
             .Some(bucket.value)
           },
           .None => .None
@@ -420,10 +420,10 @@ HashMap :: (fn(
           .Some(index) => {
             data_ptr := self._data_ptr();
             ctrl_ptr := self._ctrl_ptr();
-            bucket := (data_ptr + index).*;
+            bucket := *(data_ptr + index);
             value := bucket.value;
             
-            (ctrl_ptr + index).* = CTRL_DELETED;
+            (ctrl_ptr + index).set CTRL_DELETED;
             self.size = (self.size - (1).as(usize));
             
             .Some(value)
@@ -456,7 +456,7 @@ HashMap :: (fn(
         ctrl_ptr := self._ctrl_ptr();
         i := (0).as(usize);
         while(i < self.capacity, i = (i + (1).as(usize)), {
-          (ctrl_ptr + i).* = CTRL_EMPTY;
+          (ctrl_ptr + i).set CTRL_EMPTY;
         });
         self.size = (0).as(usize);
       }
