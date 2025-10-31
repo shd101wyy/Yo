@@ -88,38 +88,71 @@ export function evaluateModuleValue({
     env = evaluatedReceiverTypeArg.$.env;
     const receiverType = evaluatedReceiverTypeArg.$.value.value;
 
-    // Evaluate the module call
-    const evaluatedModuleCallArg = evaluateExpression({
-      expr: moduleCallArg,
-      env,
-      context: {
-        ...context,
-        expectedType: undefined,
-        ReceiverType: receiverType,
-      },
-    });
-    // Expect the module call to be a module value
+    // Anonymous module value
     if (
-      !evaluatedModuleCallArg.$ ||
-      !isModuleValue(evaluatedModuleCallArg.$.value)
+      exprIsFunctionCall(expr.args[1]) &&
+      exprIsFunctionCallOf(expr.args[1], BuiltinKeywords.begin)
     ) {
-      throw formatErrorMessage({
-        token: moduleCallArg.token,
-        errorMessage: `Expected module value for module call argument.`,
+      const beginExprs = expr.args[1]!.args;
+      const {
+        moduleType,
+        moduleValue,
+        env: nextEnv,
+      } = evaluateAnonymousModuleBeginExprs({
+        beginExprs,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+          SelfType: undefined,
+        },
+        receiverType,
       });
+      env = nextEnv;
+
+      // Set the module value to the expr
+      expr.$ = {
+        env,
+        type: moduleType,
+        value: moduleValue,
+        pathCollection: [],
+      };
+
+      return expr;
+    } else {
+      // Evaluate the module call
+      const evaluatedModuleCallArg = evaluateExpression({
+        expr: moduleCallArg,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+          ReceiverType: receiverType,
+        },
+      });
+      // Expect the module call to be a module value
+      if (
+        !evaluatedModuleCallArg.$ ||
+        !isModuleValue(evaluatedModuleCallArg.$.value)
+      ) {
+        throw formatErrorMessage({
+          token: moduleCallArg.token,
+          errorMessage: `Expected module value for module call argument.`,
+        });
+      }
+      env = evaluatedModuleCallArg.$.env;
+      const moduleValue = evaluatedModuleCallArg.$.value;
+
+      // Set the module value to the expr
+      expr.$ = {
+        env,
+        type: evaluatedModuleCallArg.$.type,
+        value: moduleValue,
+        pathCollection: [],
+      };
+
+      return expr;
     }
-    env = evaluatedModuleCallArg.$.env;
-    const moduleValue = evaluatedModuleCallArg.$.value;
-
-    // Set the module value to the expr
-    expr.$ = {
-      env,
-      type: evaluatedModuleCallArg.$.type,
-      value: moduleValue,
-      pathCollection: [],
-    };
-
-    return expr;
   } else {
     throw formatErrorMessage({
       token: expr.token,

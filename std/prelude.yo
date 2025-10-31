@@ -308,6 +308,18 @@ Eq ::
 ;
 export Eq;
 
+ComptEq ::
+  (fn(compt(Rhs) : Type) -> compt(Module))
+  module
+    (==) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean)),
+
+    ((!=) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean))) ?= 
+      ((lhs, rhs) ->
+        not(Self.(==)(lhs, rhs), ComptBooleanLogicalNot)
+      )
+;
+export ComptEq;
+
 /// === Ord ===
 Ordering :: enum
   Less,
@@ -333,6 +345,23 @@ Ord :: (
       fn(lhs: Self, rhs: Rhs) -> boolean
 ;
 export Ord;
+
+ComptOrd :: (
+  fn(
+    compt(Rhs) : Type
+  ) -> compt(Module))
+  module
+    using(ComptEq) : (Self <: ComptEq(Rhs)),
+
+    (<) :
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
+    (<=) :
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
+    (>) :
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
+    (>=) :
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean)
+;
 
 /**
  * Hash trait - Similar to Rust's std::hash::Hash
@@ -438,5 +467,86 @@ __yo_type_set_module(i32,
     clone: ((self) ->
       __yo_return_self(self)
     )
-  )
+  ),
+
+  // === Compt modules ===
+  Compt :: impl(Self, {
+    Add :: impl(Self, ComptAdd(Self)(
+      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+        __yo_i32_add(lhs, rhs)
+      )
+    ));
+    export Add;
+    
+    Sub :: impl(Self, ComptSub(Self)(
+      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+        __yo_i32_sub(lhs, rhs)
+      )
+    ));
+    export Sub;
+
+    Mul :: impl(Self, ComptMul(Self)(
+      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+        __yo_i32_mul(lhs, rhs)
+      )
+    ));
+    export Mul;
+
+    Div :: impl(Self, ComptDiv(Self)(
+      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+        __yo_i32_div(lhs, rhs)
+      )
+    ));
+    export Div;
+
+    Mod :: impl(Self, ComptMod(Self)(
+      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+        __yo_i32_mod(lhs, rhs)
+      )
+    ));
+    export Mod;
+
+    Neg :: impl(Self, ComptNegate(Self)(
+      (neg) : ((fn(compt(self): Self) -> compt(Self))
+        __yo_i32_neg(self)
+      )
+    ));
+    export Neg;
+
+    Eq :: impl(Self, ComptEq(Self)(
+      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+        __yo_i32_eq(lhs, rhs)
+      ),
+      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+        __yo_i32_neq(lhs, rhs)
+      )
+    ));
+    export Eq;
+
+    Ord :: impl(Self, ComptOrd(Self)(
+      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+        __yo_i32_lt(lhs, rhs)
+      ),
+      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+        __yo_i32_lte(lhs, rhs)
+      ),
+      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+        __yo_i32_gt(lhs, rhs)
+      ),
+      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
+        __yo_i32_gte(lhs, rhs)
+      )
+    ));
+    export Ord;
+
+    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
+      __yo_i32_as(self, Target)
+    ;
+    export as;
+
+    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
+      __yo_i32_to_string(self)
+    ;
+    export to_string;
+  })
 );
