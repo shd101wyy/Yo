@@ -397,6 +397,42 @@ Clone :: (fn(compt(Output) : Type) -> compt(Module))
 
 
 // === Builtin types ===
+/// boolean
+__yo_type_set_module(boolean,
+  Eq :: impl(Self, Eq(Self)
+    (==): ((a, b) ->
+      __yo_op_eq(a, b)
+    )
+  ),
+  Clone :: impl(Self, Clone(Self)
+    clone: ((self) ->
+      __yo_return_self(self)
+    )
+  ),
+
+  // === Compt modules ===
+  Compt :: impl(Self, {
+    Eq :: impl(Self, ComptEq(Self)(
+      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
+        __yo_compt_boolean_eq(lhs, rhs)
+      )
+    ));
+    export Eq;
+
+    LogicalNot :: impl(Self, ComptLogicalNot(
+      (!) : ((fn(compt(self): Self) -> compt(Self))
+        __yo_compt_boolean_not(self)
+      )
+    ));
+    export LogicalNot;
+
+    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
+      __yo_compt_boolean_to_string(self)
+    ;
+    export to_string;
+  })
+);
+
 /// i32
 __yo_type_set_module(i32,
   // === Arithmetic impls ===
