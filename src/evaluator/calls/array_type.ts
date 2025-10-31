@@ -17,6 +17,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * This function creates an array value from an ArrayType and initial values.
@@ -59,9 +60,7 @@ export function tryToImplementArrayByArrayType({
 
     // Create a new array type with the inferred length
     const inferredLength = createComptIntValue(expectedLengthValue);
-    finalArrayType = createArrayType(arrayType.elementType, inferredLength, {
-      ...context,
-    });
+    finalArrayType = createArrayType(arrayType.elementType, inferredLength);
   } else {
     throw formatErrorMessage({
       token: expr.func.token,
@@ -80,7 +79,7 @@ export function tryToImplementArrayByArrayType({
     const argExpr = argExprs[i]!;
 
     // Evaluate the argument with the expected element type
-    const evaluatedArg = context.evaluateExpression({
+    const evaluatedArg = evaluateExpression({
       expr: argExpr,
       env,
       context: {
@@ -112,8 +111,7 @@ export function tryToImplementArrayByArrayType({
         // Update the final array type with the concrete element type
         finalArrayType = createArrayType(
           expectedElementType,
-          finalArrayType.length,
-          { ...context }
+          finalArrayType.length
         );
       }
     }

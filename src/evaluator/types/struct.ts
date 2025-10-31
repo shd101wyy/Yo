@@ -62,7 +62,7 @@ export function evaluateStructType({
       const extendedExpr = arg.args[0]!;
       // Evaluate the extended struct expression
 
-      const evaluatedExtendedExpr = context.evaluateExpression({
+      const evaluatedExtendedExpr = evaluateExpression({
         expr: extendedExpr,
         env,
         context: {

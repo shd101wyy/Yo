@@ -12,6 +12,7 @@ import {
 } from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
 
 export function evaluateThe({
@@ -29,7 +30,7 @@ export function evaluateThe({
   const valueExpr = expr.args[1]!;
 
   // Evaluate the type expression first
-  const evaluatedTypeExpr = context.evaluateExpression({
+  const evaluatedTypeExpr = evaluateExpression({
     expr: typeExpr,
     env,
     context: {
@@ -55,7 +56,7 @@ export function evaluateThe({
   const expectedType = evaluatedTypeExpr.$.value.value;
 
   // Evaluate the value expression with the expected type
-  const evaluatedValueExpr = context.evaluateExpression({
+  const evaluatedValueExpr = evaluateExpression({
     expr: valueExpr,
     env,
     context: {

@@ -27,6 +27,7 @@ import {
   UnknownValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoExprIsAtom({
   expr,
@@ -40,7 +41,7 @@ export function evaluateYoExprIsAtom({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_is_atom, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -99,7 +100,7 @@ export function evaluateYoExprIsFnCall({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_is_fn_call, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -158,7 +159,7 @@ export function evaluateYoExprGetCallee({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_get_callee, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -229,7 +230,7 @@ export function evaluateYoExprGetArgs({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_get_args, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -302,7 +303,7 @@ export function evaluateYoExprToString({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_to_string, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -365,7 +366,7 @@ export function evaluateYoExprEq({
   const secondArgExpr = expr.args[1]!;
 
   // Evaluate first argument
-  const evaluatedFirstArgExpr = context.evaluateExpression({
+  const evaluatedFirstArgExpr = evaluateExpression({
     expr: firstArgExpr,
     env,
     context: {
@@ -400,7 +401,7 @@ export function evaluateYoExprEq({
   env = evaluatedFirstArgExpr.$.env;
 
   // Evaluate second argument
-  const evaluatedSecondArgExpr = context.evaluateExpression({
+  const evaluatedSecondArgExpr = evaluateExpression({
     expr: secondArgExpr,
     env,
     context: {

@@ -22,6 +22,7 @@ import {
 import { VUnit } from "../../unit-value";
 import { createTupleValue, isTypeValue, TupleValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Evaluate the element in tuple rvalue, such as
@@ -85,7 +86,7 @@ ${typeToString(expectedTupleType)}`,
   }
 
   // Parse the rhs expr
-  const evaluatedRhs = context.evaluateExpression({
+  const evaluatedRhs = evaluateExpression({
     expr: rhsExpr,
     env,
     context: {

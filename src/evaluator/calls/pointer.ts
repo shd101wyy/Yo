@@ -4,6 +4,7 @@ import { exprToString, FuncCallExpr } from "../../expr";
 import { createMutPtrType, isMutPtrType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Evaluate a raw pointer call
@@ -36,7 +37,7 @@ export function evaluateRawPointerCall({
     // QUESTION: Should we set expectedType to undefined?
   }
 
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -61,9 +62,7 @@ export function evaluateRawPointerCall({
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
     // Create the pointer type
-    const pointerType = createMutPtrType(baseType, {
-      ...context,
-    });
+    const pointerType = createMutPtrType(baseType);
     const typeValueForPointer = createTypeValue(pointerType);
     expr.$ = {
       env,

@@ -22,6 +22,7 @@ import {
 } from "../../types";
 import { createModuleValue, ModuleValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 export function evaluateAnonymousModuleBeginExprs({
@@ -76,7 +77,7 @@ export function evaluateAnonymousModuleBeginExprs({
             const extendedModuleExpr = exportExpr.args[0]!;
             let excludeMembersExpr = exportExpr.args[1];
             // Evaluate the extended struct expression
-            const evaluatedExtendedModuleExpr = context.evaluateExpression({
+            const evaluatedExtendedModuleExpr = evaluateExpression({
               expr: extendedModuleExpr,
               env,
               context: {
@@ -350,7 +351,7 @@ export function evaluateAnonymousModuleBeginExprs({
           }
         }
       } else {
-        const evaluatedExpr = context.evaluateExpression({
+        const evaluatedExpr = evaluateExpression({
           expr,
           env,
           context: {

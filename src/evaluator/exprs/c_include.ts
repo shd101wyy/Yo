@@ -12,6 +12,7 @@ import { ModuleElement } from "../../types";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { evaluateModuleElementType } from "../types/module";
 
 export function evaluateCInclude({
@@ -37,7 +38,7 @@ export function evaluateCInclude({
     const cHeaderFileArg = expr.args[0]!;
     args = expr.args.slice(1);
 
-    const evaluatedCHeaderFileArg = context.evaluateExpression({
+    const evaluatedCHeaderFileArg = evaluateExpression({
       expr: cHeaderFileArg,
       env,
       context: {

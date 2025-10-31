@@ -32,6 +32,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 /**
@@ -237,7 +238,7 @@ ${typeToString(expectedType)}`
 
   // Parse the type expr
   if (typeExpr) {
-    const evaluatedTypeExpr = context.evaluateExpression({
+    const evaluatedTypeExpr = evaluateExpression({
       expr: typeExpr,
       env,
       context: {
@@ -275,7 +276,7 @@ ${typeToString(expectedType)}`
             env,
           }
         : undefined;
-    const evaluatedAssignedValueExpr = context.evaluateExpression({
+    const evaluatedAssignedValueExpr = evaluateExpression({
       expr: assignedValueExpr,
       env,
       context: {
@@ -336,7 +337,7 @@ Given type: ${typeToString(assignedValueType)}`,
             env,
           }
         : undefined;
-    const evaluatedDefaultValueExpr = context.evaluateExpression({
+    const evaluatedDefaultValueExpr = evaluateExpression({
       expr: defaultValueExpr,
       env,
       context: {
@@ -482,7 +483,7 @@ export function evaluateModuleType({
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
       const extendedModuleExpr = arg.args[0]!;
       // Evaluate the extended struct expression
-      const evaluatedExtendedModuleExpr = context.evaluateExpression({
+      const evaluatedExtendedModuleExpr = evaluateExpression({
         expr: extendedModuleExpr,
         env,
         context: {

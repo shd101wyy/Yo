@@ -28,6 +28,7 @@ import {
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import { evaluateBeginExpression } from "./begin";
 
@@ -62,7 +63,7 @@ export function evaluateFor({
   const bodyExpr: Expr = arrowExpr.args[1]!;
 
   // Evaluate the itemsValue expression
-  const evaluatedItemsExpr = context.evaluateExpression({
+  const evaluatedItemsExpr = evaluateExpression({
     expr: itemsExpr,
     env,
     context: {
@@ -164,7 +165,7 @@ export function evaluateFor({
   let itemType = itemsType.elementType;
   if (itemPtrOrRefType) {
     if (itemPtrOrRefType === TypeTag.MutPtr) {
-      itemType = createMutPtrType(itemType, { ...context });
+      itemType = createMutPtrType(itemType);
     }
   }
 

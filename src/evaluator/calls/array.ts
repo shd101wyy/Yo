@@ -19,6 +19,7 @@ import {
 } from "../../types";
 import { ArrayValue, createUnknownValue, isNumberValue } from "../../value";
 import { ArrayCallResult, EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * This is mainly used to access the array element by index.
@@ -68,7 +69,7 @@ export function tryToCallArrayWithArguments({
       const endExpr = expr.args[0]!.args[1]!;
 
       // Evaluate the start and end expressions
-      const evaluatedStartExpr = context.evaluateExpression({
+      const evaluatedStartExpr = evaluateExpression({
         expr: startExpr,
         env: callerEnv,
         context: {
@@ -103,7 +104,7 @@ export function tryToCallArrayWithArguments({
         });
       }
 
-      const evaluatedEndExpr = context.evaluateExpression({
+      const evaluatedEndExpr = evaluateExpression({
         expr: endExpr,
         env: callerEnv,
         context: {
@@ -147,7 +148,7 @@ export function tryToCallArrayWithArguments({
   } else {
     // Evaluate the first argument
     const argExpr = argExprs[0]!;
-    const evaluatedArgExpr = context.evaluateExpression({
+    const evaluatedArgExpr = evaluateExpression({
       expr: argExpr,
       env: callerEnv,
       context: {

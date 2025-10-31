@@ -65,6 +65,7 @@ import {
   FunctionCallResult,
 } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { evaluateExpression } from "../exprs/expr";
 import {
   evaluateFunctionParameterTypeAgain,
   evaluateFunctionReturnTypeAgain,
@@ -108,7 +109,7 @@ function generateDeferredDropExpressions({
     );
 
     // Evaluate the dropExpr to ensure it's properly typed and processed
-    const evaluatedDropExpr = context.evaluateExpression({
+    const evaluatedDropExpr = evaluateExpression({
       expr: dropExpr,
       env: finalEnv,
       context: { ...context },
@@ -217,7 +218,7 @@ export function checkIfFunctionParameterMatchesArgument({
   ) {
     // Use the default value
     if (parameter.exprs.defaultValueExpr) {
-      evaluatedArgExpr = context.evaluateExpression({
+      evaluatedArgExpr = evaluateExpression({
         expr: cloneExpr(parameter.exprs.defaultValueExpr),
         env: calleeEnv,
         context: {
@@ -261,7 +262,7 @@ export function checkIfFunctionParameterMatchesArgument({
     }
     // This is normal function call parameter
     else {
-      evaluatedArgExpr = context.evaluateExpression({
+      evaluatedArgExpr = evaluateExpression({
         expr: argExpr,
         env: callerEnv,
         context: {
@@ -593,7 +594,7 @@ export function tryToCallFunctionWithArguments({
       ) {
         // Check if forallParameter has default value
         if (forallParameter.exprs.defaultValueExpr) {
-          const evaluatedArgExpr = context.evaluateExpression({
+          const evaluatedArgExpr = evaluateExpression({
             expr: cloneExpr(forallParameter.exprs.defaultValueExpr),
             env: calleeEnv,
             context: {
@@ -630,7 +631,7 @@ export function tryToCallFunctionWithArguments({
         }
       } else {
         // Evaluate forallArgExpr
-        const evaluatedTypeExpr = context.evaluateExpression({
+        const evaluatedTypeExpr = evaluateExpression({
           expr: forallArgExpr,
           env: callerEnv,
           context: {
@@ -950,7 +951,7 @@ Got:   ${argExprs.length} arguments`,
     // NOTE: Default value is not supported for implicit parameters
     else {
       // Evaluate the given implicit argument
-      const evaluatedImplicitArg = context.evaluateExpression({
+      const evaluatedImplicitArg = evaluateExpression({
         expr: implicitArgExpr,
         env: callerEnv,
         context: {
@@ -1079,7 +1080,7 @@ Got:   ${typeToString(argType)}`,
         });
       } else {
         // Evaluate the argument expression
-        evaluatedArgExpr = context.evaluateExpression({
+        evaluatedArgExpr = evaluateExpression({
           expr: argExpr,
           env: callerEnv,
           context: {

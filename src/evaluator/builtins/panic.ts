@@ -4,6 +4,7 @@ import { FuncCallExpr } from "../../expr";
 import { isComptStringType } from "../../types";
 import { isComptStringValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluatePanic({
   expr,
@@ -29,7 +30,7 @@ export function evaluatePanic({
   // If there's an argument, evaluate it and use as the panic message
   if (expr.args.length > 0) {
     const messageExpr = expr.args[0]!;
-    const evaluatedMessageExpr = context.evaluateExpression({
+    const evaluatedMessageExpr = evaluateExpression({
       expr: messageExpr,
       env,
       context: {

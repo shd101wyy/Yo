@@ -9,6 +9,7 @@ import {
 } from "../../expr";
 import { isModuleValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
 
 export function evaluateModuleValue({
@@ -65,7 +66,7 @@ export function evaluateModuleValue({
     const moduleCallArg = expr.args[1]!;
 
     // Evaluate the receiver type
-    const evaluatedReceiverTypeArg = context.evaluateExpression({
+    const evaluatedReceiverTypeArg = evaluateExpression({
       expr: receiverTypeArg,
       env,
       context: {
@@ -88,7 +89,7 @@ export function evaluateModuleValue({
     const receiverType = evaluatedReceiverTypeArg.$.value.value;
 
     // Evaluate the module call
-    const evaluatedModuleCallArg = context.evaluateExpression({
+    const evaluatedModuleCallArg = evaluateExpression({
       expr: moduleCallArg,
       env,
       context: {

@@ -9,6 +9,7 @@ import {
 import { isFutureType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Evaluates __yo_future_drop builtin function.
@@ -26,7 +27,7 @@ export function evaluateYoFutureDrop({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_future_drop[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -69,7 +70,7 @@ export function evaluateYoFutureDup({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_future_dup[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -132,7 +133,7 @@ export function evaluateAwait({
   const argExpr = expr.args[0]!;
 
   // Evaluate the argument expression
-  const evaluatedArg = context.evaluateExpression({
+  const evaluatedArg = evaluateExpression({
     expr: argExpr,
     env,
     context: { ...context },

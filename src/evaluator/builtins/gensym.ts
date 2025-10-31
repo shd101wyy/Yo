@@ -5,6 +5,7 @@ import { TokenType } from "../../token";
 import { randomId } from "../../utils";
 import { createExprValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Use gensym() to generate a unique symbol.
@@ -33,7 +34,7 @@ export function evaluateGensym({
     }
 
     // evaluate the prefix argument
-    const evaluatedPrefixArg = context.evaluateExpression({
+    const evaluatedPrefixArg = evaluateExpression({
       expr: prefixArg,
       env,
       context: {

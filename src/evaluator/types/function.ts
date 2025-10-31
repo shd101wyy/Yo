@@ -52,6 +52,7 @@ import {
   valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import { addARCFunctionsToClosureType } from "./utils";
 
@@ -215,7 +216,7 @@ export function evaluateFunctionParameter({
     // Evaluate the typeExpr if exists
     if (typeExpr) {
       // Parse the rhs expr which should be a type
-      const evaluatedRhs = context.evaluateExpression({
+      const evaluatedRhs = evaluateExpression({
         expr: typeExpr,
         env,
         context: { ...context },
@@ -253,7 +254,7 @@ export function evaluateFunctionParameter({
 
     // Evaluate the defaultValueExpr if exists
     if (defaultValueExpr) {
-      const evaluatedDefaultValue = context.evaluateExpression({
+      const evaluatedDefaultValue = evaluateExpression({
         expr: defaultValueExpr,
         env,
         context: {
@@ -995,7 +996,7 @@ export function evaluateFunctionType({
   }
 
   // Evaluate the return type expression
-  const evaluatedReturnType = context.evaluateExpression({
+  const evaluatedReturnType = evaluateExpression({
     expr: returnTypeExpr,
     env,
     context: { ...context, isEvaluatingFunctionType: true },
@@ -1156,7 +1157,7 @@ export function evaluateFunctionParameterTypeAgain({
   const typeExpr = parameter.exprs.typeExpr;
   const defaultValueExpr = parameter.exprs.defaultValueExpr;
   if (typeExpr) {
-    const evaluatedTypeExpr = context.evaluateExpression({
+    const evaluatedTypeExpr = evaluateExpression({
       expr: cloneExpr(typeExpr),
       env: calleeEnv,
       context: {
@@ -1216,7 +1217,7 @@ export function evaluateFunctionParameterTypeAgain({
       calleeEnv,
     };
   } else if (defaultValueExpr) {
-    const evaluatedDefaultValueExpr = context.evaluateExpression({
+    const evaluatedDefaultValueExpr = evaluateExpression({
       expr: cloneExpr(defaultValueExpr),
       env: calleeEnv,
       context: {
@@ -1295,7 +1296,7 @@ export function evaluateFunctionReturnTypeAgain({
   if (!functionReturn.expr) {
     return { returnType: functionReturn.type, calleeEnv };
   }
-  const evaluatedFunctionReturnExpr = context.evaluateExpression({
+  const evaluatedFunctionReturnExpr = evaluateExpression({
     expr: cloneExpr(functionReturn.expr),
     env: calleeEnv,
     context: {

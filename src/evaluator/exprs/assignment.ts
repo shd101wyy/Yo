@@ -53,6 +53,7 @@ import {
   TupleValue,
 } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { findBorrowingRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
@@ -95,8 +96,7 @@ export function throwRhsContainsControlFlowExpressionError(
  */
 function resolveUnknownValuesAndSomeTypeInType(
   type: Type,
-  env: Environment,
-  context: EvaluatorContext
+  env: Environment
 ): Type {
   if (isArrayType(type) && isUnknownValue(type.length)) {
     const unknownLength = type.length;
@@ -107,9 +107,7 @@ function resolveUnknownValuesAndSomeTypeInType(
         const variable = variables[variables.length - 1]!;
         if (variable.value && !isUnknownValue(variable.value)) {
           // Create a new array type with the resolved length
-          return createArrayType(type.elementType, variable.value, {
-            ...context,
-          });
+          return createArrayType(type.elementType, variable.value);
         }
       }
     }
@@ -199,7 +197,7 @@ export function evaluateAssignment({
     let variable = variables[variables.length - 1]!;
 
     // Evaluate the rhs expression
-    rhs = context.evaluateExpression({
+    rhs = evaluateExpression({
       expr: rhs,
       env,
       context: {
@@ -320,8 +318,7 @@ export function evaluateAssignment({
             // After synthesis, resolve any unknown values in the variable type
             const resolvedVariableType = resolveUnknownValuesAndSomeTypeInType(
               variable.type,
-              env,
-              { ...context }
+              env
             );
 
             // Update the variable in the environment with the resolved type
@@ -611,7 +608,7 @@ export function evaluateAssignment({
   // - arr(0) = 12;
   else {
     // Evaluate the lhs
-    const evaluatedLhs = context.evaluateExpression({
+    const evaluatedLhs = evaluateExpression({
       expr: lhs,
       env,
       context: {
@@ -656,7 +653,7 @@ export function evaluateAssignment({
     const expectedType = evaluatedLhs.$.type;
 
     // Evaluate the rhs expression
-    rhs = context.evaluateExpression({
+    rhs = evaluateExpression({
       expr: rhs,
       env,
       context: {

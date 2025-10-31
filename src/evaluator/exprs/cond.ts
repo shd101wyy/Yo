@@ -28,6 +28,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
 
 export function evaluateCond({
@@ -92,7 +93,7 @@ export function evaluateCond({
   for (let i = 0; i < parsedStatements.length; i++) {
     const { condExpr, caseBodyExpr, caseEnv } = parsedStatements[i]!;
     // Evaluate condition
-    const evaluatedCondExpr = context.evaluateExpression({
+    const evaluatedCondExpr = evaluateExpression({
       expr: condExpr,
       env: caseEnv,
       context: {

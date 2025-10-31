@@ -12,6 +12,7 @@ import { ExternLanguage, ModuleElement } from "../../types";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { evaluateModuleElementType } from "../types/module";
 
 export function evaluateExtern({
@@ -37,7 +38,7 @@ export function evaluateExtern({
     const langArg = expr.args[0]!;
     args = expr.args.slice(1);
 
-    const evaluatedLang = context.evaluateExpression({
+    const evaluatedLang = evaluateExpression({
       expr: langArg,
       env,
       context: {

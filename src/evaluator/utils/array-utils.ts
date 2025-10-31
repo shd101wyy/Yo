@@ -22,6 +22,7 @@ import {
   valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Helper function to handle Array type fill method calls
@@ -41,7 +42,7 @@ export function evaluateArrayFillMethod({
   context: EvaluatorContext;
 }): { expr: FuncCallExpr; env: Environment } {
   // Evaluate the fill value argument
-  const evaluatedFillValueArg = context.evaluateExpression({
+  const evaluatedFillValueArg = evaluateExpression({
     expr: fillValueArg,
     env,
     context: {

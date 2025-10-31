@@ -19,6 +19,7 @@ import {
   isUnknownValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateArrayType({
   expr,
@@ -45,7 +46,7 @@ Got:\n${exprToString(expr)}`,
     exprIsAtom(lengthExpr) && lengthExpr.token.value === "_";
 
   // Evaluate the element type expression
-  const evaluatedElementTypeExpr = context.evaluateExpression({
+  const evaluatedElementTypeExpr = evaluateExpression({
     expr: elementTypeExpr,
     env,
     context: {
@@ -93,9 +94,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
       },
     });
 
-    const arrayType = createArrayType(elementType, unknownLength, {
-      ...context,
-    });
+    const arrayType = createArrayType(elementType, unknownLength);
     const arrayTypeValue = createTypeValue(arrayType);
 
     expr.$ = {
@@ -108,7 +107,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
   }
 
   // Evaluate the length expression
-  const evaluatedLengthExpr = context.evaluateExpression({
+  const evaluatedLengthExpr = evaluateExpression({
     expr: lengthExpr,
     env,
     context: {
@@ -156,7 +155,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
     lengthValue.type = createUsizeType();
   }
 
-  const arrayType = createArrayType(elementType, lengthValue, { ...context });
+  const arrayType = createArrayType(elementType, lengthValue);
   const arrayTypeValue = createTypeValue(arrayType);
 
   expr.$ = {

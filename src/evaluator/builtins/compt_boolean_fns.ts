@@ -19,6 +19,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoComptBooleanFunctions({
   expr,
@@ -33,7 +34,7 @@ export function evaluateYoComptBooleanFunctions({
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_not) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_to_string)
   ) {
-    const arg = context.evaluateExpression({
+    const arg = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: {
@@ -82,7 +83,7 @@ export function evaluateYoComptBooleanFunctions({
       pathCollection: [],
     };
   } else {
-    const lhs = context.evaluateExpression({
+    const lhs = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: {
@@ -100,7 +101,7 @@ export function evaluateYoComptBooleanFunctions({
     }
     env = lhs.$.env;
 
-    const rhs = context.evaluateExpression({
+    const rhs = evaluateExpression({
       expr: expr.args[1]!,
       env,
       context: {

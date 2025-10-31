@@ -24,6 +24,7 @@ import { randomId } from "../../utils";
 import { isNumberValue, NumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Generate ___dup function for a tuple type that contains ARC values
@@ -131,7 +132,7 @@ export function evaluateDup({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___dup, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -160,7 +161,7 @@ export function evaluateDup({
       const tupleDupExpr = generateExprFromCode(tupleDupCode);
 
       // Evaluate the generated tuple dup expression
-      const evaluatedTupleDupExpr = context.evaluateExpression({
+      const evaluatedTupleDupExpr = evaluateExpression({
         expr: tupleDupExpr,
         env,
         context: { ...context },
@@ -178,7 +179,7 @@ export function evaluateDup({
       const arrayDupExpr = generateExprFromCode(arrayDupCode);
 
       // Evaluate the generated array dup expression
-      const evaluatedArrayDupExpr = context.evaluateExpression({
+      const evaluatedArrayDupExpr = evaluateExpression({
         expr: arrayDupExpr,
         env,
         context: { ...context },

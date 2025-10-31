@@ -5,6 +5,7 @@ import { TypeValue } from "../../type-value";
 import { areTypesCompatible, typeToString } from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Type casting function `as`.
@@ -28,7 +29,7 @@ export function evaluateAs({
   }
 
   // Evaluate the value argument
-  const valueExpr = context.evaluateExpression({
+  const valueExpr = evaluateExpression({
     expr: expr.args[0]!,
     env,
     context: {
@@ -46,7 +47,7 @@ export function evaluateAs({
   }
 
   // Evaluate the type argument
-  const typeExpr = context.evaluateExpression({
+  const typeExpr = evaluateExpression({
     expr: expr.args[1]!,
     env: valueExpr.$.env,
     context: {

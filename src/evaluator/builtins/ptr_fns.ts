@@ -10,6 +10,7 @@ import {
 import { createMutPtrType, isMutPtrType } from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Evaluate a address call
@@ -40,7 +41,7 @@ export function evaluateAddressCall({
     };
   }
 
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -72,9 +73,7 @@ export function evaluateAddressCall({
   // Create pointer value
   else {
     const argType = evaluatedArgExpr.$.type;
-    const pointerType = createMutPtrType(argType, {
-      ...context,
-    });
+    const pointerType = createMutPtrType(argType);
 
     expr.$ = {
       env,

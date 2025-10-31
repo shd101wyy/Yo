@@ -17,6 +17,7 @@ import {
 } from "../../types";
 import { Value } from "../../value";
 import { EvaluatorContext, TypeCallResult } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * This is for calling struct/enum/union types with arguments
@@ -112,7 +113,7 @@ ${tupleElementToString(paramElement_)}`,
     const memberElementPositionIndex = memberElements.indexOf(memberElement);
 
     // Evaluate the argExpr
-    const evaluatedArgExpr = context.evaluateExpression({
+    const evaluatedArgExpr = evaluateExpression({
       expr: argExpr,
       env: callerEnv,
       context: {

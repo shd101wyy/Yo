@@ -4,6 +4,7 @@ import { exprToString, FuncCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { isComptStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Expect having compile error
@@ -22,7 +23,7 @@ export function evaluateComptExpectError({
 
   try {
     // Evaluate the expression
-    context.evaluateExpression({
+    evaluateExpression({
       expr: argExpr,
       env,
       context: {
@@ -41,7 +42,7 @@ export function evaluateComptExpectError({
   }
 
   if (messageExpr) {
-    const evaluatedMessageExpr = context.evaluateExpression({
+    const evaluatedMessageExpr = evaluateExpression({
       expr: messageExpr,
       env,
       context: {

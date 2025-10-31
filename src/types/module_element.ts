@@ -1,22 +1,21 @@
-import { EvaluatorContext } from "../evaluator/context";
+import { evaluateExpression } from "../evaluator/exprs/expr";
 import { generateExprFromCode } from "../parser";
 import { ModuleElement, ModuleType } from "./definitions";
 
 export function addModuleElementsByCode(
   module: ModuleType,
-  context: EvaluatorContext,
   elements: Record<string, string>
 ) {
   const selfType = module.receiverType;
   for (const label in elements) {
     const argCode = elements[label]!;
     const argExpr = generateExprFromCode(argCode);
-    const evaluatedArgCode = context.evaluateExpression({
+    const evaluatedArgCode = evaluateExpression({
       expr: argExpr,
       env: module.env,
       context: {
-        ...context,
         SelfType: selfType,
+        stdPath: "",
       },
     });
     if (!evaluatedArgCode.$ || !evaluatedArgCode.$.value) {

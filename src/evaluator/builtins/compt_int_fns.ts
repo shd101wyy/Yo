@@ -23,6 +23,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoComptIntFunctions({
   expr,
@@ -38,7 +39,7 @@ export function evaluateYoComptIntFunctions({
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_float) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_int_to_string)
   ) {
-    const arg = context.evaluateExpression({
+    const arg = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: {
@@ -98,7 +99,7 @@ export function evaluateYoComptIntFunctions({
       pathCollection: [],
     };
   } else {
-    const lhs = context.evaluateExpression({
+    const lhs = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: {
@@ -116,7 +117,7 @@ export function evaluateYoComptIntFunctions({
     }
     env = lhs.$.env;
 
-    const rhs = context.evaluateExpression({
+    const rhs = evaluateExpression({
       expr: expr.args[1]!,
       env,
       context: {

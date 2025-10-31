@@ -1,5 +1,4 @@
 import { createEmptyEnv, Environment, Frame } from "../env";
-import { EvaluatorContext } from "../evaluator/context";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
 import { isNumberValue, Value, valueToString } from "../value";
@@ -308,6 +307,17 @@ export function createI32Type(): Type {
   module.receiverType = type;
 
   cachedI32Type = type;
+
+  addModuleElementsByCode(module, {
+    Add: `{
+    ${BuiltinModules.Add}
+    extern "Yo", __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, Add(Self)
+      (+): ((a, b) -> __yo_op_add(a, b))
+    )
+  }`,
+  });
+
   return type;
 }
 
@@ -399,7 +409,6 @@ export function createUnitType(): Type {
 
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
-
   const type: Type = {
     id: TypeTag.Unit,
     tag: TypeTag.Unit,
@@ -633,11 +642,7 @@ export function createType0(baseType?: Type): TypeHierarchyType {
   return type;
 }
 
-export function createArrayType(
-  elementType: Type,
-  length: Value,
-  context: EvaluatorContext
-): ArrayType {
+export function createArrayType(elementType: Type, length: Value): ArrayType {
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
 
@@ -651,15 +656,11 @@ export function createArrayType(
 
   module.receiverType = arrayType;
 
-  addModuleElementsByCode(
-    module,
-    { ...context },
-    {
-      length: isNumberValue(length)
-        ? `__yo_compt_int_as(${length.value.toString()}, usize)`
-        : "__yo_compt_int_as(0, usize)",
-    }
-  );
+  addModuleElementsByCode(module, {
+    length: isNumberValue(length)
+      ? `__yo_compt_int_as(${length.value.toString()}, usize)`
+      : "__yo_compt_int_as(0, usize)",
+  });
 
   return arrayType;
 }
@@ -829,10 +830,7 @@ export function createFunctionType({
 }
 
 const ptrCache: Map<Type, MutPtrType> = new Map();
-export function createMutPtrType(
-  type: Type,
-  context: EvaluatorContext
-): MutPtrType {
+export function createMutPtrType(type: Type): MutPtrType {
   // Check cache
   if (ptrCache.has(type)) {
     return ptrCache.get(type)!;
@@ -852,11 +850,8 @@ export function createMutPtrType(
   ptrCache.set(type, ptrType);
 
   // Add
-  addModuleElementsByCode(
-    module,
-    { ...context },
-    {
-      Add: `{
+  addModuleElementsByCode(module, {
+    Add: `{
   ${BuiltinModules.Add}
   extern "Yo", 
     __yo_ptr_add :
@@ -866,7 +861,7 @@ export function createMutPtrType(
     (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
   ))
 }`,
-      Sub: `{
+    Sub: `{
   ${BuiltinModules.Sub}
   extern "Yo", 
     __yo_ptr_sub :
@@ -876,8 +871,7 @@ export function createMutPtrType(
     (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
   ))
 }`,
-    }
-  );
+  });
 
   return ptrType;
 }

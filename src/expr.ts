@@ -8,6 +8,7 @@ import {
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
+import { evaluateExpression } from "./evaluator/exprs/expr";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
@@ -1774,7 +1775,7 @@ export function setExprAsNeedsToCallDup(
       isInfix: false,
       $: undefined,
     };
-    const evaluatedDupCallExpr = context.evaluateExpression({
+    const evaluatedDupCallExpr = evaluateExpression({
       expr: dupCallExpr,
       env: expr.$.env,
 

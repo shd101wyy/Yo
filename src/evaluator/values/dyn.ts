@@ -25,6 +25,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateDynValue({
   expr,
@@ -48,7 +49,7 @@ export function evaluateDynValue({
   const moduleExpr = expr.args[1]; // Optional - can be undefined for automatic inference
 
   // Evaluate the value expression
-  const evaluatedValueExpr = context.evaluateExpression({
+  const evaluatedValueExpr = evaluateExpression({
     expr: valueExpr,
     env,
     context: {
@@ -100,7 +101,7 @@ export function evaluateDynValue({
 
     // Process each module expression
     for (const singleModuleExpr of moduleExprs) {
-      const evaluatedModuleExpr = context.evaluateExpression({
+      const evaluatedModuleExpr = evaluateExpression({
         expr: singleModuleExpr,
         env,
         context: {

@@ -492,9 +492,7 @@ export function convertComptTypeToRuntimeType({
 
     if (!convertedType) {
       // Default: Convert the compt_string to *([u8])
-      convertedType = createMutPtrType(createSliceType(createU8Type()), {
-        ...context,
-      });
+      convertedType = createMutPtrType(createSliceType(createU8Type()));
     }
   } else {
     // No change

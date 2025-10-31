@@ -19,6 +19,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { evaluateElementType } from "../types/element";
 import { addARCFunctionsToStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
@@ -126,7 +127,7 @@ export function evaluateAnonymousStructValue({
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
       const extendedStructExpr = arg.args[0]!;
       // Evaluate the extended struct expression
-      const evaluatedExtendedStruct = context.evaluateExpression({
+      const evaluatedExtendedStruct = evaluateExpression({
         expr: extendedStructExpr,
         env,
         context: {
@@ -191,7 +192,7 @@ export function evaluateAnonymousStructValue({
     else
     */
     {
-      const evaluatedArg = context.evaluateExpression({
+      const evaluatedArg = evaluateExpression({
         expr: valueExpr,
         env,
         context: {

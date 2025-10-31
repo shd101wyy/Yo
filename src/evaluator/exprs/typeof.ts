@@ -8,6 +8,7 @@ import {
 } from "../../expr";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateTypeOf({
   expr,
@@ -27,7 +28,7 @@ export function evaluateTypeOf({
   const typeExpr = expr.args[0]!;
 
   // Evaluate the expression
-  const evaluatedExpr = context.evaluateExpression({
+  const evaluatedExpr = evaluateExpression({
     expr: typeExpr,
     env,
     context: {

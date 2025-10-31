@@ -18,6 +18,7 @@ import {
 import { createArrayValue, createNumberValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateArrayValue({
   expr,
@@ -50,7 +51,7 @@ export function evaluateArrayValue({
   const runtimeArgExprsInOrder: Expr[] = [];
   for (let i = 0; i < arrayElementExprs.length; i++) {
     const arrayElementExpr = arrayElementExprs[i]!;
-    const evaluatedElement = context.evaluateExpression({
+    const evaluatedElement = evaluateExpression({
       expr: arrayElementExpr,
       env,
       context: {
@@ -128,8 +129,7 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
 
   const arrayType = createArrayType(
     arrayElementType!,
-    createNumberValue(ValueTag.Usize, arrayLength),
-    { ...context }
+    createNumberValue(ValueTag.Usize, arrayLength)
   );
 
   const arrayValue = arrayElementValues.every((val) => !!val)

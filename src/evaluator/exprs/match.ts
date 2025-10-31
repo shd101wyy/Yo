@@ -29,6 +29,7 @@ import {
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isEnumValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
 
 /**
@@ -69,7 +70,7 @@ export function evaluateMatch({
 
   // Evaluate any expression as scrutinee, not just atoms
 
-  const evaluatedScrutineeExpr = context.evaluateExpression({
+  const evaluatedScrutineeExpr = evaluateExpression({
     expr: scrutineeExpr,
     env,
     context: {
@@ -234,7 +235,7 @@ export function evaluateMatch({
       let variableType: EnumType | MutPtrType = newEnumType;
       if (ptrOrRefType) {
         if (ptrOrRefType === TypeTag.MutPtr) {
-          variableType = createMutPtrType(newEnumType, { ...context });
+          variableType = createMutPtrType(newEnumType);
         }
       }
 
@@ -472,7 +473,7 @@ export function evaluateMatch({
       let variableType: EnumType | MutPtrType = newEnumType;
       if (ptrOrRefType) {
         if (ptrOrRefType === TypeTag.MutPtr) {
-          variableType = createMutPtrType(newEnumType, { ...context });
+          variableType = createMutPtrType(newEnumType);
         }
       }
 

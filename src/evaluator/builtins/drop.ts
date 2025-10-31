@@ -21,6 +21,7 @@ import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Generate ___drop function for a tuple type that contains ARC values
@@ -123,7 +124,7 @@ export function evaluateDrop({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___drop, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -158,7 +159,7 @@ export function evaluateDrop({
         env = setExprAsConsumed(evaluatedArgExpr, env, context);
 
         // Evaluate the generated tuple drop expression
-        const evaluatedTupleDropExpr = context.evaluateExpression({
+        const evaluatedTupleDropExpr = evaluateExpression({
           expr: tupleDropExpr,
           env,
           context: { ...context },
@@ -194,7 +195,7 @@ export function evaluateDrop({
         env = setExprAsConsumed(evaluatedArgExpr, env, context);
 
         // Evaluate the generated array drop expression
-        const evaluatedArrayDropExpr = context.evaluateExpression({
+        const evaluatedArrayDropExpr = evaluateExpression({
           expr: arrayDropExpr,
           env,
           context: { ...context },

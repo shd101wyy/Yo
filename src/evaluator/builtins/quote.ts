@@ -20,6 +20,7 @@ import {
   valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function processUnquotesInExpr({
   expr,
@@ -44,7 +45,7 @@ export function processUnquotesInExpr({
     ) {
       // If the function is `unquote`, we need to evaluate the first argument
       const arg = args[0]!;
-      const evaluatedArg = context.evaluateExpression({
+      const evaluatedArg = evaluateExpression({
         expr: arg,
         env,
         context: {
@@ -104,7 +105,7 @@ export function processUnquotesInExpr({
             });
           }
           const unquoteSplicingArg = arg.args[0]!;
-          const evaluatedUnquoteSplicingArg = context.evaluateExpression({
+          const evaluatedUnquoteSplicingArg = evaluateExpression({
             expr: unquoteSplicingArg,
             env,
             context: {

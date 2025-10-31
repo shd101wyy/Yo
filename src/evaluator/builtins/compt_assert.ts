@@ -4,6 +4,7 @@ import { exprToString, FuncCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue, isComptStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateComptAssert({
   expr,
@@ -29,7 +30,7 @@ export function evaluateComptAssert({
   const messageExpr = expr.args[1];
 
   // Evaluate the expression
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -55,7 +56,7 @@ export function evaluateComptAssert({
     return expr;
   } else {
     if (messageExpr) {
-      const evaluatedMessageExpr = context.evaluateExpression({
+      const evaluatedMessageExpr = evaluateExpression({
         expr: messageExpr,
         env,
         context: {

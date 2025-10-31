@@ -10,6 +10,7 @@ import {
 import { createExprValue, isComptIntValue, isExprValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { processUnquotesInExpr } from "./quote";
 
 /**
@@ -42,7 +43,7 @@ export function evaluateMacroExpand({
   }
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -69,7 +70,7 @@ export function evaluateMacroExpand({
   let maxExpansionLevel: number | null = null;
   if (expr.args.length === 2) {
     const levelArgExpr = expr.args[1]!;
-    const evaluatedLevelArgExpr = context.evaluateExpression({
+    const evaluatedLevelArgExpr = evaluateExpression({
       expr: levelArgExpr,
       env,
       context: {

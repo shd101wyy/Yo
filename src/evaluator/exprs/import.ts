@@ -10,6 +10,7 @@ import {
 } from "../../expr";
 import { isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  *
@@ -37,7 +38,7 @@ export function evaluateImport({
   const moduleArg = expr.args[0]!;
   // TODO: Support comptime string
   // Evaluate the moduleArg
-  const evaluatedModuleArg = context.evaluateExpression({
+  const evaluatedModuleArg = evaluateExpression({
     expr: moduleArg,
     env,
     context: {
@@ -117,6 +118,12 @@ ${modulePathToImport}`,
     throw new Error("Only .yo file is supported for now");
   }
   */
+  if (!context.loadModule) {
+    throw formatErrorMessage({
+      token: moduleArg.token,
+      errorMessage: `Module loader is not provided in the context.`,
+    });
+  }
 
   try {
     // Load the module

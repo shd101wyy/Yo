@@ -22,6 +22,7 @@ import {
   valueToString,
 } from "../../value";
 import { EvaluatorContext, ModuleTypeCallResult } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { resolveImplicitValue } from "./implicit_resolver";
 
 export function tryToImplementModuleWithArgumentsByModuleType({
@@ -149,7 +150,7 @@ ${valueToString(moduleElement.assignedValue)}`,
         const typeExpr = moduleElement.exprs.typeExpr;
         const defaultValueExpr = moduleElement.exprs.defaultValueExpr;
         if (typeExpr) {
-          const evaluatedModuleMember = context.evaluateExpression({
+          const evaluatedModuleMember = evaluateExpression({
             expr: cloneExpr(typeExpr),
             env: pushEnvFrame(
               moduleType.env,
@@ -171,7 +172,7 @@ ${valueToString(moduleElement.assignedValue)}`,
           }
           moduleElementType = evaluatedModuleMemberTypeValue.value;
         } else if (defaultValueExpr) {
-          const evaluatedValueExpr = context.evaluateExpression({
+          const evaluatedValueExpr = evaluateExpression({
             expr: cloneExpr(defaultValueExpr),
             env: pushEnvFrame(
               moduleType.env,
@@ -200,7 +201,7 @@ ${valueToString(moduleElement.assignedValue)}`,
         }
 
         // evaluate the argExpr
-        const evaluatedArgExpr = context.evaluateExpression({
+        const evaluatedArgExpr = evaluateExpression({
           expr: argExpr,
           env: callerEnv,
           context: {
@@ -290,7 +291,7 @@ Got:   ${typeToString(argType)}`,
           let implicitConstraintType = moduleElement.type;
           const typeExpr = moduleElement.exprs.typeExpr;
           if (typeExpr) {
-            const evaluatedTypeExpr = context.evaluateExpression({
+            const evaluatedTypeExpr = evaluateExpression({
               expr: cloneExpr(typeExpr),
               env: pushEnvFrame(
                 moduleType.env,

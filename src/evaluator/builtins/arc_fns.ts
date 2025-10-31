@@ -10,6 +10,7 @@ import {
 import { createBooleanType } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Just evaluates the argument and returns unit.
@@ -26,7 +27,7 @@ export function evaluateYoDecrRc({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_decr_rc[0]!], 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -68,7 +69,7 @@ export function evaluateYoIncrRc({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_incr_rc[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -107,7 +108,7 @@ export function evaluateIsUniquelyOwned({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.is_uniquely_owned, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -151,7 +152,7 @@ export function evaluateYoRcOwn({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_rc_own[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -197,7 +198,7 @@ export function evaluateYoDynVtableDrop({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_dyn_drop[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -240,7 +241,7 @@ export function evaluateYoDynVtableDup({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_dyn_dup[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -283,7 +284,7 @@ export function evaluateYoClosureDrop({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_closure_drop[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -326,7 +327,7 @@ export function evaluateYoClosureDup({
   expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_closure_dup[0]!]);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {

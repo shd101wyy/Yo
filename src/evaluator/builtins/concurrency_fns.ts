@@ -14,6 +14,7 @@ import {
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToFutureType } from "../types/utils";
 import {
   createCaptureTypeAndValue,
@@ -83,7 +84,7 @@ export function evaluateAsync({
   // 1. Allow `await` expressions
   // 2. Infer the return type T
   // 3. Collect captured variables (via context.capturedVariables)
-  const evaluatedBody = context.evaluateExpression({
+  const evaluatedBody = evaluateExpression({
     expr: bodyExpr,
     env,
     context: {
@@ -207,7 +208,7 @@ export function evaluateTaskSetMaximumThreads({
   const argExpr = expr.args[0]!;
 
   // Evaluate the argument expression
-  const evaluatedExpr = context.evaluateExpression({
+  const evaluatedExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: { ...context },

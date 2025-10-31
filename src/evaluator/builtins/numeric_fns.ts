@@ -51,6 +51,7 @@ import {
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 // Helper function to extract numeric value from a Value
 function extractNumericValue(value?: Value): number | null {
@@ -285,7 +286,7 @@ export function evaluateYoNumericFunctions({
 
   // Handle unary operations
   if (operation === "neg" || operation === "to_string") {
-    const arg = context.evaluateExpression({
+    const arg = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: { ...context },
@@ -337,7 +338,7 @@ export function evaluateYoNumericFunctions({
 
   // Handle type conversion 'as' operation
   if (operation === "as") {
-    const valueArg = context.evaluateExpression({
+    const valueArg = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: { ...context },
@@ -354,7 +355,7 @@ export function evaluateYoNumericFunctions({
 
     // The second argument should be a type atom (e.g., i32, f64, etc.)
     const targetTypeArg = expr.args[1]!;
-    const evaluatedTargetTypeArg = context.evaluateExpression({
+    const evaluatedTargetTypeArg = evaluateExpression({
       expr: targetTypeArg,
       env,
       context: { ...context },
@@ -420,7 +421,7 @@ export function evaluateYoNumericFunctions({
   }
 
   // Handle binary operations
-  const lhs = context.evaluateExpression({
+  const lhs = evaluateExpression({
     expr: expr.args[0]!,
     env,
     context: { ...context },
@@ -435,7 +436,7 @@ export function evaluateYoNumericFunctions({
 
   env = lhs.$.env;
 
-  const rhs = context.evaluateExpression({
+  const rhs = evaluateExpression({
     expr: expr.args[1]!,
     env,
     context: { ...context },

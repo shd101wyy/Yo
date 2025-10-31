@@ -50,6 +50,7 @@ import {
   getModuleTypeCallResult,
   getTypeCallResult,
 } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import {
   evaluateArrayFillMethod,
   isArrayTypeFillMethodCall,
@@ -91,7 +92,7 @@ export function evaluateFunctionCall({
     functions = [givenFunc];
   } else {
     if (exprIsFunctionCall(func)) {
-      const functionToCall = context.evaluateExpression({
+      const functionToCall = evaluateExpression({
         expr: func,
         env,
         context: {
@@ -166,7 +167,7 @@ export function evaluateFunctionCall({
           } else {
             // 1.(Add.add)(3);
             // Try to evaluate the methodExpr
-            const nextExpr = context.evaluateExpression({
+            const nextExpr = evaluateExpression({
               expr: methodExpr,
               env,
               context: {
@@ -258,7 +259,7 @@ export function evaluateFunctionCall({
           });
         }
         // Evaluate the first argument to get its type
-        const evaluatedFirstArg = context.evaluateExpression({
+        const evaluatedFirstArg = evaluateExpression({
           expr: firstArg,
           env,
           context: {
@@ -298,7 +299,7 @@ export function evaluateFunctionCall({
       }
       // Normal function call
       else {
-        const functionToCall = context.evaluateExpression({
+        const functionToCall = evaluateExpression({
           expr: func,
           env,
           context: {
@@ -857,7 +858,7 @@ ${functionsWithMatchingTypes
       // if yes, then we continue to evaluate the returnValue which should be an Expr value.
       if (functionType.return.isUnquote) {
         if (isExprValue(returnValue)) {
-          const expandedExpr = context.evaluateExpression({
+          const expandedExpr = evaluateExpression({
             expr: returnValue.value,
             env,
             context: {
@@ -938,7 +939,7 @@ ${functionsWithMatchingTypes
     // if yes, then we continue to evaluate the returnValue which should be an Expr value.
     if (closureType.callType.return.isUnquote) {
       if (isExprValue(returnValue)) {
-        const expandedExpr = context.evaluateExpression({
+        const expandedExpr = evaluateExpression({
           expr: returnValue.value,
           env,
           context: {

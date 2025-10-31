@@ -22,6 +22,7 @@ import {
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoExprListCar({
   expr,
@@ -35,7 +36,7 @@ export function evaluateYoExprListCar({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_car, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -103,7 +104,7 @@ export function evaluateYoExprListCdr({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_cdr, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {
@@ -170,7 +171,7 @@ export function evaluateYoExprListCons({
 }): FuncCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_cons, 2);
 
-  const carArg = context.evaluateExpression({
+  const carArg = evaluateExpression({
     expr: expr.args[0]!,
     env,
     context: {
@@ -206,7 +207,7 @@ export function evaluateYoExprListCons({
     });
   }
 
-  const cdrArg = context.evaluateExpression({
+  const cdrArg = evaluateExpression({
     expr: expr.args[1]!,
     env,
     context: {
@@ -274,7 +275,7 @@ export function evaluateYoExprListAppend({
 }): FuncCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_append, 2);
 
-  const firstListArg = context.evaluateExpression({
+  const firstListArg = evaluateExpression({
     expr: expr.args[0]!,
     env,
     context: {
@@ -310,7 +311,7 @@ export function evaluateYoExprListAppend({
     });
   }
 
-  const secondListArg = context.evaluateExpression({
+  const secondListArg = evaluateExpression({
     expr: expr.args[1]!,
     env,
     context: {
@@ -382,7 +383,7 @@ export function evaluateYoExprListLength({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_length, 1);
 
   const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {

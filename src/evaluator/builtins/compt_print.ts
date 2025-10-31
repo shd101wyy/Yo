@@ -4,6 +4,7 @@ import { exprToString, FuncCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { isComptStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateComptPrint({
   expr,
@@ -26,7 +27,7 @@ export function evaluateComptPrint({
 
   // Evaluate all arguments
   for (const argExpr of expr.args) {
-    const evaluatedArgExpr = context.evaluateExpression({
+    const evaluatedArgExpr = evaluateExpression({
       expr: argExpr,
       env,
       context: {

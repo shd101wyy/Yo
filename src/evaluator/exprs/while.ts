@@ -5,6 +5,7 @@ import { isBooleanType, isUnitType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
 
 /**
@@ -44,7 +45,7 @@ export function evaluateWhile({
   }
 
   // Evaluate the condition expression
-  const evaluatedConditionExpr = context.evaluateExpression({
+  const evaluatedConditionExpr = evaluateExpression({
     expr: conditionExpr,
     env,
     context: {
@@ -134,7 +135,7 @@ export function evaluateWhile({
         // Execute step expression if provided before continuing
         let updatedEnv = evaluatedBodyExpr.$.env;
         if (stepExpr) {
-          const evaluatedStepExpr = context.evaluateExpression({
+          const evaluatedStepExpr = evaluateExpression({
             expr: stepExpr,
             env: updatedEnv,
             context: {
@@ -191,7 +192,7 @@ export function evaluateWhile({
 
     // Execute step expression if provided (3-argument form)
     if (stepExpr) {
-      const evaluatedStepExpr = context.evaluateExpression({
+      const evaluatedStepExpr = evaluateExpression({
         expr: stepExpr,
         env,
         context: {

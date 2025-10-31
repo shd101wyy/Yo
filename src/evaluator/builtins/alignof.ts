@@ -15,6 +15,7 @@ import {
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateAlignOf({
   expr,
@@ -29,7 +30,7 @@ export function evaluateAlignOf({
 
   const typeExpr = expr.args[0]!;
   // Evaluate the expression
-  const evaluatedExpr = context.evaluateExpression({
+  const evaluatedExpr = evaluateExpression({
     expr: typeExpr,
     env,
     context: {

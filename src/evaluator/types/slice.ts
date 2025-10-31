@@ -9,6 +9,7 @@ import {
 import { createSliceType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateSliceType({
   expr,
@@ -24,7 +25,7 @@ export function evaluateSliceType({
   const elementTypeExpr = expr.args[0]!;
 
   // Evaluate the element type expression
-  const evaluatedElementTypeExpr = context.evaluateExpression({
+  const evaluatedElementTypeExpr = evaluateExpression({
     expr: elementTypeExpr,
     env,
     context: {

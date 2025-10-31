@@ -37,6 +37,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 export function evaluatePropertyAccess({
@@ -140,7 +141,7 @@ export function evaluatePropertyAccess({
   const propertyExpr = expr.args[1]!;
 
   // Evaluate object
-  objectExpr = context.evaluateExpression({
+  objectExpr = evaluateExpression({
     expr: objectExpr,
     env,
     context: { ...context },

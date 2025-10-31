@@ -10,6 +10,7 @@ import { isStructType } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isModuleValue, isStructValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  *
@@ -34,7 +35,7 @@ export function evaluateOpen({
   }
 
   // Evaluate the module
-  const evaluatedArgExpr = context.evaluateExpression({
+  const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
     context: {

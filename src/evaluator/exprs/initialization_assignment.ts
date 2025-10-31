@@ -23,6 +23,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { findBorrowingRelationship, isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
@@ -79,7 +80,7 @@ export function evaluateInitializationAssignment({
   }
 
   // Evaluate the rhs expression
-  rhs = context.evaluateExpression({
+  rhs = evaluateExpression({
     expr: rhs,
     env,
     context: {

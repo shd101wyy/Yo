@@ -16,6 +16,7 @@ import {
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToDynType } from "./utils";
 
 export function evaluateDynType({
@@ -33,7 +34,7 @@ export function evaluateDynType({
 
   for (let i = 0; i < moduleExprs.length; i++) {
     const moduleExpr = moduleExprs[i]!;
-    const evaluatedModule = context.evaluateExpression({
+    const evaluatedModule = evaluateExpression({
       expr: moduleExpr,
       env,
       context: {
@@ -123,7 +124,7 @@ module(
 )
 `);
   /// evaluate the wrappedObjectARCModuleTypeExpr
-  const evaluatedWrappedObjectARCModuleTypeExpr = context.evaluateExpression({
+  const evaluatedWrappedObjectARCModuleTypeExpr = evaluateExpression({
     expr: wrappedObjectARCModuleTypeExpr,
     env,
     context: {

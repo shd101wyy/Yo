@@ -23,6 +23,7 @@ import {
   Value,
 } from "../../value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToStructType } from "../types/utils";
 
 /**
@@ -337,7 +338,7 @@ export function generateCapturedVariableDupExpressions({
         );
 
         // Evaluate the dupExpr to ensure it's properly typed and processed
-        const evaluatedDupExpr = context.evaluateExpression({
+        const evaluatedDupExpr = evaluateExpression({
           expr: dupExpr,
           env: finalEnv,
           context: { ...context },

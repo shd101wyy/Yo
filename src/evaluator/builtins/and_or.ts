@@ -15,6 +15,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateAndOr({
   expr,
@@ -52,7 +53,7 @@ export function evaluateAndOr({
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
-    const evaluatedArg = context.evaluateExpression({
+    const evaluatedArg = evaluateExpression({
       expr: arg,
       env: currentEnv,
       context: {

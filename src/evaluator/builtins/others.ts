@@ -11,6 +11,7 @@ import { generateExprFromCode } from "../../parser";
 import { BuiltinModules } from "../../types/builtin_modules";
 import { isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoEvalBuiltinModule({
   expr,
@@ -27,7 +28,7 @@ export function evaluateYoEvalBuiltinModule({
     1
   );
 
-  const argExpr = context.evaluateExpression({
+  const argExpr = evaluateExpression({
     expr: expr.args[0]!,
     env,
     context: {
@@ -53,7 +54,7 @@ export function evaluateYoEvalBuiltinModule({
   }
 
   // Evaluate the builtin module code
-  return context.evaluateExpression({
+  return evaluateExpression({
     expr: generateExprFromCode(builtinModule.trim().replace(/;$/, "")),
     env,
     context: {

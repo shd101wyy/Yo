@@ -11,6 +11,7 @@ import {
   valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateExprListValue({
   expr,
@@ -25,7 +26,7 @@ export function evaluateExprListValue({
   const args = expr.args;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    const evaluatedArg = context.evaluateExpression({
+    const evaluatedArg = evaluateExpression({
       expr: arg,
       env,
       context: {

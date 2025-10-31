@@ -34,6 +34,7 @@ import { Token } from "../../token";
 import { areTypesCompatible, isClosureType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
 
 /**
@@ -72,7 +73,7 @@ function generateDeferredDropExpressions({
     );
 
     // Evaluate the dropExpr to ensure it's properly typed and processed
-    const evaluatedDropExpr = context.evaluateExpression({
+    const evaluatedDropExpr = evaluateExpression({
       expr: dropExpr,
       env: finalEnv,
       context: { ...context },
@@ -371,7 +372,7 @@ export function evaluateBeginExpression({
         expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
         const returnArg = exprToEvaluate.args[0]!;
 
-        const evaluatedReturnArgExpr = context.evaluateExpression({
+        const evaluatedReturnArgExpr = evaluateExpression({
           expr: returnArg,
           env,
           context: {
@@ -489,7 +490,7 @@ export function evaluateBeginExpression({
     }
     // Normal expression evaluation
     else {
-      const evaluatedExpr = context.evaluateExpression({
+      const evaluatedExpr = evaluateExpression({
         expr: exprToEvaluate,
         env,
         context: {

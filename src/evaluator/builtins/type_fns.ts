@@ -20,6 +20,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoTypeToString({
   expr,
@@ -32,7 +33,7 @@ export function evaluateYoTypeToString({
 }): FuncCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_string, 1);
 
-  const arg = context.evaluateExpression({
+  const arg = evaluateExpression({
     expr: expr.args[0]!,
     env,
     context: {
@@ -95,7 +96,7 @@ export function evaluateYoAreTypesCompatible({
   const expectedTypeArg = args[0]!;
   const givenTypeArg = args[1]!;
 
-  const evaluatedExpectedTypeArg = context.evaluateExpression({
+  const evaluatedExpectedTypeArg = evaluateExpression({
     expr: expectedTypeArg,
     env,
     context: {
@@ -113,7 +114,7 @@ export function evaluateYoAreTypesCompatible({
   const expectedType = evaluatedExpectedTypeArg.$.value.value;
   env = evaluatedExpectedTypeArg.$.env;
 
-  const evaluatedGivenTypeArg = context.evaluateExpression({
+  const evaluatedGivenTypeArg = evaluateExpression({
     expr: givenTypeArg,
     env,
     context: {
@@ -163,7 +164,7 @@ export function evaluateYoTypeContainsArcType({
     1
   );
 
-  const arg = context.evaluateExpression({
+  const arg = evaluateExpression({
     expr: expr.args[0]!,
     env,
     context: {

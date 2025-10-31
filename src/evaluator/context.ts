@@ -18,6 +18,11 @@ export interface FunctionEvaluationContext {
   evaluationEnv: Environment;
 }
 
+export type LoadModuleFn = (modulePath: string) => {
+  moduleValue: ModuleValue;
+  moduleError: Error | undefined;
+};
+
 export interface AsyncBlockEvaluationContext {
   kind: "async-block";
   evaluationEnv: Environment;
@@ -101,12 +106,20 @@ export interface EvaluatorContext {
    */
   isEvaluatingFunctionType?: boolean;
 
-  evaluateExpression: EvaluateExpression;
-
-  loadModule: (modulePath: string) => {
+  /**
+   * The function to load modules.
+   * @param modulePath
+   * @returns
+   */
+  loadModule?: (modulePath: string) => {
     moduleValue: ModuleValue;
     moduleError: Error | undefined;
   };
+
+  /**
+   * The path of the standard library modules.
+   */
+  stdPath: string;
 
   /**
    * Whether the function type being evaluated is marked as unsafe.

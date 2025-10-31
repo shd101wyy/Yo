@@ -23,6 +23,7 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoComptStringFunctions({
   expr,
@@ -38,7 +39,7 @@ export function evaluateYoComptStringFunctions({
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_to_upper) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_to_lower)
   ) {
-    const arg = context.evaluateExpression({
+    const arg = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: {
@@ -110,7 +111,7 @@ export function evaluateYoComptStringFunctions({
     }
 
     // Evaluate the string argument
-    const stringArg = context.evaluateExpression({
+    const stringArg = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: {
@@ -133,7 +134,7 @@ export function evaluateYoComptStringFunctions({
     env = stringArg.$.env;
 
     // Evaluate the start argument
-    const startArg = context.evaluateExpression({
+    const startArg = evaluateExpression({
       expr: expr.args[1]!,
       env,
       context: {
@@ -154,7 +155,7 @@ export function evaluateYoComptStringFunctions({
     let endArg: typeof startArg | undefined = undefined;
     // Evaluate the end argument if provided
     if (expr.args.length === 3) {
-      endArg = context.evaluateExpression({
+      endArg = evaluateExpression({
         expr: expr.args[2]!,
         env,
         context: {
@@ -205,7 +206,7 @@ export function evaluateYoComptStringFunctions({
       pathCollection: [],
     };
   } else {
-    const lhs = context.evaluateExpression({
+    const lhs = evaluateExpression({
       expr: expr.args[0]!,
       env,
       context: {
@@ -223,7 +224,7 @@ export function evaluateYoComptStringFunctions({
     }
     env = lhs.$.env;
 
-    const rhs = context.evaluateExpression({
+    const rhs = evaluateExpression({
       expr: expr.args[1]!,
       env,
       context: {

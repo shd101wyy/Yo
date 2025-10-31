@@ -21,6 +21,7 @@ import {
 } from "../../types";
 import { isFunctionValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Helper function to parse and evaluate a Yo code string in the context of a SelfType
@@ -34,7 +35,7 @@ function parseAndEvaluateExprCode(
   const expr = generateExprFromCode(code);
 
   // Evaluate the expression with the struct as the SelfType
-  const evaluatedExpr = context.evaluateExpression({
+  const evaluatedExpr = evaluateExpression({
     expr,
     env,
     context: {

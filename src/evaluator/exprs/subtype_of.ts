@@ -4,6 +4,7 @@ import { expectExprToBeFunctionCallOf, FuncCallExpr } from "../../expr";
 import { isModuleType, ModuleType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 
 /*
 
@@ -32,7 +33,7 @@ export function evaluateSubtypeOf({
   const rhsExpr = expr.args[1]!;
 
   // Evaluate the lhsExpr
-  const evaluatedLhs = context.evaluateExpression({
+  const evaluatedLhs = evaluateExpression({
     expr: lhsExpr,
     env,
     context: {
@@ -55,7 +56,7 @@ export function evaluateSubtypeOf({
   const typeValue = evaluatedLhs.$.value;
 
   // Evaluate the rhsExpr
-  const evaluatedRhs = context.evaluateExpression({
+  const evaluatedRhs = evaluateExpression({
     expr: rhsExpr,
     env,
     context: {

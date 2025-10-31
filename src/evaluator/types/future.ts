@@ -4,6 +4,7 @@ import { exprToString, FuncCallExpr } from "../../expr";
 import { createFutureType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToFutureType } from "./utils";
 
 /**
@@ -37,7 +38,7 @@ export function evaluateFutureType({
   const elementTypeExpr = expr.args[0]!;
 
   // Evaluate element type expression
-  const evaluatedElementTypeExpr = context.evaluateExpression({
+  const evaluatedElementTypeExpr = evaluateExpression({
     expr: elementTypeExpr,
     env,
     context: { ...context },

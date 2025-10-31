@@ -17,6 +17,7 @@ import {
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 export function evaluateBinding({
@@ -38,7 +39,7 @@ export function evaluateBinding({
   const rhs = expr.args[1]!;
 
   // Evaluate the rhs expression
-  const evaluatedRhs = context.evaluateExpression({
+  const evaluatedRhs = evaluateExpression({
     expr: rhs,
     env,
     context: {
