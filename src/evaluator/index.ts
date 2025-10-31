@@ -64,6 +64,7 @@ import { evaluateYoGcCollect } from "./builtins/gc";
 import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
+import { evaluateYoEvalBuiltinModule } from "./builtins/others";
 import { evaluatePanic } from "./builtins/panic";
 import { evaluateAddressCall } from "./builtins/ptr_fns";
 import { evaluateQuote } from "./builtins/quote";
@@ -836,6 +837,15 @@ ${exprToString(expr)}`,
       } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.va_start)) {
         // va_start
         return evaluateVaStart({ expr, env, context: { ...context } });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_eval_builtin_module)
+      ) {
+        // __yo_eval_builtin_module
+        return evaluateYoEvalBuiltinModule({
+          expr,
+          env,
+          context: { ...context },
+        });
       } else {
         /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {

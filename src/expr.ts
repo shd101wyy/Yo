@@ -910,6 +910,7 @@ export const BuiltinFunctions = {
   __yo_noop: ["__yo_noop"],
   __yo_return_self: ["__yo_return_self"],
   __yo_ms_sleep: ["__yo_ms_sleep"],
+  __yo_eval_builtin_module: ["__yo_eval_builtin_module"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
