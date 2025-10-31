@@ -1,9 +1,9 @@
 import { createEmptyEnv, Environment, Frame } from "../env";
 import { EvaluatorContext } from "../evaluator/context";
-import { BuiltinModules } from "../evaluator/types/builtin_modules";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
 import { isNumberValue, Value, valueToString } from "../value";
+import { BuiltinModules } from "./builtin_modules";
 import {
   ArrayType,
   ClosureType,
@@ -28,7 +28,7 @@ import {
   UnionType,
   VoidType,
 } from "./definitions";
-import { addModuleElementByCode } from "./module_element";
+import { addModuleElementsByCode } from "./module_element";
 import { TypeTag } from "./tags";
 
 let cachedComptIntType: Type | null = null;
@@ -611,13 +611,26 @@ export function createLongDoubleType(): Type {
   return type;
 }
 
+const cachedType0Map: Map<Type | undefined, TypeHierarchyType> = new Map();
 export function createType0(baseType?: Type): TypeHierarchyType {
-  return {
+  if (cachedType0Map.has(baseType)) {
+    return cachedType0Map.get(baseType)!;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: TypeHierarchyType = {
     id: "Type(0)",
     tag: TypeTag.Type,
     level: 0,
     baseType,
+    module,
   };
+  module.receiverType = type;
+
+  cachedType0Map.set(baseType, type);
+  return type;
 }
 
 export function createArrayType(
@@ -638,40 +651,75 @@ export function createArrayType(
 
   module.receiverType = arrayType;
 
-  addModuleElementByCode(
+  addModuleElementsByCode(
     module,
     { ...context },
-    "length",
-    isNumberValue(length)
-      ? `__yo_compt_int_as(${length.value.toString()}, usize)`
-      : "__yo_compt_int_as(0, usize)"
+    {
+      length: isNumberValue(length)
+        ? `__yo_compt_int_as(${length.value.toString()}, usize)`
+        : "__yo_compt_int_as(0, usize)",
+    }
   );
 
   return arrayType;
 }
 
+const cachedSliceTypeMap: Map<Type, SliceType> = new Map();
 export function createSliceType(elementType: Type): SliceType {
-  return {
+  if (cachedSliceTypeMap.has(elementType)) {
+    return cachedSliceTypeMap.get(elementType)!;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const sliceType: SliceType = {
     id: `slice_${elementType.id}`,
     tag: TypeTag.Slice,
     elementType,
+    module,
   };
+  module.receiverType = sliceType;
+
+  cachedSliceTypeMap.set(elementType, sliceType);
+
+  return sliceType;
 }
 
+let cachedVoidType: VoidType | undefined = undefined;
 export function createVoidType(): VoidType {
-  return {
+  if (cachedVoidType) {
+    return cachedVoidType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const voidType: VoidType = {
     id: TypeTag.Void,
     tag: TypeTag.Void,
+    module,
   };
+  module.receiverType = voidType;
+
+  cachedVoidType = voidType;
+  return voidType;
 }
 
 export function createTupleType(elements: TupleElement[]): TupleType {
-  return {
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const tupleType: TupleType = {
     id: `tuple_${elements.map((e) => e.type.id).join("_")}`,
     tag: TypeTag.Tuple,
     // size: totalSize,
     elements,
+    module,
   };
+  module.receiverType = tupleType;
+
+  return tupleType;
 }
 
 export function createStructType(
@@ -758,7 +806,10 @@ export function createFunctionType({
   SelfType?: Type;
   isClosure?: boolean;
 }): FunctionType {
-  return {
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const functionType: FunctionType = {
     id: `${isClosure ? "closure" : "fn"}_${randomId()}`,
     tag: TypeTag.Function,
     parameters: parameters, // Wrap params in a TupleType
@@ -770,7 +821,11 @@ export function createFunctionType({
     parametersFrame,
     SelfType,
     isClosure: isClosure ?? false,
+    module,
   };
+  module.receiverType = functionType;
+
+  return functionType;
 }
 
 const ptrCache: Map<Type, MutPtrType> = new Map();
@@ -797,11 +852,11 @@ export function createMutPtrType(
   ptrCache.set(type, ptrType);
 
   // Add
-  addModuleElementByCode(
+  addModuleElementsByCode(
     module,
     { ...context },
-    "Add",
-    `{
+    {
+      Add: `{
   ${BuiltinModules.Add}
   extern "Yo", 
     __yo_ptr_add :
@@ -810,15 +865,8 @@ export function createMutPtrType(
   impl(Self, Add(usize, Self)(
     (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
   ))
-}`
-  );
-
-  // Sub
-  addModuleElementByCode(
-    module,
-    { ...context },
-    "Sub",
-    `{
+}`,
+      Sub: `{
   ${BuiltinModules.Sub}
   extern "Yo", 
     __yo_ptr_sub :
@@ -827,7 +875,8 @@ export function createMutPtrType(
   impl(Self, Sub(usize, Self)(
     (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
   ))
-}`
+}`,
+    }
   );
 
   return ptrType;

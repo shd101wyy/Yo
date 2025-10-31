@@ -8,9 +8,9 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
+import { BuiltinModules } from "../../types/builtin_modules";
 import { isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { BuiltinModules } from "../types/builtin_modules";
 
 export function evaluateYoEvalBuiltinModule({
   expr,

@@ -89,6 +89,7 @@ export interface LiteralType extends Type {
 export interface ExprType extends Type {
   tag: TypeTag.Expr;
   id: TypeTag.Expr;
+  module: ModuleType;
 }
 
 export interface TypeHierarchyType extends Type {
@@ -104,6 +105,8 @@ export interface TypeHierarchyType extends Type {
 
   // The base type of this hierarchy type.
   baseType?: Type;
+
+  module: ModuleType;
 }
 
 /**
@@ -139,6 +142,8 @@ export interface SomeType extends Type {
    * This is useful for error reporting and debugging.
    */
   functionApplication?: Expr;
+
+  module: ModuleType;
 }
 
 // Extended Type interface for compound types
@@ -146,15 +151,18 @@ export interface ArrayType extends Type {
   tag: TypeTag.Array;
   elementType: Type;
   length: Value; // Compile-time known usize compatible value.
+  module: ModuleType;
 }
 
 export interface SliceType extends Type {
   tag: TypeTag.Slice;
   elementType: Type;
+  module: ModuleType;
 }
 
 export interface VoidType extends Type {
   tag: TypeTag.Void;
+  module: ModuleType;
 }
 
 export type ElementExprs = {
@@ -217,6 +225,7 @@ export interface TupleElement extends ElementType {
 export interface TupleType extends Type {
   tag: TypeTag.Tuple;
   elements: TupleElement[];
+  module: ModuleType;
 }
 
 /**
@@ -538,6 +547,11 @@ export interface FunctionType extends Type {
    * - undefined: regular function (default behavior)
    */
   isClosure?: boolean;
+
+  /**
+   *
+   */
+  module: ModuleType;
 }
 
 export interface MutPtrType extends Type {
@@ -547,6 +561,8 @@ export interface MutPtrType extends Type {
    * The type of the pointer.
    */
   type: Type;
+
+  module: ModuleType;
 }
 
 /**
