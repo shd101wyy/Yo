@@ -6,7 +6,13 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isComptIntType, PrimitiveTypes } from "../../types";
+import {
+  createBooleanType,
+  createComptFloatType,
+  createComptIntType,
+  createComptStringType,
+  isComptIntType,
+} from "../../types";
 import {
   createBooleanValue,
   createComptFloatValue,
@@ -56,7 +62,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(arg.$.value)) {
         value = createComptIntValue(-arg.$.value.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_int);
+        value = createUnknownValue(createComptIntType());
       }
     }
     // to_float(x)
@@ -66,7 +72,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(arg.$.value)) {
         value = createComptFloatValue(arg.$.value.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_float);
+        value = createUnknownValue(createComptFloatType());
       }
     }
     // to_string(x)
@@ -76,7 +82,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(arg.$.value)) {
         value = createComptStringValue(arg.$.value.value.toString());
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_string);
+        value = createUnknownValue(createComptStringType());
       }
     } else {
       throw formatErrorMessage({
@@ -138,7 +144,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createComptIntValue(lhsValue.value + rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_int);
+        value = createUnknownValue(createComptIntType());
       }
     }
     // x - y
@@ -146,7 +152,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createComptIntValue(lhsValue.value - rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_int);
+        value = createUnknownValue(createComptIntType());
       }
     }
     // x * y
@@ -154,7 +160,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createComptIntValue(lhsValue.value * rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_int);
+        value = createUnknownValue(createComptIntType());
       }
     }
     // x / y
@@ -171,7 +177,7 @@ export function evaluateYoComptIntFunctions({
           Math.trunc(lhsValue.value / rhsValue.value)
         );
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_int);
+        value = createUnknownValue(createComptIntType());
       }
     }
     // x % y
@@ -186,7 +192,7 @@ export function evaluateYoComptIntFunctions({
 
         value = createComptIntValue(lhsValue.value % rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_int);
+        value = createUnknownValue(createComptIntType());
       }
     }
     // x == y
@@ -194,7 +200,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value == rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x != y
@@ -202,7 +208,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value != rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x < y
@@ -210,7 +216,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value < rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x <= y
@@ -218,7 +224,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value <= rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x > y
@@ -226,7 +232,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value > rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x >= y
@@ -234,7 +240,7 @@ export function evaluateYoComptIntFunctions({
       if (isComptIntValue(lhsValue) && isComptIntValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value >= rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     } else {
       throw formatErrorMessage({

@@ -30,6 +30,7 @@ import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
+  createExprType,
   createFunctionType,
   createSomeType,
   FunctionParameter,
@@ -40,7 +41,6 @@ import {
   isExprType,
   isFunctionSpecializable,
   isTypeHierarchyType,
-  PrimitiveTypes,
   Type,
   TypeHierarchyType,
   typeRequiresComptModifier,
@@ -245,7 +245,7 @@ export function checkIfFunctionParameterMatchesArgument({
       if (isExprType(parameterType)) {
         evaluatedArgExpr = cloneExpr(argExpr);
         evaluatedArgExpr.$ = {
-          type: PrimitiveTypes.Expr,
+          type: createExprType(),
           value: createExprValue(argExpr),
           env: callerEnv,
           pathCollection: [],
@@ -1068,7 +1068,7 @@ Got:   ${typeToString(argType)}`,
         // Macro
         evaluatedArgExpr = cloneExpr(argExpr);
         evaluatedArgExpr.$ = {
-          type: PrimitiveTypes.Expr,
+          type: createExprType(),
           value: createExprValue(argExpr),
           env: callerEnv,
           pathCollection: [],

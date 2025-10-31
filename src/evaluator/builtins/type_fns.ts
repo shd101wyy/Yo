@@ -8,8 +8,8 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  createComptStringType,
   isTypeHierarchyType,
-  PrimitiveTypes,
   typeContainsARCType,
   typeToString,
 } from "../../types";
@@ -67,8 +67,8 @@ export function evaluateYoTypeToString({
 
   expr.$ = {
     env: arg.$.env,
-    type: PrimitiveTypes.compt_string,
-    value: createUnknownValue(PrimitiveTypes.compt_string), // Will be updated later
+    type: createComptStringType(),
+    value: createUnknownValue(createComptStringType()), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };

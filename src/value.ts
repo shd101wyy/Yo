@@ -6,12 +6,29 @@ import { TypeValue } from "./type-value";
 import {
   areTypesCompatible,
   ArrayType,
+  createBooleanType,
+  createComptFloatType,
+  createComptIntType,
+  createComptStringType,
+  createExprListType,
+  createExprType,
+  createF32Type,
+  createF64Type,
+  createI16Type,
+  createI32Type,
+  createI64Type,
+  createI8Type,
+  createIsizeType,
   createSomeType,
+  createU16Type,
+  createU32Type,
+  createU64Type,
+  createU8Type,
+  createUsizeType,
   EnumType,
   ExprType,
   isTypeHierarchyType,
   ModuleType,
-  PrimitiveTypes,
   StructType,
   TupleType,
   Type,
@@ -332,7 +349,7 @@ export function createTypeValue(value: Type): TypeValue {
 export function createComptStringValue(value: string): ComptStringValue {
   return {
     tag: ValueTag.ComptString,
-    type: PrimitiveTypes.compt_string,
+    type: createComptStringType(),
     value,
   };
 }
@@ -342,7 +359,7 @@ export function createExprListValue(
 ): ExprListValue {
   return {
     tag: ValueTag.ExprList,
-    type: PrimitiveTypes.ExprList,
+    type: createExprListType(),
     elements,
   };
 }
@@ -351,33 +368,33 @@ export function createExprListValue(
 export function createNumberValue(tag: NumberValue["tag"], value: number) {
   let numberType: Type;
   if (tag === ValueTag.ComptInt) {
-    numberType = PrimitiveTypes.compt_int;
+    numberType = createComptIntType();
   } else if (tag === ValueTag.ComptFloat) {
-    numberType = PrimitiveTypes.compt_float;
+    numberType = createComptFloatType();
   } else if (tag === ValueTag.U8) {
-    numberType = PrimitiveTypes.u8;
+    numberType = createU8Type();
   } else if (tag === ValueTag.I8) {
-    numberType = PrimitiveTypes.i8;
+    numberType = createI8Type();
   } else if (tag === ValueTag.U16) {
-    numberType = PrimitiveTypes.u16;
+    numberType = createU16Type();
   } else if (tag === ValueTag.I16) {
-    numberType = PrimitiveTypes.i16;
+    numberType = createI16Type();
   } else if (tag === ValueTag.U32) {
-    numberType = PrimitiveTypes.u32;
+    numberType = createU32Type();
   } else if (tag === ValueTag.I32) {
-    numberType = PrimitiveTypes.i32;
+    numberType = createI32Type();
   } else if (tag === ValueTag.U64) {
-    numberType = PrimitiveTypes.u64;
+    numberType = createU64Type();
   } else if (tag === ValueTag.I64) {
-    numberType = PrimitiveTypes.i64;
+    numberType = createI64Type();
   } else if (tag === ValueTag.F32) {
-    numberType = PrimitiveTypes.f32;
+    numberType = createF32Type();
   } else if (tag === ValueTag.F64) {
-    numberType = PrimitiveTypes.f64;
+    numberType = createF64Type();
   } else if (tag === ValueTag.Usize) {
-    numberType = PrimitiveTypes.usize;
+    numberType = createUsizeType();
   } else if (tag === ValueTag.Isize) {
-    numberType = PrimitiveTypes.isize;
+    numberType = createIsizeType();
   } else {
     throw new Error(`createNumberValue: Unsupported tag: ${tag}`);
   }
@@ -400,7 +417,7 @@ export function createComptFloatValue(value: number): NumberValue {
 export function createBooleanValue(value: boolean): BooleanValue {
   return {
     tag: ValueTag.Boolean,
-    type: PrimitiveTypes.boolean,
+    type: createBooleanType(),
     value,
   };
 }
@@ -491,7 +508,7 @@ export function createArrayValue(
 export function createExprValue(expr: Expr): ExprValue {
   return {
     tag: ValueTag.Expr,
-    type: PrimitiveTypes.Expr as ExprType,
+    type: createExprType() as ExprType,
     value: expr,
   };
 }

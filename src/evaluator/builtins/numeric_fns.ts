@@ -2,9 +2,34 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FuncCallExpr, exprToString } from "../../expr";
 import {
-  PrimitiveTypes,
   Type,
   TypeTag,
+  createBooleanType,
+  createCharType,
+  createComptFloatType,
+  createComptIntType,
+  createComptStringType,
+  createF32Type,
+  createF64Type,
+  createI16Type,
+  createI32Type,
+  createI64Type,
+  createI8Type,
+  createIntType,
+  createIsizeType,
+  createLongDoubleType,
+  createLongLongType,
+  createLongType,
+  createShortType,
+  createU16Type,
+  createU32Type,
+  createU64Type,
+  createU8Type,
+  createUIntType,
+  createULongLongType,
+  createULongType,
+  createUShortType,
+  createUsizeType,
   isCCompatibleType,
   isFloatType,
   isIntegerType,
@@ -152,7 +177,7 @@ function performComparisonOp(
   const rhs = extractNumericValue(rhsValue);
 
   if (lhs === null || rhs === null) {
-    return createUnknownValue(PrimitiveTypes.boolean);
+    return createUnknownValue(createBooleanType());
   }
 
   return createBooleanValue(op(lhs, rhs));
@@ -204,53 +229,53 @@ export function evaluateYoNumericFunctions({
   const getType = (): Type => {
     switch (typeStr) {
       case TypeTag.U8:
-        return PrimitiveTypes.u8;
+        return createU8Type();
       case TypeTag.I8:
-        return PrimitiveTypes.i8;
+        return createI8Type();
       case TypeTag.U16:
-        return PrimitiveTypes.u16;
+        return createU16Type();
       case TypeTag.I16:
-        return PrimitiveTypes.i16;
+        return createI16Type();
       case TypeTag.U32:
-        return PrimitiveTypes.u32;
+        return createU32Type();
       case TypeTag.I32:
-        return PrimitiveTypes.i32;
+        return createI32Type();
       case TypeTag.U64:
-        return PrimitiveTypes.u64;
+        return createU64Type();
       case TypeTag.I64:
-        return PrimitiveTypes.i64;
+        return createI64Type();
       case TypeTag.Usize:
-        return PrimitiveTypes.usize;
+        return createUsizeType();
       case TypeTag.Isize:
-        return PrimitiveTypes.isize;
+        return createIsizeType();
       case TypeTag.F32:
-        return PrimitiveTypes.f32;
+        return createF32Type();
       case TypeTag.F64:
-        return PrimitiveTypes.f64;
+        return createF64Type();
       case TypeTag.Char:
-        return PrimitiveTypes.char;
+        return createCharType();
       case TypeTag.Short:
-        return PrimitiveTypes.short;
+        return createShortType();
       case TypeTag.UShort:
-        return PrimitiveTypes.ushort;
+        return createUShortType();
       case TypeTag.Int:
-        return PrimitiveTypes.int;
+        return createIntType();
       case TypeTag.UInt:
-        return PrimitiveTypes.uint;
+        return createUIntType();
       case TypeTag.Long:
-        return PrimitiveTypes.long;
+        return createLongType();
       case TypeTag.ULong:
-        return PrimitiveTypes.ulong;
+        return createULongType();
       case TypeTag.LongLong:
-        return PrimitiveTypes.longlong;
+        return createLongLongType();
       case TypeTag.ULongLong:
-        return PrimitiveTypes.ulonglong;
+        return createULongLongType();
       case TypeTag.LongDouble:
-        return PrimitiveTypes.longdouble;
+        return createLongDoubleType();
       case TypeTag.ComptInt:
-        return PrimitiveTypes.compt_int;
+        return createComptIntType();
       case TypeTag.ComptFloat:
-        return PrimitiveTypes.compt_float;
+        return createComptFloatType();
       default:
         throw new Error(`Unknown numeric type: ${typeStr}`);
     }
@@ -288,10 +313,10 @@ export function evaluateYoNumericFunctions({
         if (num !== null) {
           value = createComptStringValue(num.toString());
         } else {
-          value = createUnknownValue(PrimitiveTypes.compt_string);
+          value = createUnknownValue(createComptStringType());
         }
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_string);
+        value = createUnknownValue(createComptStringType());
       }
     } else {
       throw formatErrorMessage({
@@ -302,8 +327,7 @@ export function evaluateYoNumericFunctions({
 
     expr.$ = {
       env,
-      type:
-        operation === "to_string" ? PrimitiveTypes.compt_string : numericType,
+      type: operation === "to_string" ? createComptStringType() : numericType,
       value: value,
       pathCollection: [],
     };
@@ -504,27 +528,27 @@ export function evaluateYoNumericFunctions({
     }
     case "eq":
       value = performComparisonOp(lhsValue, rhsValue, (a, b) => a === b);
-      resultType = PrimitiveTypes.boolean;
+      resultType = createBooleanType();
       break;
     case "neq":
       value = performComparisonOp(lhsValue, rhsValue, (a, b) => a !== b);
-      resultType = PrimitiveTypes.boolean;
+      resultType = createBooleanType();
       break;
     case "lt":
       value = performComparisonOp(lhsValue, rhsValue, (a, b) => a < b);
-      resultType = PrimitiveTypes.boolean;
+      resultType = createBooleanType();
       break;
     case "lte":
       value = performComparisonOp(lhsValue, rhsValue, (a, b) => a <= b);
-      resultType = PrimitiveTypes.boolean;
+      resultType = createBooleanType();
       break;
     case "gt":
       value = performComparisonOp(lhsValue, rhsValue, (a, b) => a > b);
-      resultType = PrimitiveTypes.boolean;
+      resultType = createBooleanType();
       break;
     case "gte":
       value = performComparisonOp(lhsValue, rhsValue, (a, b) => a >= b);
-      resultType = PrimitiveTypes.boolean;
+      resultType = createBooleanType();
       break;
     default:
       throw formatErrorMessage({

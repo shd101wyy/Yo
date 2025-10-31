@@ -1,4 +1,4 @@
-import { createEmptyEnv, createNewEnv, Environment, Frame } from "../env";
+import { createEmptyEnv, Environment, Frame } from "../env";
 import { EvaluatorContext } from "../evaluator/context";
 import { BuiltinModules } from "../evaluator/types/builtin_modules";
 import { Expr } from "../expr";
@@ -31,158 +31,585 @@ import {
 import { addModuleElementByCode } from "./module_element";
 import { TypeTag } from "./tags";
 
-/**
- * Singleton primitive types
- */
-export const PrimitiveTypes: Record<
-  | TypeTag.ComptInt
-  | TypeTag.ComptFloat
-  | TypeTag.ComptString
-  | TypeTag.ExprList
-  | TypeTag.Expr
-  | TypeTag.Boolean
-  | TypeTag.Usize
-  | TypeTag.Isize
-  | TypeTag.U8
-  | TypeTag.I8
-  | TypeTag.U16
-  | TypeTag.I16
-  | TypeTag.U32
-  | TypeTag.I32
-  | TypeTag.U64
-  | TypeTag.I64
-  | TypeTag.F32
-  | TypeTag.F64
-  | TypeTag.Unit
-  | TypeTag.Char
-  | TypeTag.Short
-  | TypeTag.UShort
-  | TypeTag.Int
-  | TypeTag.UInt
-  | TypeTag.Long
-  | TypeTag.ULong
-  | TypeTag.LongLong
-  | TypeTag.ULongLong
-  | TypeTag.LongDouble,
-  Type
-> = {
-  [TypeTag.ComptInt]: {
+let cachedComptIntType: Type | null = null;
+export function createComptIntType(): Type {
+  if (cachedComptIntType) {
+    return cachedComptIntType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const comptIntType: Type = {
     id: TypeTag.ComptInt,
     tag: TypeTag.ComptInt,
-  },
-  [TypeTag.ComptFloat]: {
+    module,
+  };
+  module.receiverType = comptIntType;
+
+  cachedComptIntType = comptIntType;
+  return comptIntType;
+}
+
+let cachedComptFloatType: Type | null = null;
+export function createComptFloatType(): Type {
+  if (cachedComptFloatType) {
+    return cachedComptFloatType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.ComptFloat,
     tag: TypeTag.ComptFloat,
-  },
-  [TypeTag.ComptString]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedComptFloatType = type;
+  return type;
+}
+
+let cachedComptStringType: Type | null = null;
+export function createComptStringType(): Type {
+  if (cachedComptStringType) {
+    return cachedComptStringType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.ComptString,
     tag: TypeTag.ComptString,
-  },
-  [TypeTag.ExprList]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedComptStringType = type;
+  return type;
+}
+
+let cachedExprListType: Type | null = null;
+export function createExprListType(): Type {
+  if (cachedExprListType) {
+    return cachedExprListType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.ExprList,
     tag: TypeTag.ExprList,
-  },
-  [TypeTag.Expr]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedExprListType = type;
+  return type;
+}
+
+let cachedExprType: Type | null = null;
+export function createExprType(): Type {
+  if (cachedExprType) {
+    return cachedExprType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Expr,
     tag: TypeTag.Expr,
-  },
-  [TypeTag.Boolean]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedExprType = type;
+  return type;
+}
+
+let cachedBooleanType: Type | null = null;
+export function createBooleanType(): Type {
+  if (cachedBooleanType) {
+    return cachedBooleanType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Boolean,
     tag: TypeTag.Boolean,
-  },
-  [TypeTag.Usize]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedBooleanType = type;
+  return type;
+}
+
+let cachedUsizeType: Type | null = null;
+export function createUsizeType(): Type {
+  if (cachedUsizeType) {
+    return cachedUsizeType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Usize,
     tag: TypeTag.Usize,
-  },
-  [TypeTag.Isize]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedUsizeType = type;
+  return type;
+}
+
+let cachedIsizeType: Type | null = null;
+export function createIsizeType(): Type {
+  if (cachedIsizeType) {
+    return cachedIsizeType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Isize,
     tag: TypeTag.Isize,
-  },
-  [TypeTag.U8]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedIsizeType = type;
+  return type;
+}
+
+let cachedU8Type: Type | null = null;
+export function createU8Type(): Type {
+  if (cachedU8Type) {
+    return cachedU8Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.U8,
     tag: TypeTag.U8,
-  },
-  [TypeTag.I8]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedU8Type = type;
+  return type;
+}
+
+let cachedI8Type: Type | null = null;
+export function createI8Type(): Type {
+  if (cachedI8Type) {
+    return cachedI8Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.I8,
     tag: TypeTag.I8,
-  },
-  [TypeTag.U16]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedI8Type = type;
+  return type;
+}
+
+let cachedU16Type: Type | null = null;
+export function createU16Type(): Type {
+  if (cachedU16Type) {
+    return cachedU16Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.U16,
     tag: TypeTag.U16,
-  },
-  [TypeTag.I16]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedU16Type = type;
+  return type;
+}
+
+let cachedI16Type: Type | null = null;
+export function createI16Type(): Type {
+  if (cachedI16Type) {
+    return cachedI16Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.I16,
     tag: TypeTag.I16,
-  },
-  [TypeTag.U32]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedI16Type = type;
+  return type;
+}
+
+let cachedU32Type: Type | null = null;
+export function createU32Type(): Type {
+  if (cachedU32Type) {
+    return cachedU32Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.U32,
     tag: TypeTag.U32,
-  },
-  [TypeTag.I32]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedU32Type = type;
+  return type;
+}
+
+let cachedI32Type: Type | null = null;
+export function createI32Type(): Type {
+  if (cachedI32Type) {
+    return cachedI32Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.I32,
     tag: TypeTag.I32,
-  },
-  [TypeTag.U64]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedI32Type = type;
+  return type;
+}
+
+let cachedU64Type: Type | null = null;
+export function createU64Type(): Type {
+  if (cachedU64Type) {
+    return cachedU64Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.U64,
     tag: TypeTag.U64,
-  },
-  [TypeTag.I64]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedU64Type = type;
+  return type;
+}
+
+let cachedI64Type: Type | null = null;
+export function createI64Type(): Type {
+  if (cachedI64Type) {
+    return cachedI64Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.I64,
     tag: TypeTag.I64,
-  },
-  [TypeTag.F32]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedI64Type = type;
+  return type;
+}
+
+let cachedF32Type: Type | null = null;
+export function createF32Type(): Type {
+  if (cachedF32Type) {
+    return cachedF32Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.F32,
     tag: TypeTag.F32,
-  },
-  [TypeTag.F64]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedF32Type = type;
+  return type;
+}
+
+let cachedF64Type: Type | null = null;
+export function createF64Type(): Type {
+  if (cachedF64Type) {
+    return cachedF64Type;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.F64,
     tag: TypeTag.F64,
-  },
-  [TypeTag.Unit]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedF64Type = type;
+  return type;
+}
+
+let cachedUnitType: Type | null = null;
+export function createUnitType(): Type {
+  if (cachedUnitType) {
+    return cachedUnitType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Unit,
     tag: TypeTag.Unit,
-  },
-  [TypeTag.Char]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedUnitType = type;
+  return type;
+}
+
+let cachedCharType: Type | null = null;
+export function createCharType(): Type {
+  if (cachedCharType) {
+    return cachedCharType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Char,
     tag: TypeTag.Char,
-  },
-  [TypeTag.Short]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedCharType = type;
+  return type;
+}
+
+let cachedShortType: Type | null = null;
+export function createShortType(): Type {
+  if (cachedShortType) {
+    return cachedShortType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Short,
     tag: TypeTag.Short,
-  },
-  [TypeTag.UShort]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedShortType = type;
+  return type;
+}
+
+let cachedUShortType: Type | null = null;
+export function createUShortType(): Type {
+  if (cachedUShortType) {
+    return cachedUShortType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.UShort,
     tag: TypeTag.UShort,
-  },
-  [TypeTag.Int]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedUShortType = type;
+  return type;
+}
+
+let cachedIntType: Type | null = null;
+export function createIntType(): Type {
+  if (cachedIntType) {
+    return cachedIntType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Int,
     tag: TypeTag.Int,
-  },
-  [TypeTag.UInt]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedIntType = type;
+  return type;
+}
+
+let cachedUIntType: Type | null = null;
+export function createUIntType(): Type {
+  if (cachedUIntType) {
+    return cachedUIntType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.UInt,
     tag: TypeTag.UInt,
-  },
-  [TypeTag.Long]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedUIntType = type;
+  return type;
+}
+
+let cachedLongType: Type | null = null;
+export function createLongType(): Type {
+  if (cachedLongType) {
+    return cachedLongType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.Long,
     tag: TypeTag.Long,
-  },
-  [TypeTag.ULong]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedLongType = type;
+  return type;
+}
+
+let cachedULongType: Type | null = null;
+export function createULongType(): Type {
+  if (cachedULongType) {
+    return cachedULongType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.ULong,
     tag: TypeTag.ULong,
-  },
-  [TypeTag.LongLong]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedULongType = type;
+  return type;
+}
+
+let cachedLongLongType: Type | null = null;
+export function createLongLongType(): Type {
+  if (cachedLongLongType) {
+    return cachedLongLongType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.LongLong,
     tag: TypeTag.LongLong,
-  },
-  [TypeTag.ULongLong]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedLongLongType = type;
+  return type;
+}
+
+let cachedULongLongType: Type | null = null;
+export function createULongLongType(): Type {
+  if (cachedULongLongType) {
+    return cachedULongLongType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.ULongLong,
     tag: TypeTag.ULongLong,
-  },
-  [TypeTag.LongDouble]: {
+    module,
+  };
+  module.receiverType = type;
+
+  cachedULongLongType = type;
+  return type;
+}
+
+let cachedLongDoubleType: Type | null = null;
+export function createLongDoubleType(): Type {
+  if (cachedLongDoubleType) {
+    return cachedLongDoubleType;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: Type = {
     id: TypeTag.LongDouble,
     tag: TypeTag.LongDouble,
-  },
-};
+    module,
+  };
+  module.receiverType = type;
+
+  cachedLongDoubleType = type;
+  return type;
+}
 
 export function createType0(baseType?: Type): TypeHierarchyType {
   return {
@@ -419,9 +846,7 @@ export function createSomeType(
     );
   }
 
-  const module: ModuleType = createModuleType(
-    createNewEnv({ modulePath: "", inputString: "" })
-  );
+  const module: ModuleType = createModuleType(createEmptyEnv());
   const someType: SomeType = {
     id: id ?? `sometype_${randomId()}`,
     tag: TypeTag.SomeType,
@@ -451,9 +876,7 @@ export function createTypeHierarchy(
     }
   }
 
-  const module: ModuleType = createModuleType(
-    createNewEnv({ modulePath: "", inputString: "" })
-  );
+  const module: ModuleType = createModuleType(createEmptyEnv());
   const type: TypeHierarchyType = {
     id: `Type(${level})`,
     tag: TypeTag.Type,

@@ -75,7 +75,6 @@ import {
   evaluateYoTypeContainsArcType,
   evaluateYoTypeToString,
 } from "./builtins/type_fns";
-import { evaluateYoSetTypeModule } from "./builtins/type_module";
 import { evaluateVaStart } from "./builtins/va_start";
 import { evaluateFunctionCall } from "./calls/function";
 import { evaluateRawPointerCall } from "./calls/pointer";
@@ -787,15 +786,6 @@ ${exprToString(expr)}`,
       ) {
         // __yo_type_to_string
         return evaluateYoTypeToString({
-          expr,
-          env,
-          context: { ...context },
-        });
-      } else if (
-        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_set_type_module)
-      ) {
-        // __yo_set_type_module
-        return evaluateYoSetTypeModule({
           expr,
           env,
           context: { ...context },

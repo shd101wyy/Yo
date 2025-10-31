@@ -1,4 +1,4 @@
-import { PrimitiveTypes, Type } from "./types";
+import { createUnitType, Type } from "./types";
 import { ValueTag } from "./value-tag";
 
 export type UnitValue = {
@@ -8,5 +8,5 @@ export type UnitValue = {
 
 export const VUnit: UnitValue = {
   tag: ValueTag.Unit,
-  type: PrimitiveTypes.unit,
+  type: createUnitType(),
 };

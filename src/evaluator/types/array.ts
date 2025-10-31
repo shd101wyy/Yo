@@ -10,7 +10,7 @@ import {
 import {
   areTypesCompatible,
   createArrayType,
-  PrimitiveTypes,
+  createUsizeType,
 } from "../../types";
 import {
   createTypeValue,
@@ -75,7 +75,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
     // Create an unknown value with a unique variable name for length inference
     const lengthPlaceholderName = `_array_length_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const unknownLength = createUnknownValue(
-      PrimitiveTypes.usize,
+      createUsizeType(),
       lengthPlaceholderName
     );
 
@@ -85,7 +85,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
       variable: {
         name: lengthPlaceholderName,
         value: unknownLength,
-        type: PrimitiveTypes.usize,
+        type: createUsizeType(),
         isCompileTimeOnly: true,
         token: lengthExpr.token,
         initializedAtToken: lengthExpr.token,
@@ -114,7 +114,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
     context: {
       ...context,
       expectedType: {
-        type: PrimitiveTypes.usize,
+        type: createUsizeType(),
         env,
       },
     },
@@ -128,7 +128,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
   if (
     !areTypesCompatible(
       {
-        type: PrimitiveTypes.usize,
+        type: createUsizeType(),
         env,
       },
       {
@@ -153,7 +153,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
   if (isUnknownValue(lengthValue)) {
     // QUESTION: Should we do it this way?
     // Change its type to usize
-    lengthValue.type = PrimitiveTypes.usize;
+    lengthValue.type = createUsizeType();
   }
 
   const arrayType = createArrayType(elementType, lengthValue, { ...context });

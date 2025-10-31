@@ -7,7 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { PrimitiveTypes } from "../../types";
+import { createBooleanType } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 
@@ -127,7 +127,7 @@ export function evaluateIsUniquelyOwned({
 
   expr.$ = {
     env,
-    type: PrimitiveTypes.boolean,
+    type: createBooleanType(),
     value: undefined,
     pathCollection: [],
   };

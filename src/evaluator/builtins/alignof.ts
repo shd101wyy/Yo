@@ -5,7 +5,7 @@ import {
   expectExprToBeFunctionCallOf,
   FuncCallExpr,
 } from "../../expr";
-import { getAlignmentOfType, PrimitiveTypes, Type } from "../../types";
+import { createUsizeType, getAlignmentOfType, Type } from "../../types";
 import {
   createNumberValue,
   createUnknownValue,
@@ -54,7 +54,7 @@ export function evaluateAlignOf({
   const typeAlign = getAlignmentOfType(typeToCheck);
   let typeAlignValue: UnknownValue | NumberValue;
   if (typeAlign === null) {
-    typeAlignValue = createUnknownValue(PrimitiveTypes.usize) as UnknownValue;
+    typeAlignValue = createUnknownValue(createUsizeType()) as UnknownValue;
   } else {
     typeAlignValue = createNumberValue(
       ValueTag.Usize,
@@ -64,7 +64,7 @@ export function evaluateAlignOf({
 
   expr.$ = {
     env,
-    type: PrimitiveTypes.usize,
+    type: createUsizeType(),
     value: typeAlignValue,
     pathCollection: [],
   };

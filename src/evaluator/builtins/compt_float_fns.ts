@@ -6,7 +6,13 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isComptFloatType, PrimitiveTypes } from "../../types";
+import {
+  createBooleanType,
+  createComptFloatType,
+  createComptIntType,
+  createComptStringType,
+  isComptFloatType,
+} from "../../types";
 import {
   createBooleanValue,
   createComptFloatValue,
@@ -56,7 +62,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(arg.$.value)) {
         value = createComptFloatValue(-arg.$.value.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_float);
+        value = createUnknownValue(createComptFloatType());
       }
     }
     // to_int(x)
@@ -66,7 +72,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(arg.$.value)) {
         value = createComptIntValue(Math.floor(arg.$.value.value));
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_int);
+        value = createUnknownValue(createComptIntType());
       }
     }
     // to_string(x)
@@ -76,7 +82,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(arg.$.value)) {
         value = createComptStringValue(arg.$.value.value.toString());
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_string);
+        value = createUnknownValue(createComptStringType());
       }
     } else {
       throw formatErrorMessage({
@@ -137,7 +143,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createComptFloatValue(lhsValue.value + rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_float);
+        value = createUnknownValue(createComptFloatType());
       }
     }
     // x - y
@@ -147,7 +153,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createComptFloatValue(lhsValue.value - rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_float);
+        value = createUnknownValue(createComptFloatType());
       }
     }
     // x * y
@@ -157,7 +163,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createComptFloatValue(lhsValue.value * rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_float);
+        value = createUnknownValue(createComptFloatType());
       }
     }
     // x / y
@@ -174,7 +180,7 @@ export function evaluateYoComptFloatFunctions({
 
         value = createComptFloatValue(lhsValue.value / rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.compt_float);
+        value = createUnknownValue(createComptFloatType());
       }
     }
     // x == y
@@ -182,7 +188,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value == rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x != y
@@ -192,7 +198,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value != rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x < y
@@ -200,7 +206,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value < rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x <= y
@@ -210,7 +216,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value <= rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x > y
@@ -218,7 +224,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value > rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     }
     // x >= y
@@ -228,7 +234,7 @@ export function evaluateYoComptFloatFunctions({
       if (isComptFloatValue(lhsValue) && isComptFloatValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value >= rhsValue.value);
       } else {
-        value = createUnknownValue(PrimitiveTypes.boolean);
+        value = createUnknownValue(createBooleanType());
       }
     } else {
       throw formatErrorMessage({

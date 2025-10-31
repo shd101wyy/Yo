@@ -21,6 +21,7 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   createClosureType,
+  createExprListType,
   createFunctionType,
   FunctionForallParameter,
   FunctionImplicitParameter,
@@ -34,7 +35,6 @@ import {
   isExprType,
   isModuleType,
   isSomeType,
-  PrimitiveTypes,
   prohibitVoidType,
   Type,
   typeOfType,
@@ -653,7 +653,7 @@ Expected order: forall(...), regular parameters, using(...)`,
             }
             labelExpr = argExpr.args[0]!;
             parameterName = argExpr.args[0]!.token.value;
-            parameterType = PrimitiveTypes.ExprList;
+            parameterType = createExprListType();
           } else {
             if (!isValidVariableName(argExpr)) {
               throw formatErrorMessage({

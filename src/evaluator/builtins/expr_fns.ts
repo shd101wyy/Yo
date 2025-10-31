@@ -8,7 +8,13 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isExprType, PrimitiveTypes } from "../../types";
+import {
+  createBooleanType,
+  createComptStringType,
+  createExprListType,
+  createExprType,
+  isExprType,
+} from "../../types";
 import {
   areValuesEqual,
   BooleanValue,
@@ -69,7 +75,7 @@ export function evaluateYoExprIsAtom({
 
   const booleanValue = isExprValue(exprValue)
     ? createBooleanValue(exprIsAtom(exprValue.value))
-    : createUnknownValue(PrimitiveTypes.boolean);
+    : createUnknownValue(createBooleanType());
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
@@ -128,7 +134,7 @@ export function evaluateYoExprIsFnCall({
 
   const booleanValue = isExprValue(exprValue)
     ? createBooleanValue(exprIsFunctionCall(exprValue.value))
-    : createUnknownValue(PrimitiveTypes.boolean);
+    : createUnknownValue(createBooleanType());
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
@@ -187,8 +193,8 @@ export function evaluateYoExprGetCallee({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: PrimitiveTypes.Expr,
-    value: createUnknownValue(PrimitiveTypes.Expr), // Will be updated later
+    type: createExprType(),
+    value: createUnknownValue(createExprType()), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -258,8 +264,8 @@ export function evaluateYoExprGetArgs({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: PrimitiveTypes.ExprList,
-    value: createUnknownValue(PrimitiveTypes.ExprList), // Will be updated later
+    type: createExprListType(),
+    value: createUnknownValue(createExprListType()), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -331,8 +337,8 @@ export function evaluateYoExprToString({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: PrimitiveTypes.compt_string,
-    value: createUnknownValue(PrimitiveTypes.compt_string), // Will be updated later
+    type: createComptStringType(),
+    value: createUnknownValue(createComptStringType()), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -438,7 +444,7 @@ export function evaluateYoExprEq({
       )
     );
   } else {
-    value = createUnknownValue(PrimitiveTypes.boolean) as UnknownValue;
+    value = createUnknownValue(createBooleanType()) as UnknownValue;
   }
 
   expr.$ = {

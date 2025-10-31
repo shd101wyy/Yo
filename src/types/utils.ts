@@ -6,7 +6,13 @@ import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
 import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { ValueTag } from "../value-tag";
-import { createMutPtrType, createSliceType, PrimitiveTypes } from "./creators";
+import {
+  createF64Type,
+  createI32Type,
+  createMutPtrType,
+  createSliceType,
+  createU8Type,
+} from "./creators";
 import {
   ArrayType,
   ClosureType,
@@ -404,9 +410,9 @@ export function convertComptTypeToRuntimeType({
   let convertedType: Type | undefined;
 
   if (isComptIntType(type)) {
-    convertedType = PrimitiveTypes.i32;
+    convertedType = createI32Type();
   } else if (isComptFloatType(type)) {
-    convertedType = PrimitiveTypes.f64;
+    convertedType = createF64Type();
   } else if (isArrayType(type)) {
     type.elementType = convertComptTypeToRuntimeType({
       type: type.elementType,
@@ -486,7 +492,7 @@ export function convertComptTypeToRuntimeType({
 
     if (!convertedType) {
       // Default: Convert the compt_string to *([u8])
-      convertedType = createMutPtrType(createSliceType(PrimitiveTypes.u8), {
+      convertedType = createMutPtrType(createSliceType(createU8Type()), {
         ...context,
       });
     }

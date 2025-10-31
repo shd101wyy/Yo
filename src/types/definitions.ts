@@ -66,8 +66,6 @@ export interface Type {
   /**
    * The module of the struct, which contains
    * the compile-time methods, properties, etc.
-   * For builtin types, this is undefined by default,
-   * and it can be set by `__yo_set_type_module` builtin function.
    */
   module?: ModuleType;
 }

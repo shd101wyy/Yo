@@ -10,6 +10,7 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import {
+  createUsizeType,
   EnumType,
   isArrayType,
   isEnumType,
@@ -20,7 +21,6 @@ import {
   isTupleType,
   isUnionType,
   ModuleElement,
-  PrimitiveTypes,
   TupleElement,
   typeToString,
 } from "../../types";
@@ -677,7 +677,7 @@ export function evaluatePropertyAccess({
   ) {
     expr.$ = {
       env,
-      type: PrimitiveTypes.usize,
+      type: createUsizeType(),
       value: undefined,
       pathCollection: [],
       isAccessingProperty: true,
