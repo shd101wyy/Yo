@@ -512,6 +512,8 @@ export function getMethodsByNameFromEnv(
   }
 
   function checkModule(moduleType: ModuleType, moduleValue: Value) {
+    /*
+    // NOTE: No need to do the check anymore, since we now only allow method call from type method
     // Check if the module receiverType compatible with receiverType
     if (isModuleValue(moduleValue)) {
       const moduleReceiverType = moduleType.receiverType;
@@ -540,6 +542,7 @@ export function getMethodsByNameFromEnv(
         }
       }
     }
+    */
 
     const method = moduleType.elements.find(
       (element) =>
@@ -763,6 +766,7 @@ export function getMethodsByNameFromEnv(
     return filterMethodsByReceiverType(methods);
   }
 
+  /*
   // Check the modules from innermost to outermost scope
   // ~~Stop at the first frame level where we find matching methods (shadowing)~~
   // NOTE: ^^^ This is wrong. We shouldn't stop at the latest frame level,
@@ -786,6 +790,33 @@ export function getMethodsByNameFromEnv(
     }
   }
 
+  */
+  /**
+   * NOTE: We stop checking the methods from modules in the environment.
+   * REASON 1: It is not performant to check all modules in the environment for methods.
+   * REASON 2: It can lead to ambiguous method calls if multiple modules have methods with the same name.
+   * REASON 3: The ambiguity problem might root deeper, for examle the code below:
+   *
+   * Id :: module(
+   *   id : (fn(self : Self) -> Self)
+   * );
+   * Point :: struct(x : i32, y : i32,
+   *   id :: ((self) -> self)
+   * );
+   *
+   * use_id :: (fn(forall(T : Type), v : Type, using(XId) : (T <: Id)) -> T) {
+   *   return v.id(); // This line could cause problem.
+   * }
+   *
+   * AnotherId :: impl(Point, Id(
+   *   id : ((self) -> Point(self.y, self.x))
+   * ));
+   *
+   * use_id(Point(3, 4)); // What should it return? Should it use the `id` from Point or AnotherId?
+   *
+   * // The line `return v.id();` has ambiguity problem.
+   *
+   */
   return filterMethodsByReceiverType(methods);
 }
 
