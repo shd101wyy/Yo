@@ -1,5 +1,7 @@
 import path from "node:path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
+import { _evaluateExpression } from "./evaluator/exprs/_expr";
+import { setEvaluateExpressionFn } from "./evaluator/exprs/expr";
 import Evaluator from "./evaluator/index";
 import { ModuleValue } from "./value";
 
@@ -22,6 +24,9 @@ export class ModuleManager {
 
   constructor() {
     this.codeGenratorC = new CodeGeneratorC();
+
+    // This line of code is to prevent circular dependency issues
+    setEvaluateExpressionFn(_evaluateExpression);
   }
 
   public loadModule(modulePath: string): {

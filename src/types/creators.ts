@@ -316,6 +316,14 @@ export function createI32Type(): Type {
       (+): ((a, b) -> __yo_op_add(a, b))
     )
   }`,
+
+    Sub: `{
+    ${BuiltinModules.Sub}
+    extern "Yo", __yo_op_sub : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, Sub(Self)
+      (-): ((a, b) -> __yo_op_sub(a, b))
+    )
+  }`,
   });
 
   return type;

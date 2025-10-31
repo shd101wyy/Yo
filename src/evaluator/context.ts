@@ -23,6 +23,16 @@ export type LoadModuleFn = (modulePath: string) => {
   moduleError: Error | undefined;
 };
 
+export type EvaluateExpressionFn = ({
+  expr,
+  env,
+  context,
+}: {
+  expr: Expr;
+  env: Environment;
+  context: EvaluatorContext;
+}) => Expr;
+
 export interface AsyncBlockEvaluationContext {
   kind: "async-block";
   evaluationEnv: Environment;
