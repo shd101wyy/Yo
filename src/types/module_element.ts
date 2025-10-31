@@ -1,11 +1,9 @@
-import { Environment } from "../env";
 import { EvaluatorContext } from "../evaluator/context";
 import { generateExprFromCode } from "../parser";
 import { ModuleElement, ModuleType } from "./definitions";
 
 export function addModuleElementByCode(
   module: ModuleType,
-  env: Environment,
   context: EvaluatorContext,
   label: string,
   argCode: string
@@ -13,7 +11,7 @@ export function addModuleElementByCode(
   const argExpr = generateExprFromCode(argCode);
   const evaluatedArgCode = context.evaluateExpression({
     expr: argExpr,
-    env,
+    env: module.env,
     context: {
       ...context,
       SelfType: module.receiverType,

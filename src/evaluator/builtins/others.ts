@@ -43,7 +43,8 @@ export function evaluateYoEvalBuiltinModule({
       )}`,
     });
   }
-  const builtinModule = BuiltinModules[argExpr.$.value.value];
+  const builtinModule: string | undefined =
+    BuiltinModules[argExpr.$.value.value];
   if (!builtinModule) {
     throw formatErrorMessage({
       token: argExpr.token,
@@ -53,7 +54,7 @@ export function evaluateYoEvalBuiltinModule({
 
   // Evaluate the builtin module code
   return context.evaluateExpression({
-    expr: generateExprFromCode(builtinModule),
+    expr: generateExprFromCode(builtinModule.trim().replace(/;$/, "")),
     env,
     context: {
       ...context,

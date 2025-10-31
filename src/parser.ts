@@ -1178,7 +1178,9 @@ export function generateExprFromCode(code: string): Expr {
   const program = parser.getProgram();
   if (program.length !== 1) {
     throw new Error(
-      `Expected exactly one expression from parsed code, got ${program.length}: "${code}"`
+      `Expected exactly one expression from parsed code, got ${program.length}: "${code}"
+${program.map((expr) => exprToString(expr)).join("\n")}      
+`
     );
   }
 

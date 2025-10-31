@@ -213,7 +213,6 @@ export function createArrayType(
 
   addModuleElementByCode(
     module,
-    emptyEnv,
     { ...context },
     "length",
     isNumberValue(length)
@@ -370,9 +369,9 @@ export function createMutPtrType(
   // NOTE: This has to be set before adding module elements to avoid infinite recursion
   ptrCache.set(type, ptrType);
 
+  // Add
   addModuleElementByCode(
     module,
-    emptyEnv,
     { ...context },
     "Add",
     `{
@@ -383,6 +382,23 @@ export function createMutPtrType(
   ;
   impl(Self, Add(usize, Self)(
     (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
+  ))
+}`
+  );
+
+  // Sub
+  addModuleElementByCode(
+    module,
+    { ...context },
+    "Sub",
+    `{
+  ${BuiltinModules.Sub}
+  extern "Yo", 
+    __yo_ptr_sub :
+      fn(forall(T: Type), ptr : T, offset : usize) -> T
+  ;
+  impl(Self, Sub(usize, Self)(
+    (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
   ))
 }`
   );
