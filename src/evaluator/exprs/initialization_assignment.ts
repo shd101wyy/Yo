@@ -130,6 +130,8 @@ export function evaluateInitializationAssignment({
           type: rhsType,
           expectedType: undefined,
           expr: rhs,
+          env,
+          context: { ...context },
         });
       }
 

@@ -164,7 +164,7 @@ export function evaluateFor({
   let itemType = itemsType.elementType;
   if (itemPtrOrRefType) {
     if (itemPtrOrRefType === TypeTag.MutPtr) {
-      itemType = createMutPtrType(itemType);
+      itemType = createMutPtrType(itemType, { ...context });
     }
   }
 

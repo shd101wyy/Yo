@@ -234,7 +234,7 @@ export function evaluateMatch({
       let variableType: EnumType | MutPtrType = newEnumType;
       if (ptrOrRefType) {
         if (ptrOrRefType === TypeTag.MutPtr) {
-          variableType = createMutPtrType(newEnumType);
+          variableType = createMutPtrType(newEnumType, { ...context });
         }
       }
 
@@ -362,6 +362,8 @@ export function evaluateMatch({
                 type: resultType.type,
                 expectedType: undefined,
                 expr: undefined,
+                env: resultType.env,
+                context: { ...context },
               }),
               env: resultType.env,
             },
@@ -470,7 +472,7 @@ export function evaluateMatch({
       let variableType: EnumType | MutPtrType = newEnumType;
       if (ptrOrRefType) {
         if (ptrOrRefType === TypeTag.MutPtr) {
-          variableType = createMutPtrType(newEnumType);
+          variableType = createMutPtrType(newEnumType, { ...context });
         }
       }
 
@@ -701,6 +703,8 @@ export function evaluateMatch({
                 type: resultType.type,
                 expectedType: undefined,
                 expr: undefined,
+                env: resultType.env,
+                context: { ...context },
               }),
               env: resultType.env,
             },

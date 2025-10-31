@@ -65,6 +65,7 @@ import { evaluateGensym } from "./builtins/gensym";
 import { evaluateMacroExpand } from "./builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "./builtins/numeric_fns";
 import { evaluatePanic } from "./builtins/panic";
+import { evaluateAddressCall } from "./builtins/ptr_fns";
 import { evaluateQuote } from "./builtins/quote";
 import { evaluateSizeOf } from "./builtins/sizeof";
 import { evaluateThe } from "./builtins/the";
@@ -439,8 +440,17 @@ ${exprToString(expr)}`,
         // open
         return evaluateOpen({ expr, env, context: { ...context } });
       } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
-        // * raw pointer
+        // * pointer type
         return evaluateRawPointerCall({
+          expr,
+          env,
+          context: { ...context },
+        });
+      } else if (
+        exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_address_of, 1)
+      ) {
+        // & pointer value
+        return evaluateAddressCall({
           expr,
           env,
           context: { ...context },

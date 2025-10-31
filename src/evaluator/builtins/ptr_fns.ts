@@ -72,7 +72,9 @@ export function evaluateAddressCall({
   // Create pointer value
   else {
     const argType = evaluatedArgExpr.$.type;
-    const pointerType = createMutPtrType(argType);
+    const pointerType = createMutPtrType(argType, {
+      ...context,
+    });
 
     expr.$ = {
       env,
@@ -83,55 +85,4 @@ export function evaluateAddressCall({
     attachTempVariableToExpr(expr, false);
     return expr;
   }
-}
-
-export function evaluatePtrDereference({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_deref, 1);
-  const argExpr = expr.args[0]!;
-  const evaluatedArgExpr = context.evaluateExpression({
-    expr: argExpr,
-    env,
-    context: {
-      ...context,
-    },
-  });
-
-  if (!evaluatedArgExpr.$) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for pointer dereference:\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
-  env = evaluatedArgExpr.$.env;
-
-  const argType = evaluatedArgExpr.$.type;
-  if (!isMutPtrType(argType)) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Cannot dereference a non-pointer type:\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
-
-  // Create dereferenced value
-  const derefType = argType.type;
-  expr.$ = {
-    env,
-    type: derefType,
-    value: undefined, // dereference is only available for runtime
-    pathCollection: evaluatedArgExpr.$.pathCollection,
-  };
-  attachTempVariableToExpr(expr, false); // borrow the dereferenced value
-  return expr;
 }

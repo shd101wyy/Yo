@@ -1,8 +1,9 @@
-import { Environment, Frame } from "../env";
+import { createEmptyEnv, createNewEnv, Environment, Frame } from "../env";
 import { EvaluatorContext } from "../evaluator/context";
+import { BuiltinModules } from "../evaluator/types/builtin_modules";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
-import { Value, valueToString } from "../value";
+import { isNumberValue, Value, valueToString } from "../value";
 import {
   ArrayType,
   ClosureType,
@@ -195,10 +196,10 @@ export function createType0(baseType?: Type): TypeHierarchyType {
 export function createArrayType(
   elementType: Type,
   length: Value,
-  env: Environment,
   context: EvaluatorContext
 ): ArrayType {
-  const module = createModuleType(env);
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
 
   const arrayType: ArrayType = {
     id: `array_${elementType.id + "_" + hashString(valueToString(length))}`,
@@ -210,7 +211,15 @@ export function createArrayType(
 
   module.receiverType = arrayType;
 
-  addModuleElementByCode(module, env, { ...context }, "length", `12`);
+  addModuleElementByCode(
+    module,
+    emptyEnv,
+    { ...context },
+    "length",
+    isNumberValue(length)
+      ? `__yo_compt_int_as(${length.value.toString()}, usize)`
+      : "__yo_compt_int_as(0, usize)"
+  );
 
   return arrayType;
 }
@@ -338,14 +347,50 @@ export function createFunctionType({
   };
 }
 
-export function createMutPtrType(type: Type): MutPtrType {
-  return {
+const ptrCache: Map<Type, MutPtrType> = new Map();
+export function createMutPtrType(
+  type: Type,
+  context: EvaluatorContext
+): MutPtrType {
+  // Check cache
+  if (ptrCache.has(type)) {
+    return ptrCache.get(type)!;
+  }
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+  const ptrType: MutPtrType = {
     id: TypeTag.MutPtr,
     tag: TypeTag.MutPtr,
     type,
+    module,
   };
+  module.receiverType = ptrType;
+
+  // NOTE: This has to be set before adding module elements to avoid infinite recursion
+  ptrCache.set(type, ptrType);
+
+  addModuleElementByCode(
+    module,
+    emptyEnv,
+    { ...context },
+    "Add",
+    `{
+  ${BuiltinModules.Add}
+  extern "Yo", 
+    __yo_ptr_add :
+      fn(forall(T: Type), ptr : T, offset : usize) -> T
+  ;
+  impl(Self, Add(usize, Self)(
+    (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
+  ))
+}`
+  );
+
+  return ptrType;
 }
 
+// NOTE: We shouldn't cache the SomeType creation because they can differ by ID and name
 export function createSomeType(
   type: TypeHierarchyType,
   variableName: string,
@@ -358,25 +403,52 @@ export function createSomeType(
     );
   }
 
-  return {
+  const module: ModuleType = createModuleType(
+    createNewEnv({ modulePath: "", inputString: "" })
+  );
+  const someType: SomeType = {
     id: id ?? `sometype_${randomId()}`,
     tag: TypeTag.SomeType,
     name: variableName,
     parentType: type,
     size: undefined,
+    module,
   };
+  module.receiverType = someType;
+
+  return someType;
 }
 
+const typeHierarchyTypeCache: {
+  level: number;
+  baseType?: Type;
+  cache: TypeHierarchyType;
+}[] = [];
 export function createTypeHierarchy(
   level: number,
   baseType?: Type
 ): TypeHierarchyType {
-  return {
+  // Check if already exists
+  for (const cached of typeHierarchyTypeCache) {
+    if (cached.level === level && cached.baseType === baseType) {
+      return cached.cache;
+    }
+  }
+
+  const module: ModuleType = createModuleType(
+    createNewEnv({ modulePath: "", inputString: "" })
+  );
+  const type: TypeHierarchyType = {
     id: `Type(${level})`,
     tag: TypeTag.Type,
     level,
     baseType,
+    module,
   };
+  module.receiverType = type;
+
+  typeHierarchyTypeCache.push({ level, baseType, cache: type });
+  return type;
 }
 
 export function getFunctionParameterExprs({

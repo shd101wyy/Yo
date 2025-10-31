@@ -1,5 +1,6 @@
 import { Environment, getVariablesFromEnv } from "../env";
 import { formatErrorMessages } from "../error";
+import { EvaluatorContext } from "../evaluator/context";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
@@ -391,10 +392,14 @@ export function convertComptTypeToRuntimeType({
   type,
   expectedType,
   expr,
+  env,
+  context,
 }: {
   type: Type;
   expectedType?: Type;
   expr?: Expr;
+  env: Environment;
+  context: EvaluatorContext;
 }): Type {
   let convertedType: Type | undefined;
 
@@ -407,6 +412,8 @@ export function convertComptTypeToRuntimeType({
       type: type.elementType,
       expectedType: undefined,
       expr: undefined,
+      env,
+      context,
     });
     return type;
   } else if (isTupleType(type)) {
@@ -417,6 +424,8 @@ export function convertComptTypeToRuntimeType({
           type: element.type,
           expectedType: undefined,
           expr: undefined,
+          env,
+          context,
         }),
       };
     });
@@ -434,6 +443,8 @@ export function convertComptTypeToRuntimeType({
           type: element.type,
           expectedType: undefined,
           expr: undefined,
+          env,
+          context,
         }),
       };
     });
@@ -448,6 +459,8 @@ export function convertComptTypeToRuntimeType({
               type: param.type,
               expectedType: undefined,
               expr: undefined,
+              env,
+              context,
             }),
           };
         });
@@ -473,7 +486,9 @@ export function convertComptTypeToRuntimeType({
 
     if (!convertedType) {
       // Default: Convert the compt_string to *([u8])
-      convertedType = createMutPtrType(createSliceType(PrimitiveTypes.u8));
+      convertedType = createMutPtrType(createSliceType(PrimitiveTypes.u8), {
+        ...context,
+      });
     }
   } else {
     // No change

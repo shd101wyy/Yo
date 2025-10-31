@@ -371,6 +371,8 @@ Given type: ${typeToString(defaultValueType)}`,
       type: elementType,
       expectedType: undefined,
       expr: undefined,
+      env,
+      context: { ...context },
     });
     if (typeRequiresComptModifier(elementType)) {
       throw formatErrorMessage({

@@ -107,7 +107,7 @@ function resolveUnknownValuesAndSomeTypeInType(
         const variable = variables[variables.length - 1]!;
         if (variable.value && !isUnknownValue(variable.value)) {
           // Create a new array type with the resolved length
-          return createArrayType(type.elementType, variable.value, env, {
+          return createArrayType(type.elementType, variable.value, {
             ...context,
           });
         }
@@ -282,6 +282,8 @@ export function evaluateAssignment({
         type: rhsType,
         expectedType: variable.type,
         expr: rhs,
+        env,
+        context: { ...context },
       });
     }
 

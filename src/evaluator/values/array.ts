@@ -99,6 +99,8 @@ export function evaluateArrayValue({
                 type: arrayElementType,
                 expectedType: undefined,
                 expr: undefined,
+                env,
+                context: { ...context },
               }),
               env,
             },
@@ -127,7 +129,6 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
   const arrayType = createArrayType(
     arrayElementType!,
     createNumberValue(ValueTag.Usize, arrayLength),
-    env,
     { ...context }
   );
 

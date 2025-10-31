@@ -161,6 +161,11 @@ export function createNewEnv({
   };
 }
 
+export function createEmptyEnv(): Environment {
+  const env = createNewEnv({ modulePath: "", inputString: "" });
+  return pushEnvFrame(env);
+}
+
 export function addVariableToEnv({
   env,
   variable,
@@ -688,6 +693,25 @@ export function getMethodsByNameFromEnv(
         // which might contain the actual function values
         checkModule(element.type, element.assignedValue);
       }
+    }
+  }
+
+  // Check if th receiverType itself has method that can be called
+  if (receiverType !== dereferencedReceiverType && receiverType.module) {
+    // First check direct methods
+    const directMethod = receiverType.module.elements.find(
+      (element) => element.label === methodName && isFunctionType(element.type)
+    );
+
+    if (directMethod && isFunctionType(directMethod.type)) {
+      let value: Value | undefined = directMethod.assignedValue;
+      if (isUnknownValue(value)) {
+        value = createUnknownValue(directMethod.type, directMethod.label);
+      }
+      methods.push({ type: directMethod.type, value });
+    } else {
+      // If no direct method found, recursively check nested modules
+      checkModuleForMethod(receiverType.module, methodName);
     }
   }
 

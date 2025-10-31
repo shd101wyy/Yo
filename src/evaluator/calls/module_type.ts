@@ -61,20 +61,7 @@ export function tryToImplementModuleWithArgumentsByModuleType({
   const receiverType = context.ReceiverType;
   const selfType = context.ReceiverType ?? workingModuleType;
 
-  if (receiverType) {
-    // Extend the receiverType module
-    if (!receiverType.module) {
-      receiverType.module = workingModuleType;
-    } else {
-      receiverType.module = {
-        ...receiverType.module,
-        elements: [
-          ...workingModuleType.elements,
-          ...receiverType.module.elements,
-        ],
-      };
-    }
-  } else {
+  if (!receiverType) {
     throw formatErrorMessage({
       token: moduleExpr.token,
       errorMessage: `Receiver type is undefined when implementing module.
@@ -87,7 +74,21 @@ impl Point, Id(Point)(
 `,
     });
   }
-  const receiverTypeOriginalModule: ModuleType = receiverType.module;
+  const receiverTypeOriginalModule: ModuleType | undefined =
+    receiverType.module;
+
+  // Extend the receiverType module
+  if (!receiverType.module) {
+    receiverType.module = workingModuleType;
+  } else {
+    receiverType.module = {
+      ...receiverType.module,
+      elements: [
+        ...workingModuleType.elements,
+        ...receiverType.module.elements,
+      ],
+    };
+  }
 
   for (let i = 0; i < moduleType.elements.length; i++) {
     const moduleElement = moduleType.elements[i]!;

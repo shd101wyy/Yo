@@ -61,7 +61,9 @@ export function evaluateRawPointerCall({
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
     // Create the pointer type
-    const pointerType = createMutPtrType(baseType);
+    const pointerType = createMutPtrType(baseType, {
+      ...context,
+    });
     const typeValueForPointer = createTypeValue(pointerType);
     expr.$ = {
       env,

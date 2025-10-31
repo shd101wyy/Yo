@@ -500,7 +500,7 @@ export const BuiltinKeywords = {
   // data types
   unique: ["unique", "^"],
 
-  MutPtr: ["__yo_Ptr"],
+  MutPtr: ["*"],
 
   // Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],
@@ -558,7 +558,7 @@ export const BuiltinFunctions = {
   __yo_ptr_lte: ["__yo_ptr_lte"],
   __yo_ptr_gt: ["__yo_ptr_gt"],
   __yo_ptr_gte: ["__yo_ptr_gte"],
-  __yo_address_of: ["__yo_address_of"],
+  __yo_address_of: ["&"],
   __yo_ptr_deref: ["__yo_ptr_deref"],
   __yo_ptr_set: ["__yo_ptr_set"],
 
@@ -910,7 +910,6 @@ export const BuiltinFunctions = {
   __yo_noop: ["__yo_noop"],
   __yo_return_self: ["__yo_return_self"],
   __yo_ms_sleep: ["__yo_ms_sleep"],
-  __yo_unknown_value_of_type: ["__yo_unknown_value_of_type"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

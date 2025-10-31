@@ -124,6 +124,8 @@ ${typeToString(expectedTupleType)}`,
     type: evaluatedRhs.$.type,
     expectedType: undefined,
     expr: undefined,
+    env,
+    context: { ...context },
   });
 
   // Add to runtimeArgExprsInOrder
