@@ -166,6 +166,17 @@ export function createEmptyEnv(): Environment {
   return pushEnvFrame(env);
 }
 
+let _envContainingPrelude: Environment | null = null;
+export function setEnvContainingPrelude(env: Environment) {
+  _envContainingPrelude = env;
+}
+export function createEnvContainingPrelude(): Environment {
+  if (!_envContainingPrelude) {
+    throw new Error("Environment containing prelude is not set.");
+  }
+  return _envContainingPrelude;
+}
+
 export function addVariableToEnv({
   env,
   variable,
@@ -590,7 +601,7 @@ export function getMethodsByNameFromEnv(
 
   function checkModuleSelfCall(moduleValue: ModuleValue) {
     const selfTypeIndex = moduleValue.type.elements.findIndex(
-      (element) => element.label === "Self"
+      (element) => element.label === "Call"
     );
     if (selfTypeIndex >= 0) {
       const selfType = moduleValue.type.elements[selfTypeIndex]!;

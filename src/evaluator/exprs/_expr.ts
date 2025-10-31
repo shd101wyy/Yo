@@ -60,7 +60,6 @@ import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateMacroExpand } from "../builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "../builtins/numeric_fns";
-import { evaluateYoEvalBuiltinModule } from "../builtins/others";
 import { evaluatePanic } from "../builtins/panic";
 import { evaluateAddressCall } from "../builtins/ptr_fns";
 import { evaluateQuote } from "../builtins/quote";
@@ -71,6 +70,7 @@ import {
   evaluateYoTypeContainsArcType,
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
+import { evaluateYoSetTypeModule } from "../builtins/type_module";
 import { evaluateVaStart } from "../builtins/va_start";
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateRawPointerCall } from "../calls/pointer";
@@ -730,14 +730,10 @@ ${exprToString(expr)}`,
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_eval_builtin_module)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_set_module)
     ) {
-      // __yo_eval_builtin_module
-      return evaluateYoEvalBuiltinModule({
-        expr,
-        env,
-        context: { ...context },
-      });
+      // __yo_type_set_module
+      return evaluateYoSetTypeModule({ expr, env, context: { ...context } });
     } else {
       /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {

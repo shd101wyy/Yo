@@ -1,8 +1,15 @@
 import { readFileSync } from "node:fs";
-import { createNewEnv } from "../env";
+import path from "node:path";
+import {
+  addVariableToEnv,
+  createNewEnv,
+  pushEnvFrame,
+  setEnvContainingPrelude,
+} from "../env";
 import { Expr } from "../expr";
 import Parser from "../parser";
 import { Token } from "../token";
+import { isModuleType } from "../types";
 import { ModuleValue } from "../value";
 
 // Import extracted evaluator functions
@@ -74,6 +81,49 @@ export default class Evaluator {
       modulePath: this.modulePath,
       inputString: this.inputString,
     });
+
+    // Auto-import prelude for all modules except prelude.yo itself
+    const preludePath = "file://" + path.join(stdPath, "prelude.yo");
+    const isPreludeItself = this.modulePath === preludePath;
+
+    if (!isPreludeItself) {
+      const { moduleValue: preludeValue, moduleError: preludeError } =
+        loadModule(preludePath);
+
+      if (preludeError) {
+        console.error(preludeError);
+        throw preludeError;
+      }
+
+      // Inject prelude exports into the environment
+      if (preludeValue && isModuleType(preludeValue.type)) {
+        // Push a new frame for prelude exports
+        env = pushEnvFrame(env);
+
+        // Add each exported element from prelude to the environment
+        for (let i = 0; i < preludeValue.type.elements.length; i++) {
+          const element = preludeValue.type.elements[i]!;
+          const elementValue = preludeValue.elements[i];
+
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: element.label,
+              type: element.type,
+              value: elementValue,
+              isCompileTimeOnly: true,
+              initializedAtToken:
+                element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+              consumedAtToken: undefined,
+              token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+            },
+          });
+          env = nextEnv;
+        }
+      }
+
+      setEnvContainingPrelude(env);
+    }
 
     const {
       moduleValue,

@@ -288,7 +288,7 @@ export function evaluateFunctionCall({
         // No need to change the args
       }
       // Self function call
-      else if (functionName === "Self" && context.SelfType) {
+      else if (functionName === "Call" && context.SelfType) {
         const value = createTypeValue(context.SelfType);
         functions = [
           {
@@ -320,12 +320,12 @@ export function evaluateFunctionCall({
         if (isModuleType(functionToCall.$.type)) {
           const moduleType = functionToCall.$.type;
           const selfIndex = moduleType.elements.findIndex(
-            (e) => e.label === "Self"
+            (e) => e.label === "Call"
           );
           if (selfIndex < 0) {
             throw formatErrorMessage({
               token: func.token,
-              errorMessage: `Calling a module value which does not have "Self" element is not allowed.`,
+              errorMessage: `Calling a module value which does not have "Call" element is not allowed.`,
             });
           }
           const selfType = moduleType.elements[selfIndex]!;
@@ -349,7 +349,7 @@ export function evaluateFunctionCall({
           } else {
             throw formatErrorMessage({
               token: func.token,
-              errorMessage: `Calling a module value whose "Self" element doesn't have assigned value is not allowed.`,
+              errorMessage: `Calling a module value whose "Call" element doesn't have assigned value is not allowed.`,
             });
           }
         } else {

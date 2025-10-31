@@ -1,138 +1,86 @@
-export const BuiltinModules = {
-  Add: `
-  Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (+)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;
-`,
-  ComptAdd: `
-  ComptAdd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (+)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
-  ; 
-`,
+export const BuiltinModuleElements = {
+  // === Arithmetic ===
+  Add: `{
+    extern "Yo", __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, Add(Self)
+      (+): ((a, b) -> __yo_op_add(a, b))
+    )
+  }`,
 
-  Sub: `
-  Sub :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (-)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;
-`,
+  Sub: `{
+    extern "Yo", __yo_op_sub : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, Sub(Self)
+      (-): ((a, b) -> __yo_op_sub(a, b))
+    )
+  }`,
 
-  ComptSub: `
-  ComptSub :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (-)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
-  ;
-  `,
+  Mul: `{
+    extern "Yo", __yo_op_mul : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, Mul(Self)
+      (*): ((a, b) -> __yo_op_mul(a, b))
+    )
+  }`,
 
-  Mul: `
-  Mul :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (*)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;  
-`,
+  Div: `{
+    extern "Yo", __yo_op_div : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, Div(Self)
+      (/): ((a, b) -> __yo_op_div(a, b))
+    )
+  }`,
+  Mod: `{
+    extern "Yo", __yo_op_mod : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, Mod(Self)
+      (%): ((a, b) -> __yo_op_mod(a, b))
+    )
+  }`,
+  Negate: `{
+    extern "Yo", __yo_op_neg : (fn(forall(T : Type), x : T) -> T);
+    impl(Self, Negate(Self)
+      (neg): ((a) -> __yo_op_neg(a))
+    )
+  }`,
+  BitLeftShift: `{
+    extern "Yo", __yo_op_bit_left_shift : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, BitLeftShift(Self)
+      (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+    )
+  }`,
+  BitRightShift: `{
+    extern "Yo", __yo_op_bit_right_shift : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, BitRightShift(Self)
+      (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+    )
+  }`,
 
-  ComptMul: `
-  ComptMul :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (*)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
-  ;
-`,
-
-  Div: `
-  Div :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (/)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;
-`,
-  ComptDiv: `
-  ComptDiv :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (/)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
-  ;
-  `,
-
-  Mod: `
-  Mod :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (%)    : (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;
-`,
-  ComptMod: `
-  ComptMod :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (%)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> Output)
-  ;
-`,
-
-  BitLeftShift: `
-  BitLeftShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (<<)   : (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;
-`,
-  ComptBitLeftShift: `
-  ComptBitLeftShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (<<)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
-  ;
-  `,
-
-  BitRightShift: `
-  BitRightShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (>>)   : (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;
-`,
-  ComptBitRightShift: `
-  ComptBitRightShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (>>)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> Output)
-  ;
-`,
-
-  Exponentiation: `
-  Exponentiation :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (**)   : (fn(lhs: Self, rhs: Rhs)-> Output)
-  ;
-`,
-  ComptExponentiation: `
-  ComptExponentiation :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
-    module
-      Output := Output,
-      (**)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
-  ;
-`,
-
-  Negate: `
-  Negate :: (fn(compt(Output) : Type)-> compt(Module)) 
-    module
-      Output := Output,
-      (neg): (fn(self: Self)-> Output)
-  ;
-`,
-  ComptNegate: `
-  ComptNegate :: (fn(compt(Output) : Type)-> compt(Module)) 
-    module
-      Output := Output,
-      (neg) : (fn(compt(self): Self)-> compt(Output))
-  ;
-`,
+  // === Logic ===
+  LogicalNot: `{
+    extern "Yo", __yo_op_not : (fn(forall(T : Type), x : T) -> boolean);
+    impl(Self, LogicalNot
+      (!): ((a) -> __yo_op_not(a))
+    )
+  }`,
+  BitNot: `{
+    extern "Yo", __yo_op_bit_complement : (fn(forall(T : Type), x : T) -> T);
+    impl(Self, BitNot(Self)
+      (~): ((a) -> __yo_op_bit_complement(a))
+    )
+  }`,
+  BitAnd: `{
+    extern "Yo", __yo_op_bit_and : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, BitAnd(Self)
+      (&): ((a, b) -> __yo_op_bit_and(a, b))
+    )
+  }`,
+  BitOr: `{
+    extern "Yo", __yo_op_bit_or : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, BitOr(Self)
+      (|): ((a, b) -> __yo_op_bit_or(a, b))
+    )
+  }`,
+  BitXor: `{
+    extern "Yo", __yo_op_bit_xor : (fn(forall(T : Type), x : T, y : T) -> T);
+    impl(Self, BitXor(Self)
+      (^): ((a, b) -> __yo_op_bit_xor(a, b))
+    )
+  }`,
 };

@@ -2,7 +2,6 @@ import { createEmptyEnv, Environment, Frame } from "../env";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
 import { isNumberValue, Value, valueToString } from "../value";
-import { BuiltinModules } from "./builtin_modules";
 import {
   ArrayType,
   ClosureType,
@@ -307,25 +306,6 @@ export function createI32Type(): Type {
   module.receiverType = type;
 
   cachedI32Type = type;
-
-  addModuleElementsByCode(module, {
-    Add: `{
-    ${BuiltinModules.Add}
-    extern "Yo", __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T);
-    impl(Self, Add(Self)
-      (+): ((a, b) -> __yo_op_add(a, b))
-    )
-  }`,
-
-    Sub: `{
-    ${BuiltinModules.Sub}
-    extern "Yo", __yo_op_sub : (fn(forall(T : Type), x : T, y : T) -> T);
-    impl(Self, Sub(Self)
-      (-): ((a, b) -> __yo_op_sub(a, b))
-    )
-  }`,
-  });
-
   return type;
 }
 
@@ -859,26 +839,27 @@ export function createMutPtrType(type: Type): MutPtrType {
 
   // Add
   addModuleElementsByCode(module, {
-    Add: `{
-  ${BuiltinModules.Add}
-  extern "Yo", 
-    __yo_ptr_add :
-      fn(forall(T: Type), ptr : T, offset : usize) -> T
-  ;
-  impl(Self, Add(usize, Self)(
-    (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
-  ))
-}`,
-    Sub: `{
-  ${BuiltinModules.Sub}
-  extern "Yo", 
-    __yo_ptr_sub :
-      fn(forall(T: Type), ptr : T, offset : usize) -> T
-  ;
-  impl(Self, Sub(usize, Self)(
-    (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
-  ))
-}`,
+    //     Add: `{
+    //   ${BuiltinModules.Add}
+    //   extern "Yo",
+    //     __yo_ptr_add :
+    //       fn(forall(T: Type), ptr : T, offset : usize) -> T
+    //   ;
+    //   impl(Self, Add(usize, Self)(
+    //     (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
+    //   ))
+    // }`,
+    //     Sub: `{
+    //   ${BuiltinModules.Sub}
+    //   extern "Yo",
+    //     __yo_ptr_sub :
+    //       fn(forall(T: Type), ptr : T, offset : usize) -> T
+    //   ;
+    //   impl(Self, Sub(usize, Self)(
+    //     (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
+    //   ))
+    // }`,
+    //
   });
 
   return ptrType;

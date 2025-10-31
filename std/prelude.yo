@@ -1,0 +1,442 @@
+// Prelude Module
+// This module prohibits loading any other modules.
+// So calling "import" is not allowed here.
+
+// === Builtin Yo functions ===
+extern "Yo",
+  // compt_codegen_inline: (fn(compt(C): compt_string)-> compt(unit)),
+  // compt_noop: (()-> compt(unit)),
+  __yo_return_self : (fn(forall(T: Type), self: T) -> T),
+  __yo_noop: (fn(forall(T : Type))-> T),
+  __yo_as: (fn(forall(_Self: Type), self: _Self, compt(Target): Type) -> Target),
+  
+  // Arithmetic Operators
+  /// +
+  __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// -
+  __yo_op_sub : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// *
+  __yo_op_mul : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// /
+  __yo_op_div : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// %
+  __yo_op_mod : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// -
+  __yo_op_neg : (fn(forall(T : Type), x : T) -> T),
+  
+  // Relational Operators
+  /// ==
+  __yo_op_eq : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  /// !=
+  __yo_op_neq : (fn(forall(T : Type), x : T, y: T) -> boolean),
+  /// <
+  __yo_op_lt : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  /// <=
+  __yo_op_lte : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  /// >
+  __yo_op_gt : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  /// >=
+  __yo_op_gte : (fn(forall(T : Type), x : T, y : T) -> boolean),
+
+  // Logical Operators
+  /// !
+  __yo_op_not : (fn(forall(T : Type), x : T) -> boolean),
+
+  // Bitwise Operators
+  /// &
+  __yo_op_bit_and : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// |
+  __yo_op_bit_or  : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// ^
+  __yo_op_bit_xor : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// ~
+  __yo_op_bit_complement: (fn(forall(T : Type), x : T) -> T),
+  /// <<
+  __yo_op_bit_left_shift : (fn(forall(T : Type), x : T, y : T) -> T),
+  /// >>
+  __yo_op_bit_right_shift : (fn(forall(T : Type), x : T, y : T) -> T)
+;
+
+// Modules
+/// === Arithmetic ===
+Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (+)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export Add;
+
+ComptAdd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (+)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptAdd;
+
+Sub :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (-)    : (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export Sub;
+
+ComptSub :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (-)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptSub;
+
+Mul :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (*)    : (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export Mul;
+
+ComptMul :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (*)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptMul;
+
+Div :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (/)    : (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export Div;
+
+ComptDiv :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (/)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptDiv;
+
+Mod :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (%)    : (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export Mod;
+
+ComptMod :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (%)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> Output)
+;
+export ComptMod;
+
+BitLeftShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (<<)   : (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export BitLeftShift;
+
+ComptBitLeftShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (<<)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptBitLeftShift;
+
+BitRightShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (>>)   : (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export BitRightShift;
+
+ComptBitRightShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (>>)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> Output)
+;
+export ComptBitRightShift;
+
+Exponentiation :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (**)   : (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export Exponentiation;
+
+ComptExponentiation :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
+  module
+    Output := Output,
+    (**)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptExponentiation;
+
+Negate :: (fn(compt(Output) : Type)-> compt(Module)) 
+  module
+    Output := Output,
+    (neg): (fn(self: Self)-> Output)
+;
+export Negate;
+
+ComptNegate :: (fn(compt(Output) : Type)-> compt(Module)) 
+  module
+    Output := Output,
+    (neg) : (fn(compt(self): Self)-> compt(Output))
+;
+export ComptNegate;
+
+/// === Logic ===
+LogicalNot :: module
+  (!)  : (fn(self: Self)-> boolean)
+;
+export LogicalNot;
+
+ComptLogicalNot :: module
+  (!)  : (fn(compt(self): Self) -> compt(boolean))
+;
+export ComptLogicalNot;
+
+BitNot :: (fn(compt(Output) : Type) -> compt(Module))
+  module
+    Output := Output,
+    (~)    :  (fn(self: Self)-> Output)
+;
+export BitNot;
+
+ComptBitNot :: (fn(compt(Output) : Type) -> compt(Module))
+  module
+    Output := Output,
+    (~)    :  (fn(compt(self): Self)-> compt(Output))
+;
+export ComptBitNot;
+
+BitAnd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module)) 
+  module
+    Output := Output,
+    (&)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export BitAnd;
+
+ComptBitAnd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module)) 
+  module
+    Output := Output,
+    (&)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptBitAnd;
+
+BitOr :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module))
+  module
+    Output := Output,
+    (|)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export BitOr;
+
+ComptBitOr :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module))
+  module
+    Output := Output,
+    (|)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptBitOr;
+
+BitXor :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module)) 
+  module
+    Output := Output,
+    (^)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
+;
+export BitXor;
+
+ComptBitXor :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Module)) 
+  module
+    Output := Output,
+    (^)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+;
+export ComptBitXor;
+
+(!) :: impl {
+  (not) :: (fn( forall(_Self : Type),
+            self : _Self,
+            using(LogicalNotMethod) : (_Self <: LogicalNot)
+          ) -> boolean)
+    LogicalNotMethod.(!)(self)
+  ;
+
+  (compt_not) :: (fn(forall(_Self : Type), 
+          compt(self) : _Self,
+          using(LogicalNotMethod) : (_Self <: ComptLogicalNot)
+        ) -> compt(boolean))
+    LogicalNotMethod.(!)(self)
+  ;
+
+  Call :: (not, compt_not);
+
+  export
+    Call,
+    not,
+    compt_not
+  ;
+};
+(not) :: (!);
+export not, (!);
+
+/**
+ * logic for boolean
+ */
+BooleanLogicalNot :: impl boolean, LogicalNot(
+  (!): ((a) ->
+    __yo_op_not(a)
+  )
+);
+
+ComptBooleanLogicalNot :: impl boolean, ComptLogicalNot(
+  (!): ((self) ->
+    cond
+      self => false,
+      true => true
+  )
+);
+
+/// === Eq ===
+Eq ::
+  (fn(compt(Rhs) : Type) -> compt(Module))
+  module
+    (==) : (fn(lhs: Self, rhs: Rhs) -> boolean),
+
+    ((!=) : (fn(lhs: Self, rhs: Rhs) -> boolean)) ?= 
+      ((lhs, rhs) ->
+        not(Self.(==)(lhs, rhs), BooleanLogicalNot)
+      )
+;
+export Eq;
+
+/// === Ord ===
+Ordering :: enum
+  Less,
+  Equal,
+  Greater
+;
+export Ordering;
+
+Ord :: (
+  fn(
+    compt(Rhs) : Type
+  ) -> compt(Module))
+  module
+    using(Eq) : (Self <: Eq(Rhs)),
+
+    (<) :
+      fn(lhs: Self, rhs: Rhs) -> boolean,
+    (<=) :
+      fn(lhs: Self, rhs: Rhs) -> boolean,
+    (>) :
+      fn(lhs: Self, rhs: Rhs) -> boolean,
+    (>=) :
+      fn(lhs: Self, rhs: Rhs) -> boolean
+;
+export Ord;
+
+/**
+ * Hash trait - Similar to Rust's std::hash::Hash
+ * 
+ * This trait defines the ability to hash a value into a u64.
+ * Types that implement Hash can be used as keys in HashMap and HashSet.
+ * 
+ * The hash function should satisfy:
+ * 1. Deterministic: The same value always produces the same hash
+ * 2. Consistent with Eq: If a == b, then hash(a) == hash(b)
+ * 
+ * Note: Unlike Rust which uses a Hasher trait for incremental hashing,
+ * we use a simpler approach where each type directly produces a u64 hash.
+ */
+Hash :: module
+  /**
+    * Compute the hash of a value
+    * Returns a u64 hash value
+    */
+  (hash): (fn(value: Self) -> u64)
+;
+export
+  Hash
+;
+
+// === Clone ===
+Clone :: (fn(compt(Output) : Type) -> compt(Module))
+  module
+    clone : 
+      fn(self: Self) -> Output
+;
+
+
+
+// === Builtin types ===
+/// i32
+__yo_type_set_module(i32,
+  // === Arithmetic impls ===
+  Add :: impl(Self, Add(Self)
+    (+): ((a, b) -> __yo_op_add(a, b))
+  ),
+  Sub :: impl(Self, Sub(Self)
+    (-): ((a, b) -> __yo_op_sub(a, b))
+  ),
+  Mul :: impl(Self, Mul(Self)
+    (*): ((a, b) -> __yo_op_mul(a, b))
+  ),
+  Div :: impl(Self, Div(Self)
+    (/): ((a, b) -> __yo_op_div(a, b))
+  ),
+  Mod :: impl(Self, Mod(Self)
+    (%): ((a, b) -> __yo_op_mod(a, b))
+  ),
+  Negate :: impl(Self, Negate(Self)
+    (neg): ((a) -> __yo_op_neg(a))
+  ),
+  BitLeftShift :: impl(Self, BitLeftShift(Self)
+    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  ),
+  BitRightShift :: impl(Self, BitRightShift(Self)
+    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  ),
+
+  // === Logic impls ===
+  LogicalNot :: impl(Self, LogicalNot
+    (!): ((a) -> __yo_op_not(a))
+  ),
+
+  BitNot :: impl(Self, BitNot(Self)
+    (~): ((a) -> __yo_op_bit_complement(a))
+  ),
+  BitAnd :: impl(Self, BitAnd(Self)
+    (&): ((a, b) -> __yo_op_bit_and(a, b))
+  ),
+  BitOr :: impl(Self, BitOr(Self)
+    (|): ((a, b) -> __yo_op_bit_or(a, b))
+  ),
+  BitXor :: impl(Self, BitXor(Self)
+    (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  ),
+
+  // === Eq impls ===
+  Eq :: impl(Self, Eq(Self)
+    (==) : ((a, b) -> __yo_op_eq(a, b)),
+    (!=) : ((a, b) -> __yo_op_neq(a, b))
+  ),
+
+  // === Ord impls ===
+  Ord :: impl(Self, Ord(Self)
+    (<) : ((a, b) -> __yo_op_lt(a, b)),
+    (<=) : ((a, b) -> __yo_op_lte(a, b)),
+    (>) : ((a, b) -> __yo_op_gt(a, b)),
+    (>=) : ((a, b) -> __yo_op_gte(a, b))
+  ),
+
+  // === Hash impls ===
+  Hash :: impl(Self, Hash
+    (hash): ((value) -> __yo_as(value, u64))
+  ),
+
+  // === Clone impls ===
+  Clone :: impl(Self, Clone(Self)
+    clone: ((self) ->
+      __yo_return_self(self)
+    )
+  )
+);
