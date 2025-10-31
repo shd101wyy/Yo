@@ -95,7 +95,8 @@ export function throwRhsContainsControlFlowExpressionError(
  */
 function resolveUnknownValuesAndSomeTypeInType(
   type: Type,
-  env: Environment
+  env: Environment,
+  context: EvaluatorContext
 ): Type {
   if (isArrayType(type) && isUnknownValue(type.length)) {
     const unknownLength = type.length;
@@ -106,7 +107,9 @@ function resolveUnknownValuesAndSomeTypeInType(
         const variable = variables[variables.length - 1]!;
         if (variable.value && !isUnknownValue(variable.value)) {
           // Create a new array type with the resolved length
-          return createArrayType(type.elementType, variable.value);
+          return createArrayType(type.elementType, variable.value, env, {
+            ...context,
+          });
         }
       }
     }
@@ -315,7 +318,8 @@ export function evaluateAssignment({
             // After synthesis, resolve any unknown values in the variable type
             const resolvedVariableType = resolveUnknownValuesAndSomeTypeInType(
               variable.type,
-              env
+              env,
+              { ...context }
             );
 
             // Update the variable in the environment with the resolved type

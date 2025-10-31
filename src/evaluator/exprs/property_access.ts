@@ -301,6 +301,7 @@ export function evaluatePropertyAccess({
       }
     }
     // Accessing methods of an array type (e.g., Array(i32, 5).fill)
+    /*
     else if (isArrayType(typeValue.value)) {
       if (!exprIsAtom(propertyExpr)) {
         throw formatErrorMessage({
@@ -324,6 +325,7 @@ export function evaluatePropertyAccess({
         });
       }
     }
+    */
     // Accessing module field
     else if (isModuleType(typeValue.value)) {
       if (!isValidVariableName(propertyExpr)) {

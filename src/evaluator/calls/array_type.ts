@@ -59,7 +59,12 @@ export function tryToImplementArrayByArrayType({
 
     // Create a new array type with the inferred length
     const inferredLength = createComptIntValue(expectedLengthValue);
-    finalArrayType = createArrayType(arrayType.elementType, inferredLength);
+    finalArrayType = createArrayType(
+      arrayType.elementType,
+      inferredLength,
+      callerEnv,
+      { ...context }
+    );
   } else {
     throw formatErrorMessage({
       token: expr.func.token,
@@ -110,7 +115,9 @@ export function tryToImplementArrayByArrayType({
         // Update the final array type with the concrete element type
         finalArrayType = createArrayType(
           expectedElementType,
-          finalArrayType.length
+          finalArrayType.length,
+          env,
+          { ...context }
         );
       }
     }

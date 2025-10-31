@@ -93,7 +93,12 @@ If you are creating an array value with 1 element, please consider adding a "," 
       },
     });
 
-    const arrayType = createArrayType(elementType, unknownLength);
+    const arrayType = createArrayType(
+      elementType,
+      unknownLength,
+      envWithUnknownVar,
+      { ...context }
+    );
     const arrayTypeValue = createTypeValue(arrayType);
 
     expr.$ = {
@@ -150,7 +155,12 @@ If you are creating an array value with 1 element, please consider adding a "," 
     lengthValue.type = PrimitiveTypes.usize;
   }
 
-  const arrayType = createArrayType(elementType, lengthValue);
+  const arrayType = createArrayType(
+    elementType,
+    lengthValue,
+    evaluatedLengthExpr.$.env,
+    { ...context }
+  );
   const arrayTypeValue = createTypeValue(arrayType);
 
   expr.$ = {

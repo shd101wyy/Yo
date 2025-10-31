@@ -95,7 +95,11 @@ export function evaluateArrayValue({
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType({ type: arrayElementType, expectedType: undefined, expr: undefined }),
+              type: convertComptTypeToRuntimeType({
+                type: arrayElementType,
+                expectedType: undefined,
+                expr: undefined,
+              }),
               env,
             },
             {
@@ -122,7 +126,9 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
 
   const arrayType = createArrayType(
     arrayElementType!,
-    createNumberValue(ValueTag.Usize, arrayLength)
+    createNumberValue(ValueTag.Usize, arrayLength),
+    env,
+    { ...context }
   );
 
   const arrayValue = arrayElementValues.every((val) => !!val)

@@ -1,4 +1,5 @@
 import { Environment, Frame } from "../env";
+import { EvaluatorContext } from "../evaluator/context";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
 import { Value, valueToString } from "../value";
@@ -26,6 +27,7 @@ import {
   UnionType,
   VoidType,
 } from "./definitions";
+import { addModuleElementByCode } from "./module_element";
 import { TypeTag } from "./tags";
 
 /**
@@ -190,13 +192,27 @@ export function createType0(baseType?: Type): TypeHierarchyType {
   };
 }
 
-export function createArrayType(elementType: Type, length: Value): ArrayType {
-  return {
+export function createArrayType(
+  elementType: Type,
+  length: Value,
+  env: Environment,
+  context: EvaluatorContext
+): ArrayType {
+  const module = createModuleType(env);
+
+  const arrayType: ArrayType = {
     id: `array_${elementType.id + "_" + hashString(valueToString(length))}`,
     tag: TypeTag.Array,
     elementType,
     length,
+    module,
   };
+
+  module.receiverType = arrayType;
+
+  addModuleElementByCode(module, env, { ...context }, "length", `12`);
+
+  return arrayType;
 }
 
 export function createSliceType(elementType: Type): SliceType {
