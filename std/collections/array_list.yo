@@ -220,7 +220,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
 
     _free_elements :: ((fn(self : Self) -> unit)
       cond(
-        T.contains_arc_type() => {
+        Type.contains_arc_type(T) => {
           i := (0).as(usize);
           base_ptr := self.ptr.unwrap();
           while(i < self._length, i = (i + (1).as(usize)), {
@@ -260,7 +260,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                 .Some(ptr) => {
                   // Free elements that will be removed if they contain ARC types
                   cond(
-                    T.contains_arc_type() => {
+                    Type.contains_arc_type(T) => {
                       i := (0).as(usize);
                       while(i < actual_count, i = (i + (1).as(usize)), {
                         element_ptr := (ptr + (start + i));

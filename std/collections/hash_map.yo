@@ -122,7 +122,7 @@ HashMap :: (fn(
                 
                 i := (0).as(usize);
                 while(i < capacity, i = (i + (1).as(usize)), {
-                  (ctrl_ptr + i).set(CTRL_EMPTY);
+                  (ctrl_ptr + i).* = CTRL_EMPTY;
                 });
                 
                 .Ok(Self(
@@ -216,10 +216,10 @@ HashMap :: (fn(
           ctrl_byte := (ctrl_ptr + probe_index).*;
           
           cond(
-            (U8.Eq.(==)(ctrl_byte, CTRL_EMPTY)) => {
+            (ctrl_byte == CTRL_EMPTY) => {
               return .None;
             },
-            (U8.Eq.(==)(ctrl_byte, h2)) => {
+            (ctrl_byte == h2) => {
               bucket := (data_ptr + probe_index).*;
               cond(
                 (KeyEqual.(==)(bucket.key, key)) => {
@@ -251,7 +251,7 @@ HashMap :: (fn(
           ctrl_byte := (ctrl_ptr + probe_index).*;
           
           cond(
-            (U8.Eq.(==)(ctrl_byte, CTRL_EMPTY) || U8.Eq.(==)(ctrl_byte, CTRL_DELETED)) => {
+            ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
               return probe_index;
             },
             true => ()
@@ -287,7 +287,7 @@ HashMap :: (fn(
             while(i < self.capacity, i = (i + (1).as(usize)), {
               ctrl_byte := (ctrl_ptr + i).*;
               cond(
-                ((U8.Eq.(!=)(ctrl_byte, CTRL_EMPTY)) && (U8.Eq.(!=)(ctrl_byte, CTRL_DELETED))) => {
+                ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                   bucket := (data_ptr + i).*;
                   hash := KeyHash.(hash)(bucket.key);
                   h2 := h2_hash(hash);
@@ -295,8 +295,8 @@ HashMap :: (fn(
                   
                   new_ctrl_ptr := new_map._ctrl_ptr();
                   new_data_ptr := new_map._data_ptr();
-                  (new_ctrl_ptr + new_index).set h2;
-                  (new_data_ptr + new_index).set bucket;
+                  (new_ctrl_ptr + new_index).* = h2;
+                  (new_data_ptr + new_index).* = bucket;
                   new_map.size = (new_map.size + (1).as(usize));
                 },
                 true => ()
@@ -337,7 +337,7 @@ HashMap :: (fn(
             old_bucket := (data_ptr + index).*;
             old_value := old_bucket.value;
             new_bucket := Bucket(K, V)(key: key, value: value);
-            (data_ptr + index).set new_bucket;
+            (data_ptr + index).* = new_bucket;
             .Ok(.Some(old_value))
           },
           .None => {
@@ -357,9 +357,9 @@ HashMap :: (fn(
                 
                 ctrl_ptr := self._ctrl_ptr();
                 data_ptr := self._data_ptr();
-                (ctrl_ptr + index).set h2;
+                (ctrl_ptr + index).* = h2;
                 new_bucket := Bucket(K, V)(key: key, value: value);
-                (data_ptr + index).set new_bucket;
+                (data_ptr + index).* = new_bucket;
                 self.size = (self.size + (1).as(usize));
                 
                 .Ok(.None)
@@ -418,7 +418,7 @@ HashMap :: (fn(
             bucket := (data_ptr + index).*;
             value := bucket.value;
             
-            (ctrl_ptr + index).set CTRL_DELETED;
+            (ctrl_ptr + index).* = CTRL_DELETED;
             self.size = (self.size - (1).as(usize));
             
             .Some(value)
@@ -439,7 +439,7 @@ HashMap :: (fn(
      * Check if the map is empty
      */
     is_empty :: ((fn(self: Self) -> boolean)
-      Usize.Eq.(==)(self.size, (0).as(usize))
+      (self.size == (0).as(usize))
     ),
 
     /**
@@ -451,7 +451,7 @@ HashMap :: (fn(
         ctrl_ptr := self._ctrl_ptr();
         i := (0).as(usize);
         while(i < self.capacity, i = (i + (1).as(usize)), {
-          (ctrl_ptr + i).set CTRL_EMPTY;
+          (ctrl_ptr + i).* = CTRL_EMPTY;
         });
         self.size = (0).as(usize);
       }
