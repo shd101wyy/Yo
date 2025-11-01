@@ -176,6 +176,9 @@ export function createEnvContainingPrelude(): Environment {
   }
   return _envContainingPrelude;
 }
+export function isEvaluatingPreludeModule(): boolean {
+  return _envContainingPrelude === null;
+}
 
 export function addVariableToEnv({
   env,

@@ -1174,6 +1174,10 @@ export function generateExprFromCode(code: string): Expr {
     inputString: code,
   });
 
+  if (parser.getParserError()) {
+    throw parser.getParserError()!;
+  }
+
   // Get the parsed expressions
   const program = parser.getProgram();
   if (program.length !== 1) {

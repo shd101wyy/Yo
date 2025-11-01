@@ -1,6 +1,5 @@
 // Prelude Module
-// This module prohibits loading any other modules.
-// So calling "import" is not allowed here.
+// - Calling "import" is prohibited in this prelude module.
 
 // === Builtin Yo functions ===
 extern "Yo",
@@ -54,7 +53,29 @@ extern "Yo",
   /// <<
   __yo_op_bit_left_shift : (fn(forall(T : Type), x : T, y : T) -> T),
   /// >>
-  __yo_op_bit_right_shift : (fn(forall(T : Type), x : T, y : T) -> T)
+  __yo_op_bit_right_shift : (fn(forall(T : Type), x : T, y : T) -> T),
+
+  // Ptr related functions
+  __yo_ptr_cast :
+    fn(forall(Source: Type), source : Source, compt(Target) : Type) -> Target,
+ __yo_ptr_add :
+    fn(forall(T: Type), ptr : T, offset : usize) -> T,
+  __yo_ptr_sub :
+    fn(forall(T: Type), ptr : T, offset : usize) -> T,
+  __yo_ptr_diff :
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> isize,
+  __yo_ptr_eq :
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+  __yo_ptr_neq :
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+  __yo_ptr_lt :
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+  __yo_ptr_lte :
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+  __yo_ptr_gt :
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+  __yo_ptr_gte :
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean
 ;
 
 // Modules
@@ -280,13 +301,13 @@ export not, (!);
 
 /**
  * logic for boolean
+ * No need to export them. For internal use only
  */
 BooleanLogicalNot :: impl boolean, LogicalNot(
   (!): ((a) ->
     __yo_op_not(a)
   )
 );
-
 ComptBooleanLogicalNot :: impl boolean, ComptLogicalNot(
   (!): ((self) ->
     cond
@@ -2813,4 +2834,17 @@ __yo_type_set_module(ExprList,
   length :: ((fn(compt(self): Self) -> compt(usize))
     __yo_expr_list_length(self)
   )
+);
+
+// Type
+__yo_type_set_module(Type,
+  to_string :: ((fn(compt(self): Self) -> compt(compt_string)) {
+     return __yo_type_to_string(self);
+  }),
+  is_compatible_with :: ((fn(compt(self): Self, compt(expected_type): Type) -> compt(boolean)) {
+     return __yo_are_types_compatible(expected_type, self);
+  }),
+  contains_arc_type :: ((fn(compt(self): Self) -> compt(boolean)) {
+    return __yo_type_contains_arc_type(self);
+  })
 );

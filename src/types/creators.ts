@@ -1,4 +1,10 @@
-import { createEmptyEnv, Environment, Frame } from "../env";
+import {
+  createEmptyEnv,
+  createEnvContainingPrelude,
+  Environment,
+  Frame,
+  isEvaluatingPreludeModule,
+} from "../env";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
 import { isNumberValue, Value, valueToString } from "../value";
@@ -820,12 +826,13 @@ export function createFunctionType({
 const ptrCache: Map<Type, MutPtrType> = new Map();
 export function createMutPtrType(type: Type): MutPtrType {
   // Check cache
-  if (ptrCache.has(type)) {
+  if (!isEvaluatingPreludeModule() && ptrCache.has(type)) {
     return ptrCache.get(type)!;
   }
-
-  const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const env = isEvaluatingPreludeModule()
+    ? createEmptyEnv()
+    : createEnvContainingPrelude();
+  const module = createModuleType(env);
   const ptrType: MutPtrType = {
     id: TypeTag.MutPtr,
     tag: TypeTag.MutPtr,
@@ -834,33 +841,74 @@ export function createMutPtrType(type: Type): MutPtrType {
   };
   module.receiverType = ptrType;
 
-  // NOTE: This has to be set before adding module elements to avoid infinite recursion
-  ptrCache.set(type, ptrType);
+  if (!isEvaluatingPreludeModule()) {
+    // NOTE: This has to be set before adding module elements to avoid infinite recursion
+    ptrCache.set(type, ptrType);
 
-  // Add
-  addModuleElementsByCode(module, {
-    //     Add: `{
-    //   ${BuiltinModules.Add}
-    //   extern "Yo",
-    //     __yo_ptr_add :
-    //       fn(forall(T: Type), ptr : T, offset : usize) -> T
-    //   ;
-    //   impl(Self, Add(usize, Self)(
-    //     (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
-    //   ))
-    // }`,
-    //     Sub: `{
-    //   ${BuiltinModules.Sub}
-    //   extern "Yo",
-    //     __yo_ptr_sub :
-    //       fn(forall(T: Type), ptr : T, offset : usize) -> T
-    //   ;
-    //   impl(Self, Sub(usize, Self)(
-    //     (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
-    //   ))
-    // }`,
-    //
-  });
+    // Add
+    addModuleElementsByCode(module, {
+      Add: `{
+      extern "Yo", __yo_ptr_add : (fn(forall(T: Type), ptr : T, offset : usize) -> T);
+      impl(Self, Add(usize, Self)(
+        (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
+      ))
+    }`,
+      Sub: `{
+      extern "Yo", __yo_ptr_sub : (fn(forall(T: Type), ptr : T, offset : usize) -> T);
+      impl(Self, Sub(usize, Self)(
+        (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
+      ))
+    }`,
+      Eq: `{
+      extern "Yo",
+        __yo_ptr_eq :
+          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+        __yo_ptr_neq :
+          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean
+      ;
+      impl(Self, Eq(Self)(
+        (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs, rhs)),
+        (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs, rhs))
+      ))
+    }`,
+      Ord: `{
+      extern "Yo",
+        __yo_ptr_lt :
+          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+        __yo_ptr_lte :
+          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+        __yo_ptr_gt :
+          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+        __yo_ptr_gte :
+          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean
+      ;
+      impl(Self, Ord(Self)(
+        (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs, rhs)),
+        (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs, rhs)),
+        (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs, rhs)),
+        (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
+      ))
+    }`,
+      diff: `{
+        extern "Yo",
+          __yo_ptr_diff :
+            fn(forall(T: Type), ptr1 : T, ptr2 : T) -> isize
+        ;
+        ((fn(lhs : Self, rhs : Self) -> isize) {
+          return __yo_ptr_diff(lhs, rhs);
+        })
+      }`,
+      cast: `{
+        extern "Yo",
+          __yo_ptr_cast :
+            fn(forall(Source: Type), source : Source, compt(Target) : Type) -> Target
+        ;
+        ((fn(self : Self, compt(Target) : Type) -> Target) {
+          return __yo_ptr_cast(self, Target);
+        })
+      }`,
+    });
+  }
 
   return ptrType;
 }
@@ -892,21 +940,21 @@ export function createSomeType(
   return someType;
 }
 
-const typeHierarchyTypeCache: {
-  level: number;
-  baseType?: Type;
-  cache: TypeHierarchyType;
-}[] = [];
+// const typeHierarchyTypeCache: {
+//   level: number;
+//   baseType?: Type;
+//   cache: TypeHierarchyType;
+// }[] = [];
 export function createTypeHierarchy(
   level: number,
   baseType?: Type
 ): TypeHierarchyType {
   // Check if already exists
-  for (const cached of typeHierarchyTypeCache) {
-    if (cached.level === level && cached.baseType === baseType) {
-      return cached.cache;
-    }
-  }
+  // for (const cached of typeHierarchyTypeCache) {
+  //   if (cached.level === level && cached.baseType === baseType) {
+  //     return cached.cache;
+  //   }
+  // }
 
   const module: ModuleType = createModuleType(createEmptyEnv());
   const type: TypeHierarchyType = {
@@ -918,7 +966,8 @@ export function createTypeHierarchy(
   };
   module.receiverType = type;
 
-  typeHierarchyTypeCache.push({ level, baseType, cache: type });
+  // typeHierarchyTypeCache.push({ level, baseType, cache: type });
+
   return type;
 }
 
