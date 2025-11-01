@@ -82,6 +82,7 @@ import { evaluateEnumType } from "../types/enum";
 import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future";
 import { evaluateModuleType } from "../types/module";
+import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
 import { evaluateSliceType } from "../types/slice";
 import { evaluateStructType } from "../types/struct";
@@ -272,6 +273,13 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.object)) {
       // object (reference semantics struct)
       return evaluateObjectType({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.newtype)) {
+      // newtype (single element struct)
+      return evaluateNewtypeType({
         expr,
         env,
         context: { ...context },

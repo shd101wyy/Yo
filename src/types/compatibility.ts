@@ -105,14 +105,13 @@ export function areTypesCompatible(
   }
 
   // compt_string can be converted to
-  // - *([u8])  u8 slice
+  // - [u8]  u8 slice
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
   if (
     (isComptStringType(expected.type) ||
-      (isMutPtrType(expected.type) && // *([u8])
-        isSliceType(expected.type.type) &&
-        isU8Type(expected.type.type.elementType)) ||
+      (isSliceType(expected.type) && // [u8]
+        isU8Type(expected.type.elementType)) ||
       (isMutPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.type) || isCharType(expected.type.type)))) &&
     isComptStringType(given.type)

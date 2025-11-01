@@ -159,6 +159,12 @@ export function isObjectType(
   );
 }
 
+export function isNewtypeType(
+  type?: Type
+): type is StructType & { isNewtype: true } {
+  return type?.tag === TypeTag.Struct && (type as StructType).isNewtype;
+}
+
 export function isModuleType(type?: Type): type is ModuleType {
   return type?.tag === TypeTag.Module;
 }

@@ -867,7 +867,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return structType.typeName;
       }
 
-      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "object" : "struct"}(${structType.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
+      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -1165,8 +1165,11 @@ export function getAlignmentOfType(type: Type): number | null {
     return maxAlign;
   } else if (isStructType(type)) {
     // Check if it's reference semantics - if so, return pointer alignment
-    if ((type as StructType).isReferenceSemantics) {
+    if (type.isReferenceSemantics) {
       return getTargetPointerSizeBytes();
+    }
+    if (type.isNewtype) {
+      return getAlignmentOfType(type.elements[0]!.type);
     }
     // Struct alignment is the maximum alignment of its elements
     let maxAlign = 1;
@@ -1260,8 +1263,11 @@ export function getSizeOfType(type: Type): number | null {
     return getTupleTypeSize(type);
   } else if (isStructType(type)) {
     // Check if it's reference semantics - if so, return pointer size
-    if ((type as StructType).isReferenceSemantics) {
+    if (type.isReferenceSemantics) {
       return getTargetPointerSizeBits();
+    }
+    if (type.isNewtype) {
+      return getSizeOfType(type.elements[0]!.type);
     }
     return getStructTypeSize(type);
   } else if (isEnumType(type)) {

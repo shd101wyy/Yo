@@ -719,7 +719,8 @@ export function createTupleType(elements: TupleElement[]): TupleType {
 
 export function createStructType(
   env: Environment,
-  isReferenceSemantics: boolean = false
+  isReferenceSemantics: boolean = false,
+  isNewtype: boolean = false
 ): StructType {
   const module = createModuleType(env);
 
@@ -727,6 +728,7 @@ export function createStructType(
     id: `struct_${randomId()}`,
     tag: TypeTag.Struct,
     isReferenceSemantics,
+    isNewtype,
     elements: [],
     module,
     env,

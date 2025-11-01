@@ -286,6 +286,16 @@ export interface StructType extends Type {
   isReferenceSemantics: boolean;
 
   /**
+   * Whether this struct is a newtype.
+   * A newtype is a struct with a single element.
+   * eg:
+   *   NewInt :: newtype(value: i32);
+   *
+   * NewInt is a newtype.
+   */
+  isNewtype: boolean;
+
+  /**
    * The function that returns the struct.
    * eg:
    *   Point :: struct(x: i32, y: i32)

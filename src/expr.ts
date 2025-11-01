@@ -112,7 +112,7 @@ export interface EvaluatedExprData {
   /**
    * When a compile-time type needs to be converted to a different runtime type,
    * this field stores the target runtime type.
-   * For example: string literal "hello" with type compt_string converted to *([u8])
+   * For example: string literal "hello" with type compt_string converted to [u8]
    */
   convertedRuntimeType?: Type;
   /**
@@ -463,6 +463,7 @@ export const BuiltinKeywords = {
   match: ["match"],
   struct: ["struct"],
   object: ["object"],
+  newtype: ["newtype"],
   enum: ["enum"],
   union: ["union"],
   module: ["module"],

@@ -22,31 +22,29 @@ export function evaluateStructType({
   expr,
   env,
   context,
-  isReferenceSemantics = false,
 }: {
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
-  isReferenceSemantics?: boolean;
 }): FuncCallExpr {
   const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
   const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
+  const isNewtypeKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.newtype);
 
-  if (!isStructKeyword && !isObjectKeyword) {
+  if (!isStructKeyword && !isObjectKeyword && !isNewtypeKeyword) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "struct" or "object", got:\n${exprToString(expr)}`,
+      errorMessage: `Expected "struct" or "object" or "newtype", got:\n${exprToString(expr)}`,
     });
   }
 
   // For 'object' keyword, always use reference semantics
-  const finalIsReferenceSemantics = isObjectKeyword
-    ? true
-    : isReferenceSemantics;
+  const isReferenceSemantics = isObjectKeyword;
+  const isNewtype = isNewtypeKeyword;
 
   // Create structType with empty elements
   // This is used as the SelfType for the following evaluations.
-  const structType = createStructType(env, finalIsReferenceSemantics);
+  const structType = createStructType(env, isReferenceSemantics, isNewtype);
   addARCFunctionSignaturesToStructType({ structType, env, context });
 
   // Evaluate the elements
@@ -227,6 +225,14 @@ export function evaluateStructType({
 
       env = nextEnv;
     }
+  }
+
+  // Check if it's newtype and has only one element
+  if (isNewtype && elements.length !== 1) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Newtype struct must have exactly one element, but got ${elements.length} elements.`,
+    });
   }
 
   // Auto-generate ___drop, ___dup, and ___dispose functions if needed

@@ -23,6 +23,7 @@ import {
   isMutPtrType,
   isObjectType,
   isPrimitiveType,
+  isSliceType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -157,6 +158,8 @@ export function typeOfType(
   } else if (isArrayType(type)) {
     // For arrays, check the element type
     return typeOfType(type.elementType, checkedTupleElements);
+  } else if (isSliceType(type)) {
+    return createType0(type);
   } else if (isTupleType(type)) {
     // For tuples, check all element types
     return determineTypeUniverse(
