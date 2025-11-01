@@ -21,12 +21,10 @@ import {
   isEnumType,
   isFunctionType,
   isModuleType,
-  isMutPtrType,
   isSliceType,
   isSomeType,
   isStructType,
   isUnionType,
-  SliceType,
   Type,
   typeOfType,
   typeToString,
@@ -641,15 +639,12 @@ export function evaluateFunctionCall({
         // array
         isArrayType(functionToCall.type) ||
         // slice
-        (isMutPtrType(functionToCall.type) &&
-          isSliceType(functionToCall.type.type))
+        isSliceType(functionToCall.type)
       ) {
         try {
           const result = tryToCallArrayWithArguments({
             expr,
-            arrayType: isArrayType(functionToCall.type)
-              ? functionToCall.type // array
-              : (functionToCall.type.type as SliceType), // slice
+            arrayType: functionToCall.type, // Array or Slice
             arrayValue: functionToCall.value as ArrayValue | undefined,
             argExprs: args,
             callerEnv: env,
@@ -1171,11 +1166,10 @@ ${functionsWithMatchingTypes
       // This should already be evaluated by tryToImplementClosureByClosureType
       return expr;
     }
-    // array
+    // array & slice
     else if (
       isArrayType(functionToCall.type) ||
-      (isMutPtrType(functionToCall.type) &&
-        isSliceType(functionToCall.type.type))
+      isSliceType(functionToCall.type)
     ) {
       const { value, index, type, callerEnv } =
         getArrayCallResult(functionToCall);

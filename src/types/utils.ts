@@ -9,7 +9,6 @@ import { ValueTag } from "../value-tag";
 import {
   createF64Type,
   createI32Type,
-  createMutPtrType,
   createSliceType,
   createU8Type,
 } from "./creators";
@@ -24,7 +23,6 @@ import {
   ModuleElement,
   ModuleType,
   MutPtrType,
-  SliceType,
   SomeType,
   StructType,
   TupleElement,
@@ -484,15 +482,15 @@ export function convertComptTypeToRuntimeType({
         (isU8Type(expectedType.type) || isCharType(expectedType.type))
       ) {
         convertedType = expectedType;
-      } else if (isMutPtrType(expectedType) && isSliceType(expectedType.type)) {
-        // *([u8]) in Yo is a fat pointer (the slice value itself)
+      } else if (isSliceType(expectedType)) {
+        // [u8] in Yo is a fat pointer (the slice value itself)
         convertedType = expectedType;
       }
     }
 
     if (!convertedType) {
-      // Default: Convert the compt_string to *([u8])
-      convertedType = createMutPtrType(createSliceType(createU8Type()));
+      // Default: Convert the compt_string to [u8]
+      convertedType = createSliceType(createU8Type());
     }
   } else {
     // No change
@@ -1382,7 +1380,7 @@ function typeCanReferenceCyclicRefStruct(
   // Check through slices
   if (isSliceType(type)) {
     return typeCanReferenceCyclicRefStruct(
-      (type as SliceType).elementType,
+      type.elementType,
       originalRefStruct,
       visitedTypes
     );
