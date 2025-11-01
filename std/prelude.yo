@@ -78,6 +78,14 @@ extern "Yo",
     fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean
 ;
 
+assert :: (fn(flag : boolean, compt(msg) : compt_string) -> unit)
+  cond(
+    flag => (),
+    true => panic(msg)
+  )
+;
+export assert;
+
 // Modules
 /// === Arithmetic ===
 Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
@@ -2848,3 +2856,46 @@ __yo_type_set_module(Type,
     return __yo_type_contains_arc_type(self);
   })
 );
+
+// === Data Types ===
+/// === Option ===
+Option :: (fn(compt(T) : Type) -> compt(Type))
+  enum
+    None,
+    Some(value: T),
+
+    unwrap :: ((fn(self : Self) -> T)
+      match(self,
+        .Some(value) => value,
+        .None => panic("Called unwrap on a None value")
+      )
+    )
+;
+// Alias of the Option type
+? :: Option;
+// Nullable pointer
+(?*) :: (fn(compt(T): Type) -> compt(Type))
+  Option(*(T))
+;
+export 
+  Option,
+  ?,
+  (?*)
+;
+
+/// === Result ===
+Result :: (fn(compt(OkType): Type, compt(ErrorType): Type) -> compt(Type))
+  enum
+    Ok(value: OkType),
+    Error(error: ErrorType),
+
+    unwrap :: ((fn(self : Self) -> OkType)
+      match(self,
+        .Ok(value) => value,
+        .Error(_) => panic("Called unwrap on an Error value")
+      )
+    )
+;
+export
+  Result
+;

@@ -1,5 +1,3 @@
-open import "../data/primitives";
-
 /**
  * FNV-1a (Fowler-Noll-Vo) hash function
  * A fast, non-cryptographic hash function with good distribution
@@ -20,7 +18,7 @@ fnv1a_hash_bytes :: (fn(bytes: *(u8), length: usize) -> u64)
     hash := FNV_OFFSET_BASIS;
     i := (0).as(usize);
     while(i < length, i = (i + (1).as(usize)), {
-      byte := *(bytes + i);
+      byte := (bytes + i).*;
       xor := ((hash ^ byte.as(u64)));
       hash = (xor * FNV_PRIME);
     });
