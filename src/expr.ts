@@ -1222,12 +1222,41 @@ ${exprToString(expr)}`);
   }
   const { env, type, value, originType } = expr.$;
   const modulePath = env.modulePath;
-  const tempVariableName = generateNewTempVariableName(modulePath);
 
-  // NOTE: For now let's make all the iwOwningTheARCValue variable runtime-only
+  // NOTE: For now let's make all the isOwningTheARCValue variable runtime-only
   // so the `object` value can only be used in runtime.
   // Actually, all C pointer related should be runtime-only.
   const _isOwningTheARCValue = isOwningTheARCValue && typeContainsARCType(type);
+
+  // Check if a temp variable already exists
+  if (expr.$.variableName) {
+    // Update the existing variable instead of creating a new one
+    const existingVariables = getVariablesFromEnv(env, expr.$.variableName);
+    if (existingVariables.length > 0) {
+      const existingVariable = existingVariables[existingVariables.length - 1]!;
+      const updatedVariable: Variable = {
+        ...existingVariable,
+        type,
+        value: _isOwningTheARCValue ? undefined : value,
+        isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
+        isOwningTheARCValue: _isOwningTheARCValue,
+      };
+      expr.$.env = updateExistingVariable(
+        env,
+        existingVariable,
+        updatedVariable
+      );
+      // Preserve the originType
+      if (!originType) {
+        expr.$.originType = type;
+      }
+      return;
+    }
+    // If variable doesn't exist in env (shouldn't happen), fall through to create new one
+  }
+
+  // Create a new temp variable
+  const tempVariableName = generateNewTempVariableName(modulePath);
 
   // Add temp variable to the environment
   const { env: nextEnv } = addVariableToEnv({

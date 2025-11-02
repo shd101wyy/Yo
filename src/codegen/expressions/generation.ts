@@ -529,7 +529,12 @@ function generateFuncCall(
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
     const arg = expr.args[0];
     if (arg) {
-      if (!expr.$?.variableName) {
+      if (!expr.$) {
+        throw new Error(`Internal error: return expression missing metadata`);
+      }
+      // For non-unit types, we need a temporary variable to hold the return value
+      // before deferred drop expressions run
+      if (!expr.$.variableName && !isUnitType(expr.$.type)) {
         return `// Error: return expression missing temporary variable name`;
       }
 
@@ -538,6 +543,7 @@ function generateFuncCall(
 
       if (
         !isUnitType(expr.$.type) &&
+        expr.$.variableName &&
         expr.$.variableName !== argCode // Prevent something like: int32_t _yof4ca7ba3_temp_2071 = _yof4ca7ba3_temp_2071;
       ) {
         context.emitter.emitLine(
@@ -733,6 +739,24 @@ function generateFuncCall(
           sanitizedVariableName,
           context
         );
+
+        // Handle newtype destructuring - just use the value itself
+        if (
+          rhsType &&
+          isStructType(rhsType) &&
+          rhsType.isNewtype &&
+          rhsType.elements.length === 1
+        ) {
+          const singleField = rhsType.elements[0];
+          if (singleField && singleField.label === label) {
+            // For newtype, destructuring the single field just returns the value itself
+            context.emitter.emitLine(
+              `${indent}${varTypeAndName} = ${rhsCode}; // Destructuring ${label} (newtype)`
+            );
+            return;
+          }
+        }
+
         let fieldName = label.match(/^\d+$/)
           ? `_${label}`
           : sanitizeForCIdentifier(label);

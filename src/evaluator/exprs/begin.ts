@@ -396,6 +396,10 @@ export function evaluateBeginExpression({
         }
         env = evaluatedReturnArgExpr.$.env;
 
+        // Attach temp variable to return value expression if it's non-unit
+        // This is needed for C codegen to store the value before running deferred drops
+        attachTempVariableToExpr(evaluatedReturnArgExpr, true);
+
         exprToEvaluate.$ = {
           env,
           type: evaluatedReturnArgExpr.$.type,
