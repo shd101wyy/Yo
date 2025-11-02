@@ -963,8 +963,8 @@ function generateFuncCall(
         }
 
         // Special handling for slice initialization.
-        if (isMutPtrType(lhs.$.type) && isSliceType(lhs.$.type.type)) {
-          const sliceType = lhs.$.type.type; // Get the slice type directly
+        if (isSliceType(lhs.$.type)) {
+          const sliceType = lhs.$.type; // Get the slice type directly
 
           if (isStateMachineVar && varId) {
             // In state machine - assign to sm->var_xxx field
@@ -2104,22 +2104,117 @@ function generateFuncCall(
         }
       }
     } else if (isArrayType(functionType)) {
+      const firstArg = expr.args[0];
+
+      // Check if this is a slicing operation: arr(start:end) or arr(:)
+      if (
+        firstArg &&
+        exprIsFunctionCall(firstArg) &&
+        exprIsFunctionCallOf(firstArg, ":")
+      ) {
+        // arr(start:end) -> create slice value
+        const arrayCode = generateExpr(expr.func!, indent, context);
+        const startCode = generateExpr(firstArg.args[0]!, indent, context);
+        const endCode = generateExpr(firstArg.args[1]!, indent, context);
+
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as ArrayType).elementType, context))}`;
+        // Register the slice type
+        if (!context.sliceStructTypes.has(sliceTypeName)) {
+          context.sliceStructTypes.set(sliceTypeName, {
+            elementType: getTypeString(
+              (functionType as ArrayType).elementType,
+              context
+            ),
+          });
+        }
+        return `(${sliceTypeName}){ .data = &${arrayCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
+      } else if (
+        firstArg &&
+        exprIsAtom(firstArg) &&
+        firstArg.token.value === ":"
+      ) {
+        // arr(:) -> create slice value for whole array
+        const arrayCode = generateExpr(expr.func!, indent, context);
+        const arrayType = functionType as ArrayType;
+        const elementType = arrayType.elementType;
+
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(elementType, context))}`;
+        // Register the slice type
+        if (!context.sliceStructTypes.has(sliceTypeName)) {
+          context.sliceStructTypes.set(sliceTypeName, {
+            elementType: getTypeString(elementType, context),
+          });
+        }
+
+        if (isNumberValue(arrayType.length)) {
+          return `(${sliceTypeName}){ .data = &${arrayCode}.data[0], .length = ${arrayType.length.value} }`;
+        } else {
+          return `/* Error: Cannot slice array with non-compile-time length */`;
+        }
+      }
+
       // Array access by index: arr[index] or arr(index)
       const arrayCode = generateExpr(expr.func!, indent, context);
-      const indexCode = generateExpr(expr.args[0]!, indent, context);
+      const indexCode = generateExpr(firstArg!, indent, context);
       // Generate array access with struct wrapper
       return `${arrayCode}.data[${indexCode}]`; // Access the element at the index
     } else if (isSliceType(functionType)) {
+      const firstArg = expr.args[0];
+
+      // Check if this is a sub-slicing operation: slice(start:end) or slice(:)
+      if (
+        firstArg &&
+        exprIsFunctionCall(firstArg) &&
+        exprIsFunctionCallOf(firstArg, ":")
+      ) {
+        // slice(start:end) -> create sub-slice
+        const sliceCode = generateExpr(expr.func!, indent, context);
+        const startCode = generateExpr(firstArg.args[0]!, indent, context);
+        const endCode = generateExpr(firstArg.args[1]!, indent, context);
+
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as SliceType).elementType, context))}`;
+        // Register the slice type
+        if (!context.sliceStructTypes.has(sliceTypeName)) {
+          context.sliceStructTypes.set(sliceTypeName, {
+            elementType: getTypeString(
+              (functionType as SliceType).elementType,
+              context
+            ),
+          });
+        }
+        return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = (${endCode}) - (${startCode}) }`;
+      } else if (
+        firstArg &&
+        exprIsAtom(firstArg) &&
+        firstArg.token.value === ":"
+      ) {
+        // slice(:) -> create slice copy of whole slice
+        const sliceCode = generateExpr(expr.func!, indent, context);
+
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as SliceType).elementType, context))}`;
+        // Register the slice type
+        if (!context.sliceStructTypes.has(sliceTypeName)) {
+          context.sliceStructTypes.set(sliceTypeName, {
+            elementType: getTypeString(
+              (functionType as SliceType).elementType,
+              context
+            ),
+          });
+        }
+        return `(${sliceTypeName}){ .data = ${sliceCode}.data, .length = ${sliceCode}.length }`;
+      }
+
       // Slice access by index: slice.data[index]
       const sliceCode = generateExpr(expr.func!, indent, context);
-      const indexCode = generateExpr(expr.args[0]!, indent, context);
+      const indexCode = generateExpr(firstArg!, indent, context);
       return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
     } else if (
       functionType &&
       isMutPtrType(functionType) &&
       isSliceType(functionType.type)
     ) {
-      // Slice access by index for pointer to slice (but we generate slice as value): slice.data[index]
+      // This case should no longer exist since slices are no longer behind pointers
+      // But keep it for backward compatibility during migration
       const sliceCode = generateExpr(expr.func!, indent, context);
       const indexCode = generateExpr(expr.args[0]!, indent, context);
       return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice

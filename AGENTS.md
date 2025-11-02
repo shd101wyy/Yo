@@ -102,3 +102,12 @@ While implementing the evaluate or codegen, no shortcuts or simplcations!
 
 6. **Use `boolean` not `bool`:**
    - The boolean type is spelled `boolean` in Yo
+
+
+If you meet error like:
+
+      (.text+0x1b): undefined reference to `main'
+      clang: error: linker command failed with exit code 1 (use -v to see invocation)
+      Compilation failed with exit code 1
+
+then it means the `main` function is not exported. Please add `export main;` at the end of the `.yo` file.

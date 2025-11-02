@@ -7,32 +7,41 @@
  *
  */
 open import "std";
+open import "std/libc/stdio";
 
 main :: (fn() -> unit) {
   arr := [1, 2, 3, 4];
   arr_length :: arr.length;
-  slice := &(arr(1:3));
-  slice_mut := &(arr(1:3));
-  full_slice := &(arr(:));
+  
+  // OLD:
+  // slice := &(arr(1:3));
+  // NEW:
+  (end : usize) = 3;
+  slice := arr(1:end);
+
+  // OLD:
+  // full_slice := &(arr(:));
+  // NEW:
+  full_slice := arr(:);
 
   { 
-    slice := &(arr(1:3));
+    slice := (arr(1:3));
+    slice(0) = 10;
+    slice(1) = 20;
     {
       slice_length := slice.length;
       x := slice(0);
 
-      slice_of_slice := &(slice(0:2));
+      slice_of_slice := (slice(0:2));
+
+      printf("arr: %d %d %d %d\n", arr(0), arr(1), arr(2), arr(3));
+      printf("slice: %d %d\n", slice(0), slice(1));
+      printf("slice.length: %d\n", slice_length);
+
+      printf("full_slice: %d %d %d %d\n", full_slice(0), full_slice(1), full_slice(2), full_slice(3));
+      printf("slice_of_slice: %d %d\n", slice_of_slice(0), slice_of_slice(1));
+
     };
   };
-  {
-    slice := &(arr(1:3));
-    {
-      slice_length := slice.length;
-
-      x := slice(0);
-      slice(0) = 13;
-
-      slice_of_slice := &(slice(0:2));
-    }
-  }
 };
+export main;

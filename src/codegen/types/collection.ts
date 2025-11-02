@@ -12,6 +12,7 @@ import {
   isFutureType,
   isModuleType,
   isMutPtrType,
+  isSliceType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -197,12 +198,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isClosureType(type) ||
     isDynType(type) ||
     isFutureType(type) ||
-    isModuleType(type)
+    isModuleType(type) ||
+    isSliceType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName = isFutureType(type)
       ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).elementType, context))}_t`
-      : `yo_${type.id}`;
+      : isSliceType(type)
+        ? getTypeString(type, context) // For slices, use the special slice type name
+        : `yo_${type.id}`;
     context.types[type.id] = {
       type,
       cName: cTypeName,
@@ -257,6 +261,13 @@ export function collectType(type: Type, context: CodeGenContext): void {
       const futureType = type as FutureType;
       // Recursively collect the element type
       collectType(futureType.elementType, context);
+    }
+
+    // For slice types, collect the element type
+    if (isSliceType(type)) {
+      const sliceType = type as SliceType;
+      // Recursively collect the element type
+      collectType(sliceType.elementType, context);
     }
 
     // For module types, collect types and functions from the module's elements directly
