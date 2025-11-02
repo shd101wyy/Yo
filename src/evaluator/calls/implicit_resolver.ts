@@ -57,7 +57,37 @@ export function resolveImplicitValue({
     variable: Variable;
   }[] = [];
 
-  // First, check if the implicit can be resolved from context.SelfType
+  // Highest priority: Check if expectedType is a module type with a receiverType
+  // If so, check if the receiver type has a module implementation that satisfies the expected type
+  // Example: expectedType = (Point(i32, i32) <: Id), we check if Point(i32, i32) has Id module
+  if (isModuleType(expectedType) && expectedType.receiverType) {
+    const receiverType = expectedType.receiverType;
+    if (receiverType.module) {
+      const receiverModule = receiverType.module;
+      // Find a module element that matches the expected type
+      const matchingElement = receiverModule.elements.findLast((element) => {
+        if (!isModuleValue(element.assignedValue)) {
+          return false;
+        }
+        const moduleValue = element.assignedValue;
+        return areTypesCompatible(
+          { type: moduleValue.type, env: callerEnv },
+          { type: expectedType, env: calleeEnv }
+        );
+      });
+
+      if (matchingElement && isModuleValue(matchingElement.assignedValue)) {
+        return {
+          value: matchingElement.assignedValue,
+          type: matchingElement.assignedValue.type,
+          calleeEnv,
+          callerEnv,
+        };
+      }
+    }
+  }
+
+  // Second priority: Check if the implicit can be resolved from context.SelfType
   // This allows accessing module implementations defined in the same struct
   if (context.SelfType && isModuleType(expectedType)) {
     const selfTypeModule = context.SelfType.module;
