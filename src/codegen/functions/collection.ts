@@ -78,6 +78,15 @@ export function findFunctionCallsInExpr(
           return;
         }
 
+        // Also skip if the specialized type still contains SomeType
+        // This can happen when type substitution is incomplete
+        if (
+          functionValue.specializedType &&
+          typeContainsSomeType(functionValue.specializedType)
+        ) {
+          return;
+        }
+
         if (context.functions[functionValue.funcId]) {
           // Already collected this function
           // return;
