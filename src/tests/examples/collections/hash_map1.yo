@@ -5,7 +5,7 @@ open import "std/libc/stdio";
 test_basic_insert_and_get :: (fn() -> unit) {
   printf("\n[Test] Basic insert and get\n");
   
-  map := HashMap(i32, i32, I32.Eq, I32.Hash).new();
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
   result := map.insert(1.as(i32), 100.as(i32));
   match(result,
@@ -19,7 +19,7 @@ test_basic_insert_and_get :: (fn() -> unit) {
   value_opt := map.get(1.as(i32));
   match(value_opt,
     .Some(v) => cond(
-      (I32Eq.(==)(v, 100.as(i32))) => {
+      (v == 100.as(i32)) => {
         printf("✓ Retrieved value: 100\n");
       },
       true => {
@@ -35,7 +35,7 @@ test_basic_insert_and_get :: (fn() -> unit) {
 test_update_existing_key :: (fn() -> unit) {
   printf("\n[Test] Update existing key\n");
   
-  map := HashMap(i32, i32, I32.Eq, I32.Hash).new();
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
   map.insert(42.as(i32), 1.as(i32));
   
@@ -43,7 +43,7 @@ test_update_existing_key :: (fn() -> unit) {
   match(result,
     .Ok(opt) => match(opt,
       .Some(old_val) => cond(
-        (I32Eq.(==)(old_val, 1.as(i32))) => {
+        (old_val == 1.as(i32)) => {
           printf("✓ Got old value: 1\n");
         },
         true => {
@@ -58,7 +58,7 @@ test_update_existing_key :: (fn() -> unit) {
   value_opt := map.get(42.as(i32));
   match(value_opt,
     .Some(v) => cond(
-      (I32Eq.(==)(v, 2.as(i32))) => {
+      (v == 2.as(i32)) => {
         printf("✓ Updated value: 2\n");
       },
       true => {
@@ -74,7 +74,7 @@ test_update_existing_key :: (fn() -> unit) {
 test_remove :: (fn() -> unit) {
   printf("\n[Test] Remove key\n");
   
-  map := HashMap(i32, i32, I32.Eq, I32.Hash).new();
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
   map.insert(10.as(i32), 20.as(i32));
   map.insert(30.as(i32), 40.as(i32));
@@ -82,7 +82,7 @@ test_remove :: (fn() -> unit) {
   removed := map.remove(10.as(i32));
   match(removed,
     .Some(v) => cond(
-      (I32Eq.(==)(v, 20.as(i32))) => {
+      (v == 20.as(i32)) => {
         printf("✓ Removed value: 20\n");
       },
       true => panic("Wrong removed value")
@@ -101,7 +101,7 @@ test_remove :: (fn() -> unit) {
   still_exists := map.get(30.as(i32));
   match(still_exists,
     .Some(v) => cond(
-      (I32Eq.(==)(v, 40.as(i32))) => {
+      (v == 40.as(i32)) => {
         printf("✓ Other key still exists\n");
       },
       true => panic("Wrong value")
@@ -115,7 +115,7 @@ test_remove :: (fn() -> unit) {
 test_contains_key :: (fn() -> unit) {
   printf("\n[Test] Contains key\n");
   
-  map := HashMap(i32, i32, I32.Eq, I32.Hash).new();
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
   map.insert(5.as(i32), 10.as(i32));
   
@@ -139,7 +139,7 @@ test_contains_key :: (fn() -> unit) {
 test_resize :: (fn() -> unit) {
   printf("\n[Test] Automatic resize\n");
   
-  map := HashMap(i32, i32, I32.Eq, I32.Hash).new();
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
   i := (0).as(i32);
   while(i < (20).as(i32), i = (i + (1).as(i32)), {
@@ -149,7 +149,7 @@ test_resize :: (fn() -> unit) {
   printf("✓ Inserted 20 elements (triggers resize)\n");
   
   cond(
-    (UsizeEq.(==)(map.length(), (20).as(usize))) => {
+    (map.length() == (20).as(usize)) => {
       printf("✓ Length is 20\n");
     },
     true => panic("Wrong length")
@@ -160,7 +160,7 @@ test_resize :: (fn() -> unit) {
     value_opt := map.get(j);
     match(value_opt,
       .Some(v) => cond(
-        (I32Eq.(==)(v, (j * (2).as(i32)))) => (),
+        (v == (j * (2).as(i32))) => (),
         true => panic("Wrong value after resize")
       ),
       .None => panic("Key not found after resize")
@@ -173,7 +173,7 @@ test_resize :: (fn() -> unit) {
 test_multiple_insertions :: (fn() -> unit) {
   printf("\n[Test] Multiple insertions\n");
   
-  map := HashMap(i32, i32, I32.Eq, I32.Hash).new();
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
   map.insert(1.as(i32), 10.as(i32));
   map.insert(2.as(i32), 20.as(i32));
@@ -182,7 +182,7 @@ test_multiple_insertions :: (fn() -> unit) {
   map.insert(5.as(i32), 50.as(i32));
   
   cond(
-    (UsizeEq.(==)(map.length(), (5).as(usize))) => {
+    (map.length() == (5).as(usize)) => {
       printf("✓ Length is 5\n");
     },
     true => panic("Wrong length")
@@ -198,7 +198,7 @@ test_multiple_insertions :: (fn() -> unit) {
   map.clear();
   
   cond(
-    (UsizeEq.(==)(map.length(), (0).as(usize))) => {
+    (map.length() == (0).as(usize)) => {
       printf("✓ Length is 0 after clear\n");
     },
     true => panic("Wrong length after clear")
@@ -217,7 +217,7 @@ test_multiple_insertions :: (fn() -> unit) {
 test_collision_handling :: (fn() -> unit) {
   printf("\n[Test] Collision handling\n");
   
-  map := HashMap(i32, i32, I32.Eq, I32.Hash).new();
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
   map.insert(16.as(i32), 1.as(i32));
   map.insert(32.as(i32), 2.as(i32));
@@ -229,7 +229,7 @@ test_collision_handling :: (fn() -> unit) {
   
   match(v1,
     .Some(v) => cond(
-      (I32Eq.(==)(v, 1.as(i32))) => {
+      (v == 1.as(i32)) => {
         printf("✓ Key 16 has value 1\n");
       },
       true => panic("Wrong value for key 16")
@@ -239,7 +239,7 @@ test_collision_handling :: (fn() -> unit) {
   
   match(v2,
     .Some(v) => cond(
-      (I32Eq.(==)(v, 2.as(i32))) => {
+      (v == 2.as(i32)) => {
         printf("✓ Key 32 has value 2\n");
       },
       true => panic("Wrong value for key 32")
@@ -249,7 +249,7 @@ test_collision_handling :: (fn() -> unit) {
   
   match(v3,
     .Some(v) => cond(
-      (I32Eq.(==)(v, 3.as(i32))) => {
+      (v == 3.as(i32)) => {
         printf("✓ Key 48 has value 3\n");
       },
       true => panic("Wrong value for key 48")

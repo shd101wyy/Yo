@@ -1,28 +1,36 @@
-open import "std/libc/stdio.yo";
+open import "std/libc/stdio";
 
-MyBox :: object
-  (*) : u32,
-
-  dispose :: (fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %u\n", self.*);
-  }
+Bucket :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+  struct(
+    key : K,
+    value : V
+  )
 ;
 
-add :: (fn(x : u32, y : u32) -> u32) {
-  return x + y;
+HashMap :: (fn(
+  compt(K): Type,
+  compt(V): Type,
+  using(KeyEqual) : (K <: Eq(K, K)),
+  using(KeyHash) : (K <: Hash)
+) -> compt(Type))
+  object(
+    ctrl : ?*(u8),
+    data : ?*(Bucket(K, V)),
+    capacity : usize,
+    size : usize,
+    
+    new :: (fn() -> Self) {
+      return Self(.None, .None, 0, 0);
+    }
+  )
+;
+test_basic_insert_and_get :: (fn() -> unit) {  
+  map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
 };
 
-rune :: newtype(
-  c : MyBox,
-
-  print_self :: (fn(self : Self) -> unit) {
-    printf("rune: %u\n", self.c.(*));
-  }
-);
-
-main :: (fn() -> unit) {
-  x := rune(MyBox(add(40, 2)));
-  x.print_self();
+main :: (fn() -> unit) {    
+  test_basic_insert_and_get();
+  return;
 };
 
 export main;

@@ -321,26 +321,32 @@ export function collectType(type: Type, context: CodeGenContext): void {
       };
     }
   }
-  // Check if it's pointer-to-slice types
-  else if (isMutPtrType(type) && type.type.tag === TypeTag.Slice) {
-    const sliceType = type.type as SliceType;
-    const elementType = sliceType.elementType;
+  // Check if it's pointer types (including nullable pointers)
+  else if (isMutPtrType(type)) {
+    // Recursively collect the base type that this pointer points to
+    collectType(type.type, context);
 
-    // Recursively collect the element type
-    collectType(elementType, context);
+    // Special handling for pointer-to-slice types
+    if (type.type.tag === TypeTag.Slice) {
+      const sliceType = type.type as SliceType;
+      const elementType = sliceType.elementType;
 
-    // Generate struct wrapper for slices and register it
-    const elementTypeString = getTypeString(elementType, context);
-    const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
+      // Recursively collect the element type
+      collectType(elementType, context);
 
-    // Register the slice type if not already registered
-    if (!context.sliceStructTypes.has(sliceTypeName)) {
-      context.sliceStructTypes.set(sliceTypeName, {
-        elementType: elementTypeString,
-      });
+      // Generate struct wrapper for slices and register it
+      const elementTypeString = getTypeString(elementType, context);
+      const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
+
+      // Register the slice type if not already registered
+      if (!context.sliceStructTypes.has(sliceTypeName)) {
+        context.sliceStructTypes.set(sliceTypeName, {
+          elementType: elementTypeString,
+        });
+      }
     }
 
-    // The pointer-to-slice type gets the usual pointer type treatment
+    // The pointer type gets the usual pointer type treatment
     context.types[type.id] = {
       type,
       cName: getTypeString(type, context),
