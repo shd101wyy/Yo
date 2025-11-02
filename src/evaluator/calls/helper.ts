@@ -493,6 +493,9 @@ export function tryToCallFunctionWithArguments({
     regularArgStartIndex + regularArgCount,
     regularArgStartIndex + regularArgCount + implicitArgCount
   );
+  const variadicArgExprs = argExprs.slice(
+    regularArgStartIndex + regularArgCount + implicitArgCount
+  );
 
   // Replace argExprs with just regular args for the rest of the function
   argExprs = regularArgExprs;
@@ -761,16 +764,11 @@ Got:   ${argExprs.length} arguments`,
     }
   }
 
-  // Check if the parameters match the arguments
-  let regularArgIndex = 0;
+  // Check if the regular parameters match the arguments
   const parametersToProcess = functionType.parameters.length;
 
-  for (
-    regularArgIndex = 0;
-    regularArgIndex < parametersToProcess;
-    regularArgIndex++
-  ) {
-    const parameter = functionType.parameters[regularArgIndex]!;
+  for (let argIndex = 0; argIndex < parametersToProcess; argIndex++) {
+    const parameter = functionType.parameters[argIndex]!;
     const {
       calleeEnv: nextCalleeEnv,
       callerEnv: nextCallerEnv,
@@ -782,7 +780,7 @@ Got:   ${argExprs.length} arguments`,
       functionType,
       parameter,
       argExprs,
-      argIndex: regularArgIndex,
+      argIndex: argIndex,
       callerEnv,
       calleeEnv,
       context,
@@ -1062,8 +1060,8 @@ Got:   ${typeToString(argType)}`,
   // Check the variadic parameters
   const variadicArgs: { value: Value | undefined; argType: Type }[] = [];
   if (functionType.variadicParameter) {
-    for (; regularArgIndex < argExprs.length; regularArgIndex++) {
-      const argExpr = argExprs[regularArgIndex]!;
+    for (let i = 0; i < variadicArgExprs.length; i++) {
+      const argExpr = variadicArgExprs[i]!;
       let evaluatedArgExpr: Expr;
       if (functionType.variadicParameter.isQuote) {
         // Macro
@@ -1105,8 +1103,6 @@ Got:   ${typeToString(argType)}`,
         }
       }
     }
-
-    // TODO: Check borrowings
 
     if (functionType.variadicParameter.label === "...") {
       // Do nothing

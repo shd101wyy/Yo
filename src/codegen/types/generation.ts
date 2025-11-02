@@ -370,6 +370,10 @@ typedef struct {
     }
 
     if (isStructType(type)) {
+      // Skip forward declaration for newtypes since they're just typedefs
+      if (type.isNewtype && type.elements.length === 1) {
+        continue;
+      }
       context.emitter.emitDeclarationLine(
         `typedef struct ${cName}_struct ${cName}; // Forward declaration`
       );
@@ -612,6 +616,17 @@ export function generateStructDeclaration(
   context: CodeGenContext
 ): void {
   const emitter = context.emitter;
+
+  // Handle newtypes as zero-cost abstractions using typedef
+  if (structType.isNewtype && structType.elements.length === 1) {
+    const underlyingType = structType.elements[0]!.type;
+    const underlyingTypeStr = getTypeString(underlyingType, context);
+    emitter.emitDeclarationLine(
+      `typedef ${underlyingTypeStr} ${cName}; // ${structType.typeName} : ${typeToString(structType)} (newtype - zero-cost abstraction)`
+    );
+    emitter.emitDeclarationLine(""); // Add blank line for readability
+    return;
+  }
 
   if (structType.isReferenceSemantics) {
     // For object, generate a struct with the common reference header

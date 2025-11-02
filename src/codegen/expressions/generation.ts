@@ -1830,6 +1830,28 @@ function generateFuncCall(
           cName &&
           labels.length === runtimeArgExprs.length
         ) {
+          // Handle newtype as zero-cost abstraction
+          if (structType.isNewtype && structType.elements.length === 1) {
+            // For newtype, just use the underlying value directly (with cast for type safety)
+            const argCode = generateExpr(runtimeArgExprs[0]!, indent, context);
+            const newtypeValue = `((${cName})(${argCode}))`;
+
+            // If this newtype has a temporary variable name, declare it
+            if (tempVar && expr.$?.type) {
+              const varTypeAndName = getVariableTypeString(
+                expr.$.type,
+                tempVar,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${newtypeValue};`
+              );
+              return tempVar;
+            } else {
+              return newtypeValue;
+            }
+          }
+
           if (structType.isReferenceSemantics) {
             // For object, call the constructor function
             const argsList = runtimeArgExprs
@@ -2894,6 +2916,17 @@ function generateComptValue(
         return `// Error: No C type name found for struct ${typeToString(type)}\n`;
       }
 
+      // Handle newtype as zero-cost abstraction
+      if (
+        type.isNewtype &&
+        type.elements.length === 1 &&
+        value.elements.length === 1
+      ) {
+        // For newtype, just use the underlying value with a cast
+        const underlyingValue = generateComptValue(value.elements[0]!, context);
+        return `((${cName})(${underlyingValue}))`;
+      }
+
       if (type.isReferenceSemantics) {
         // For object compile-time values, use constructor function
         const fieldValues = value.elements.map((element) =>
@@ -3020,6 +3053,20 @@ function generateFieldAccess(
         }
       } else {
         return `/* ERROR: No module found for ARC method ${fieldName} */`;
+      }
+    }
+
+    // Handle newtype field access - just return the object itself (zero-cost abstraction)
+    if (
+      isStructType(objectType) &&
+      objectType.isNewtype &&
+      objectType.elements.length === 1
+    ) {
+      // For newtype, accessing the single field just returns the value itself
+      // since newtype is typedef'd to the underlying type
+      const singleField = objectType.elements[0];
+      if (singleField && singleField.label === fieldName) {
+        return objectCode;
       }
     }
 

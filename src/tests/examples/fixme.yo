@@ -1,3 +1,24 @@
+open import "std/libc/stdio.yo";
+
+MyBox :: object
+  (*) : u32,
+
+  dispose :: (fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %u\n", self.*);
+  }
+;
+
 rune :: newtype(
-  c : u32
+  c : MyBox,
+
+  print_self :: (fn(self : Self) -> unit) {
+    printf("rune: %u\n", self.c.(*));
+  }
 );
+
+main :: (fn() -> unit) {
+  x := rune(MyBox(42));
+  x.print_self();
+};
+
+export main;
