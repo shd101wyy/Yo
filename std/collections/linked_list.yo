@@ -11,7 +11,6 @@
  * - Each node is wrapped in a Box (reference-counted)
  * - Nodes contain: value, optional next Box, optional prev Box
  */
-{ Box } :: import "../data/box.yo";
 
 /**
  * LinkedList error types
@@ -199,31 +198,31 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      * Get element at a specific index
      * O(n) time complexity
      */
-    get :: ((fn(self: Self, index: usize) -> Option(T)) {
+    get :: ((fn(self: Self, index: usize) -> Option(T))
       cond(
-        (index >= self.length) => return Option(T).None,
-        true => ()
-      );
-      
-      current_opt := self.head;
-      i := (0).as(usize);
-      
-      while(i < index, i = (i + (1).as(usize)), {
-        match(current_opt,
-          .None => {
-            return Option(T).None;
-          },
-          .Some(current) => {
-            current_opt = current.*.next;
-          }
-        );
-      });
-      
-      match(current_opt,
-        .None => Option(T).None,
-        .Some(node) => Option(T).Some(node.*.value)
-      );
-    }),
+        (index >= self.length) => .None,
+        true => {
+          current_opt := self.head;
+          i := (0).as(usize);
+          
+          while(i < index, i = (i + (1).as(usize)), {
+            match(current_opt,
+              .None => {
+                return .None;
+              },
+              .Some(current) => {
+                current_opt = current.*.next;
+              }
+            );
+          });
+          
+          match(current_opt,
+            .None => .None,
+            .Some(node) => .Some(node.*.value)
+          )
+        }
+      )
+    ),
 
     /**
      * Insert element at a specific index
@@ -357,7 +356,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     clear :: ((fn(self: Self) -> unit)
       {
-        while(self.length > (0).as(usize), (), {
+        while((self.length > (0).as(usize)), {
           _ := self.pop_front();
         });
       }
@@ -374,8 +373,9 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     ) -> boolean)
       {
         current_opt := self.head;
+        i := (0).as(usize);
         
-        while(self.length > (0).as(usize), (), {
+        while(i < self.length, i = (i + (1).as(usize)), {
           match(current_opt,
             .None => {
               return false;
@@ -404,8 +404,9 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     reverse :: ((fn(self: Self) -> unit)
       {
         current_opt := self.head;
+        i := (0).as(usize);
         
-        while(self.length > (0).as(usize), (), {
+        while(i < self.length, i = (i + (1).as(usize)), {
           match(current_opt,
             .None => {
               return;

@@ -231,9 +231,22 @@ export function typeContainsSomeType(
  */
 export function getAllSomeTypes(type: Type): Set<SomeType> {
   const result = new Set<SomeType>();
+  const visited = new Set<Type>();
 
   function helper(t: Type) {
+    // Prevent infinite recursion on circular/self-referential types
+    if (t && visited.has(t)) {
+      return;
+    }
+
+    if (t) {
+      visited.add(t);
+    }
+
     if (isSomeType(t)) {
+      if (result.has(t)) {
+        return; // Already checked
+      }
       result.add(t);
     }
 
