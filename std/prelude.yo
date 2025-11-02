@@ -3070,3 +3070,56 @@ MaybeUninit :: (fn(compt(BaseType): Type) -> compt(Type))
 export
   MaybeUninit
 ;
+
+// === Macros ===
+/// === if ===
+if :: (fn(quote(condition) : Expr,
+        quote(then) : Expr,
+        (quote(else) : Expr) ?= quote(())
+      ) -> unquote(Expr))
+  quote
+    cond 
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+;
+export 
+  if
+;
+
+/// === runtval ===
+
+/**
+ * This function is used to construct a runtime value from an expression.
+ */
+runtval :: (fn(quote(val_expr) : Expr) -> unquote(Expr)) {
+  temp :: gensym("runtval");
+  quote {
+    unquote(temp) := unquote(val_expr);
+    unquote(temp)
+  }
+};
+export
+  runtval
+;
+
+/*
+  /**
+  * try macro for handling Result types.
+  */
+  try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
+    temp :: gensym("try");
+    quote {
+      unquote(temp) := unquote(expr_to_try);
+      match(unquote(temp),
+        .Ok => unquote(temp).value,
+        .Error => {
+          return unquote(temp).error;
+        }
+      )
+    }
+  };
+
+  export
+    try
+  ;
+*/
