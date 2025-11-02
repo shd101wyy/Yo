@@ -5,7 +5,6 @@ import {
   areTypesCompatible,
   isFunctionType,
   isModuleType,
-  isTypeHierarchyType,
   Type,
   typeToString,
 } from "../../types";
@@ -88,6 +87,7 @@ export function resolveImplicitValue({
 
   // Search implicit variables from the callerEnv frames top-down
   let implicitVariables: Variable[] = [];
+
   for (let i = callerEnv.frames.length - 1; i >= 0; i--) {
     const foundImplicitVariables = callerEnv.frames[i]!.variables.filter(
       (variable) => {
@@ -97,9 +97,11 @@ export function resolveImplicitValue({
 
         // Don't match TypeHierarchy types (like Type, Module) as implicit values
         // These are type-level values, not module implementations
-        if (isTypeHierarchyType(variable.type)) {
-          return false;
-        }
+        // NOTE: This is wrong. We still need to check in this case.
+        //       For example, the "i32" has type "Type", but we might want to use its i32.Add module.
+        // if (isTypeHierarchyType(variable.type)) {
+        //   return false;
+        // }
 
         // First synthesize types to allow unification of SomeTypes with concrete types
         const {
