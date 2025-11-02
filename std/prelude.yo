@@ -3025,3 +3025,48 @@ Result :: (fn(compt(OkType): Type, compt(ErrorType): Type) -> compt(Type))
 export
   Result
 ;
+
+/// === Box ===
+Box :: (fn(compt(V) : Type) -> compt(Type))
+  object(
+    (*) : V
+  )
+;
+box :: (fn(forall(V : Type), value : V) -> Box(V))
+  Box(V)(value)
+;
+
+export
+  Box,
+  box
+;
+
+/// === MaybeUninit ===
+extern "Yo",
+  __yo_maybe_uninit_new : 
+    (fn(compt(_Self) : Type) -> _Self),
+  __yo_maybe_uninit_as_ptr : 
+    (fn(compt(_Self) : Type, compt(BaseType): Type, self: *(_Self)) -> *(BaseType)),
+  __yo_maybe_uninit_assume_init : 
+    (fn(compt(_Self) : Type, compt(BaseType): Type, self: _Self) -> BaseType)
+;
+
+MaybeUninit :: (fn(compt(BaseType): Type) -> compt(Type))
+  struct(
+    value: BaseType,
+
+    new :: ((fn() -> Self) __yo_maybe_uninit_new(Self)),
+
+    as_ptr :: ((fn(self: *(Self)) -> *(BaseType))
+      __yo_maybe_uninit_as_ptr(Self, BaseType, self)
+    ),
+
+    assume_init :: ((fn(self : Self) -> BaseType)
+      __yo_maybe_uninit_assume_init(Self, BaseType, self)
+    )
+  )
+;
+
+export
+  MaybeUninit
+;
