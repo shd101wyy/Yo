@@ -297,53 +297,56 @@ export function evaluateCond({
           });
         }
       }
+      if (!evaluatedCaseBodyExpr.$.controlFlow) {
+        // skip continue/break/return cases
 
-      if (!valueType) {
-        valueType = {
-          type: evaluatedCaseBodyExpr.$.type,
-          env: evaluatedCaseBodyExpr.$.env,
-        };
-      } else {
-        // Check if the types are compatible
-        if (
-          !areTypesCompatible(
-            { type: valueType.type, env: valueType.env },
-            {
-              type: evaluatedCaseBodyExpr.$.type,
-              env: evaluatedCaseBodyExpr.$.env,
-            }
-          )
-        ) {
-          // Check if the types match when converting to runtime type
+        if (!valueType) {
+          valueType = {
+            type: evaluatedCaseBodyExpr.$.type,
+            env: evaluatedCaseBodyExpr.$.env,
+          };
+        } else {
+          // Check if the types are compatible
           if (
-            areTypesCompatible(
-              {
-                type: convertComptTypeToRuntimeType({
-                  type: valueType.type,
-                  expectedType: undefined,
-                  expr: undefined,
-                  env: valueType.env,
-                  context: { ...context },
-                }),
-                env: valueType.env,
-              },
+            !areTypesCompatible(
+              { type: valueType.type, env: valueType.env },
               {
                 type: evaluatedCaseBodyExpr.$.type,
                 env: evaluatedCaseBodyExpr.$.env,
               }
             )
           ) {
-            valueType = {
-              type: evaluatedCaseBodyExpr.$.type,
-              env: evaluatedCaseBodyExpr.$.env,
-            };
-          } else {
-            throw formatErrorMessage({
-              token: evaluatedCaseBodyExpr.token,
-              errorMessage: `Incompatible types:
+            // Check if the types match when converting to runtime type
+            if (
+              areTypesCompatible(
+                {
+                  type: convertComptTypeToRuntimeType({
+                    type: valueType.type,
+                    expectedType: undefined,
+                    expr: undefined,
+                    env: valueType.env,
+                    context: { ...context },
+                  }),
+                  env: valueType.env,
+                },
+                {
+                  type: evaluatedCaseBodyExpr.$.type,
+                  env: evaluatedCaseBodyExpr.$.env,
+                }
+              )
+            ) {
+              valueType = {
+                type: evaluatedCaseBodyExpr.$.type,
+                env: evaluatedCaseBodyExpr.$.env,
+              };
+            } else {
+              throw formatErrorMessage({
+                token: evaluatedCaseBodyExpr.token,
+                errorMessage: `Incompatible types:
 - Previous: ${typeToString(valueType.type)}
 - Current : ${typeToString(evaluatedCaseBodyExpr.$.type)}`,
-            });
+              });
+            }
           }
         }
       }

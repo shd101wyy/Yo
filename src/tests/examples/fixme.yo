@@ -292,18 +292,16 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     remove :: ((fn(self: Self, index: usize) -> Result(T, LinkedListError))
       cond(
         (index >= self.length) => .Error(.IndexOutOfBounds(index: index, length: self.length)),
-        (index == (0).as(usize)) => {
+        (index == (0).as(usize)) =>
           match(self.pop_front(),
             .Some(value) => .Ok(value),
             .None => .Error(.EmptyList)
-          )
-        },
-        (index == (self.length - (1).as(usize))) => {
+          ),
+        (index == (self.length - (1).as(usize))) =>
           match(self.pop_back(),
             .Some(value) => .Ok(value),
             .None => .Error(.EmptyList)
-          )
-        },
+          ),
         true => {
           current_opt := self.head;
           i := (0).as(usize);

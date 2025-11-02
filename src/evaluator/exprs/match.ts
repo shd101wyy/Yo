@@ -347,41 +347,45 @@ export function evaluateMatch({
       }
 
       // Set or verify the result type consistency
-      if (!resultType) {
-        resultType = { type: evaluatedBody.$?.type, env: caseEnv };
-      } else if (
-        !areTypesCompatible(
-          { type: resultType.type, env: caseEnv },
-          { type: evaluatedBody.$?.type, env }
-        )
-      ) {
-        // Check if the types match when converting to runtime type
-        if (
-          areTypesCompatible(
-            {
-              type: convertComptTypeToRuntimeType({
-                type: resultType.type,
-                expectedType: undefined,
-                expr: undefined,
-                env: resultType.env,
-                context: { ...context },
-              }),
-              env: resultType.env,
-            },
-            {
-              type: evaluatedBody.$.type,
-              env: caseEnv,
-            }
+      if (!evaluatedBody.$.controlFlow) {
+        // skip continue/break/return cases
+
+        if (!resultType) {
+          resultType = { type: evaluatedBody.$?.type, env: caseEnv };
+        } else if (
+          !areTypesCompatible(
+            { type: resultType.type, env: caseEnv },
+            { type: evaluatedBody.$?.type, env }
           )
         ) {
-          resultType = { type: evaluatedBody.$.type, env: caseEnv };
-        } else {
-          throw formatErrorMessage({
-            token: evaluatedBody.token,
-            errorMessage: `Incompatible types:
+          // Check if the types match when converting to runtime type
+          if (
+            areTypesCompatible(
+              {
+                type: convertComptTypeToRuntimeType({
+                  type: resultType.type,
+                  expectedType: undefined,
+                  expr: undefined,
+                  env: resultType.env,
+                  context: { ...context },
+                }),
+                env: resultType.env,
+              },
+              {
+                type: evaluatedBody.$.type,
+                env: caseEnv,
+              }
+            )
+          ) {
+            resultType = { type: evaluatedBody.$.type, env: caseEnv };
+          } else {
+            throw formatErrorMessage({
+              token: evaluatedBody.token,
+              errorMessage: `Incompatible types:
 - Previous: ${typeToString(resultType.type)}
 - Current : ${typeToString(evaluatedBody.$.type)}`,
-          });
+            });
+          }
         }
       }
     }
@@ -688,41 +692,45 @@ export function evaluateMatch({
       bodies.push(evaluatedBody);
 
       // Set or verify the result type consistency
-      if (!resultType) {
-        resultType = { type: evaluatedBody.$?.type, env: caseEnv };
-      } else if (
-        !areTypesCompatible(
-          { type: resultType.type, env: caseEnv },
-          { type: evaluatedBody.$?.type, env }
-        )
-      ) {
-        // Check if the types match when converting to runtime type
-        if (
-          areTypesCompatible(
-            {
-              type: convertComptTypeToRuntimeType({
-                type: resultType.type,
-                expectedType: undefined,
-                expr: undefined,
-                env: resultType.env,
-                context: { ...context },
-              }),
-              env: resultType.env,
-            },
-            {
-              type: evaluatedBody.$.type,
-              env: caseEnv,
-            }
+      if (!evaluatedBody.$.controlFlow) {
+        // skip continue/break/return cases
+
+        if (!resultType) {
+          resultType = { type: evaluatedBody.$?.type, env: caseEnv };
+        } else if (
+          !areTypesCompatible(
+            { type: resultType.type, env: caseEnv },
+            { type: evaluatedBody.$?.type, env }
           )
         ) {
-          resultType = { type: evaluatedBody.$.type, env: caseEnv };
-        } else {
-          throw formatErrorMessage({
-            token: evaluatedBody.token,
-            errorMessage: `Incompatible types:
+          // Check if the types match when converting to runtime type
+          if (
+            areTypesCompatible(
+              {
+                type: convertComptTypeToRuntimeType({
+                  type: resultType.type,
+                  expectedType: undefined,
+                  expr: undefined,
+                  env: resultType.env,
+                  context: { ...context },
+                }),
+                env: resultType.env,
+              },
+              {
+                type: evaluatedBody.$.type,
+                env: caseEnv,
+              }
+            )
+          ) {
+            resultType = { type: evaluatedBody.$.type, env: caseEnv };
+          } else {
+            throw formatErrorMessage({
+              token: evaluatedBody.token,
+              errorMessage: `Incompatible types:
 - Previous: ${typeToString(resultType.type)}
 - Current : ${typeToString(evaluatedBody.$.type)}`,
-          });
+            });
+          }
         }
       }
     } else {
