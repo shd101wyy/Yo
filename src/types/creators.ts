@@ -836,7 +836,7 @@ export function createMutPtrType(type: Type): MutPtrType {
     : createEnvContainingPrelude();
   const module = createModuleType(env);
   const ptrType: MutPtrType = {
-    id: TypeTag.MutPtr,
+    id: `ptr_${type.id}`,
     tag: TypeTag.MutPtr,
     type,
     module,

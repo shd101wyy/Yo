@@ -566,7 +566,6 @@ export interface FunctionType extends Type {
 
 export interface MutPtrType extends Type {
   tag: TypeTag.MutPtr;
-  id: TypeTag.MutPtr;
   /**
    * The type of the pointer.
    */
