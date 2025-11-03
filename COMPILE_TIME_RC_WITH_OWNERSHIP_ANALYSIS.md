@@ -33,7 +33,8 @@ ___drop(temp_var); // <= This is automatically inserted by the compiler
 
 When to call `___dup` to increase the reference count?
 
-1. On the right side of `=` assignment, and LHS is not variable. Or LHS is a variable, but not on the top frame of the environment.
+1. On the right side of `=` assignment, and LHS is not variable. 
+   Or LHS is a variable, but not on the top frame of the environment~~, and RHS is owning~~. Then if LHS is later on used in other frame, we call `___dup`, otherwise we don't need to call `___dup`.
 
    ```rust
    p1 := Point(3, 4); // temp_var owns the Point(3, 4)
@@ -61,8 +62,18 @@ When to call `___dup` to increase the reference count?
    p1 := Point(3, 4);
    {
      p2 := Point(4, 5);
-     p1 = p2; // Will call ___dup on p2, because p1 is not on the top frame of the environment.
+     p1 = p2; // No need to call ___dup on p2, because p1 later on is not used in other frames.
    };
+   ```
+
+   ```rust
+    p1 := Point(3, 4);
+    {
+      p2 := Point(4, 5);
+      p1 = p2; // Will call ___dup on p2, because p1 is not on the top frame of the environment.
+               // and we later on used it in other frame.
+    };
+    printf("%d %d", p1.x, p1.y); // use p1 here
    ```
 
 2. Passing to `struct`, `enum`, `union`, `array`, `dyn`, `closure`, `thread` constructors. Pass to `chan` send function.

@@ -818,9 +818,6 @@ export function evaluateBeginExpression({
   // Now pop the environment frame
   env = popEnvFrame(env);
 
-  // console.log("\nbegin expression after applying drops:");
-  // console.log(exprToString(expr));
-
   expr.$ = {
     env,
     type: lastExpr.$.type,

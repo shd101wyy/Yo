@@ -14,6 +14,7 @@ import {
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
+  createBooleanType,
   isBooleanType,
   isFunctionTypeAndReturnsComptValue,
   Type,
@@ -98,6 +99,10 @@ export function evaluateCond({
       env: caseEnv,
       context: {
         ...context,
+        expectedType: {
+          type: createBooleanType(),
+          env: caseEnv,
+        },
       },
     });
 

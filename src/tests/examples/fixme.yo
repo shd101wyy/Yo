@@ -1,26 +1,4 @@
 /**
- * LinkedList - A doubly-linked list implementation for Yo language
- * 
- * Features:
- * - O(1) push/pop from front and back
- * - O(1) insertion/removal at known positions (with node reference)
- * - RAII for automatic cleanup
- * - True linked list using Box for indirection
- * 
- * Memory layout:
- * - Each node is wrapped in a Box (reference-counted)
- * - Nodes contain: value, optional next Box, optional prev Box
- */
-
-/**
- * LinkedList error types
- */
-LinkedListError :: enum(
-  IndexOutOfBounds(index: usize, length: usize),
-  EmptyList
-);
-
-/**
  * Node - Internal structure for linked list nodes
  * Uses Box for indirection to allow recursive type
  */
@@ -35,331 +13,10 @@ Node :: (fn(compt(T): Type) -> compt(Type))
 /**
  * LinkedList - Doubly-linked list with O(1) operations at both ends
  */
+
 LinkedList :: (fn(compt(T): Type) -> compt(Type))
   object(
     head : Option(Box(Node(T))),
-    tail : Option(Box(Node(T))),
-    length : usize,
-
-    /**
-     * Create a new empty LinkedList
-     */
-    new :: ((fn() -> Self)
-      Self(
-        head: .None,
-        tail: .None,
-        length: (0).as(usize)
-      )
-    ),
-
-    /**
-     * Get the number of elements in the list
-     */
-    len :: ((fn(self: Self) -> usize)
-      self.length
-    ),
-
-    /**
-     * Check if the list is empty
-     */
-    is_empty :: ((fn(self: Self) -> boolean)
-      (self.length == (0).as(usize))
-    ),
-
-    /**
-     * Push an element to the front of the list
-     * O(1) time complexity
-     */
-    push_front :: ((fn(self: Self, value: T) -> unit)
-      {
-        new_node := Box(Node(T))(Node(T)(
-          value: value,
-          next: self.head,
-          prev: .None
-        ));
-        
-        match(self.head,
-          .None => {
-            self.tail = .Some(new_node);
-          },
-          .Some(old_head) => {
-            old_head.*.prev = .Some(new_node);
-          }
-        );
-        
-        self.head = .Some(new_node);
-        self.length = (self.length + (1).as(usize));
-      }
-    ),
-
-    /**
-     * Push an element to the back of the list
-     * O(1) time complexity
-     */
-    push_back :: ((fn(self: Self, value: T) -> unit)
-      {
-        new_node := Box(Node(T))(Node(T)(
-          value: value,
-          next: .None,
-          prev: self.tail
-        ));
-        
-        match(self.tail,
-          .None => {
-            self.head = .Some(new_node);
-          },
-          .Some(old_tail) => {
-            old_tail.*.next = .Some(new_node);
-          }
-        );
-        
-        self.tail = .Some(new_node);
-        self.length = (self.length + (1).as(usize));
-      }
-    ),
-
-    /**
-     * Remove and return the element from the front
-     * O(1) time complexity
-     */
-    pop_front :: ((fn(self: Self) -> Option(T))
-      match(self.head,
-        .None => .None,
-        .Some(old_head) => {
-          value := old_head.*.value;
-          new_head_opt := old_head.*.next;
-          
-          match(new_head_opt,
-            .None => {
-              self.head = .None;
-              self.tail = .None;
-            },
-            .Some(new_head) => {
-              new_head.*.prev = .None;
-              self.head = .Some(new_head);
-            }
-          );
-          
-          self.length = (self.length - (1).as(usize));
-          .Some(value)
-        }
-      )
-    ),
-
-    /**
-     * Remove and return the element from the back
-     * O(1) time complexity
-     */
-    pop_back :: ((fn(self: Self) -> Option(T))
-      match(self.tail,
-        .None => .None,
-        .Some(old_tail) => {
-          value := old_tail.*.value;
-          new_tail_opt := old_tail.*.prev;
-          
-          match(new_tail_opt,
-            .None => {
-              self.head = .None;
-              self.tail = .None;
-            },
-            .Some(new_tail) => {
-              new_tail.*.next = .None;
-              self.tail = .Some(new_tail);
-            }
-          );
-          
-          self.length = (self.length - (1).as(usize));
-          .Some(value)
-        }
-      )
-    ),
-
-    /**
-     * Get reference to the front element without removing it
-     */
-    front :: ((fn(self: Self) -> Option(T))
-      match(self.head,
-        .None => .None,
-        .Some(head_node) => .Some(head_node.*.value)
-      )
-    ),
-
-    /**
-     * Get reference to the back element without removing it
-     */
-    back :: ((fn(self: Self) -> Option(T))
-      match(self.tail,
-        .None => .None,
-        .Some(tail_node) => .Some(tail_node.*.value)
-      )
-    ),
-
-    /**
-     * Get element at a specific index
-     * O(n) time complexity
-     */
-    get :: ((fn(self: Self, index: usize) -> Option(T))
-      cond(
-        (index >= self.length) => .None,
-        true => {
-          current_opt := self.head;
-          i := (0).as(usize);
-          
-          while(i < index, i = (i + (1).as(usize)), {
-            match(current_opt,
-              .None => {
-                return .None;
-              },
-              .Some(current) => {
-                current_opt = current.*.next;
-                ()
-              }
-            );
-          });
-          
-          match(current_opt,
-            .None => .None,
-            .Some(node) => .Some(node.*.value)
-          )
-        }
-      )
-    ),
-
-    /**
-     * Insert element at a specific index
-     * O(n) time complexity
-     */
-    insert :: ((fn(self: Self, index: usize, value: T) -> Result(unit, LinkedListError))
-      cond(
-        (index > self.length) => .Error(.IndexOutOfBounds(index: index, length: self.length)),
-        (index == (0).as(usize)) => {
-          self.push_front(value);
-          .Ok(())
-        },
-        (index == self.length) => {
-          self.push_back(value);
-          .Ok(())
-        },
-        true => {
-          current_opt := self.head;
-          i := (0).as(usize);
-          
-          while(i < index, i = (i + (1).as(usize)), {
-            match(current_opt,
-              .None => {
-                return .Error(.IndexOutOfBounds(index: index, length: self.length));
-              },
-              .Some(current) => {
-                current_opt = current.*.next;
-              }
-            );
-          });
-          
-          match(current_opt,
-            .None => .Error(.IndexOutOfBounds(index: index, length: self.length)),
-            .Some(current) => {
-              prev_opt := current.*.prev;
-              
-              new_node := Box(Node(T))(Node(T)(
-                value: value,
-                next: .Some(current),
-                prev: prev_opt
-              ));
-              
-              current.*.prev = .Some(new_node);
-              
-              match(prev_opt,
-                .None => {
-                  self.head = .Some(new_node);
-                },
-                .Some(prev_node) => {
-                  prev_node.*.next = .Some(new_node);
-                }
-              );
-              
-              self.length = (self.length + (1).as(usize));
-              .Ok(())
-            }
-          )
-        }
-      )
-    ),
-
-    /**
-     * Remove element at a specific index
-     * O(n) time complexity
-     */
-    remove :: ((fn(self: Self, index: usize) -> Result(T, LinkedListError))
-      cond(
-        (index >= self.length) => .Error(.IndexOutOfBounds(index: index, length: self.length)),
-        (index == (0).as(usize)) =>
-          match(self.pop_front(),
-            .Some(value) => .Ok(value),
-            .None => .Error(.EmptyList)
-          ),
-        (index == (self.length - (1).as(usize))) =>
-          match(self.pop_back(),
-            .Some(value) => .Ok(value),
-            .None => .Error(.EmptyList)
-          ),
-        true => {
-          current_opt := self.head;
-          i := (0).as(usize);
-          
-          while(i < index, i = (i + (1).as(usize)), {
-            match(current_opt,
-              .None => {
-                return .Error(.IndexOutOfBounds(index: index, length: self.length));
-              },
-              .Some(current) => {
-                current_opt = current.*.next;
-              }
-            );
-          });
-          
-          match(current_opt,
-            .None => .Error(.IndexOutOfBounds(index: index, length: self.length)),
-            .Some(node_to_remove) => {
-              value := node_to_remove.*.value;
-              prev_opt := node_to_remove.*.prev;
-              next_opt := node_to_remove.*.next;
-              
-              match(prev_opt,
-                .Some(prev_node) => {
-                  prev_node.*.next = next_opt;
-                },
-                .None => {
-                  self.head = next_opt;
-                }
-              );
-              
-              match(next_opt,
-                .Some(next_node) => {
-                  next_node.*.prev = prev_opt;
-                },
-                .None => {
-                  self.tail = prev_opt;
-                }
-              );
-              
-              self.length = (self.length - (1).as(usize));
-              .Ok(value)
-            }
-          )
-        }
-      )
-    ),
-
-    /**
-     * Clear all elements from the list
-     */
-    clear :: ((fn(self: Self) -> unit)
-      {
-        while((self.length > (0).as(usize)), {
-          _ := self.pop_front();
-        });
-      }
-    ),
 
     /**
      * Check if the list contains a value
@@ -367,73 +24,33 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     contains :: ((fn(
       self: Self, 
-      value: T,
       using(ElementEqual) : (T <: Eq(T, T))
     ) -> boolean)
       {
         current_opt := self.head;
-        i := (0).as(usize);
         
-        while(i < self.length, i = (i + (1).as(usize)), {
-          match(current_opt,
-            .None => {
-              return false;
-            },
-            .Some(current) => {
-              cond(
-                (ElementEqual.(==)(current.*.value, value)) => {
-                  return true;
-                },
-                true => {
-                  current_opt = current.*.next;
-                }
-              );
-            }
-          );
-        });
+        match(current_opt,
+          .None => {
+            return false;
+          },
+          .Some(current) => {
+            // cond(
+            //   (ElementEqual.(==)(current.*.value, value)) => {
+            //     ();
+            //   },
+            //   true => {
+            //     current_opt = current.next;
+            //   }
+            // );
+            current_opt = current.*.next;
+          }
+        );
         
         false
       }
-    ),
-
-    /**
-     * Reverse the list in place
-     * O(n) time complexity
-     */
-    reverse :: ((fn(self: Self) -> unit)
-      {
-        current_opt := self.head;
-        i := (0).as(usize);
-        
-        while(i < self.length, i = (i + (1).as(usize)), {
-          match(current_opt,
-            .None => {
-              return;
-            },
-            .Some(current) => {
-              temp := current.*.next;
-              current.*.next = current.*.prev;
-              current.*.prev = temp;
-              current_opt = temp;
-            }
-          );
-        });
-        
-        temp_head := self.head;
-        self.head = self.tail;
-        self.tail = temp_head;
-      }
-    ),
-
-    /**
-     * RAII destructor - automatically called when LinkedList goes out of scope
-     */
-    dispose :: ((fn(self: Self) -> unit)
-      self.clear()
     )
   );
 
 export
-  LinkedList,
-  LinkedListError
+  LinkedList
 ;

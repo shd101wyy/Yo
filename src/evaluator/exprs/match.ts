@@ -1,4 +1,10 @@
-import { addVariableToEnv, Environment } from "../../env";
+import {
+  addVariableToEnv,
+  Environment,
+  getVariablesFromEnv,
+  popEnvFrame,
+  pushEnvFrame,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
@@ -75,6 +81,7 @@ export function evaluateMatch({
     env,
     context: {
       ...context,
+      expectedType: undefined,
     },
   });
 
@@ -241,24 +248,31 @@ export function evaluateMatch({
 
       const bodyExpr = rhsExpr;
 
+      // Push a new frame for this match case to allow variable shadowing
+      caseEnv = pushEnvFrame(caseEnv);
+
       if (evaluatedScrutineeExpr.$.variableName) {
         const variableName = evaluatedScrutineeExpr.$.variableName;
 
-        // Add the new variable to env
-        const { env: nextEnv } = addVariableToEnv({
-          env: caseEnv,
-          variable: {
-            name: variableName,
-            type: variableType,
-            isCompileTimeOnly: false,
-            value: evaluatedScrutineeExpr.$.value,
-            token: evaluatedScrutineeExpr.token,
-            initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
-            consumedAtToken: undefined, // Not consumed yet
-          },
-          allowDuplicate: true, // Allow duplicate for match arms
-        });
-        caseEnv = nextEnv;
+        // Only add the variable if it doesn't already exist in the environment
+        // (The scrutinee variable comes from outer scope, so it should already exist)
+        const existingVariables = getVariablesFromEnv(caseEnv, variableName);
+        if (existingVariables.length === 0) {
+          // Add the new variable to env
+          const { env: nextEnv } = addVariableToEnv({
+            env: caseEnv,
+            variable: {
+              name: variableName,
+              type: variableType,
+              isCompileTimeOnly: false,
+              value: evaluatedScrutineeExpr.$.value,
+              token: evaluatedScrutineeExpr.token,
+              initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
+              consumedAtToken: undefined, // Not consumed yet
+            },
+          });
+          caseEnv = nextEnv;
+        }
       }
 
       // Mark the case as executed
@@ -282,13 +296,6 @@ export function evaluateMatch({
         },
         variablesToAdd: [],
       });
-      // We don't update the original env here since each pattern has its own scope
-
-      // If scrutinee is a runtime value, unset the body's compile-time value
-      // to force codegen to generate all statements
-      if (scrutineeValue === undefined && evaluatedBody.$) {
-        evaluatedBody.$.value = undefined;
-      }
 
       if (!evaluatedBody.$?.type) {
         throw formatErrorMessage({
@@ -297,6 +304,24 @@ export function evaluateMatch({
             bodyExpr
           )}`,
         });
+      }
+
+      // Pop the frame we pushed for this match case
+      // This must be done before mergeAndCheckEnvs so all case environments have the same frame level
+      const poppedEnv = popEnvFrame(evaluatedBody.$.env, true); // Ignore check here because the top frame might contain return value from begin expression
+      caseEnv = poppedEnv;
+
+      // Update the evaluatedBody's environment to the popped environment
+      // so that mergeAndCheckEnvs sees the correct frame level
+      evaluatedBody.$ = {
+        ...evaluatedBody.$,
+        env: poppedEnv,
+      };
+
+      // If scrutinee is a runtime value, unset the body's compile-time value
+      // to force codegen to generate all statements
+      if (scrutineeValue === undefined && evaluatedBody.$) {
+        evaluatedBody.$.value = undefined;
       }
 
       // Check if the the evaluatedBody has "return"/"break"/"continue" expression
@@ -481,6 +506,9 @@ export function evaluateMatch({
         }
       }
 
+      // Push a new frame for this match case
+      caseEnv = pushEnvFrame(caseEnv);
+
       // Add destructured variables to environment
       if (variant.elements && variant.elements.length > 0) {
         const destructuredLabels = new Set<string>();
@@ -543,7 +571,6 @@ export function evaluateMatch({
                     initializedAtToken: variableExpr.token,
                     consumedAtToken: undefined,
                   },
-                  allowDuplicate: true,
                 });
                 caseEnv = nextEnv;
               }
@@ -586,7 +613,6 @@ export function evaluateMatch({
                   initializedAtToken: param.token,
                   consumedAtToken: undefined,
                 },
-                allowDuplicate: true,
               });
               caseEnv = nextEnv;
             }
@@ -610,20 +636,25 @@ export function evaluateMatch({
       // Add the scrutinee variable to env if it has a variable name
       if (evaluatedScrutineeExpr.$.variableName) {
         const variableName = evaluatedScrutineeExpr.$.variableName;
-        const { env: nextEnv } = addVariableToEnv({
-          env: caseEnv,
-          variable: {
-            name: variableName,
-            type: variableType,
-            isCompileTimeOnly: false,
-            value: evaluatedScrutineeExpr.$.value,
-            token: evaluatedScrutineeExpr.token,
-            initializedAtToken: evaluatedScrutineeExpr.token,
-            consumedAtToken: undefined,
-          },
-          allowDuplicate: true,
-        });
-        caseEnv = nextEnv;
+
+        // Only add the variable if it doesn't already exist in the environment
+        // (The scrutinee variable comes from outer scope, so it should already exist)
+        const existingVariables = getVariablesFromEnv(caseEnv, variableName);
+        if (existingVariables.length === 0) {
+          const { env: nextEnv } = addVariableToEnv({
+            env: caseEnv,
+            variable: {
+              name: variableName,
+              type: variableType,
+              isCompileTimeOnly: false,
+              value: evaluatedScrutineeExpr.$.value,
+              token: evaluatedScrutineeExpr.token,
+              initializedAtToken: evaluatedScrutineeExpr.token,
+              consumedAtToken: undefined,
+            },
+          });
+          caseEnv = nextEnv;
+        }
       }
 
       // Mark the case as executed
@@ -650,17 +681,29 @@ export function evaluateMatch({
         variablesToAdd: [],
       });
 
-      // If scrutinee is a runtime value, unset the body's compile-time value
-      // to force codegen to generate all statements
-      if (scrutineeValue === undefined && evaluatedBody.$) {
-        evaluatedBody.$.value = undefined;
-      }
-
       if (!evaluatedBody.$?.type) {
         throw formatErrorMessage({
           token: bodyExpr.token,
           errorMessage: `Expected type for match result expression, got ${exprToString(bodyExpr)}`,
         });
+      }
+
+      // Pop the frame we pushed for this match case
+      // This must be done before mergeAndCheckEnvs so all case environments have the same frame level
+      const poppedEnv = popEnvFrame(evaluatedBody.$.env, true); // Ignore check here because the top frame might contain return value from begin expression
+      caseEnv = poppedEnv;
+
+      // Update the evaluatedBody's environment to the popped environment
+      // so that mergeAndCheckEnvs sees the correct frame level
+      evaluatedBody.$ = {
+        ...evaluatedBody.$,
+        env: poppedEnv,
+      };
+
+      // If scrutinee is a runtime value, unset the body's compile-time value
+      // to force codegen to generate all statements
+      if (scrutineeValue === undefined && evaluatedBody.$) {
+        evaluatedBody.$.value = undefined;
       }
 
       // Handle control flow

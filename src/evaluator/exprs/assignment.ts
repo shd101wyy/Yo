@@ -219,11 +219,12 @@ export function evaluateAssignment({
     //   y := box(6);
     //   cond(
     //     some_cond() => {
-    //       x := box(3); // needs ___dup here
+    //       x = box(3); // needs ___dup here
     //     },
     //     true => {
-    //       x := y;      // needs ___dup here
+    //       x = y;      // needs ___dup here
     //     });
+
     if (variable.frameLevel < env.frames.length - 1) {
       setExprAsNeedsToCallDup(rhs, context);
       env = rhs.$.env;
@@ -239,7 +240,6 @@ export function evaluateAssignment({
         variable = newVariable;
       }
     }
-
     if (rhs.$?.controlFlow) {
       throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
     }

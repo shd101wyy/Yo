@@ -184,14 +184,12 @@ export function addVariableToEnv({
   env,
   variable,
   deltaFrame,
-  allowDuplicate,
   variableId,
   skipCheckingFunctionOverloading,
 }: {
   env: Environment;
   variable: Omit<Variable, "id" | "frameLevel">;
   deltaFrame?: number;
-  allowDuplicate?: boolean;
   variableId?: string;
   skipCheckingFunctionOverloading?: boolean;
 }): { env: Environment; variable: Variable } {
@@ -237,7 +235,6 @@ export function addVariableToEnv({
   const newFrame = addVariableToFrame({
     frame,
     variable: newVariable,
-    allowDuplicate,
   });
   const newFrames = env.frames.slice();
   newFrames[frameLevel] = newFrame;
@@ -256,18 +253,13 @@ export function addVariableToEnv({
 export function addVariableToFrame({
   frame,
   variable,
-  allowDuplicate,
 }: {
   frame: Frame;
   variable: Variable;
-  allowDuplicate?: boolean;
 }): Frame {
   // Check if variable already exists in the frame
   // If yes, then report an error
-  if (
-    !allowDuplicate &&
-    frame.variables.some((value) => value.name === variable.name)
-  ) {
+  if (frame.variables.some((value) => value.name === variable.name)) {
     throw formatErrorMessages([
       {
         token: variable.token,
@@ -293,24 +285,6 @@ export function addVariableToFrame({
       id: frame.id,
       variables: newVariables,
     };
-  }
-
-  if (!allowDuplicate) {
-    const existingVariable = frame.variables.find(
-      (value) => value.name === variable.name
-    );
-    if (existingVariable) {
-      throw formatErrorMessages([
-        {
-          token: variable.token,
-          errorMessage: `Failed to define variable "${variable.name}":`,
-        },
-        {
-          token: existingVariable.token,
-          errorMessage: `Variable "${existingVariable.name}" is already defined here:`,
-        },
-      ]);
-    }
   }
 
   return {
