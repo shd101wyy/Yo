@@ -20,25 +20,23 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
       using(ElementEqual) : (T <: Eq(T, T))
     ) -> boolean) {
       current_opt := self.head;
-      
+
       while runtval(true), {
         match(current_opt,
           .None => {
             return false;
           },
-          .Some(current) =>
-            cond(
-              ElementEqual.(==)(current.value, val) => {
-                return true;
-              },
-              true => {
-                current_opt = current.next;
-              }            
-            )
+          .Some(current) => {
+            current_opt = current.next;
+            // dup(current.next);
+            // drop(temp) // where temp holds the old value of current_opt
+          }
         );
       };
       
       false
+      
+      // drop(current_opt)
 
     })
   );
