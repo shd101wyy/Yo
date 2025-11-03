@@ -706,6 +706,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     ) {
       const error = functionsToCall[0]!.result.error;
       if (error instanceof YoError) {
+        // console.trace(exprToString(expr));
         throw formatErrorMessages(
           [
             {
@@ -723,6 +724,7 @@ ${error.tokenAndErrorList
           error.isAssertionError
         );
       } else {
+        // console.trace(exprToString(expr));
         throw formatErrorMessages([
           {
             token: expr.token,

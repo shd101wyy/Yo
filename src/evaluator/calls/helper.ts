@@ -354,13 +354,22 @@ export function checkIfFunctionParameterMatchesArgument({
   });
   calleeEnv = nextEnv;
 
-  // Synthesize the types
-  const { expectedEnv, givenEnv } = synthesizeTypes(
-    { type: parameterType, env: calleeEnv },
-    { type: argType, env: callerEnv }
-  );
-  calleeEnv = expectedEnv;
-  callerEnv = givenEnv;
+  try {
+    // Synthesize the types
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      { type: parameterType, env: calleeEnv },
+      { type: argType, env: callerEnv }
+    );
+    calleeEnv = expectedEnv;
+    callerEnv = givenEnv;
+  } catch (error) {
+    // It might cause maximum call stack size exceeded when failed to synthesize types
+    throw formatErrorMessage({
+      token: argExpr?.token ?? PlaceholderToken,
+      errorMessage: `Failed to synthesize types for parameter "${parameter.label}":
+${(error as Error).message}`,
+    });
+  }
 
   // Re-evaluate the parameter type after synthesis to get the resolved type
   const { parameterType: resolvedParameterType, calleeEnv: finalCalleeEnv } =

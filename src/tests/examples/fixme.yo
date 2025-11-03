@@ -1,54 +1,46 @@
-/**
- * Node - Internal structure for linked list nodes
- * Uses Box for indirection to allow recursive type
- */
 Node :: (fn(compt(T): Type) -> compt(Type))
   object(
     value : T,
-    next : Option(Box(Self)),
-    prev : Option(Box(Self))
+    next : Option(Self),
+    prev : Option(Self)
   )
 ;
 
-/**
- * LinkedList - Doubly-linked list with O(1) operations at both ends
- */
-
 LinkedList :: (fn(compt(T): Type) -> compt(Type))
   object(
-    head : Option(Box(Node(T))),
+    head : Option(Node(T)),
 
     /**
      * Check if the list contains a value
      * O(n) time complexity
      */
     contains :: ((fn(
-      self: Self, 
+      self : Self,
+      val : T,
       using(ElementEqual) : (T <: Eq(T, T))
-    ) -> boolean)
-      {
-        current_opt := self.head;
-        
+    ) -> boolean) {
+      current_opt := self.head;
+      
+      while runtval(true), {
         match(current_opt,
           .None => {
             return false;
           },
-          .Some(current) => {
-            // cond(
-            //   (ElementEqual.(==)(current.*.value, value)) => {
-            //     ();
-            //   },
-            //   true => {
-            //     current_opt = current.next;
-            //   }
-            // );
-            current_opt = current.*.next;
-          }
+          .Some(current) =>
+            cond(
+              ElementEqual.(==)(current.value, val) => {
+                return true;
+              },
+              true => {
+                current_opt = current.next;
+              }            
+            )
         );
-        
-        false
-      }
-    )
+      };
+      
+      false
+
+    })
   );
 
 export

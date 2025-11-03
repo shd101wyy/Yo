@@ -5,7 +5,7 @@ Inspired by the [Lobster programming language](https://aardappel.github.io/lobst
 We consider each heap allocated ARC value to have a unique owner. Its reference counter starts at 1.
 
 ```rust
-Point :: ref struct(x : i32, y : i32);
+Point :: object(x : i32, y : i32);
 
 Point(3, 4); // temp_var owns the Point(3, 4)
 ```
@@ -33,8 +33,7 @@ ___drop(temp_var); // <= This is automatically inserted by the compiler
 
 When to call `___dup` to increase the reference count?
 
-1. On the right side of `=` assignment, and LHS is not variable. 
-   Or LHS is a variable, but not on the top frame of the environment~~, and RHS is owning~~. Then if LHS is later on used in other frame, we call `___dup`, otherwise we don't need to call `___dup`.
+1. On the right side of `=` assignment, and LHS is not variable.
 
    ```rust
    p1 := Point(3, 4); // temp_var owns the Point(3, 4)
@@ -57,6 +56,7 @@ When to call `___dup` to increase the reference count?
    };
    ```
 
+2. On the right side of `=` assignment, LHS is a variable, but not on the top frame of the environment. Then if LHS is later on used in other frame, we call `___dup`, otherwise we don't need to call `___dup`.
 
    ```rust
    p1 := Point(3, 4);
@@ -76,7 +76,7 @@ When to call `___dup` to increase the reference count?
     printf("%d %d", p1.x, p1.y); // use p1 here
    ```
 
-2. Passing to `struct`, `enum`, `union`, `array`, `dyn`, `closure`, `thread` constructors. Pass to `chan` send function.
+3. Passing to `struct` (`object`, `newtype`), `enum`, `union`, `array`, `dyn`, `closure` constructors.
 
    ```rust
    p1 := Point(3, 4); // temp_var owns the Point(3, 4)
@@ -85,7 +85,7 @@ When to call `___dup` to increase the reference count?
    result := Result(Point).Ok(p1); // Will call ___dup on p1, because we are passing to an enum constructor
    ```
 
-3. Returning a borrowed variable from a block/function.
+4. Returning a borrowed variable from a block/function.
 
    ```rust
    get_point :: (fn() -> Point) {
@@ -115,5 +115,23 @@ When to call `___dup` to increase the reference count?
      // End of scope of temp_var and temp_var2
      ___drop(temp_var2); // <= This is automatically inserted by the compiler
      ___drop(temp_var); // <= This is automatically inserted by the compiler
+   };
+   ```
+
+5. The `own` keyword
+
+   ```rust
+   use_my_box :: (fn(own(box) : MyBox) -> unit) {
+     printf("Using MyBox with value: %d\n", box.(*));
+
+     // Expected the `box` to be disposed here.
+   };
+
+   main :: (fn() -> unit) {
+     box := MyBox(42);
+     use_my_box(box); // will call ___dup on `box`
+
+     printf("Back in main.\n");
+     // Expected the `box` not to be disposed here.
    };
    ```
