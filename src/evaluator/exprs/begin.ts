@@ -127,19 +127,19 @@ function searchRecursively(
       // 1. If the variable is borrowing from another owning variable (deprecated pattern)
       // 2. If the variable itself is owning (new pattern with assignments always own)
       if (variable.isBorrowingTheARCValueOfVariable) {
-        // Store the dup call mapped to the borrowed-from variable name
-        const borrowedFromVariableName =
-          variable.isBorrowingTheARCValueOfVariable.name;
-        if (!dupCalls.has(borrowedFromVariableName)) {
-          dupCalls.set(borrowedFromVariableName, []);
+        // Store the dup call mapped to the borrowed-from variable ID
+        const borrowedFromVariableId =
+          variable.isBorrowingTheARCValueOfVariable.id;
+        if (!dupCalls.has(borrowedFromVariableId)) {
+          dupCalls.set(borrowedFromVariableId, []);
         }
-        dupCalls.get(borrowedFromVariableName)!.push(expr);
+        dupCalls.get(borrowedFromVariableId)!.push(expr);
       } else if (variable.isOwningTheARCValue) {
-        // For owning variables, track the dup call directly under the variable's name
-        if (!dupCalls.has(variableName)) {
-          dupCalls.set(variableName, []);
+        // For owning variables, track the dup call directly under the variable's ID
+        if (!dupCalls.has(variable.id)) {
+          dupCalls.set(variable.id, []);
         }
-        dupCalls.get(variableName)!.push(expr);
+        dupCalls.get(variable.id)!.push(expr);
       }
     }
     return;
@@ -713,17 +713,17 @@ export function evaluateBeginExpression({
   }
 
   // Optimization: Track ___dup calls that can be canceled with ___drop calls
-  const dupCallsToOptimize = new Map<string, FuncCallExpr[]>(); // borrowed-from variable name -> array of dup call exprs
+  const dupCallsToOptimize = new Map<string, FuncCallExpr[]>(); // variable ID -> array of dup call exprs
 
   // Scan through expressions to find dup calls that can be safely optimized
   if (exprIsFunctionCall(expr)) {
     for (const arg of expr.args) {
       const dupCallsInArg = collectDupCallsConservatively(arg);
-      for (const [variableName, dupCallExprs] of dupCallsInArg) {
-        if (!dupCallsToOptimize.has(variableName)) {
-          dupCallsToOptimize.set(variableName, []);
+      for (const [variableId, dupCallExprs] of dupCallsInArg) {
+        if (!dupCallsToOptimize.has(variableId)) {
+          dupCallsToOptimize.set(variableId, []);
         }
-        dupCallsToOptimize.get(variableName)!.push(...dupCallExprs);
+        dupCallsToOptimize.get(variableId)!.push(...dupCallExprs);
       }
     }
   }
@@ -737,12 +737,12 @@ export function evaluateBeginExpression({
     let shouldSkipDrop = false;
 
     // Check if there's a dup call for this variable that we can optimize
-    if (dupCallsToOptimize.has(variable.name)) {
+    if (dupCallsToOptimize.has(variable.id)) {
       // We can optimize: remove all ___dup calls and skip the ___drop call
       shouldSkipDrop = true;
 
       // Replace ~~all~~ one dup calls with the original variable
-      const dupCallExprs = dupCallsToOptimize.get(variable.name)!;
+      const dupCallExprs = dupCallsToOptimize.get(variable.id)!;
       for (const dupCallExpr of dupCallExprs) {
         if (!exprIsFunctionCall(dupCallExpr)) {
           continue;
@@ -780,7 +780,7 @@ export function evaluateBeginExpression({
       env = updateExistingVariable(env, variable, updatedVariable);
 
       // Remove the dup calls from future optimization attempts
-      dupCallsToOptimize.delete(variable.name);
+      dupCallsToOptimize.delete(variable.id);
     }
 
     if (!shouldSkipDrop) {

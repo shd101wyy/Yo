@@ -35,6 +35,7 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
+import { generateVarialeId } from "../../utils";
 import {
   createArrayValue,
   createEnumValue,
@@ -540,10 +541,16 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         // For reference semantics enums, keep the original value to share the reference
       }
 
+      // Generate a new variable ID for reassignment
+      // This is crucial for dup/drop optimization: dup calls on the old ID
+      // won't be matched with drop calls on the new ID
+      const newVariableId = generateVarialeId(env.modulePath, variableName);
+
       // Under the new simplified ownership model:
       // Variables always own their values (no borrowing tracking)
       env = updateExistingVariable(env, variable, {
         ...variable,
+        id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore,
         type: variableType,
         isOwningTheARCValue: typeContainsARCType(variableType),
@@ -576,7 +583,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       };
 
       // This temp variable is used to hold the old value of lhs
-      attachTempVariableToExpr(expr, !isMutatingDefinedVariable);
+      attachTempVariableToExpr(expr, true);
     }
 
     return expr;
