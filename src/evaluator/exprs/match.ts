@@ -841,8 +841,7 @@ Supported patterns:
     // Merge and check all environments
     env = mergeAndCheckEnvs(
       env,
-      bodies,
-      bodies.map(() => ({ ...context }))
+      bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
     );
 
     // Set the type and value of the match expression

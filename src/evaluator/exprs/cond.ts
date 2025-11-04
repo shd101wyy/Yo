@@ -220,8 +220,7 @@ export function evaluateCond({
       // Merge and check all environments
       env = mergeAndCheckEnvs(
         env,
-        bodies,
-        bodies.map(() => ({ ...context }))
+        bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
       );
 
       // Determine the compile-time value
@@ -395,8 +394,7 @@ export function evaluateCond({
       // Merge and check all environments
       env = mergeAndCheckEnvs(
         env,
-        bodies,
-        bodies.map(() => ({ ...context }))
+        bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
       );
 
       // Determine the compile-time value

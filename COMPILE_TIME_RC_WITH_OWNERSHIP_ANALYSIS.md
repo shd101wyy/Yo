@@ -2,315 +2,333 @@
 
 Yo uses automatic reference counting (ARC) for heap-allocated objects, but employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 
+## Ownership Model
+
+Yo uses a simplified ownership model with clear rules:
+
+### 1. Variable Assignment: Always Own
+
+Both `:=` (initialization) and `=` (reassignment) make the LHS **own** the value:
+
+```rust
+x := Point(3, 4);   // ___dup(Point(3,4)), x owns
+y := x;             // ___dup(x), y owns
+z = y;              // ___dup(y), ___drop(old z), z owns
+// End of scope: ___drop(z), ___drop(y), ___drop(x)
+```
+
+**Rule:** Variables always own their values. Every assignment calls `___dup`, every scope exit calls `___drop`.
+
+### 2. Function Parameters: Borrow by Default
+
+Function parameters **borrow** by default (no reference count change):
+
+```rust
+fn print_point(p: Point) -> unit {
+  printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
+}
+
+point := Point(3, 4);
+print_point(point);  // No ___dup at call site, p borrows point
+```
+
+**Rule:** Parameters borrow unless explicitly marked with `own()`.
+
+### 3. Parameter Mutation: Allowed, Reassignment: Forbidden
+
+You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
+
+```rust
+fn move_point(p: Point, dx: i32, dy: i32) -> unit {
+  p.x = (p.x + dx);  // ✅ OK: Mutating field through parameter
+  p.y = (p.y + dy);  // ✅ OK: Mutating field through parameter
+}
+
+fn broken(p: Point) -> unit {
+  p = Point(0, 0);   // ❌ ERROR: Cannot reassign parameter
+}
+```
+
+**Rule:** Parameters are **not reassignable** to prevent ownership state changes.
+
+### 4. Explicit Ownership Transfer: `own()` keyword
+
+Use `own()` to transfer ownership to a function parameter:
+
+```rust
+fn consume(own(box): Box(i32)) -> unit {
+  printf("value: %d\n", box.(*));
+  // box is dropped at end of function
+}
+
+b := box(42);
+consume(b);         // ___dup(b) at call site, ownership transferred
+// b is consumed, cannot use it after this point
+```
+
+**Rule:** `own()` parameters take ownership. The caller loses access to the value.
+
 ## Basic Model
+
+### Ownership and Reference Counting
 
 Each heap allocated ARC value has a unique owner. Its reference counter starts at 1.
 
 ```rust
 Point :: object(x : i32, y : i32);
 
-Point(3, 4); // temp_var owns the Point(3, 4)
+Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
 ```
 
-Using `:=` for initialization will not increase the reference count. The variable on the left side of `:=` will borrow the value on the right side, not owning.
+### Assignment Creates Ownership
+
+Using `:=` for initialization calls `___dup` to create a new owner:
 
 ```rust
-p1 := Point(3, 4); // temp_var owns the Point(3, 4)
-// p1 borrows the temp_var
-// we will not increment the reference count when := is used
+p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
+                   // ___dup(temp_var)
+                   // p1 now owns the value, RC = 2
 ```
 
-When an owned variable goes out of scope, we automatically call `___drop` on it.
+When an owned variable goes out of scope, we automatically call `___drop` on it:
 
 ```rust
-p1 := Point(3, 4); // temp_var owns the Point(3, 4)
-// p1 borrows the temp_var
-// we will not increment the reference count
+p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
+                   // ___dup(temp_var), p1 owns, RC = 2
 
-// End of scope of temp_var
-___drop(temp_var); // <= This is automatically inserted by the compiler
+// End of scope
+___drop(p1);       // RC = 1
+___drop(temp_var); // RC = 0, memory freed
+```
 
-// NOTE: We will not call ___drop(p1) because p1 does not own the value
+### Function Parameters Borrow
+
+Function parameters do not increment the reference count:
+
+```rust
+fn use_point(p: Point) -> unit {
+  printf("(%d, %d)", p.x, p.y);  // p borrows, no RC change
+}
+
+point := Point(3, 4);  // temp_var owns, RC = 1
+                       // ___dup(temp_var), point owns, RC = 2
+use_point(point);      // No ___dup, p borrows point
+// End of scope: ___drop(point), ___drop(temp_var)
 ```
 
 ## The Lifetime Problem
 
-**Critical Issue**: Naive L-value borrowing without lifetime analysis leads to use-after-free bugs!
+**Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
 ```rust
-x := box(12);      // temp_var_x owns box(12), x borrows from temp_var_x
+x := box(12);      // temp_var_x owns box(12), RC = 1
+                   // ___dup(temp_var_x), x owns, RC = 2
 {
-  y := box(13);    // temp_var_y owns box(13), y borrows from temp_var_y
-  x = y;           // DANGER: If x just borrows from y...
+  y := box(13);    // temp_var_y owns box(13), RC = 1
+                   // ___dup(temp_var_y), y owns, RC = 2
+  x = y;           // DANGER if x just borrows from y...
   
   // End of inner scope
-  ___drop(temp_var_y); // temp_var_y is dropped, y's value is freed
+  ___drop(y);           // RC = 1
+  ___drop(temp_var_y);  // RC = 0, memory freed
 };
 
-printf("%d\n", x.*); // BUG: x now points to freed memory!
+printf("%d\n", x.*); // BUG: x would point to freed memory!
 ```
 
-**Solution**: Use lifetime analysis to automatically insert `___dup`/`___drop` operations when needed for safety.
+**Solution**: Always call `___dup` on assignment to maintain ownership.
 
-## Our Approach: Conservative Safety with Optimization
+With our model (assignments always own):
 
-Yo prioritizes **safety and ergonomics** over maximum performance:
+```rust
+x := box(12);      // ___dup, x owns, RC = 2
+{
+  y := box(13);    // ___dup, y owns, RC = 2
+  x = y;           // ___dup(y), ___drop(old x), x owns new value
+                   // New box(13): RC = 3, old box(12): RC = 1
+  
+  ___drop(y);           // box(13): RC = 2
+  ___drop(temp_var_y);  // box(13): RC = 1
+  ___drop(temp_var_x);  // box(12): RC = 0, freed
+};
+
+printf("%d\n", x.*); // ✅ Safe: x owns box(13), RC = 1
+___drop(x);          // box(13): RC = 0, freed
+```
+
+## Our Approach: Simple Ownership with Optimization
+
+Yo prioritizes **safety and simplicity** with a path to optimization:
 
 1. **Always safe**: Code never has use-after-free bugs
-2. **Automatic**: Programmers don't manage lifetimes manually
-3. **Optimizable**: Sophisticated analysis eliminates unnecessary operations
+2. **Simple rules**: Assignments own, parameters borrow
+3. **Predictable**: Easy to understand when dup/drop happens
+4. **Optimizable**: Phase 2 analysis eliminates unnecessary operations
 
-**Example - automatically safe:**
+**Example - simple and safe:**
 ```rust
 x := box(12);
 {
   y := box(13);
-  x = y;  // Compiler inserts ___dup(y) and ___drop(old_x)
-          // to handle the lifetime mismatch
+  x = y;  // Always safe: ___dup(y), ___drop(old x)
 }
-printf("%d\n", x.*); // Safe: x owns a valid reference
+printf("%d\n", x.*); // Always works: x owns a valid reference
 ```
 
 **Trade-offs:**
-- ✅ Code "just works" without manual lifetime annotations
-- ✅ Zero risk of memory safety bugs
-- ⚠️ May have runtime overhead from reference counting operations
-- ✅ Can be optimized away through analysis (Phase 2)
+- ✅ Simple mental model (assignments always own)
+- ✅ Zero risk of memory safety bugs  
+- ✅ Parameters borrow by default (efficient for reads)
+- ⚠️ May have RC overhead from assignments
+- ✅ Can be optimized away through Phase 2 analysis
 
 ## When to call `___dup` to increase the reference count?
 
-1. On the right side of `=` assignment:
+### Rule 1: On Assignment (`:=` and `=`)
 
-   **Case 1a: LHS is a variable AND RHS outlives or has the same lifetime as LHS**
-   
-   No `___dup` needed - LHS borrows from RHS.
+**Always call `___dup` on the RHS when assigning ARC values:**
 
-   ```rust
-   p1 := Point(3, 4); // temp_var owns the Point(3, 4)
-   p2 := Point(5, 6); // temp_var2 owns the Point(5, 6)
+```rust
+p1 := Point(3, 4); // ___dup(temp_var), p1 owns
+p2 := Point(5, 6); // ___dup(temp_var2), p2 owns
 
-   p2 = p1; // Will not call ___dup on p1 because:
-           // 1. p2 is a variable
-           // 2. p1 (and its owner temp_var) outlives p2
-           // p2 now borrows from temp_var
+p2 = p1;           // ___dup(p1), ___drop(old p2), p2 owns copy of p1's value
 
-   // End of scope of temp_var and temp_var2
-   __drop(temp_var2); // <= temp_var2 is dropped (p2 was borrowing, so no drop)
-   __drop(temp_var); // <= temp_var is dropped
-   ```
+// End of scope
+___drop(p2);       // Decrement RC
+___drop(p1);       // Decrement RC
+___drop(temp_var2);
+___drop(temp_var);
+```
 
-   **Case 1b: LHS is a variable AND RHS lifetime ends before LHS**
-   
-   Must call `___dup` on RHS to prevent use-after-free.
+**Field/index assignment also calls `___dup`:**
 
-   ```rust
-   x := box(12);      // temp_var_x owns box(12)
-   {
-     y := box(13);    // temp_var_y owns box(13)
-     x = y;           // MUST call ___dup(y) because:
-                      // 1. x is a variable
-                      // 2. BUT y (temp_var_y) will be dropped before x goes out of scope
-                      // x becomes the new owner of a duplicated reference
-     
-     __drop(temp_var_y); // <= This will decrement RC
-   };
-   printf("%d\n", x.*); // x is still valid here
-   __drop(x);           // <= x must be dropped because it now owns the value
-   ```
+```rust
+data.point = p1;   // ___dup(p1), storing into data structure
+arr[0] = p1;       // ___dup(p1), storing into array
+```
 
-   **Case 1c: LHS is not a variable (field/index access)**
-   
-   Always call `___dup` because we're storing into a data structure.
+### Rule 2: Passing to Constructors
 
-   ```rust
-   test :: (fn(data: Data)-> unit) {
-     p1 := Point(3, 4); // temp_var owns the Point(3, 4)
-     data.point = p1;   // Will call ___dup on p1, because LHS is not a variable.
+**Always call `___dup` when passing to struct/enum/array constructors:**
 
-     __drop(temp_var); // <= This is automatically inserted by the compiler
-   };
-   ```
+```rust
+p1 := Point(3, 4);           // p1 owns
+data := Data(p1);            // ___dup(p1), data owns a copy
+arr := [p1];                 // ___dup(p1), array owns a copy
+result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
+```
 
-2. Passing to `struct` (`object`, `newtype`), `enum`, `union`, `array`, `dyn`, `closure` constructors.
+### Rule 3: Returning from Functions
 
-   ```rust
-   p1 := Point(3, 4); // temp_var owns the Point(3, 4)
-   data := Data(p1); // Will call ___dup on p1, because we are passing to a struct constructor
-   arr := [p1]; // Will call ___dup on p1, because we are passing to an array constructor
-   result := Result(Point).Ok(p1); // Will call ___dup on p1, because we are passing to an enum constructor
-   ```
+**Call `___dup` when returning a borrowed parameter:**
 
-3. Returning a borrowed variable from a block/function.
+```rust
+fn identity(p: Point) -> Point {  // p borrows (parameter)
+  return p;  // ___dup(p), return value owns a copy
+}
 
-   ```rust
-   get_point :: (fn() -> Point) {
-     p1 := Point(3, 4); // `temp_var` owns the Point(3, 4)
-     // `p1` borrows the `temp_var`
+fn create() -> Point {
+  p := Point(3, 4);  // p owns
+  return p;          // ___dup(p), return value owns a copy
+  // ___drop(p) after return
+}
+```
 
-     return p1; // Will call ___dup on p1, because p1 is not an owned variable.
-     // ___drop(temp_var); // <= This is automatically inserted by the compiler
-     // ___dup(p1) and ___drop(temp_var) cancelled out because p1 and temp_var are the same reference.
-   };
+### Rule 4: The `own()` Keyword
 
-   get_point2 :: (fn(p : Point) -> Point) { // p here is a borrowed variable, not owned.
-     return p; // Will call ___dup, because p is not an owned variable.
-   };
+**`own()` parameters take ownership, caller must dup:**
 
-   {
-     p1 := get_point(); // temp_var owns the return value
+```rust
+fn consume(own(box): Box(i32)) -> unit {
+  printf("value: %d\n", box.(*));
+  // box is dropped at end of function
+}
 
-     // End of scope of temp_var
-     ___drop(temp_var); // <= This is automatically inserted by the compiler
-   };
+b := box(42);      // b owns
+consume(b);        // ___dup(b) at call site, b is consumed
+// b cannot be used after this point
+```
 
-   {
-     p1 := Point(3, 4); // temp_var owns the Point(3, 4)
-     p2 := get_point2(p1); // temp_var2 owns the return value
+### Exception: Function Parameters (Borrow by Default)
 
-     // End of scope of temp_var and temp_var2
-     ___drop(temp_var2); // <= This is automatically inserted by the compiler
-     ___drop(temp_var); // <= This is automatically inserted by the compiler
-   };
-   ```
+**No `___dup` when passing to borrowed parameters:**
 
-4. The `own` keyword
+```rust
+fn print_point(p: Point) -> unit {  // p borrows, not own
+  printf("(%d, %d)", p.x, p.y);
+}
 
-   ```rust
-   use_my_box :: (fn(own(box) : MyBox) -> unit) {
-     printf("Using MyBox with value: %d\n", box.(*));
+point := Point(3, 4);  // point owns
+print_point(point);    // No ___dup! p borrows point
+```
 
-     // Expected the `box` to be disposed here.
-   };
+## Special Case: Loops
 
-   main :: (fn() -> unit) {
-     box := MyBox(42);
-     use_my_box(box); // will call ___dup on `box`
-
-     printf("Back in main.\n");
-     // Expected the `box` not to be disposed here.
-   };
-   ```
-
-## Special Case: Loops and Lifetime Analysis
-
-In loops, we can optimize away `___dup` and `___drop` when reassigning a variable to borrow from a field that's guaranteed to outlive the variable.
+In loops, assignments follow the same "always own" rule:
 
 ### Example: Linked List Traversal
 
 ```rust
-current_opt := self.head;  // current_opt borrows from self.head
+current_opt := self.head;  // ___dup(self.head), current_opt owns
 
 while runtval(true), {
   match(current_opt,
     .None => return false,
     .Some(current) => {
-      current_opt = current.next;  // Reassignment within the loop
+      current_opt = current.next;  // ___dup(current.next)
+                                   // ___drop(old current_opt)
     }
   );
-};
-```
-
-**Lifetime Analysis:**
-
-1. `current_opt` is a local variable in the function scope
-2. `current.next` is a field access - it borrows from `current`
-3. `current` comes from unwrapping `current_opt` within the match arm
-4. The assignment `current_opt = current.next`:
-   - LHS: `current_opt` (outer scope - function/loop)
-   - RHS: `current.next` (inner scope - match arm)
-
-**Lifetime mismatch detected:**
-- `current` only lives within the `.Some` match arm
-- `current.next` borrows from `current`
-- When the match arm ends, `current` goes out of scope
-- But `current_opt` continues to live in the outer loop
-
-**Therefore, we MUST insert `___dup` and `___drop` for safety:**
-
-```rust
-.Some(current) => {
-  // current.next is from inner scope (match arm)
-  // current_opt is from outer scope (function/loop)
-  // Must use reference counting to extend lifetime
-  
-  ___dup(current.next);      // Increment RC of new value
-  ___drop(current_opt);      // Decrement RC of old value (or use temp variable)
-  current_opt = current.next; // Assign new value
 }
+
+// End of scope: ___drop(current_opt)
 ```
 
-### Optimization Opportunity: Ownership Chain Tracking
+**Analysis:**
 
-However, if we can prove that:
-1. The variable being reassigned always borrows from the same ultimate owner
-2. The ultimate owner outlives the variable
-3. We're just "moving the borrow" along a chain
+- Initial: `___dup(self.head)` creates owned copy
+- Each iteration: `___dup(current.next)` + `___drop(old current_opt)`
+- End: `___drop(current_opt)` cleans up
 
-Then we could optimize to just transfer the borrow without dup/drop.
+**Cost:** 2 RC operations per iteration (dup + drop)
 
-**In the linked list case:**
-- `self.head` owns the entire linked list chain
-- Each `node.next` is part of the same chain
-- All nodes in the chain are transitively owned by `self.head`
-- `self` (the receiver parameter) outlives `current_opt`
-
-**Advanced Optimization:**
-If we track that `current_opt` is borrowing from a chain owned by `self.head`, and we're reassigning to another element in the same ownership chain, we can skip dup/drop:
-
-```rust
-.Some(current) => {
-  // Recognize that current.next is part of the same ownership chain as current_opt
-  // Both borrow from self.head, so we can just "move the borrow"
-  current_opt = current.next;  // No dup/drop needed!
-}
-```
-
-**Requirements for this optimization:**
-1. **Ownership chain tracking**: Track that values are part of the same ownership tree
-2. **Lifetime dominance**: Prove that the root owner outlives the borrowing variable
-3. **Conservative fallback**: If unsure, always insert dup/drop for safety
+This is conservative but correct. Phase 2 optimization can eliminate these operations.
 
 ## Implementation Strategy
 
-### Phase 1: Conservative Lifetime Analysis (Current)
+### Phase 1: Simple Ownership (Current)
 
-For now, implement the **conservative approach** with simple lifetime checking:
+Implement the straightforward "always own" model:
 
-1. **Variable-to-Variable Assignment (`x = y`)**:
-   - Check if RHS is defined in the same scope or outer scope as LHS
-   - If YES: Transfer borrow, no dup/drop
-   - If NO (RHS is in inner scope): Call dup/drop
-   
-2. **Field/Index Assignment (`x.field = y` or `arr[i] = y`)**:
-   - Always call dup/drop
+**Rules:**
+1. **Assignments (`:=` and `=`)**: Always call `___dup` on RHS, `___drop` on old LHS
+2. **Function parameters**: Borrow by default, no `___dup` at call site
+3. **Parameters are not reassignable**: Prevent `param = value` (compile error)
+4. **Parameters can be mutated**: Allow `param.field = value` (calls dup)
+5. **`own()` parameters**: Call `___dup` at call site, mark parameter as consumed
+6. **Scope exit**: Call `___drop` on all owned variables
 
-3. **Track scope depth** for each variable to make lifetime comparisons
-
-**Example decisions:**
+**Example:**
 ```rust
-// Same scope - no dup/drop
-x := box(1);
-y := box(2);
-x = y;  // OK, both in same scope, x borrows from y's owner
-
-// RHS in inner scope - must dup/drop
-x := box(1);
-{
-  y := box(2);
-  x = y;  // MUST dup/drop - y's owner will be dropped first
+fn process(p: Point) -> unit {
+  p.x = 10;        // ✅ OK: Mutate field (if Point is mutable)
+  p = Point(0, 0); // ❌ ERROR: Cannot reassign parameter
 }
 
-// Loop iteration - RHS doesn't outlive LHS - must dup/drop
-current := self.head;
-while true, {
-  match(current,
-    .Some(node) => {
-      current = node.next;  // node is in match arm scope, current in loop scope
-                            // MUST dup/drop
-    }
-  );
-}
+x := Point(3, 4);  // ___dup, x owns
+y := x;            // ___dup(x), y owns
+process(y);        // No dup (y is borrowed by process)
+z := y;            // ___dup(y), z owns
+
+// ___drop(z), ___drop(y), ___drop(x), ___drop(temp_vars...)
 ```
+
+**Benefits:**
+- Simple to implement
+- Always correct and safe
+- Predictable behavior
+- Clear mental model
 
 ### Phase 2: Advanced Optimization (Future)
 
@@ -415,38 +433,52 @@ match(current_opt,
 #### Example: Optimized Linked List Traversal
 
 ```rust
-// Phase 1 (conservative):
+// Phase 1 (simple ownership):
+current_opt := self.head;     // ___dup(self.head)
+
 .Some(current) => {
-  ___dup(current.next);      // +1 RC
-  ___drop(current_opt);      // -1 RC
-  current_opt = current.next;
+  current_opt = current.next; // ___dup(current.next), ___drop(old current_opt)
 }
-// Cost: 2 RC operations per iteration
+
+// ___drop(current_opt)
+// Cost: 1 initial dup + 2 RC operations per iteration + 1 final drop
 
 // Phase 2 (Perceus-optimized):
+current_opt := self.head;     // No dup! Eliminated (self outlives current_opt)
+
 .Some(current) => {
-  current_opt = current.next;  // Just pointer update
+  current_opt = current.next; // No dup/drop! Eliminated (same ownership chain)
 }
-// Cost: 0 RC operations
-// Why: Same ownership chain (self.head), last use of old current_opt
+
+// No drop! (current_opt was borrowing)
+// Cost: 0 RC operations total
 ```
+
+**Optimization techniques applied:**
+1. **Ownership chain tracking**: `self.head` → `current.next` same chain
+2. **Last-use analysis**: Old `current_opt` value not used after reassignment
+3. **Borrowed parameter analysis**: `self` parameter outlives `current_opt`
+4. **Destructive read**: Match destructures and reassigns in one operation
 
 ## Summary
 
-Yo's compile-time reference counting uses **ownership analysis** and **lifetime analysis**:
+Yo's compile-time reference counting uses a **simple ownership model** with **optimization opportunities**:
 
-**Ownership Analysis:**
-- Track which temp variable owns each heap allocation
-- Variables borrow from temp variables by default
-- Constructors and field assignments require explicit dup
+**Phase 1 - Simple Ownership:**
+- **Assignments always own**: `:=` and `=` always call dup/drop
+- **Parameters borrow by default**: No RC overhead for function calls
+- **Parameters are not reassignable**: Prevents ownership state changes
+- **Parameters can be mutated**: Field mutation is allowed (`p.field = value`)
+- **Explicit ownership with `own()`**: Clear when ownership transfers
+- All owned variables call `___drop` at scope exit
 
-**Lifetime Analysis:**
-- Detect when borrowed values outlive their owners
-- Insert `___dup`/`___drop` to prevent use-after-free
-- Optimize away unnecessary operations when provably safe
+**Phase 2 - Perceus Optimizations:**
+- **Last-use analysis**: Transfer ownership instead of dup/drop
+- **Ownership chain tracking**: Eliminate dup/drop when borrowing from same root
+- **Borrowed parameter analysis**: Detect read-only vs stored parameters
+- **Destructive reads**: Optimize pattern matching to reuse allocations
 
-**Two-Phase Approach:**
-- **Phase 1 (Conservative)**: Simple scope-based lifetime checking - always safe, may have overhead
-- **Phase 2 (Optimized)**: Ownership chain tracking - eliminates unnecessary dup/drop in hot paths
-
-**Goal:** Make Yo safe and ergonomic by default, with transparent optimizations for performance.
+**Design Goals:**
+- **Phase 1**: Simple, correct, safe - easy to implement and understand
+- **Phase 2**: Fast, optimized - eliminate unnecessary RC operations transparently
+- **Overall**: Make Yo safe and ergonomic by default, with transparent performance optimizations

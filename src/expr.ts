@@ -1290,9 +1290,7 @@ ${exprToString(expr)}`);
  */
 export function mergeAndCheckEnvs(
   env: Environment,
-  bodies: Expr[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  contexts?: EvaluatorContext[] // Array of contexts for each body
+  bodies: Expr[]
 ): Environment {
   // console.log("env:");
   // printEnvVarNames(env);
@@ -1532,14 +1530,14 @@ export function mergeAndCheckEnvs(
         }
       }
 
-      // In theory, all cases above shouldn't happen, because the analysis of initializedAtTokens will capture the errors.
-      // But let's still leave the check here for safety.
       // Check isOwningTheARCValueAtTokens
+      // Variable is not owning the ARC value outside, but the only case makes it owning.
       // case 1
+      /*
       if (isOwningTheARCValueAtTokens.length === 1) {
         if (
-          isOwningTheARCValueAtTokens[0] &&
-          !frameVariables[i]!.isOwningTheARCValue
+          !frameVariables[i]!.isOwningTheARCValue &&
+          isOwningTheARCValueAtTokens[0]
         ) {
           throw formatErrorMessages([
             {
@@ -1555,7 +1553,9 @@ export function mergeAndCheckEnvs(
       }
       // case 2
       // variable is not owning the ARC value outside, but all cases make it owning.
-      else if (
+      else 
+      */
+      if (
         !frameVariables[i]!.isOwningTheARCValue &&
         isOwningTheARCValueAtTokens.every((u) => u)
       ) {
