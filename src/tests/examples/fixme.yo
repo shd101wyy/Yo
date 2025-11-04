@@ -1,4 +1,3 @@
-/*
 open import "std/libc/stdio";
 
 MyBox :: object(
@@ -21,8 +20,9 @@ main :: (fn() -> unit) {
 };
 
 export main;
-*/
 
+
+/*
 open import "std/libc/stdio";
 
 MyBox :: object(
@@ -34,11 +34,13 @@ MyBox :: object(
 );
 
 main :: (fn() -> unit) {
-  x := MyBox(42);
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
   y := x;  // This should insert dup(x)
-  x = MyBox(100);  // Reassignment - should drop old x before assigning
-  printf("x = %d, y = %d\n", x.(*), y.(*));
+  
+  // x = MyBox(100);  // Reassignment - should drop old x before assigning
+  // printf("x = %d, y = %d\n", x.(*), y.(*));
   // At end of scope: drop(x), drop(y)
 };
 
 export main;
+*/

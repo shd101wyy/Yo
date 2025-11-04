@@ -10,7 +10,6 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  AtomExpr,
   attachTempVariableToExpr,
   BuiltinFunctions,
   BuiltinKeywords,
@@ -24,13 +23,11 @@ import {
   ExprTag,
   exprToString,
   FuncCallExpr,
-  replaceFuncCallExprWithAtomExpr,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { Token } from "../../token";
 import { areTypesCompatible, isClosureType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
@@ -710,6 +707,7 @@ export function evaluateBeginExpression({
     variablesNeedingDrop = [...variablesNeedingDrop, ...parametersNeedingDrop];
   }
 
+  /*
   // Optimization: Track ___dup calls that can be canceled with ___drop calls
   const dupCallsToOptimize = new Map<string, FuncCallExpr[]>(); // variable ID -> array of dup call exprs
 
@@ -718,6 +716,13 @@ export function evaluateBeginExpression({
     for (const arg of expr.args) {
       const dupCallsInArg = collectDupCallsConservatively(arg);
       for (const [variableId, dupCallExprs] of dupCallsInArg) {
+        console.log(
+          `Found dup calls for variable ID ${variableId}: ${dupCallExprs.length} calls`
+        );
+        dupCallExprs.forEach((dupCallExpr) => {
+          console.log(`- ${exprToString(dupCallExpr)}`);
+        });
+
         if (!dupCallsToOptimize.has(variableId)) {
           dupCallsToOptimize.set(variableId, []);
         }
@@ -734,13 +739,25 @@ export function evaluateBeginExpression({
     // Check if this variable has a ___dup call that can be optimized
     let shouldSkipDrop = false;
 
+    let idToCheck = variable.id;
+    let isOwningTheSameARCValueAsId: Variable | undefined =
+      variable.isOwningTheSameARCValueAs;
+    while (isOwningTheSameARCValueAsId?.isOwningTheSameARCValueAs) {
+      isOwningTheSameARCValueAsId =
+        isOwningTheSameARCValueAsId.isOwningTheSameARCValueAs;
+    }
+    if (isOwningTheSameARCValueAsId) {
+      idToCheck = isOwningTheSameARCValueAsId.id;
+    }
+
     // Check if there's a dup call for this variable that we can optimize
-    if (dupCallsToOptimize.has(variable.id)) {
+    if (dupCallsToOptimize.has(idToCheck)) {
       // We can optimize: remove all ___dup calls and skip the ___drop call
       shouldSkipDrop = true;
 
       // Replace ~~all~~ one dup calls with the original variable
-      const dupCallExprs = dupCallsToOptimize.get(variable.id)!;
+      const dupCallExprs = dupCallsToOptimize.get(idToCheck)!;
+      console.log("checking ", idToCheck, dupCallExprs.length);
       for (const dupCallExpr of dupCallExprs) {
         if (!exprIsFunctionCall(dupCallExpr)) {
           continue;
@@ -752,6 +769,11 @@ export function evaluateBeginExpression({
         if (tempVariableName) {
           tempVariablesToConsume[tempVariableName] = funcCallExpr.token;
         }
+        console.log(
+          "tempVariableName: ",
+          tempVariableName,
+          exprToString(funcCallExpr)
+        );
 
         const atomExpr = funcExpr.args[0] as AtomExpr;
         const originalVarExpr: AtomExpr = {
@@ -763,6 +785,9 @@ export function evaluateBeginExpression({
           }, // Keep the same evaluation data
         };
 
+        console.log(`[DEBUG] Replace:
+- ${exprToString(funcCallExpr)}
+- ${exprToString(originalVarExpr)}`);
         replaceFuncCallExprWithAtomExpr(funcCallExpr, originalVarExpr);
 
         break;
@@ -778,7 +803,7 @@ export function evaluateBeginExpression({
       env = updateExistingVariable(env, variable, updatedVariable);
 
       // Remove the dup calls from future optimization attempts
-      dupCallsToOptimize.delete(variable.id);
+      dupCallsToOptimize.delete(idToCheck);
     }
 
     if (!shouldSkipDrop) {
@@ -801,13 +826,17 @@ export function evaluateBeginExpression({
       variablesActuallyNeedingDropFiltered.push(variable);
     }
   }
+  */
 
   // Generate deferred drop expressions instead of inserting them directly
   let deferredDropExpressions: Expr[] | undefined = undefined;
 
-  if (variablesActuallyNeedingDropFiltered.length > 0) {
+  if (
+    /*variablesActuallyNeedingDropFiltered*/ variablesNeedingDrop.length > 0
+  ) {
     const dropResult = generateDeferredDropExpressions({
-      variablesToDrop: variablesActuallyNeedingDropFiltered,
+      variablesToDrop:
+        /*variablesActuallyNeedingDropFiltered*/ variablesNeedingDrop,
       env,
       context,
     });

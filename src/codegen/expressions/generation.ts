@@ -895,12 +895,36 @@ function generateFuncCall(
           if (tempVarName === sanitizedVarName) {
             // Just use the variable directly, no temp variable needed
             rhsCode = generateExpr(rhs, indent, context);
+
+            // Handle deferred dup expressions even for simple variable references
+            if (
+              rhs.$?.deferredDupExpressions &&
+              rhs.$.deferredDupExpressions.length > 0
+            ) {
+              generateDeferredDupExpressions(rhs, indent, functionContext);
+              const dupExpr = rhs.$.deferredDupExpressions[0]!;
+              if (dupExpr.$?.variableName) {
+                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+              }
+            }
           } else if (
             exprIsAtom(rhs) &&
             tempVarName === sanitizeForCIdentifier(rhs.token.value)
           ) {
             // Just use the variable directly, no temp variable needed
             rhsCode = generateExpr(rhs, indent, context);
+
+            // Handle deferred dup expressions even for simple variable references
+            if (
+              rhs.$?.deferredDupExpressions &&
+              rhs.$.deferredDupExpressions.length > 0
+            ) {
+              generateDeferredDupExpressions(rhs, indent, functionContext);
+              const dupExpr = rhs.$.deferredDupExpressions[0]!;
+              if (dupExpr.$?.variableName) {
+                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+              }
+            }
           } else {
             // Check if this temp variable is for a captured variable - if so, skip temp variable creation
             const functionContext = context as FunctionGenerationContext;
@@ -954,12 +978,43 @@ function generateFuncCall(
                 );
               }
 
-              // Use temp variable for the main assignment
-              rhsCode = tempVarName;
+              // Handle deferred dup expressions for RHS
+              // After generating the RHS temp variable, check if we need to dup it
+              if (
+                rhs.$?.deferredDupExpressions &&
+                rhs.$.deferredDupExpressions.length > 0
+              ) {
+                generateDeferredDupExpressions(rhs, indent, functionContext);
+                // Use the dup result variable instead of the original temp variable
+                const dupExpr = rhs.$.deferredDupExpressions[0]!;
+                if (dupExpr.$?.variableName) {
+                  rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+                } else {
+                  // Use temp variable for the main assignment
+                  rhsCode = tempVarName;
+                }
+              } else {
+                // Use temp variable for the main assignment
+                rhsCode = tempVarName;
+              }
             }
           }
         } else {
           rhsCode = generateExpr(rhs, indent, context);
+
+          // Handle deferred dup expressions for RHS without temp variable
+          if (
+            rhs.$?.deferredDupExpressions &&
+            rhs.$.deferredDupExpressions.length > 0
+          ) {
+            const functionContext = context as FunctionGenerationContext;
+            generateDeferredDupExpressions(rhs, indent, functionContext);
+            // Use the dup result variable
+            const dupExpr = rhs.$.deferredDupExpressions[0]!;
+            if (dupExpr.$?.variableName) {
+              rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+            }
+          }
         }
 
         // Special handling for slice initialization.
@@ -4427,6 +4482,29 @@ export function generateDeferredDropExpressions(
       const dropCode = generateExpr(dropExpr, indent, context);
       if (dropCode) {
         emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+}
+
+/**
+ * Generate C code for all deferred dup expressions.
+ * This is used to generate dup calls for expressions that need reference counting.
+ * The dup expressions are created during evaluation and deferred to codegen to ensure
+ * proper context (e.g., closure captures, state machine variables).
+ */
+export function generateDeferredDupExpressions(
+  expr: Expr,
+  indent: string,
+  context: FunctionGenerationContext
+) {
+  const emitter = context.emitter;
+
+  if (expr.$?.deferredDupExpressions) {
+    for (const dupExpr of expr.$.deferredDupExpressions) {
+      const dupCode = generateExpr(dupExpr, indent, context);
+      if (dupCode) {
+        emitter.emitLine(`${indent}${dupCode};`);
       }
     }
   }
