@@ -1565,6 +1565,23 @@ function generateFuncCall(
               );
             }
 
+            // Handle deferred dup expressions for function arguments
+            // After generating the argument temp variable, check if we need to dup it
+            let finalArgVarName = arg.$.variableName;
+            if (
+              arg.$?.deferredDupExpressions &&
+              arg.$.deferredDupExpressions.length > 0
+            ) {
+              generateDeferredDupExpressions(arg, indent, functionContext);
+              // Use the dup result variable instead of the original temp variable
+              const dupExpr = arg.$.deferredDupExpressions[0]!;
+              if (dupExpr.$?.variableName) {
+                finalArgVarName = sanitizeForCIdentifier(
+                  dupExpr.$.variableName
+                );
+              }
+            }
+
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
             // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
             if (isDynMethodCall && index === 0) {
@@ -1586,20 +1603,20 @@ function generateFuncCall(
 
                   if (dynMethod) {
                     // This is a dyn object's own method, pass the dyn object directly
-                    return arg.$.variableName;
+                    return finalArgVarName;
                   }
                 }
               }
 
               // For all other methods (wrapped object methods), pass the wrapped object data
-              return `${arg.$.variableName}->data`;
+              return `${finalArgVarName}->data`;
             } else {
               // If this is a closure-captured variable, use the generated code (inline access)
               // If this is a state machine variable, use the generated code (sm->var_xxx access)
-              // Otherwise use the variable name
+              // Otherwise use the variable name (potentially duped)
               return isClosureCapturedVariable || isStateMachineCapturedVariable
                 ? argCode
-                : arg.$.variableName;
+                : finalArgVarName;
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
