@@ -197,11 +197,11 @@ function generateFuncCall(
 
       const captureArgs = captureType.elements.map((element) => {
         // Find the dup expression for this variable by checking the variable name
-        // capturedVariableDupExpressions only contains dup expressions for ARC types,
+        // deferredDupExpressions only contains dup expressions for ARC types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
-        if (!inSpecialContext && expr.$?.capturedVariableDupExpressions) {
-          for (const possibleDupExpr of expr.$.capturedVariableDupExpressions) {
+        if (!inSpecialContext && expr.$?.deferredDupExpressions) {
+          for (const possibleDupExpr of expr.$.deferredDupExpressions) {
             // Dup expression is in the form: ___dup(varName)
             // Extract the variable name from the first argument
             if (
@@ -2391,11 +2391,11 @@ function generateAsyncBlock(
     const captureFields = captureType.elements
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
-        // capturedVariableDupExpressions only contains dup expressions for ARC types,
+        // deferredDupExpressions only contains dup expressions for ARC types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
-        if (!inSpecialContext && expr.$?.capturedVariableDupExpressions) {
-          for (const possibleDupExpr of expr.$.capturedVariableDupExpressions) {
+        if (!inSpecialContext && expr.$?.deferredDupExpressions) {
+          for (const possibleDupExpr of expr.$.deferredDupExpressions) {
             // Dup expression is in the form: ___dup(varName)
             // Extract the variable name from the first argument
             if (

@@ -9,6 +9,7 @@ import {
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
 import { evaluateExpression } from "./evaluator/exprs/expr";
+import { generateExprFromCode } from "./parser";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
@@ -19,7 +20,7 @@ import {
   typeOfType,
   typeToString,
 } from "./types";
-import { generateNewTempVariableName, isTempVariableName } from "./utils";
+import { generateNewTempVariableName } from "./utils";
 import { isTypeValue, ModuleValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -195,7 +196,7 @@ export interface EvaluatedExprData {
    *
    * Example: If a closure captures `x: MyBox`, this would contain the expression `x.___dup()`
    */
-  capturedVariableDupExpressions?: Expr[];
+  deferredDupExpressions?: Expr[];
 
   /**
    * Contains expressions that call ___drop on variables that need cleanup.
@@ -1214,7 +1215,8 @@ function exprToPrettyString(
 
 export function attachTempVariableToExpr(
   expr: Expr,
-  isOwningTheARCValue: boolean
+  isOwningTheARCValue: boolean,
+  isOwningTheSameARCValueAs?: Variable
 ): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
@@ -1240,6 +1242,7 @@ ${exprToString(expr)}`);
         value: _isOwningTheARCValue ? undefined : value,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
         isOwningTheARCValue: _isOwningTheARCValue,
+        isOwningTheSameARCValueAs,
       };
       expr.$.env = updateExistingVariable(
         env,
@@ -1268,6 +1271,7 @@ ${exprToString(expr)}`);
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
       isOwningTheARCValue: _isOwningTheARCValue,
+      isOwningTheSameARCValueAs,
       consumedAtToken: undefined,
       token: expr.token,
     },
@@ -1758,57 +1762,15 @@ export function setExprAsNeedsToCallDup(
   }
 
   if (typeContainsARCType(expr.$.type)) {
-    // Check if the expr.variableName is owning the ARC value
-    // if yes, then no need to call dup
-    if (expr.$.variableName) {
-      if (isTempVariableName(expr.$.env.modulePath, expr.$.variableName)) {
-        if (exprIsAtom(expr) && expr.token.value !== expr.$.variableName) {
-          // Do nothing
-          // This means the expr is a variable borrows some ARC value
-          // So we need to call ___dup on it
-        } else {
-          const variables = getVariablesFromEnv(
-            expr.$.env,
-            expr.$.variableName
-          );
-          if (variables.length > 0) {
-            const variable = variables[variables.length - 1]!;
-            if (variable.isOwningTheARCValue) {
-              // Set the variable as consumed so we won't need to drop it later
-              if (!variable.consumedAtToken) {
-                expr.$.env = updateExistingVariable(expr.$.env, variable, {
-                  ...variable,
-                  consumedAtToken: expr.token,
-                });
-              }
-
-              return;
-            }
-          }
-        }
-      }
-    }
-
     // replace this expr with ___dup(...)
-    const dupCallExpr: FuncCallExpr = {
-      tag: ExprTag.FuncCall,
-      token: expr.token,
-      func: {
-        tag: ExprTag.Atom,
-        token: {
-          ...expr.token,
-          type: TokenType.Identifier,
-          value: BuiltinFunctions.___dup[0]!,
-        },
-      },
-      args: [expr],
-      isInfix: false,
-      $: undefined,
-    };
+    const dupCallExpr = generateExprFromCode(
+      `${BuiltinFunctions.___dup[0]!}(${expr.$.variableName})`
+    );
+    // console.trace(exprToString(dupCallExpr), expr.$.env.frames.length);
+    // printEnvFrame(expr.$.env.frames[expr.$.env.frames.length - 1]!);
     const evaluatedDupCallExpr = evaluateExpression({
       expr: dupCallExpr,
       env: expr.$.env,
-
       context: { ...context },
     }) as FuncCallExpr;
 
@@ -1833,7 +1795,9 @@ export function setExprAsNeedsToCallDup(
       }
     }
 
-    replaceExprWithFuncCallExpr(expr, evaluatedDupCallExpr);
+    expr.$.deferredDupExpressions = [evaluatedDupCallExpr];
+    expr.$.env = evaluatedDupCallExpr.$!.env;
+    // replaceExprWithFuncCallExpr(expr, evaluatedDupCallExpr);
   }
 }
 

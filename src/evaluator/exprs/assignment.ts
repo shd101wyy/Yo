@@ -387,6 +387,8 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       } as EnumType;
     }
     let isMutatingDefinedVariable = false;
+    const oldVariableIsOwningTheSameARCValueAs =
+      variable.isOwningTheSameARCValueAs;
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
@@ -557,7 +559,11 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       };
 
       // This temp variable is used to hold the old value of lhs
-      attachTempVariableToExpr(expr, true);
+      attachTempVariableToExpr(
+        expr,
+        true,
+        oldVariableIsOwningTheSameARCValueAs
+      );
     }
 
     return expr;

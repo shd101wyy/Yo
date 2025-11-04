@@ -166,7 +166,7 @@ export function evaluateAsync({
     pathCollection: [],
     // Store metadata for async codegen
     captureType: captureType, // Store the capture struct type for codegen (used for both closures and async blocks)
-    capturedVariableDupExpressions:
+    deferredDupExpressions:
       capturedVariableDupExpressions &&
       capturedVariableDupExpressions.length > 0
         ? capturedVariableDupExpressions

@@ -21,6 +21,7 @@ import {
   isEnumType,
   isFunctionType,
   isModuleType,
+  isObjectType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -1023,7 +1024,9 @@ ${functionsWithMatchingTypes
       const structValue = memberValues.some((value) => !value)
         ? undefined
         : createStructValue(structType, memberValues as Value[]);
-      expr.$.value = structValue;
+      expr.$.value = isObjectType(structType)
+        ? undefined // `object` type only supports runtime value
+        : structValue;
       expr.$.pathCollection = pathCollection;
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;

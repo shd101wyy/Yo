@@ -157,9 +157,9 @@ export function findFunctionCallsInExpr(
     collectType(expr.$.value.value, context);
   }
 
-  // Check for capturedVariableDupExpressions and collect their functions
-  if (expr.$?.capturedVariableDupExpressions) {
-    for (const dupExpr of expr.$.capturedVariableDupExpressions) {
+  // Check for deferredDupExpressions and collect their functions
+  if (expr.$?.deferredDupExpressions) {
+    for (const dupExpr of expr.$.deferredDupExpressions) {
       findFunctionCallsInExpr(dupExpr, context);
     }
   }

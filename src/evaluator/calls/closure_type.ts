@@ -182,7 +182,7 @@ export function tryToImplementClosureByClosureType({
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
         : [],
-    capturedVariableDupExpressions:
+    deferredDupExpressions:
       capturedVariableDupExpressions &&
       capturedVariableDupExpressions.length > 0
         ? capturedVariableDupExpressions

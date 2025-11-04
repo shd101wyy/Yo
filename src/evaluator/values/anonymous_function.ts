@@ -528,7 +528,7 @@ Got:      "${paramName}"`,
       isClosureFunction && capturedVariables
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
         : [],
-    capturedVariableDupExpressions:
+    deferredDupExpressions:
       isCreatingClosure && capturedVariableDupExpressions
         ? capturedVariableDupExpressions
         : undefined,

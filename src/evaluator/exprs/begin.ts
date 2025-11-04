@@ -99,8 +99,8 @@ function searchRecursively(
   dupCalls: Map<string, FuncCallExpr[]>
 ): void {
   // Check the captured dup expressions first
-  if (expr.$?.capturedVariableDupExpressions) {
-    for (const dupExpr of expr.$.capturedVariableDupExpressions) {
+  if (expr.$?.deferredDupExpressions) {
+    for (const dupExpr of expr.$.deferredDupExpressions) {
       searchRecursively(dupExpr, dupCalls);
     }
   }
@@ -699,7 +699,6 @@ export function evaluateBeginExpression({
   // Get variables that need drop calls using the helper function
   // When evaluating function body begin block, also check the parameters frame (previous frame)
   let variablesNeedingDrop = getVariablesNeedingDrop(env);
-
   if (isEvaluatingFunctionBodyBeginBlock && env.frames.length >= 2) {
     // Also get variables from the parameters frame (one level down)
     const parametersFrameEnv = {
@@ -805,6 +804,7 @@ export function evaluateBeginExpression({
 
   // Generate deferred drop expressions instead of inserting them directly
   let deferredDropExpressions: Expr[] | undefined = undefined;
+
   if (variablesActuallyNeedingDropFiltered.length > 0) {
     const dropResult = generateDeferredDropExpressions({
       variablesToDrop: variablesActuallyNeedingDropFiltered,
