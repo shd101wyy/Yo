@@ -1562,7 +1562,7 @@ export function mergeAndCheckEnvs(
         const newVariable: Variable = {
           ...frameVariables[i]!,
           isOwningTheARCValue: true,
-          isBorrowingTheARCValueOfVariable: undefined,
+          isOwningTheSameARCValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;

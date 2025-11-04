@@ -74,18 +74,24 @@ export interface Variable {
   isOwningTheARCValue?: boolean;
 
   /**
-   * @deprecated This field is part of the old borrowing tracking system.
-   * It will be removed once the new ownership model is fully implemented.
+   * Tracks when this variable owns a share of the same ARC object as another variable.
+   * This is used for dup/drop optimization across variable reassignments.
    *
-   * In the new model:
-   * - Regular variables always own (tracked via isOwningTheARCValue)
-   * - Function parameters borrow (tracked via isOwningTheARCValue)
-   * - No complex borrowing relationship tracking needed
+   * When a temp variable is created to hold the old value during reassignment:
+   * - The temp variable's `isOwningTheSameARCValueAs` points to the original variable
+   * - This allows us to optimize away `dup(original) + drop(temp)` pairs
    *
-   * This field currently holds the variable from which this variable borrows.
-   * It's still used by some optimization passes in begin.ts and async/await codegen.
+   * Example:
+   * ```yo
+   * x := MyBox(42);
+   * y := x;              // y dups x, both own shares of MyBox(42)
+   * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
+   * ```
+   *
+   * Here, `temp` would have `isOwningTheSameARCValueAs = y` because both own
+   * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
    */
-  isBorrowingTheARCValueOfVariable?: Variable;
+  isOwningTheSameARCValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -459,8 +465,7 @@ export function printEnvVarNames(env: Environment) {
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isUndefined: !variable.initializedAtToken,
         isOwningTheARCValue: !!variable.isOwningTheARCValue,
-        isBorrowingTheARCValueOfVariable:
-          variable.isBorrowingTheARCValueOfVariable?.name,
+        isOwningTheSameARCValueAs: variable.isOwningTheSameARCValueAs?.name,
         isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
@@ -479,8 +484,7 @@ export function printEnvFrame(frame: Frame) {
       isCompileTimeOnly: variable.isCompileTimeOnly,
       isUndefined: !variable.initializedAtToken,
       isOwningTheARCValue: !!variable.isOwningTheARCValue,
-      isBorrowingTheARCValueOfVariable:
-        variable.isBorrowingTheARCValueOfVariable?.name,
+      isOwningTheSameARCValueAs: variable.isOwningTheSameARCValueAs?.name,
       isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))

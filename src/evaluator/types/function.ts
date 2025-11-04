@@ -403,7 +403,7 @@ use_id :: (fn(forall(T : Type),
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
       isOwningTheARCValue: isOwningTheARCValue,
-      isBorrowingTheARCValueOfVariable: undefined, // Parameters don't borrow from other variables
+      isOwningTheSameARCValueAs: undefined, // Parameters don't borrow from other variables
       isReassignable: false, // Mark as not reassigable
     },
     skipCheckingFunctionOverloading: true,
@@ -718,7 +718,7 @@ Expected order: forall(...), regular parameters, using(...)`,
             initializedAtToken: labelExpr.token, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheARCValue: variadicParameter.isOwningTheARCValue,
-            isBorrowingTheARCValueOfVariable: undefined, // Parameters don't borrow from other variables
+            isOwningTheSameARCValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
           },
         });

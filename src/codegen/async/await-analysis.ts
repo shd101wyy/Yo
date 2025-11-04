@@ -80,7 +80,7 @@ export interface CapturedVariable {
    * this field holds a reference to the owner variable.
    * This is used to resolve temporary variable names in deferred drops.
    */
-  isBorrowingTheARCValueOfVariable: CapturedVariable | undefined;
+  isOwningTheSameARCValueAs: CapturedVariable | undefined;
 }
 
 /**
@@ -172,8 +172,8 @@ function walkExprForAwaits(
             !variable.isCompileTimeOnly
           ) {
             // Check if this variable is borrowing from another variable
-            if (variable.isBorrowingTheARCValueOfVariable) {
-              const ownerVar = variable.isBorrowingTheARCValueOfVariable;
+            if (variable.isOwningTheSameARCValueAs) {
+              const ownerVar = variable.isOwningTheSameARCValueAs;
               // Only capture the owner variable, not the borrower
               // The borrower is just an alias and doesn't need separate storage
               if (!capturedVariables.has(ownerVar.id)) {
@@ -182,7 +182,7 @@ function walkExprForAwaits(
                   name: ownerVar.name,
                   type: ownerVar.type,
                   kind: "local",
-                  isBorrowingTheARCValueOfVariable: undefined,
+                  isOwningTheSameARCValueAs: undefined,
                 };
                 capturedVariables.set(ownerVar.id, ownerCaptured);
               }
@@ -194,7 +194,7 @@ function walkExprForAwaits(
                 name: varName,
                 type: varType,
                 kind: "local",
-                isBorrowingTheARCValueOfVariable: undefined,
+                isOwningTheSameARCValueAs: undefined,
               });
             }
           }
@@ -232,9 +232,9 @@ function walkExprForAwaits(
               const futureVar = futureVariables[futureVariables.length - 1]!;
               // If the Future variable is borrowing from another variable, use the owner's ID
               // This ensures we reference the correct field in the state machine struct
-              if (futureVar.isBorrowingTheARCValueOfVariable) {
+              if (futureVar.isOwningTheSameARCValueAs) {
                 futureVariableId =
-                  futureVar.isBorrowingTheARCValueOfVariable.id;
+                  futureVar.isOwningTheSameARCValueAs.id;
               } else {
                 futureVariableId = futureVar.id;
               }
@@ -338,7 +338,7 @@ function collectVariableBindings(
                 const variable = vars[vars.length - 1];
                 if (
                   variable &&
-                  !variable.isBorrowingTheARCValueOfVariable &&
+                  !variable.isOwningTheSameARCValueAs &&
                   !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
@@ -347,7 +347,7 @@ function collectVariableBindings(
                     name: varName,
                     type: varType,
                     kind: "local",
-                    isBorrowingTheARCValueOfVariable: undefined,
+                    isOwningTheSameARCValueAs: undefined,
                   });
                   seen.add(variable.id);
                 }
@@ -370,7 +370,7 @@ function collectVariableBindings(
                 const variable = vars[vars.length - 1];
                 if (
                   variable &&
-                  !variable.isBorrowingTheARCValueOfVariable &&
+                  !variable.isOwningTheSameARCValueAs &&
                   !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
@@ -379,7 +379,7 @@ function collectVariableBindings(
                     name: varName,
                     type: varType,
                     kind: "local",
-                    isBorrowingTheARCValueOfVariable: undefined,
+                    isOwningTheSameARCValueAs: undefined,
                   });
                   seen.add(variable.id);
                 }

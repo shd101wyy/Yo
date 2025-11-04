@@ -27,7 +27,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { isValidVariableName } from "../utils";
+import { findBorrowingRelationship, isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -256,8 +256,16 @@ ${exprToString(rhs)}`,
     // Add variable to env
     // Attach the updated env to expr
 
-    // Under the new simplified ownership model, all variables own their values
-    // We no longer set borrowing relationships for new variables (kept undefined for now)
+    // Under the new simplified ownership model:
+    // All variables own their values
+    // But we track shared ownership for dup/drop optimization
+
+    // Find if RHS is sharing ownership with another variable
+    const rhsOwningVariable = findBorrowingRelationship(
+      rhs,
+      env,
+      env.modulePath
+    );
 
     // Create new variable
     const { env: nextEnv } = addVariableToEnv({
@@ -272,7 +280,7 @@ ${exprToString(rhs)}`,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
         isOwningTheARCValue: typeContainsARCType(lhs.$.type),
-        isBorrowingTheARCValueOfVariable: undefined, // Deprecated: no borrowing tracking for regular variables
+        isOwningTheSameARCValueAs: rhsOwningVariable, // Track shared ownership for optimization
         isReassignable: true, // This is not a function parameter
       },
     });

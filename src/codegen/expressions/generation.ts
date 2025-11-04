@@ -801,8 +801,8 @@ function generateFuncCall(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isBorrowingTheARCValueOfVariable
-            ? variable.isBorrowingTheARCValueOfVariable.id
+          const idToCheck = variable.isOwningTheSameARCValueAs
+            ? variable.isOwningTheSameARCValueAs.id
             : variable.id;
 
           if (functionContext.stateMachineVariables.has(idToCheck)) {
@@ -2766,8 +2766,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       // e.g., _temp_123 owns the value, future1 borrows from _temp_123
       // In deferred drops, we drop _temp_123, but in state machine it's stored as sm->var_future1
       if (
-        capturedVar.isBorrowingTheARCValueOfVariable &&
-        capturedVar.isBorrowingTheARCValueOfVariable.name === varName
+        capturedVar.isOwningTheSameARCValueAs &&
+        capturedVar.isOwningTheSameARCValueAs.name === varName
       ) {
         const fieldName =
           capturedVar.kind === "outer"
@@ -2783,10 +2783,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isBorrowingTheARCValueOfVariable) {
+        if (variable.isOwningTheSameARCValueAs) {
           // This variable is borrowing - try to find the owner in state machine
-          const ownerName = variable.isBorrowingTheARCValueOfVariable.name;
-          const ownerId = variable.isBorrowingTheARCValueOfVariable.id;
+          const ownerName = variable.isOwningTheSameARCValueAs.name;
+          const ownerId = variable.isOwningTheSameARCValueAs.id;
 
           for (const [
             varId,

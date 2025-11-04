@@ -124,16 +124,15 @@ function searchRecursively(
       const variable = variables[variables.length - 1]!;
 
       // Track dup calls for optimization:
-      // 1. If the variable is borrowing from another owning variable (deprecated pattern)
+      // 1. If the variable owns the same ARC value as another variable (optimization tracking)
       // 2. If the variable itself is owning (new pattern with assignments always own)
-      if (variable.isBorrowingTheARCValueOfVariable) {
-        // Store the dup call mapped to the borrowed-from variable ID
-        const borrowedFromVariableId =
-          variable.isBorrowingTheARCValueOfVariable.id;
-        if (!dupCalls.has(borrowedFromVariableId)) {
-          dupCalls.set(borrowedFromVariableId, []);
+      if (variable.isOwningTheSameARCValueAs) {
+        // Store the dup call mapped to the shared variable ID
+        const sharedVariableId = variable.isOwningTheSameARCValueAs.id;
+        if (!dupCalls.has(sharedVariableId)) {
+          dupCalls.set(sharedVariableId, []);
         }
-        dupCalls.get(borrowedFromVariableId)!.push(expr);
+        dupCalls.get(sharedVariableId)!.push(expr);
       } else if (variable.isOwningTheARCValue) {
         // For owning variables, track the dup call directly under the variable's ID
         if (!dupCalls.has(variable.id)) {
@@ -659,13 +658,13 @@ export function evaluateBeginExpression({
   }
 
   // Optimization (Design: cancellation of ___dup + ___drop when returning a borrower):
-  // If we are returning a variable that borrows an owning ARC variable in this frame,
+  // If we are returning a variable that owns the same ARC value as another variable in this frame,
   // treat it as transferring ownership out of the frame.
   // Mark the owning variable as consumed so it will not receive an auto ___drop,
   // and skip adding a ___dup for the returned expression later.
   // Likewise, if directly returning an owning variable from this frame, mark it consumed.
-  if (returnVariable?.isBorrowingTheARCValueOfVariable && returnValueExpr) {
-    const ownerVariable = returnVariable.isBorrowingTheARCValueOfVariable;
+  if (returnVariable?.isOwningTheSameARCValueAs && returnValueExpr) {
+    const ownerVariable = returnVariable.isOwningTheSameARCValueAs;
     if (
       ownerVariable.isOwningTheARCValue &&
       ownerVariable.frameLevel === env.frames.length - 1 &&

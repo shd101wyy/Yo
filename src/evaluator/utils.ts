@@ -38,10 +38,10 @@ export function findBorrowingRelationship(
   // Follow the borrowing chain until we reach an owning variable or it breaks.
   const visited = new Set<string>();
   while (candidate && !candidate.isOwningTheARCValue) {
-    if (!candidate.isBorrowingTheARCValueOfVariable) return undefined;
+    if (!candidate.isOwningTheSameARCValueAs) return undefined;
     if (visited.has(candidate.id)) return undefined; // cycle guard
     visited.add(candidate.id);
-    candidate = candidate.isBorrowingTheARCValueOfVariable;
+    candidate = candidate.isOwningTheSameARCValueAs;
   }
 
   if (candidate && candidate.isOwningTheARCValue) {

@@ -55,6 +55,7 @@ import {
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
+import { findBorrowingRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -439,60 +440,25 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         // For reference semantics enums, keep the original value to share the reference
       }
 
-      /*
-      /// Check if the rhs is a temp variable owning the ARC value
-      let rhsVariableOwningARCValue: Variable | undefined = undefined;
-      if (
-        rhs.$?.variableName &&
-        isTempVariableName(env.modulePath, rhs.$.variableName)
-      ) {
-        const rhsVariables = getVariablesFromEnv(env, rhs.$?.variableName);
-        if (rhsVariables.length > 0) {
-          const candidate = rhsVariables[rhsVariables.length - 1]!;
-          if (candidate.isOwningTheARCValue) {
-            rhsVariableOwningARCValue = candidate;
-          }
-        }
-      }
-      */
+      // Under the new simplified ownership model:
+      // Variables created by := always own their values
+      // But we track shared ownership for dup/drop optimization
 
-      /*
-      // NOTE: We cannot optimize it here as the LHS is always mutable now.
-      // (dyn_dog : Dyn(Speak)) = dyn(dog, DogSpeak);
-      // We transfer the ownership from temp variable to the new variable `dyn_dog`
-      if (
-        rhsVariableOwningARCValue &&
-        /// !variable.isMutable &&
-        exprIsFunctionCall(expr.args[0]) &&
-        exprIsFunctionCallOf(expr.args[0], ":", 2)
-      ) {
-        env = updateExistingVariable(env, rhsVariableOwningARCValue, {
-          ...rhsVariableOwningARCValue,
-          consumedAtToken: lhs.token,
-        });
-        env = updateExistingVariable(env, variable, {
-          ...variable,
-          initializedAtToken: lhs.token,
-          value: valueToStore,
-          type: variableType,
-          isOwningTheARCValue: true,
-        });
-      } else 
-      */
-      {
-        // Under the new simplified ownership model:
-        // Variables created by := always own their values (no borrowing)
-        // We no longer track borrowing relationships for regular variables
+      // Find if RHS is sharing ownership with another variable
+      const rhsOwningVariable = findBorrowingRelationship(
+        rhs,
+        env,
+        env.modulePath
+      );
 
-        env = updateExistingVariable(env, variable, {
-          ...variable,
-          initializedAtToken: lhs.token,
-          value: valueToStore,
-          type: variableType,
-          isOwningTheARCValue: typeContainsARCType(variableType),
-          isBorrowingTheARCValueOfVariable: undefined, // Deprecated: no borrowing for regular variables
-        });
-      }
+      env = updateExistingVariable(env, variable, {
+        ...variable,
+        initializedAtToken: lhs.token,
+        value: valueToStore,
+        type: variableType,
+        isOwningTheARCValue: typeContainsARCType(variableType),
+        isOwningTheSameARCValueAs: rhsOwningVariable, // Track shared ownership for optimization
+      });
     } else {
       // For closures, track variable writes to outer scope
       if (
@@ -546,15 +512,23 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       // won't be matched with drop calls on the new ID
       const newVariableId = generateVarialeId(env.modulePath, variableName);
 
+      // Find if RHS is sharing ownership with another variable
+      const rhsOwningVariable = findBorrowingRelationship(
+        rhs,
+        env,
+        env.modulePath
+      );
+
       // Under the new simplified ownership model:
-      // Variables always own their values (no borrowing tracking)
+      // Variables always own their values
+      // But we track shared ownership for dup/drop optimization
       env = updateExistingVariable(env, variable, {
         ...variable,
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore,
         type: variableType,
         isOwningTheARCValue: typeContainsARCType(variableType),
-        isBorrowingTheARCValueOfVariable: undefined, // Deprecated: no borrowing for regular variables
+        isOwningTheSameARCValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
       isMutatingDefinedVariable = true;
     }

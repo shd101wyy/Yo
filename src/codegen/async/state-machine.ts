@@ -205,7 +205,7 @@ export function generateAsyncBlockResumeFunction(
           name: elem.label,
           type: elem.type,
           kind: "outer",
-          isBorrowingTheARCValueOfVariable: undefined,
+          isOwningTheSameARCValueAs: undefined,
         });
       }
     }
