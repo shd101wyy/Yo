@@ -130,6 +130,7 @@ ${exprToString(rhs)}`,
       token: lhs.token,
       initializedAtToken: undefined, // The variable is not initialized yet
       consumedAtToken: undefined,
+      isReassignable: true,
     },
   });
   env = nextEnv;

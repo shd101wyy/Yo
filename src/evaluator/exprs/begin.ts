@@ -118,10 +118,14 @@ function searchRecursively(
   ) {
     const variableName = expr.func.args[0].token.value;
 
-    // Look up the variable in the expression's environment to find what it's borrowing from
+    // Look up the variable in the expression's environment
     const variables = getVariablesFromEnv(expr.$.env, variableName);
     if (variables.length > 0) {
       const variable = variables[variables.length - 1]!;
+
+      // Track dup calls for optimization:
+      // 1. If the variable is borrowing from another owning variable (deprecated pattern)
+      // 2. If the variable itself is owning (new pattern with assignments always own)
       if (variable.isBorrowingTheARCValueOfVariable) {
         // Store the dup call mapped to the borrowed-from variable name
         const borrowedFromVariableName =
@@ -130,6 +134,12 @@ function searchRecursively(
           dupCalls.set(borrowedFromVariableName, []);
         }
         dupCalls.get(borrowedFromVariableName)!.push(expr);
+      } else if (variable.isOwningTheARCValue) {
+        // For owning variables, track the dup call directly under the variable's name
+        if (!dupCalls.has(variableName)) {
+          dupCalls.set(variableName, []);
+        }
+        dupCalls.get(variableName)!.push(expr);
       }
     }
     return;
