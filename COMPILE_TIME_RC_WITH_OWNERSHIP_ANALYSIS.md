@@ -127,7 +127,7 @@ x := box(12);      // temp_var_x owns box(12), RC = 1
   y := box(13);    // temp_var_y owns box(13), RC = 1
                    // ___dup(temp_var_y), y owns, RC = 2
   x = y;           // DANGER if x just borrows from y...
-  
+
   // End of inner scope
   ___drop(y);           // RC = 1
   ___drop(temp_var_y);  // RC = 0, memory freed
@@ -146,7 +146,7 @@ x := box(12);      // ___dup, x owns, RC = 2
   y := box(13);    // ___dup, y owns, RC = 2
   x = y;           // ___dup(y), ___drop(old x), x owns new value
                    // New box(13): RC = 3, old box(12): RC = 1
-  
+
   ___drop(y);           // box(13): RC = 2
   ___drop(temp_var_y);  // box(13): RC = 1
   ___drop(temp_var_x);  // box(12): RC = 0, freed
@@ -166,6 +166,7 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 4. **Optimizable**: Phase 2 analysis eliminates unnecessary operations
 
 **Example - simple and safe:**
+
 ```rust
 x := box(12);
 {
@@ -176,8 +177,9 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 ```
 
 **Trade-offs:**
+
 - ✅ Simple mental model (assignments always own)
-- ✅ Zero risk of memory safety bugs  
+- ✅ Zero risk of memory safety bugs
 - ✅ Parameters borrow by default (efficient for reads)
 - ⚠️ May have RC overhead from assignments
 - ✅ Can be optimized away through Phase 2 analysis
@@ -297,19 +299,21 @@ This is conservative but correct. Phase 2 optimization can eliminate these opera
 
 ## Implementation Strategy
 
-### Phase 1: Simple Ownership (Current)
+### Phase 1: Simple Ownership (In Progress)
 
 Implement the straightforward "always own" model:
 
 **Rules:**
-1. **Assignments (`:=` and `=`)**: Always call `___dup` on RHS, `___drop` on old LHS
-2. **Function parameters**: Borrow by default, no `___dup` at call site
-3. **Parameters are not reassignable**: Prevent `param = value` (compile error)
-4. **Parameters can be mutated**: Allow `param.field = value` (calls dup)
-5. **`own()` parameters**: Call `___dup` at call site, mark parameter as consumed
-6. **Scope exit**: Call `___drop` on all owned variables
+
+1. **Assignments (`:=` and `=`)**: Always call `___dup` on RHS, `___drop` on old LHS ✅
+2. **Function parameters**: Borrow by default, no `___dup` at call site ⚠️ (needs codegen)
+3. **Parameters are not reassignable**: Prevent `param = value` (compile error) ✅
+4. **Parameters can be mutated**: Allow `param.field = value` (calls dup) ✅
+5. **`own()` parameters**: Call `___dup` at call site, mark parameter as consumed ❌ (not implemented)
+6. **Scope exit**: Call `___drop` on all owned variables ⚠️ (needs codegen)
 
 **Example:**
+
 ```rust
 fn process(p: Point) -> unit {
   p.x = 10;        // ✅ OK: Mutate field (if Point is mutable)
@@ -325,6 +329,7 @@ z := y;            // ___dup(y), z owns
 ```
 
 **Benefits:**
+
 - Simple to implement
 - Always correct and safe
 - Predictable behavior
@@ -387,7 +392,7 @@ Optimize pattern matching by recognizing destructive field access:
 ```rust
 match(current_opt,
   .Some(current) => {
-    // Perceus insight: 
+    // Perceus insight:
     // - Deconstructing current_opt to get current
     // - Accessing current.next (same ownership chain)
     // - Reassigning current_opt
@@ -400,16 +405,19 @@ match(current_opt,
 #### Phase 2 Implementation Plan
 
 1. **Last-use tracking**:
+
    - Perform dataflow analysis to find last use of each variable
    - At last use, mark as "transfer ownership" instead of "borrow"
    - Eliminate dup/drop pairs for ownership transfers
 
 2. **Ownership path analysis**:
+
    - Track field access chains (e.g., `self.head` → `node.next` → `next_node.next`)
    - Maintain "root owner" for each borrowed value
    - When reassigning to value with same root owner, skip dup/drop
 
 3. **Borrowed vs owned parameter tracking**:
+
    - Analyze function bodies to determine if parameters are only read
    - Mark read-only parameters as "borrowed" (no dup on pass)
    - Mark stored parameters as "owned" (dup required)
@@ -420,12 +428,14 @@ match(current_opt,
    - Eliminate allocation/deallocation pairs
 
 **Benefits:**
+
 - Eliminates dup/drop in linked list traversals
 - Eliminates dup/drop in tree traversals
 - Reduces function call overhead
 - More efficient code without sacrificing safety
 
 **Complexity:**
+
 - Requires sophisticated dataflow analysis
 - Needs to handle aliasing correctly
 - Conservative fallback when analysis is uncertain
@@ -455,6 +465,7 @@ current_opt := self.head;     // No dup! Eliminated (self outlives current_opt)
 ```
 
 **Optimization techniques applied:**
+
 1. **Ownership chain tracking**: `self.head` → `current.next` same chain
 2. **Last-use analysis**: Old `current_opt` value not used after reassignment
 3. **Borrowed parameter analysis**: `self` parameter outlives `current_opt`
@@ -465,6 +476,7 @@ current_opt := self.head;     // No dup! Eliminated (self outlives current_opt)
 Yo's compile-time reference counting uses a **simple ownership model** with **optimization opportunities**:
 
 **Phase 1 - Simple Ownership:**
+
 - **Assignments always own**: `:=` and `=` always call dup/drop
 - **Parameters borrow by default**: No RC overhead for function calls
 - **Parameters are not reassignable**: Prevents ownership state changes
@@ -473,12 +485,14 @@ Yo's compile-time reference counting uses a **simple ownership model** with **op
 - All owned variables call `___drop` at scope exit
 
 **Phase 2 - Perceus Optimizations:**
+
 - **Last-use analysis**: Transfer ownership instead of dup/drop
 - **Ownership chain tracking**: Eliminate dup/drop when borrowing from same root
 - **Borrowed parameter analysis**: Detect read-only vs stored parameters
 - **Destructive reads**: Optimize pattern matching to reuse allocations
 
 **Design Goals:**
+
 - **Phase 1**: Simple, correct, safe - easy to implement and understand
 - **Phase 2**: Fast, optimized - eliminate unnecessary RC operations transparently
 - **Overall**: Make Yo safe and ergonomic by default, with transparent performance optimizations

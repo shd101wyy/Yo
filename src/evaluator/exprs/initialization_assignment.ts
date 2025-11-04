@@ -6,6 +6,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -89,6 +90,9 @@ export function evaluateInitializationAssignment({
       expectedType: undefined,
     },
   });
+
+  // Insert dup
+  setExprAsNeedsToCallDup(rhs, { ...context });
 
   if (rhs.$?.env) {
     env = rhs.$?.env;
@@ -269,7 +273,7 @@ ${exprToString(rhs)}`,
         // Under new ownership model: variables always own their values (or false for non-ARC types)
         isOwningTheARCValue: typeContainsARCType(lhs.$.type),
         isBorrowingTheARCValueOfVariable: undefined, // Deprecated: no borrowing tracking for regular variables
-        isFunctionParameter: false, // This is not a function parameter
+        isReassignable: true, // This is not a function parameter
       },
     });
     env = nextEnv;

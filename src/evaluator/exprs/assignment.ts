@@ -194,12 +194,12 @@ export function evaluateAssignment({
     }
     const variable = variables[variables.length - 1]!;
 
-    // Check if trying to reassign a function parameter
-    if (variable.isFunctionParameter) {
+    // Check if trying to reassign, eg a function parameter
+    if (!variable.isReassignable) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Cannot reassign function parameter "${variableName}". Function parameters are immutable.
-You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign the parameter itself.`,
+        errorMessage: `Cannot reassign "${variableName}".  
+You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign itself.`,
       });
     }
 

@@ -269,6 +269,7 @@ export function evaluateMatch({
               token: evaluatedScrutineeExpr.token,
               initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
               consumedAtToken: undefined, // Not consumed yet
+              isReassignable: false,
             },
           });
           caseEnv = nextEnv;
@@ -570,6 +571,7 @@ export function evaluateMatch({
                     token: variableExpr.token,
                     initializedAtToken: variableExpr.token,
                     consumedAtToken: undefined,
+                    isReassignable: false,
                   },
                 });
                 caseEnv = nextEnv;
@@ -612,6 +614,7 @@ export function evaluateMatch({
                   token: param.token,
                   initializedAtToken: param.token,
                   consumedAtToken: undefined,
+                  isReassignable: false,
                 },
               });
               caseEnv = nextEnv;
@@ -651,6 +654,7 @@ export function evaluateMatch({
               token: evaluatedScrutineeExpr.token,
               initializedAtToken: evaluatedScrutineeExpr.token,
               consumedAtToken: undefined,
+              isReassignable: false,
             },
           });
           caseEnv = nextEnv;

@@ -1,46 +1,22 @@
-Node :: (fn(compt(T): Type) -> compt(Type))
-  object(
-    value : T,
-    next : Option(Self),
-    prev : Option(Self)
-  )
-;
+open import "std/libc/stdio";
 
-LinkedList :: (fn(compt(T): Type) -> compt(Type))
-  object(
-    head : Option(Node(T)),
+MyBox :: object(
+  (*) : i32,
 
-    /**
-     * Check if the list contains a value
-     * O(n) time complexity
-     */
-    contains :: ((fn(
-      self : Self,
-      val : T,
-      using(ElementEqual) : (T <: Eq(T, T))
-    ) -> boolean) {
-      current_opt := self.head;
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.(*));
+  })
+);
 
-      while runtval(true), {
-        match(current_opt,
-          .None => {
-            break;
-          },
-          .Some(current) => {
-            current_opt = current.next;
-            // dup(current.next);
-            // drop(temp) // where temp holds the old value of current_opt
-          }
-        );
-      };
-      
-      false
-      
-      // drop(current_opt)
+use_mybox :: (fn(own(x) : MyBox) -> unit) {
+  printf("Using MyBox with value: %d\n", x.(*));
+};
 
-    })
-  );
+main :: (fn() -> unit) {
+  x := MyBox(42);
+  use_mybox(x);
+  printf("Called use_mybox\n");
+  printf("End of main\n");
+};
 
-export
-  LinkedList
-;
+export main;

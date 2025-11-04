@@ -79,7 +79,7 @@ export interface Variable {
    *
    * In the new model:
    * - Regular variables always own (tracked via isOwningTheARCValue)
-   * - Function parameters borrow (tracked via isFunctionParameter + isOwningTheARCValue)
+   * - Function parameters borrow (tracked via isOwningTheARCValue)
    * - No complex borrowing relationship tracking needed
    *
    * This field currently holds the variable from which this variable borrows.
@@ -88,12 +88,10 @@ export interface Variable {
   isBorrowingTheARCValueOfVariable?: Variable;
 
   /**
-   * Whether this variable is a function parameter.
-   * Function parameters have special rules:
-   * - They cannot be reassigned (but fields can be mutated)
-   * - They borrow by default (unless marked with own())
+   * Whether this variable is isReassignable or not.
+   * For example, the function parameter is not reassignable.
    */
-  isFunctionParameter?: boolean;
+  isReassignable?: boolean;
 
   /**
    * Then token at which the variable is initialized.
@@ -463,7 +461,7 @@ export function printEnvVarNames(env: Environment) {
         isOwningTheARCValue: !!variable.isOwningTheARCValue,
         isBorrowingTheARCValueOfVariable:
           variable.isBorrowingTheARCValueOfVariable?.name,
-        isFunctionParameter: !!variable.isFunctionParameter,
+        isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
     })
@@ -483,7 +481,7 @@ export function printEnvFrame(frame: Frame) {
       isOwningTheARCValue: !!variable.isOwningTheARCValue,
       isBorrowingTheARCValueOfVariable:
         variable.isBorrowingTheARCValueOfVariable?.name,
-      isFunctionParameter: !!variable.isFunctionParameter,
+      isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))
   );
