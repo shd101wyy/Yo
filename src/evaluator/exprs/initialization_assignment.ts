@@ -11,6 +11,7 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   prohibitVoidType,
+  typeContainsARCType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -25,7 +26,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findBorrowingRelationship, isValidVariableName } from "../utils";
+import { isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -251,12 +252,8 @@ ${exprToString(rhs)}`,
     // Add variable to env
     // Attach the updated env to expr
 
-    // Check if the rhs is a temp variable owning the ARC value
-    const rhsVariableOwningARCValue = findBorrowingRelationship(
-      rhs,
-      env,
-      env.modulePath
-    );
+    // Under the new simplified ownership model, all variables own their values
+    // We no longer set borrowing relationships for new variables (kept undefined for now)
 
     // Create new variable
     const { env: nextEnv } = addVariableToEnv({
@@ -269,8 +266,10 @@ ${exprToString(rhs)}`,
         token: lhs.token,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
-        // Set up borrowing relationship if rhs is from a temp variable owning ARC value
-        isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
+        // Under new ownership model: variables always own their values (or false for non-ARC types)
+        isOwningTheARCValue: typeContainsARCType(lhs.$.type),
+        isBorrowingTheARCValueOfVariable: undefined, // Deprecated: no borrowing tracking for regular variables
+        isFunctionParameter: false, // This is not a function parameter
       },
     });
     env = nextEnv;

@@ -3,7 +3,6 @@ import {
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   updateExistingVariable,
-  Variable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
@@ -55,7 +54,6 @@ import {
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findBorrowingRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -194,7 +192,16 @@ export function evaluateAssignment({
         errorMessage: `Variable ${variableName} not found in the environment`,
       });
     }
-    let variable = variables[variables.length - 1]!;
+    const variable = variables[variables.length - 1]!;
+
+    // Check if trying to reassign a function parameter
+    if (variable.isFunctionParameter) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Cannot reassign function parameter "${variableName}". Function parameters are immutable.
+You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign the parameter itself.`,
+      });
+    }
 
     // Evaluate the rhs expression
     rhs = evaluateExpression({
@@ -213,33 +220,11 @@ export function evaluateAssignment({
     }
     env = rhs.$.env;
 
-    // Needs to call dup on rhs if lhs is not on the current frame
-    // for example:
-    //   x : Box(i32);
-    //   y := box(6);
-    //   cond(
-    //     some_cond() => {
-    //       x = box(3); // needs ___dup here
-    //     },
-    //     true => {
-    //       x = y;      // needs ___dup here
-    //     });
+    // Under the new ownership model, all assignments transfer ownership
+    // so we always need to call dup on the RHS
+    setExprAsNeedsToCallDup(rhs, context);
+    env = rhs.$.env;
 
-    if (variable.frameLevel < env.frames.length - 1) {
-      setExprAsNeedsToCallDup(rhs, context);
-      env = rhs.$.env;
-
-      // Transfer ownership if necessary
-      if (typeContainsARCType(variable.type)) {
-        const newVariable: Variable = {
-          ...variable,
-          isOwningTheARCValue: true,
-          isBorrowingTheARCValueOfVariable: undefined,
-        };
-        env = updateExistingVariable(env, variable, newVariable);
-        variable = newVariable;
-      }
-    }
     if (rhs.$?.controlFlow) {
       throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
     }
@@ -494,20 +479,17 @@ export function evaluateAssignment({
       } else 
       */
       {
-        // Check if the rhs is a temp variable owning the ARC value
-        const rhsVariableOwningARCValue = findBorrowingRelationship(
-          rhs,
-          env,
-          env.modulePath
-        );
+        // Under the new simplified ownership model:
+        // Variables created by := always own their values (no borrowing)
+        // We no longer track borrowing relationships for regular variables
 
         env = updateExistingVariable(env, variable, {
           ...variable,
           initializedAtToken: lhs.token,
           value: valueToStore,
           type: variableType,
-          isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
-          // type: rhsType,
+          isOwningTheARCValue: typeContainsARCType(variableType),
+          isBorrowingTheARCValueOfVariable: undefined, // Deprecated: no borrowing for regular variables
         });
       }
     } else {
@@ -558,18 +540,14 @@ export function evaluateAssignment({
         // For reference semantics enums, keep the original value to share the reference
       }
 
-      // Check if the rhs is a temp variable owning the ARC value
-      const rhsVariableOwningARCValue = findBorrowingRelationship(
-        rhs,
-        env,
-        env.modulePath
-      );
-
+      // Under the new simplified ownership model:
+      // Variables always own their values (no borrowing tracking)
       env = updateExistingVariable(env, variable, {
         ...variable,
         value: valueToStore,
         type: variableType,
-        isBorrowingTheARCValueOfVariable: rhsVariableOwningARCValue,
+        isOwningTheARCValue: typeContainsARCType(variableType),
+        isBorrowingTheARCValueOfVariable: undefined, // Deprecated: no borrowing for regular variables
       });
       isMutatingDefinedVariable = true;
     }

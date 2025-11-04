@@ -64,28 +64,36 @@ export interface Variable {
   /**
    * Whether the variable is owning the ARC value or borrowing the ARC value.
    * This is only relevant for types that are managed by ARC.
-   * eg:
-   *     Point :: object(x : i32, y : i32);
-   *     p1 := Point(3, 4);  // temp_var holds the result of Point(3, 4)
-   *                         // temp_var : isOwningTheARCValue: true
-   *                         // p1       : isOwningTheARCValue: false
-   *     p2 := p1;           // p2       : isOwningTheARCValue: false
    *
+   * Under the new simplified ownership model:
+   * - Variables created by := or = always own (isOwningTheARCValue: true)
+   * - Function parameters borrow by default (isOwningTheARCValue: false)
+   * - Function parameters with own() explicitly own (isOwningTheARCValue: true)
+   * - For non-ARC types, this is always false (no ownership tracking needed)
    */
   isOwningTheARCValue?: boolean;
 
   /**
-   * If the variable is borrowing the ARC value of another variable,
-   * then this field holds the name of that variable.
-   * This is only relevant for types that are managed by ARC.
-   * eg:
-   *     Point :: object(x : i32, y : i32);
-   *     p1 := Point(3, 4);  // temp_var holds the result of Point(3, 4)
-   *                         // temp_var : isBorrowingTheARCValueOfVariableName: undefined
-   *                         // p1       : isBorrowingTheARCValueOfVariableName: temp_var
-   *     p2 := p1;           // p2       : isBorrowingTheARCValueOfVariableName: temp_var
+   * @deprecated This field is part of the old borrowing tracking system.
+   * It will be removed once the new ownership model is fully implemented.
+   *
+   * In the new model:
+   * - Regular variables always own (tracked via isOwningTheARCValue)
+   * - Function parameters borrow (tracked via isFunctionParameter + isOwningTheARCValue)
+   * - No complex borrowing relationship tracking needed
+   *
+   * This field currently holds the variable from which this variable borrows.
+   * It's still used by some optimization passes in begin.ts and async/await codegen.
    */
   isBorrowingTheARCValueOfVariable?: Variable;
+
+  /**
+   * Whether this variable is a function parameter.
+   * Function parameters have special rules:
+   * - They cannot be reassigned (but fields can be mutated)
+   * - They borrow by default (unless marked with own())
+   */
+  isFunctionParameter?: boolean;
 
   /**
    * Then token at which the variable is initialized.
@@ -455,6 +463,7 @@ export function printEnvVarNames(env: Environment) {
         isOwningTheARCValue: !!variable.isOwningTheARCValue,
         isBorrowingTheARCValueOfVariable:
           variable.isBorrowingTheARCValueOfVariable?.name,
+        isFunctionParameter: !!variable.isFunctionParameter,
         isConsumed: !!variable.consumedAtToken,
       }));
     })
@@ -474,6 +483,7 @@ export function printEnvFrame(frame: Frame) {
       isOwningTheARCValue: !!variable.isOwningTheARCValue,
       isBorrowingTheARCValueOfVariable:
         variable.isBorrowingTheARCValueOfVariable?.name,
+      isFunctionParameter: !!variable.isFunctionParameter,
       isConsumed: !!variable.consumedAtToken,
     }))
   );
