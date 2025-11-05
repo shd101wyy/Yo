@@ -1,5 +1,6 @@
 open import "std/libc/stdio";
 
+/*
 MyBox :: object(
   (*) : i32,
 
@@ -20,11 +21,9 @@ main :: (fn() -> unit) {
 };
 
 export main;
-
+*/
 
 /*
-open import "std/libc/stdio";
-
 MyBox :: object(
   (*) : i32,
 
@@ -44,3 +43,37 @@ main :: (fn() -> unit) {
 
 export main;
 */
+
+/*
+// Tuple
+MyBox :: object(
+  (*) : i32,
+
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.(*));
+  })
+);
+
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  tup := (x,);
+};
+
+export main;
+*/
+
+MyBox :: object(
+  (*) : i32,
+
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.(*));
+  })
+);
+
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  tup := (x,);
+  (a,) := tup;
+};
+
+export main;

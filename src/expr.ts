@@ -20,7 +20,7 @@ import {
   typeOfType,
   typeToString,
 } from "./types";
-import { generateNewTempVariableName } from "./utils";
+import { generateNewTempVariableName, isTempVariableName } from "./utils";
 import { isTypeValue, ModuleValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -1675,14 +1675,14 @@ export function setExprAsConsumed(
   consumeFreeAsWell: boolean = false
 ): Environment {
   // Check if it's dereferencing a pointer/reference to linear type value.
-  if (expr.$?.isAccessingProperty && isType0(typeOfType(expr.$.type))) {
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage: `Cannot consume a property which is "Linear" value.`,
-      },
-    ]);
-  }
+  // if (expr.$?.isAccessingProperty && isType0(typeOfType(expr.$.type))) {
+  //   throw formatErrorMessages([
+  //     {
+  //       token: expr.token,
+  //       errorMessage: `Cannot consume a property which is "Linear" value.`,
+  //     },
+  //   ]);
+  // }
 
   // Don't consume type values - they should be reusable
   if (expr.$?.value && isTypeValue(expr.$?.value)) {
@@ -1766,6 +1766,35 @@ export function setExprAsNeedsToCallDup(
     const dupCallExpr = generateExprFromCode(
       `${BuiltinFunctions.___dup[0]!}(${expr.$.variableName})`
     );
+
+    const variableName = expr.$.variableName;
+
+    // Check if the expr.variableName is owning the ARC value
+    // if yes, then no need to call dup
+    // We just need to set it as consumed
+    if (isTempVariableName(expr.$.env.modulePath, variableName)) {
+      if (exprIsAtom(expr) && expr.token.value !== variableName) {
+        // Do nothing
+        // We need to call ___dup on it
+      } else {
+        const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          if (variable.isOwningTheARCValue) {
+            // Set the variable as consumed so we won't need to drop it later
+            if (!variable.consumedAtToken) {
+              expr.$.env = updateExistingVariable(expr.$.env, variable, {
+                ...variable,
+                consumedAtToken: expr.token,
+              });
+            }
+
+            return;
+          }
+        }
+      }
+    }
+
     // console.trace(exprToString(dupCallExpr), expr.$.env.frames.length);
     // printEnvFrame(expr.$.env.frames[expr.$.env.frames.length - 1]!);
     const evaluatedDupCallExpr = evaluateExpression({

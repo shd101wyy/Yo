@@ -101,6 +101,12 @@ ${typeToString(expectedTupleType)}`,
   });
 
   setExprAsNeedsToCallDup(evaluatedRhs, context);
+  console.log(
+    "evaluatedRhs: ",
+    evaluatedRhs.$?.deferredDupExpressions
+      ? exprToString(evaluatedRhs.$.deferredDupExpressions[0]!)
+      : undefined
+  );
 
   if (!evaluatedRhs.$) {
     throw formatErrorMessage({

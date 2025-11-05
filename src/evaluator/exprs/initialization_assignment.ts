@@ -91,9 +91,6 @@ export function evaluateInitializationAssignment({
     },
   });
 
-  // Insert dup
-  setExprAsNeedsToCallDup(rhs, { ...context });
-
   if (rhs.$?.env) {
     env = rhs.$?.env;
   }
@@ -109,6 +106,11 @@ export function evaluateInitializationAssignment({
   }
 
   if (exprIsAtom(lhs)) {
+    // Insert dup
+    // NOTE: For destructuring in `else` block, we don't insert dup there.
+    //       Because for simplicity destructuring uses borrowing, not owning.
+    setExprAsNeedsToCallDup(rhs, { ...context });
+
     if (!isValidVariableName(lhs)) {
       throw formatErrorMessage({
         token: lhs.token,

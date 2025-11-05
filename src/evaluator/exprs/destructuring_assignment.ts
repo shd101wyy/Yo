@@ -170,6 +170,7 @@ export function handleMemberDestructuring({
             initializedAtToken: lhsElement.token,
             consumedAtToken: undefined,
             isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
+            isReassignable: false, // NOTE: Destructuring only borrows but not owns, so we disable reassignment here.
           },
         });
         env = nextEnv;
@@ -351,6 +352,7 @@ export function handleMemberDestructuring({
           initializedAtToken: variableToken,
           consumedAtToken: undefined, // Not consumed yet
           isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
+          isReassignable: false, // NOTE: Destructuring only borrows but not owns, so we disable reassignment here.
         },
       });
 
@@ -423,7 +425,7 @@ export function evaluateDestructuringAssignment({
   const rhsType = rhs.$.type;
   const rhsValue = rhs.$.value;
 
-  // Handle struct destructuring
+  // Handle struct/union/module destructuring
   if (
     (isStructType(rhsType) || isUnionType(rhsType) || isModuleType(rhsType)) &&
     exprIsFunctionCall(lhs)

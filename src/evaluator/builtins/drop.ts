@@ -58,14 +58,16 @@ function generateTupleDropCall(tupleExpr: Expr): string {
   }
 
   // Destructure the tuple and drop each ARC-containing element
-  const id = randomId();
-  const destructuring = `(${elementsNeedingDrop.map(({ index }) => `_${id}_${index}`).join(", ")}${elementsNeedingDrop.length === 1 ? "," : ""})`;
+  // const id = randomId();
+  // const destructuring = `(${elementsNeedingDrop.map(({ index }) => `_${id}_${index}`).join(", ")}${elementsNeedingDrop.length === 1 ? "," : ""})`;
   const dropCalls = elementsNeedingDrop
-    .map(({ index }) => `${BuiltinFunctions.___drop[0]!}(_${id}_${index});`)
-    .join("\n  ");
+    .map(
+      ({ index }) =>
+        `${BuiltinFunctions.___drop[0]!}(${tupleExpr.$!.variableName}.${index})`
+    )
+    .join(",\n  ");
 
   return `begin(
-  ${destructuring} := ${tupleExpr.$.variableName},
   ${dropCalls}
 )`;
 }
