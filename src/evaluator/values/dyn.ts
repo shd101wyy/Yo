@@ -83,6 +83,7 @@ export function evaluateDynValue({
   }
 
   setExprAsNeedsToCallDup(evaluatedValueExpr, context);
+  env = evaluatedValueExpr.$!.env!;
 
   const moduleTypes: ModuleType[] = [];
   const moduleValues: ModuleValue[] = [];

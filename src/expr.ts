@@ -13,11 +13,9 @@ import { generateExprFromCode } from "./parser";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
-  isType0,
   StructType,
   Type,
   typeContainsARCType,
-  typeOfType,
   typeToString,
 } from "./types";
 import { generateNewTempVariableName, isTempVariableName } from "./utils";
@@ -1671,8 +1669,7 @@ export function replaceExprWithAtomExpr(
 export function setExprAsConsumed(
   expr: Expr,
   env: Environment,
-  context: EvaluatorContext,
-  consumeFreeAsWell: boolean = false
+  allowConsumeAgain: boolean = false
 ): Environment {
   // Check if it's dereferencing a pointer/reference to linear type value.
   // if (expr.$?.isAccessingProperty && isType0(typeOfType(expr.$.type))) {
@@ -1717,28 +1714,27 @@ export function setExprAsConsumed(
   }
 
   const variableToConsume = variables[variables.length - 1]!;
-  if (consumeFreeAsWell || isType0(typeOfType(variableToConsume.type))) {
-    // Check if the variable is already consumed
-    if (variableToConsume.consumedAtToken) {
-      const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (1).`;
-      throw formatErrorMessages([
-        {
-          token: expr.token,
-          errorMessage: errorMessage,
-        },
-        {
-          token: variableToConsume.consumedAtToken,
-          errorMessage: `Previously consumed here:`,
-        },
-      ]);
-    }
-
+  // Check if the variable is already consumed
+  if (variableToConsume.consumedAtToken && !allowConsumeAgain) {
+    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (1).`;
+    throw formatErrorMessages([
+      {
+        token: expr.token,
+        errorMessage: errorMessage,
+      },
+      {
+        token: variableToConsume.consumedAtToken,
+        errorMessage: `Previously consumed here:`,
+      },
+    ]);
+  } else {
     // Set the variable as consumed
     env = updateExistingVariable(env, variableToConsume, {
       ...variableToConsume,
       consumedAtToken: expr.token,
     });
   }
+
   return env;
 }
 

@@ -903,7 +903,7 @@ function generateFuncCall(
             ) {
               generateDeferredDupExpressions(rhs, indent, functionContext);
               const dupExpr = rhs.$.deferredDupExpressions[0]!;
-              if (dupExpr.$?.variableName) {
+              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                 rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
               }
             }
@@ -921,7 +921,7 @@ function generateFuncCall(
             ) {
               generateDeferredDupExpressions(rhs, indent, functionContext);
               const dupExpr = rhs.$.deferredDupExpressions[0]!;
-              if (dupExpr.$?.variableName) {
+              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                 rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
               }
             }
@@ -987,7 +987,7 @@ function generateFuncCall(
                 generateDeferredDupExpressions(rhs, indent, functionContext);
                 // Use the dup result variable instead of the original temp variable
                 const dupExpr = rhs.$.deferredDupExpressions[0]!;
-                if (dupExpr.$?.variableName) {
+                if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                   rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
                 } else {
                   // Use temp variable for the main assignment
@@ -1011,7 +1011,7 @@ function generateFuncCall(
             generateDeferredDupExpressions(rhs, indent, functionContext);
             // Use the dup result variable
             const dupExpr = rhs.$.deferredDupExpressions[0]!;
-            if (dupExpr.$?.variableName) {
+            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
             }
           }
@@ -1387,7 +1387,7 @@ function generateFuncCall(
             generateDeferredDupExpressions(arg, indent, functionContext);
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
-            if (dupExpr.$?.variableName) {
+            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               return sanitizeForCIdentifier(dupExpr.$.variableName);
             }
           }
@@ -1436,7 +1436,7 @@ function generateFuncCall(
             generateDeferredDupExpressions(arg, indent, functionContext);
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
-            if (dupExpr.$?.variableName) {
+            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               return sanitizeForCIdentifier(dupExpr.$.variableName);
             }
           }
@@ -1480,7 +1480,7 @@ function generateFuncCall(
             generateDeferredDupExpressions(arg, indent, functionContext);
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
-            if (dupExpr.$?.variableName) {
+            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               return sanitizeForCIdentifier(dupExpr.$.variableName);
             }
           }
@@ -1522,7 +1522,7 @@ function generateFuncCall(
           generateDeferredDupExpressions(arg, indent, functionContext);
           // Use the dup result variable instead of the original
           const dupExpr = arg.$.deferredDupExpressions[0]!;
-          if (dupExpr.$?.variableName) {
+          if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
             return sanitizeForCIdentifier(dupExpr.$.variableName);
           }
         }
@@ -1649,7 +1649,7 @@ function generateFuncCall(
               generateDeferredDupExpressions(arg, indent, functionContext);
               // Use the dup result variable instead of the original temp variable
               const dupExpr = arg.$.deferredDupExpressions[0]!;
-              if (dupExpr.$?.variableName) {
+              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                 finalArgVarName = sanitizeForCIdentifier(
                   dupExpr.$.variableName
                 );
@@ -1945,7 +1945,7 @@ function generateFuncCall(
                 generateDeferredDupExpressions(arg, indent, functionContext);
                 // Use the dup result variable instead of the original
                 const dupExpr = arg.$.deferredDupExpressions[0]!;
-                if (dupExpr.$?.variableName) {
+                if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                   finalArgVarName = sanitizeForCIdentifier(
                     dupExpr.$.variableName
                   );
@@ -2053,7 +2053,7 @@ function generateFuncCall(
                   generateDeferredDupExpressions(arg, indent, functionContext);
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
-                  if (dupExpr.$?.variableName) {
+                  if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                     return sanitizeForCIdentifier(dupExpr.$.variableName);
                   }
                 }
@@ -2097,7 +2097,7 @@ function generateFuncCall(
                   generateDeferredDupExpressions(arg, indent, functionContext);
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
-                  if (dupExpr.$?.variableName) {
+                  if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                     finalArgValue = sanitizeForCIdentifier(
                       dupExpr.$.variableName
                     );
@@ -2163,7 +2163,7 @@ function generateFuncCall(
               );
               // Use the dup result variable instead of the original
               const dupExpr = fieldExpr.$.deferredDupExpressions[0]!;
-              if (dupExpr.$?.variableName) {
+              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                 finalFieldValue = sanitizeForCIdentifier(
                   dupExpr.$.variableName
                 );
@@ -2306,7 +2306,10 @@ function generateFuncCall(
                       );
                       // Use the dup result variable instead of the original
                       const dupExpr = arg.$.deferredDupExpressions[0]!;
-                      if (dupExpr.$?.variableName) {
+                      if (
+                        exprIsFunctionCall(dupExpr) &&
+                        dupExpr.$?.variableName
+                      ) {
                         finalArgValue = sanitizeForCIdentifier(
                           dupExpr.$.variableName
                         );

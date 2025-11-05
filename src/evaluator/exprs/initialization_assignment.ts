@@ -27,7 +27,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findBorrowingRelationship, isValidVariableName } from "../utils";
+import { findARCValueOwnerRelationship, isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -110,6 +110,9 @@ export function evaluateInitializationAssignment({
     // NOTE: For destructuring in `else` block, we don't insert dup there.
     //       Because for simplicity destructuring uses borrowing, not owning.
     setExprAsNeedsToCallDup(rhs, { ...context });
+    if (rhs.$?.env) {
+      env = rhs.$?.env;
+    }
 
     if (!isValidVariableName(lhs)) {
       throw formatErrorMessage({
@@ -263,7 +266,7 @@ ${exprToString(rhs)}`,
     // But we track shared ownership for dup/drop optimization
 
     // Find if RHS is sharing ownership with another variable
-    const rhsOwningVariable = findBorrowingRelationship(
+    const rhsOwningVariable = findARCValueOwnerRelationship(
       rhs,
       env,
       env.modulePath

@@ -1,0 +1,90 @@
+open import "std/libc/stdio";
+
+MyBox :: object(
+  (*) : i32,
+
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.(*));
+  })
+);
+
+/*
+use_mybox :: (fn(own(x) : MyBox) -> unit) {
+  printf("Using MyBox with value: %d\n", x.(*));
+};
+
+main :: (fn() -> unit) {
+  x := MyBox(42);
+  use_mybox(x);
+  printf("Called use_mybox\n");
+  printf("End of main\n");
+};
+*/
+
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  y := x;  // This should insert dup(x)
+  
+  // x = MyBox(100);  // Reassignment - should drop old x before assigning
+  // printf("x = %d, y = %d\n", x.(*), y.(*));
+  // At end of scope: drop(x), drop(y)
+};
+
+/*
+// Tuple
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  tup := (x,);
+  (a,) := tup;
+};
+*/
+
+/*
+// Array
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  arr := [x,];
+  first := arr(0);
+};
+*/
+
+/*
+// Anonymous struct
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  st := {x};
+  v := st.x;
+};
+*/
+
+/*
+// struct
+Wrapper :: struct(
+  x : MyBox
+);
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  st := Wrapper(x);
+  v := st.x;
+};
+*/
+
+/*
+// enum
+EnumWrapper :: enum(
+  Variant(x : MyBox),
+  None
+);
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  en := EnumWrapper.Variant(x);
+  match(en, 
+    .Variant(x) => {
+      v := x;
+    },
+    .None => ()
+  );
+};
+*/
+
+export main;

@@ -165,7 +165,7 @@ export function evaluateDrop({
         ) as FuncCallExpr;
 
         // Set the expression as consumed
-        env = setExprAsConsumed(evaluatedArgExpr, env, context);
+        env = setExprAsConsumed(evaluatedArgExpr, env, true);
 
         // Evaluate the generated tuple drop expression
         const evaluatedTupleDropExpr = evaluateExpression({
@@ -182,7 +182,7 @@ export function evaluateDrop({
         }
       } else {
         // No ARC elements in tuple, just consume and return unit
-        env = setExprAsConsumed(evaluatedArgExpr, env, context);
+        env = setExprAsConsumed(evaluatedArgExpr, env, true);
         expr.$ = {
           env,
           type: VUnit.type,
@@ -201,7 +201,7 @@ export function evaluateDrop({
         ) as FuncCallExpr;
 
         // Set the expression as consumed
-        env = setExprAsConsumed(evaluatedArgExpr, env, context);
+        env = setExprAsConsumed(evaluatedArgExpr, env, true);
 
         // Evaluate the generated array drop expression
         const evaluatedArrayDropExpr = evaluateExpression({
@@ -218,7 +218,7 @@ export function evaluateDrop({
         }
       } else {
         // No ARC elements in array, just consume and return unit
-        env = setExprAsConsumed(evaluatedArgExpr, env, context);
+        env = setExprAsConsumed(evaluatedArgExpr, env, true);
         expr.$ = {
           env,
           type: VUnit.type,
@@ -234,7 +234,7 @@ export function evaluateDrop({
       ) as FuncCallExpr;
 
       // Set the expression as consumed
-      env = setExprAsConsumed(evaluatedArgExpr, env, context);
+      env = setExprAsConsumed(evaluatedArgExpr, env, true);
 
       // Convert this ___drop(x) to x.___drop() and evaluate the function call
       const evaluatedDropMethodCallExpr = evaluateFunctionCall({
@@ -254,7 +254,7 @@ export function evaluateDrop({
     }
   } else {
     // Set the expression as consumed
-    env = setExprAsConsumed(evaluatedArgExpr, env, context);
+    env = setExprAsConsumed(evaluatedArgExpr, env, true);
 
     // TODO: Handle calling drop function.
     // In theory, the Free values will be ignored.

@@ -18,10 +18,10 @@ export function isValidVariableName(expr: Expr): boolean {
  * Find the ultimate ARC-owning variable that a RHS expression borrows from.
  * Handles chains like:
  *   temp := Box(...); // temp owns
- *   x := temp;        // x borrows temp
- *   y := x;           // y borrows temp (should point to temp, not x)
+ *   x := temp;        // x owns what temp owns
+ *   y := x;           // y owns what x owns, which is what temp owns
  */
-export function findBorrowingRelationship(
+export function findARCValueOwnerRelationship(
   rhs: Expr,
   env: Environment,
   _modulePath: string
@@ -37,8 +37,7 @@ export function findBorrowingRelationship(
 
   // Follow the borrowing chain until we reach an owning variable or it breaks.
   const visited = new Set<string>();
-  while (candidate && !candidate.isOwningTheARCValue) {
-    if (!candidate.isOwningTheSameARCValueAs) return undefined;
+  while (candidate && candidate.isOwningTheSameARCValueAs) {
     if (visited.has(candidate.id)) return undefined; // cycle guard
     visited.add(candidate.id);
     candidate = candidate.isOwningTheSameARCValueAs;

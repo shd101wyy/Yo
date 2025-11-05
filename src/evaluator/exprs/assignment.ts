@@ -55,7 +55,7 @@ import {
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findBorrowingRelationship } from "../utils";
+import { findARCValueOwnerRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -447,7 +447,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       // But we track shared ownership for dup/drop optimization
 
       // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findBorrowingRelationship(
+      const rhsOwningVariable = findARCValueOwnerRelationship(
         rhs,
         env,
         env.modulePath
@@ -515,7 +515,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       const newVariableId = generateVarialeId(env.modulePath, variableName);
 
       // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findBorrowingRelationship(
+      const rhsOwningVariable = findARCValueOwnerRelationship(
         rhs,
         env,
         env.modulePath
