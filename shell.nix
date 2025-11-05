@@ -1,11 +1,11 @@
-{ pkgs ? import <nixpkgs> { }, pkgsUnstable }:
+{ pkgs ? import <nixpkgs> { } }:
 with pkgs;
 let
   gccForLibs = stdenv.cc.cc;
 in
 mkShell rec {
   buildInputs = [
-    pkgs.bun
+    bun
     # python3
     # cmake
     # llvmPackages_14.llvm
@@ -17,9 +17,9 @@ mkShell rec {
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc
-  NIX_LDFLAGS="-L${gccForLibs}/lib/gcc/${targetPlatform.config}/${gccForLibs.version}";
+  ## NIX_LDFLAGS="-L${gccForLibs}/lib/gcc/${targetPlatform.config}/${gccForLibs.version}";
   # teach clang about C startup file locations
-  CFLAGS="-B${gccForLibs}/lib/gcc/${targetPlatform.config}/${gccForLibs.version} -B ${stdenv.cc.libc}/lib";
+  ## CFLAGS="-B${gccForLibs}/lib/gcc/${targetPlatform.config}/${gccForLibs.version} -B ${stdenv.cc.libc}/lib";
 
   cmakeFlags = [
     "-DGCC_INSTALL_PREFIX=${gcc}"
