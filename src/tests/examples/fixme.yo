@@ -8,13 +8,20 @@ MyBox :: object(
   })
 );
 
+some_cond :: (fn() -> boolean) {
+  return true;
+};
+
 main :: (fn() -> unit) {
   x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
-  y := x;  // This should insert dup(x)
-  
-  // x = MyBox(100);  // Reassignment - should drop old x before assigning
-  // printf("x = %d, y = %d\n", x.(*), y.(*));
-  // At end of scope: drop(x), drop(y)
+  cond
+    some_cond() => {
+      x = MyBox(100);
+    },
+    true => {
+      x = MyBox(200);
+    }
+  ;
 };
 
 export main;

@@ -18,7 +18,11 @@ import {
   typeContainsARCType,
   typeToString,
 } from "./types";
-import { generateNewTempVariableName, isTempVariableName } from "./utils";
+import {
+  generateNewTempVariableName,
+  generateVarialeId,
+  isTempVariableName,
+} from "./utils";
 import { isTypeValue, ModuleValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -1596,6 +1600,39 @@ export function mergeAndCheckEnvs(
             })
           );
         }
+      }
+
+      // Check for reassignment across branches
+      // When a variable is reassigned in any branch, its ID changes (see assignment.ts)
+      // We need to detect this and generate a new ID for the merged environment
+      const originalVariableId = frameVariables[i]!.id;
+      const variableIds: string[] = [];
+
+      for (let j = 1; j < rows; j++) {
+        const caseEnv = caseEnvs[j - 1]!;
+        const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
+        const caseVariable = caseEnvFrameVariables[i]!;
+        variableIds.push(caseVariable.id);
+      }
+
+      // Check if any branch has a different variable ID (indicating reassignment)
+      const hasReassignmentInSomeBranch = variableIds.some(
+        (id) => id !== originalVariableId
+      );
+
+      if (hasReassignmentInSomeBranch) {
+        // Generate a new ID for the merged environment to distinguish from pre-cond/match state
+        // This ensures dup/drop optimization won't incorrectly match calls across the boundary
+        const newVariableId = generateVarialeId(env.modulePath, variableName);
+
+        const newVariable: Variable = {
+          ...frameVariables[i]!,
+          id: newVariableId,
+          // Clear ownership tracking since the value may come from different sources
+          isOwningTheSameARCValueAs: undefined,
+        };
+        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+        frameVariables[i] = newVariable;
       }
     }
   }

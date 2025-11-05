@@ -21,7 +21,7 @@ z = y;              // ___dup(y), ___drop(old z), z owns
 
 ### 2. Function Parameters: Borrow by Default
 
-Function parameters **borrow** by default (no reference count change):
+Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
 
 ```rust
 fn print_point(p: Point) -> unit {
@@ -32,7 +32,20 @@ point := Point(3, 4);
 print_point(point);  // No ___dup at call site, p borrows point
 ```
 
-**Rule:** Parameters borrow unless explicitly marked with `own()`.
+**Rule:** Parameters borrow unless explicitly marked with `own()`. Not having `own()` means borrow.
+
+**Destructuring also borrows:**
+
+```rust
+// Destructuring assignment borrows
+Point(x, y) := point;  // x and y borrow from point, no dup
+
+// Match destructuring borrows
+match(result,
+  .Ok(value) => printf("%d", value),  // value borrows from result
+  .Err(e) => printf("error")
+);
+```
 
 ### 3. Parameter Mutation: Allowed, Reassignment: Forbidden
 
@@ -53,7 +66,7 @@ fn broken(p: Point) -> unit {
 
 ### 4. Explicit Ownership Transfer: `own()` keyword
 
-Use `own()` to transfer ownership to a function parameter:
+Use `own()` to transfer ownership to a function parameter. The caller must call `___dup` at the call site:
 
 ```rust
 fn consume(own(box): Box(i32)) -> unit {
@@ -61,12 +74,12 @@ fn consume(own(box): Box(i32)) -> unit {
   // box is dropped at end of function
 }
 
-b := box(42);
-consume(b);         // ___dup(b) at call site, ownership transferred
-// b is consumed, cannot use it after this point
+b := box(42);      // b owns
+consume(b);        // ___dup(b) at call site, ownership transferred to function
+                   // b still owns its reference after the call
 ```
 
-**Rule:** `own()` parameters take ownership. The caller loses access to the value.
+**Rule:** `own()` parameters take ownership via `___dup` at call site. The caller's variable remains valid.
 
 ## Basic Model
 
@@ -254,15 +267,28 @@ consume(b);        // ___dup(b) at call site, b is consumed
 
 ### Exception: Function Parameters (Borrow by Default)
 
-**No `___dup` when passing to borrowed parameters:**
+**No `___dup` when passing to borrowed parameters (parameters without `own()`):**
 
 ```rust
-fn print_point(p: Point) -> unit {  // p borrows, not own
+fn print_point(p: Point) -> unit {  // p borrows (no own keyword)
   printf("(%d, %d)", p.x, p.y);
 }
 
 point := Point(3, 4);  // point owns
 print_point(point);    // No ___dup! p borrows point
+```
+
+**Destructuring in match expressions also borrows:**
+
+```rust
+match(optional,
+  .Some(value) => {
+    // `value` borrows from optional, no ___dup
+    // `value` is also not reassignable.
+    printf("%d", value);
+  },
+  .None => ()
+);
 ```
 
 ## Special Case: Loops
@@ -299,18 +325,20 @@ This is conservative but correct. Phase 2 optimization can eliminate these opera
 
 ## Implementation Strategy
 
-### Phase 1: Simple Ownership (In Progress)
+### Phase 1: Simple Ownership (Implemented ✅)
 
-Implement the straightforward "always own" model:
+The straightforward "always own" model is now fully implemented:
 
 **Rules:**
 
 1. **Assignments (`:=` and `=`)**: Always call `___dup` on RHS, `___drop` on old LHS ✅
-2. **Function parameters**: Borrow by default, no `___dup` at call site ⚠️ (needs codegen)
+2. **Function parameters**: Borrow by default (no `own()` keyword), no `___dup` at call site ✅
 3. **Parameters are not reassignable**: Prevent `param = value` (compile error) ✅
 4. **Parameters can be mutated**: Allow `param.field = value` (calls dup) ✅
-5. **`own()` parameters**: Call `___dup` at call site, mark parameter as consumed ❌ (not implemented)
-6. **Scope exit**: Call `___drop` on all owned variables ⚠️ (needs codegen)
+5. **`own()` parameters**: Call `___dup` at call site ✅
+6. **Scope exit**: Call `___drop` on all owned variables ✅
+7. **Deferred drops in branches**: All branching constructs (cond, match, while, for) properly emit drop calls ✅
+8. **Destructuring borrows**: Both destructuring assignment and match destructuring borrow by default ✅
 
 **Example:**
 
@@ -334,6 +362,63 @@ z := y;            // ___dup(y), z owns
 - Always correct and safe
 - Predictable behavior
 - Clear mental model
+
+### Phase 1.5: Basic Dup/Drop Optimization (Implemented ✅)
+
+We've implemented a **same-value ownership tracking** optimization that eliminates redundant dup/drop pairs when variables share the same ARC value:
+
+**Technique: `isOwningTheSameARCValueAs` Tracking**
+
+When a variable is assigned from another variable, we track the ownership relationship:
+
+```rust
+x := Point(3, 4);   // x owns Point(3, 4)
+y := x;             // y owns Point(3, 4), y.isOwningTheSameARCValueAs = x
+
+// Before optimization:
+// ___dup(x), ___drop(y), ___drop(x)
+
+// After optimization:
+// ___dup(x) and ___drop(y) are paired and cancelled!
+// Only ___drop(x) remains
+```
+
+**How it works:**
+
+1. **Track shared ownership**: When `y := x`, mark `y.isOwningTheSameARCValueAs = x`
+2. **Find base variable**: Follow the chain to find the root owner
+3. **Match dup/drop pairs**: Group dup calls by base variable ID, match with drop calls
+4. **Cancel pairs**: Remove one dup/drop pair per match
+
+**Applied during:**
+
+- Variable reassignment in begin blocks
+- Temporary variables from reassignments in branches (cond, match)
+
+**Example with reassignment in branches:**
+
+```rust
+x := MyBox(42);
+cond(
+  some_cond() => { x = MyBox(100); },  // Creates temp for old value
+  true => { x = MyBox(200); }          // Creates temp for old value
+);
+// Temps are tracked with isOwningTheSameARCValueAs = x
+// Dup/drop pairs for temps are optimized away
+```
+
+**Implementation details:**
+
+- `getBaseVariableId(variable)`: Follows `isOwningTheSameARCValueAs` chain to root
+- `collectDupCallsConservatively(expr)`: Recursively finds all dup calls
+- `removeDupCalls(expr)`: Removes optimized dup calls from AST
+- Optimization runs at begin block scope exit
+
+**Current limitations:**
+
+- Only optimizes within single scope (begin blocks)
+- Doesn't optimize across function boundaries
+- Conservative: Falls back to dup/drop when uncertain
 
 ### Phase 2: Advanced Optimization (Future)
 
@@ -473,18 +558,26 @@ current_opt := self.head;     // No dup! Eliminated (self outlives current_opt)
 
 ## Summary
 
-Yo's compile-time reference counting uses a **simple ownership model** with **optimization opportunities**:
+Yo's compile-time reference counting uses a **simple ownership model** with **progressive optimization**:
 
-**Phase 1 - Simple Ownership:**
+**Phase 1 - Simple Ownership (Implemented ✅):**
 
 - **Assignments always own**: `:=` and `=` always call dup/drop
 - **Parameters borrow by default**: No RC overhead for function calls
 - **Parameters are not reassignable**: Prevents ownership state changes
 - **Parameters can be mutated**: Field mutation is allowed (`p.field = value`)
-- **Explicit ownership with `own()`**: Clear when ownership transfers
-- All owned variables call `___drop` at scope exit
+- **Explicit ownership with `own()`**: Clear when ownership transfers (not yet implemented)
+- **Scope exit cleanup**: All owned variables call `___drop` at scope exit
+- **Branch cleanup**: All branching constructs (cond, match, while, for) properly emit deferred drops
 
-**Phase 2 - Perceus Optimizations:**
+**Phase 1.5 - Basic Dup/Drop Optimization (Implemented ✅):**
+
+- **Shared ownership tracking**: `isOwningTheSameARCValueAs` field tracks when variables own the same ARC value
+- **Dup/drop cancellation**: Matching dup/drop pairs for the same base variable are eliminated
+- **Scope-local optimization**: Works within begin blocks and branch bodies
+- **Reassignment temps**: Optimizes temporary variables created during reassignments in branches
+
+**Phase 2 - Perceus Optimizations (Future):**
 
 - **Last-use analysis**: Transfer ownership instead of dup/drop
 - **Ownership chain tracking**: Eliminate dup/drop when borrowing from same root
@@ -493,6 +586,7 @@ Yo's compile-time reference counting uses a **simple ownership model** with **op
 
 **Design Goals:**
 
-- **Phase 1**: Simple, correct, safe - easy to implement and understand
-- **Phase 2**: Fast, optimized - eliminate unnecessary RC operations transparently
+- **Phase 1**: Simple, correct, safe - easy to implement and understand ✅
+- **Phase 1.5**: Eliminate obvious dup/drop pairs without complex analysis ✅
+- **Phase 2**: Fast, optimized - eliminate unnecessary RC operations transparently (future)
 - **Overall**: Make Yo safe and ergonomic by default, with transparent performance optimizations

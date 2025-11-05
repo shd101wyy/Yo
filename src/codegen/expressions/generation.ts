@@ -3750,6 +3750,11 @@ function generateCondExpression(
                 }
               }
             }
+
+            // Generate deferred drop expressions for the begin block
+            if (value.$?.deferredDropExpressions) {
+              generateDeferredDropExpressions(value, valueIndent, context);
+            }
           } else {
             // Generate the value expression INSIDE the conditional block
             const valueCode = generateExpr(value, valueIndent, context);
@@ -3930,7 +3935,7 @@ function generateMatchExpression(
         }
       }
 
-      const bodyCode = generateExpr(
+      const bodyCode = generateCaseBody(
         pointerCase.caseBody,
         indent + "  ",
         context
@@ -3950,7 +3955,11 @@ function generateMatchExpression(
     context.emitter.emitLine(`${indent}} else {`);
 
     if (nullCase) {
-      const bodyCode = generateExpr(nullCase.caseBody, indent + "  ", context);
+      const bodyCode = generateCaseBody(
+        nullCase.caseBody,
+        indent + "  ",
+        context
+      );
       if (!isUnit && tempVariableName) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${bodyCode};`
@@ -4000,7 +4009,7 @@ function generateMatchExpression(
           context.emitter.emitLine(`${indent}case ${variantTag}:`);
 
           // Generate the body of the case
-          const bodyCode = generateExpr(caseBody, indent + "  ", context);
+          const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
           if (!isUnit && tempVariableName && bodyCode) {
             context.emitter.emitLine(
               `${indent}  ${tempVariableName} = ${bodyCode};`
@@ -4097,7 +4106,7 @@ function generateMatchExpression(
         }
 
         // Generate the body of the case
-        const bodyCode = generateExpr(caseBody, indent + "  ", context);
+        const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
         if (!isUnit && tempVariableName && bodyCode) {
           context.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${bodyCode};`
@@ -4183,7 +4192,7 @@ function generateMatchExpression(
         }
 
         // Generate the body of the case
-        const bodyCode = generateExpr(caseBody, indent + "  ", context);
+        const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
         if (!isUnit && tempVariableName && bodyCode) {
           context.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${bodyCode};`
@@ -4479,6 +4488,50 @@ function generateLoopBody(
     if (bodyCode) {
       context.emitter.emitLine(`${indent}${bodyCode};`);
     }
+  }
+}
+
+/**
+ * Generate case body for match/cond expressions, handling begin blocks specially
+ * Returns the body code string for assignment to temp variable
+ */
+function generateCaseBody(
+  bodyExpr: Expr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  // Handle begin blocks specially
+  if (
+    exprIsFunctionCall(bodyExpr) &&
+    exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
+  ) {
+    const beginArgs = bodyExpr.args;
+
+    // Generate each statement except the last one
+    for (let j = 0; j < beginArgs.length - 1; j++) {
+      const arg = beginArgs[j]!;
+      const argCode = generateExpr(arg, indent, context);
+      if (argCode) {
+        context.emitter.emitLine(`${indent}${argCode};`);
+      }
+    }
+
+    // Get the final expression code for return/assignment
+    let finalExprCode = "";
+    if (beginArgs.length > 0) {
+      const finalExpr = beginArgs[beginArgs.length - 1]!;
+      finalExprCode = generateExpr(finalExpr, indent, context);
+    }
+
+    // Generate deferred drop expressions for the begin block
+    if (bodyExpr.$?.deferredDropExpressions) {
+      generateDeferredDropExpressions(bodyExpr, indent, context);
+    }
+
+    return finalExprCode;
+  } else {
+    // For non-begin expressions, generate normally
+    return generateExpr(bodyExpr, indent, context);
   }
 }
 

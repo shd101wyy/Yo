@@ -562,7 +562,13 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       attachTempVariableToExpr(
         expr,
         true,
-        oldVariableIsOwningTheSameARCValueAs
+
+        // Check if the oldVariableIsOwningTheSameARCValueAs is located on the same frame level
+        // If not, we can't track the relationship as the old variable is out of scope
+        oldVariableIsOwningTheSameARCValueAs?.frameLevel ===
+          env.frames.length - 1
+          ? oldVariableIsOwningTheSameARCValueAs
+          : undefined
       );
     }
 
