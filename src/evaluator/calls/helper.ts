@@ -356,12 +356,14 @@ export function checkIfFunctionParameterMatchesArgument({
 
   try {
     // Synthesize the types
-    const { expectedEnv, givenEnv } = synthesizeTypes(
+    const { expectedEnv } = synthesizeTypes(
       { type: parameterType, env: calleeEnv },
       { type: argType, env: callerEnv }
     );
     calleeEnv = expectedEnv;
-    callerEnv = givenEnv;
+    // NOTE: Do NOT update callerEnv with givenEnv!
+    // The type bindings from synthesis should not pollute the caller's environment.
+    // Only the callee needs to know about the synthesized types.
   } catch (error) {
     // It might cause maximum call stack size exceeded when failed to synthesize types
     throw formatErrorMessage({

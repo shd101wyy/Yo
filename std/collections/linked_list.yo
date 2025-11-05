@@ -5,11 +5,11 @@
  * - O(1) push/pop from front and back
  * - O(1) insertion/removal at known positions (with node reference)
  * - RAII for automatic cleanup
- * - True linked list using Box for indirection
+ * - True linked list using object indirection
  * 
  * Memory layout:
- * - Each node is wrapped in a Box (reference-counted)
- * - Nodes contain: value, optional next Box, optional prev Box
+ * - Each node is an object (reference-counted)
+ * - Nodes contain: value, optional next node, optional prev node
  */
 
 /**
@@ -22,13 +22,13 @@ LinkedListError :: enum(
 
 /**
  * Node - Internal structure for linked list nodes
- * Uses Box for indirection to allow recursive type
+ * Since Node is an object (reference-counted), no Box needed
  */
 Node :: (fn(compt(T): Type) -> compt(Type))
   object(
     value : T,
-    next : Option(Box(Self)),
-    prev : Option(Box(Self))
+    next : Option(Self),
+    prev : Option(Self)
   )
 ;
 
@@ -37,8 +37,8 @@ Node :: (fn(compt(T): Type) -> compt(Type))
  */
 LinkedList :: (fn(compt(T): Type) -> compt(Type))
   object(
-    head : Option(Box(Node(T))),
-    tail : Option(Box(Node(T))),
+    head : Option(Node(T)),
+    tail : Option(Node(T)),
     length : usize,
 
     /**
@@ -72,18 +72,18 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     push_front :: ((fn(self: Self, value: T) -> unit)
       {
-        new_node := Box(Node(T))(Node(T)(
+        new_node := Node(T)(
           value: value,
           next: self.head,
           prev: .None
-        ));
+        );
         
         match(self.head,
           .None => {
             self.tail = .Some(new_node);
           },
           .Some(old_head) => {
-            old_head.*.prev = .Some(new_node);
+            old_head.prev = .Some(new_node);
           }
         );
         
@@ -98,18 +98,18 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     push_back :: ((fn(self: Self, value: T) -> unit)
       {
-        new_node := Box(Node(T))(Node(T)(
+        new_node := Node(T)(
           value: value,
           next: .None,
           prev: self.tail
-        ));
+        );
         
         match(self.tail,
           .None => {
             self.head = .Some(new_node);
           },
           .Some(old_tail) => {
-            old_tail.*.next = .Some(new_node);
+            old_tail.next = .Some(new_node);
           }
         );
         
@@ -126,8 +126,8 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
       match(self.head,
         .None => .None,
         .Some(old_head) => {
-          value := old_head.*.value;
-          new_head_opt := old_head.*.next;
+          value := old_head.value;
+          new_head_opt := old_head.next;
           
           match(new_head_opt,
             .None => {
@@ -135,7 +135,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
               self.tail = .None;
             },
             .Some(new_head) => {
-              new_head.*.prev = .None;
+              new_head.prev = .None;
               self.head = .Some(new_head);
             }
           );
@@ -154,8 +154,8 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
       match(self.tail,
         .None => .None,
         .Some(old_tail) => {
-          value := old_tail.*.value;
-          new_tail_opt := old_tail.*.prev;
+          value := old_tail.value;
+          new_tail_opt := old_tail.prev;
           
           match(new_tail_opt,
             .None => {
@@ -163,7 +163,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
               self.tail = .None;
             },
             .Some(new_tail) => {
-              new_tail.*.next = .None;
+              new_tail.next = .None;
               self.tail = .Some(new_tail);
             }
           );
@@ -180,7 +180,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     front :: ((fn(self: Self) -> Option(T))
       match(self.head,
         .None => .None,
-        .Some(head_node) => .Some(head_node.*.value)
+        .Some(head_node) => .Some(head_node.value)
       )
     ),
 
@@ -190,7 +190,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     back :: ((fn(self: Self) -> Option(T))
       match(self.tail,
         .None => .None,
-        .Some(tail_node) => .Some(tail_node.*.value)
+        .Some(tail_node) => .Some(tail_node.value)
       )
     ),
 
@@ -211,7 +211,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
                 return .None;
               },
               .Some(current) => {
-                current_opt = current.*.next;
+                current_opt = current.next;
                 ()
               }
             );
@@ -219,7 +219,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
           
           match(current_opt,
             .None => .None,
-            .Some(node) => .Some(node.*.value)
+            .Some(node) => .Some(node.value)
           )
         }
       )
@@ -250,7 +250,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
                 return .Error(.IndexOutOfBounds(index: index, length: self.length));
               },
               .Some(current) => {
-                current_opt = current.*.next;
+                current_opt = current.next;
               }
             );
           });
@@ -258,22 +258,22 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
           match(current_opt,
             .None => .Error(.IndexOutOfBounds(index: index, length: self.length)),
             .Some(current) => {
-              prev_opt := current.*.prev;
+              prev_opt := current.prev;
               
-              new_node := Box(Node(T))(Node(T)(
+              new_node := Node(T)(
                 value: value,
                 next: .Some(current),
                 prev: prev_opt
-              ));
+              );
               
-              current.*.prev = .Some(new_node);
+              current.prev = .Some(new_node);
               
               match(prev_opt,
                 .None => {
                   self.head = .Some(new_node);
                 },
                 .Some(prev_node) => {
-                  prev_node.*.next = .Some(new_node);
+                  prev_node.next = .Some(new_node);
                 }
               );
               
@@ -312,7 +312,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
                 return .Error(.IndexOutOfBounds(index: index, length: self.length));
               },
               .Some(current) => {
-                current_opt = current.*.next;
+                current_opt = current.next;
               }
             );
           });
@@ -320,13 +320,13 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
           match(current_opt,
             .None => .Error(.IndexOutOfBounds(index: index, length: self.length)),
             .Some(node_to_remove) => {
-              value := node_to_remove.*.value;
-              prev_opt := node_to_remove.*.prev;
-              next_opt := node_to_remove.*.next;
+              value := node_to_remove.value;
+              prev_opt := node_to_remove.prev;
+              next_opt := node_to_remove.next;
               
               match(prev_opt,
                 .Some(prev_node) => {
-                  prev_node.*.next = next_opt;
+                  prev_node.next = next_opt;
                 },
                 .None => {
                   self.head = next_opt;
@@ -335,7 +335,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
               
               match(next_opt,
                 .Some(next_node) => {
-                  next_node.*.prev = prev_opt;
+                  next_node.prev = prev_opt;
                 },
                 .None => {
                   self.tail = prev_opt;
@@ -381,11 +381,11 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
             },
             .Some(current) => {
               cond(
-                (ElementEqual.(==)(current.*.value, value)) => {
+                (ElementEqual.(==)(current.value, value)) => {
                   return true;
                 },
                 true => {
-                  current_opt = current.*.next;
+                  current_opt = current.next;
                 }
               );
             }
@@ -411,9 +411,9 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
               return;
             },
             .Some(current) => {
-              temp := current.*.next;
-              current.*.next = current.*.prev;
-              current.*.prev = temp;
+              temp := current.next;
+              current.next = current.prev;
+              current.prev = temp;
               current_opt = temp;
             }
           );

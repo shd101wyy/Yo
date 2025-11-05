@@ -58,6 +58,7 @@ export function evaluateComptFunctionCall({
   // Check if it's in the cache
   const funcId = functionValue.funcId;
   const calledComptFunctions = functionValue.calledComptFunctionCaches;
+
   // Check if the function is already called.
   const calledComptFunction = calledComptFunctions.find((cache) => {
     return (
