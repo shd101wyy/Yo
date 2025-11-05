@@ -50,11 +50,42 @@ main :: (fn() -> unit) {
 };
 */
 
+/*
 // Anonymous struct
 main :: (fn() -> unit) {
   x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
   st := {x};
   v := st.x;
 };
+*/
+
+/*
+// struct
+Wrapper :: struct(
+  x : MyBox
+);
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  st := Wrapper(x);
+  v := st.x;
+};
+*/
+
+// enum
+EnumWrapper :: enum(
+  Variant(x : MyBox),
+  None
+);
+main :: (fn() -> unit) {
+  x := MyBox(42); // This should insert dup(temp_var) where temp_var holds the result of MyBox(42)
+  en := EnumWrapper.Variant(x);
+  match(en, 
+    .Variant(x) => {
+      v := x;
+    },
+    .None => ()
+  );
+};
+
 
 export main;

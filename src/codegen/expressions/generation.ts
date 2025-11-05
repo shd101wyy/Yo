@@ -1465,9 +1465,28 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
     if (runtimeArgExprs) {
-      // Generate recur call with arguments
+      const functionContext = context as FunctionGenerationContext;
+
+      // Generate recur call with arguments and dup handling
       const argsList = runtimeArgExprs
-        .map((arg) => generateExpr(arg, indent, context))
+        .map((arg) => {
+          const argCode = generateExpr(arg, indent, context);
+
+          // Handle deferred dup expressions for recur arguments
+          if (
+            arg.$?.deferredDupExpressions &&
+            arg.$.deferredDupExpressions.length > 0
+          ) {
+            generateDeferredDupExpressions(arg, indent, functionContext);
+            // Use the dup result variable instead of the original
+            const dupExpr = arg.$.deferredDupExpressions[0]!;
+            if (dupExpr.$?.variableName) {
+              return sanitizeForCIdentifier(dupExpr.$.variableName);
+            }
+          }
+
+          return argCode;
+        })
         .join(", ");
       return `${context.currentFunctionName}(${argsList})`;
     } else {
@@ -1490,8 +1509,25 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
     if (runtimeArgExprs) {
+      const functionContext = context as FunctionGenerationContext;
+
       const args = runtimeArgExprs.map((arg) => {
-        return generateExpr(arg, indent, context);
+        const argCode = generateExpr(arg, indent, context);
+
+        // Handle deferred dup expressions for inline function arguments
+        if (
+          arg.$?.deferredDupExpressions &&
+          arg.$.deferredDupExpressions.length > 0
+        ) {
+          generateDeferredDupExpressions(arg, indent, functionContext);
+          // Use the dup result variable instead of the original
+          const dupExpr = arg.$.deferredDupExpressions[0]!;
+          if (dupExpr.$?.variableName) {
+            return sanitizeForCIdentifier(dupExpr.$.variableName);
+          }
+        }
+
+        return argCode;
       });
 
       return generateYoInlineFunctionCall(
@@ -1899,9 +1935,24 @@ function generateFuncCall(
               const argCode = generateExpr(arg, indent, context);
               const isStateMachineCapturedVariable =
                 functionContext.inStateMachine && argCode.startsWith("sm->");
-              return isStateMachineCapturedVariable
-                ? argCode
-                : arg.$.variableName;
+
+              // Handle deferred dup expressions for closure call arguments
+              let finalArgVarName = arg.$.variableName;
+              if (
+                arg.$?.deferredDupExpressions &&
+                arg.$.deferredDupExpressions.length > 0
+              ) {
+                generateDeferredDupExpressions(arg, indent, functionContext);
+                // Use the dup result variable instead of the original
+                const dupExpr = arg.$.deferredDupExpressions[0]!;
+                if (dupExpr.$?.variableName) {
+                  finalArgVarName = sanitizeForCIdentifier(
+                    dupExpr.$.variableName
+                  );
+                }
+              }
+
+              return isStateMachineCapturedVariable ? argCode : finalArgVarName;
             }
           } else {
             return generateExpr(arg, indent, context);
@@ -1988,8 +2039,27 @@ function generateFuncCall(
 
           if (structType.isReferenceSemantics) {
             // For object, call the constructor function
+            const functionContext = context as FunctionGenerationContext;
+
             const argsList = runtimeArgExprs
-              .map((arg) => generateExpr(arg, indent, context))
+              .map((arg) => {
+                const argCode = generateExpr(arg, indent, context);
+
+                // Handle deferred dup expressions for constructor arguments
+                if (
+                  arg.$?.deferredDupExpressions &&
+                  arg.$.deferredDupExpressions.length > 0
+                ) {
+                  generateDeferredDupExpressions(arg, indent, functionContext);
+                  // Use the dup result variable instead of the original
+                  const dupExpr = arg.$.deferredDupExpressions[0]!;
+                  if (dupExpr.$?.variableName) {
+                    return sanitizeForCIdentifier(dupExpr.$.variableName);
+                  }
+                }
+
+                return argCode;
+              })
               .join(", ");
 
             const constructorName = `__yo_new_${cName}`;
@@ -2075,10 +2145,32 @@ function generateFuncCall(
           const fieldExpr = arg.args[1]!;
           const cName = context.types[functionValue.value.id]?.cName;
           if (cName && exprIsAtom(labelExpr) && fieldExpr) {
+            const functionContext = context as FunctionGenerationContext;
             const label = labelExpr.token.value;
             const sanitizedLabel = sanitizeForCIdentifier(label);
             const fieldCode = generateExpr(fieldExpr, indent, context);
-            const unionValue = `(${cName}){ .${sanitizedLabel} = ${fieldCode} }`;
+
+            // Handle deferred dup expressions for union field
+            let finalFieldValue = fieldCode;
+            if (
+              fieldExpr.$?.deferredDupExpressions &&
+              fieldExpr.$.deferredDupExpressions.length > 0
+            ) {
+              generateDeferredDupExpressions(
+                fieldExpr,
+                indent,
+                functionContext
+              );
+              // Use the dup result variable instead of the original
+              const dupExpr = fieldExpr.$.deferredDupExpressions[0]!;
+              if (dupExpr.$?.variableName) {
+                finalFieldValue = sanitizeForCIdentifier(
+                  dupExpr.$.variableName
+                );
+              }
+            }
+
+            const unionValue = `(${cName}){ .${sanitizedLabel} = ${finalFieldValue} }`;
 
             // If this union has a temporary variable name, declare it
             if (tempVar && expr.$?.type) {
@@ -2189,18 +2281,39 @@ function generateFuncCall(
                 (element) => !isUnitType(element.type)
               ) || [];
 
+            const functionContext = context as FunctionGenerationContext;
+
             const argsList = runtimeArgExprs
               .map((arg, index) => {
                 if (variant.elements) {
                   const element = variant.elements[index];
                   if (element && !isUnitType(element.type)) {
+                    const argCode = generateExpr(arg, indent, context);
                     const sanitizedLabel = sanitizeForCIdentifier(
                       element.label
                     );
-                    return (
-                      `.${sanitizedLabel} = ` +
-                      generateExpr(arg, indent, context)
-                    );
+
+                    // Handle deferred dup expressions for enum variant fields
+                    let finalArgValue = argCode;
+                    if (
+                      arg.$?.deferredDupExpressions &&
+                      arg.$.deferredDupExpressions.length > 0
+                    ) {
+                      generateDeferredDupExpressions(
+                        arg,
+                        indent,
+                        functionContext
+                      );
+                      // Use the dup result variable instead of the original
+                      const dupExpr = arg.$.deferredDupExpressions[0]!;
+                      if (dupExpr.$?.variableName) {
+                        finalArgValue = sanitizeForCIdentifier(
+                          dupExpr.$.variableName
+                        );
+                      }
+                    }
+
+                    return `.${sanitizedLabel} = ` + finalArgValue;
                   }
                   return ""; // Skip if no element matches or if it's unit type
                 } else {
