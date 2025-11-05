@@ -1372,9 +1372,28 @@ function generateFuncCall(
     const tempVar = expr.$?.variableName;
 
     if (runtimeArgExprs && cName) {
-      // Generate tuple initialization
+      const functionContext = context as FunctionGenerationContext;
+
+      // Generate tuple initialization with dup handling for each argument
       const argsList = runtimeArgExprs
-        .map((arg) => generateExpr(arg, indent, context))
+        .map((arg) => {
+          const argCode = generateExpr(arg, indent, context);
+
+          // Handle deferred dup expressions for tuple elements
+          if (
+            arg.$?.deferredDupExpressions &&
+            arg.$.deferredDupExpressions.length > 0
+          ) {
+            generateDeferredDupExpressions(arg, indent, functionContext);
+            // Use the dup result variable instead of the original
+            const dupExpr = arg.$.deferredDupExpressions[0]!;
+            if (dupExpr.$?.variableName) {
+              return sanitizeForCIdentifier(dupExpr.$.variableName);
+            }
+          }
+
+          return argCode;
+        })
         .join(", ");
 
       // If this tuple has a temporary variable name, declare it
@@ -1402,9 +1421,28 @@ function generateFuncCall(
     const tempVar = expr.$?.variableName;
 
     if (isArrayType(arrayType) && runtimeArgExprs) {
-      // Generate struct wrapper initialization
+      const functionContext = context as FunctionGenerationContext;
+
+      // Generate struct wrapper initialization with dup handling for each element
       const argsList = runtimeArgExprs
-        .map((arg) => generateExpr(arg, indent, context))
+        .map((arg) => {
+          const argCode = generateExpr(arg, indent, context);
+
+          // Handle deferred dup expressions for array elements
+          if (
+            arg.$?.deferredDupExpressions &&
+            arg.$.deferredDupExpressions.length > 0
+          ) {
+            generateDeferredDupExpressions(arg, indent, functionContext);
+            // Use the dup result variable instead of the original
+            const dupExpr = arg.$.deferredDupExpressions[0]!;
+            if (dupExpr.$?.variableName) {
+              return sanitizeForCIdentifier(dupExpr.$.variableName);
+            }
+          }
+
+          return argCode;
+        })
         .join(", ");
       const arrayTypeName = getTypeString(arrayType, context);
 
@@ -4519,9 +4557,11 @@ export function generateDeferredDupExpressions(
 
   if (expr.$?.deferredDupExpressions) {
     for (const dupExpr of expr.$.deferredDupExpressions) {
-      const dupCode = generateExpr(dupExpr, indent, context);
-      if (dupCode) {
-        emitter.emitLine(`${indent}${dupCode};`);
+      if (exprIsFunctionCall(dupExpr)) {
+        const dupCode = generateExpr(dupExpr, indent, context);
+        if (dupCode) {
+          emitter.emitLine(`${indent}${dupCode};`);
+        }
       }
     }
   }

@@ -101,12 +101,6 @@ ${typeToString(expectedTupleType)}`,
   });
 
   setExprAsNeedsToCallDup(evaluatedRhs, context);
-  console.log(
-    "evaluatedRhs: ",
-    evaluatedRhs.$?.deferredDupExpressions
-      ? exprToString(evaluatedRhs.$.deferredDupExpressions[0]!)
-      : undefined
-  );
 
   if (!evaluatedRhs.$) {
     throw formatErrorMessage({
@@ -138,12 +132,15 @@ ${typeToString(expectedTupleType)}`,
   // Add to runtimeArgExprsInOrder
   runtimeArgExprsInOrder.push(evaluatedRhs);
 
-  expr.$ = {
-    env,
-    type: elementType,
-    value: value,
-    pathCollection: [],
-  };
+  if (expr !== rhsExpr) {
+    expr.$ = {
+      env,
+      type: elementType,
+      value: value,
+      pathCollection: [],
+    };
+  }
+
   return {
     type: {
       exprs: {
