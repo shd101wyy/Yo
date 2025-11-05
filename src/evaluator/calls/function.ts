@@ -1216,6 +1216,9 @@ ${functionsWithMatchingTypes
         pathCollection: func.$?.pathCollection ?? [],
         isAccessingProperty: true,
       };
+
+      attachTempVariableToExpr(expr, false); // NOTE: This is like property access, so it doesn't own the value
+
       return expr;
     }
   }

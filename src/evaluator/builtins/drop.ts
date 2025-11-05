@@ -18,7 +18,7 @@ import {
   typeContainsARCType,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { randomId } from "../../utils";
+import { isNumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -100,14 +100,21 @@ function generateArrayDropCall(arrayExpr: Expr): string {
     return ""; // No elements need dropping
   }
 
-  // Use a for loop to iterate over the array and drop each element
-  const id = randomId();
-  const elementVarName = `_${id}_element`;
+  const arrayLengthValue = arrayType.length;
+  if (!isNumberValue(arrayLengthValue)) {
+    // Not specialized yet, so we just skip for now
+    return "";
+  }
+  const arrayLength = arrayLengthValue.value;
+  const dropCalls: string[] = [];
+  for (let i = 0; i < arrayLength; i++) {
+    dropCalls.push(
+      `${BuiltinFunctions.___drop[0]!}(${arrayExpr.$.variableName}(${i}))`
+    );
+  }
 
   return `begin(
-  for ${exprToString(arrayExpr)}, ${elementVarName} => {
-    ${BuiltinFunctions.___drop[0]!}(${elementVarName});
-  };
+  ${dropCalls.join(",\n  ")}
 )`;
 }
 
