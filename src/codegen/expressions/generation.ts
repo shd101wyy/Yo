@@ -2011,12 +2011,30 @@ function generateFuncCall(
             }
           } else {
             // For regular struct, generate struct initialization as before
+            const functionContext = context as FunctionGenerationContext;
+
             const argsList = runtimeArgExprs
               .map((arg, index) => {
+                const argCode = generateExpr(arg, indent, context);
                 const sanitizedLabel = sanitizeForCIdentifier(labels[index]!);
-                return (
-                  `.${sanitizedLabel} = ` + generateExpr(arg, indent, context)
-                );
+
+                // Handle deferred dup expressions for struct fields
+                let finalArgValue = argCode;
+                if (
+                  arg.$?.deferredDupExpressions &&
+                  arg.$.deferredDupExpressions.length > 0
+                ) {
+                  generateDeferredDupExpressions(arg, indent, functionContext);
+                  // Use the dup result variable instead of the original
+                  const dupExpr = arg.$.deferredDupExpressions[0]!;
+                  if (dupExpr.$?.variableName) {
+                    finalArgValue = sanitizeForCIdentifier(
+                      dupExpr.$.variableName
+                    );
+                  }
+                }
+
+                return `.${sanitizedLabel} = ` + finalArgValue;
               })
               .join(", ");
             const structValue = `(${cName}){ ${argsList} }`;
