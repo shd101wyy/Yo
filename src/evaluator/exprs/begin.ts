@@ -34,7 +34,11 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
 
-const OPTIMIZE_DUP_AND_DROP_PAIRS = false;
+/**
+ * For debugging the dup/drop optimization.
+ * Set it to `false` to disable the optimization.
+ */
+const OPTIMIZE_DUP_AND_DROP_PAIRS = true;
 
 /**
  * Generate ___drop expressions for variables that need cleanup.

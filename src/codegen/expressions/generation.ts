@@ -1113,6 +1113,34 @@ function generateFuncCall(
     if (isArrayType(lhs.$.type)) {
       // Since we use struct wrappers consistently, we can use direct struct assignment
       const rhsCode = generateExpr(rhs, indent, context);
+
+      // Handle deferred dup expressions for RHS
+      const functionContext = context as FunctionGenerationContext;
+      let finalRhsCode = rhsCode;
+      if (
+        rhs.$?.deferredDupExpressions &&
+        rhs.$.deferredDupExpressions.length > 0
+      ) {
+        // If RHS has a variable name, we need to declare it first
+        if (rhs.$?.variableName && rhs.$?.type) {
+          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
+          // Only emit the variable declaration if it's not the same as rhsCode
+          if (rhsVarName !== rhsCode.trim()) {
+            const rhsTypeStr = getTypeString(rhs.$.type, context);
+            context.emitter.emitLine(
+              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
+            );
+          }
+        }
+
+        generateDeferredDupExpressions(rhs, indent, functionContext);
+        // Use the dup result variable instead of the original
+        const dupExpr = rhs.$.deferredDupExpressions[0]!;
+        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+        }
+      }
+
       if (isInitialization) {
         // For initialization
         const varTypeAndName = getVariableTypeString(
@@ -1120,14 +1148,43 @@ function generateFuncCall(
           generateExpr(lhs, indent, context),
           context
         );
-        context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
+        context.emitter.emitLine(
+          `${indent}${varTypeAndName} = ${finalRhsCode};`
+        );
       } else {
         // For assignment to existing array variable, use direct struct assignment
-        context.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
+        context.emitter.emitLine(`${indent}${lhsCode} = ${finalRhsCode};`);
       }
     } else {
       // Non-array assignment - use existing logic
       const rhsCode = generateExpr(rhs, indent, context);
+
+      // Handle deferred dup expressions for RHS
+      const functionContext = context as FunctionGenerationContext;
+      let finalRhsCode = rhsCode;
+      if (
+        rhs.$?.deferredDupExpressions &&
+        rhs.$.deferredDupExpressions.length > 0
+      ) {
+        // If RHS has a variable name, we need to declare it first
+        if (rhs.$?.variableName && rhs.$?.type) {
+          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
+          // Only emit the variable declaration if it's not the same as rhsCode
+          if (rhsVarName !== rhsCode.trim()) {
+            const rhsTypeStr = getTypeString(rhs.$.type, context);
+            context.emitter.emitLine(
+              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
+            );
+          }
+        }
+
+        generateDeferredDupExpressions(rhs, indent, functionContext);
+        // Use the dup result variable instead of the original
+        const dupExpr = rhs.$.deferredDupExpressions[0]!;
+        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+        }
+      }
 
       // Check if we need to cast closure types
       const lhsType = lhs.$.type;
@@ -1145,7 +1202,7 @@ function generateFuncCall(
 
       if (!isUnitType(lhs.$.type)) {
         context.emitter.emitLine(
-          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
+          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${finalRhsCode};`
         );
       }
     }
