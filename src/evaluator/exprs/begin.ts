@@ -34,6 +34,8 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
 
+const OPTIMIZE_DUP_AND_DROP_PAIRS = false;
+
 /**
  * Generate ___drop expressions for variables that need cleanup.
  *
@@ -735,73 +737,86 @@ export function evaluateBeginExpression({
   // Get variables that need drop calls using the helper function
   // When evaluating function body begin block, also check the parameters frame (previous frame)
   let variablesNeedingDrop = getVariablesNeedingDrop(env);
-  if (isEvaluatingFunctionBodyBeginBlock && env.frames.length >= 2) {
-    // Also get variables from the parameters frame (one level down)
-    const parametersFrameEnv = {
-      ...env,
-      frames: env.frames.slice(0, -1), // Remove the current frame, keep parameters frame as top
-    };
-    const parametersNeedingDrop = getVariablesNeedingDrop(parametersFrameEnv);
-    // Combine both lists, parameters first (they should be dropped last, in reverse order)
-    variablesNeedingDrop = [...variablesNeedingDrop, ...parametersNeedingDrop];
-  }
+  const variablesActuallyNeedingDrop: Variable[] = [];
 
-  // Optimization: Collect all dup calls using the existing infrastructure
-  const dupCallsByBaseVariable = new Map<string, FuncCallExpr[]>();
+  if (OPTIMIZE_DUP_AND_DROP_PAIRS) {
+    if (isEvaluatingFunctionBodyBeginBlock && env.frames.length >= 2) {
+      // Also get variables from the parameters frame (one level down)
+      const parametersFrameEnv = {
+        ...env,
+        frames: env.frames.slice(0, -1), // Remove the current frame, keep parameters frame as top
+      };
+      const parametersNeedingDrop = getVariablesNeedingDrop(parametersFrameEnv);
+      // Combine both lists, parameters first (they should be dropped last, in reverse order)
+      variablesNeedingDrop = [
+        ...variablesNeedingDrop,
+        ...parametersNeedingDrop,
+      ];
+    }
 
-  // Scan through all expressions in the begin block to collect dup calls
-  if (exprIsFunctionCall(expr)) {
-    for (const arg of expr.args) {
-      const dupCallsInArg = collectDupCallsConservatively(arg);
-      for (const [variableId, dupCallExprs] of dupCallsInArg) {
-        if (!dupCallsByBaseVariable.has(variableId)) {
-          dupCallsByBaseVariable.set(variableId, []);
+    // Optimization: Collect all dup calls using the existing infrastructure
+    const dupCallsByBaseVariable = new Map<string, FuncCallExpr[]>();
+
+    // Scan through all expressions in the begin block to collect dup calls
+    if (exprIsFunctionCall(expr)) {
+      for (const arg of expr.args) {
+        const dupCallsInArg = collectDupCallsConservatively(arg);
+        for (const [variableId, dupCallExprs] of dupCallsInArg) {
+          if (!dupCallsByBaseVariable.has(variableId)) {
+            dupCallsByBaseVariable.set(variableId, []);
+          }
+          dupCallsByBaseVariable.get(variableId)!.push(...dupCallExprs);
         }
-        dupCallsByBaseVariable.get(variableId)!.push(...dupCallExprs);
       }
     }
-  }
 
-  // Optimize: For each variable needing drop, check if there's a matching dup call
-  const variablesActuallyNeedingDrop: Variable[] = [];
-  const dupCallsToRemove = new Set<FuncCallExpr>(); // Track which dup calls to remove
+    // Optimize: For each variable needing drop, check if there's a matching dup call
+    const dupCallsToRemove = new Set<FuncCallExpr>(); // Track which dup calls to remove
 
-  for (const variable of variablesNeedingDrop) {
-    const baseId = getBaseVariableId(variable);
-    const dupCalls = dupCallsByBaseVariable.get(baseId);
+    for (const variable of variablesNeedingDrop) {
+      const baseId = getBaseVariableId(variable);
+      const dupCalls = dupCallsByBaseVariable.get(baseId);
 
-    if (dupCalls && dupCalls.length > 0) {
-      // We can optimize: cancel one dup/drop pair
-      const dupCallToRemove = dupCalls[0]!;
-      dupCallsToRemove.add(dupCallToRemove);
+      if (dupCalls && dupCalls.length > 0) {
+        // We can optimize: cancel one dup/drop pair
+        const dupCallToRemove = dupCalls[0]!;
+        dupCallsToRemove.add(dupCallToRemove);
 
-      // Remove this dup call from the list so it won't be matched again
-      dupCalls.shift();
+        // Remove this dup call from the list so it won't be matched again
+        dupCalls.shift();
 
-      // Mark the variable as consumed so it won't generate a drop call
-      env = updateExistingVariable(env, variable, {
-        ...variable,
-        consumedAtToken: lastExpr.token,
-      });
-    } else {
-      // No matching dup call, this variable actually needs drop
-      variablesActuallyNeedingDrop.push(variable);
+        // Mark the variable as consumed so it won't generate a drop call
+        env = updateExistingVariable(env, variable, {
+          ...variable,
+          consumedAtToken: lastExpr.token,
+        });
+      } else {
+        // No matching dup call, this variable actually needs drop
+        variablesActuallyNeedingDrop.push(variable);
+      }
     }
-  }
 
-  // Remove the optimized dup calls from deferredDupExpressions
-  if (exprIsFunctionCall(expr)) {
-    for (const arg of expr.args) {
-      removeDupCallsFromExpr(arg, dupCallsToRemove);
+    // Remove the optimized dup calls from deferredDupExpressions
+    if (exprIsFunctionCall(expr)) {
+      for (const arg of expr.args) {
+        removeDupCallsFromExpr(arg, dupCallsToRemove);
+      }
     }
   }
 
   // Generate deferred drop expressions instead of inserting them directly
   let deferredDropExpressions: Expr[] | undefined = undefined;
 
-  if (variablesActuallyNeedingDrop.length > 0) {
+  if (
+    (OPTIMIZE_DUP_AND_DROP_PAIRS
+      ? variablesActuallyNeedingDrop
+      : variablesNeedingDrop
+    ).length > 0
+  ) {
     const dropResult = generateDeferredDropExpressions({
-      variablesToDrop: variablesActuallyNeedingDrop,
+      variablesToDrop: OPTIMIZE_DUP_AND_DROP_PAIRS
+        ? variablesActuallyNeedingDrop
+        : variablesNeedingDrop,
       env,
       context,
     });

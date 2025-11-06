@@ -2056,12 +2056,16 @@ function generateFuncCall(
                     const argVarName = sanitizeForCIdentifier(
                       arg.$.variableName
                     );
-                    const argType = arg.$.type;
-                    const argTypeStr = getTypeString(argType, context);
-                    // Emit the variable declaration and assignment
-                    context.emitter.emitLine(
-                      `${indent}${argTypeStr} ${argVarName} = ${argCode};`
-                    );
+                    // Only emit the declaration if argCode is different from the variable name
+                    // to avoid generating code like: prev_opt = prev_opt;
+                    if (argCode !== argVarName) {
+                      const argType = arg.$.type;
+                      const argTypeStr = getTypeString(argType, context);
+                      // Emit the variable declaration and assignment
+                      context.emitter.emitLine(
+                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`
+                      );
+                    }
                   }
 
                   generateDeferredDupExpressions(arg, indent, functionContext);
@@ -2116,10 +2120,13 @@ function generateFuncCall(
                     );
                     const argType = arg.$.type;
                     const argTypeStr = getTypeString(argType, context);
-                    // Emit the variable declaration and assignment
-                    context.emitter.emitLine(
-                      `${indent}${argTypeStr} ${argVarName} = ${argCode};`
-                    );
+                    // Only emit the variable declaration if argCode is different from argVarName
+                    // to prevent self-assignment like: var = var;
+                    if (argCode !== argVarName) {
+                      context.emitter.emitLine(
+                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`
+                      );
+                    }
                   }
 
                   generateDeferredDupExpressions(arg, indent, functionContext);
