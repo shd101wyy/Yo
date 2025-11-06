@@ -4577,30 +4577,35 @@ function generateWhileLoop(
 
   if (args.length === 2) {
     // 2-argument form: while(condition, body) -> C while loop
+    // We need to re-evaluate the condition on each iteration, so we use while(true)
+    // and check the condition inside with a break statement
     const conditionExpr = args[0]!;
     const bodyExpr = args[1]!;
 
-    const conditionCode = generateExpr(conditionExpr, indent, context);
-
-    context.emitter.emitLine(`${indent}while (${conditionCode}) {`);
+    context.emitter.emitLine(`${indent}while (true) {`);
+    const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
+    context.emitter.emitLine(`${indent}  if (!(${conditionCode})) {`);
+    context.emitter.emitLine(`${indent}    break;`);
+    context.emitter.emitLine(`${indent}  }`);
     generateLoopBody(bodyExpr, indent + "  ", context);
     context.emitter.emitLine(`${indent}}`);
 
     return "";
   } else if (args.length === 3) {
     // 3-argument form: while(condition, step, body) -> C for loop
+    // We need to re-evaluate the condition on each iteration
     const conditionExpr = args[0]!;
     const stepExpr = args[1]!;
     const bodyExpr = args[2]!;
 
-    const conditionCode = generateExpr(conditionExpr, indent, context);
-    const stepCode = generateStepExpression(stepExpr, context);
-
-    // Generate for loop: for (; condition; step) { body }
-    context.emitter.emitLine(
-      `${indent}for (; ${conditionCode}; ${stepCode}) {`
-    );
+    context.emitter.emitLine(`${indent}while (true) {`);
+    const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
+    context.emitter.emitLine(`${indent}  if (!(${conditionCode})) {`);
+    context.emitter.emitLine(`${indent}    break;`);
+    context.emitter.emitLine(`${indent}  }`);
     generateLoopBody(bodyExpr, indent + "  ", context);
+    const stepCode = generateStepExpression(stepExpr, context);
+    context.emitter.emitLine(`${indent}  ${stepCode};`);
     context.emitter.emitLine(`${indent}}`);
 
     return "";
