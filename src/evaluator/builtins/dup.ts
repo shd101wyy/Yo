@@ -20,7 +20,6 @@ import {
   isTupleType,
   typeContainsARCType,
 } from "../../types";
-import { randomId } from "../../utils";
 import { isNumberValue, NumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
@@ -50,21 +49,20 @@ function generateTupleDupCall(tupleExpr: Expr): string {
   }));
 
   if (elementsNeedingDup.every(({ needsDup }) => !needsDup)) {
-    return exprToString(tupleExpr); // No elements need duplication, return as-is
+    return ""; // No elements need duplication, return as-is
   }
 
   // Destructure the tuple, dup ARC elements, and reconstruct
-  const id = randomId();
-  const destructuring = `(${elementsNeedingDup.map(({ index }) => `_${id}_${index}`).join(", ")}${elementsNeedingDup.length === 1 ? "," : ""})`;
-  const dupCalls = elementsNeedingDup.map(({ index, needsDup }) =>
-    needsDup
-      ? `${BuiltinFunctions.___dup[0]!}(_${id}_${index})`
-      : `_${id}_${index}`
-  );
+  const dupCalls = elementsNeedingDup
+    .map(({ index, needsDup }) =>
+      needsDup
+        ? `${BuiltinFunctions.___dup[0]!}(${tupleExpr.$?.variableName}.${index})`
+        : ""
+    )
+    .filter((x) => x.length > 0);
 
   return `begin(
-  ${destructuring} := ${tupleExpr.$.variableName},
-  (${dupCalls.join(", ")}${dupCalls.length === 1 ? "," : ""})
+  ${dupCalls.join(",\n")}
 )`;
 }
 
@@ -88,31 +86,24 @@ function generateArrayDupCall(arrayExpr: Expr): string {
   const elementType = arrayType.elementType;
 
   if (!typeContainsARCType(elementType)) {
-    return arrayExpr.$.variableName; // No elements need duplication, return as-is
+    return ""; // No elements need duplication, return as-is
   }
 
   // Generate a new array by iterating through the original and duplicating ARC elements
-  const id = randomId();
-  const originalArrayVarName = `_${id}_orig`;
 
   // Check if we can get the array length at compile time
   if (isNumberValue(arrayType.length)) {
     const arrayLength = (arrayType.length as NumberValue).value;
     // Generate array constructor call with duplicated elements
     return `begin(
-  ${originalArrayVarName} := ${arrayExpr.$.variableName},
-  [${Array.from(
+  ${Array.from(
     { length: Number(arrayLength) },
-    (_, i) => `${BuiltinFunctions.___dup[0]!}(${originalArrayVarName}(${i}))`
-  ).join(", ")}${arrayLength === 1 ? "," : ""}]
+    (_, i) =>
+      `${BuiltinFunctions.___dup[0]!}(${arrayExpr.$?.variableName}(${i}))`
+  ).join(", ")}
 )`;
   } else {
-    // For dynamic-length arrays (though this might not be common)
-    return `begin(
-  for ${arrayExpr.$.variableName}, elem => {
-    ${BuiltinFunctions.___dup[0]!}(elem);
-  }
-)`;
+    return ""; // Skip for now if length is not known at compile time
   }
 }
 
@@ -158,38 +149,61 @@ export function evaluateDup({
     // Handle tuple types specially since they don't have methods
     if (isTupleType(evaluatedArgExpr.$.type)) {
       const tupleDupCode = generateTupleDupCall(evaluatedArgExpr);
-      const tupleDupExpr = generateExprFromCode(tupleDupCode);
 
-      // Evaluate the generated tuple dup expression
-      const evaluatedTupleDupExpr = evaluateExpression({
-        expr: tupleDupExpr,
-        env,
-        context: { ...context },
-      });
+      if (tupleDupCode) {
+        const tupleDupExpr = generateExprFromCode(tupleDupCode);
 
-      if (exprIsFunctionCall(evaluatedTupleDupExpr)) {
-        replaceFuncCallExprWithFuncCallExpr(expr, evaluatedTupleDupExpr);
-        return expr;
+        // Evaluate the generated tuple dup expression
+        const evaluatedTupleDupExpr = evaluateExpression({
+          expr: tupleDupExpr,
+          env,
+          context: { ...context },
+        });
+
+        if (exprIsFunctionCall(evaluatedTupleDupExpr)) {
+          replaceFuncCallExprWithFuncCallExpr(expr, evaluatedTupleDupExpr);
+          return expr;
+        } else {
+          return evaluatedTupleDupExpr;
+        }
       } else {
-        return evaluatedTupleDupExpr;
+        // No elements need duplication, return the original expression
+        expr.$ = {
+          env,
+          type: evaluatedArgExpr.$.type,
+          value: undefined,
+          pathCollection: [],
+        };
+        return expr;
       }
     } else if (isArrayType(evaluatedArgExpr.$.type)) {
       // Handle array types
       const arrayDupCode = generateArrayDupCall(evaluatedArgExpr);
-      const arrayDupExpr = generateExprFromCode(arrayDupCode);
+      if (arrayDupCode) {
+        const arrayDupExpr = generateExprFromCode(arrayDupCode);
 
-      // Evaluate the generated array dup expression
-      const evaluatedArrayDupExpr = evaluateExpression({
-        expr: arrayDupExpr,
-        env,
-        context: { ...context },
-      });
+        // Evaluate the generated array dup expression
+        const evaluatedArrayDupExpr = evaluateExpression({
+          expr: arrayDupExpr,
+          env,
+          context: { ...context },
+        });
 
-      if (exprIsFunctionCall(evaluatedArrayDupExpr)) {
-        replaceFuncCallExprWithFuncCallExpr(expr, evaluatedArrayDupExpr);
-        return expr;
+        if (exprIsFunctionCall(evaluatedArrayDupExpr)) {
+          replaceFuncCallExprWithFuncCallExpr(expr, evaluatedArrayDupExpr);
+          return expr;
+        } else {
+          return evaluatedArrayDupExpr;
+        }
       } else {
-        return evaluatedArrayDupExpr;
+        // No elements need duplication, return the original expression
+        expr.$ = {
+          env,
+          type: evaluatedArgExpr.$.type,
+          value: undefined,
+          pathCollection: [],
+        };
+        return expr;
       }
     } else {
       // Handle struct types and other types with ___dup methods

@@ -2050,6 +2050,20 @@ function generateFuncCall(
                   arg.$?.deferredDupExpressions &&
                   arg.$.deferredDupExpressions.length > 0
                 ) {
+                  // If the arg has a variable name but generateExpr didn't create a declaration,
+                  // we need to create it now so the dup call can reference it
+                  if (arg.$?.variableName && arg.$?.type) {
+                    const argVarName = sanitizeForCIdentifier(
+                      arg.$.variableName
+                    );
+                    const argType = arg.$.type;
+                    const argTypeStr = getTypeString(argType, context);
+                    // Emit the variable declaration and assignment
+                    context.emitter.emitLine(
+                      `${indent}${argTypeStr} ${argVarName} = ${argCode};`
+                    );
+                  }
+
                   generateDeferredDupExpressions(arg, indent, functionContext);
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
@@ -2094,6 +2108,20 @@ function generateFuncCall(
                   arg.$?.deferredDupExpressions &&
                   arg.$.deferredDupExpressions.length > 0
                 ) {
+                  // If the arg has a variable name but generateExpr didn't create a declaration,
+                  // we need to create it now so the dup call can reference it
+                  if (arg.$?.variableName && arg.$?.type) {
+                    const argVarName = sanitizeForCIdentifier(
+                      arg.$.variableName
+                    );
+                    const argType = arg.$.type;
+                    const argTypeStr = getTypeString(argType, context);
+                    // Emit the variable declaration and assignment
+                    context.emitter.emitLine(
+                      `${indent}${argTypeStr} ${argVarName} = ${argCode};`
+                    );
+                  }
+
                   generateDeferredDupExpressions(arg, indent, functionContext);
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;

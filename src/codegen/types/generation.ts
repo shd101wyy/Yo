@@ -29,89 +29,6 @@ import {
 } from "../utils";
 
 /**
- * Topologically sort enums to ensure dependencies are generated before dependents.
- * This handles cases like: Result(unit, ArrayListError) depends on ArrayListError
- */
-function topologicalSortEnums(
-  enums: Array<{ typeId: string; type: EnumType; cName: string }>,
-  context: CodeGenContext
-): Array<{ type: EnumType; cName: string }> {
-  // Build dependency graph and reverse mapping
-  const typeIdToData = new Map(enums.map((e) => [e.typeId, e]));
-  const cNameToTypeId = new Map(enums.map((e) => [e.cName, e.typeId]));
-
-  // Build reverse dependency graph (dependents -> dependencies)
-  const dependencies = new Map<string, Set<string>>();
-
-  for (const { typeId, type } of enums) {
-    dependencies.set(typeId, new Set());
-
-    // Check each variant's elements for enum type dependencies
-    for (const variant of type.variants) {
-      if (variant.elements) {
-        for (const element of variant.elements) {
-          if (isEnumType(element.type)) {
-            // Find the typeId for this enum dependency
-            const depCName = getTypeString(element.type, context);
-            const depTypeId = cNameToTypeId.get(depCName);
-            // If this enum depends on another enum in our set, record it
-            if (
-              depTypeId &&
-              depTypeId !== typeId &&
-              typeIdToData.has(depTypeId)
-            ) {
-              dependencies.get(typeId)!.add(depTypeId);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Calculate in-degrees (number of dependencies each enum has)
-  // An enum with in-degree 0 has no dependencies and can be generated first
-  const inDegree = new Map<string, number>();
-  for (const [typeId, deps] of dependencies) {
-    inDegree.set(typeId, deps.size);
-  }
-
-  // Start with enums that have no dependencies (in-degree 0)
-  const queue: string[] = [];
-  for (const [typeId, degree] of inDegree) {
-    if (degree === 0) {
-      queue.push(typeId);
-    }
-  }
-
-  const sorted: Array<{ type: EnumType; cName: string }> = [];
-
-  while (queue.length > 0) {
-    const typeId = queue.shift()!;
-    const enumData = typeIdToData.get(typeId)!;
-    sorted.push({ type: enumData.type, cName: enumData.cName });
-
-    // For each enum that depends on this enum, decrement its in-degree
-    // (this enum is now generated, so it's no longer a dependency)
-    for (const [otherTypeId, otherDeps] of dependencies) {
-      if (otherDeps.has(typeId)) {
-        const newDegree = (inDegree.get(otherTypeId) || 1) - 1;
-        inDegree.set(otherTypeId, newDegree);
-        if (newDegree === 0) {
-          queue.push(otherTypeId);
-        }
-      }
-    }
-  }
-
-  // If we didn't sort all enums, there's a cycle - just return in original order
-  if (sorted.length < enums.length) {
-    return enums;
-  }
-
-  return sorted;
-}
-
-/**
  * Generate type declarations for all collected types
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
@@ -400,8 +317,17 @@ typedef struct {
   generateSliceStructDeclarations(context);
 
   // Generate types in dependency order
-  // Order: simple enums -> structs -> complex enums -> nullable enums -> other types
-  // This ensures that structs are available before enums that contain them by value
+  // Complex dependency rules:
+  // 1. Enums used by-value in structs must be defined before those structs
+  // 2. Structs used by-pointer in enums can be forward declared
+  // 3. Enums used by-value in enums must be defined before those enums
+
+  // Strategy:
+  // - First: Generate simple enums (leaf types)
+  // - Then: Topologically sort structs and complex enums together
+  //   - If struct S contains enum E by value, E must be defined before S
+  //   - If enum E contains struct S by pointer, S can be forward declared (no dependency)
+  //   - If enum E contains enum E2 by value, E2 must be defined before E
 
   // First pass: Generate simple enum declarations (optimized as simple enum) first
   // These are leaf types that can be used by other types
@@ -416,43 +342,143 @@ typedef struct {
     }
   }
 
-  // Second pass: Generate struct declarations
-  // These must come before complex enums because enums may contain structs by value
+  // Second pass: Collect structs and complex enums for topological sorting
+  const structsAndEnums: Array<{
+    typeId: string;
+    type: StructType | EnumType;
+    cName: string;
+    isStruct: boolean;
+  }> = [];
+
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
-      continue; // Skip types that contain `SomeType` as they are not concrete types
+      continue;
     }
 
     if (isStructType(type)) {
-      generateStructDeclaration(type, cName, context);
-    }
-  }
-
-  // Third pass: Generate complex enum declarations (not optimized as simple enum)
-  // These may contain structs by value or references to simple enums
-  // We need to sort them topologically to ensure enum dependencies are generated first
-  const complexEnums: Array<{ typeId: string; type: EnumType; cName: string }> =
-    [];
-  for (const typeId in context.types) {
-    const { type, cName } = context.types[typeId]!;
-    if (typeContainsSomeType(type)) {
-      continue; // Skip types that contain `SomeType` as they are not concrete types
-    }
-
-    if (
+      structsAndEnums.push({ typeId, type, cName, isStruct: true });
+    } else if (
       isEnumType(type) &&
       !canOptimizeAsSimpleEnum(type) &&
       !canOptimizeAsNullablePointer(type)
     ) {
-      complexEnums.push({ typeId, type, cName });
+      structsAndEnums.push({ typeId, type, cName, isStruct: false });
     }
   }
 
-  // Topologically sort complex enums by dependencies
-  const sorted = topologicalSortEnums(complexEnums, context);
-  for (const { type, cName } of sorted) {
-    generateEnumDeclaration(type, cName, context);
+  // Build dependency graph
+  // An edge from A to B means B must be defined before A
+  const dependencies = new Map<string, Set<string>>();
+  const typeIdToData = new Map(structsAndEnums.map((e) => [e.typeId, e]));
+  const cNameToTypeId = new Map(
+    structsAndEnums.map((e) => [e.cName, e.typeId])
+  );
+
+  for (const { typeId, type, isStruct } of structsAndEnums) {
+    dependencies.set(typeId, new Set());
+
+    if (isStruct && isStructType(type)) {
+      // Check if struct contains enums by value
+      for (const element of type.elements) {
+        if (isEnumType(element.type)) {
+          const depCName = getTypeString(element.type, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          // If this struct depends on an enum in our set, record it
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+      }
+    } else if (!isStruct && isEnumType(type)) {
+      // Check if enum contains other enums or structs by value
+      for (const variant of type.variants) {
+        if (variant.elements) {
+          for (const element of variant.elements) {
+            // Enums by value need to be defined first
+            if (isEnumType(element.type)) {
+              const depCName = getTypeString(element.type, context);
+              const depTypeId = cNameToTypeId.get(depCName);
+              if (
+                depTypeId &&
+                depTypeId !== typeId &&
+                typeIdToData.has(depTypeId)
+              ) {
+                dependencies.get(typeId)!.add(depTypeId);
+              }
+            }
+            // Note: Structs by pointer (object types) don't create dependencies
+            // because they use forward declarations
+          }
+        }
+      }
+    }
+  }
+
+  // Topological sort using Kahn's algorithm
+  const inDegree = new Map<string, number>();
+  for (const [typeId, deps] of dependencies) {
+    inDegree.set(typeId, deps.size);
+  }
+
+  const queue: string[] = [];
+  for (const [typeId, degree] of inDegree) {
+    if (degree === 0) {
+      queue.push(typeId);
+    }
+  }
+
+  const sortedTypes: Array<{
+    type: StructType | EnumType;
+    cName: string;
+    isStruct: boolean;
+  }> = [];
+
+  while (queue.length > 0) {
+    const typeId = queue.shift()!;
+    const typeData = typeIdToData.get(typeId)!;
+    sortedTypes.push({
+      type: typeData.type,
+      cName: typeData.cName,
+      isStruct: typeData.isStruct,
+    });
+
+    // Decrement in-degree for types that depend on this type
+    for (const [otherTypeId, otherDeps] of dependencies) {
+      if (otherDeps.has(typeId)) {
+        const newDegree = (inDegree.get(otherTypeId) || 1) - 1;
+        inDegree.set(otherTypeId, newDegree);
+        if (newDegree === 0) {
+          queue.push(otherTypeId);
+        }
+      }
+    }
+  }
+
+  // If we didn't sort all types, there's a cycle - just append remaining in original order
+  if (sortedTypes.length < structsAndEnums.length) {
+    for (const item of structsAndEnums) {
+      if (!sortedTypes.find((t) => t.cName === item.cName)) {
+        sortedTypes.push({
+          type: item.type,
+          cName: item.cName,
+          isStruct: item.isStruct,
+        });
+      }
+    }
+  }
+
+  // Generate types in sorted order
+  for (const { type, cName, isStruct } of sortedTypes) {
+    if (isStruct && isStructType(type)) {
+      generateStructDeclaration(type, cName, context);
+    } else if (!isStruct && isEnumType(type)) {
+      generateEnumDeclaration(type, cName, context);
+    }
   }
 
   // Fourth pass: Generate nullable pointer optimized enums
