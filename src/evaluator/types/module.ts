@@ -26,6 +26,7 @@ import { randomId } from "../../utils";
 import {
   areValuesEqual,
   createTypeValue,
+  createUnknownValue,
   isModuleValue,
   isTypeValue,
   isUnknownValue,
@@ -413,6 +414,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     labelExpr.$ = {
       env,
       type: elementType,
+      value: assignedValue ?? createUnknownValue(elementType, label),
       pathCollection: [],
     };
   }

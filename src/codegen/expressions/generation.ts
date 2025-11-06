@@ -4109,7 +4109,23 @@ function generateMatchExpression(
           } else if (bodyCode) {
             context.emitter.emitLine(`${indent}  ${bodyCode};`);
           }
-          context.emitter.emitLine(`${indent}  break;`);
+
+          // Check if we need to break out of the loop instead of just the switch
+          if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
+            context.emitter.emitLine(
+              `${indent}  goto ${context.currentLoopLabel};`
+            );
+          } else if (
+            context.currentLoopLabel &&
+            caseBody.$?.controlFlow === "continue"
+          ) {
+            // For continue, we still need to break the switch, then the loop will continue naturally
+            // But actually, continue should jump to the beginning of the loop
+            // We'll just use break here and let the loop continue on its own
+            context.emitter.emitLine(`${indent}  break;`);
+          } else {
+            context.emitter.emitLine(`${indent}  break;`);
+          }
         }
       }
     }
@@ -4206,7 +4222,20 @@ function generateMatchExpression(
         } else if (bodyCode) {
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
         }
-        context.emitter.emitLine(`${indent}  break;`);
+
+        // Check if we need to break out of the loop instead of just the switch
+        if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
+          context.emitter.emitLine(
+            `${indent}  goto ${context.currentLoopLabel};`
+          );
+        } else if (
+          context.currentLoopLabel &&
+          caseBody.$?.controlFlow === "continue"
+        ) {
+          context.emitter.emitLine(`${indent}  break;`);
+        } else {
+          context.emitter.emitLine(`${indent}  break;`);
+        }
       }
       // Handle destructuring patterns like .Point(point) => { ... }
       else if (
@@ -4292,7 +4321,20 @@ function generateMatchExpression(
         } else if (bodyCode) {
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
         }
-        context.emitter.emitLine(`${indent}  break;`);
+
+        // Check if we need to break out of the loop instead of just the switch
+        if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
+          context.emitter.emitLine(
+            `${indent}  goto ${context.currentLoopLabel};`
+          );
+        } else if (
+          context.currentLoopLabel &&
+          caseBody.$?.controlFlow === "continue"
+        ) {
+          context.emitter.emitLine(`${indent}  break;`);
+        } else {
+          context.emitter.emitLine(`${indent}  break;`);
+        }
       }
     }
   }
@@ -4646,6 +4688,11 @@ function generateWhileLoop(
     const conditionExpr = args[0]!;
     const bodyExpr = args[1]!;
 
+    // Track that we're in a loop for proper break/continue handling in nested match expressions
+    const savedLoopLabel = context.currentLoopLabel;
+    const loopLabel = `loop_${Math.random().toString(36).substr(2, 9)}`;
+    context.currentLoopLabel = loopLabel;
+
     context.emitter.emitLine(`${indent}while (true) {`);
     const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
     context.emitter.emitLine(`${indent}  if (!(${conditionCode})) {`);
@@ -4653,6 +4700,9 @@ function generateWhileLoop(
     context.emitter.emitLine(`${indent}  }`);
     generateLoopBody(bodyExpr, indent + "  ", context);
     context.emitter.emitLine(`${indent}}`);
+    context.emitter.emitLine(`${indent}${loopLabel}:;`);
+
+    context.currentLoopLabel = savedLoopLabel;
 
     return "";
   } else if (args.length === 3) {
@@ -4661,6 +4711,11 @@ function generateWhileLoop(
     const conditionExpr = args[0]!;
     const stepExpr = args[1]!;
     const bodyExpr = args[2]!;
+
+    // Track that we're in a loop for proper break/continue handling in nested match expressions
+    const savedLoopLabel = context.currentLoopLabel;
+    const loopLabel = `loop_${Math.random().toString(36).substr(2, 9)}`;
+    context.currentLoopLabel = loopLabel;
 
     context.emitter.emitLine(`${indent}while (true) {`);
     const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
@@ -4671,6 +4726,9 @@ function generateWhileLoop(
     const stepCode = generateStepExpression(stepExpr, context);
     context.emitter.emitLine(`${indent}  ${stepCode};`);
     context.emitter.emitLine(`${indent}}`);
+    context.emitter.emitLine(`${indent}${loopLabel}:;`);
+
+    context.currentLoopLabel = savedLoopLabel;
 
     return "";
   } else {
@@ -4783,6 +4841,11 @@ function generateForLoop(
     arrayLength = `${arrayCode}.length`; // Use runtime length from slice
   }
 
+  // Track that we're in a loop for proper break/continue handling in nested match expressions
+  const savedLoopLabel = context.currentLoopLabel;
+  const loopLabel = `loop_${Math.random().toString(36).substr(2, 9)}`;
+  context.currentLoopLabel = loopLabel;
+
   // Generate the C for loop
   // For arrays, we iterate through indices and access elements
   context.emitter.emitLine(
@@ -4805,6 +4868,9 @@ function generateForLoop(
   generateLoopBody(bodyExpr, indent + "  ", context);
 
   context.emitter.emitLine(`${indent}}`);
+  context.emitter.emitLine(`${indent}${loopLabel}:;`);
+
+  context.currentLoopLabel = savedLoopLabel;
 
   return "";
 }

@@ -115,6 +115,13 @@ export interface CodeGenContext {
    * Enable debug logging for async/await state machine operations
    */
   debugAsyncAwait: boolean;
+
+  /**
+   * Current loop label for handling break/continue in nested match expressions
+   * This is used to generate goto statements when match expressions inside loops
+   * need to break or continue the loop (not just the switch statement)
+   */
+  currentLoopLabel?: string;
 }
 
 /**
