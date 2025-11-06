@@ -482,7 +482,7 @@ export const BuiltinKeywords = {
   break: ["break"],
   continue: ["continue"],
   while: ["while"],
-  for: ["for"],
+  for: ["__for"], // NOTE: Let's deprecate this builtin `for` for now. I renamed it to `__for` to avoid confusion with future possible `for` keyword.
   if: ["if"],
   op_and: ["&&"],
   op_or: ["||"],
