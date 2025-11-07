@@ -423,8 +423,6 @@ Clone :: (fn(compt(Output) : Type) -> compt(Module))
       fn(self: Self) -> Output
 ;
 
-
-
 // === Builtin types ===
 /// boolean
 __yo_type_set_module(boolean,
@@ -3071,6 +3069,32 @@ export
   MaybeUninit
 ;
 
+// === Modules again ===
+/// === Iterator ===
+Iterator :: (fn(compt(Item) : Type) -> compt(Module)) {
+  return module(
+    Item := Item,
+    next :
+      fn(self : *(Self)) -> Option(Self.Item)
+  );
+};
+export Iterator;
+
+/// === IntoIterator ===
+IntoIterator :: (fn(
+  compt(Item) : Type,
+  compt(IntoIter) : Type,
+  using(IntoIterIter) : (IntoIter <: Iterator(Item))) -> compt(Module)) {
+  return module(
+    Item := Item,
+    IntoIter := IntoIter,
+    into_iter : 
+      fn(self : Self) -> Self.IntoIter
+  );
+};
+export IntoIterator;
+
+
 // === Macros ===
 /// === if ===
 if :: (fn(quote(condition) : Expr,
@@ -3102,24 +3126,81 @@ export
   runtval
 ;
 
-/*
-  /**
-  * try macro for handling Result types.
-  */
-  try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
-    temp :: gensym("try");
-    quote {
-      unquote(temp) := unquote(expr_to_try);
-      match(unquote(temp),
-        .Ok => unquote(temp).value,
-        .Error => {
-          return unquote(temp).error;
+
+/**
+* try macro for handling Result types.
+*/
+try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
+  temp :: gensym("try");
+  quote {
+    unquote(temp) := unquote(expr_to_try);
+    match(unquote(temp),
+      .Ok => unquote(temp).value,
+      .Error => {
+        return unquote(temp).error;
+      }
+    )
+  }
+};
+export try;
+
+/**
+ * `for` macro to run while loop over an iterator
+ * eg:
+ * 
+ *   for box.into_iter(), (value) => {
+ *     printf("value %d\n", value);
+ *   };
+ *
+ * transforms to
+ * 
+ * iter := box.into_iter();
+ * while true, {
+ *   value := iter.next();
+ *   match(value,
+ *     .Some(value) => {
+ *       printf("value %d\n", value);
+ *     }),
+ *     .None => { break; } 
+ * }
+ */
+for :: (fn(
+  quote(iter) : Expr,
+  quote(handle) : Expr
+  ) -> unquote(Expr)) {
+  // Check if `handle` is a function call of `=>`
+  return cond(
+    (handle.is_fn_call()) => {
+      callee :: handle.get_callee();
+      cond(
+        (callee.is_atom() && (callee == quote(=>))) => {
+          args :: handle.get_args();
+          compt_assert(args.length() == 2, "'for' macro requires 2 arguments in the function handle");
+          variable :: args.car();
+          body :: args.cdr().car();
+
+          iter_var :: gensym("for_iter_var");
+          temp_var :: gensym("for_temp_var");
+          quote({
+            unquote(iter_var) := unquote(iter);
+            while runtval(true), {
+              unquote(temp_var) := &(unquote(iter_var)).next();
+              match(unquote(temp_var),
+                .Some(unquote(variable)) => unquote(body),
+                .None => { break; }
+              )
+            };
+          })
+        },
+        true => {
+          compt_assert(false, "for macro requires a function handle with `=>`");
+          quote(false)
         }
       )
-    }
-  };
-
-  export
-    try
-  ;
-*/
+    },
+    true => {
+      compt_assert(false, "for macro requires a function handle with `=>`");
+      quote(false)
+    });
+};
+export for;
