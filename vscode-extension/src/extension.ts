@@ -28,7 +28,7 @@ import {
   isArrayType,
   isEnumType,
   isFunctionType,
-  isMutPtrType,
+  isPtrType,
   isSliceType,
   isStructType,
   isUnionType,
@@ -1029,7 +1029,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Automatically dereference pointer/reference types for field access only
         let fieldAccessType = variableType;
-        while (isMutPtrType(fieldAccessType)) {
+        while (isPtrType(fieldAccessType)) {
           fieldAccessType = fieldAccessType.type;
         }
 

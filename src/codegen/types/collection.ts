@@ -11,7 +11,7 @@ import {
   isEnumType,
   isFutureType,
   isModuleType,
-  isMutPtrType,
+  isPtrType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -19,7 +19,6 @@ import {
   SliceType,
   Type,
   typeContainsSomeType,
-  TypeTag,
 } from "../../types";
 import {
   isFunctionValue,
@@ -332,13 +331,14 @@ export function collectType(type: Type, context: CodeGenContext): void {
     }
   }
   // Check if it's pointer types (including nullable pointers)
-  else if (isMutPtrType(type)) {
+  else if (isPtrType(type)) {
     // Recursively collect the base type that this pointer points to
-    collectType(type.type, context);
+    collectType(type.childType, context);
 
+    // QUESTION: The isSliceType check below could be removed since SliceType is no longer DST?
     // Special handling for pointer-to-slice types
-    if (type.type.tag === TypeTag.Slice) {
-      const sliceType = type.type as SliceType;
+    if (isSliceType(type.childType)) {
+      const sliceType = type.childType as SliceType;
       const childType = sliceType.childType;
 
       // Recursively collect the field type
@@ -374,7 +374,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
     // Check if it's pointer/reference types
     else if (
       isPtrType(type) ||
-      isMutPtrType(type) ||
+      isPtrType(type) ||
       isRefType(type) ||
       isMutRefType(type)
     ) {

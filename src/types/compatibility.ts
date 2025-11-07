@@ -20,8 +20,8 @@ import {
   isFunctionType,
   isFutureType,
   isModuleType,
-  isMutPtrType,
   isPrimitiveType,
+  isPtrType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -112,8 +112,9 @@ export function areTypesCompatible(
     (isComptStringType(expected.type) ||
       (isSliceType(expected.type) && // [u8]
         isU8Type(expected.type.childType)) ||
-      (isMutPtrType(expected.type) && // *(u8) or *(char)
-        (isU8Type(expected.type.type) || isCharType(expected.type.type)))) &&
+      (isPtrType(expected.type) && // *(u8) or *(char)
+        (isU8Type(expected.type.childType) ||
+          isCharType(expected.type.childType)))) &&
     isComptStringType(given.type)
   ) {
     return true;
@@ -450,7 +451,7 @@ export function areTypesCompatible(
   }
 
   // *
-  if (isMutPtrType(expected.type) && isMutPtrType(given.type)) {
+  if (isPtrType(expected.type) && isPtrType(given.type)) {
     // NOTE: This causes some problem with type synthesize.
     //       So let's be specific here.
     // if (isVoidType(expected.type.type)) {
@@ -459,8 +460,8 @@ export function areTypesCompatible(
 
     // Mut pointers must have the same type
     return areTypesCompatible(
-      { type: expected.type.type, env: expected.env },
-      { type: given.type.type, env: given.env }
+      { type: expected.type.childType, env: expected.env },
+      { type: given.type.childType, env: given.env }
     );
   }
 

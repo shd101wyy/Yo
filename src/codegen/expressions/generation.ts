@@ -22,8 +22,8 @@ import {
   isEnumType,
   isFunctionType,
   isFutureType,
-  isMutPtrType,
   isObjectType,
+  isPtrType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -1369,12 +1369,12 @@ function generateFuncCall(
       } else if (
         funcType &&
         (isSliceType(funcType) ||
-          (isMutPtrType(funcType) && isSliceType(funcType.type)))
+          (isPtrType(funcType) && isSliceType(funcType.childType)))
       ) {
         // Handle slice-from-slice: *(slice(start:end))
         const sliceBaseType = isSliceType(funcType)
           ? (funcType as SliceType)
-          : (funcType.type as SliceType);
+          : (funcType.childType as SliceType);
         const firstArg = arg.args[0];
         if (
           firstArg &&
@@ -2536,8 +2536,8 @@ function generateFuncCall(
       return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
     } else if (
       functionType &&
-      isMutPtrType(functionType) &&
-      isSliceType(functionType.type)
+      isPtrType(functionType) &&
+      isSliceType(functionType.childType)
     ) {
       // This case should no longer exist since slices are no longer behind pointers
       // But keep it for backward compatibility during migration
@@ -3264,10 +3264,10 @@ function generateComptValue(
     // Check if the target type is a pointer to a slice (e.g., [u8]
     // In Yo, [u8] is a fat pointer (slice value), not a pointer to a slice struct
     // So we generate a slice struct value directly
-    if (targetType && isMutPtrType(targetType)) {
-      const pointeeType = targetType.type;
-      if (isSliceType(pointeeType)) {
-        const sliceCType = getTypeString(pointeeType, context);
+    if (targetType && isPtrType(targetType)) {
+      const childType = targetType.childType;
+      if (isSliceType(childType)) {
+        const sliceCType = getTypeString(childType, context);
         const stringLiteral = JSON.stringify(value.value);
         const stringLength = Buffer.byteLength(value.value, "utf8");
 
@@ -3559,12 +3559,12 @@ function generateFieldAccess(
     }
     // Special handling for slice types: even if they appear as pointer types in AST,
     // they should use dot notation because we generate them as struct values
-    else if (isMutPtrType(objectType) && isSliceType(objectType.type)) {
+    else if (isPtrType(objectType) && isSliceType(objectType.childType)) {
       // For slice types, always use dot notation regardless of pointer level in AST
       return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
     }
     // Check if the object is pointer or reference
-    else if (isMutPtrType(objectType)) {
+    else if (isPtrType(objectType)) {
       if (fieldName === "*") {
         // Regular dereference for pointers/references
         return `*(${objectCode})`; // Dereference the pointer/reference
@@ -3572,9 +3572,9 @@ function generateFieldAccess(
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;
         let currentType: Type = objectType;
-        while (isMutPtrType(currentType)) {
+        while (isPtrType(currentType)) {
           dereferenceLevel++;
-          currentType = currentType.type;
+          currentType = currentType.childType;
         }
         if (dereferenceLevel > 0) {
           // For pointer types, use arrow notation for field access
@@ -3918,11 +3918,11 @@ function generateMatchExpression(
 
   // Check if it's a pointer/reference type OR reference semantics type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType: TypeTag.MutPtr | "ref_semantics" | undefined = undefined;
+  let ptrOrRefType: TypeTag.Ptr | "ref_semantics" | undefined = undefined;
 
   let enumType: Type;
-  if (isMutPtrType(matchValueType)) {
-    enumType = matchValueType.type;
+  if (isPtrType(matchValueType)) {
+    enumType = matchValueType.childType;
     ptrOrRefType = matchValueType.tag;
   } else if (isObjectType(matchValueType)) {
     // ref enum types are represented as pointers in C

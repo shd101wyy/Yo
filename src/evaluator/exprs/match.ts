@@ -22,12 +22,12 @@ import {
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
-  createMutPtrType,
+  createPtrType,
   EnumType,
   isEnumType,
   isFunctionTypeAndReturnsComptValue,
-  isMutPtrType,
-  MutPtrType,
+  isPtrType,
+  PtrType,
   Type,
   TypeTag,
   typeToString,
@@ -98,12 +98,12 @@ export function evaluateMatch({
 
   // Check if it's a pointer/reference type
   // If yes, then automatically dereference one-level of it.
-  let ptrOrRefType: TypeTag.MutPtr | undefined = undefined;
+  let ptrOrRefType: TypeTag.Ptr | undefined = undefined;
 
   let enumType: Type;
 
-  if (isMutPtrType(scrutineeType)) {
-    enumType = scrutineeType.type;
+  if (isPtrType(scrutineeType)) {
+    enumType = scrutineeType.childType;
     ptrOrRefType = scrutineeType.tag;
   } else {
     enumType = scrutineeType;
@@ -239,10 +239,10 @@ export function evaluateMatch({
         pathCollection: [],
       };
 
-      let variableType: EnumType | MutPtrType = newEnumType;
+      let variableType: EnumType | PtrType = newEnumType;
       if (ptrOrRefType) {
-        if (ptrOrRefType === TypeTag.MutPtr) {
-          variableType = createMutPtrType(newEnumType);
+        if (ptrOrRefType === TypeTag.Ptr) {
+          variableType = createPtrType(newEnumType);
         }
       }
 
@@ -500,10 +500,10 @@ export function evaluateMatch({
         pathCollection: [],
       };
 
-      let variableType: EnumType | MutPtrType = newEnumType;
+      let variableType: EnumType | PtrType = newEnumType;
       if (ptrOrRefType) {
-        if (ptrOrRefType === TypeTag.MutPtr) {
-          variableType = createMutPtrType(newEnumType);
+        if (ptrOrRefType === TypeTag.Ptr) {
+          variableType = createPtrType(newEnumType);
         }
       }
 

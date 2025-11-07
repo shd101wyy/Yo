@@ -504,7 +504,7 @@ export const BuiltinKeywords = {
   // data types
   unique: ["unique", "^"],
 
-  MutPtr: ["*"],
+  Ptr: ["*"],
 
   // Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],

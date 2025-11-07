@@ -23,7 +23,7 @@ import {
   FutureType,
   ModuleField,
   ModuleType,
-  MutPtrType,
+  PtrType,
   SomeType,
   StructType,
   TupleType,
@@ -56,8 +56,8 @@ import {
   isIntegerType,
   isIsizeType,
   isModuleType,
-  isMutPtrType,
   isObjectType,
+  isPtrType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -211,8 +211,8 @@ export function typeContainsSomeType(
       return (type as ModuleType).fields.some((field) =>
         typeContainsSomeType(field.type, checkedTypes)
       );
-    case TypeTag.MutPtr:
-      return typeContainsSomeType((type as MutPtrType).type, checkedTypes);
+    case TypeTag.Ptr:
+      return typeContainsSomeType((type as PtrType).childType, checkedTypes);
     case TypeTag.Future:
       return typeContainsSomeType((type as FutureType).childType, checkedTypes);
     default:
@@ -266,8 +266,8 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
       case TypeTag.Module:
         (t as ModuleType).fields.forEach((field) => helper(field.type));
         break;
-      case TypeTag.MutPtr:
-        helper((t as MutPtrType).type);
+      case TypeTag.Ptr:
+        helper((t as PtrType).childType);
         break;
       case TypeTag.Future:
         helper((t as FutureType).childType);
@@ -340,8 +340,8 @@ export function typeRequiresInference(type?: Type): boolean {
     }
     case TypeTag.Ptr:
       return typeRequiresInference((type as PtrType).type);
-    case TypeTag.MutPtr:
-      return typeRequiresInference((type as MutPtrType).type);
+    case TypeTag.Ptr:
+      return typeRequiresInference((type as PtrType).type);
     case TypeTag.Ref:
       return typeRequiresInference((type as RefType).type);
     case TypeTag.MutRef:
@@ -486,8 +486,8 @@ export function convertComptTypeToRuntimeType({
       // - *(u8)
       // - *(char)
       if (
-        isMutPtrType(expectedType) && // *(u8) or *(char)
-        (isU8Type(expectedType.type) || isCharType(expectedType.type))
+        isPtrType(expectedType) && // *(u8) or *(char)
+        (isU8Type(expectedType.childType) || isCharType(expectedType.childType))
       ) {
         convertedType = expectedType;
       } else if (isSliceType(expectedType)) {
@@ -964,9 +964,9 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       // return `some(${parentType.tag})`;
     }
 
-    case TypeTag.MutPtr: {
-      const mutPtrType = type as MutPtrType;
-      return `*(${typeToString(mutPtrType.type, visited)})`;
+    case TypeTag.Ptr: {
+      const ptrType = type as PtrType;
+      return `*(${typeToString(ptrType.childType, visited)})`;
     }
 
     case TypeTag.Expr: {
@@ -1214,7 +1214,7 @@ export function getAlignmentOfType(type: Type): number | null {
     return maxAlign;
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBytes(); // Functions are treated as pointers, so pointer-aligned
-  } else if (isMutPtrType(type)) {
+  } else if (isPtrType(type)) {
     return getTargetPointerSizeBytes(); // Pointer and reference types are pointer-aligned
   }
 
@@ -1281,7 +1281,7 @@ export function getSizeOfType(type: Type): number | null {
     return getUnionType(type);
   } else if (isFunctionType(type)) {
     return getTargetPointerSizeBits(); // Functions are treated as pointers, so return pointer size
-  } else if (isMutPtrType(type)) {
+  } else if (isPtrType(type)) {
     return getTargetPointerSizeBits(); // Pointer and reference types have pointer size
   }
 
@@ -1437,9 +1437,9 @@ function typeCanReferenceCyclicRefStruct(
     return true;
   }
 
-  // MutPtr and MutRef are raw pointers/references - they don't participate in ARC
+  // Ptr and MutRef are raw pointers/references - they don't participate in ARC
   // so they don't form reference counting cycles.
-  if (isMutPtrType(type)) {
+  if (isPtrType(type)) {
     return false;
   }
 

@@ -20,9 +20,9 @@ import {
   isFunctionType,
   isFutureType,
   isModuleType,
-  isMutPtrType,
   isObjectType,
   isPrimitiveType,
+  isPtrType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -198,7 +198,7 @@ export function typeOfType(
     // Module type itself has the same level as Free/Linear/Type
   } else if (isSomeType(type)) {
     return type.parentType;
-  } else if (isMutPtrType(type)) {
+  } else if (isPtrType(type)) {
     // Pointer type hierarchy logic
     // Raw pointers are now level 0 types
     return createType0(type);

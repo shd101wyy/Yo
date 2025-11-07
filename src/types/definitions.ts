@@ -566,12 +566,12 @@ export interface FunctionType extends Type {
   module: ModuleType;
 }
 
-export interface MutPtrType extends Type {
-  tag: TypeTag.MutPtr;
+export interface PtrType extends Type {
+  tag: TypeTag.Ptr;
   /**
    * The type of the pointer.
    */
-  type: Type;
+  childType: Type;
 
   module: ModuleType;
 }

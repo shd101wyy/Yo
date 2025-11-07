@@ -22,7 +22,7 @@ import {
   FunctionType,
   FutureType,
   ModuleType,
-  MutPtrType,
+  PtrType,
   SliceType,
   SomeType,
   StructType,
@@ -841,27 +841,27 @@ export function createFunctionType({
   return functionType;
 }
 
-const ptrCache: Map<Type, MutPtrType> = new Map();
-export function createMutPtrType(type: Type): MutPtrType {
+const ptrCache: Map<Type, PtrType> = new Map();
+export function createPtrType(childType: Type): PtrType {
   // Check cache
-  if (!isEvaluatingPreludeModule() && ptrCache.has(type)) {
-    return ptrCache.get(type)!;
+  if (!isEvaluatingPreludeModule() && ptrCache.has(childType)) {
+    return ptrCache.get(childType)!;
   }
   const env = isEvaluatingPreludeModule()
     ? createEmptyEnv()
     : createEnvContainingPrelude();
   const module = createModuleType(env);
-  const ptrType: MutPtrType = {
-    id: `ptr_${type.id}`,
-    tag: TypeTag.MutPtr,
-    type,
+  const ptrType: PtrType = {
+    id: `ptr_${childType.id}`,
+    tag: TypeTag.Ptr,
+    childType,
     module,
   };
   module.receiverType = ptrType;
 
   if (!isEvaluatingPreludeModule()) {
     // NOTE: This has to be set before adding module elements to avoid infinite recursion
-    ptrCache.set(type, ptrType);
+    ptrCache.set(childType, ptrType);
 
     // Add
     addModuleFieldsByCode(module, {

@@ -370,7 +370,7 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.open)) {
       // open
       return evaluateOpen({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.MutPtr, 1)) {
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Ptr, 1)) {
       // * pointer type
       return evaluateRawPointerCall({
         expr,

@@ -8,11 +8,11 @@ import {
   EnumVariant,
   FunctionType,
   isFunctionSpecializable,
-  isMutPtrType,
   isObjectType,
+  isPtrType,
   isSliceType,
   isStructType,
-  MutPtrType,
+  PtrType,
   SliceType,
   StructType,
   Type,
@@ -362,15 +362,15 @@ export function getTypeString(
     }
 
     // Pointer type (mutable or immutable)
-    case TypeTag.MutPtr: {
-      const ptrType = type as MutPtrType;
-      const baseType = ptrType.type;
-      const isMutable = isMutPtrType(type);
+    case TypeTag.Ptr: {
+      const ptrType = type as PtrType;
+      const childType = ptrType.childType;
+      const isMutable = isPtrType(type);
 
       // Special handling for pointer-to-slice: in Rust-like semantics,
       // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
-      if (isSliceType(baseType)) {
-        const sliceType = baseType as SliceType;
+      if (isSliceType(childType)) {
+        const sliceType = childType as SliceType;
         const elementTypeString = getTypeString(sliceType.childType, context);
         const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
 
@@ -385,7 +385,7 @@ export function getTypeString(
         return sliceTypeName;
       }
 
-      const baseTypeStr = getTypeString(baseType, context);
+      const baseTypeStr = getTypeString(childType, context);
       if (isMutable) {
         return `${baseTypeStr}*`; // Mutable pointer
       } else {
@@ -493,7 +493,7 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
       const childType = variant.fields[0]!.type;
 
       // Check if it's a pointer/reference type
-      if (isMutPtrType(childType)) {
+      if (isPtrType(childType)) {
         if (pointerVariant) {
           return null; // More than one pointer variant
         }

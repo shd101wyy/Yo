@@ -13,7 +13,7 @@ import {
   isFunctionType,
   isFutureType,
   isModuleType,
-  isMutPtrType,
+  isPtrType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -69,7 +69,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
     return occursCheck(someTypeId, type.childType);
   }
 
-  if (isMutPtrType(type)) {
+  if (isPtrType(type)) {
     // Don't check inside pointer types for occurs check
     // This prevents false positives like trying to bind X to *(X)
     // This is a valid indirection.
@@ -482,14 +482,14 @@ export function synthesizeTypes(
         given.env = givenEnv;
       }
     }
-  } else if (isMutPtrType(expected.type) && isMutPtrType(given.type)) {
+  } else if (isPtrType(expected.type) && isPtrType(given.type)) {
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expected.type.type,
+        type: expected.type.childType,
         env: expected.env,
       },
       {
-        type: given.type.type,
+        type: given.type.childType,
         env: given.env,
       },
       checkedTypePairs

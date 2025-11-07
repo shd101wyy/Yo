@@ -5,7 +5,7 @@ import {
   isDynType,
   isFunctionType,
   isModuleType,
-  isMutPtrType,
+  isPtrType,
   ModuleType,
   Type,
   typeContainsARCType,
@@ -512,8 +512,8 @@ export function getMethodsByNameFromEnv(
 
   // Automatically dereference if it's pointer/reference type
   let dereferencedReceiverType = receiverType;
-  while (isMutPtrType(dereferencedReceiverType)) {
-    dereferencedReceiverType = dereferencedReceiverType.type;
+  while (isPtrType(dereferencedReceiverType)) {
+    dereferencedReceiverType = dereferencedReceiverType.childType;
   }
 
   function checkModule(moduleType: ModuleType, moduleValue: Value) {

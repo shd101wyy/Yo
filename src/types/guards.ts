@@ -7,7 +7,7 @@ import {
   FunctionType,
   FutureType,
   ModuleType,
-  MutPtrType,
+  PtrType,
   SliceType,
   SomeType,
   StructType,
@@ -234,8 +234,8 @@ export function isSomeType(type?: Type): type is SomeType {
 }
 
 // Pointer and reference guards
-export function isMutPtrType(type?: Type): type is MutPtrType {
-  return type?.tag === TypeTag.MutPtr;
+export function isPtrType(type?: Type): type is PtrType {
+  return type?.tag === TypeTag.Ptr;
 }
 
 export function isDynType(type?: Type): type is DynType {

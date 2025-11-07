@@ -7,7 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createMutPtrType, isMutPtrType } from "../../types";
+import { createPtrType, isPtrType } from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -32,12 +32,12 @@ export function evaluateAddressCall({
   const argExpr = expr.args[0]!;
 
   let expectedType = context.expectedType;
-  if (expectedType && isMutPtrType(expectedType.type)) {
+  if (expectedType && isPtrType(expectedType.type)) {
     // If the expected type is a pointer type, we need to use the base type
     // for the reference creation.
     expectedType = {
       ...expectedType,
-      type: expectedType.type.type,
+      type: expectedType.type.childType,
     };
   }
 
@@ -73,7 +73,7 @@ export function evaluateAddressCall({
   // Create pointer value
   else {
     const argType = evaluatedArgExpr.$.type;
-    const pointerType = createMutPtrType(argType);
+    const pointerType = createPtrType(argType);
 
     expr.$ = {
       env,
