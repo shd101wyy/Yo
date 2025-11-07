@@ -513,11 +513,12 @@ export const BuiltinKeywords = {
   Future: ["Future"],
   Type: ["Type"],
   Module: ["Module"],
+  ComptList: ["ComptList"],
 
   // data values
   tuple: "tuple",
   array: "array",
-  expr_list: "expr_list", // expr_list
+  compt_list: "compt_list", // compt_list
 };
 
 export const BuiltinFunctions = {
@@ -580,11 +581,11 @@ export const BuiltinFunctions = {
 
   // expr_list related functions
   // __yo_expr_list_is_expr_list: ["__yo_expr_list_is_expr_list"],
-  __yo_expr_list_car: ["__yo_expr_list_car"],
-  __yo_expr_list_cdr: ["__yo_expr_list_cdr"],
-  __yo_expr_list_cons: ["__yo_expr_list_cons"],
-  __yo_expr_list_append: ["__yo_expr_list_append"],
-  __yo_expr_list_length: ["__yo_expr_list_length"],
+  __yo_compt_list_car: ["__yo_compt_list_car"],
+  __yo_compt_list_cdr: ["__yo_compt_list_cdr"],
+  __yo_compt_list_cons: ["__yo_compt_list_cons"],
+  __yo_compt_list_append: ["__yo_compt_list_append"],
+  __yo_compt_list_length: ["__yo_compt_list_length"],
 
   // compt_int related functions
   /// 2 args

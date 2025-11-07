@@ -2907,6 +2907,9 @@ _compt_string :: compt_string;
 export compt_string : _compt_string;
 
 /// Expr
+ExprList :: ComptList(Expr);
+export ExprList;
+
 __yo_type_set_module(Expr,
   Eq :: impl(Self, ComptEq(Self)(
     (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
@@ -2931,7 +2934,7 @@ __yo_type_set_module(Expr,
   ),
 
   cons :: ((fn(compt(self): Self, compt(rest): ExprList) -> compt(ExprList))
-    __yo_expr_list_cons(self, rest)
+    __yo_compt_list_cons(self, rest)
   ),
 
   (to_string) :: ((fn(compt(self): Self) -> compt(compt_string))
@@ -2940,31 +2943,6 @@ __yo_type_set_module(Expr,
 );
 _Expr :: Expr;
 export Expr : _Expr;
-
-/// ExprList
-__yo_type_set_module(ExprList,
-  car :: ((fn(compt(self): Self) -> compt(Expr))
-    __yo_expr_list_car(self)
-  ),
-
-  cdr :: ((fn(compt(self): Self) -> compt(Self))
-    __yo_expr_list_cdr(self)
-  ),
-
-  first :: Self.car,
-
-  rest :: Self.cdr,
-
-  append :: ((fn(compt(self): Self, compt(another): Self) -> compt(Self))
-    __yo_expr_list_append(self, another)
-  ),
-
-  length :: ((fn(compt(self): Self) -> compt(usize))
-    __yo_expr_list_length(self)
-  )
-);
-_ExprList :: ExprList;
-export ExprList : _ExprList;
 
 // Type
 __yo_type_set_module(Type,

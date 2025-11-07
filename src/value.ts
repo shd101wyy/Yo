@@ -6,11 +6,12 @@ import { TypeValue } from "./type-value";
 import {
   areTypesCompatible,
   ArrayType,
+  ComptListType,
   createBooleanType,
   createComptFloatType,
   createComptIntType,
+  createComptListType,
   createComptStringType,
-  createExprListType,
   createExprType,
   createF32Type,
   createF64Type,
@@ -27,6 +28,7 @@ import {
   createUsizeType,
   EnumType,
   ExprType,
+  isExprType,
   isTypeHierarchyType,
   ModuleType,
   StructType,
@@ -110,11 +112,11 @@ export type ExprValue = {
   value: Expr;
 };
 
-export type ExprListValue = {
-  tag: ValueTag.ExprList;
-  type: Type;
+export type ComptListValue = {
+  tag: ValueTag.ComptList;
+  type: ComptListType;
   // The UnknownValue here should have a type of ExprType
-  elements: (ExprValue | UnknownValue)[];
+  elements: Value[];
 };
 
 export type UnknownValue = {
@@ -132,7 +134,7 @@ export type UnknownValue = {
 export type Value =
   | TypeValue
   | ComptStringValue
-  | ExprListValue
+  | ComptListValue
   | NumberValue
   | UnitValue
   | BooleanValue
@@ -164,8 +166,8 @@ export function valueToString(value?: Value): string {
     case ValueTag.ComptString: {
       return JSON.stringify(value.value);
     }
-    case ValueTag.ExprList: {
-      return `expr_list(${value.elements.map(valueToString).join(", ")})`;
+    case ValueTag.ComptList: {
+      return `compt_list(${value.elements.map(valueToString).join(", ")})`;
     }
     case ValueTag.U8:
     case ValueTag.I8:
@@ -275,8 +277,12 @@ export function isComptStringValue(value?: Value): value is ComptStringValue {
   return value?.tag === ValueTag.ComptString;
 }
 
-export function isExprListValue(value?: Value): value is ExprListValue {
-  return value?.tag === ValueTag.ExprList;
+export function isComptListValue(value?: Value): value is ComptListValue {
+  return value?.tag === ValueTag.ComptList;
+}
+
+export function isExprListValue(value?: Value): value is ComptListValue {
+  return isComptListValue(value) && isExprType(value.type.elementType);
 }
 
 export function isNumberValue(value?: Value): value is NumberValue {
@@ -354,12 +360,13 @@ export function createComptStringValue(value: string): ComptStringValue {
   };
 }
 
-export function createExprListValue(
-  elements: (ExprValue | UnknownValue)[]
-): ExprListValue {
+export function createComptListValue(
+  elementType: Type,
+  elements: Value[]
+): ComptListValue {
   return {
-    tag: ValueTag.ExprList,
-    type: createExprListType(),
+    tag: ValueTag.ComptList,
+    type: createComptListType(elementType),
     elements,
   };
 }
@@ -541,8 +548,8 @@ export function areValuesEqual(
     );
   } else if (isComptStringValue(value1) && isComptStringValue(value2)) {
     return value1.value === (value2 as ComptStringValue).value;
-  } else if (isExprListValue(value1) && isExprListValue(value2)) {
-    if (value1.elements.length !== (value2 as ExprListValue).elements.length) {
+  } else if (isComptListValue(value1) && isComptListValue(value2)) {
+    if (value1.elements.length !== value2.elements.length) {
       return false;
     }
     for (let i = 0; i < value1.elements.length; i++) {

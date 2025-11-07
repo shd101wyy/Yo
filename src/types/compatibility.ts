@@ -12,10 +12,10 @@ import {
   isClosureType,
   isComptFloatType,
   isComptIntType,
+  isComptListType,
   isComptStringType,
   isDynType,
   isEnumType,
-  isExprListType,
   isExprType,
   isFunctionType,
   isFutureType,
@@ -129,8 +129,11 @@ export function areTypesCompatible(
     return true;
   }
 
-  if (isExprListType(expected.type) && isExprListType(given.type)) {
-    return true;
+  if (isComptListType(expected.type) && isComptListType(given.type)) {
+    return areTypesCompatible(
+      { type: expected.type.elementType, env: expected.env },
+      { type: given.type.elementType, env: given.env }
+    );
   }
 
   if (isArrayType(expected.type) && isArrayType(given.type)) {

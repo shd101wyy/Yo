@@ -19,8 +19,8 @@ import {
   areValuesEqual,
   BooleanValue,
   createBooleanValue,
+  createComptListValue,
   createComptStringValue,
-  createExprListValue,
   createExprValue,
   createUnknownValue,
   isExprValue,
@@ -274,7 +274,8 @@ export function evaluateYoExprGetArgs({
   if (isExprValue(exprValue)) {
     if (exprIsFunctionCall(exprValue.value)) {
       const fnArgs = exprValue.value.args;
-      const fnArgsValue = createExprListValue(
+      const fnArgsValue = createComptListValue(
+        createExprType(),
         fnArgs.map((arg) => createExprValue(arg))
       );
       expr.$.value = fnArgsValue;

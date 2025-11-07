@@ -27,6 +27,13 @@ import {
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "../builtins/compt_expect_error";
+import {
+  evaluateYoComptListAppend,
+  evaluateYoComptListCar,
+  evaluateYoComptListCdr,
+  evaluateYoComptListCons,
+  evaluateYoComptListLength,
+} from "../builtins/compt_list_fns";
 import { evaluateComptPrint } from "../builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "../builtins/compt_string_fns";
 import {
@@ -43,13 +50,6 @@ import {
   evaluateYoExprIsFnCall,
   evaluateYoExprToString,
 } from "../builtins/expr_fns";
-import {
-  evaluateYoExprListAppend,
-  evaluateYoExprListCar,
-  evaluateYoExprListCdr,
-  evaluateYoExprListCons,
-  evaluateYoExprListLength,
-} from "../builtins/expr_list_fns";
 import {
   evaluateAwait,
   evaluateYoFutureDrop,
@@ -76,6 +76,7 @@ import { evaluateRawPointerCall } from "../calls/pointer";
 import { EvaluatorContext } from "../context";
 import { evaluateArrayType } from "../types/array";
 import { evaluateClosureType } from "../types/closure";
+import { evaluateComptListType } from "../types/compt_list";
 import { evaluateDynType } from "../types/dyn";
 import { evaluateEnumType } from "../types/enum";
 import { evaluateFunctionType } from "../types/function";
@@ -91,8 +92,8 @@ import { evaluateAnonymousFunctionImplementation } from "../values/anonymous_fun
 import { evaluateArrayValue } from "../values/array";
 import { evaluateBooleanLiteral } from "../values/boolean";
 import { evaluateCharLiteral } from "../values/char";
+import { evaluateComptListValue } from "../values/compt_list";
 import { evaluateDynValue } from "../values/dyn";
-import { evaluateExprListValue } from "../values/expr_list";
 import { evaluateFloatLiteral } from "../values/float";
 import { evaluateIntegerLiteral } from "../values/integer";
 import { evaluateModuleValue } from "../values/module";
@@ -252,9 +253,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
       // array
       return evaluateArrayValue({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.expr_list)) {
-      // expr_list
-      return evaluateExprListValue({
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.compt_list)) {
+      // compt_list
+      return evaluateComptListValue({
         expr,
         env,
         context: { ...context },
@@ -401,6 +402,13 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
       // Slice type
       return evaluateSliceType({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ComptList)) {
+      // ComptList type
+      return evaluateComptListType({
         expr,
         env,
         context: { ...context },
@@ -552,46 +560,46 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_car)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_car)
     ) {
-      // __yo_expr_list_car
-      return evaluateYoExprListCar({
+      // __yo_compt_list_car
+      return evaluateYoComptListCar({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_cdr)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cdr)
     ) {
-      // __yo_expr_list_cdr
-      return evaluateYoExprListCdr({
+      // __yo_compt_list_cdr
+      return evaluateYoComptListCdr({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_cons)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cons)
     ) {
-      // __yo_expr_list_cons
-      return evaluateYoExprListCons({
+      // __yo_compt_list_cons
+      return evaluateYoComptListCons({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_append)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_append)
     ) {
-      // __yo_expr_list_append
-      return evaluateYoExprListAppend({
+      // __yo_compt_list_append
+      return evaluateYoComptListAppend({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_expr_list_length)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_length)
     ) {
-      // __yo_expr_list_length
-      return evaluateYoExprListLength({
+      // __yo_compt_list_length
+      return evaluateYoComptListLength({
         expr,
         env,
         context: { ...context },

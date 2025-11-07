@@ -23,7 +23,7 @@ import { evaluateExpression } from "../exprs/expr";
  * This function creates an array value from an ArrayType and initial values.
  * eg:
  *
- *   ArrayType := Array(i32, 3);
+ *   ArrayType :: Array(i32, 3);
  *   arr := ArrayType(1, 2, 3);
  */
 export function tryToImplementArrayByArrayType({

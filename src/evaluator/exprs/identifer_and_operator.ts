@@ -8,7 +8,6 @@ import {
   createComptFloatType,
   createComptIntType,
   createComptStringType,
-  createExprListType,
   createExprType,
   createF32Type,
   createF64Type,
@@ -420,18 +419,6 @@ export function evaluateIdentifierAndOperator({
   // Expr
   else if (identifier === TypeTag.Expr) {
     const value = createTypeValue(createExprType());
-    expr.$ = {
-      env,
-      type: value.type,
-      value: value,
-
-      pathCollection: [],
-    };
-    return expr;
-  }
-  // ExprList
-  else if (identifier === TypeTag.ExprList) {
-    const value = createTypeValue(createExprListType());
     expr.$ = {
       env,
       type: value.type,

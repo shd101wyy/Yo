@@ -1,6 +1,7 @@
 import {
   ArrayType,
   ClosureType,
+  ComptListType,
   DynType,
   EnumType,
   FunctionType,
@@ -66,8 +67,12 @@ export function isComptStringType(type?: Type): boolean {
   return type?.tag === TypeTag.ComptString;
 }
 
+export function isComptListType(type?: Type): type is ComptListType {
+  return type?.tag === TypeTag.ComptList;
+}
+
 export function isExprListType(type?: Type): boolean {
-  return type?.tag === TypeTag.ExprList;
+  return isComptListType(type) && isExprType(type.elementType);
 }
 
 export function isBooleanType(type?: Type): boolean {

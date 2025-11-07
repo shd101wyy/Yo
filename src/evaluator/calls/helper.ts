@@ -48,7 +48,7 @@ import {
 } from "../../types";
 import {
   areValuesEqual,
-  createExprListValue,
+  createComptListValue,
   createExprValue,
   createTypeValue,
   createUnknownValue,
@@ -1119,7 +1119,8 @@ Got:   ${typeToString(argType)}`,
       // Do nothing
     } else if (functionType.variadicParameter.isQuote) {
       // Create the ExprList and add that to environment
-      const exprListValue = createExprListValue(
+      const exprListValue = createComptListValue(
+        createExprType(),
         variadicArgs.map((arg) => arg.value as ExprValue)
       );
 

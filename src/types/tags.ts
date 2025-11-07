@@ -79,7 +79,9 @@ export enum TypeTag {
 
   // Expr (for macro/metaprogramming)
   Expr = "Expr",
-  ExprList = "ExprList",
+
+  // Compile-time known List
+  ComptList = "ComptList",
 
   // Concurrency
   Future = "Future",

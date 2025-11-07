@@ -18,6 +18,7 @@ import {
   createExprType,
   isArrayType,
   isClosureType,
+  isComptListType,
   isEnumType,
   isFunctionType,
   isModuleType,
@@ -58,6 +59,7 @@ import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
 import { tryToImplementArrayByArrayType } from "./array_type";
 import { tryToImplementClosureByClosureType } from "./closure_type";
+import { tryToImplementComptListByComptListType } from "./compt_list_type";
 import { tryToImplementFunctionByFunctionType } from "./function_type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module_type";
@@ -589,6 +591,33 @@ export function evaluateFunctionCall({
           tryToImplementArrayByArrayType({
             expr: expr,
             arrayType: arrayType,
+            argExprs: args,
+            callerEnv: env,
+            context: { ...context },
+          });
+          return {
+            ...functionToCall,
+            result: {
+              kind: "array-type",
+            },
+          };
+        } catch (error) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: error,
+            },
+          };
+        }
+      }
+      // compt list type
+      else if (isTypeValue(value) && isComptListType(value.value)) {
+        const comptListType = value.value;
+        try {
+          tryToImplementComptListByComptListType({
+            expr: expr,
+            comptListType: comptListType,
             argExprs: args,
             callerEnv: env,
             context: { ...context },
@@ -1164,6 +1193,11 @@ ${functionsWithMatchingTypes
     // array type
     else if (isTypeValue(value) && isArrayType(value.value)) {
       // This should already be evaluated by tryToImplementArrayByArrayType
+      return expr;
+    }
+    // compt list type
+    else if (isTypeValue(value) && isComptListType(value.value)) {
+      // This should already be evaluated by tryToImplementComptListByComptListType
       return expr;
     }
     // closure type

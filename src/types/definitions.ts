@@ -92,6 +92,12 @@ export interface ExprType extends Type {
   module: ModuleType;
 }
 
+export interface ComptListType extends Type {
+  tag: TypeTag.ComptList;
+  elementType: Type;
+  module: ModuleType;
+}
+
 export interface TypeHierarchyType extends Type {
   tag: TypeTag.Type;
 
@@ -521,7 +527,7 @@ export interface FunctionType extends Type {
    *
    *  (x: i32, y: i32, ...) -> i32; // c style
    *
-   *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ExprList
+   *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ComptList(Expr)
    *  (x: i32, y: i32, ...(rest)) -> i32;     // Yo style. rest has type ArgList
    *  (compt(x) : i32, compt(y) : i32, ...(compt(rest))); // Yo style. rest has type ArgList
    *

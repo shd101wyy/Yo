@@ -11,6 +11,7 @@ import { isNumberValue, Value, valueToString } from "../value";
 import {
   ArrayType,
   ClosureType,
+  ComptListType,
   DynType,
   EnumType,
   FunctionForallParameter,
@@ -95,26 +96,6 @@ export function createComptStringType(): Type {
   return type;
 }
 
-let cachedExprListType: Type | null = null;
-export function createExprListType(): Type {
-  if (cachedExprListType) {
-    return cachedExprListType;
-  }
-
-  const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
-
-  const type: Type = {
-    id: TypeTag.ExprList,
-    tag: TypeTag.ExprList,
-    module,
-  };
-  module.receiverType = type;
-
-  cachedExprListType = type;
-  return type;
-}
-
 let cachedExprType: Type | null = null;
 export function createExprType(): Type {
   if (cachedExprType) {
@@ -133,6 +114,48 @@ export function createExprType(): Type {
 
   cachedExprType = type;
   return type;
+}
+
+const cachedComptListTypeMap: Map<Type, ComptListType> = new Map();
+export function createComptListType(elementType: Type): ComptListType {
+  if (cachedComptListTypeMap.has(elementType)) {
+    return cachedComptListTypeMap.get(elementType)!;
+  }
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
+
+  const type: ComptListType = {
+    id: `compt_list_${elementType.id}`,
+    tag: TypeTag.ComptList,
+    elementType,
+    module,
+  };
+  module.receiverType = type;
+
+  cachedComptListTypeMap.set(elementType, type);
+
+  addModuleElementsByCode(module, {
+    car: `((fn(compt(self): Self) -> compt(Expr))
+    __yo_compt_list_car(self)
+  )`,
+    cdr: `((fn(compt(self): Self) -> compt(Self))
+    __yo_compt_list_cdr(self)
+  )`,
+    first: `Self.car`,
+    rest: `Self.cdr`,
+    append: `((fn(compt(self): Self, compt(another): Self) -> compt(Self))
+    __yo_compt_list_append(self, another)
+  )`,
+    length: `((fn(compt(self): Self) -> compt(usize))
+    __yo_compt_list_length(self)
+  )`,
+  });
+
+  return type;
+}
+
+export function createExprListType(): Type {
+  return createComptListType(createExprType());
 }
 
 let cachedBooleanType: Type | null = null;
