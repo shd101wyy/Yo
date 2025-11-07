@@ -102,6 +102,11 @@ export function collectTypesFromExpr(
     collectType(expr.$.type, context);
   }
 
+  // If this is a macro expansion, recursively collect from the expanded expression
+  if (expr.$ && expr.$.macroExpansion) {
+    collectTypesFromExpr(expr.$.macroExpansion, context);
+  }
+
   // For closure and async block expressions, collect the capture struct type
   // The capture type needs a special C name: {closureTypeName}_capture
   if (expr.$ && expr.$.captureType && expr.$.type) {

@@ -46,6 +46,11 @@ export function findFunctionCallsInExpr(
   expr: Expr,
   context: CodeGenContext
 ): void {
+  // If this is a macro expansion, recursively collect from the expanded expression
+  if (expr.$ && expr.$.macroExpansion) {
+    findFunctionCallsInExpr(expr.$.macroExpansion, context);
+  }
+
   // For closure construction, collect the closure function
   if (expr.$ && expr.$.closureFunctionValue) {
     const closureFunctionValue = expr.$.closureFunctionValue;

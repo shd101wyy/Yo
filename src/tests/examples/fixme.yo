@@ -39,7 +39,7 @@ MyBox :: struct(
     ))
   ),
 
-  IntoIterator :: impl(Self, IntoIterator(i32, Self.IntoIter, Self.IntoIter.Iterator)(
+  IntoIterator :: impl(Self, IntoIterator(i32, Self.IntoIter)(
     into_iter : ((self) -> Self.IntoIter(self.x))
   ))
 );
@@ -89,14 +89,13 @@ for :: (fn(
                 .Some(unquote(variable)) => unquote(body),
                 .None => { break; }
               )
-            }
+            };
           })
         },
         true => {
           compt_assert(false, "for macro requires a function handle with `=>`");
           quote(false)
         }
-
       )
     },
     true => {
@@ -105,13 +104,13 @@ for :: (fn(
     });
 };
 
-expanded :: macro_expand(
-  quote(
-    for box.into_iter(), (value) => {
-      printf("value %d\n", value);
-    }
-  )
-);
+// expanded :: macro_expand(
+//   quote(
+//     for box.into_iter(), (value) => {
+//       printf("value %d\n", value);
+//     }
+//   )
+// );
 // compt_print(expanded);
 
 // begin(
