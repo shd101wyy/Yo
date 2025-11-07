@@ -482,15 +482,15 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
 
   // Check each variant
   for (const variant of enumType.variants) {
-    if (!variant.elements || variant.elements.length === 0) {
-      // Variant with no elements (like None)
+    if (!variant.fields || variant.fields.length === 0) {
+      // Variant with no fields (like None)
       if (emptyVariant) {
         return null; // More than one empty variant
       }
       emptyVariant = variant;
-    } else if (variant.elements.length === 1) {
+    } else if (variant.fields.length === 1) {
       // Variant with exactly one element
-      const elementType = variant.elements[0]!.type;
+      const elementType = variant.fields[0]!.type;
 
       // Check if it's a pointer/reference type
       if (isMutPtrType(elementType)) {
@@ -507,8 +507,8 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
   }
 
   // Must have exactly one empty variant and one pointer variant
-  if (emptyVariant && pointerVariant && pointerVariant.elements) {
-    return pointerVariant.elements[0]!.type;
+  if (emptyVariant && pointerVariant && pointerVariant.fields) {
+    return pointerVariant.fields[0]!.type;
   }
 
   return null;
@@ -519,9 +519,9 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
  * Returns true if all variants have no data members.
  */
 export function canOptimizeAsSimpleEnum(enumType: EnumType): boolean {
-  // All variants must have no elements
+  // All variants must have no fields
   for (const variant of enumType.variants) {
-    if (variant.elements && variant.elements.length > 0) {
+    if (variant.fields && variant.fields.length > 0) {
       return false; // Has data members
     }
   }

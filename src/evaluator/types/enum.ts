@@ -11,13 +11,13 @@ import {
 import {
   createEnumType,
   EnumVariant,
-  ModuleElement,
-  TypeElement,
+  ModuleField,
+  TypeField,
 } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
-import { evaluateTypeElement } from "./element";
+import { evaluateTypeField } from "./field";
 import {
   addARCFunctionSignaturesToEnumType,
   addARCFunctionsToEnumType,
@@ -45,7 +45,7 @@ export function evaluateEnumType({
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;
-  const moduleElements: ModuleElement[] = enumType.module.elements;
+  const moduleFields: ModuleField[] = enumType.module.fields;
 
   for (let i = 0; i < expr.args.length; i++) {
     const enumArg = expr.args[i]!;
@@ -62,56 +62,54 @@ export function evaluateEnumType({
     ) {
       const arg = enumArg;
 
-      const { element, env: nextEnv } = evaluateTypeElement({
+      const { field, env: nextEnv } = evaluateTypeField({
         expr: arg,
         env,
-        tupleElementIndex: i,
+        tupleFieldIndex: i,
         context: { ...context, SelfType: enumType },
         forType: "enum",
       });
 
       // Check if there is duplicate labels
-      const duplicateLabel = moduleElements.find(
-        (elem) => elem.label === element.label
+      const duplicateLabel = moduleFields.find(
+        (elem) => elem.label === field.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Duplicate label "${element.label}" in enum`,
+          errorMessage: `Duplicate label "${field.label}" in enum`,
         });
       }
 
       // Check if it duplicates with the existing variant names
-      if (variants.some((v) => v.name === element.label)) {
+      if (variants.some((v) => v.name === field.label)) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Duplicate label "${element.label}" in enum variants`,
+          errorMessage: `Duplicate label "${field.label}" in enum variants`,
         });
       }
 
-      if (!element.isCompileTimeOnly) {
+      if (!field.isCompileTimeOnly) {
         throw formatErrorMessage({
           token: arg.token,
           errorMessage: `Expected compile-time only field, got:\n${exprToString(
-            element.exprs.expr
+            field.exprs.expr
           )}`,
         });
       }
 
       // Enum module field cannot have default value.
-      if (element.defaultValue) {
+      if (field.defaultValue) {
         throw formatErrorMessage({
-          token:
-            element.exprs.defaultValueExpr?.token ?? element.exprs.expr.token,
+          token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
           errorMessage: `Enum module field cannot have default value.`,
         });
       }
 
       // Enum module field must have assigned value.
-      if (!element.assignedValue) {
+      if (!field.assignedValue) {
         throw formatErrorMessage({
-          token:
-            element.exprs.assignedValueExpr?.token ?? element.exprs.expr.token,
+          token: field.exprs.assignedValueExpr?.token ?? field.exprs.expr.token,
           errorMessage: `Enum module field must have assigned value.`,
         });
       }
@@ -128,9 +126,9 @@ export function evaluateEnumType({
       // Verify the disposeFunction has the correct type.
       // fn(self : Self) -> unit
       // if (type.label === BuiltinFunctions.dispose[0]) {
-      //   validateDisposeFunction(type as ModuleElement, arg.token);
+      //   validateDisposeFunction(type as ModuleField, arg.token);
       // }
-      moduleElements.push(element as ModuleElement);
+      moduleFields.push(field as ModuleField);
       env = nextEnv;
     }
 
@@ -168,46 +166,45 @@ export function evaluateEnumType({
           });
         }
         const variantName = enumArg.func.token.value;
-        const elements: TypeElement[] = [];
+        const fields: TypeField[] = [];
         for (let i = 0; i < enumArg.args.length; i++) {
           const arg = enumArg.args[i]!;
-          const { element, env: nextEnv } = evaluateTypeElement({
+          const { field, env: nextEnv } = evaluateTypeField({
             expr: arg,
             env,
-            tupleElementIndex: i,
+            tupleFieldIndex: i,
             context: { ...context, SelfType: enumType },
             forType: "enum",
           });
 
           // Check if there is duplicate labels
-          const duplicateLabel = elements.find(
-            (elem) => elem.label === element.label
+          const duplicateLabel = fields.find(
+            (elem) => elem.label === field.label
           );
           if (duplicateLabel) {
             throw formatErrorMessage({
               token: exprIsFunctionCall(arg)
                 ? (arg.args[0]?.token ?? arg.token)
                 : arg.token,
-              errorMessage: `Duplicate field label "${element.label}" in enum variant`,
+              errorMessage: `Duplicate field label "${field.label}" in enum variant`,
             });
           }
 
-          if (element.assignedValue) {
+          if (field.assignedValue) {
             throw formatErrorMessage({
               token:
-                element.exprs.assignedValueExpr?.token ??
-                element.exprs.expr.token,
+                field.exprs.assignedValueExpr?.token ?? field.exprs.expr.token,
               errorMessage: `Enum variant field cannot have compile-time assigned value.`,
             });
           }
 
-          elements.push(element);
+          fields.push(field);
           env = nextEnv;
         }
 
         variants.push({
           name: variantName,
-          elements: elements,
+          fields: fields,
         });
       }
     }

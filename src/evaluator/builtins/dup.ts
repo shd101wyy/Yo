@@ -42,18 +42,18 @@ function generateTupleDupCall(tupleExpr: Expr): string {
   }
 
   const tupleType = tupleExpr.$.type;
-  const elementsNeedingDup = tupleType.elements.map((element, index) => ({
+  const fieldsNeedingDup = tupleType.fields.map((element, index) => ({
     index,
     element,
     needsDup: typeContainsARCType(element.type),
   }));
 
-  if (elementsNeedingDup.every(({ needsDup }) => !needsDup)) {
+  if (fieldsNeedingDup.every(({ needsDup }) => !needsDup)) {
     return ""; // No elements need duplication, return as-is
   }
 
   // Destructure the tuple, dup ARC elements, and reconstruct
-  const dupCalls = elementsNeedingDup
+  const dupCalls = fieldsNeedingDup
     .map(({ index, needsDup }) =>
       needsDup
         ? `${BuiltinFunctions.___dup[0]!}(${tupleExpr.$?.variableName}.${index})`

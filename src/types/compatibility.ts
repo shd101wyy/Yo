@@ -4,7 +4,7 @@ import {
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import { ClosureType, FunctionType, ModuleElement, Type } from "./definitions";
+import { ClosureType, FunctionType, ModuleField, Type } from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
@@ -162,12 +162,12 @@ export function areTypesCompatible(
   }
 
   if (isTupleType(expected.type) && isTupleType(given.type)) {
-    if (expected.type.elements.length !== given.type.elements.length) {
+    if (expected.type.fields.length !== given.type.fields.length) {
       return false;
     }
-    for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedTypeElement = expected.type.elements[i]!;
-      const givenTypeElement = given.type.elements[i]!;
+    for (let i = 0; i < expected.type.fields.length; i++) {
+      const expectedTypeElement = expected.type.fields[i]!;
+      const givenTypeElement = given.type.fields[i]!;
 
       if (
         !areTypesCompatible(
@@ -204,9 +204,9 @@ export function areTypesCompatible(
     ///   );
     /// }
 
-    // Structs must have same elements and compatible types
+    // Structs must have same fields and compatible types
     if (
-      expected.type.elements.length !== given.type.elements.length ||
+      expected.type.fields.length !== given.type.fields.length ||
       // NOTE: Below is not necessarily true
       // We might compare Box(T) and Box(U), where T and U are SomeType.
       (expected.type.id !== given.type.id &&
@@ -220,18 +220,18 @@ export function areTypesCompatible(
       return true;
     }
 
-    for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedElement = expected.type.elements[i]!;
-      const givenElement = given.type.elements[i]!;
+    for (let i = 0; i < expected.type.fields.length; i++) {
+      const expectedFields = expected.type.fields[i]!;
+      const givenFields = given.type.fields[i]!;
 
       if (
-        expectedElement.label !== givenElement.label ||
+        expectedFields.label !== givenFields.label ||
         !areTypesCompatible(
           {
-            type: expectedElement.type,
+            type: expectedFields.type,
             env: expected.env,
           },
-          { type: givenElement.type, env: given.env }
+          { type: givenFields.type, env: given.env }
         )
       ) {
         return false;
@@ -258,20 +258,20 @@ export function areTypesCompatible(
         return false;
       }
 
-      if (expectedVariant.elements?.length !== givenVariant.elements?.length) {
+      if (expectedVariant.fields?.length !== givenVariant.fields?.length) {
         return false;
       }
 
-      if (expectedVariant.elements) {
-        for (let j = 0; j < expectedVariant.elements.length; j++) {
-          const expectedElement = expectedVariant.elements![j]!;
-          const givenElement = givenVariant.elements![j]!;
+      if (expectedVariant.fields) {
+        for (let j = 0; j < expectedVariant.fields.length; j++) {
+          const expectedFields = expectedVariant.fields![j]!;
+          const givenFields = givenVariant.fields![j]!;
 
           if (
-            expectedElement.label !== givenElement.label ||
+            expectedFields.label !== givenFields.label ||
             !areTypesCompatible(
-              { type: expectedElement.type, env: expected.env },
-              { type: givenElement.type, env: given.env }
+              { type: expectedFields.type, env: expected.env },
+              { type: givenFields.type, env: given.env }
             )
           ) {
             return false;
@@ -297,9 +297,9 @@ export function areTypesCompatible(
   }
 
   if (isUnionType(expected.type) && isUnionType(given.type)) {
-    // Unions must have same elements and compatible types
+    // Unions must have same fields and compatible types
     if (
-      expected.type.elements.length !== given.type.elements.length ||
+      expected.type.fields.length !== given.type.fields.length ||
       (expected.type.id !== given.type.id &&
         !typeContainsSomeType(expected.type) &&
         !typeContainsSomeType(given.type))
@@ -311,15 +311,15 @@ export function areTypesCompatible(
       return true;
     }
 
-    for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedElement = expected.type.elements[i]!;
-      const givenElement = given.type.elements[i]!;
+    for (let i = 0; i < expected.type.fields.length; i++) {
+      const expectedFields = expected.type.fields[i]!;
+      const givenFields = given.type.fields[i]!;
 
       if (
-        expectedElement.label !== givenElement.label ||
+        expectedFields.label !== givenFields.label ||
         !areTypesCompatible(
-          { type: expectedElement.type, env: expected.env },
-          { type: givenElement.type, env: given.env }
+          { type: expectedFields.type, env: expected.env },
+          { type: givenFields.type, env: given.env }
         )
       ) {
         return false;
@@ -330,18 +330,18 @@ export function areTypesCompatible(
 
   // NOTE: Module type is a structural type.
   if (isModuleType(expected.type)) {
-    let givenElements: ModuleElement[] | undefined = undefined;
+    let givenElements: ModuleField[] | undefined = undefined;
     let givenReceiverType: Type | undefined = undefined;
 
     if (isModuleType(given.type)) {
-      givenElements = given.type.elements;
+      givenElements = given.type.fields;
       givenReceiverType = given.type.receiverType;
     } else if (
       isTypeHierarchyType(given.type) &&
       given.type.baseType &&
       given.type.baseType.module
     ) {
-      givenElements = given.type.baseType.module.elements;
+      givenElements = given.type.baseType.module.fields;
       givenReceiverType = given.type.baseType.module.receiverType;
     }
 
@@ -361,43 +361,43 @@ export function areTypesCompatible(
         // Expected has receiverType constraint but given doesn't
         // This means we're checking if a type implements a subtype constraint
         // The given type should satisfy the receiverType constraint
-        // For now, we'll only check the module elements, not the receiverType
+        // For now, we'll only check the module fields, not the receiverType
         // The receiverType constraint should be checked elsewhere when implementing
       } else if (!expected.type.receiverType && givenReceiverType) {
         // Expected doesn't have receiverType but given does
         // This is OK - the given type is more specific
       }
 
-      // Modules must have same elements and compatible types
-      for (let i = 0; i < expected.type.elements.length; i++) {
-        const expectedElement = expected.type.elements[i]!;
+      // Modules must have same fields and compatible types
+      for (let i = 0; i < expected.type.fields.length; i++) {
+        const expectedFields = expected.type.fields[i]!;
 
-        const givenElement = givenElements.find(
-          (element) => element.label === expectedElement.label
+        const givenFields = givenElements.find(
+          (field) => field.label === expectedFields.label
         );
-        if (!givenElement) {
+        if (!givenFields) {
           return false;
         }
 
         if (
           !areTypesCompatible(
-            { type: expectedElement.type, env: expected.env },
-            { type: givenElement.type, env: given.env },
+            { type: expectedFields.type, env: expected.env },
+            { type: givenFields.type, env: given.env },
             true // isMethodReceiver
           )
         ) {
           return false;
         }
 
-        if (expectedElement.assignedValue && givenElement.assignedValue) {
+        if (expectedFields.assignedValue && givenFields.assignedValue) {
           if (
             !areValuesEqual(
               {
-                value: expectedElement.assignedValue,
+                value: expectedFields.assignedValue,
                 env: expected.env,
               },
               {
-                value: givenElement.assignedValue,
+                value: givenFields.assignedValue,
                 env: given.env,
               }
             )

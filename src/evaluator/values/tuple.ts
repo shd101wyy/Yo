@@ -16,7 +16,7 @@ import {
   isTupleType,
   TupleType,
   Type,
-  TypeElement,
+  TypeField,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -25,7 +25,7 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
- * Evaluate the element in tuple rvalue, such as
+ * Evaluate the field in tuple rvalue, such as
  * value:
  * 14  in (14, ...)
  * (x: 16) in (x: 16, ...)
@@ -33,20 +33,20 @@ import { evaluateExpression } from "../exprs/expr";
  */
 export function evaluateTupleElementValue({
   expr,
-  tupleElementIndex,
+  tupleFieldIndex,
   env,
   context,
   elementIndex,
   runtimeArgExprsInOrder,
 }: {
   expr: Expr;
-  tupleElementIndex: number;
+  tupleFieldIndex: number;
   env: Environment;
   context: EvaluatorContext;
   elementIndex: number;
   runtimeArgExprsInOrder: Expr[];
 }): {
-  type: TypeElement;
+  type: TypeField;
   value: Value | undefined;
   env: Environment;
 } {
@@ -60,29 +60,29 @@ export function evaluateTupleElementValue({
 
     throw formatErrorMessage({
       token: lhsExpr.token,
-      errorMessage: `Labelled element is not allowed in tuple value.`,
+      errorMessage: `Labelled field is not allowed in tuple value.`,
     });
   }
 
   // Check expectedType
   const expectedTupleType = context.expectedType?.type;
-  let expectedTupleElementType: Type | undefined = undefined;
+  let expectedTupleFieldType: Type | undefined = undefined;
   if (expectedTupleType) {
     if (!isTupleType(expectedTupleType)) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `(2) Failed to evaluate the tuple elements. Expected type to be:
+        errorMessage: `(2) Failed to evaluate the tuple fields. Expected type to be:
 ${typeToString(expectedTupleType)}`,
       });
     }
-    const tupleElement = expectedTupleType.elements[tupleElementIndex];
-    if (!tupleElement) {
+    const tupleField = expectedTupleType.fields[tupleFieldIndex];
+    if (!tupleField) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Failed to get the tuple element at index ${tupleElementIndex}`,
+        errorMessage: `Failed to get the tuple field at index ${tupleFieldIndex}`,
       });
     }
-    expectedTupleElementType = tupleElement.type;
+    expectedTupleFieldType = tupleField.type;
   }
 
   // Parse the rhs expr
@@ -91,9 +91,9 @@ ${typeToString(expectedTupleType)}`,
     env,
     context: {
       ...context,
-      expectedType: expectedTupleElementType
+      expectedType: expectedTupleFieldType
         ? {
-            type: expectedTupleElementType,
+            type: expectedTupleFieldType,
             env,
           }
         : undefined,
@@ -105,7 +105,7 @@ ${typeToString(expectedTupleType)}`,
   if (!evaluatedRhs.$) {
     throw formatErrorMessage({
       token: rhsExpr.token,
-      errorMessage: `Failed to evaluate the tuple element: ${exprToString(rhsExpr)}`,
+      errorMessage: `Failed to evaluate the tuple field: ${exprToString(rhsExpr)}`,
     });
   }
   env = evaluatedRhs.$.env;
@@ -152,7 +152,7 @@ ${typeToString(expectedTupleType)}`,
       },
       isCompileTimeOnly: false,
       type: elementType,
-      label: elementIndex.toString(), // `$element_${randomId()}`,
+      label: elementIndex.toString(), // `$field_${randomId()}`,
     },
     value,
     env,
@@ -175,7 +175,7 @@ export function evaluateTupleElementsValue({
   env: Environment;
   runtimeArgExprsInOrder: Expr[];
 } {
-  const tupleElements: TypeElement[] = [];
+  const tupleElements: TypeField[] = [];
   const tupleValues: (Value | undefined)[] = [];
   const runtimeArgExprsInOrder: Expr[] = [];
 
@@ -189,7 +189,7 @@ export function evaluateTupleElementsValue({
     } = evaluateTupleElementValue({
       expr: arg,
       env,
-      tupleElementIndex: i,
+      tupleFieldIndex: i,
       context: { ...context },
       elementIndex: i,
       runtimeArgExprsInOrder,
@@ -202,7 +202,7 @@ export function evaluateTupleElementsValue({
 
   const tupleType: TupleType = createTupleType(tupleElements);
   const value: Value | undefined = tupleValues.some((v) => !v)
-    ? // ^ Meaning some element value is not compile-time known.
+    ? // ^ Meaning some field value is not compile-time known.
       undefined
     : createTupleValue(tupleType, tupleValues as Value[]);
 
@@ -249,20 +249,20 @@ export function evaluateTupleValue({
   } = evaluateTupleElementsValue({ args: expr.args, env, context });
   env = nextEnv;
 
-  // We disallow the tuple elements to have defaultValue for the tuple type
+  // We disallow the tuple fields to have defaultValue for the tuple type
   // We disallow the tuple value to have labels. Only the tuple type can have labels.
-  tupleType.elements.forEach((tupleElement) => {
-    if (tupleElement.exprs.defaultValueExpr) {
+  tupleType.fields.forEach((tupleField) => {
+    if (tupleField.exprs.defaultValueExpr) {
       throw formatErrorMessage({
-        token: tupleElement.exprs.defaultValueExpr!.token,
-        errorMessage: `Tuple type cannot have default value.`,
+        token: tupleField.exprs.defaultValueExpr!.token,
+        errorMessage: `Tuple value field cannot have default value.`,
       });
     }
 
-    if (tupleElement.exprs.labelExpr) {
+    if (tupleField.exprs.labelExpr) {
       throw formatErrorMessage({
-        token: tupleElement.exprs.labelExpr!.token,
-        errorMessage: `Tuple value cannot have labels.`,
+        token: tupleField.exprs.labelExpr!.token,
+        errorMessage: `Tuple value field cannot have labels.`,
       });
     }
   });

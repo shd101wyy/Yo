@@ -288,7 +288,7 @@ typedef struct {
 
     if (isStructType(type)) {
       // Skip forward declaration for newtypes since they're just typedefs
-      if (type.isNewtype && type.elements.length === 1) {
+      if (type.isNewtype && type.fields.length === 1) {
         continue;
       }
       context.emitter.emitDeclarationLine(
@@ -380,9 +380,9 @@ typedef struct {
 
     if (isStruct && isStructType(type)) {
       // Check if struct contains enums by value
-      for (const element of type.elements) {
-        if (isEnumType(element.type)) {
-          const depCName = getTypeString(element.type, context);
+      for (const field of type.fields) {
+        if (isEnumType(field.type)) {
+          const depCName = getTypeString(field.type, context);
           const depTypeId = cNameToTypeId.get(depCName);
           // If this struct depends on an enum in our set, record it
           if (
@@ -397,11 +397,11 @@ typedef struct {
     } else if (!isStruct && isEnumType(type)) {
       // Check if enum contains other enums or structs by value
       for (const variant of type.variants) {
-        if (variant.elements) {
-          for (const element of variant.elements) {
+        if (variant.fields) {
+          for (const field of variant.fields) {
             // Enums by value need to be defined first
-            if (isEnumType(element.type)) {
-              const depCName = getTypeString(element.type, context);
+            if (isEnumType(field.type)) {
+              const depCName = getTypeString(field.type, context);
               const depTypeId = cNameToTypeId.get(depCName);
               if (
                 depTypeId &&
@@ -562,7 +562,7 @@ export function generateClosureDeclaration(
   // Note: Capture type is no longer part of ClosureType.
   // It's passed as a separate parameter and stored in expr.$.captureType during closure construction.
   // Generate the capture data structure first (if there are captures)
-  if (isStructType(captureType) && captureType.elements.length > 0) {
+  if (isStructType(captureType) && captureType.fields.length > 0) {
     // Check if the capture type already exists in the context (it should have been collected)
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
@@ -576,9 +576,9 @@ export function generateClosureDeclaration(
         `typedef struct { // Capture data for ${typeToString(closureType)}`
       );
 
-      for (const element of captureType.elements) {
-        const fieldTypeStr = getTypeString(element.type, context);
-        const fieldName = sanitizeForCIdentifier(element.label);
+      for (const field of captureType.fields) {
+        const fieldTypeStr = getTypeString(field.type, context);
+        const fieldName = sanitizeForCIdentifier(field.label);
         emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
       }
 
@@ -644,8 +644,8 @@ export function generateStructDeclaration(
   const emitter = context.emitter;
 
   // Handle newtypes as zero-cost abstractions using typedef
-  if (structType.isNewtype && structType.elements.length === 1) {
-    const underlyingType = structType.elements[0]!.type;
+  if (structType.isNewtype && structType.fields.length === 1) {
+    const underlyingType = structType.fields[0]!.type;
     const underlyingTypeStr = getTypeString(underlyingType, context);
     emitter.emitDeclarationLine(
       `typedef ${underlyingTypeStr} ${cName}; // ${structType.typeName} : ${typeToString(structType)} (newtype - zero-cost abstraction)`
@@ -663,9 +663,9 @@ export function generateStructDeclaration(
       `  yo_ref_header_t header; // Reference count header`
     );
 
-    for (const element of structType.elements) {
-      const fieldTypeStr = getTypeString(element.type, context);
-      const fieldName = sanitizeForCIdentifier(element.label);
+    for (const field of structType.fields) {
+      const fieldTypeStr = getTypeString(field.type, context);
+      const fieldName = sanitizeForCIdentifier(field.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
@@ -676,9 +676,9 @@ export function generateStructDeclaration(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)}`
     );
 
-    for (const element of structType.elements) {
-      const fieldTypeStr = getTypeString(element.type, context);
-      const fieldName = sanitizeForCIdentifier(element.label);
+    for (const field of structType.fields) {
+      const fieldTypeStr = getTypeString(field.type, context);
+      const fieldName = sanitizeForCIdentifier(field.label);
       emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
     }
 
@@ -701,11 +701,11 @@ export function generateTupleDeclaration(
     `typedef struct { // ${tupleType.typeName} : ${typeToString(tupleType)}`
   );
 
-  for (const element of tupleType.elements) {
-    const fieldTypeStr = getTypeString(element.type, context);
-    const fieldName = element.label.match(/^\d+$/)
-      ? `_${element.label}`
-      : sanitizeForCIdentifier(element.label);
+  for (const field of tupleType.fields) {
+    const fieldTypeStr = getTypeString(field.type, context);
+    const fieldName = field.label.match(/^\d+$/)
+      ? `_${field.label}`
+      : sanitizeForCIdentifier(field.label);
     emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
   }
 
@@ -727,9 +727,9 @@ export function generateUnionDeclaration(
     `typedef union { // ${unionType.typeName} : ${typeToString(unionType)}`
   );
 
-  for (const element of unionType.elements) {
-    const fieldTypeStr = getTypeString(element.type, context);
-    const fieldName = sanitizeForCIdentifier(element.label);
+  for (const field of unionType.fields) {
+    const fieldTypeStr = getTypeString(field.type, context);
+    const fieldName = sanitizeForCIdentifier(field.label);
     emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
   }
 
@@ -804,10 +804,10 @@ export function generateEnumDeclaration(
   emitter.emitDeclarationLine(`typedef union {`);
 
   for (const variant of enumType.variants) {
-    if (variant.elements && variant.elements.length > 0) {
-      // Filter out unit type elements - they don't need to be stored
-      const nonUnitElements = variant.elements.filter(
-        (element) => !isUnitType(element.type)
+    if (variant.fields && variant.fields.length > 0) {
+      // Filter out unit type fields - they don't need to be stored
+      const nonUnitElements = variant.fields.filter(
+        (field) => !isUnitType(field.type)
       );
 
       // Only generate struct if there are non-unit fields
@@ -816,9 +816,9 @@ export function generateEnumDeclaration(
         const variantStructName = variant.name;
         emitter.emitDeclarationLine(`  struct {`);
 
-        for (const element of nonUnitElements) {
-          const fieldTypeStr = getTypeString(element.type, context);
-          const fieldName = sanitizeForCIdentifier(element.label);
+        for (const field of nonUnitElements) {
+          const fieldTypeStr = getTypeString(field.type, context);
+          const fieldName = sanitizeForCIdentifier(field.label);
           emitter.emitDeclarationLine(`    ${fieldTypeStr} ${fieldName};`);
         }
 
@@ -865,24 +865,24 @@ export function generateDynDeclaration(
 
   // Process modules in the order they appear in dynType.moduleTypes
   for (const moduleType of dynType.moduleTypes) {
-    for (const element of moduleType.elements) {
+    for (const field of moduleType.fields) {
       // Skip 'Self' type declarations as they're not methods
-      if (element.label === "Self") {
+      if (field.label === "Self") {
         continue;
       }
 
       // Avoid duplicate methods from different modules
-      if (processedMethods.has(element.label)) {
+      if (processedMethods.has(field.label)) {
         continue;
       }
-      processedMethods.add(element.label);
+      processedMethods.add(field.label);
 
       // Generate function pointer for this method
-      const methodName = sanitizeForCIdentifier(element.label);
+      const methodName = sanitizeForCIdentifier(field.label);
 
-      // Check if this element is a function type
-      if (isFunctionType(element.type)) {
-        const functionType = element.type as FunctionType;
+      // Check if this field is a function type
+      if (isFunctionType(field.type)) {
+        const functionType = field.type as FunctionType;
 
         // Only include methods whose first parameter is of type Self
         if (functionType.parameters.length > 0) {
@@ -911,16 +911,16 @@ export function generateDynDeclaration(
               .join(", ");
 
             emitter.emitDeclarationLine(
-              `  ${returnTypeStr} (*${methodName})(${paramList}); // Method pointer for ${element.label}`
+              `  ${returnTypeStr} (*${methodName})(${paramList}); // Method pointer for ${field.label}`
             );
           }
           // Skip functions that don't have 'self' as first parameter
         }
       } else {
-        // For non-function elements, treat as data members (shouldn't happen for trait methods)
-        const elementTypeStr = getTypeString(element.type, context);
+        // For non-function fields, treat as data members (shouldn't happen for trait methods)
+        const elementTypeStr = getTypeString(field.type, context);
         emitter.emitDeclarationLine(
-          `  ${elementTypeStr} ${methodName}; // Non-function member ${element.label}`
+          `  ${elementTypeStr} ${methodName}; // Non-function member ${field.label}`
         );
       }
     }

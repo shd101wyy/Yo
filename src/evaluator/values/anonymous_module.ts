@@ -72,7 +72,7 @@ export function evaluateAnonymousModuleBeginExprs({
         for (let i = 0; i < exportExprs.length; i++) {
           const exportExpr = exportExprs[i]!;
 
-          // spread operator for export all elements in another module
+          // spread operator for export all fields in another module
           if (
             exprIsFunctionCall(exportExpr) &&
             exprIsFunctionCallOf(exportExpr, "...")
@@ -119,7 +119,7 @@ export function evaluateAnonymousModuleBeginExprs({
               if (exprIsAtom(excludeMembersExpr)) {
                 const label = excludeMembersExpr.token.value;
                 // Check if the label is in the extended module type
-                const existingElement = extendedModuleType.elements.find(
+                const existingElement = extendedModuleType.fields.find(
                   (e) => e.label === label
                 );
                 if (!existingElement) {
@@ -145,7 +145,7 @@ export function evaluateAnonymousModuleBeginExprs({
                     BuiltinKeywords.tuple
                   )
                 ) {
-                  // Iterate over the elements of the tuple
+                  // Iterate over the fields of the tuple
                   for (const memberExpr of excludeMembersExpr.args) {
                     if (!exprIsAtom(memberExpr)) {
                       throw formatErrorMessage({
@@ -155,7 +155,7 @@ export function evaluateAnonymousModuleBeginExprs({
                     }
                     const label = memberExpr.token.value;
                     // Check if the label is in the extended module type
-                    const existingElement = extendedModuleType.elements.find(
+                    const existingElement = extendedModuleType.fields.find(
                       (e) => e.label === label
                     );
                     if (!existingElement) {
@@ -184,35 +184,35 @@ export function evaluateAnonymousModuleBeginExprs({
               }
             }
 
-            // Iterate over the elements of the extended struct
-            for (let i = 0; i < extendedModuleType.elements.length; i++) {
-              const extendedStructElement = extendedModuleType.elements[i]!;
-              // Check if the element is excluded
-              if (excludedLabels.has(extendedStructElement.label)) {
-                // Skip the element if it's excluded
+            // Iterate over the fields of the extended struct
+            for (let i = 0; i < extendedModuleType.fields.length; i++) {
+              const extendedStructField = extendedModuleType.fields[i]!;
+              // Check if the field is excluded
+              if (excludedLabels.has(extendedStructField.label)) {
+                // Skip the field if it's excluded
                 continue;
               }
 
               // Check if there is duplicate labels
               // If yes, then throw an error
-              const existingElementIndex = moduleType.elements.findIndex(
-                (e) => e.label === extendedStructElement.label
+              const existingElementIndex = moduleType.fields.findIndex(
+                (e) => e.label === extendedStructField.label
               );
               if (existingElementIndex >= 0) {
                 throw formatErrorMessage({
                   token: exportExpr.token,
-                  errorMessage: `Element "${extendedStructElement.label}" is already exported in the module.`,
+                  errorMessage: `Element "${extendedStructField.label}" is already exported in the module.`,
                 });
               } else {
-                // Add the element to the module type
-                moduleType.elements.push({
-                  label: extendedStructElement.label,
-                  type: extendedStructElement.type,
-                  isCompileTimeOnly: extendedStructElement.isCompileTimeOnly,
-                  assignedValue: extendedStructElement.isCompileTimeOnly
-                    ? extendedStructElement.assignedValue
+                // Add the field to the module type
+                moduleType.fields.push({
+                  label: extendedStructField.label,
+                  type: extendedStructField.type,
+                  isCompileTimeOnly: extendedStructField.isCompileTimeOnly,
+                  assignedValue: extendedStructField.isCompileTimeOnly
+                    ? extendedStructField.assignedValue
                     : undefined,
-                  defaultValue: extendedStructElement.defaultValue,
+                  defaultValue: extendedStructField.defaultValue,
                   exprs: {
                     expr: exportExpr,
                     labelExpr: undefined,
@@ -222,9 +222,9 @@ export function evaluateAnonymousModuleBeginExprs({
                   },
                 });
 
-                // Add the value to the module element values
+                // Add the value to the module field values
                 if (extendedModuleValue) {
-                  moduleElementValues.push(extendedModuleValue.elements[i]);
+                  moduleElementValues.push(extendedModuleValue.fields[i]);
                 } else {
                   moduleElementValues.push(undefined);
                 }
@@ -232,9 +232,9 @@ export function evaluateAnonymousModuleBeginExprs({
                 // Add information to exportExpr
                 exportExpr.$ = {
                   env,
-                  type: extendedStructElement.type,
+                  type: extendedStructField.type,
                   value: extendedModuleValue
-                    ? extendedModuleValue.elements[i]
+                    ? extendedModuleValue.fields[i]
                     : undefined,
                   pathCollection: [],
                 };
@@ -306,7 +306,7 @@ export function evaluateAnonymousModuleBeginExprs({
             const variable = variables[variables.length - 1]!;
 
             // Check if the same variable is already exported
-            const existingElementIndex = moduleType.elements.findIndex(
+            const existingElementIndex = moduleType.fields.findIndex(
               (e) => e.label === givenVariableName
             );
             if (existingElementIndex >= 0) {
@@ -325,7 +325,7 @@ export function evaluateAnonymousModuleBeginExprs({
               }
 
               // Add the variable to the module type
-              moduleType.elements.push({
+              moduleType.fields.push({
                 label: variableName,
                 type: variable.type,
                 isCompileTimeOnly: variable.isCompileTimeOnly,

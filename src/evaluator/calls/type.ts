@@ -11,8 +11,8 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  tupleElementToString,
-  TypeElement,
+  tupleFieldToString,
+  TypeField,
   typeToString,
 } from "../../types";
 import { Value } from "../../value";
@@ -25,24 +25,24 @@ import { evaluateExpression } from "../exprs/expr";
  *
  */
 export function tryToCallTypeWithArguments({
-  memberElements,
+  typeFields,
   functionCalleeExpr,
   argExprs,
   callerEnv,
   context,
   isUnionType,
 }: {
-  memberElements: TypeElement[];
+  typeFields: TypeField[];
   functionCalleeExpr: Expr;
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
   isUnionType?: boolean;
 }): TypeCallResult {
-  if (argExprs.length > memberElements.length) {
+  if (argExprs.length > typeFields.length) {
     throw formatErrorMessage({
       token: functionCalleeExpr.token,
-      errorMessage: `Failed to call the type. Too many members provided. Expected ${memberElements.length} arguments, got ${argExprs.length}.`,
+      errorMessage: `Failed to call the type. Too many members provided. Expected ${typeFields.length} arguments, got ${argExprs.length}.`,
     });
   }
   if (isUnionType && argExprs.length !== 1) {
@@ -52,14 +52,14 @@ export function tryToCallTypeWithArguments({
     });
   }
 
-  const checkedMemberElements: Set<TypeElement> = new Set();
-  const values: (Value | undefined)[] = Array(memberElements.length).fill(
+  const checkedMemberElements: Set<TypeField> = new Set();
+  const values: (Value | undefined)[] = Array(typeFields.length).fill(
     undefined
   );
   const runtimeArgExprsInOrder: Expr[] = [];
 
-  for (let i = 0; i < memberElements.length; i++) {
-    let memberElement = memberElements[i]!;
+  for (let i = 0; i < typeFields.length; i++) {
+    let memberElement = typeFields[i]!;
 
     let argExpr = argExprs[i];
     if (!argExpr) {
@@ -83,7 +83,7 @@ export function tryToCallTypeWithArguments({
     if (labelExpr) {
       const label = labelExpr.token.value;
       // Find the matching label in the expectedType
-      const paramElement_ = memberElements.find(
+      const paramElement_ = typeFields.find(
         (element) => element.label === label
       );
       if (!paramElement_) {
@@ -95,7 +95,7 @@ export function tryToCallTypeWithArguments({
         throw formatErrorMessage({
           token: argExpr.token,
           errorMessage: `Cannot use label "${label}" for already assigned value:
-${tupleElementToString(paramElement_)}`,
+${tupleFieldToString(paramElement_)}`,
         });
       } else {
         memberElement = paramElement_;
@@ -110,7 +110,7 @@ ${tupleElementToString(paramElement_)}`,
         errorMessage: `Type member "${memberElement.label}" is already implemented.`,
       });
     }
-    const memberElementPositionIndex = memberElements.indexOf(memberElement);
+    const memberElementPositionIndex = typeFields.indexOf(memberElement);
 
     // Evaluate the argExpr
     const evaluatedArgExpr = evaluateExpression({
@@ -165,8 +165,8 @@ Got:   ${typeToString(argType)}`,
 
   if (!isUnionType) {
     // Check if any unchecked member elements have no default value
-    for (let i = 0; i < memberElements.length; i++) {
-      const memberElement = memberElements[i]!;
+    for (let i = 0; i < typeFields.length; i++) {
+      const memberElement = typeFields[i]!;
       if (!checkedMemberElements.has(memberElement)) {
         if (!memberElement.defaultValue && !memberElement.assignedValue) {
           throw formatErrorMessage({

@@ -16,7 +16,7 @@ import {
   createType0,
   isFunctionType,
   isModuleType,
-  ModuleElement,
+  ModuleField,
   ModuleType,
   Type,
   typeToString,
@@ -37,26 +37,26 @@ import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 /**
- * Evaluate the element in module rvalue
+ * Evaluate the field in module rvalue
  *
  * type:
  * (x: i32) in module(x: i32, ...)
  *
  * All fields in module are compile-time only by default.
  */
-export function evaluateModuleElementType({
+export function evaluateModuleField({
   expr,
-  moduleElementIndex,
+  moduleFieldIndex,
   env,
   context,
   isForEvaluatingModuleType,
 }: {
   expr: Expr;
-  moduleElementIndex: number;
+  moduleFieldIndex: number;
   env: Environment;
   context: EvaluatorContext;
   isForEvaluatingModuleType: boolean;
-}): { type: ModuleElement; env: Environment } {
+}): { field: ModuleField; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
 
@@ -69,7 +69,7 @@ export function evaluateModuleElementType({
   let assignedValueExpr: Expr | undefined = undefined;
   let assignedValue: Value | undefined = undefined;
 
-  let elementType: Type | undefined = undefined;
+  let fieldType: Type | undefined = undefined;
 
   // Check if it's an implicit constraint with new syntax: using(name) : Type
   let isImplicit = false;
@@ -127,8 +127,8 @@ export function evaluateModuleElementType({
     if (exprIsFunctionCallOf(expr_, "::", 2)) {
       throw formatErrorMessage({
         token: expr_.token,
-        errorMessage: `Cannot use "::" for module element. Use ":=" instead.
-All module elements are compile-time only by default.`,
+        errorMessage: `Cannot use "::" for module field. Use ":=" instead.
+All module fields are compile-time only by default.`,
       });
     }
 
@@ -140,7 +140,7 @@ All module elements are compile-time only by default.`,
   if (defaultValueExpr && assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Cannot have both default value and required value for tuple element.`,
+      errorMessage: `Cannot have both default value and required value for module field.`,
     });
   }
 
@@ -160,14 +160,14 @@ All module elements are compile-time only by default.`,
     ) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `No need to use "compt"  modifier. All module elements are compile-time only by default.`,
+        errorMessage: `No need to use "compt"  modifier. All module fields are compile-time only by default.`,
       });
     }
 
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple element label, got ${exprToString(
+        errorMessage: `Expected identifier for tuple field label, got ${exprToString(
           labelExpr
         )}`,
       });
@@ -180,7 +180,7 @@ All module elements are compile-time only by default.`,
   ) {
     throw formatErrorMessage({
       token: expr_.token,
-      errorMessage: `No need to use "compt"  modifier. All module elements are compile-time only by default.`,
+      errorMessage: `No need to use "compt"  modifier. All module fields are compile-time only by default.`,
     });
   } else if (!isImplicit && !defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({
@@ -195,7 +195,7 @@ All module elements are compile-time only by default.`,
     if (!isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple element label, got ${exprToString(
+        errorMessage: `Expected identifier for module field label, got ${exprToString(
           labelExpr
         )}`,
       });
@@ -203,7 +203,7 @@ All module elements are compile-time only by default.`,
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple element label, got ${exprToString(
+        errorMessage: `Expected identifier for module field label, got ${exprToString(
           labelExpr
         )}`,
       });
@@ -213,23 +213,23 @@ All module elements are compile-time only by default.`,
 
   // Check expectedType
   const expectedType = context.expectedType?.type;
-  let expectedTupleElementType: Type | undefined = undefined;
+  let expectedModuleFieldType: Type | undefined = undefined;
   if (expectedType) {
     if (isModuleType(expectedType)) {
-      const moduleElement = expectedType.elements[moduleElementIndex];
-      if (!moduleElement) {
+      const moduleField = expectedType.fields[moduleFieldIndex];
+      if (!moduleField) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get the field at index ${moduleElementIndex}`,
+          errorMessage: `Failed to get the field at index ${moduleFieldIndex}`,
         });
       }
 
-      expectedTupleElementType = moduleElement.type;
+      expectedModuleFieldType = moduleField.type;
     } else {
       /*
         throw formatErrorMessage(
           expr.token,
-          `(1) Failed to evaluate the tuple elements. Expected type to be:
+          `(1) Failed to evaluate the tuple fields. Expected type to be:
 ${typeToString(expectedType)}`
         );
         */
@@ -244,9 +244,9 @@ ${typeToString(expectedType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedTupleElementType
+        expectedType: expectedModuleFieldType
           ? {
-              type: expectedTupleElementType,
+              type: expectedModuleFieldType,
               env,
             }
           : undefined,
@@ -261,19 +261,19 @@ ${typeToString(expectedType)}`
     if (!isTypeValue(typeValue)) {
       throw formatErrorMessage({
         token: typeExpr.token,
-        errorMessage: `(1) Expected type for tuple element, got ${exprToString(typeExpr)}`,
+        errorMessage: `(1) Expected type for module field, got ${exprToString(typeExpr)}`,
       });
     }
-    elementType = typeValue.value;
+    fieldType = typeValue.value;
   }
 
   // Evaluate assignedValueExpr if it exists
   if (assignedValueExpr) {
-    const expectedType = elementType
-      ? { type: elementType, env }
-      : expectedTupleElementType
+    const expectedType = fieldType
+      ? { type: fieldType, env }
+      : expectedModuleFieldType
         ? {
-            type: expectedTupleElementType,
+            type: expectedModuleFieldType,
             env,
           }
         : undefined;
@@ -322,19 +322,19 @@ Expected type: ${typeToString(expectedType.type)}
 Given type: ${typeToString(assignedValueType)}`,
         });
       }
-      elementType = expectedType.type;
+      fieldType = expectedType.type;
     } else {
-      elementType = assignedValueType;
+      fieldType = assignedValueType;
     }
   }
 
   // Evaluate defaultValueExpr if it exists
   if (defaultValueExpr) {
-    const expectedType = elementType
-      ? { type: elementType, env }
-      : expectedTupleElementType
+    const expectedType = fieldType
+      ? { type: fieldType, env }
+      : expectedModuleFieldType
         ? {
-            type: expectedTupleElementType,
+            type: expectedModuleFieldType,
             env,
           }
         : undefined;
@@ -383,29 +383,29 @@ Expected type: ${typeToString(expectedType.type)}
 Given type: ${typeToString(defaultValueType)}`,
         });
       }
-      elementType = expectedType.type;
+      fieldType = expectedType.type;
     } else {
-      elementType = defaultValueType;
+      fieldType = defaultValueType;
     }
   }
 
-  if (!elementType) {
+  if (!fieldType) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Failed to infer the element type`,
+      errorMessage: `Failed to infer the field type`,
     });
   }
 
   // Validate default value expression restrictions
   if (isForEvaluatingModuleType && defaultValueExpr) {
-    if (!isFunctionType(elementType)) {
+    if (!isFunctionType(fieldType)) {
       throw formatErrorMessage({
         token: defaultValueExpr.token,
         errorMessage: `Default values (?=) are only allowed for function type module elemen
 ts (excluding closures).
-Module element "${label ?? "unnamed"}" has type: ${typeToString(elementType)}
+Module field "${label ?? "unnamed"}" has type: ${typeToString(fieldType)}
 
-To avoid circular dependency issues, please explicitly provide the value for this element.`,
+To avoid circular dependency issues, please explicitly provide the value for this field.`,
       });
     }
   }
@@ -413,8 +413,8 @@ To avoid circular dependency issues, please explicitly provide the value for thi
   if (labelExpr) {
     labelExpr.$ = {
       env,
-      type: elementType,
-      value: assignedValue ?? createUnknownValue(elementType, label),
+      type: fieldType,
+      value: assignedValue ?? createUnknownValue(fieldType, label),
       pathCollection: [],
     };
   }
@@ -429,9 +429,9 @@ To avoid circular dependency issues, please explicitly provide the value for thi
   }
 
   return {
-    type: {
-      label: label ?? `$element_${randomId()}`,
-      type: elementType,
+    field: {
+      label: label ?? `$field_${randomId()}`,
+      type: fieldType,
       exprs: {
         expr,
         labelExpr,
@@ -464,12 +464,12 @@ export function evaluateModuleType({
     });
   }
 
-  // Create moduleType with empty elements
+  // Create moduleType with empty fields
   const moduleType = createModuleType(env);
-  const elements: ModuleElement[] = [];
-  moduleType.elements = elements;
+  const fields: ModuleField[] = [];
+  moduleType.fields = fields;
 
-  // Don't push env frame - module elements shouldn't be in env
+  // Don't push env frame - module fields shouldn't be in env
 
   const args = expr.args;
 
@@ -514,55 +514,55 @@ export function evaluateModuleType({
           extendedModuleType = value.type as ModuleType;
         }
 
-        // Iterate over the elements of the extended struct
-        for (const extendedModuleElement of extendedModuleType.elements) {
+        // Iterate over the fields of the extended struct
+        for (const extendedModuleField of extendedModuleType.fields) {
           // Check if there is duplicate labels
-          // If yes, then override the element
-          const duplicateLabelIndex = elements.findIndex(
-            (e) => e.label === extendedModuleElement.label
+          // If yes, then override the field
+          const duplicateLabelIndex = fields.findIndex(
+            (e) => e.label === extendedModuleField.label
           );
           if (duplicateLabelIndex >= 0) {
             // Check if they have the same value.
             if (
-              (elements[duplicateLabelIndex]!.assignedValue &&
-                extendedModuleElement.assignedValue &&
+              (fields[duplicateLabelIndex]!.assignedValue &&
+                extendedModuleField.assignedValue &&
                 areValuesEqual(
-                  { value: elements[duplicateLabelIndex]!.assignedValue, env },
-                  { value: extendedModuleElement.assignedValue, env }
+                  { value: fields[duplicateLabelIndex]!.assignedValue, env },
+                  { value: extendedModuleField.assignedValue, env }
                 )) ||
-              (!elements[duplicateLabelIndex]!.assignedValue &&
-                !extendedModuleElement.assignedValue &&
+              (!fields[duplicateLabelIndex]!.assignedValue &&
+                !extendedModuleField.assignedValue &&
                 areTypesCompatible(
-                  { type: elements[duplicateLabelIndex]!.type, env },
-                  { type: extendedModuleElement.type, env }
+                  { type: fields[duplicateLabelIndex]!.type, env },
+                  { type: extendedModuleField.type, env }
                 ))
             ) {
               continue;
             }
 
             console.log(
-              !!elements[duplicateLabelIndex]!.assignedValue,
-              !!extendedModuleElement.assignedValue
+              !!fields[duplicateLabelIndex]!.assignedValue,
+              !!extendedModuleField.assignedValue
             );
             console.log(
-              typeToString(elements[duplicateLabelIndex]!.type),
+              typeToString(fields[duplicateLabelIndex]!.type),
               "\n",
-              typeToString(extendedModuleElement.type),
+              typeToString(extendedModuleField.type),
               "\n",
               areTypesCompatible(
-                { type: elements[duplicateLabelIndex]!.type, env },
-                { type: extendedModuleElement.type, env }
+                { type: fields[duplicateLabelIndex]!.type, env },
+                { type: extendedModuleField.type, env }
               )
             );
 
             throw formatErrorMessage({
               token: extendedModuleExpr.token,
-              errorMessage: `Duplicate label 1 "${extendedModuleElement.label}" in module`,
+              errorMessage: `Duplicate label 1 "${extendedModuleField.label}" in module`,
             });
           } else {
-            // Add the element to the module
-            elements.push(extendedModuleElement);
-            // Don't add to environment - module elements are accessed via Self.XXX
+            // Add the field to the module
+            fields.push(extendedModuleField);
+            // Don't add to environment - module fields are accessed via Self.XXX
           }
         }
       }
@@ -570,29 +570,29 @@ export function evaluateModuleType({
       else if (isModuleValue(value)) {
         const moduleValue = value;
 
-        // Iterate over the elements of the module value
-        for (let i = 0; i < moduleValue.elements.length; i++) {
-          const elementValue = moduleValue.elements[i]!;
-          const extendedModuleElement = moduleValue.type.elements[i]!;
+        // Iterate over the fields of the module value
+        for (let i = 0; i < moduleValue.fields.length; i++) {
+          const fieldValue = moduleValue.fields[i]!;
+          const extendedModuleField = moduleValue.type.fields[i]!;
 
           // Check if there is a duplicate label
-          const duplicateLabelIndex = elements.findIndex(
-            (e) => e.label === extendedModuleElement.label
+          const duplicateLabelIndex = fields.findIndex(
+            (e) => e.label === extendedModuleField.label
           );
           if (duplicateLabelIndex >= 0) {
             // Check if they have the same value.
             if (
-              (elements[duplicateLabelIndex]!.assignedValue &&
-                extendedModuleElement.assignedValue &&
+              (fields[duplicateLabelIndex]!.assignedValue &&
+                extendedModuleField.assignedValue &&
                 areValuesEqual(
-                  { value: elements[duplicateLabelIndex]!.assignedValue, env },
-                  { value: extendedModuleElement.assignedValue, env }
+                  { value: fields[duplicateLabelIndex]!.assignedValue, env },
+                  { value: extendedModuleField.assignedValue, env }
                 )) ||
-              (!elements[duplicateLabelIndex]!.assignedValue &&
-                !extendedModuleElement.assignedValue &&
+              (!fields[duplicateLabelIndex]!.assignedValue &&
+                !extendedModuleField.assignedValue &&
                 areTypesCompatible(
-                  { type: elements[duplicateLabelIndex]!.type, env },
-                  { type: extendedModuleElement.type, env }
+                  { type: fields[duplicateLabelIndex]!.type, env },
+                  { type: extendedModuleField.type, env }
                 ))
             ) {
               continue;
@@ -600,15 +600,15 @@ export function evaluateModuleType({
 
             throw formatErrorMessage({
               token: extendedModuleExpr.token,
-              errorMessage: `Duplicate label 2 "${extendedModuleElement.label}" in module`,
+              errorMessage: `Duplicate label 2 "${extendedModuleField.label}" in module`,
             });
           } else {
-            // Add the element to the module
-            elements.push({
-              ...moduleValue.type.elements[i]!,
-              assignedValue: elementValue,
+            // Add the field to the module
+            fields.push({
+              ...moduleValue.type.fields[i]!,
+              assignedValue: fieldValue,
             });
-            // Don't add to environment - module elements are accessed via Self.XXX
+            // Don't add to environment - module fields are accessed via Self.XXX
           }
         }
       } else {
@@ -620,12 +620,12 @@ export function evaluateModuleType({
         });
       }
     }
-    // module element
+    // module field
     else {
-      const { type: element, env: nextEnv } = evaluateModuleElementType({
+      const { field: field, env: nextEnv } = evaluateModuleField({
         expr: arg,
         env,
-        moduleElementIndex: i,
+        moduleFieldIndex: i,
         context: {
           ...context,
           SelfType: selfType, // Self refers to the module itself
@@ -634,30 +634,28 @@ export function evaluateModuleType({
       });
 
       // Check if there is duplicate labels
-      const duplicateLabel = elements.find(
-        (elem) => elem.label === element.label
-      );
+      const duplicateLabel = fields.find((elem) => elem.label === field.label);
       if (duplicateLabel) {
         throw formatErrorMessage({
           token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          errorMessage: `Duplicate label 3 "${element.label}" in module`,
+          errorMessage: `Duplicate label 3 "${field.label}" in module`,
         });
       }
 
-      elements.push(element);
+      fields.push(field);
       env = nextEnv;
 
-      // Expect element to be compile-time only
-      if (!element.isCompileTimeOnly) {
+      // Expect field to be compile-time only
+      if (!field.isCompileTimeOnly) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Expected compile-time only element for extern module, got ${exprToString(arg)}`,
+          errorMessage: `Expected compile-time only field for extern module, got ${exprToString(arg)}`,
         });
       }
 
-      // Don't add element to env - module elements are accessed via Self.XXX
+      // Don't add field to env - module fields are accessed via Self.XXX
     }
   }
 

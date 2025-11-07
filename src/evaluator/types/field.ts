@@ -15,7 +15,7 @@ import {
   isTupleType,
   prohibitVoidType,
   Type,
-  TypeElement,
+  TypeField,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -38,19 +38,19 @@ import { isValidVariableName } from "../utils";
  * i32 in (i32, ...)
  * (x: i32) in (x: i32, ...)
  */
-export function evaluateTypeElement({
+export function evaluateTypeField({
   expr,
-  tupleElementIndex,
+  tupleFieldIndex,
   env,
   context,
   forType,
 }: {
   expr: Expr;
-  tupleElementIndex: number;
+  tupleFieldIndex: number;
   env: Environment;
   context: EvaluatorContext;
   forType: "tuple" | "struct" | "enum" | "union";
-}): { element: TypeElement; env: Environment } {
+}): { field: TypeField; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
 
@@ -65,7 +65,7 @@ export function evaluateTypeElement({
 
   let isCompileTimeOnly = false;
 
-  let elementType: Type | undefined = undefined;
+  let fieldType: Type | undefined = undefined;
 
   // Check the default value
   if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "?=", 2)) {
@@ -176,11 +176,11 @@ export function evaluateTypeElement({
       isStructType(expectedType) ||
       isModuleType(expectedType)
     ) {
-      const tupleElement = expectedType.elements[tupleElementIndex];
+      const tupleElement = expectedType.fields[tupleFieldIndex];
       if (!tupleElement) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get the field at index ${tupleElementIndex}`,
+          errorMessage: `Failed to get the field at index ${tupleFieldIndex}`,
         });
       }
 
@@ -189,7 +189,7 @@ export function evaluateTypeElement({
       /*
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `(1) Failed to evaluate the tuple elements. Expected type to be:
+          errorMessage: `(1) Failed to evaluate the tuple fields. Expected type to be:
 ${typeToString(expectedType)}`
         });
         */
@@ -224,7 +224,7 @@ ${typeToString(expectedType)}`
         errorMessage: `(1) Expected type for element, got ${exprToString(typeExpr)}`,
       });
     }
-    elementType = typeValue.value;
+    fieldType = typeValue.value;
   }
 
   // Evaluate assignedValueExpr if it exists
@@ -238,8 +238,8 @@ Please consider adding "compt"  modifier to the field label.`,
       });
     }
 
-    const expectedType = elementType
-      ? { type: elementType, env }
+    const expectedType = fieldType
+      ? { type: fieldType, env }
       : expectedTupleElementType
         ? {
             type: expectedTupleElementType,
@@ -292,16 +292,16 @@ Expected type: ${typeToString(expectedType.type)}
 Given type: ${typeToString(assignedValueType)}`,
         });
       }
-      elementType = expectedType.type;
+      fieldType = expectedType.type;
     } else {
-      elementType = assignedValueType;
+      fieldType = assignedValueType;
     }
   }
 
   // Evaluate defaultValueExpr if it exists
   if (defaultValueExpr) {
-    const expectedType = elementType
-      ? { type: elementType, env }
+    const expectedType = fieldType
+      ? { type: fieldType, env }
       : expectedTupleElementType
         ? {
             type: expectedTupleElementType,
@@ -353,44 +353,44 @@ Expected type: ${typeToString(expectedType.type)}
 Given type: ${typeToString(defaultValueType)}`,
         });
       }
-      elementType = expectedType.type;
+      fieldType = expectedType.type;
     } else {
-      elementType = defaultValueType;
+      fieldType = defaultValueType;
     }
   }
 
-  if (!elementType) {
+  if (!fieldType) {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Failed to infer the element type`,
     });
   }
 
-  if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
+  if (typeRequiresComptModifier(fieldType) && !isCompileTimeOnly) {
     // NOTE: We shouldn't convert compt type to runtime type here:
     // eg:
     //   struct(name : compt_string)
     // ^ here we shouldn't convert `compt_string` to its runtime type `[u8]`
     //
     //
-    // elementType = convertComptTypeToRuntimeType({
-    //   type: elementType,
+    // fieldType = convertComptTypeToRuntimeType({
+    //   type: fieldType,
     //   expectedType: undefined,
     //   expr: undefined,
     //   env,
     //   context: { ...context },
     // });
-    // if (typeRequiresComptModifier(elementType)) {
+    // if (typeRequiresComptModifier(fieldType)) {
     throw formatErrorMessage({
       token: labelExpr?.token ?? expr.token,
       errorMessage: `Expected "compt" modifier for compile-time known value binding.`,
     });
     // }
   }
-  if (isCompileTimeOnly && typeProhibitsComptModifier(elementType)) {
+  if (isCompileTimeOnly && typeProhibitsComptModifier(fieldType)) {
     throw formatErrorMessage({
       token: labelExpr?.token ?? expr.token,
-      errorMessage: `Unexpected "compt"  modifier for ${typeToString(elementType)} which can only be used at runtime.`,
+      errorMessage: `Unexpected "compt"  modifier for ${typeToString(fieldType)} which can only be used at runtime.`,
     });
   }
 
@@ -404,7 +404,7 @@ Given type: ${typeToString(defaultValueType)}`,
   if (labelExpr) {
     labelExpr.$ = {
       env,
-      type: elementType,
+      type: fieldType,
       value: assignedValue ?? defaultValue ?? undefined,
       pathCollection: [],
     };
@@ -420,11 +420,11 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   // Prohibit void type
-  prohibitVoidType(elementType, expr.token);
+  prohibitVoidType(fieldType, expr.token);
 
-  const element: TypeElement = {
-    label: label ?? `${tupleElementIndex}`,
-    type: elementType,
+  const field: TypeField = {
+    label: label ?? `${tupleFieldIndex}`,
+    type: fieldType,
     exprs: {
       expr,
       labelExpr,
@@ -437,41 +437,41 @@ Given type: ${typeToString(defaultValueType)}`,
     assignedValue,
   };
 
-  if (element.isCompileTimeOnly) {
+  if (field.isCompileTimeOnly) {
     // Compile-time field must have an assigned value
-    if (!element.assignedValue) {
+    if (!field.assignedValue) {
       // NOTE: Let's allow to have compile-time only field without assigned value for now
       // throw formatErrorMessage({
-      //   token: element.exprs.expr.token,
-      //   errorMessage: `Compile-time only field "${element.label}" must have an assigned value.`,
+      //   token: field.exprs.expr.token,
+      //   errorMessage: `Compile-time only field "${field.label}" must have an assigned value.`,
       // });
     } else {
       // Attach .typeName info if necessary
       // But don't modify SelfType - it's a reference to the enclosing type
       if (
-        isTypeValue(element.assignedValue) &&
-        !element.assignedValue.value.typeName &&
-        element.assignedValue.value !== context.SelfType
+        isTypeValue(field.assignedValue) &&
+        !field.assignedValue.value.typeName &&
+        field.assignedValue.value !== context.SelfType
       ) {
-        element.assignedValue.value.typeName = element.label;
+        field.assignedValue.value.typeName = field.label;
       } else if (
-        isFunctionValue(element.assignedValue) &&
-        !element.assignedValue.funcName
+        isFunctionValue(field.assignedValue) &&
+        !field.assignedValue.funcName
       ) {
-        element.assignedValue.funcName = element.label;
-        element.assignedValue.funcId += `_${element.label}`;
+        field.assignedValue.funcName = field.label;
+        field.assignedValue.funcId += `_${field.label}`;
       } else if (
-        isModuleValue(element.assignedValue) &&
-        !element.assignedValue.type.typeName &&
-        element.assignedValue.type !== context.SelfType
+        isModuleValue(field.assignedValue) &&
+        !field.assignedValue.type.typeName &&
+        field.assignedValue.type !== context.SelfType
       ) {
-        element.assignedValue.type.typeName = element.label;
+        field.assignedValue.type.typeName = field.label;
       }
     }
   }
 
   return {
-    element: element,
+    field: field,
     env,
   };
 }

@@ -59,19 +59,19 @@ export function evaluateOpen({
     const moduleType = moduleValue.type;
 
     // Import everything from the module
-    for (let i = 0; i < moduleType.elements.length; i++) {
-      const value = moduleValue.elements[i]!;
-      const element = moduleType.elements[i]!;
+    for (let i = 0; i < moduleType.fields.length; i++) {
+      const value = moduleValue.fields[i]!;
+      const field = moduleType.fields[i]!;
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
-          name: element.label,
-          type: element.type,
-          isCompileTimeOnly: element.isCompileTimeOnly,
+          name: field.label,
+          type: field.type,
+          isCompileTimeOnly: field.isCompileTimeOnly,
           value: value,
-          token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+          token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
           initializedAtToken:
-            element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+            field.exprs.labelExpr?.token ?? field.exprs.expr.token,
           consumedAtToken: undefined,
           isReassignable: false, // Destructured variables are not reassignable
         },
@@ -84,23 +84,23 @@ export function evaluateOpen({
     runtimeDestructurings = [];
 
     // Import everything from the struct
-    for (let i = 0; i < structType.elements.length; i++) {
+    for (let i = 0; i < structType.fields.length; i++) {
       let value: Value | undefined = undefined;
       if (isStructValue(structValue)) {
-        value = structValue.elements[i];
+        value = structValue.fields[i];
       }
-      const element = structType.elements[i]!;
+      const field = structType.fields[i]!;
       try {
         const { env: nextEnv } = addVariableToEnv({
           env,
           variable: {
-            name: element.label,
-            type: element.type,
-            isCompileTimeOnly: element.isCompileTimeOnly,
+            name: field.label,
+            type: field.type,
+            isCompileTimeOnly: field.isCompileTimeOnly,
             value: value,
-            token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+            token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
             initializedAtToken:
-              element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+              field.exprs.labelExpr?.token ?? field.exprs.expr.token,
             consumedAtToken: undefined,
             isReassignable: false, // Destructured variables are not reassignable
           },
@@ -108,15 +108,15 @@ export function evaluateOpen({
         env = nextEnv;
 
         runtimeDestructurings.push({
-          label: element.label,
-          variableName: element.label,
-          type: element.type,
+          label: field.label,
+          variableName: field.label,
+          type: field.type,
         });
       } catch (error) {
         throw formatErrorMessages([
           {
             token: argExpr.token,
-            errorMessage: `Failed to import struct element "${element.label}"`,
+            errorMessage: `Failed to import struct field "${field.label}"`,
           },
           ...(error instanceof YoError
             ? error.tokenAndErrorList

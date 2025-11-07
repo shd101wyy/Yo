@@ -52,19 +52,17 @@ function occursCheck(someTypeId: string, type: Type): boolean {
   }
 
   if (isStructType(type)) {
-    return type.elements.some((el) => occursCheck(someTypeId, el.type));
+    return type.fields.some((el) => occursCheck(someTypeId, el.type));
   }
 
   if (isEnumType(type)) {
     return type.variants.some((v) =>
-      v.elements
-        ? v.elements.some((el) => occursCheck(someTypeId, el.type))
-        : false
+      v.fields ? v.fields.some((el) => occursCheck(someTypeId, el.type)) : false
     );
   }
 
   if (isTupleType(type)) {
-    return type.elements.some((el) => occursCheck(someTypeId, el.type));
+    return type.fields.some((el) => occursCheck(someTypeId, el.type));
   }
 
   if (isArrayType(type) || isSliceType(type)) {
@@ -362,12 +360,12 @@ export function synthesizeTypes(
   } else if (
     isTupleType(expected.type) &&
     isTupleType(given.type) &&
-    expected.type.elements.length === given.type.elements.length
+    expected.type.fields.length === given.type.fields.length
   ) {
-    for (let i = 0; i < expected.type.elements.length; i++) {
+    for (let i = 0; i < expected.type.fields.length; i++) {
       const { expectedEnv, givenEnv } = synthesizeTypes(
-        { type: expected.type.elements[i]!.type, env: expected.env },
-        { type: given.type.elements[i]!.type, env: given.env },
+        { type: expected.type.fields[i]!.type, env: expected.env },
+        { type: given.type.fields[i]!.type, env: given.env },
         checkedTypePairs
       );
       expected.env = expectedEnv;
@@ -384,9 +382,9 @@ export function synthesizeTypes(
     // They might be different structs that both are returned from the same function.
     // We removed the typeName condition since it fails for Data(boolean) vs Data(A1)
   ) {
-    for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedElement = expected.type.elements[i]!;
-      const givenElement = given.type.elements[i]!;
+    for (let i = 0; i < expected.type.fields.length; i++) {
+      const expectedElement = expected.type.fields[i]!;
+      const givenElement = given.type.fields[i]!;
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
         { type: givenElement.type, env: given.env },
@@ -430,8 +428,8 @@ export function synthesizeTypes(
       const expectedTypeVariant = expected.type.variants[i]!;
       const givenTypeVariant = given.type.variants[i]!;
 
-      const expectedTypeVariantElements = expectedTypeVariant.elements ?? [];
-      const givenTypeVariantElements = givenTypeVariant.elements ?? [];
+      const expectedTypeVariantElements = expectedTypeVariant.fields ?? [];
+      const givenTypeVariantElements = givenTypeVariant.fields ?? [];
 
       for (let j = 0; j < expectedTypeVariantElements.length; j++) {
         const { expectedEnv, givenEnv } = synthesizeTypes(
@@ -452,9 +450,9 @@ export function synthesizeTypes(
     // NOTE: The typeId might not match
     // They might be different structs that both are returned from the same function.
   ) {
-    for (let i = 0; i < expected.type.elements.length; i++) {
-      const expectedElement = expected.type.elements[i]!;
-      const givenElement = given.type.elements[i]!;
+    for (let i = 0; i < expected.type.fields.length; i++) {
+      const expectedElement = expected.type.fields[i]!;
+      const givenElement = given.type.fields[i]!;
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
         { type: givenElement.type, env: given.env },

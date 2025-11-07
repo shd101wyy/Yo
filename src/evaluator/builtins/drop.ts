@@ -45,7 +45,7 @@ function generateTupleDropCall(tupleExpr: Expr): string {
   }
 
   const tupleType = tupleExpr.$.type;
-  const elementsNeedingDrop = tupleType.elements
+  const fieldsNeedingDrop = tupleType.fields
     .map((element, index) => ({
       index,
       element,
@@ -53,14 +53,12 @@ function generateTupleDropCall(tupleExpr: Expr): string {
     }))
     .filter(({ needsDrop }) => needsDrop);
 
-  if (elementsNeedingDrop.length === 0) {
+  if (fieldsNeedingDrop.length === 0) {
     return ""; // No elements need dropping
   }
 
   // Destructure the tuple and drop each ARC-containing element
-  // const id = randomId();
-  // const destructuring = `(${elementsNeedingDrop.map(({ index }) => `_${id}_${index}`).join(", ")}${elementsNeedingDrop.length === 1 ? "," : ""})`;
-  const dropCalls = elementsNeedingDrop
+  const dropCalls = fieldsNeedingDrop
     .map(
       ({ index }) =>
         `${BuiltinFunctions.___drop[0]!}(${tupleExpr.$!.variableName}.${index})`

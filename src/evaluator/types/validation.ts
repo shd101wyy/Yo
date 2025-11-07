@@ -1,13 +1,13 @@
 import { formatErrorMessage } from "../../error";
 import { BuiltinFunctions } from "../../expr";
 import { Token } from "../../token";
-import { isFunctionType, isUnitType, ModuleElement } from "../../types";
+import { isFunctionType, isUnitType, ModuleField } from "../../types";
 
 /**
  * Validate that a dispose function has the correct signature: fn(self : Self) -> unit
  */
 export function validateDisposeFunction(
-  moduleElement: ModuleElement,
+  moduleElement: ModuleField,
   token: Token
 ): void {
   if (moduleElement.label !== BuiltinFunctions.dispose[0]) {

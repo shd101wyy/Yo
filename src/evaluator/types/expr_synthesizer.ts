@@ -47,25 +47,25 @@ export function synthesizeExprAndType({
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)
   ) {
-    if (type.elements.length !== expr.args.length) {
+    if (type.fields.length !== expr.args.length) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Tuple size mismatch: expected ${type.elements.length} elements, got ${expr.args.length}`,
+        errorMessage: `Tuple size mismatch: expected ${type.fields.length} fields, got ${expr.args.length}`,
       });
     }
 
-    // Recursively synthesize each tuple element
-    for (let i = 0; i < type.elements.length; i++) {
-      const elementType = type.elements[i]!.type;
-      const elementExpr = expr.args[i]!;
+    // Recursively synthesize each tuple field
+    for (let i = 0; i < type.fields.length; i++) {
+      const fieldType = type.fields[i]!.type;
+      const fieldExpr = expr.args[i]!;
 
       const {
         // expr: synthesizedExpr,
         // type: synthesizedType,
         env: nextEnv,
       } = synthesizeExprAndType({
-        expr: elementExpr,
-        type: elementType,
+        expr: fieldExpr,
+        type: fieldType,
         env,
         context: { ...context },
       });

@@ -100,22 +100,22 @@ export default class Evaluator {
         // Push a new frame for prelude exports
         env = pushEnvFrame(env);
 
-        // Add each exported element from prelude to the environment
-        for (let i = 0; i < preludeValue.type.elements.length; i++) {
-          const element = preludeValue.type.elements[i]!;
-          const elementValue = preludeValue.elements[i];
+        // Add each exported field from prelude to the environment
+        for (let i = 0; i < preludeValue.type.fields.length; i++) {
+          const field = preludeValue.type.fields[i]!;
+          const fieldValue = preludeValue.fields[i];
 
           const { env: nextEnv } = addVariableToEnv({
             env,
             variable: {
-              name: element.label,
-              type: element.type,
-              value: elementValue,
+              name: field.label,
+              type: field.type,
+              value: fieldValue,
               isCompileTimeOnly: true,
               initializedAtToken:
-                element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+                field.exprs.labelExpr?.token ?? field.exprs.expr.token,
               consumedAtToken: undefined,
-              token: element.exprs.labelExpr?.token ?? element.exprs.expr.token,
+              token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
             },
           });
           env = nextEnv;

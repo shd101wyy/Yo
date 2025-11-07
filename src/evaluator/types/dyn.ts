@@ -72,7 +72,7 @@ export function evaluateDynType({
     const moduleTypeA = moduleTypes[i]!;
     for (let j = i + 1; j < moduleTypes.length; j++) {
       const moduleTypeB = moduleTypes[j]!;
-      for (const elementA of moduleTypeA.elements) {
+      for (const elementA of moduleTypeA.fields) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Module types ${typeToString(
@@ -93,7 +93,7 @@ export function evaluateDynType({
     BuiltinFunctions.dispose[0]!,
   ];
   for (const moduleType of moduleTypes) {
-    for (const element of moduleType.elements) {
+    for (const element of moduleType.fields) {
       if (
         reservedFunctionNames.includes(element.label) &&
         isFunctionType(element.type)

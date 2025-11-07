@@ -7,12 +7,12 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createModuleType, ModuleElement } from "../../types";
+import { createModuleType, ModuleField } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { evaluateTypeElement } from "../types/element";
+import { evaluateTypeField } from "../types/field";
 
 export function evaluateYoSetTypeModule({
   expr,
@@ -97,39 +97,39 @@ export function evaluateYoSetTypeModule({
   for (let i = 1; i < expr.args.length; i++) {
     const arg = expr.args[i]!;
 
-    const { element, env: nextEnv } = evaluateTypeElement({
+    const { field, env: nextEnv } = evaluateTypeField({
       expr: arg,
       env,
-      tupleElementIndex: i - 1,
+      tupleFieldIndex: i - 1,
       context: { ...context, SelfType: targetType },
       forType: "struct",
     });
 
-    if (!element.isCompileTimeOnly) {
+    if (!field.isCompileTimeOnly) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `All elements in __yo_type_set_module must be compile-time only (use :: syntax). Got runtime element: ${element.label}`,
+        errorMessage: `All fields in __yo_type_set_module must be compile-time only (use :: syntax). Got runtime field: ${field.label}`,
       });
     }
 
-    if (!element.assignedValue) {
+    if (!field.assignedValue) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Compile-time only element "${element.label}" must have an assigned value in type module extension.`,
+        errorMessage: `Compile-time only field "${field.label}" must have an assigned value in type module extension.`,
       });
     }
 
-    const duplicateLabel = moduleType.elements.find(
-      (elem) => elem.label === element.label
+    const duplicateLabel = moduleType.fields.find(
+      (elem) => elem.label === field.label
     );
     if (duplicateLabel) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Duplicate label "${element.label}" in type module extension`,
+        errorMessage: `Duplicate label "${field.label}" in type module extension`,
       });
     }
 
-    moduleType.elements.push(element as ModuleElement);
+    moduleType.fields.push(field as ModuleField);
     env = nextEnv;
   }
 

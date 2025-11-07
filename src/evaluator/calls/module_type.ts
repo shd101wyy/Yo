@@ -38,24 +38,24 @@ export function tryToImplementModuleWithArgumentsByModuleType({
   callerEnv: Environment;
   context: EvaluatorContext;
 }): ModuleTypeCallResult {
-  if (argExprs.length > moduleType.elements.length) {
+  if (argExprs.length > moduleType.fields.length) {
     throw formatErrorMessage({
       token: moduleExpr.token,
       errorMessage: `Failed to implement the module. Too many fields provided.`,
     });
   }
 
-  const elements: (Value | undefined)[] = Array(
-    moduleType.elements.length
-  ).fill(undefined);
+  const fields: (Value | undefined)[] = Array(moduleType.fields.length).fill(
+    undefined
+  );
 
   // Create a working module type that we'll progressively update with concrete values
   // This allows Self.X references to resolve to concrete types as we bind values
   const workingModuleType: ModuleType = {
     ...moduleType,
-    elements: moduleType.elements.map((element, idx) => ({
-      ...element,
-      assignedValue: elements[idx],
+    fields: moduleType.fields.map((field, idx) => ({
+      ...field,
+      assignedValue: fields[idx],
     })),
   };
 
@@ -84,15 +84,12 @@ impl Point, Id(Point)(
   } else {
     receiverType.module = {
       ...receiverType.module,
-      elements: [
-        ...workingModuleType.elements,
-        ...receiverType.module.elements,
-      ],
+      fields: [...workingModuleType.fields, ...receiverType.module.fields],
     };
   }
 
-  for (let i = 0; i < moduleType.elements.length; i++) {
-    const moduleElement = moduleType.elements[i]!;
+  for (let i = 0; i < moduleType.fields.length; i++) {
+    const moduleField = moduleType.fields[i]!;
     let foundArgExpr = false;
     let label: string | undefined = undefined;
     // Traverse over argExprs to see if there is label for the member
@@ -123,32 +120,32 @@ impl Point, Id(Point)(
       }
 
       // Check if label exists in the module type
-      if (!moduleType.elements.find((e) => e.label === label)) {
+      if (!moduleType.fields.find((e) => e.label === label)) {
         throw formatErrorMessage({
           token: labelExpr.token,
           errorMessage: `Module member with label "${label}" does not exist in the module type.`,
         });
       }
 
-      if (moduleElement.label === label) {
+      if (moduleField.label === label) {
         foundArgExpr = true;
 
-        if (moduleElement.assignedValue) {
+        if (moduleField.assignedValue) {
           throw formatErrorMessage({
             token: argExpr.token,
             errorMessage: `Module member "${
-              moduleElement.label
+              moduleField.label
             }" already has a assigned value:
-${valueToString(moduleElement.assignedValue)}`,
+${valueToString(moduleField.assignedValue)}`,
           });
         }
 
         // evaluate the module member type again.
         // Check evaluateFunctionParameterTypeAgain function
         // They should be similar
-        let moduleElementType: Type;
-        const typeExpr = moduleElement.exprs.typeExpr;
-        const defaultValueExpr = moduleElement.exprs.defaultValueExpr;
+        let moduleFieldType: Type;
+        const typeExpr = moduleField.exprs.typeExpr;
+        const defaultValueExpr = moduleField.exprs.defaultValueExpr;
         if (typeExpr) {
           const evaluatedModuleMember = evaluateExpression({
             expr: cloneExpr(typeExpr),
@@ -170,7 +167,7 @@ ${valueToString(moduleElement.assignedValue)}`,
               errorMessage: `Failed to evaluate the module member "${label}"`,
             });
           }
-          moduleElementType = evaluatedModuleMemberTypeValue.value;
+          moduleFieldType = evaluatedModuleMemberTypeValue.value;
         } else if (defaultValueExpr) {
           const evaluatedValueExpr = evaluateExpression({
             expr: cloneExpr(defaultValueExpr),
@@ -192,7 +189,7 @@ ${valueToString(moduleElement.assignedValue)}`,
               errorMessage: `Failed to evaluate the module member "${label}"`,
             });
           }
-          moduleElementType = value.type;
+          moduleFieldType = value.type;
         } else {
           throw formatErrorMessage({
             token: argExpr.token,
@@ -206,7 +203,7 @@ ${valueToString(moduleElement.assignedValue)}`,
           env: callerEnv,
           context: {
             ...context,
-            expectedType: { type: moduleElementType, env: callerEnv },
+            expectedType: { type: moduleFieldType, env: callerEnv },
             ReceiverType: undefined,
             SelfType: selfType,
           },
@@ -225,44 +222,41 @@ ${valueToString(moduleElement.assignedValue)}`,
         // Compare the types
         if (
           !areTypesCompatible(
-            { type: moduleElementType, env: callerEnv },
+            { type: moduleFieldType, env: callerEnv },
             { type: argType, env: callerEnv }
           )
         ) {
           throw formatErrorMessage({
             token: argExpr.token,
             errorMessage: `Type mismatch for the module member "${label}":
-Expected: ${typeToString(moduleElementType)}
+Expected: ${typeToString(moduleFieldType)}
 Got:   ${typeToString(argType)}`,
           });
         }
         const argValue = evaluatedArgExpr.$?.value;
 
         if (isFunctionValue(argValue)) {
-          argValue.funcId += `_${moduleElement.label}`;
-          // If the function value's type contains SomeType but moduleElementType doesn't,
-          // set the specializedType to the resolved moduleElementType
+          argValue.funcId += `_${moduleField.label}`;
+          // If the function value's type contains SomeType but moduleFieldType doesn't,
+          // set the specializedType to the resolved moduleFieldType
           // This ensures that generic functions in modules get their types specialized
           // when the module is instantiated with concrete type arguments
-          if (
-            !argValue.specializedType &&
-            moduleElementType.tag === "Function"
-          ) {
+          if (!argValue.specializedType && moduleFieldType.tag === "Function") {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            argValue.specializedType = moduleElementType as any;
+            argValue.specializedType = moduleFieldType as any;
           }
         }
 
         // Save the value to the members
-        elements[i] = argValue;
+        fields[i] = argValue;
 
         // Update the working module type with the newly bound value
         // This allows subsequent Self.X references to resolve to this concrete value
-        workingModuleType.elements[i]!.assignedValue = argValue;
+        workingModuleType.fields[i]!.assignedValue = argValue;
 
         if (receiverType && receiverType.module) {
-          // Add the element to the ReceiverType.module as well
-          receiverType.module.elements[i]!.assignedValue = argValue;
+          // Add the field to the ReceiverType.module as well
+          receiverType.module.fields[i]!.assignedValue = argValue;
         }
 
         // Add the type information to argExpr
@@ -280,16 +274,16 @@ Got:   ${typeToString(argType)}`,
     }
 
     if (!foundArgExpr) {
-      const defaultValue = moduleElement.defaultValue;
-      const assignedValue = moduleElement.assignedValue;
+      const defaultValue = moduleField.defaultValue;
+      const assignedValue = moduleField.assignedValue;
 
       // Check if it's an implicit parameter that needs to be resolved
-      if (!defaultValue && !assignedValue && moduleElement.isImplicit) {
+      if (!defaultValue && !assignedValue && moduleField.isImplicit) {
         try {
           // Re-evaluate the implicit constraint type in the context of the receiver type
           // This ensures that Self references resolve to the receiver type
-          let implicitConstraintType = moduleElement.type;
-          const typeExpr = moduleElement.exprs.typeExpr;
+          let implicitConstraintType = moduleField.type;
+          const typeExpr = moduleField.exprs.typeExpr;
           if (typeExpr) {
             const evaluatedTypeExpr = evaluateExpression({
               expr: cloneExpr(typeExpr),
@@ -313,8 +307,8 @@ Got:   ${typeToString(argType)}`,
           // Try to resolve the implicit value from the environment
           const { value: resolvedValue } = resolveImplicitValue({
             expectedType: implicitConstraintType,
-            label: moduleElement.label,
-            isCompileTimeOnly: true, // Module elements are always compile-time
+            label: moduleField.label,
+            isCompileTimeOnly: true, // Module fields are always compile-time
             calleeEnv: callerEnv,
             callerEnv,
             context: {
@@ -325,10 +319,10 @@ Got:   ${typeToString(argType)}`,
             errorToken: moduleExpr.token,
           });
 
-          elements[i] = resolvedValue;
+          fields[i] = resolvedValue;
 
           // Update the working module type
-          workingModuleType.elements[i]!.assignedValue = resolvedValue;
+          workingModuleType.fields[i]!.assignedValue = resolvedValue;
 
           continue; // Successfully resolved implicit parameter
         } catch (error) {
@@ -346,14 +340,14 @@ Got:   ${typeToString(argType)}`,
         // Check if moduleMember has default or required value
         throw formatErrorMessage({
           token: moduleExpr.token,
-          errorMessage: `Module member "${moduleElement.label}" is not provided and has no required/default value.`,
+          errorMessage: `Module member "${moduleField.label}" is not provided and has no required/default value.`,
         });
       }
 
-      elements[i] = resolvedValue;
+      fields[i] = resolvedValue;
 
       // Update the working module type
-      workingModuleType.elements[i]!.assignedValue = resolvedValue;
+      workingModuleType.fields[i]!.assignedValue = resolvedValue;
     }
   }
 
@@ -365,7 +359,7 @@ Got:   ${typeToString(argType)}`,
   // Create the module value
   const moduleValue = createModuleValue(
     { ...moduleType, receiverType },
-    elements
+    fields
   );
   return { moduleValue, callerEnv };
 }

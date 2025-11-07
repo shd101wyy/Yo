@@ -13,7 +13,7 @@ import {
   FutureType,
   isARCType,
   isFunctionType,
-  ModuleElement,
+  ModuleField,
   StructType,
   typeContainsARCType,
   typeOfType,
@@ -87,8 +87,8 @@ export function addFunctionSignatureToSelfTypeModule({
     ) {
       const functionType = functionExpr.$.value.value;
 
-      // Add the drop function to the struct's module elements
-      const moduleElement: ModuleElement = {
+      // Add the drop function to the struct's module fields
+      const moduleField: ModuleField = {
         label: label,
         type: functionType,
         assignedValue: undefined, // NOTE: We have to use the `undefined` here.
@@ -101,15 +101,15 @@ export function addFunctionSignatureToSelfTypeModule({
           assignedValueExpr: undefined,
         },
       };
-      const index = SelfType.module.elements.findIndex(
+      const index = SelfType.module.fields.findIndex(
         (el) => el.label === label
       );
       if (index >= 0) {
-        SelfType.module.elements[index] = moduleElement;
+        SelfType.module.fields[index] = moduleField;
         // return env; // No need to update. Don't throw error.
       } else {
-        // Add new element
-        SelfType.module.elements.push(moduleElement);
+        // Add new field
+        SelfType.module.fields.push(moduleField);
       }
     }
   }
@@ -151,8 +151,8 @@ export function addFunctionCodeToSelfTypeModule({
       // The code below is necessary for the C code generator to make the ___drop like function to have a more descriptive name.
       functionExpr.$.value.funcId += label;
 
-      // Add the drop function to the struct's module elements
-      const moduleElement: ModuleElement = {
+      // Add the drop function to the struct's module fields
+      const moduleField: ModuleField = {
         label: label,
         type: functionExpr.$.type,
         assignedValue: functionExpr.$.value,
@@ -165,15 +165,15 @@ export function addFunctionCodeToSelfTypeModule({
           assignedValueExpr: functionExpr,
         },
       };
-      const index = SelfType.module.elements.findIndex(
+      const index = SelfType.module.fields.findIndex(
         (el) => el.label === label
       );
       if (index >= 0) {
-        // Replace existing element
-        SelfType.module.elements[index] = moduleElement;
+        // Replace existing field
+        SelfType.module.fields[index] = moduleField;
       } else {
-        // Add new element
-        SelfType.module.elements.push(moduleElement);
+        // Add new field
+        SelfType.module.fields.push(moduleField);
       }
     }
   }
@@ -197,15 +197,14 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
     // return null; // no need to generate ___dispose function
     return { signature, code: `(${signature} ())` };
   }
-  const destructurings = structType.elements
+  const destructurings = structType.fields
     .filter(
-      (element) =>
-        !element.isCompileTimeOnly && typeContainsARCType(element.type)
+      (field) => !field.isCompileTimeOnly && typeContainsARCType(field.type)
     )
-    .map((element) => element.label);
+    .map((field) => field.label);
 
-  const hasDisposeFunction = structType.module.elements.some(
-    (element) => element.label === BuiltinFunctions.dispose[0]
+  const hasDisposeFunction = structType.module.fields.some(
+    (field) => field.label === BuiltinFunctions.dispose[0]
   );
 
   if (!destructurings.length && !hasDisposeFunction) {
@@ -238,12 +237,11 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   code: string;
 } {
   const signature = DropFnSignature;
-  const destructurings = structType.elements
+  const destructurings = structType.fields
     .filter(
-      (element) =>
-        !element.isCompileTimeOnly && typeContainsARCType(element.type)
+      (field) => !field.isCompileTimeOnly && typeContainsARCType(field.type)
     )
-    .map((element) => element.label);
+    .map((field) => field.label);
 
   const decrRcExpr = isARCType(structType)
     ? `
@@ -277,12 +275,11 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   code: string;
 } {
   const signature = DupFnSignature;
-  const destructurings = structType.elements
+  const destructurings = structType.fields
     .filter(
-      (element) =>
-        !element.isCompileTimeOnly && typeContainsARCType(element.type)
+      (field) => !field.isCompileTimeOnly && typeContainsARCType(field.type)
     )
-    .map((element) => element.label);
+    .map((field) => field.label);
 
   const incrRcExpr = isARCType(structType)
     ? `
@@ -310,7 +307,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
 
 /**
  * Helper function to add ARC-related functions (___drop, ___dup, ___dispose) to a struct type
- * This should be called after all struct elements are processed and the struct type is complete
+ * This should be called after all struct fields are processed and the struct type is complete
  */
 export function addARCFunctionsToStructType({
   structType,
@@ -346,7 +343,7 @@ export function addARCFunctionsToStructType({
     context,
   });
 
-  // Add ___drop function to the struct type module elements
+  // Add ___drop function to the struct type module fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___drop[0]!,
     functionCode: dropFunctionCode,
@@ -355,7 +352,7 @@ export function addARCFunctionsToStructType({
     context,
   });
 
-  // Add ___dup function to the struct type module elements
+  // Add ___dup function to the struct type module fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
@@ -418,14 +415,14 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
     return { signature, code: `(${signature} ())` };
   }
 
-  const hasDisposeFunction = enumType.module.elements.some(
-    (element) => element.label === BuiltinFunctions.dispose[0]
+  const hasDisposeFunction = enumType.module.fields.some(
+    (field) => field.label === BuiltinFunctions.dispose[0]
   );
 
   const variantsWithARCTypes = enumType.variants.filter(
     (variant) =>
-      variant.elements &&
-      variant.elements.some((element) => typeContainsARCType(element.type))
+      variant.fields &&
+      variant.fields.some((field) => typeContainsARCType(field.type))
   );
 
   if (!variantsWithARCTypes.length && !hasDisposeFunction) {
@@ -435,14 +432,14 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   const matchCases = variantsWithARCTypes
     .map((variant) => {
       const destructurings = variant
-        .elements!.filter(
-          (element) =>
-            !element.isCompileTimeOnly && typeContainsARCType(element.type)
+        .fields!.filter(
+          (field) =>
+            !field.isCompileTimeOnly && typeContainsARCType(field.type)
         )
-        .map((element) => element.label);
+        .map((field) => field.label);
 
       const paramList = variant
-        .elements!.map((element) => element.label)
+        .fields!.map((field) => field.label)
         .join(", ");
       const dropStatements = destructurings
         .map((label) => `      (${BuiltinFunctions.___drop[0]!})(${label});`)
@@ -483,8 +480,8 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
 
   const variantsWithARCTypes = enumType.variants.filter(
     (variant) =>
-      variant.elements &&
-      variant.elements.some((element) => typeContainsARCType(element.type))
+      variant.fields &&
+      variant.fields.some((field) => typeContainsARCType(field.type))
   );
 
   const decrRcExpr = isARCType(enumType)
@@ -500,14 +497,14 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
     ${variantsWithARCTypes
       .map((variant) => {
         const destructurings = variant
-          .elements!.filter(
-            (element) =>
-              !element.isCompileTimeOnly && typeContainsARCType(element.type)
+          .fields!.filter(
+            (field) =>
+              !field.isCompileTimeOnly && typeContainsARCType(field.type)
           )
-          .map((element) => element.label);
+          .map((field) => field.label);
 
         const paramList = variant
-          .elements!.map((element) => element.label)
+          .fields!.map((field) => field.label)
           .join(", ");
         const dropStatements = destructurings
           .map((label) => `      (${BuiltinFunctions.___drop[0]!})(${label});`)
@@ -546,8 +543,8 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
 
   const variantsWithARCTypes = enumType.variants.filter(
     (variant) =>
-      variant.elements &&
-      variant.elements.some((element) => typeContainsARCType(element.type))
+      variant.fields &&
+      variant.fields.some((field) => typeContainsARCType(field.type))
   );
 
   const incrRcExpr = isARCType(enumType)
@@ -563,14 +560,14 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
     ${variantsWithARCTypes
       .map((variant) => {
         const destructurings = variant
-          .elements!.filter(
-            (element) =>
-              !element.isCompileTimeOnly && typeContainsARCType(element.type)
+          .fields!.filter(
+            (field) =>
+              !field.isCompileTimeOnly && typeContainsARCType(field.type)
           )
-          .map((element) => element.label);
+          .map((field) => field.label);
 
         const paramList = variant
-          .elements!.map((element) => element.label)
+          .fields!.map((field) => field.label)
           .join(", ");
         const dupStatements = destructurings
           .map((label) => `      (${BuiltinFunctions.___dup[0]!})(${label});`)
@@ -636,7 +633,7 @@ export function addARCFunctionsToEnumType({
   //   context,
   // });
 
-  // Add ___drop function to the enum type module elements
+  // Add ___drop function to the enum type module fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___drop[0]!,
     functionCode: dropFunctionCode,
@@ -645,7 +642,7 @@ export function addARCFunctionsToEnumType({
     context,
   });
 
-  // Add ___dup function to the enum type module elements
+  // Add ___dup function to the enum type module fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
@@ -707,7 +704,7 @@ export function addARCFunctionsToDynType({
   const dropFunctionCode = generateDropFunctionCodeForDynType(dynType);
   const dupFunctionCode = generateDupFunctionCodeForDynType(dynType);
 
-  // Add ___dup function to the dyn type module elements
+  // Add ___dup function to the dyn type module fields
   if (dupFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___dup[0]!,
@@ -718,7 +715,7 @@ export function addARCFunctionsToDynType({
     });
   }
 
-  // Add ___drop function to the dyn type module elements
+  // Add ___drop function to the dyn type module fields
   if (dropFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___drop[0]!,
@@ -772,7 +769,7 @@ export function addARCFunctionsToClosureType({
   const dropFunctionCode = generateDropFunctionCodeForClosureType(closureType);
   const dupFunctionCode = generateDupFunctionCodeForClosureType(closureType);
 
-  // Add ___dup function to the closure type module elements
+  // Add ___dup function to the closure type module fields
   if (dupFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___dup[0]!,
@@ -783,7 +780,7 @@ export function addARCFunctionsToClosureType({
     });
   }
 
-  // Add ___drop function to the closure type module elements
+  // Add ___drop function to the closure type module fields
   if (dropFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___drop[0]!,
@@ -841,7 +838,7 @@ export function addARCFunctionsToFutureType({
   const dropFunctionCode = generateDropFunctionCodeForFutureType(futureType);
   const dupFunctionCode = generateDupFunctionCodeForFutureType(futureType);
 
-  // Add ___dup function to the future type module elements
+  // Add ___dup function to the future type module fields
   if (dupFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___dup[0]!,
@@ -852,7 +849,7 @@ export function addARCFunctionsToFutureType({
     });
   }
 
-  // Add ___drop function to the future type module elements
+  // Add ___drop function to the future type module fields
   if (dropFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___drop[0]!,

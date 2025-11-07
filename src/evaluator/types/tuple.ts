@@ -5,12 +5,12 @@ import {
   createTupleType,
   createUnitType,
   TupleType,
-  TypeElement,
+  TypeField,
   typeOfType,
 } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateTypeElement } from "./element";
+import { evaluateTypeField } from "./field";
 
 export function evaluateTupleElementsType({
   args,
@@ -26,35 +26,35 @@ export function evaluateTupleElementsType({
   type: TupleType;
   env: Environment;
 } {
-  const tupleElements: TypeElement[] = [];
+  const tupleFields: TypeField[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
-    const { element, env: nextEnv } = evaluateTypeElement({
+    const { field, env: nextEnv } = evaluateTypeField({
       expr: arg,
       env,
-      tupleElementIndex: i,
+      tupleFieldIndex: i,
       context: { ...context },
       forType,
     });
 
     // Check if there is duplicate labels
-    if (element.label) {
-      const duplicateLabel = tupleElements.find(
-        (elem) => elem.label === element.label
+    if (field.label) {
+      const duplicateLabel = tupleFields.find(
+        (elem) => elem.label === field.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
           token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          errorMessage: `Duplicate label "${element.label}" in tuple`,
+          errorMessage: `Duplicate label "${field.label}" in tuple`,
         });
       }
     }
 
     // Check if it's compile-time only
-    if (element.isCompileTimeOnly && element.assignedValue) {
+    if (field.isCompileTimeOnly && field.assignedValue) {
       throw formatErrorMessage({
         token: exprIsFunctionCall(arg)
           ? (arg.args[0]?.token ?? arg.token)
@@ -63,11 +63,11 @@ export function evaluateTupleElementsType({
       });
     }
 
-    tupleElements.push(element as TypeElement);
+    tupleFields.push(field as TypeField);
     env = nextEnv;
   }
 
-  const tupleType: TupleType = createTupleType(tupleElements);
+  const tupleType: TupleType = createTupleType(tupleFields);
   return {
     type: tupleType,
     env,
@@ -102,8 +102,8 @@ export function evaluateTupleType({
   });
   env = nextEnv;
 
-  // We disallow the tuple elements to have defaultValue for the tuple type
-  tupleType.elements.forEach((tupleElement) => {
+  // We disallow the tuple fields to have defaultValue for the tuple type
+  tupleType.fields.forEach((tupleElement) => {
     if (tupleElement.exprs.defaultValueExpr) {
       throw formatErrorMessage({
         token: tupleElement.exprs.defaultValueExpr!.token,

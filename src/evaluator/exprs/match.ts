@@ -210,10 +210,10 @@ export function evaluateMatch({
       }
 
       // Enforce Rust-like constraint: if variant has fields, it must be destructured
-      if (variant && variant.elements && variant.elements.length > 0) {
+      if (variant && variant.fields && variant.fields.length > 0) {
         throw formatErrorMessage({
           token: matchArmExpr.token,
-          errorMessage: `Enum variant "${variantName}" has ${variant.elements.length} field(s) and must be destructured. Use .${variantName}(...) instead of .${variantName}`,
+          errorMessage: `Enum variant "${variantName}" has ${variant.fields.length} field(s) and must be destructured. Use .${variantName}(...) instead of .${variantName}`,
         });
       }
 
@@ -461,8 +461,8 @@ export function evaluateMatch({
       // Extract destructuring parameters
       const destructuringParams = matchArmExpr.args;
 
-      // Check if variant has elements
-      if (variant.elements && variant.elements.length > 0) {
+      // Check if variant has fields
+      if (variant.fields && variant.fields.length > 0) {
         // For labeled destructuring, we don't require all parameters to be specified
         // For positional destructuring, we require exact match
         const hasLabeledParams = destructuringParams.some(
@@ -472,17 +472,17 @@ export function evaluateMatch({
 
         if (
           !hasLabeledParams &&
-          destructuringParams.length !== variant.elements.length
+          destructuringParams.length !== variant.fields.length
         ) {
           throw formatErrorMessage({
             token: matchArmExpr.token,
-            errorMessage: `Variant "${variantName}" expects ${variant.elements.length} parameters, got ${destructuringParams.length}`,
+            errorMessage: `Variant "${variantName}" expects ${variant.fields.length} parameters, got ${destructuringParams.length}`,
           });
         }
       } else if (destructuringParams.length > 0) {
         throw formatErrorMessage({
           token: matchArmExpr.token,
-          errorMessage: `Variant "${variantName}" has no elements, but destructuring parameters were provided`,
+          errorMessage: `Variant "${variantName}" has no fields, but destructuring parameters were provided`,
         });
       }
 
@@ -511,7 +511,7 @@ export function evaluateMatch({
       caseEnv = pushEnvFrame(caseEnv);
 
       // Add destructured variables to environment
-      if (variant.elements && variant.elements.length > 0) {
+      if (variant.fields && variant.fields.length > 0) {
         const destructuredLabels = new Set<string>();
 
         for (let j = 0; j < destructuringParams.length; j++) {
@@ -534,14 +534,14 @@ export function evaluateMatch({
 
             const label = labelExpr.token.value;
 
-            // Find the element with matching label
-            const elementIndex = variant.elements.findIndex(
+            // Find the field with matching label
+            const fieldIndex = variant.fields.findIndex(
               (elem) => elem.label === label
             );
-            if (elementIndex === -1) {
+            if (fieldIndex === -1) {
               throw formatErrorMessage({
                 token: labelExpr.token,
-                errorMessage: `Label "${label}" not found in variant "${variantName}". Available labels: ${variant.elements.map((e) => e.label).join(", ")}`,
+                errorMessage: `Label "${label}" not found in variant "${variantName}". Available labels: ${variant.fields.map((e) => e.label).join(", ")}`,
               });
             }
 
@@ -553,7 +553,7 @@ export function evaluateMatch({
             }
             destructuredLabels.add(label);
 
-            const element = variant.elements[elementIndex]!;
+            const field = variant.fields[fieldIndex]!;
 
             // Handle the variable part (could be identifier or _)
             if (exprIsAtom(variableExpr)) {
@@ -565,7 +565,7 @@ export function evaluateMatch({
                   env: caseEnv,
                   variable: {
                     name: variableName,
-                    type: element.type,
+                    type: field.type,
                     isCompileTimeOnly: false,
                     value: undefined,
                     token: variableExpr.token,
@@ -580,13 +580,13 @@ export function evaluateMatch({
               // Add type information to the variableExpr and labelExpr
               variableExpr.$ = {
                 env: caseEnv,
-                type: element.type,
+                type: field.type,
                 value: undefined,
                 pathCollection: [],
               };
               labelExpr.$ = {
                 env: caseEnv,
-                type: element.type,
+                type: field.type,
                 value: undefined,
                 pathCollection: [],
               };
@@ -600,7 +600,7 @@ export function evaluateMatch({
           // Handle positional destructuring like (r) or (_)
           else if (exprIsAtom(param)) {
             const paramName = param.token.value;
-            const element = variant.elements[j]!;
+            const field = variant.fields[j]!;
 
             // Skip if parameter name is "_" (ignore pattern)
             if (paramName !== "_") {
@@ -608,7 +608,7 @@ export function evaluateMatch({
                 env: caseEnv,
                 variable: {
                   name: paramName,
-                  type: element.type,
+                  type: field.type,
                   isCompileTimeOnly: false,
                   value: undefined,
                   token: param.token,
@@ -623,7 +623,7 @@ export function evaluateMatch({
             // Add type information to the param
             param.$ = {
               env: caseEnv,
-              type: element.type,
+              type: field.type,
               value: undefined,
               pathCollection: [],
             };
@@ -785,8 +785,8 @@ export function evaluateMatch({
         token: matchArmExpr.token,
         errorMessage: `Invalid pattern in match expression: ${exprToString(matchArmExpr)}
 Supported patterns:
-- .VariantName (for variants without elements)
-- .VariantName(param1, param2, ...) (for variants with elements)
+- .VariantName (for variants without fields)
+- .VariantName(param1, param2, ...) (for variants with fields)
 - _ (wildcard pattern)`,
       });
     }

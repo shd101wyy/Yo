@@ -47,8 +47,8 @@ export function collectRequiredTypes(
   context: CodeGenContext
 ): void {
   // Start with exports functions and collect types used in their signatures and bodies
-  for (let i = 0; i < moduleValue.elements.length; i++) {
-    const value = moduleValue.elements[i]!;
+  for (let i = 0; i < moduleValue.fields.length; i++) {
+    const value = moduleValue.fields[i]!;
 
     if (isFunctionValue(value)) {
       // Collect types from function signatures
@@ -130,18 +130,15 @@ export function collectTypesFromExpr(
         // Now collect the capture type's nested types and module functions (___drop, etc.)
         // This is crucial for generating ARC functions for the capture struct
         if (isStructType(captureType)) {
-          // Recursively collect types from struct elements
-          for (const element of captureType.elements) {
-            collectType(element.type, context);
+          // Recursively collect types from struct fields
+          for (const field of captureType.fields) {
+            collectType(field.type, context);
           }
 
           // Collect functions from the module (___dup, ___drop, etc.)
-          for (const element of captureType.module.elements) {
-            if (
-              element.assignedValue &&
-              isFunctionValue(element.assignedValue)
-            ) {
-              const functionValue = element.assignedValue;
+          for (const field of captureType.module.fields) {
+            if (field.assignedValue && isFunctionValue(field.assignedValue)) {
+              const functionValue = field.assignedValue;
               if (!context.functions[functionValue.funcId]) {
                 context.functions[functionValue.funcId] = {
                   value: functionValue,
@@ -219,29 +216,29 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
     // For struct types, collect functions from the module (___dup, ___drop, etc.)
     if (isStructType(type)) {
-      // Recursively collect types from struct elements
-      for (const element of type.elements) {
-        collectType(element.type, context);
+      // Recursively collect types from struct fields
+      for (const field of type.fields) {
+        collectType(field.type, context);
       }
     }
 
     // For enum types, collect functions from the module and types from variants
     if (isEnumType(type)) {
-      // Recursively collect types from enum variant elements
+      // Recursively collect types from enum variant fields
       for (const variant of type.variants) {
-        if (variant.elements) {
-          for (const element of variant.elements) {
-            collectType(element.type, context);
+        if (variant.fields) {
+          for (const field of variant.fields) {
+            collectType(field.type, context);
           }
         }
       }
     }
 
-    // For union types, collect types from union elements
+    // For union types, collect types from union fields
     if (isUnionType(type)) {
-      // Recursively collect types from union elements
-      for (const element of type.elements) {
-        collectType(element.type, context);
+      // Recursively collect types from union fields
+      for (const field of type.fields) {
+        collectType(field.type, context);
       }
     }
 
@@ -261,32 +258,32 @@ export function collectType(type: Type, context: CodeGenContext): void {
       }
     }
 
-    // For future types, collect the element type
+    // For future types, collect the field type
     if (isFutureType(type)) {
       const futureType = type as FutureType;
-      // Recursively collect the element type
+      // Recursively collect the field type
       collectType(futureType.elementType, context);
     }
 
-    // For slice types, collect the element type
+    // For slice types, collect the field type
     if (isSliceType(type)) {
       const sliceType = type as SliceType;
-      // Recursively collect the element type
+      // Recursively collect the field type
       collectType(sliceType.elementType, context);
     }
 
-    // For module types, collect types and functions from the module's elements directly
+    // For module types, collect types and functions from the module's fields directly
     // (module types don't have a .module field - they ARE the module)
     if (isModuleType(type)) {
-      // First, collect types from all module elements (like struct does)
-      for (const element of type.elements) {
-        collectType(element.type, context);
+      // First, collect types from all module fields (like struct does)
+      for (const field of type.fields) {
+        collectType(field.type, context);
       }
 
-      // Then, collect functions from the module's elements
-      for (const element of type.elements) {
-        if (element.assignedValue && isFunctionValue(element.assignedValue)) {
-          const functionValue = element.assignedValue;
+      // Then, collect functions from the module's fields
+      for (const field of type.fields) {
+        if (field.assignedValue && isFunctionValue(field.assignedValue)) {
+          const functionValue = field.assignedValue;
           if (!context.functions[functionValue.funcId]) {
             context.functions[functionValue.funcId] = {
               value: functionValue,
@@ -299,12 +296,9 @@ export function collectType(type: Type, context: CodeGenContext): void {
             // Recursively collect functions called by this module function
             findFunctionCallsInExpr(functionValue.body, context);
           }
-        } else if (
-          element.assignedValue &&
-          isModuleValue(element.assignedValue)
-        ) {
-          // Module element has a module value - recursively collect its functions
-          const moduleValue = element.assignedValue;
+        } else if (field.assignedValue && isModuleValue(field.assignedValue)) {
+          // Module field has a module value - recursively collect its functions
+          const moduleValue = field.assignedValue;
           collectRequiredFunctions(moduleValue, context);
         }
       }
@@ -316,7 +310,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
     const elementType = arrayType.elementType;
     const length = arrayType.length;
     if (isNumberValue(length)) {
-      // Recursively collect the element type
+      // Recursively collect the field type
       collectType(elementType, context);
 
       // Generate struct wrapper for arrays and register it
@@ -347,7 +341,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
       const sliceType = type.type as SliceType;
       const elementType = sliceType.elementType;
 
-      // Recursively collect the element type
+      // Recursively collect the field type
       collectType(elementType, context);
 
       // Generate struct wrapper for slices and register it

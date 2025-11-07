@@ -1,8 +1,8 @@
 import { evaluateExpression } from "../evaluator/exprs/expr";
 import { generateExprFromCode } from "../parser";
-import { ModuleElement, ModuleType } from "./definitions";
+import { ModuleField, ModuleType } from "./definitions";
 
-export function addModuleElementsByCode(
+export function addModuleFieldsByCode(
   module: ModuleType,
   elements: Record<string, string>
 ) {
@@ -19,7 +19,7 @@ export function addModuleElementsByCode(
       },
     });
     if (!evaluatedArgCode.$ || !evaluatedArgCode.$.value) {
-      throw new Error(`Failed to evaluate module element code:
+      throw new Error(`Failed to evaluate module field code:
 - label: ${label}
 - argCode:
 
@@ -27,7 +27,7 @@ ${argCode}`);
     }
 
     const argValue = evaluatedArgCode.$.value;
-    const moduleElement: ModuleElement = {
+    const moduleField: ModuleField = {
       label,
       isCompileTimeOnly: true,
       type: argValue.type,
@@ -40,6 +40,6 @@ ${argCode}`);
       },
     };
 
-    module.elements.push(moduleElement);
+    module.fields.push(moduleField);
   }
 }

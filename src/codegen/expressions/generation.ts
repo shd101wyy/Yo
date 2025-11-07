@@ -166,9 +166,7 @@ function generateFuncCall(
 
     // Check if this closure has captures
     const hasCaptures =
-      captureType &&
-      isStructType(captureType) &&
-      captureType.elements.length > 0;
+      captureType && isStructType(captureType) && captureType.fields.length > 0;
 
     const constructorName = hasCaptures
       ? `__yo_create_${closureCName}`
@@ -195,7 +193,7 @@ function generateFuncCall(
         functionContext.currentClosureCaptures !== undefined ||
         functionContext.inStateMachine !== undefined;
 
-      const captureArgs = captureType.elements.map((element) => {
+      const captureArgs = captureType.fields.map((field) => {
         // Find the dup expression for this variable by checking the variable name
         // deferredDupExpressions only contains dup expressions for ARC types,
         // so we need to match by variable name, not by index
@@ -210,7 +208,7 @@ function generateFuncCall(
               exprIsAtom(possibleDupExpr.args[0])
             ) {
               const varName = possibleDupExpr.args[0].token.value;
-              if (varName === element.label) {
+              if (varName === field.label) {
                 dupExpr = possibleDupExpr;
                 break;
               }
@@ -226,8 +224,8 @@ function generateFuncCall(
         // This handles closure context and state machine access properly
         const atomExpr: AtomExpr = {
           tag: ExprTag.Atom,
-          token: element.exprs.expr.token,
-          $: element.exprs.expr.$,
+          token: field.exprs.expr.token,
+          $: field.exprs.expr.$,
         };
         return generateAtom(atomExpr, context);
       });
@@ -235,11 +233,11 @@ function generateFuncCall(
       // Generate capture struct initialization
       const captureDataCode = `(${captureCName}){ ${captureArgs
         .map((arg, i) => {
-          const element = captureType.elements[i];
-          if (!element) {
-            return `/* Error: missing element at index ${i} */`;
+          const field = captureType.fields[i];
+          if (!field) {
+            return `/* Error: missing field at index ${i} */`;
           }
-          return `.${sanitizeForCIdentifier(element.label)} = ${arg}`;
+          return `.${sanitizeForCIdentifier(field.label)} = ${arg}`;
         })
         .join(", ")} }`;
 
@@ -745,9 +743,9 @@ function generateFuncCall(
           rhsType &&
           isStructType(rhsType) &&
           rhsType.isNewtype &&
-          rhsType.elements.length === 1
+          rhsType.fields.length === 1
         ) {
-          const singleField = rhsType.elements[0];
+          const singleField = rhsType.fields[0];
           if (singleField && singleField.label === label) {
             // For newtype, destructuring the single field just returns the value itself
             context.emitter.emitLine(
@@ -762,7 +760,7 @@ function generateFuncCall(
           : sanitizeForCIdentifier(label);
 
         if (rhsType && isTupleType(rhsType) && !label.match(/^\d+$/)) {
-          const index = rhsType.elements.findIndex((el) => el.label === label);
+          const index = rhsType.fields.findIndex((el) => el.label === label);
           fieldName = index >= 0 ? `_${index}` : fieldName;
         }
 
@@ -1436,7 +1434,7 @@ function generateFuncCall(
         .map((arg) => {
           const argCode = generateExpr(arg, indent, context);
 
-          // Handle deferred dup expressions for tuple elements
+          // Handle deferred dup expressions for tuple fields
           if (
             arg.$?.deferredDupExpressions &&
             arg.$.deferredDupExpressions.length > 0
@@ -1485,7 +1483,7 @@ function generateFuncCall(
         .map((arg) => {
           const argCode = generateExpr(arg, indent, context);
 
-          // Handle deferred dup expressions for array elements
+          // Handle deferred dup expressions for array fields
           if (
             arg.$?.deferredDupExpressions &&
             arg.$.deferredDupExpressions.length > 0
@@ -1724,8 +1722,8 @@ function generateFuncCall(
                 if (exprIsAtom(methodExpr) && isDynType(dynType)) {
                   const methodName = methodExpr.token.value;
                   // Check if this method exists in the dyn type's module
-                  const dynMethod = dynType.module.elements.find(
-                    (element) => element.label === methodName
+                  const dynMethod = dynType.module.fields.find(
+                    (field) => field.label === methodName
                   );
 
                   if (dynMethod) {
@@ -1763,8 +1761,8 @@ function generateFuncCall(
                 if (exprIsAtom(methodExpr) && isDynType(dynType)) {
                   const methodName = methodExpr.token.value;
                   // Check if this method exists in the dyn type's module
-                  const dynMethod = dynType.module.elements.find(
-                    (element) => element.label === methodName
+                  const dynMethod = dynType.module.fields.find(
+                    (field) => field.label === methodName
                   );
 
                   if (dynMethod) {
@@ -2060,7 +2058,7 @@ function generateFuncCall(
         const structType = functionValue.value;
         const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
         const cName = context.types[structType.id]?.cName;
-        const labels = structType.elements.map((element) => element.label);
+        const labels = structType.fields.map((field) => field.label);
         const tempVar = expr.$?.variableName;
 
         if (
@@ -2069,7 +2067,7 @@ function generateFuncCall(
           labels.length === runtimeArgExprs.length
         ) {
           // Handle newtype as zero-cost abstraction
-          if (structType.isNewtype && structType.elements.length === 1) {
+          if (structType.isNewtype && structType.fields.length === 1) {
             // For newtype, just use the underlying value directly (with cast for type safety)
             const argCode = generateExpr(runtimeArgExprs[0]!, indent, context);
             const newtypeValue = `((${cName})(${argCode}))`;
@@ -2294,7 +2292,7 @@ function generateFuncCall(
             );
 
             if (variant) {
-              if (!variant.elements || variant.elements.length === 0) {
+              if (!variant.fields || variant.fields.length === 0) {
                 // This is the "None" case - return NULL
                 const enumValue = "NULL";
                 if (tempVar && expr.$?.type) {
@@ -2310,7 +2308,7 @@ function generateFuncCall(
                 } else {
                   return enumValue;
                 }
-              } else if (variant.elements.length === 1) {
+              } else if (variant.fields.length === 1) {
                 // This is the "Some" case - return the pointer value directly
                 const pointerValue = generateExpr(
                   runtimeArgExprs[0]!,
@@ -2365,21 +2363,17 @@ function generateFuncCall(
           if (variant) {
             // Filter out unit type arguments - they don't need to be stored
             const nonUnitElements =
-              variant.elements?.filter(
-                (element) => !isUnitType(element.type)
-              ) || [];
+              variant.fields?.filter((field) => !isUnitType(field.type)) || [];
 
             const functionContext = context as FunctionGenerationContext;
 
             const argsList = runtimeArgExprs
               .map((arg, index) => {
-                if (variant.elements) {
-                  const element = variant.elements[index];
-                  if (element && !isUnitType(element.type)) {
+                if (variant.fields) {
+                  const field = variant.fields[index];
+                  if (field && !isUnitType(field.type)) {
                     const argCode = generateExpr(arg, indent, context);
-                    const sanitizedLabel = sanitizeForCIdentifier(
-                      element.label
-                    );
+                    const sanitizedLabel = sanitizeForCIdentifier(field.label);
 
                     // Handle deferred dup expressions for enum variant fields
                     let finalArgValue = argCode;
@@ -2406,7 +2400,7 @@ function generateFuncCall(
 
                     return `.${sanitizedLabel} = ` + finalArgValue;
                   }
-                  return ""; // Skip if no element matches or if it's unit type
+                  return ""; // Skip if no field matches or if it's unit type
                 } else {
                   return "";
                 }
@@ -2720,7 +2714,7 @@ function generateAsyncBlock(
       functionContext.currentClosureCaptures !== undefined ||
       functionContext.inStateMachine !== undefined;
 
-    const captureFields = captureType.elements
+    const captureFields = captureType.fields
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
         // deferredDupExpressions only contains dup expressions for ARC types,
@@ -2838,8 +2832,8 @@ function generateAsyncBlockStateDisposeFunction(
       const captureTypeName = existingCaptureTypeEntry.cName;
 
       // Find the ___drop function for the capture struct
-      const dropFunction = captureType.module.elements.find(
-        (element) => element.label === BuiltinFunctions.___drop[0]
+      const dropFunction = captureType.module.fields.find(
+        (field) => field.label === BuiltinFunctions.___drop[0]
       );
       if (
         dropFunction &&
@@ -3016,15 +3010,15 @@ function generateDynCall(
   const moduleValues = expr.$.dynCallModuleValues;
   for (const moduleValue of moduleValues) {
     // Find functions in the module and collect their function IDs
-    for (let i = 0; i < moduleValue.elements.length; i++) {
-      const element = moduleValue.elements[i];
-      const elementType = moduleValue.type.elements[i];
+    for (let i = 0; i < moduleValue.fields.length; i++) {
+      const field = moduleValue.fields[i];
+      const elementType = moduleValue.type.fields[i];
 
-      if (element && isFunctionValue(element) && elementType) {
+      if (field && isFunctionValue(field) && elementType) {
         const methodName = elementType.label;
         // Skip 'Self' and 'This' type declarations (compile-time only)
         if (methodName !== "Self") {
-          const functionId = element.funcId;
+          const functionId = field.funcId;
           // Check if function exists in context
           if (context.functions[functionId]) {
             functionPointers.push(functionId);
@@ -3298,12 +3292,12 @@ function generateComptValue(
         return `// Error: Variant ${value.variantName} not found in enum`;
       }
 
-      if (!variant.elements || variant.elements.length === 0) {
+      if (!variant.fields || variant.fields.length === 0) {
         // This is the null case (None variant)
         return "NULL";
-      } else if (variant.elements.length === 1 && value.elements.length === 1) {
+      } else if (variant.fields.length === 1 && value.fields.length === 1) {
         // This is the pointer case (Some variant)
-        return generateComptValue(value.elements[0]!, context);
+        return generateComptValue(value.fields[0]!, context);
       }
     }
 
@@ -3326,7 +3320,7 @@ function generateComptValue(
       context
     );
 
-    if (!value.elements || value.elements.length === 0) {
+    if (!value.fields || value.fields.length === 0) {
       // Variant with no data
       return `(${cName}){ .tag = ${variantTag} }`;
     } else {
@@ -3334,17 +3328,17 @@ function generateComptValue(
       const variant = enumType.variants.find(
         (v) => v.name === value.variantName
       );
-      if (!variant || !variant.elements) {
-        return `// Error: Variant ${value.variantName} not found or has no elements`;
+      if (!variant || !variant.fields) {
+        return `// Error: Variant ${value.variantName} not found or has no fields`;
       }
 
       // Filter out unit type fields
-      const nonUnitFields = value.elements
-        .map((element, index) => {
-          const variantElement = variant.elements![index];
+      const nonUnitFields = value.fields
+        .map((field, index) => {
+          const variantElement = variant.fields![index];
           if (variantElement && !isUnitType(variantElement.type)) {
             const fieldName = sanitizeForCIdentifier(variantElement.label);
-            const fieldCode = generateComptValue(element, context);
+            const fieldCode = generateComptValue(field, context);
             return `.${fieldName} = ${fieldCode}`;
           }
           return null;
@@ -3370,27 +3364,27 @@ function generateComptValue(
       // Handle newtype as zero-cost abstraction
       if (
         type.isNewtype &&
-        type.elements.length === 1 &&
-        value.elements.length === 1
+        type.fields.length === 1 &&
+        value.fields.length === 1
       ) {
         // For newtype, just use the underlying value with a cast
-        const underlyingValue = generateComptValue(value.elements[0]!, context);
+        const underlyingValue = generateComptValue(value.fields[0]!, context);
         return `((${cName})(${underlyingValue}))`;
       }
 
       if (type.isReferenceSemantics) {
         // For object compile-time values, use constructor function
-        const fieldValues = value.elements.map((element) =>
-          generateComptValue(element, context)
+        const fieldValues = value.fields.map((field) =>
+          generateComptValue(field, context)
         );
 
         const constructorName = `__yo_new_${cName}`;
         return `${constructorName}(${fieldValues.join(", ")})`;
       } else {
         // For regular struct compile-time values, generate as before
-        const fields = value.elements.map((element, index) => {
-          const fieldValue = element;
-          const fieldName = sanitizeForCIdentifier(type.elements[index]!.label);
+        const fields = value.fields.map((field, index) => {
+          const fieldValue = field;
+          const fieldName = sanitizeForCIdentifier(type.fields[index]!.label);
           const fieldCode = generateComptValue(fieldValue, context);
           return `.${fieldName} = ${fieldCode}`;
         });
@@ -3466,7 +3460,7 @@ function generateFieldAccess(
 
     // Fallback: Check if this is an ARC method call (___drop, ___dup, ___dispose)
     // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
-    // So they are using the `undefined` function value, before we actually update its module elements.
+    // So they are using the `undefined` function value, before we actually update its module fields.
     if (
       !expr.$?.value &&
       (BuiltinFunctions.___dispose.includes(fieldName) ||
@@ -3486,11 +3480,11 @@ function generateFieldAccess(
 
       if (typeModule) {
         // Find the function in the type's module
-        const functionElement = typeModule.elements.find(
-          (element) =>
-            element.label === fieldName &&
-            element.assignedValue &&
-            isFunctionValue(element.assignedValue)
+        const functionElement = typeModule.fields.find(
+          (field) =>
+            field.label === fieldName &&
+            field.assignedValue &&
+            isFunctionValue(field.assignedValue)
         );
 
         if (functionElement && isFunctionValue(functionElement.assignedValue)) {
@@ -3511,11 +3505,11 @@ function generateFieldAccess(
     if (
       isStructType(objectType) &&
       objectType.isNewtype &&
-      objectType.elements.length === 1
+      objectType.fields.length === 1
     ) {
       // For newtype, accessing the single field just returns the value itself
       // since newtype is typedef'd to the underlying type
-      const singleField = objectType.elements[0];
+      const singleField = objectType.fields[0];
       if (singleField && singleField.label === fieldName) {
         return objectCode;
       }
@@ -3539,9 +3533,9 @@ function generateFieldAccess(
       // For enum field access, we need to determine which variant contains this field
       // and generate the appropriate path: object.data.VariantName.fieldName
       for (const variant of enumType.variants) {
-        if (variant.elements) {
-          for (const element of variant.elements) {
-            if (element.label === fieldName) {
+        if (variant.fields) {
+          for (const field of variant.fields) {
+            if (field.label === fieldName) {
               // Found the field in this variant
               const variantName = variant.name;
               return `${objectCode}.data.${variantName}.${sanitizeForCIdentifier(fieldName)}`;
@@ -3556,9 +3550,9 @@ function generateFieldAccess(
       const variant = enumType.variants.find((v) => v.name === fieldName);
       const cName = context.types[enumType.id]?.cName;
 
-      // Accessing variant that has no elements.
+      // Accessing variant that has no fields.
       // Like: Color.Red
-      if (!!variant && !variant.elements && cName) {
+      if (!!variant && !variant.fields && cName) {
         const tagName = getEnumVariantCName(enumType, variant.name, context);
         return `(${cName}){ .tag = ${tagName}, .data = {  } }`;
       }
@@ -3602,8 +3596,8 @@ function generateFieldAccess(
       if (fieldName.match(/^\d+$/)) {
         return `${objectCode}._${fieldName}`;
       } else {
-        const index = objectType.elements.findIndex(
-          (element) => element.label === fieldName
+        const index = objectType.fields.findIndex(
+          (field) => field.label === fieldName
         );
         return `${objectCode}._${index}`;
       }
@@ -4165,16 +4159,16 @@ function generateMatchExpression(
         if (caseValue.args.length > 1) {
           // This is a destructuring pattern
           const variant = enumType.variants.find((v) => v.name === variantName);
-          if (variant && variant.elements) {
+          if (variant && variant.fields) {
             // Generate local variable declarations for destructured fields
             for (
               let fieldIndex = 0;
               fieldIndex <
-              Math.min(caseValue.args.length - 1, variant.elements.length);
+              Math.min(caseValue.args.length - 1, variant.fields.length);
               fieldIndex++
             ) {
               const destructuredVar = caseValue.args[fieldIndex + 1]!; // Skip the variant name
-              const variantElement = variant.elements[fieldIndex];
+              const variantElement = variant.fields[fieldIndex];
 
               if (destructuredVar.tag === ExprTag.Atom && variantElement) {
                 // Skip unit type fields - they don't exist in the generated struct
@@ -4253,15 +4247,15 @@ function generateMatchExpression(
 
         // Generate local variable declarations for destructured fields
         const variant = enumType.variants.find((v) => v.name === variantName);
-        if (variant && variant.elements && destructuringParams.length > 0) {
+        if (variant && variant.fields && destructuringParams.length > 0) {
           for (
             let fieldIndex = 0;
             fieldIndex <
-            Math.min(destructuringParams.length, variant.elements.length);
+            Math.min(destructuringParams.length, variant.fields.length);
             fieldIndex++
           ) {
             const destructuredVar = destructuringParams[fieldIndex]!;
-            const variantElement = variant.elements[fieldIndex];
+            const variantElement = variant.fields[fieldIndex];
 
             if (destructuredVar.tag === ExprTag.Atom && variantElement) {
               const varName = destructuredVar.token.value;

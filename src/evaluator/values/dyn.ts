@@ -228,21 +228,21 @@ export function evaluateDynValue({
       )
     ) {
       // Create the module value from the value type's module
-      const elements: (Value | undefined)[] = [];
-      for (let i = 0; i < requiredModuleType.elements.length; i++) {
-        const element = requiredModuleType.elements[i]!;
-        const valueTypeElementIndex = valueType.module.elements.findIndex(
-          (e) => e.label === element.label
+      const fields: (Value | undefined)[] = [];
+      for (let i = 0; i < requiredModuleType.fields.length; i++) {
+        const field = requiredModuleType.fields[i]!;
+        const valueTypeFieldIndex = valueType.module.fields.findIndex(
+          (e) => e.label === field.label
         );
-        if (valueTypeElementIndex === -1) {
-          elements.push(undefined);
+        if (valueTypeFieldIndex === -1) {
+          fields.push(undefined);
         } else {
-          elements.push(
-            valueType.module.elements[valueTypeElementIndex]!.assignedValue
+          fields.push(
+            valueType.module.fields[valueTypeFieldIndex]!.assignedValue
           );
         }
       }
-      const moduleValue = createModuleValue(requiredModuleType, elements);
+      const moduleValue = createModuleValue(requiredModuleType, fields);
 
       // This module type is actually a value type, not a module type
       // So we can skip it
@@ -252,18 +252,18 @@ export function evaluateDynValue({
       continue;
     }
 
-    // Check if the value type's module elements contain a ModuleValue that matches
-    let foundInModuleElements = false;
-    for (const moduleElement of valueType.module.elements) {
-      if (!moduleElement.assignedValue) {
+    // Check if the value type's module fields contain a ModuleValue that matches
+    let foundInModuleFields = false;
+    for (const moduleField of valueType.module.fields) {
+      if (!moduleField.assignedValue) {
         continue;
       }
 
-      if (!isModuleValue(moduleElement.assignedValue)) {
+      if (!isModuleValue(moduleField.assignedValue)) {
         continue;
       }
 
-      const moduleValue = moduleElement.assignedValue;
+      const moduleValue = moduleField.assignedValue;
       if (!isModuleType(moduleValue.type)) {
         continue;
       }
@@ -297,28 +297,28 @@ export function evaluateDynValue({
       }
 
       // Create the module value from the found module
-      const elements: (Value | undefined)[] = [];
-      for (let i = 0; i < requiredModuleType.elements.length; i++) {
-        const element = requiredModuleType.elements[i]!;
-        const moduleValueElementIndex = moduleValue.type.elements.findIndex(
-          (e) => e.label === element.label
+      const fields: (Value | undefined)[] = [];
+      for (let i = 0; i < requiredModuleType.fields.length; i++) {
+        const field = requiredModuleType.fields[i]!;
+        const moduleValueFieldIndex = moduleValue.type.fields.findIndex(
+          (e) => e.label === field.label
         );
-        if (moduleValueElementIndex === -1) {
-          elements.push(undefined);
+        if (moduleValueFieldIndex === -1) {
+          fields.push(undefined);
         } else {
-          elements.push(moduleValue.elements[moduleValueElementIndex]);
+          fields.push(moduleValue.fields[moduleValueFieldIndex]);
         }
       }
-      const newModuleValue = createModuleValue(requiredModuleType, elements);
+      const newModuleValue = createModuleValue(requiredModuleType, fields);
 
       moduleValues.push(newModuleValue);
       moduleTypes.push(newModuleValue.type);
       checkedModuleTypes.add(requiredModuleType);
-      foundInModuleElements = true;
+      foundInModuleFields = true;
       break;
     }
 
-    if (foundInModuleElements) {
+    if (foundInModuleFields) {
       continue;
     }
 
@@ -388,22 +388,20 @@ ${filteredImplicitVariables
     const implicitVariable = filteredImplicitVariables[0]!;
     const implicitVariableModuleValue = implicitVariable.value as ModuleValue;
     // Create the module value from the implicit variable
-    const elements: (Value | undefined)[] = [];
-    for (let i = 0; i < requiredModuleType.elements.length; i++) {
-      const element = requiredModuleType.elements[i]!;
-      const moduleValueElementIndex =
-        implicitVariableModuleValue.type.elements.findIndex(
-          (e) => e.label === element.label
+    const fields: (Value | undefined)[] = [];
+    for (let i = 0; i < requiredModuleType.fields.length; i++) {
+      const field = requiredModuleType.fields[i]!;
+      const moduleValueFieldIndex =
+        implicitVariableModuleValue.type.fields.findIndex(
+          (e) => e.label === field.label
         );
-      if (moduleValueElementIndex === -1) {
-        elements.push(undefined);
+      if (moduleValueFieldIndex === -1) {
+        fields.push(undefined);
       } else {
-        elements.push(
-          implicitVariableModuleValue.elements[moduleValueElementIndex]
-        );
+        fields.push(implicitVariableModuleValue.fields[moduleValueFieldIndex]);
       }
     }
-    const moduleValue = createModuleValue(requiredModuleType, elements);
+    const moduleValue = createModuleValue(requiredModuleType, fields);
 
     moduleValues.push(moduleValue);
     moduleTypes.push(moduleValue.type);

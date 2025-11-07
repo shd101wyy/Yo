@@ -13,7 +13,7 @@ import {
   createStructType,
   StructType,
   typeContainsARCType,
-  TypeElement,
+  TypeField,
   typeToString,
 } from "../../types";
 import {
@@ -129,8 +129,8 @@ export function createCaptureTypeAndValue({
       // Create a struct type using createStructType
       const inferredCaptureType = createStructType(env);
 
-      // Create elements from captured variables
-      const captureElements: TypeElement[] = Array.from(
+      // Create fields from captured variables
+      const captureFields: TypeField[] = Array.from(
         capturedVariablesWithValues.entries()
       ).map(([varName, captureInfo]) => {
         return {
@@ -150,8 +150,8 @@ export function createCaptureTypeAndValue({
         };
       });
 
-      // Add the elements to the struct type
-      inferredCaptureType.elements = captureElements;
+      // Add the fields to the struct type
+      inferredCaptureType.fields = captureFields;
       captureType = inferredCaptureType;
 
       env = addARCFunctionsToStructType({
@@ -176,7 +176,7 @@ export function createCaptureTypeAndValue({
     } else {
       // No captured variables but expected undefined capture type - create empty struct
       const emptyStructType = createStructType(env);
-      emptyStructType.elements = [];
+      emptyStructType.fields = [];
 
       env = addARCFunctionsToStructType({
         structType: emptyStructType,
@@ -194,7 +194,7 @@ export function createCaptureTypeAndValue({
 
       // Validate that all captured variables exist as fields in the expected struct
       const capturedVarNames = Array.from(capturedVariablesWithValues.keys());
-      const expectedFieldNames = expectedStruct.elements.map(
+      const expectedFieldNames = expectedStruct.fields.map(
         (elem) => elem.label
       );
 
@@ -208,7 +208,7 @@ export function createCaptureTypeAndValue({
       }
 
       // Validate that all required fields in the struct are captured
-      for (const field of expectedStruct.elements) {
+      for (const field of expectedStruct.fields) {
         if (!capturedVarNames.includes(field.label)) {
           throw formatErrorMessage({
             token: closureToken,
@@ -222,7 +222,7 @@ export function createCaptureTypeAndValue({
         varName,
         captureInfo,
       ] of capturedVariablesWithValues.entries()) {
-        const expectedField = expectedStruct.elements.find(
+        const expectedField = expectedStruct.fields.find(
           (elem) => elem.label === varName
         );
         if (

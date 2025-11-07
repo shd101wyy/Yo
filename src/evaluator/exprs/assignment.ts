@@ -437,7 +437,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         // Clone the enum only for value semantics, not for reference semantics
         const enumType = variable.type as EnumType;
         valueToStore = createEnumValue(enumType, valueToStore.variantName, [
-          ...valueToStore.elements,
+          ...valueToStore.fields,
         ]);
         // For reference semantics enums, keep the original value to share the reference
       }
@@ -504,7 +504,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         // Clone the enum only for value semantics, not for reference semantics
         const enumType = variable.type as EnumType;
         valueToStore = createEnumValue(enumType, valueToStore.variantName, [
-          ...valueToStore.elements,
+          ...valueToStore.fields,
         ]);
         // For reference semantics enums, keep the original value to share the reference
       }
@@ -709,7 +709,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
             if (isStructValue(currentValue) || isTupleValue(currentValue)) {
               // Find the field index
               const structType = variable.type as StructType | TupleType;
-              const fieldIndex = structType.elements.findIndex(
+              const fieldIndex = structType.fields.findIndex(
                 (element) => element.label === fieldOrIndex
               );
 
@@ -721,12 +721,9 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
                   variable.type.isReferenceSemantics
                 ) {
                   // Create a new struct value with the updated field
-                  const newElements = [...currentValue.elements];
-                  newElements[fieldIndex] = rhs.$.value;
-                  const newValue = createStructValue(
-                    variable.type,
-                    newElements
-                  );
+                  const newFields = [...currentValue.fields];
+                  newFields[fieldIndex] = rhs.$.value;
+                  const newValue = createStructValue(variable.type, newFields);
 
                   // Find all variables in the environment that have the same struct value
                   // and update them all to maintain reference semantics
@@ -742,19 +739,19 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
                   }
                 } else {
                   // Value semantics - only update the specific variable
-                  const newElements = [...currentValue.elements];
-                  newElements[fieldIndex] = rhs.$.value;
+                  const newFields = [...currentValue.fields];
+                  newFields[fieldIndex] = rhs.$.value;
 
                   let newValue: StructValue | TupleValue;
                   if (isStructValue(currentValue)) {
                     newValue = createStructValue(
                       structType as StructType,
-                      newElements
+                      newFields
                     );
                   } else {
                     newValue = createTupleValue(
                       structType as TupleType,
-                      newElements
+                      newFields
                     );
                   }
 
@@ -800,19 +797,19 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
 
               if (selectedVariant) {
                 // Find the field index in the variant
-                const fieldIndex = (selectedVariant.elements ?? []).findIndex(
+                const fieldIndex = (selectedVariant.fields ?? []).findIndex(
                   (element) => element.label === fieldOrIndex
                 );
 
                 if (fieldIndex >= 0 && rhs.$?.value) {
                   // Create a new enum value with the updated field
-                  const newElements = [...currentValue.elements];
-                  newElements[fieldIndex] = rhs.$.value;
+                  const newFields = [...currentValue.fields];
+                  newFields[fieldIndex] = rhs.$.value;
 
                   const newValue = createEnumValue(
                     enumType,
                     currentValue.variantName,
-                    newElements
+                    newFields
                   );
 
                   // Value semantics - only update the specific variable

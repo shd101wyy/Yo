@@ -8,12 +8,12 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { ModuleElement } from "../../types";
+import { ModuleField } from "../../types";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { evaluateModuleElementType } from "../types/module";
+import { evaluateModuleField } from "../types/module";
 
 export function evaluateCInclude({
   expr,
@@ -71,13 +71,13 @@ c_include "<stdio.h>" ...;`,
     });
   }
 
-  const elements: ModuleElement[] = [];
+  const fields: ModuleField[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    const { type: element, env: nextEnv } = evaluateModuleElementType({
+    const { field: field, env: nextEnv } = evaluateModuleField({
       expr: arg,
       env,
-      moduleElementIndex: i,
+      moduleFieldIndex: i,
       context: {
         ...context,
         SelfType: undefined, // No SelfType in module context
@@ -86,47 +86,44 @@ c_include "<stdio.h>" ...;`,
     });
 
     // Check if there is duplicate labels
-    const duplicateLabel = elements.find(
-      (elem) => elem.label === element.label
-    );
+    const duplicateLabel = fields.find((elem) => elem.label === field.label);
     if (duplicateLabel) {
       throw formatErrorMessage({
         token: exprIsFunctionCall(arg)
           ? (arg.args[0]?.token ?? arg.token)
           : arg.token,
-        errorMessage: `Duplicate label "${element.label}" in module`,
+        errorMessage: `Duplicate label "${field.label}" in module`,
       });
     }
 
-    // Set the isExtern and cInclude for the element type
-    element.type.isExtern = "c";
-    element.type.cInclude = cHeaderFile;
+    // Set the isExtern and cInclude for the field type
+    field.type.isExtern = "c";
+    field.type.cInclude = cHeaderFile;
 
-    // Expect element to be compile-time only
-    if (!element.isCompileTimeOnly) {
+    // Expect field to be compile-time only
+    if (!field.isCompileTimeOnly) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Expected compile-time only element for extern module, got ${exprToString(arg)}`,
+        errorMessage: `Expected compile-time only field for extern module, got ${exprToString(arg)}`,
       });
     }
 
-    elements.push(element);
+    fields.push(field);
     env = nextEnv;
 
     // No linear type restrictions needed anymore
 
-    // Add element to env
+    // Add field to env
     const { env: nextNextEnv } = addVariableToEnv({
       env,
       variable: {
-        name: element.label,
-        type: element.type,
+        name: field.label,
+        type: field.type,
         value:
-          element.assignedValue ??
-          createUnknownValue(element.type, element.label),
-        isCompileTimeOnly: element.isCompileTimeOnly,
-        token: element.exprs.expr.token,
-        initializedAtToken: element.exprs.expr.token,
+          field.assignedValue ?? createUnknownValue(field.type, field.label),
+        isCompileTimeOnly: field.isCompileTimeOnly,
+        token: field.exprs.expr.token,
+        initializedAtToken: field.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet
       },
     });

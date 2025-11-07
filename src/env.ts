@@ -549,10 +549,10 @@ export function getMethodsByNameFromEnv(
     }
     */
 
-    const method = moduleType.elements.find(
-      (element) =>
-        element.label === methodName &&
-        (isFunctionType(element.type) || isModuleType(element.type))
+    const method = moduleType.fields.find(
+      (field) =>
+        field.label === methodName &&
+        (isFunctionType(field.type) || isModuleType(field.type))
     );
 
     if (method) {
@@ -561,10 +561,10 @@ export function getMethodsByNameFromEnv(
         if (isUnknownValue(moduleValue)) {
           value = createUnknownValue(method.type, method.label);
         } else if (isModuleValue(moduleValue)) {
-          const index = moduleType.elements.findIndex(
-            (element) => element.label === method.label
+          const index = moduleType.fields.findIndex(
+            (field) => field.label === method.label
           );
-          value = moduleValue.elements[index];
+          value = moduleValue.fields[index];
         }
 
         methods.push({ type: method.type, value });
@@ -579,28 +579,28 @@ export function getMethodsByNameFromEnv(
 
     // If method not found directly, search in nested modules
     if (!method) {
-      for (const element of moduleType.elements) {
-        if (isModuleType(element.type) && element.assignedValue) {
+      for (const field of moduleType.fields) {
+        if (isModuleType(field.type) && field.assignedValue) {
           // Recursively check nested modules
-          checkModule(element.type, element.assignedValue);
+          checkModule(field.type, field.assignedValue);
         }
       }
     }
   }
 
   function checkModuleSelfCall(moduleValue: ModuleValue) {
-    const selfTypeIndex = moduleValue.type.elements.findIndex(
-      (element) => element.label === "Call"
+    const selfTypeIndex = moduleValue.type.fields.findIndex(
+      (field) => field.label === "Call"
     );
     if (selfTypeIndex >= 0) {
-      const selfType = moduleValue.type.elements[selfTypeIndex]!;
+      const selfType = moduleValue.type.fields[selfTypeIndex]!;
       if (selfType.assignedValue) {
         const selfValue = selfType.assignedValue;
         if (isTupleValue(selfValue)) {
-          selfValue.elements.forEach((element) => {
+          selfValue.fields.forEach((field) => {
             methods.push({
-              type: element.type,
-              value: element,
+              type: field.type,
+              value: field,
             });
           });
         } else {
@@ -673,8 +673,8 @@ export function getMethodsByNameFromEnv(
     visitedModules.add(moduleType.id);
 
     // First, check direct methods in this module
-    const directMethod = moduleType.elements.find(
-      (element) => element.label === methodName && isFunctionType(element.type)
+    const directMethod = moduleType.fields.find(
+      (field) => field.label === methodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -687,11 +687,11 @@ export function getMethodsByNameFromEnv(
     }
 
     // If not found, recursively check nested modules
-    for (const element of moduleType.elements) {
-      if (isModuleType(element.type) && element.assignedValue) {
+    for (const field of moduleType.fields) {
+      if (isModuleType(field.type) && field.assignedValue) {
         // We need to use checkModule here to properly handle the module value
         // which might contain the actual function values
-        checkModule(element.type, element.assignedValue);
+        checkModule(field.type, field.assignedValue);
       }
     }
   }
@@ -699,8 +699,8 @@ export function getMethodsByNameFromEnv(
   // Check if th receiverType itself has method that can be called
   if (receiverType !== dereferencedReceiverType && receiverType.module) {
     // First check direct methods
-    const directMethod = receiverType.module.elements.find(
-      (element) => element.label === methodName && isFunctionType(element.type)
+    const directMethod = receiverType.module.fields.find(
+      (field) => field.label === methodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -718,8 +718,8 @@ export function getMethodsByNameFromEnv(
   // Check if the dereferencedReceiverType itself has method that can be called
   if (dereferencedReceiverType.module) {
     // First check direct methods
-    const directMethod = dereferencedReceiverType.module.elements.find(
-      (element) => element.label === methodName && isFunctionType(element.type)
+    const directMethod = dereferencedReceiverType.module.fields.find(
+      (field) => field.label === methodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -737,10 +737,10 @@ export function getMethodsByNameFromEnv(
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
     // First, check the dyn object's own module for its ARC methods (___drop, ___dup, ___dispose)
-    const dynMethod = dereferencedReceiverType.module.elements.find(
-      (element) =>
-        element.label === methodName &&
-        (isFunctionType(element.type) || isModuleType(element.type))
+    const dynMethod = dereferencedReceiverType.module.fields.find(
+      (field) =>
+        field.label === methodName &&
+        (isFunctionType(field.type) || isModuleType(field.type))
     );
     if (dynMethod && isFunctionType(dynMethod.type)) {
       // For dyn object's own methods, we can use the assigned value directly
@@ -754,10 +754,10 @@ export function getMethodsByNameFromEnv(
     // A method might exist in only some modules, and that's perfectly valid
     const moduleTypes = dereferencedReceiverType.moduleTypes.slice(1); // Skip the wrappedObjectARCModuleType that contains ___dup, ___drop, ___dispose since we already checked it above.
     for (const moduleType of moduleTypes) {
-      const method = moduleType.elements.find(
-        (element) =>
-          element.label === methodName &&
-          (isFunctionType(element.type) || isModuleType(element.type))
+      const method = moduleType.fields.find(
+        (field) =>
+          field.label === methodName &&
+          (isFunctionType(field.type) || isModuleType(field.type))
       );
       if (method && isFunctionType(method.type)) {
         // Check if the receiver type is compatible

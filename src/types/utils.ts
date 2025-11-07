@@ -21,14 +21,14 @@ import {
   FunctionParameter,
   FunctionType,
   FutureType,
-  ModuleElement,
+  ModuleField,
   ModuleType,
   MutPtrType,
   SomeType,
   StructType,
   TupleType,
   Type,
-  TypeElement,
+  TypeField,
   UnionType,
 } from "./definitions";
 import {
@@ -123,26 +123,26 @@ export function typeContainsARCType(
     case TypeTag.Array:
       return typeContainsARCType((type as ArrayType).elementType, checkedTypes);
     case TypeTag.Tuple:
-      return (type as TupleType).elements.some((element) =>
-        typeContainsARCType(element.type, checkedTypes)
+      return (type as TupleType).fields.some((field) =>
+        typeContainsARCType(field.type, checkedTypes)
       );
     case TypeTag.Union:
-      return (type as UnionType).elements.some((element) =>
-        typeContainsARCType(element.type, checkedTypes)
+      return (type as UnionType).fields.some((field) =>
+        typeContainsARCType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
-      return (type as StructType).elements.some((element) =>
-        typeContainsARCType(element.type, checkedTypes)
+      return (type as StructType).fields.some((field) =>
+        typeContainsARCType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) =>
+        variant.fields?.some((param) =>
           typeContainsARCType(param.type, checkedTypes)
         )
       );
     case TypeTag.Module:
-      return (type as ModuleType).elements.some((element) =>
-        typeContainsARCType(element.type, checkedTypes)
+      return (type as ModuleType).fields.some((field) =>
+        typeContainsARCType(field.type, checkedTypes)
       );
     case TypeTag.Function: {
       return !!(type as FunctionType).isClosure;
@@ -183,22 +183,22 @@ export function typeContainsSomeType(
         checkedTypes
       );
     case TypeTag.Tuple:
-      return (type as TupleType).elements.some((element) =>
-        typeContainsSomeType(element.type, checkedTypes)
+      return (type as TupleType).fields.some((field) =>
+        typeContainsSomeType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
-      return (type as StructType).elements.some((element) =>
-        typeContainsSomeType(element.type, checkedTypes)
+      return (type as StructType).fields.some((field) =>
+        typeContainsSomeType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
-        variant.elements?.some((param) =>
+        variant.fields?.some((param) =>
           typeContainsSomeType(param.type, checkedTypes)
         )
       );
     case TypeTag.Union:
-      return (type as UnionType).elements.some((element) =>
-        typeContainsSomeType(element.type, checkedTypes)
+      return (type as UnionType).fields.some((field) =>
+        typeContainsSomeType(field.type, checkedTypes)
       );
     case TypeTag.Function: {
       const functionType = type as FunctionType;
@@ -211,8 +211,8 @@ export function typeContainsSomeType(
       );
     }
     case TypeTag.Module:
-      return (type as ModuleType).elements.some((element) =>
-        typeContainsSomeType(element.type, checkedTypes)
+      return (type as ModuleType).fields.some((field) =>
+        typeContainsSomeType(field.type, checkedTypes)
       );
     case TypeTag.MutPtr:
       return typeContainsSomeType((type as MutPtrType).type, checkedTypes);
@@ -256,21 +256,21 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         helper((t as ArrayType).elementType);
         break;
       case TypeTag.Tuple:
-        (t as TupleType).elements.forEach((element) => helper(element.type));
+        (t as TupleType).fields.forEach((field) => helper(field.type));
         break;
       case TypeTag.Struct:
-        (t as StructType).elements.forEach((element) => helper(element.type));
+        (t as StructType).fields.forEach((field) => helper(field.type));
         break;
       case TypeTag.Enum:
         (t as EnumType).variants.forEach((variant) => {
-          variant.elements?.forEach((param) => helper(param.type));
+          variant.fields?.forEach((param) => helper(param.type));
         });
         break;
       case TypeTag.Union:
-        (t as UnionType).elements.forEach((element) => helper(element.type));
+        (t as UnionType).fields.forEach((field) => helper(field.type));
         break;
       case TypeTag.Module:
-        (t as ModuleType).elements.forEach((element) => helper(element.type));
+        (t as ModuleType).fields.forEach((field) => helper(field.type));
         break;
       case TypeTag.MutPtr:
         helper((t as MutPtrType).type);
@@ -435,11 +435,11 @@ export function convertComptTypeToRuntimeType({
     });
     return type;
   } else if (isTupleType(type)) {
-    type.elements = type.elements.map((element) => {
+    type.fields = type.fields.map((field) => {
       return {
-        ...element,
+        ...field,
         type: convertComptTypeToRuntimeType({
-          type: element.type,
+          type: field.type,
           expectedType: undefined,
           expr: undefined,
           env,
@@ -454,11 +454,11 @@ export function convertComptTypeToRuntimeType({
       return type;
     }
 
-    type.elements = type.elements.map((element) => {
+    type.fields = type.fields.map((field) => {
       return {
-        ...element,
+        ...field,
         type: convertComptTypeToRuntimeType({
-          type: element.type,
+          type: field.type,
           expectedType: undefined,
           expr: undefined,
           env,
@@ -469,8 +469,8 @@ export function convertComptTypeToRuntimeType({
     return type;
   } else if (isEnumType(type)) {
     type.variants = type.variants.map((variant) => {
-      if (variant.elements) {
-        variant.elements = variant.elements.map((param) => {
+      if (variant.fields) {
+        variant.fields = variant.fields.map((param) => {
           return {
             ...param,
             type: convertComptTypeToRuntimeType({
@@ -618,8 +618,8 @@ export function functionParameterToString(
  * Convert a tuple element to string representation.
  * NOTE: Don't use element.exprs
  */
-export function tupleElementToString(
-  element: TypeElement,
+export function tupleFieldToString(
+  element: TypeField,
   visited: Set<string> = new Set()
 ): string {
   let label = element.label;
@@ -653,7 +653,7 @@ export function tupleElementToString(
  * Convert a module element to string representation.
  */
 function moduleElementToString(
-  element: ModuleElement,
+  element: ModuleField,
   visited: Set<string> = new Set()
 ): string {
   let label = element.label;
@@ -867,12 +867,12 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     }
 
     case TypeTag.Tuple: {
-      if ((type as TupleType).elements.length === 0) {
+      if ((type as TupleType).fields.length === 0) {
         return "()";
       }
-      return `(${(type as TupleType).elements
-        .map((element) => tupleElementToString(element, visited))
-        .join(", ")}${(type as TupleType).elements.length === 1 ? "," : ""})`;
+      return `(${(type as TupleType).fields
+        .map((element) => tupleFieldToString(element, visited))
+        .join(", ")}${(type as TupleType).fields.length === 1 ? "," : ""})`;
     }
 
     case TypeTag.Struct: {
@@ -881,7 +881,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return structType.typeName;
       }
 
-      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
+      return `${structType.typeName ? `(${structType.typeName}) ` : ""}${structType.isReferenceSemantics ? "object" : structType.isNewtype ? "newtype" : "struct"}(${structType.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
     }
 
     case TypeTag.Enum: {
@@ -906,8 +906,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
-            variant.elements
-              ? `(${variant.elements.map((element) => tupleElementToString(element, visited)).join(", ")})`
+            variant.fields
+              ? `(${variant.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`
               : ""
           }`;
         })
@@ -920,10 +920,10 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return unionType.typeName;
       }
 
-      const elements = unionType.elements;
+      const fields = unionType.fields;
       return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
         unionType.typeName ? "union" : unionType.id
-      }(${elements.map((element) => tupleElementToString(element, visited)).join(", ")})`;
+      }(${fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
     }
 
     case TypeTag.Module: {
@@ -934,7 +934,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       } else {
         moduleTypeString = `${
           moduleType.typeName ? `(${moduleType.typeName}) ` : ""
-        }module(${moduleType.elements.map((element) => moduleElementToString(element, visited)).join(", ")})`;
+        }module(${moduleType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
       }
 
       if (moduleType.receiverType) {
@@ -1057,30 +1057,30 @@ function getArrayTypeSize(type: ArrayType): number | null {
 
 function getTupleTypeSize(type: TupleType): number | null {
   let totalSize = 0;
-  for (const element of type.elements) {
-    const elementSize = getSizeOfType(element.type);
-    if (elementSize === null) {
-      return null; // If any element size is unknown, return null
+  for (const field of type.fields) {
+    const fieldSize = getSizeOfType(field.type);
+    if (fieldSize === null) {
+      return null; // If any field size is unknown, return null
     }
-    if (elementSize === -1) {
-      return -1; // If any element size is dynamic, return -1
+    if (fieldSize === -1) {
+      return -1; // If any field size is dynamic, return -1
     }
-    totalSize += elementSize; // Accumulate the size of each element
+    totalSize += fieldSize; // Accumulate the size of each field
   }
   return totalSize; // Return total size in bits
 }
 
 function getStructTypeSize(type: StructType): number | null {
   let totalSize = 0;
-  for (const element of type.elements) {
-    const elementSize = getSizeOfType(element.type);
-    if (elementSize === null) {
-      return null; // If any element size is unknown, return null
+  for (const field of type.fields) {
+    const fieldSize = getSizeOfType(field.type);
+    if (fieldSize === null) {
+      return null; // If any field size is unknown, return null
     }
-    if (elementSize === -1) {
-      return -1; // If any element size is dynamic, return -1
+    if (fieldSize === -1) {
+      return -1; // If any field size is dynamic, return -1
     }
-    totalSize += elementSize; // Accumulate the size of each element
+    totalSize += fieldSize; // Accumulate the size of each field
   }
   return totalSize; // Return total size in bits
 }
@@ -1089,16 +1089,16 @@ function getEnumTypeSize(type: EnumType): number | null {
   let maxSize = 0;
   for (const variant of type.variants) {
     let variantSize: number = 0;
-    if (variant.elements) {
-      for (const param of variant.elements) {
-        const paramSize = getSizeOfType(param.type);
-        if (paramSize === null) {
+    if (variant.fields) {
+      for (const field of variant.fields) {
+        const fieldSize = getSizeOfType(field.type);
+        if (fieldSize === null) {
           return null; // If any parameter size is unknown, return null
         }
-        if (paramSize === -1) {
+        if (fieldSize === -1) {
           return -1; // If any parameter size is dynamic, return -1
         }
-        variantSize += paramSize; // Accumulate the size of each parameter
+        variantSize += fieldSize; // Accumulate the size of each parameter
       }
     }
     maxSize = Math.max(maxSize, variantSize); // Track the maximum size of variants
@@ -1110,15 +1110,15 @@ function getEnumTypeSize(type: EnumType): number | null {
 
 function getUnionType(type: UnionType): number | null {
   let maxSize = 0;
-  for (const element of type.elements) {
-    const elementSize = getSizeOfType(element.type);
-    if (elementSize === null) {
-      return null; // If any element size is unknown, return null
+  for (const field of type.fields) {
+    const fieldSize = getSizeOfType(field.type);
+    if (fieldSize === null) {
+      return null; // If any field size is unknown, return null
     }
-    if (elementSize === -1) {
-      return -1; // If any element size is dynamic, return -1
+    if (fieldSize === -1) {
+      return -1; // If any field size is dynamic, return -1
     }
-    maxSize = Math.max(maxSize, elementSize); // Find the maximum size among elements
+    maxSize = Math.max(maxSize, fieldSize); // Find the maximum size among elements
   }
   return maxSize; // Return the maximum size in bits
 }
@@ -1164,14 +1164,14 @@ export function getAlignmentOfType(type: Type): number | null {
   } else if (isArrayType(type)) {
     return getAlignmentOfType(type.elementType); // Array alignment is element alignment
   } else if (isTupleType(type)) {
-    // Tuple alignment is the maximum alignment of its elements
+    // Tuple alignment is the maximum alignment of its fields
     let maxAlign = 1;
-    for (const element of type.elements) {
-      const elementAlign = getAlignmentOfType(element.type);
-      if (elementAlign === null) {
+    for (const field of type.fields) {
+      const fieldAlign = getAlignmentOfType(field.type);
+      if (fieldAlign === null) {
         return null;
       }
-      maxAlign = Math.max(maxAlign, elementAlign);
+      maxAlign = Math.max(maxAlign, fieldAlign);
     }
     return maxAlign;
   } else if (isStructType(type)) {
@@ -1180,42 +1180,42 @@ export function getAlignmentOfType(type: Type): number | null {
       return getTargetPointerSizeBytes();
     }
     if (type.isNewtype) {
-      return getAlignmentOfType(type.elements[0]!.type);
+      return getAlignmentOfType(type.fields[0]!.type);
     }
-    // Struct alignment is the maximum alignment of its elements
+    // Struct alignment is the maximum alignment of its fields
     let maxAlign = 1;
-    for (const element of type.elements) {
-      const elementAlign = getAlignmentOfType(element.type);
-      if (elementAlign === null) {
+    for (const field of type.fields) {
+      const fieldAlign = getAlignmentOfType(field.type);
+      if (fieldAlign === null) {
         return null;
       }
-      maxAlign = Math.max(maxAlign, elementAlign);
+      maxAlign = Math.max(maxAlign, fieldAlign);
     }
     return maxAlign;
   } else if (isEnumType(type)) {
     // Enum alignment is the maximum alignment of its variants
     let maxAlign = 1;
     for (const variant of type.variants) {
-      if (variant.elements) {
-        for (const param of variant.elements) {
-          const paramAlign = getAlignmentOfType(param.type);
-          if (paramAlign === null) {
+      if (variant.fields) {
+        for (const field of variant.fields) {
+          const fieldAlign = getAlignmentOfType(field.type);
+          if (fieldAlign === null) {
             return null;
           }
-          maxAlign = Math.max(maxAlign, paramAlign);
+          maxAlign = Math.max(maxAlign, fieldAlign);
         }
       }
     }
     return maxAlign;
   } else if (isUnionType(type)) {
-    // Union alignment is the maximum alignment of its elements
+    // Union alignment is the maximum alignment of its fields
     let maxAlign = 1;
-    for (const element of type.elements) {
-      const elementAlign = getAlignmentOfType(element.type);
-      if (elementAlign === null) {
+    for (const field of type.fields) {
+      const fieldAlign = getAlignmentOfType(field.type);
+      if (fieldAlign === null) {
         return null;
       }
-      maxAlign = Math.max(maxAlign, elementAlign);
+      maxAlign = Math.max(maxAlign, fieldAlign);
     }
     return maxAlign;
   } else if (isFunctionType(type)) {
@@ -1278,7 +1278,7 @@ export function getSizeOfType(type: Type): number | null {
       return getTargetPointerSizeBits();
     }
     if (type.isNewtype) {
-      return getSizeOfType(type.elements[0]!.type);
+      return getSizeOfType(type.fields[0]!.type);
     }
     return getStructTypeSize(type);
   } else if (isEnumType(type)) {
@@ -1335,8 +1335,8 @@ export function canRefStructFormCycles(
 
   try {
     // Check all fields in the struct
-    for (const element of type.elements) {
-      if (typeCanReferenceCyclicRefStruct(element.type, type, visitedTypes)) {
+    for (const field of type.fields) {
+      if (typeCanReferenceCyclicRefStruct(field.type, type, visitedTypes)) {
         return true;
       }
     }
@@ -1369,11 +1369,11 @@ function typeCanReferenceCyclicRefStruct(
   // Check through enum variants
   if (isEnumType(type)) {
     for (const variant of type.variants) {
-      if (variant.elements) {
-        for (const element of variant.elements) {
+      if (variant.fields) {
+        for (const field of variant.fields) {
           if (
             typeCanReferenceCyclicRefStruct(
-              element.type,
+              field.type,
               originalRefStruct,
               visitedTypes
             )
@@ -1405,10 +1405,10 @@ function typeCanReferenceCyclicRefStruct(
 
   // Check through tuples
   if (isTupleType(type)) {
-    for (const element of type.elements) {
+    for (const field of type.fields) {
       if (
         typeCanReferenceCyclicRefStruct(
-          element.type,
+          field.type,
           originalRefStruct,
           visitedTypes
         )
@@ -1420,10 +1420,10 @@ function typeCanReferenceCyclicRefStruct(
 
   // Check through unions
   if (isUnionType(type)) {
-    for (const element of type.elements) {
+    for (const field of type.fields) {
       if (
         typeCanReferenceCyclicRefStruct(
-          element.type,
+          field.type,
           originalRefStruct,
           visitedTypes
         )

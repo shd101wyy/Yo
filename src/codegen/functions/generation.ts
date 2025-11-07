@@ -341,12 +341,10 @@ export function generateFunction(
       if (
         captureType &&
         isStructType(captureType) &&
-        captureType.elements.length > 0
+        captureType.fields.length > 0
       ) {
-        // Extract variable names from the capture struct elements
-        const capturedVarNames = captureType.elements.map(
-          (element) => element.label
-        );
+        // Extract variable names from the capture struct fields
+        const capturedVarNames = captureType.fields.map((field) => field.label);
         context.currentClosureCaptures = capturedVarNames;
 
         // Get the frame level - use the function's frame level as the capture frame level
@@ -659,8 +657,8 @@ export function generateObjectConstructorDeclarations(
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
       // Skip generic structs that contain SomeType parameters
-      const hasGenericTypes = type.elements.some((element) =>
-        typeContainsSomeType(element.type)
+      const hasGenericTypes = type.fields.some((field) =>
+        typeContainsSomeType(field.type)
       );
 
       if (hasGenericTypes) {
@@ -669,10 +667,10 @@ export function generateObjectConstructorDeclarations(
 
       // Generate constructor function declaration
       const constructorName = `__yo_new_${cName}`;
-      const paramTypes = type.elements
-        .map((element) => {
-          const fieldType = getTypeString(element.type, context);
-          const fieldName = sanitizeForCIdentifier(element.label);
+      const paramTypes = type.fields
+        .map((field) => {
+          const fieldType = getTypeString(field.type, context);
+          const fieldName = sanitizeForCIdentifier(field.label);
           return `${fieldType} ${fieldName}`;
         })
         .join(", ");
@@ -714,13 +712,13 @@ export function generateClosureConstructorDeclarations(
       if (
         captureType &&
         isStructType(captureType) &&
-        captureType.elements.length > 0
+        captureType.fields.length > 0
       ) {
         // Constructor takes captured values, call function, and drop function
-        const captureParams = captureType.elements
-          .map((element) => {
-            const fieldType = getTypeString(element.type, context);
-            const fieldName = sanitizeForCIdentifier(element.label);
+        const captureParams = captureType.fields
+          .map((field) => {
+            const fieldType = getTypeString(field.type, context);
+            const fieldName = sanitizeForCIdentifier(field.label);
             return `${fieldType} ${fieldName}`;
           })
           .join(", ");
@@ -1659,8 +1657,8 @@ function generateRefStructTraversalFunctions(
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
       // Skip generic structs that contain SomeType parameters
-      const hasGenericTypes = type.elements.some((element) =>
-        typeContainsSomeType(element.type)
+      const hasGenericTypes = type.fields.some((field) =>
+        typeContainsSomeType(field.type)
       );
 
       if (hasGenericTypes) {
@@ -1675,9 +1673,9 @@ function generateRefStructTraversalFunctions(
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
 
       // Visit each reference field in the struct
-      for (const element of type.elements) {
-        const fieldName = sanitizeForCIdentifier(element.label);
-        const fieldType = element.type;
+      for (const field of type.fields) {
+        const fieldName = sanitizeForCIdentifier(field.label);
+        const fieldType = field.type;
 
         if (isStructType(fieldType) && fieldType.isReferenceSemantics) {
           // This field is a direct reference to another object
@@ -1700,21 +1698,21 @@ function generateRefStructTraversalFunctions(
             emitter.emitLine(`  switch (obj->${fieldName}.tag) {`);
 
             for (const variant of enumType.variants || []) {
-              // Check if any of the variant's elements contain references
-              if (variant.elements && variant.elements.length > 0) {
-                for (const element of variant.elements) {
+              // Check if any of the variant's fields contain references
+              if (variant.fields && variant.fields.length > 0) {
+                for (const field of variant.fields) {
                   if (
-                    isStructType(element.type) &&
-                    element.type.isReferenceSemantics
+                    isStructType(field.type) &&
+                    field.type.isReferenceSemantics
                   ) {
                     // This variant contains a reference
                     const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
                     emitter.emitLine(`  case ${enumConstantName}:`);
                     emitter.emitLine(
-                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(element.label)}) {`
+                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)}) {`
                     );
                     emitter.emitLine(
-                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(element.label)});`
+                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)});`
                     );
                     emitter.emitLine(`    }`);
                     emitter.emitLine(`    break;`);
@@ -1750,8 +1748,8 @@ export function generateRefStructConstructorFunctions(
     const { type, cName } = context.types[typeId]!;
     if (isStructType(type) && type.isReferenceSemantics) {
       // Skip generic structs that contain SomeType parameters
-      const hasGenericTypes = type.elements.some((element) =>
-        typeContainsSomeType(element.type)
+      const hasGenericTypes = type.fields.some((field) =>
+        typeContainsSomeType(field.type)
       );
 
       if (hasGenericTypes) {
@@ -1760,10 +1758,10 @@ export function generateRefStructConstructorFunctions(
 
       // Generate constructor function implementation
       const constructorName = `__yo_new_${cName}`;
-      const paramTypes = type.elements
-        .map((element) => {
-          const fieldType = getTypeString(element.type, context);
-          const fieldName = sanitizeForCIdentifier(element.label);
+      const paramTypes = type.fields
+        .map((field) => {
+          const fieldType = getTypeString(field.type, context);
+          const fieldName = sanitizeForCIdentifier(field.label);
           return `${fieldType} ${fieldName}`;
         })
         .join(", ");
@@ -1794,11 +1792,11 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  obj->header.gc_next = NULL;`);
 
       // Set dispose function pointer to user's dispose function (not ___dispose which includes ref counting)
-      const disposeFunctionElement = type.module.elements.find(
-        (element) =>
-          element.label === BuiltinFunctions.dispose[0]! &&
-          element.assignedValue &&
-          isFunctionValue(element.assignedValue)
+      const disposeFunctionElement = type.module.fields.find(
+        (field) =>
+          field.label === BuiltinFunctions.dispose[0]! &&
+          field.assignedValue &&
+          isFunctionValue(field.assignedValue)
       );
 
       if (
@@ -1822,8 +1820,8 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  obj->header.traverse_fn = ${traversalFunctionName};`);
 
       // Initialize fields
-      type.elements.forEach((element) => {
-        const fieldName = sanitizeForCIdentifier(element.label);
+      type.fields.forEach((field) => {
+        const fieldName = sanitizeForCIdentifier(field.label);
         emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
       });
 
@@ -1974,8 +1972,8 @@ export function generateClosureDisposeFunctions(
     const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
 
     // Get the drop function for the capture type
-    const dropFunction = captureType.module.elements.find(
-      (element) => element.label === BuiltinFunctions.___drop[0]
+    const dropFunction = captureType.module.fields.find(
+      (field) => field.label === BuiltinFunctions.___drop[0]
     );
 
     if (!dropFunction || !dropFunction.assignedValue) {
@@ -2076,19 +2074,19 @@ export function generateDynConstructorFunctions(
       // Initialize vtable with function pointers from variadic arguments
       const processedMethods = new Set<string>();
       for (const moduleType of dynType.moduleTypes) {
-        for (const element of moduleType.elements) {
+        for (const field of moduleType.fields) {
           // Skip 'Self' and 'This' type declarations (compile-time only)
-          if (element.label === "Self") {
+          if (field.label === "Self") {
             continue;
           }
 
           // Avoid duplicate methods from different modules
-          if (processedMethods.has(element.label)) {
+          if (processedMethods.has(field.label)) {
             continue;
           }
-          processedMethods.add(element.label);
+          processedMethods.add(field.label);
 
-          const methodName = sanitizeForCIdentifier(element.label);
+          const methodName = sanitizeForCIdentifier(field.label);
           emitter.emitLine(
             `  obj->vtable.${methodName} = va_arg(args, void*);`
           );

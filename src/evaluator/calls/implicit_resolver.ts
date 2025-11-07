@@ -27,7 +27,7 @@ export interface ImplicitResolutionResult {
 
 /**
  * Resolve an implicit value from the environment based on the expected type.
- * This is used for both function implicit parameters and module implicit elements.
+ * This is used for both function implicit parameters and module implicit fields.
  */
 export function resolveImplicitValue({
   expectedType,
@@ -64,22 +64,22 @@ export function resolveImplicitValue({
     const receiverType = expectedType.receiverType;
     if (receiverType.module) {
       const receiverModule = receiverType.module;
-      // Find a module element that matches the expected type
-      const matchingElement = receiverModule.elements.findLast((element) => {
-        if (!isModuleValue(element.assignedValue)) {
+      // Find a module field that matches the expected type
+      const matchingField = receiverModule.fields.findLast((field) => {
+        if (!isModuleValue(field.assignedValue)) {
           return false;
         }
-        const moduleValue = element.assignedValue;
+        const moduleValue = field.assignedValue;
         return areTypesCompatible(
           { type: moduleValue.type, env: callerEnv },
           { type: expectedType, env: calleeEnv }
         );
       });
 
-      if (matchingElement && isModuleValue(matchingElement.assignedValue)) {
+      if (matchingField && isModuleValue(matchingField.assignedValue)) {
         return {
-          value: matchingElement.assignedValue,
-          type: matchingElement.assignedValue.type,
+          value: matchingField.assignedValue,
+          type: matchingField.assignedValue.type,
           calleeEnv,
           callerEnv,
         };
@@ -92,22 +92,22 @@ export function resolveImplicitValue({
   if (context.SelfType && isModuleType(expectedType)) {
     const selfTypeModule = context.SelfType.module;
     if (selfTypeModule) {
-      // Use findLast to get the most recently added element (with assignedValue)
-      const matchingElement = selfTypeModule.elements.findLast((element) => {
-        if (!isModuleValue(element.assignedValue)) {
+      // Use findLast to get the most recently added field (with assignedValue)
+      const matchingField = selfTypeModule.fields.findLast((field) => {
+        if (!isModuleValue(field.assignedValue)) {
           return false;
         }
-        const moduleValue = element.assignedValue;
+        const moduleValue = field.assignedValue;
         return areTypesCompatible(
           { type: moduleValue.type, env: callerEnv },
           { type: expectedType, env: calleeEnv }
         );
       });
 
-      if (matchingElement && isModuleValue(matchingElement.assignedValue)) {
+      if (matchingField && isModuleValue(matchingField.assignedValue)) {
         return {
-          value: matchingElement.assignedValue,
-          type: matchingElement.assignedValue.type,
+          value: matchingField.assignedValue,
+          type: matchingField.assignedValue.type,
           calleeEnv,
           callerEnv,
         };
@@ -221,10 +221,10 @@ export function resolveImplicitValue({
           const type = variable.value.value;
           if (type.module) {
             const module = type.module;
-            for (let i = 0; i < module.elements.length; i++) {
-              const moduleElement = module.elements[i]!;
-              if (isModuleValue(moduleElement.assignedValue)) {
-                const moduleValue = moduleElement.assignedValue;
+            for (let i = 0; i < module.fields.length; i++) {
+              const moduleField = module.fields[i]!;
+              if (isModuleValue(moduleField.assignedValue)) {
+                const moduleValue = moduleField.assignedValue;
                 if (
                   areTypesCompatible(
                     { type: moduleValue.type, env: callerEnv },

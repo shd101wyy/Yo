@@ -7,10 +7,10 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createUnionType, ModuleElement, TypeElement } from "../../types";
+import { createUnionType, ModuleField, TypeField } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateTypeElement } from "./element";
+import { evaluateTypeField } from "./field";
 
 export function evaluateUnionType({
   expr,
@@ -28,57 +28,54 @@ export function evaluateUnionType({
     });
   }
 
-  // Create unionType with empty elements
+  // Create unionType with empty fields
   const unionType = createUnionType(env);
 
-  const elements: TypeElement[] = [];
-  unionType.elements = elements;
+  const fields: TypeField[] = [];
+  unionType.fields = fields;
 
   const args = expr.args;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
-    const { element, env: nextEnv } = evaluateTypeElement({
+    const { field, env: nextEnv } = evaluateTypeField({
       expr: arg,
       env,
-      tupleElementIndex: i,
+      tupleFieldIndex: i,
       context: { ...context, SelfType: unionType },
       forType: "union",
     });
 
     // Check if there is duplicate labels
-    const duplicateLabel = elements.find(
-      (elem) => elem.label === element.label
-    );
+    const duplicateLabel = fields.find((elem) => elem.label === field.label);
     if (duplicateLabel) {
       throw formatErrorMessage({
         token: exprIsFunctionCall(arg)
           ? (arg.args[0]?.token ?? arg.token)
           : arg.token,
-        errorMessage: `Duplicate label "${element.label}" in union field.`,
+        errorMessage: `Duplicate label "${field.label}" in union field.`,
       });
     }
 
     // Disallow to have the default value for union type fields.
-    if (element.defaultValue) {
+    if (field.defaultValue) {
       throw formatErrorMessage({
-        token:
-          element.exprs.defaultValueExpr?.token ?? element.exprs.expr.token,
-        errorMessage: `Union type cannot have default value for its elements.`,
+        token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
+        errorMessage: `Union type cannot have default value for its fields.`,
       });
     }
 
-    if (element.isCompileTimeOnly) {
-      if (!element.assignedValue) {
+    if (field.isCompileTimeOnly) {
+      if (!field.assignedValue) {
         throw formatErrorMessage({
-          token: element.exprs.expr.token,
+          token: field.exprs.expr.token,
           errorMessage: `Module field in union type must have assigned value.`,
         });
       }
 
-      unionType.module.elements.push(element as ModuleElement);
+      unionType.module.fields.push(field as ModuleField);
     } else {
-      elements.push(element as TypeElement);
+      fields.push(field);
     }
     env = nextEnv;
   }

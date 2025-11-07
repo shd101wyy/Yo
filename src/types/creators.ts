@@ -28,12 +28,12 @@ import {
   StructType,
   TupleType,
   Type,
-  TypeElement,
+  TypeField,
   TypeHierarchyType,
   UnionType,
   VoidType,
 } from "./definitions";
-import { addModuleElementsByCode } from "./module_element";
+import { addModuleFieldsByCode } from "./module_field";
 import { TypeTag } from "./tags";
 
 let cachedComptIntType: Type | null = null;
@@ -135,7 +135,7 @@ export function createComptListType(elementType: Type): ComptListType {
 
   cachedComptListTypeMap.set(elementType, type);
 
-  addModuleElementsByCode(module, {
+  addModuleFieldsByCode(module, {
     type_info: `impl(Self, {
       id :: "${typeId}";
       export id;
@@ -666,7 +666,7 @@ export function createArrayType(elementType: Type, length: Value): ArrayType {
 
   module.receiverType = arrayType;
 
-  addModuleElementsByCode(module, {
+  addModuleFieldsByCode(module, {
     length: isNumberValue(length)
       ? `__yo_compt_int_as(${length.value.toString()}, usize)`
       : "__yo_compt_int_as(0, usize)",
@@ -717,15 +717,15 @@ export function createVoidType(): VoidType {
   return voidType;
 }
 
-export function createTupleType(elements: TypeElement[]): TupleType {
+export function createTupleType(fields: TypeField[]): TupleType {
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
 
   const tupleType: TupleType = {
-    id: `tuple_${elements.map((e) => e.type.id).join("_")}`,
+    id: `tuple_${fields.map((e) => e.type.id).join("_")}`,
     tag: TypeTag.Tuple,
     // size: totalSize,
-    elements,
+    fields,
     module,
   };
   module.receiverType = tupleType;
@@ -745,7 +745,7 @@ export function createStructType(
     tag: TypeTag.Struct,
     isReferenceSemantics,
     isNewtype,
-    elements: [],
+    fields: [],
     module,
     env,
   };
@@ -759,7 +759,7 @@ export function createModuleType(env: Environment): ModuleType {
   const moduleType: ModuleType = {
     id: `module_${randomId()}`,
     tag: TypeTag.Module,
-    elements: [],
+    fields: [],
     env,
     module: undefined,
   };
@@ -788,7 +788,7 @@ export function createUnionType(env: Environment): UnionType {
   const unionType: UnionType = {
     id: `union_${randomId()}`,
     tag: TypeTag.Union,
-    elements: [],
+    fields: [],
     module,
     env,
   };
@@ -864,7 +864,7 @@ export function createMutPtrType(type: Type): MutPtrType {
     ptrCache.set(type, ptrType);
 
     // Add
-    addModuleElementsByCode(module, {
+    addModuleFieldsByCode(module, {
       Add: `{
       extern "Yo", __yo_ptr_add : (fn(forall(T: Type), ptr : T, offset : usize) -> T);
       impl(Self, Add(usize, Self)(

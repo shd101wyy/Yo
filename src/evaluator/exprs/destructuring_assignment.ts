@@ -32,8 +32,8 @@ import { isValidVariableName } from "../utils";
 // Modified to handle member destructuring directly
 export function handleMemberDestructuring({
   lhsFunc,
-  lhsElements,
-  rhsElements,
+  lhsFields,
+  rhsFields,
   rhsValue,
   rhsType,
   lhs,
@@ -43,12 +43,12 @@ export function handleMemberDestructuring({
   isDestructuringAtomVariable,
 }: {
   lhsFunc: Expr;
-  lhsElements: Expr[];
-  rhsElements: { label: string; type: Type }[];
+  lhsFields: Expr[];
+  rhsFields: { label: string; type: Type }[];
   rhsValue: Value | undefined;
   /**
    * The rhsType might be pointer or reference,
-   * in this case, the rhsElements are the dereferenced elements.
+   * in this case, the rhsFields are the dereferenced fields.
    */
   rhsType: Type;
   lhs: Expr;
@@ -71,89 +71,89 @@ export function handleMemberDestructuring({
 
   // Check if it's destructuring a union type
   if (isUnionType(rhsType)) {
-    // Expect lhsElements to be a single element
-    if (lhsElements.length !== 1) {
+    // Expect lhsFields to be a single field
+    if (lhsFields.length !== 1) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Destructuring union type requires a single element, got ${lhsElements.length}`,
+        errorMessage: `Destructuring union type requires a single field, got ${lhsFields.length}`,
       });
     }
   }
 
-  // Check if we have enough elements
-  if (lhsElements.length > rhsElements.length) {
+  // Check if we have enough fields
+  if (lhsFields.length > rhsFields.length) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Too many elements in destructuring pattern. Expected at most ${rhsElements.length}, got ${lhsElements.length}`,
+      errorMessage: `Too many fields in destructuring pattern. Expected at most ${rhsFields.length}, got ${lhsFields.length}`,
     });
   }
 
-  const destructuredRhsElements: Record<
+  const destructuredRhsFields: Record<
     /**
      * key is the label
      */
     string,
     /**
-     * the destructured element
+     * the destructured field
      */
     RuntimeDestructuring
   > = {};
-  // Process each lhs element
-  for (let i = 0; i < lhsElements.length; i++) {
-    const lhsElement = lhsElements[i]!;
-    let elementIndex: number = i;
-    let elementValue: Value | undefined = undefined;
-    // Initialize rhsElement here, before any conditional branches
-    let rhsElement = rhsElements[elementIndex]!;
+  // Process each lhs field
+  for (let i = 0; i < lhsFields.length; i++) {
+    const lhsField = lhsFields[i]!;
+    let fieldIndex: number = i;
+    let fieldValue: Value | undefined = undefined;
+    // Initialize rhsField here, before any conditional branches
+    let rhsField = rhsFields[fieldIndex]!;
     let variableName: string | undefined;
     let variableToken: Token | undefined;
     let labelExpr: Expr | undefined = undefined;
     let renameExpr: Expr | undefined = undefined;
 
-    // Handle destructuring all elements with "..."
+    // Handle destructuring all fields with "..."
     // - (... : ...)
     // - ( ... )
     if (
-      (exprIsFunctionCall(lhsElement) &&
-        exprIsFunctionCallOf(lhsElement, ":", 2) &&
-        lhsElement.args[0]!.token.value === "..." &&
-        lhsElement.args[1]!.token.value === "...") ||
-      (exprIsAtom(lhsElement) && lhsElement.token.value === "...")
+      (exprIsFunctionCall(lhsField) &&
+        exprIsFunctionCallOf(lhsField, ":", 2) &&
+        lhsField.args[0]!.token.value === "..." &&
+        lhsField.args[1]!.token.value === "...") ||
+      (exprIsAtom(lhsField) && lhsField.token.value === "...")
     ) {
       if (isUnionType(rhsType)) {
         throw formatErrorMessage({
-          token: lhsElement.token,
+          token: lhsField.token,
           errorMessage: `Cannot destructure union type with _, got ${typeToString(rhsType)}`,
         });
       }
 
-      // If it's a single ..., we destructure all elements
-      // We can destructure all elements
-      for (let j = 0; j < rhsElements.length; j++) {
-        const element = rhsElements[j]!;
+      // If it's a single ..., we destructure all fields
+      // We can destructure all fields
+      for (let j = 0; j < rhsFields.length; j++) {
+        const field = rhsFields[j]!;
 
-        if (destructuredRhsElements[element.label]) {
-          continue; // Skip already destructured elements
+        if (destructuredRhsFields[field.label]) {
+          continue; // Skip already destructured fields
         } else {
-          destructuredRhsElements[element.label] = {
-            label: element.label,
-            variableName: element.label,
-            type: element.type,
+          destructuredRhsFields[field.label] = {
+            label: field.label,
+            variableName: field.label,
+            type: field.type,
           };
         }
 
-        const elementValue =
+        const fieldValue =
           isTupleValue(rhsValue) ||
           isStructValue(rhsValue) ||
           isModuleValue(rhsValue) ||
           isEnumValue(rhsValue)
-            ? rhsValue.elements[j]
+            ? rhsValue.fields[j]
             : undefined;
 
-        if (!elementValue && isCompileTimeOnly) {
+        if (!fieldValue && isCompileTimeOnly) {
           throw formatErrorMessage({
-            token: lhsElement.token,
-            errorMessage: `Destructuring element "${element.label}" is not defined in compile-time only context.`,
+            token: lhsField.token,
+            errorMessage: `Destructuring field "${field.label}" is not defined in compile-time only context.`,
           });
         }
 
@@ -162,12 +162,12 @@ export function handleMemberDestructuring({
         const { env: nextEnv } = addVariableToEnv({
           env,
           variable: {
-            name: element.label,
-            value: elementValue,
-            type: element.type,
+            name: field.label,
+            value: fieldValue,
+            type: field.type,
             isCompileTimeOnly,
-            token: lhsElement.token,
-            initializedAtToken: lhsElement.token,
+            token: lhsField.token,
+            initializedAtToken: lhsField.token,
             consumedAtToken: undefined,
             isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
             isReassignable: false, // NOTE: Destructuring only borrows but not owns, so we disable reassignment here.
@@ -176,8 +176,8 @@ export function handleMemberDestructuring({
         env = nextEnv;
       }
 
-      // Set the type and value of the lhsElement
-      lhsElement.$ = {
+      // Set the type and value of the lhsField
+      lhsField.$ = {
         env,
         type: rhsType,
         value: rhsValue,
@@ -193,11 +193,11 @@ export function handleMemberDestructuring({
     // - ~~(c: (x, y))~~
     // - ~~(c: _(x, y))~~
     else if (
-      exprIsFunctionCall(lhsElement) &&
-      exprIsFunctionCallOf(lhsElement, ":", 2)
+      exprIsFunctionCall(lhsField) &&
+      exprIsFunctionCallOf(lhsField, ":", 2)
     ) {
-      const leftSide = lhsElement.args[0]!; // The label (c)
-      const rightSide = lhsElement.args[1]!; // Could be (x, y) or could be a variable
+      const leftSide = lhsField.args[0]!; // The label (c)
+      const rightSide = lhsField.args[1]!; // Could be (x, y) or could be a variable
 
       // The left side should be an identifier
       if (!exprIsAtom(leftSide) || !isValidVariableName(leftSide)) {
@@ -213,32 +213,32 @@ export function handleMemberDestructuring({
       const label = labelExpr.token.value;
 
       // Find the member with matching label
-      const matchingMemberIndex = rhsElements.findIndex(
+      const matchingMemberIndex = rhsFields.findIndex(
         (member) => member.label === label
       );
 
       if (matchingMemberIndex === -1) {
         throw formatErrorMessage({
-          token: lhsElement.token,
+          token: lhsField.token,
           errorMessage: `Label "${label}" being destructured not found.`,
         });
       }
 
-      elementIndex = matchingMemberIndex;
-      rhsElement = rhsElements[elementIndex]!;
+      fieldIndex = matchingMemberIndex;
+      rhsField = rhsFields[fieldIndex]!;
 
       // Get the nested value
       let nestedValue: Value | undefined = undefined;
       if (isTupleValue(rhsValue)) {
-        nestedValue = rhsValue.elements[elementIndex];
+        nestedValue = rhsValue.fields[fieldIndex];
       } else if (isStructValue(rhsValue)) {
-        nestedValue = rhsValue.elements[elementIndex];
+        nestedValue = rhsValue.fields[fieldIndex];
       } else if (isModuleValue(rhsValue)) {
-        nestedValue = rhsValue.elements[elementIndex];
+        nestedValue = rhsValue.fields[fieldIndex];
       } else if (isEnumValue(rhsValue)) {
-        nestedValue = rhsValue.elements[elementIndex];
+        nestedValue = rhsValue.fields[fieldIndex];
       }
-      elementValue = nestedValue;
+      fieldValue = nestedValue;
 
       // NOTE: Let's disable the nested destructuring for now
       if (exprIsAtom(rightSide) && isValidVariableName(rightSide)) {
@@ -256,16 +256,16 @@ export function handleMemberDestructuring({
         });
       }
 
-      if (destructuredRhsElements[rhsElement.label]) {
+      if (destructuredRhsFields[rhsField.label]) {
         throw formatErrorMessage({
-          token: lhsElement.token,
+          token: lhsField.token,
           errorMessage: `Label "${label}" being destructured already exists.`,
         });
       } else {
-        destructuredRhsElements[rhsElement.label] = {
-          label: rhsElement.label,
+        destructuredRhsFields[rhsField.label] = {
+          label: rhsField.label,
           variableName: variableName,
-          type: rhsElement.type,
+          type: rhsField.type,
         };
       }
     }
@@ -273,59 +273,59 @@ export function handleMemberDestructuring({
     // Handle nested struct/module destructuring pattern like:
     // - ((x, y), )
     // - (_(x, y) )
-    else if (exprIsFunctionCall(lhsElement)) {
+    else if (exprIsFunctionCall(lhsField)) {
       // NOTE: Let's disable the nested destructuring for now
       throw formatErrorMessage({
-        token: lhsElement.token,
+        token: lhsField.token,
         errorMessage: `Nested destructuring is not supported:
   
-  ${exprToString(lhsElement)}`,
+  ${exprToString(lhsField)}`,
       });
     }
 
     // Handle positional destructuring
-    else if (exprIsAtom(lhsElement) && isValidVariableName(lhsElement)) {
+    else if (exprIsAtom(lhsField) && isValidVariableName(lhsField)) {
       if (isUnionType(rhsType)) {
         throw formatErrorMessage({
-          token: lhsElement.token,
+          token: lhsField.token,
           errorMessage: `Cannot destructure union type with positional destructuring, got ${typeToString(
             rhsType
           )}`,
         });
       }
 
-      if (destructuredRhsElements[rhsElement.label]) {
+      if (destructuredRhsFields[rhsField.label]) {
         throw formatErrorMessage({
-          token: lhsElement.token,
-          errorMessage: `Label "${rhsElement.label}" being destructured already exists.`,
+          token: lhsField.token,
+          errorMessage: `Label "${rhsField.label}" being destructured already exists.`,
         });
       } else {
-        destructuredRhsElements[rhsElement.label] = {
-          label: rhsElement.label,
-          variableName: lhsElement.token.value,
-          type: rhsElement.type,
+        destructuredRhsFields[rhsField.label] = {
+          label: rhsField.label,
+          variableName: lhsField.token.value,
+          type: rhsField.type,
         };
       }
 
       if (isTupleValue(rhsValue)) {
-        elementValue = rhsValue.elements[elementIndex];
+        fieldValue = rhsValue.fields[fieldIndex];
       } else if (isStructValue(rhsValue)) {
-        elementValue = rhsValue.elements[elementIndex];
+        fieldValue = rhsValue.fields[fieldIndex];
       } else if (isEnumValue(rhsValue)) {
-        elementValue = rhsValue.elements[elementIndex];
+        fieldValue = rhsValue.fields[fieldIndex];
       } else if (isModuleValue(rhsValue)) {
-        elementValue = rhsValue.elements[elementIndex];
+        fieldValue = rhsValue.fields[fieldIndex];
       }
 
-      variableName = lhsElement.token.value;
-      variableToken = lhsElement.token;
+      variableName = lhsField.token.value;
+      variableToken = lhsField.token;
     }
 
     // Throw error
     else {
       throw formatErrorMessage({
-        token: lhsElement.token,
-        errorMessage: `Unsupported destructuring pattern for: ${exprToString(lhsElement)}`,
+        token: lhsField.token,
+        errorMessage: `Unsupported destructuring pattern for: ${exprToString(lhsField)}`,
       });
     }
 
@@ -334,10 +334,10 @@ export function handleMemberDestructuring({
       // Add the variable to the environment
       // console.log("(4) addVariableToEnv");
 
-      if (!elementValue && isCompileTimeOnly) {
+      if (!fieldValue && isCompileTimeOnly) {
         throw formatErrorMessage({
-          token: lhsElement.token,
-          errorMessage: `Destructuring element "${variableName}" is not defined in compile-time only context.`,
+          token: lhsField.token,
+          errorMessage: `Destructuring field "${variableName}" is not defined in compile-time only context.`,
         });
       }
 
@@ -345,9 +345,9 @@ export function handleMemberDestructuring({
         env,
         variable: {
           name: variableName,
-          type: rhsElement.type,
+          type: rhsField.type,
           isCompileTimeOnly: isCompileTimeOnly,
-          value: elementValue,
+          value: fieldValue,
           token: variableToken,
           initializedAtToken: variableToken,
           consumedAtToken: undefined, // Not consumed yet
@@ -358,19 +358,19 @@ export function handleMemberDestructuring({
 
       env = nextEnv;
 
-      // Set the type and value on the lhs element for completeness
-      lhsElement.$ = {
+      // Set the type and value on the lhs field for completeness
+      lhsField.$ = {
         env,
-        type: rhsElement.type,
-        value: elementValue,
+        type: rhsField.type,
+        value: fieldValue,
         pathCollection: [],
       };
 
       if (labelExpr) {
         labelExpr.$ = {
           env,
-          type: rhsElement.type,
-          value: elementValue, // !renameExpr ? elementValue : undefined,
+          type: rhsField.type,
+          value: fieldValue, // !renameExpr ? fieldValue : undefined,
           pathCollection: [],
         };
       }
@@ -378,8 +378,8 @@ export function handleMemberDestructuring({
       if (renameExpr) {
         renameExpr.$ = {
           env,
-          type: rhsElement.type,
-          value: elementValue,
+          type: rhsField.type,
+          value: fieldValue,
           pathCollection: [],
         };
       }
@@ -388,12 +388,12 @@ export function handleMemberDestructuring({
 
   // Generate runtimeDestructurings
   const runtimeDestructurings: RuntimeDestructuring[] = [];
-  for (const label in destructuredRhsElements) {
-    const element = destructuredRhsElements[label]!;
+  for (const label in destructuredRhsFields) {
+    const field = destructuredRhsFields[label]!;
     runtimeDestructurings.push({
-      label: element.label,
-      type: element.type,
-      variableName: element.variableName,
+      label: field.label,
+      type: field.type,
+      variableName: field.variableName,
     });
   }
 
@@ -432,8 +432,8 @@ export function evaluateDestructuringAssignment({
   ) {
     return handleMemberDestructuring({
       lhsFunc: lhs.func,
-      lhsElements: lhs.args,
-      rhsElements: rhsType.elements,
+      lhsFields: lhs.args,
+      rhsFields: rhsType.fields,
       rhsValue: rhsValue,
       rhsType: rhsType,
       lhs,
@@ -451,8 +451,8 @@ export function evaluateDestructuringAssignment({
   ) {
     return handleMemberDestructuring({
       lhsFunc: lhs.func,
-      lhsElements: lhs.args,
-      rhsElements: rhsType.elements,
+      lhsFields: lhs.args,
+      rhsFields: rhsType.fields,
       rhsValue: rhsValue,
       rhsType: rhsType,
       lhs,
@@ -481,17 +481,17 @@ export function evaluateDestructuringAssignment({
         errorMessage: `Expected enum variant "${selectedVariantName}" to be defined, got ${typeToString(rhsType)}`,
       });
     }
-    if (!selectedVariant.elements) {
+    if (!selectedVariant.fields) {
       throw formatErrorMessage({
         token: rhs.token,
-        errorMessage: `Cannot destructure enum variant "${selectedVariantName}" without elements, got ${typeToString(rhsType)}`,
+        errorMessage: `Cannot destructure enum variant "${selectedVariantName}" without fields, got ${typeToString(rhsType)}`,
       });
     }
 
     return handleMemberDestructuring({
       lhsFunc: lhs.func,
-      lhsElements: lhs.args,
-      rhsElements: selectedVariant.elements,
+      lhsFields: lhs.args,
+      rhsFields: selectedVariant.fields,
       rhsValue: rhsValue,
       rhsType: rhsType,
       lhs,

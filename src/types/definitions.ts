@@ -204,7 +204,7 @@ export type ElementExprs = {
   assignedValueExpr?: Expr;
 };
 
-export interface TypeElement {
+export interface TypeField {
   type: Type;
   label: string;
   isCompileTimeOnly: boolean;
@@ -226,7 +226,7 @@ export interface TypeElement {
 
 export interface TupleType extends Type {
   tag: TypeTag.Tuple;
-  elements: TypeElement[];
+  fields: TypeField[];
   module: ModuleType;
 }
 
@@ -307,9 +307,9 @@ export interface StructType extends Type {
   functionValue?: FunctionValue;
 
   /**
-   * The elements of the struct.
+   * The fields of the struct.
    */
-  elements: TypeElement[];
+  fields: TypeField[];
 
   /**
    * The module of the struct, which contains
@@ -324,7 +324,7 @@ export interface StructType extends Type {
   env: Environment;
 }
 
-export interface ModuleElement {
+export interface ModuleField {
   type: Type;
   label: string;
   /**
@@ -365,9 +365,9 @@ export interface ModuleType extends Type {
   functionValue?: FunctionValue;
 
   /**
-   * The elements of the module.
+   * The fields of the module.
    */
-  elements: ModuleElement[];
+  fields: ModuleField[];
 
   /**
    * ModuleType doesn't have a module field because it IS the module itself.
@@ -396,7 +396,7 @@ export interface EnumVariant {
    * Without `.` prefix
    */
   name: string;
-  elements?: TypeElement[]; // Changed from TypeElement[] to TupleType for consistency
+  fields?: TypeField[]; // Changed from TypeField[] to TupleType for consistency
   // TODO: return type? For GADT
 }
 
@@ -460,9 +460,9 @@ export interface UnionType extends Type {
   functionValue?: FunctionValue;
 
   /**
-   * The elements of the union.
+   * The fields of the union.
    */
-  elements: TypeElement[];
+  fields: TypeField[];
 
   /**
    * The module of the union, which contains

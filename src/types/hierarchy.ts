@@ -4,7 +4,7 @@ import { createType0, createTypeHierarchy } from "./creators";
 import {
   FunctionParameter,
   Type,
-  TypeElement,
+  TypeField,
   TypeHierarchyType,
 } from "./definitions";
 import {
@@ -38,7 +38,7 @@ import { TypeTag } from "./tags";
  */
 function determineTypeUniverse(
   baseType: Type,
-  elements: TypeElement[],
+  elements: TypeField[],
   /**
    * checkedTupleElements is used to prevent infinite recursion
    * when the type is a recursive type.
@@ -54,7 +54,7 @@ function determineTypeUniverse(
    *     next : Self
    *   ;
    */
-  checkedTupleElements: TypeElement[]
+  checkedTupleElements: TypeField[]
 ): Type {
   let meetTypeTag = false;
   let maxTypeLevel = 0;
@@ -116,7 +116,7 @@ export function typeOfType(
    *     next : Self
    *   ;
    */
-  checkedTupleElements: TypeElement[] = []
+  checkedTupleElements: TypeField[] = []
 ): Type {
   if (isDynType(type)) {
     return createType0(type); // All types are now level 0
@@ -164,31 +164,31 @@ export function typeOfType(
     // For tuples, check all element types
     return determineTypeUniverse(
       type,
-      type.elements.filter((element) => !element.isCompileTimeOnly),
+      type.fields.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
   } else if (isStructType(type)) {
     return determineTypeUniverse(
       type,
-      type.elements.filter((element) => !element.isCompileTimeOnly),
+      type.fields.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
   } else if (isEnumType(type)) {
     // For enums, check all variant
-    const elements: TypeElement[] = [];
+    const fields: TypeField[] = [];
     for (const variant of type.variants) {
-      if (variant.elements) {
-        elements.push(
-          ...variant.elements.filter((element) => !element.isCompileTimeOnly)
+      if (variant.fields) {
+        fields.push(
+          ...variant.fields.filter((element) => !element.isCompileTimeOnly)
         );
       }
     }
-    return determineTypeUniverse(type, elements, checkedTupleElements);
+    return determineTypeUniverse(type, fields, checkedTupleElements);
   } else if (isUnionType(type)) {
     // For unions, check all member types
     return determineTypeUniverse(
       type,
-      type.elements.filter((element) => !element.isCompileTimeOnly),
+      type.fields.filter((element) => !element.isCompileTimeOnly),
       checkedTupleElements
     );
   } else if (isModuleType(type)) {

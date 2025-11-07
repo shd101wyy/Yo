@@ -199,11 +199,11 @@ export function generateAsyncBlockResumeFunction(
     // We create synthetic entries with the variable name as the ID
     // Access will be through sm->__capture.varName
     if (captureType) {
-      for (const elem of captureType.elements) {
-        combinedVariables.set(elem.label, {
-          id: elem.label, // Use label as ID
-          name: elem.label,
-          type: elem.type,
+      for (const field of captureType.fields) {
+        combinedVariables.set(field.label, {
+          id: field.label, // Use label as ID
+          name: field.label,
+          type: field.type,
           kind: "outer",
           isOwningTheSameARCValueAs: undefined,
         });

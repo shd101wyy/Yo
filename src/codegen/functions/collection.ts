@@ -12,12 +12,12 @@ export function collectRequiredFunctions(
   context: CodeGenContext
 ): void {
   // Start with exported functions
-  for (let i = 0; i < moduleValue.elements.length; i++) {
-    const value = moduleValue.elements[i]!;
-    const element = moduleValue.type.elements[i]!;
+  for (let i = 0; i < moduleValue.fields.length; i++) {
+    const value = moduleValue.fields[i]!;
+    const field = moduleValue.type.fields[i]!;
 
     if (isFunctionValue(value)) {
-      const label = element.label;
+      const label = field.label;
 
       // Exported functions keep their original names (except main)
       if (label === "main") {

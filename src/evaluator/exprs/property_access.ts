@@ -20,8 +20,8 @@ import {
   isStructType,
   isTupleType,
   isUnionType,
-  ModuleElement,
-  TypeElement,
+  ModuleField,
+  TypeField,
   typeToString,
 } from "../../types";
 import {
@@ -97,7 +97,7 @@ export function evaluatePropertyAccess({
      * Color :: enum Red, Green, Blue;
      * r := Color.Red;
      */
-    if (!variant.elements) {
+    if (!variant.fields) {
       expr.$ = {
         env,
         type: newEnumType,
@@ -194,7 +194,7 @@ export function evaluatePropertyAccess({
       // Check if it's accessing comptime field
       {
         const propertyName = propertyExpr.token.value;
-        const field = typeValue.value.module.elements.find(
+        const field = typeValue.value.module.fields.find(
           (method) => method.label === propertyName
         );
         if (field) {
@@ -232,7 +232,7 @@ export function evaluatePropertyAccess({
        * Color :: enum Red, Green, Blue;
        * Red :: Color.Red;
        */
-      if (!variant.elements) {
+      if (!variant.fields) {
         expr.$ = {
           env,
           type: newEnumType,
@@ -274,8 +274,8 @@ export function evaluatePropertyAccess({
       }
       const propertyName = propertyExpr.token.value;
       // Check if the type method exists
-      // Use findLast to get the most recently added element (handles duplicates from impl blocks)
-      const field = typeValue.value.module.elements.findLast(
+      // Use findLast to get the most recently added field (handles duplicates from impl blocks)
+      const field = typeValue.value.module.fields.findLast(
         (property) => property.label === propertyName
       );
       if (field) {
@@ -339,7 +339,7 @@ export function evaluatePropertyAccess({
       }
       const propertyName = propertyExpr.token.value;
       // Check if the type method exists
-      const field = typeValue.value.elements.find(
+      const field = typeValue.value.fields.find(
         (property) => property.label === propertyName
       );
       if (field) {
@@ -379,10 +379,10 @@ export function evaluatePropertyAccess({
     isStructType(objectType) ||
     isUnionType(objectType)
   ) {
-    const elements: TypeElement[] = objectType.elements;
+    const fields: TypeField[] = objectType.fields;
     const objectExprValue = objectExpr.$!.value;
 
-    // Check if it's accessing the tuple element by
+    // Check if it's accessing the tuple field by
     // - number index: point.0
     // - label name:   point.x
     if (exprIsAtom(propertyExpr)) {
@@ -391,7 +391,7 @@ export function evaluatePropertyAccess({
         if (!isTupleType(objectExpr.$?.type)) {
           throw formatErrorMessage({
             token: propertyExpr.token,
-            errorMessage: `Accessing tuple element by index is only allowed for tuples.`,
+            errorMessage: `Accessing tuple field by index is only allowed for tuples.`,
           });
         }
 
@@ -405,19 +405,19 @@ export function evaluatePropertyAccess({
           });
         }
 
-        const runtimeElementsCount = elements.filter(
-          (element) => !element.isCompileTimeOnly
+        const runtimeElementsCount = fields.filter(
+          (field) => !field.isCompileTimeOnly
         ).length;
 
         if (index < 0 || index >= runtimeElementsCount) {
           throw formatErrorMessage({
             token: propertyExpr.token,
-            errorMessage: `Index out of bounds: ${index} for accessing element in:\n${typeToString(
+            errorMessage: `Index out of bounds: ${index} for accessing field in:\n${typeToString(
               objectExpr.$?.type
             )}`,
           });
         }
-        const tupleElement = elements[index]!;
+        const tupleElement = fields[index]!;
 
         // Set origin type: use existing originType or the original object type
         const fieldOriginType = objectExpr.$.originType || originalObjectType;
@@ -441,9 +441,9 @@ export function evaluatePropertyAccess({
         if (objectExprValue) {
           let values: (Value | undefined)[] = [];
           if (isTupleValue(objectExprValue)) {
-            values = objectExprValue.elements;
+            values = objectExprValue.fields;
           } else if (isStructValue(objectExprValue)) {
-            values = objectExprValue.elements;
+            values = objectExprValue.fields;
           }
           expr.$.value = values?.[index];
         }
@@ -454,16 +454,16 @@ export function evaluatePropertyAccess({
       } else if (isValidVariableName(propertyExpr)) {
         const label = propertyExpr.token.value;
         {
-          const tupleElementIndex = elements.findIndex(
+          const tupleFieldIndex = fields.findIndex(
             // NOTE: To access comptime only field, use the type instead, not the value.
             // The value can only access runtime fields.
-            (element) => element.label === label
+            (field) => field.label === label
           );
-          if (tupleElementIndex < 0) {
+          if (tupleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
               throw formatErrorMessage({
                 token: propertyExpr.token,
-                errorMessage: `Module element "${label}" not found in module type`,
+                errorMessage: `Module field "${label}" not found in module type`,
               });
             }
 
@@ -471,7 +471,7 @@ export function evaluatePropertyAccess({
             expr.$ = undefined;
             return expr;
           }
-          const tupleElement = elements[tupleElementIndex]!;
+          const tupleElement = fields[tupleFieldIndex]!;
 
           // Set origin type: use existing originType or the original object type
           const fieldOriginType =
@@ -499,12 +499,12 @@ export function evaluatePropertyAccess({
             } else {
               let values: (Value | undefined)[] = [];
               if (isTupleValue(objectExprValue)) {
-                values = objectExprValue.elements;
+                values = objectExprValue.fields;
               } else if (isStructValue(objectExprValue)) {
-                values = objectExprValue.elements;
+                values = objectExprValue.fields;
               }
 
-              let value = values?.[tupleElementIndex];
+              let value = values?.[tupleFieldIndex];
               if (!value) {
                 value = createUnknownValue(tupleElement.type);
               }
@@ -520,10 +520,10 @@ export function evaluatePropertyAccess({
       }
     }
   } else if (isModuleType(objectType)) {
-    const elements: ModuleElement[] = objectType.elements;
+    const fields: ModuleField[] = objectType.fields;
     const objectExprValue = objectExpr.$!.value;
 
-    // Check if it's accessing the tuple element by
+    // Check if it's accessing the tuple field by
     // - label name:   SomeModule.some_function
     if (exprIsAtom(propertyExpr)) {
       if (propertyExpr.token.type === TokenType.Integer) {
@@ -537,14 +537,14 @@ export function evaluatePropertyAccess({
         const label = propertyExpr.token.value;
 
         {
-          const tupleElementIndex = elements.findIndex(
-            (element) => element.label === label
+          const tupleFieldIndex = fields.findIndex(
+            (field) => field.label === label
           );
-          if (tupleElementIndex < 0) {
+          if (tupleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
               throw formatErrorMessage({
                 token: propertyExpr.token,
-                errorMessage: `Module element "${label}" not found in module type`,
+                errorMessage: `Module field "${label}" not found in module type`,
               });
             }
 
@@ -552,7 +552,7 @@ export function evaluatePropertyAccess({
             expr.$ = undefined;
             return expr;
           }
-          const tupleElement = elements[tupleElementIndex]!;
+          const tupleElement = fields[tupleFieldIndex]!;
           expr.$ = {
             env,
             type: tupleElement.type,
@@ -574,10 +574,10 @@ export function evaluatePropertyAccess({
             } else {
               let values: (Value | undefined)[] = [];
               if (isModuleValue(objectExprValue)) {
-                values = objectExprValue.elements;
+                values = objectExprValue.fields;
               }
 
-              let value = values?.[tupleElementIndex];
+              let value = values?.[tupleFieldIndex];
               if (!value && tupleElement.isCompileTimeOnly) {
                 value = createUnknownValue(tupleElement.type);
               }
@@ -606,7 +606,7 @@ export function evaluatePropertyAccess({
       );
       if (selectedVariant) {
         // Check if the property exists in the selected variant
-        const fieldIndex = (selectedVariant.elements ?? []).findIndex(
+        const fieldIndex = (selectedVariant.fields ?? []).findIndex(
           (property) => property.label === propertyName
         );
         if (fieldIndex < 0) {
@@ -621,7 +621,7 @@ export function evaluatePropertyAccess({
           return expr;
         }
 
-        const field = (selectedVariant.elements ?? [])[fieldIndex]!;
+        const field = (selectedVariant.fields ?? [])[fieldIndex]!;
 
         expr.$ = {
           env,
@@ -643,7 +643,7 @@ export function evaluatePropertyAccess({
           isEnumValue(variantValue) &&
           variantValue.variantName === selectedVariant.name
         ) {
-          expr.$.value = variantValue.elements[fieldIndex];
+          expr.$.value = variantValue.fields[fieldIndex];
         }
 
         propertyExpr.$ = expr.$;

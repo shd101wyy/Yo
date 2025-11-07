@@ -320,7 +320,7 @@ export function evaluateFunctionCall({
         // If yes, then we extract the Self from it.
         if (isModuleType(functionToCall.$.type)) {
           const moduleType = functionToCall.$.type;
-          const selfIndex = moduleType.elements.findIndex(
+          const selfIndex = moduleType.fields.findIndex(
             (e) => e.label === "Call"
           );
           if (selfIndex < 0) {
@@ -329,11 +329,11 @@ export function evaluateFunctionCall({
               errorMessage: `Calling a module value which does not have "Call" element is not allowed.`,
             });
           }
-          const selfType = moduleType.elements[selfIndex]!;
+          const selfType = moduleType.fields[selfIndex]!;
           if (selfType.assignedValue) {
             const selfValue = selfType.assignedValue;
             if (isTupleValue(selfValue)) {
-              functions = selfValue.elements.map((element) => {
+              functions = selfValue.fields.map((element) => {
                 return {
                   type: element.type,
                   value: element,
@@ -435,7 +435,7 @@ export function evaluateFunctionCall({
       if (isTypeValue(value) && isStructType(value.value)) {
         try {
           const result = tryToCallTypeWithArguments({
-            memberElements: value.value.elements,
+            typeFields: value.value.fields,
             functionCalleeExpr: func,
             argExprs: args,
             callerEnv: env,
@@ -478,7 +478,7 @@ export function evaluateFunctionCall({
         } else {
           try {
             const result = tryToCallTypeWithArguments({
-              memberElements: selectedVariant.elements || [],
+              typeFields: selectedVariant.fields || [],
               functionCalleeExpr: func,
               argExprs: args,
               callerEnv: env,
@@ -506,7 +506,7 @@ export function evaluateFunctionCall({
       else if (isTypeValue(value) && isUnionType(value.value)) {
         try {
           const result = tryToCallTypeWithArguments({
-            memberElements: value.value.elements,
+            typeFields: value.value.fields,
             functionCalleeExpr: func,
             argExprs: args,
             callerEnv: env,
