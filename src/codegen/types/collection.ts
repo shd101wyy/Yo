@@ -205,7 +205,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName = isFutureType(type)
-      ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).elementType, context))}_t`
+      ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).childType, context))}_t`
       : isSliceType(type)
         ? getTypeString(type, context) // For slices, use the special slice type name
         : `yo_${type.id}`;
@@ -262,14 +262,14 @@ export function collectType(type: Type, context: CodeGenContext): void {
     if (isFutureType(type)) {
       const futureType = type as FutureType;
       // Recursively collect the field type
-      collectType(futureType.elementType, context);
+      collectType(futureType.childType, context);
     }
 
     // For slice types, collect the field type
     if (isSliceType(type)) {
       const sliceType = type as SliceType;
       // Recursively collect the field type
-      collectType(sliceType.elementType, context);
+      collectType(sliceType.childType, context);
     }
 
     // For module types, collect types and functions from the module's fields directly
@@ -307,20 +307,20 @@ export function collectType(type: Type, context: CodeGenContext): void {
   // Check if it's array types
   else if (isArrayType(type)) {
     const arrayType = type as ArrayType;
-    const elementType = arrayType.elementType;
+    const childType = arrayType.childType;
     const length = arrayType.length;
     if (isNumberValue(length)) {
       // Recursively collect the field type
-      collectType(elementType, context);
+      collectType(childType, context);
 
       // Generate struct wrapper for arrays and register it
-      const elementTypeString = getTypeString(elementType, context);
+      const elementTypeString = getTypeString(childType, context);
       const arrayTypeName = `Array_${sanitizeForCIdentifier(elementTypeString)}_${length.value}`;
 
       // Register the array type if not already registered
       if (!context.arrayStructTypes.has(arrayTypeName)) {
         context.arrayStructTypes.set(arrayTypeName, {
-          elementType: elementTypeString,
+          childType: elementTypeString,
           length: length.value,
         });
       }
@@ -339,19 +339,19 @@ export function collectType(type: Type, context: CodeGenContext): void {
     // Special handling for pointer-to-slice types
     if (type.type.tag === TypeTag.Slice) {
       const sliceType = type.type as SliceType;
-      const elementType = sliceType.elementType;
+      const childType = sliceType.childType;
 
       // Recursively collect the field type
-      collectType(elementType, context);
+      collectType(childType, context);
 
       // Generate struct wrapper for slices and register it
-      const elementTypeString = getTypeString(elementType, context);
+      const elementTypeString = getTypeString(childType, context);
       const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
 
       // Register the slice type if not already registered
       if (!context.sliceStructTypes.has(sliceTypeName)) {
         context.sliceStructTypes.set(sliceTypeName, {
-          elementType: elementTypeString,
+          childType: elementTypeString,
         });
       }
     }

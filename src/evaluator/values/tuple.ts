@@ -52,7 +52,7 @@ export function evaluateTupleElementValue({
 } {
   const expr_ = expr;
   const rhsExpr: Expr = expr;
-  let elementType: Type | undefined = undefined;
+  let childType: Type | undefined = undefined;
 
   // Parse the lhs expr
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
@@ -121,7 +121,7 @@ ${typeToString(expectedTupleType)}`,
 
   // Tuple can only accept runtime values, so we convert the type
   // to runtime type.
-  elementType = convertComptTypeToRuntimeType({
+  childType = convertComptTypeToRuntimeType({
     type: evaluatedRhs.$.type,
     expectedType: undefined,
     expr: undefined,
@@ -135,7 +135,7 @@ ${typeToString(expectedTupleType)}`,
   if (expr !== rhsExpr) {
     expr.$ = {
       env,
-      type: elementType,
+      type: childType,
       value: value,
       pathCollection: [],
     };
@@ -151,7 +151,7 @@ ${typeToString(expectedTupleType)}`,
         assignedValueExpr: undefined,
       },
       isCompileTimeOnly: false,
-      type: elementType,
+      type: childType,
       label: elementIndex.toString(), // `$field_${randomId()}`,
     },
     value,

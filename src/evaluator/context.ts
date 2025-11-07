@@ -200,7 +200,7 @@ export interface ArrayCallResult {
 
   /**
    * Type of the return value.
-   * It might be the elementType of the array or slice:
+   * It might be the childType of the array or slice:
    * - arr(3)
    *
    * Or it might be a slice type if the user calls a slice method:

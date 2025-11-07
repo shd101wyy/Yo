@@ -157,7 +157,7 @@ export function typeOfType(
     return createType0(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type
-    return typeOfType(type.elementType, checkedTupleElements);
+    return typeOfType(type.childType, checkedTupleElements);
   } else if (isSliceType(type)) {
     return createType0(type);
   } else if (isTupleType(type)) {

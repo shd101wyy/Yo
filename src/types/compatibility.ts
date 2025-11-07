@@ -111,7 +111,7 @@ export function areTypesCompatible(
   if (
     (isComptStringType(expected.type) ||
       (isSliceType(expected.type) && // [u8]
-        isU8Type(expected.type.elementType)) ||
+        isU8Type(expected.type.childType)) ||
       (isMutPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.type) || isCharType(expected.type.type)))) &&
     isComptStringType(given.type)
@@ -131,8 +131,8 @@ export function areTypesCompatible(
 
   if (isComptListType(expected.type) && isComptListType(given.type)) {
     return areTypesCompatible(
-      { type: expected.type.elementType, env: expected.env },
-      { type: given.type.elementType, env: given.env }
+      { type: expected.type.childType, env: expected.env },
+      { type: given.type.childType, env: given.env }
     );
   }
 
@@ -145,10 +145,10 @@ export function areTypesCompatible(
       ) &&
       areTypesCompatible(
         {
-          type: expected.type.elementType,
+          type: expected.type.childType,
           env: expected.env,
         },
-        { type: given.type.elementType, env: given.env }
+        { type: given.type.childType, env: given.env }
       )
     );
   }
@@ -156,8 +156,8 @@ export function areTypesCompatible(
   if (isSliceType(expected.type) && isSliceType(given.type)) {
     // Slices must have compatible element types
     return areTypesCompatible(
-      { type: expected.type.elementType, env: expected.env },
-      { type: given.type.elementType, env: given.env }
+      { type: expected.type.childType, env: expected.env },
+      { type: given.type.childType, env: given.env }
     );
   }
 
@@ -503,8 +503,8 @@ export function areTypesCompatible(
   if (isFutureType(expected.type) && isFutureType(given.type)) {
     // Future types are compatible if their element types are compatible
     return areTypesCompatible(
-      { type: expected.type.elementType, env: expected.env },
-      { type: given.type.elementType, env: given.env },
+      { type: expected.type.childType, env: expected.env },
+      { type: given.type.childType, env: given.env },
       isMethodReceiver
     );
   }

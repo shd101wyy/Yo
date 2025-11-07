@@ -94,7 +94,7 @@ export interface ExprType extends Type {
 
 export interface ComptListType extends Type {
   tag: TypeTag.ComptList;
-  elementType: Type;
+  childType: Type;
   module: ModuleType;
 }
 
@@ -155,14 +155,14 @@ export interface SomeType extends Type {
 // Extended Type interface for compound types
 export interface ArrayType extends Type {
   tag: TypeTag.Array;
-  elementType: Type;
+  childType: Type;
   length: Value; // Compile-time known usize compatible value.
   module: ModuleType;
 }
 
 export interface SliceType extends Type {
   tag: TypeTag.Slice;
-  elementType: Type;
+  childType: Type;
   module: ModuleType;
 }
 
@@ -659,7 +659,7 @@ export interface FutureType extends Type {
   /**
    * The type of value that this future will eventually yield.
    */
-  elementType: Type;
+  childType: Type;
 
   /**
    * The module associated with this future type.

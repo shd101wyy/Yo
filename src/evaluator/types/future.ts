@@ -64,10 +64,10 @@ export function evaluateFutureType({
     });
   }
 
-  const elementType = evaluatedElementTypeExpr.$.value.value;
+  const childType = evaluatedElementTypeExpr.$.value.value;
 
   // Create the Future type
-  const futureType = createFutureType(elementType, env);
+  const futureType = createFutureType(childType, env);
 
   // Add ARC functions to the future type
   env = addARCFunctionsToFutureType({

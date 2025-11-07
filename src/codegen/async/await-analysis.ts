@@ -233,8 +233,7 @@ function walkExprForAwaits(
               // If the Future variable is borrowing from another variable, use the owner's ID
               // This ensures we reference the correct field in the state machine struct
               if (futureVar.isOwningTheSameARCValueAs) {
-                futureVariableId =
-                  futureVar.isOwningTheSameARCValueAs.id;
+                futureVariableId = futureVar.isOwningTheSameARCValueAs.id;
               } else {
                 futureVariableId = futureVar.id;
               }
@@ -267,7 +266,7 @@ function walkExprForAwaits(
           awaitPoints.push({
             index: awaitPoints.length,
             expr,
-            resultType: ft.elementType,
+            resultType: ft.childType,
             targetVariableId,
             futureVariableId,
           });

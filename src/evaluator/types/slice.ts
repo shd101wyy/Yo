@@ -48,9 +48,9 @@ export function evaluateSliceType({
 If you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`,
     });
   }
-  const elementType = evaluatedElementTypeExpr.$.value.value;
+  const childType = evaluatedElementTypeExpr.$.value.value;
 
-  const sliceType = createSliceType(elementType);
+  const sliceType = createSliceType(childType);
   const sliceTypeValue = createTypeValue(sliceType);
 
   expr.$ = {

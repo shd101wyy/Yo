@@ -525,10 +525,10 @@ export function generateArrayStructDeclarations(context: CodeGenContext): void {
   const emitter = context.emitter;
   for (const [
     arrayTypeName,
-    { elementType, length },
+    { childType, length },
   ] of context.arrayStructTypes) {
     emitter.emitDeclarationLine(`typedef struct { // Array wrapper struct`);
-    emitter.emitDeclarationLine(`  ${elementType} data[${length}];`);
+    emitter.emitDeclarationLine(`  ${childType} data[${length}];`);
     emitter.emitDeclarationLine(`} ${arrayTypeName};`);
     emitter.emitDeclarationLine("");
   }
@@ -539,9 +539,9 @@ export function generateArrayStructDeclarations(context: CodeGenContext): void {
  */
 export function generateSliceStructDeclarations(context: CodeGenContext): void {
   const emitter = context.emitter;
-  for (const [sliceTypeName, { elementType }] of context.sliceStructTypes) {
+  for (const [sliceTypeName, { childType }] of context.sliceStructTypes) {
     emitter.emitDeclarationLine(`typedef struct { // Slice wrapper struct`);
-    emitter.emitDeclarationLine(`  ${elementType}* data;`);
+    emitter.emitDeclarationLine(`  ${childType}* data;`);
     emitter.emitDeclarationLine(`  size_t length;`);
     emitter.emitDeclarationLine(`} ${sliceTypeName};`);
     emitter.emitDeclarationLine("");
@@ -953,8 +953,8 @@ export function generateFutureDeclaration(
   context: CodeGenContext
 ): void {
   const emitter = context.emitter;
-  const elementTypeStr = getTypeString(futureType.elementType, context);
-  const isUnit = isUnitType(futureType.elementType);
+  const elementTypeStr = getTypeString(futureType.childType, context);
+  const isUnit = isUnitType(futureType.childType);
 
   emitter.emitDeclarationLine(
     `typedef struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (reference counted)`

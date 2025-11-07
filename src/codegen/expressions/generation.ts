@@ -509,7 +509,7 @@ function generateFuncCall(
       return `// Error: await argument must be a Future type`;
     }
 
-    const resultType = (futureType as FutureType).elementType;
+    const resultType = (futureType as FutureType).childType;
     const isUnit = isUnitType(resultType);
 
     // For now, futures complete immediately, so we just extract the result
@@ -558,8 +558,8 @@ function generateFuncCall(
       if (functionContext.inStateMachine) {
         // State machine return - complete the Future and clean up
         const futureType = functionContext.inStateMachine.futureType;
-        const elementType = futureType.elementType;
-        const isUnitResult = isUnitType(elementType);
+        const childType = futureType.childType;
+        const isUnitResult = isUnitType(childType);
         const futureTypeCName = context.types[futureType.id]?.cName;
 
         if (!futureTypeCName) {
@@ -1331,12 +1331,12 @@ function generateFuncCall(
           const startCode = generateExpr(firstArg.args[0]!, indent, context);
           const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
-          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((funcType as ArrayType).elementType, context))}`;
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((funcType as ArrayType).childType, context))}`;
           // Register the slice type
           if (!context.sliceStructTypes.has(sliceTypeName)) {
             context.sliceStructTypes.set(sliceTypeName, {
-              elementType: getTypeString(
-                (funcType as ArrayType).elementType,
+              childType: getTypeString(
+                (funcType as ArrayType).childType,
                 context
               ),
             });
@@ -1350,13 +1350,13 @@ function generateFuncCall(
           // *(arr(:)) -> create slice value for whole array
           const arrayCode = generateExpr(arg.func!, indent, context);
           const arrayType = funcType as ArrayType;
-          const elementType = arrayType.elementType;
+          const childType = arrayType.childType;
 
-          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(elementType, context))}`;
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(childType, context))}`;
           // Register the slice type
           if (!context.sliceStructTypes.has(sliceTypeName)) {
             context.sliceStructTypes.set(sliceTypeName, {
-              elementType: getTypeString(elementType, context),
+              childType: getTypeString(childType, context),
             });
           }
 
@@ -1386,11 +1386,11 @@ function generateFuncCall(
           const startCode = generateExpr(firstArg.args[0]!, indent, context);
           const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
-          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.elementType, context))}`;
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.childType, context))}`;
           // Register the slice type
           if (!context.sliceStructTypes.has(sliceTypeName)) {
             context.sliceStructTypes.set(sliceTypeName, {
-              elementType: getTypeString(sliceBaseType.elementType, context),
+              childType: getTypeString(sliceBaseType.childType, context),
             });
           }
           return `(${sliceTypeName}){ .data = &${sliceCode}.data[${startCode}], .length = ${endCode} - ${startCode} }`;
@@ -1402,11 +1402,11 @@ function generateFuncCall(
           // *(slice(:)) -> create slice copy of whole slice
           const sliceCode = generateExpr(arg.func!, indent, context);
 
-          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.elementType, context))}`;
+          const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(sliceBaseType.childType, context))}`;
           // Register the slice type
           if (!context.sliceStructTypes.has(sliceTypeName)) {
             context.sliceStructTypes.set(sliceTypeName, {
-              elementType: getTypeString(sliceBaseType.elementType, context),
+              childType: getTypeString(sliceBaseType.childType, context),
             });
           }
           return `(${sliceTypeName}){ .data = ${sliceCode}.data, .length = ${sliceCode}.length }`;
@@ -2443,12 +2443,12 @@ function generateFuncCall(
         const startCode = generateExpr(firstArg.args[0]!, indent, context);
         const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as ArrayType).elementType, context))}`;
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as ArrayType).childType, context))}`;
         // Register the slice type
         if (!context.sliceStructTypes.has(sliceTypeName)) {
           context.sliceStructTypes.set(sliceTypeName, {
-            elementType: getTypeString(
-              (functionType as ArrayType).elementType,
+            childType: getTypeString(
+              (functionType as ArrayType).childType,
               context
             ),
           });
@@ -2462,13 +2462,13 @@ function generateFuncCall(
         // arr(:) -> create slice value for whole array
         const arrayCode = generateExpr(expr.func!, indent, context);
         const arrayType = functionType as ArrayType;
-        const elementType = arrayType.elementType;
+        const childType = arrayType.childType;
 
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(elementType, context))}`;
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString(childType, context))}`;
         // Register the slice type
         if (!context.sliceStructTypes.has(sliceTypeName)) {
           context.sliceStructTypes.set(sliceTypeName, {
-            elementType: getTypeString(elementType, context),
+            childType: getTypeString(childType, context),
           });
         }
 
@@ -2498,12 +2498,12 @@ function generateFuncCall(
         const startCode = generateExpr(firstArg.args[0]!, indent, context);
         const endCode = generateExpr(firstArg.args[1]!, indent, context);
 
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as SliceType).elementType, context))}`;
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as SliceType).childType, context))}`;
         // Register the slice type
         if (!context.sliceStructTypes.has(sliceTypeName)) {
           context.sliceStructTypes.set(sliceTypeName, {
-            elementType: getTypeString(
-              (functionType as SliceType).elementType,
+            childType: getTypeString(
+              (functionType as SliceType).childType,
               context
             ),
           });
@@ -2517,12 +2517,12 @@ function generateFuncCall(
         // slice(:) -> create slice copy of whole slice
         const sliceCode = generateExpr(expr.func!, indent, context);
 
-        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as SliceType).elementType, context))}`;
+        const sliceTypeName = `Slice_${sanitizeForCIdentifier(getTypeString((functionType as SliceType).childType, context))}`;
         // Register the slice type
         if (!context.sliceStructTypes.has(sliceTypeName)) {
           context.sliceStructTypes.set(sliceTypeName, {
-            elementType: getTypeString(
-              (functionType as SliceType).elementType,
+            childType: getTypeString(
+              (functionType as SliceType).childType,
               context
             ),
           });
@@ -3012,10 +3012,10 @@ function generateDynCall(
     // Find functions in the module and collect their function IDs
     for (let i = 0; i < moduleValue.fields.length; i++) {
       const field = moduleValue.fields[i];
-      const elementType = moduleValue.type.fields[i];
+      const childType = moduleValue.type.fields[i];
 
-      if (field && isFunctionValue(field) && elementType) {
-        const methodName = elementType.label;
+      if (field && isFunctionValue(field) && childType) {
+        const methodName = childType.label;
         // Skip 'Self' and 'This' type declarations (compile-time only)
         if (methodName !== "Self") {
           const functionId = field.funcId;

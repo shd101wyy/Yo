@@ -83,9 +83,9 @@ function generateArrayDupCall(arrayExpr: Expr): string {
   }
 
   const arrayType = arrayExpr.$.type;
-  const elementType = arrayType.elementType;
+  const childType = arrayType.childType;
 
-  if (!typeContainsARCType(elementType)) {
+  if (!typeContainsARCType(childType)) {
     return ""; // No elements need duplication, return as-is
   }
 

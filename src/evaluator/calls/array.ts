@@ -61,7 +61,7 @@ export function tryToCallArrayWithArguments({
     if (exprIsAtom(expr.args[0]!)) {
       return {
         value: undefined,
-        type: createSliceType(arrayType.elementType),
+        type: createSliceType(arrayType.childType),
         callerEnv,
       };
     } else {
@@ -141,7 +141,7 @@ export function tryToCallArrayWithArguments({
 
       return {
         value: undefined,
-        type: createSliceType(arrayType.elementType),
+        type: createSliceType(arrayType.childType),
         callerEnv,
       };
     }
@@ -182,7 +182,7 @@ export function tryToCallArrayWithArguments({
         errorMessage: `Expected usize for array index, got:\n${typeToString(argType)}`,
       });
     }
-    const returnType = arrayType.elementType;
+    const returnType = arrayType.childType;
 
     // It's compile time known value
     if (arrayValue) {

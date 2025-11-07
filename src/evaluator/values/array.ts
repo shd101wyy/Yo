@@ -45,7 +45,7 @@ export function evaluateArrayValue({
   // Check if we have an expected array type from the context
   let expectedElementType: Type | undefined = undefined;
   if (context.expectedType && isArrayType(context.expectedType.type)) {
-    expectedElementType = context.expectedType.type.elementType;
+    expectedElementType = context.expectedType.type.childType;
   }
   const arrayElementValues: (Value | undefined)[] = [];
   const runtimeArgExprsInOrder: Expr[] = [];

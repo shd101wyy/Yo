@@ -30,7 +30,7 @@ export function tryToImplementComptListByComptListType({
   const elements: Value[] = [];
   let env = callerEnv;
 
-  const expectedElementType = comptListType.elementType;
+  const expectedElementType = comptListType.childType;
 
   for (let i = 0; i < argExprs.length; i++) {
     const argExpr = argExprs[i]!;
@@ -84,7 +84,7 @@ export function tryToImplementComptListByComptListType({
 
   // Create the compt list value
   const comptListValue = createComptListValue(
-    comptListType.elementType,
+    comptListType.childType,
     elements
   );
 

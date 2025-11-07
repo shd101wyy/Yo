@@ -439,8 +439,8 @@ export function generateFunctionBody(
         } else {
           // For async functions, wrap the return value in a Future
           const futureType = functionType.return.type as FutureType;
-          const elementType = futureType.elementType;
-          const isUnitResult = isUnitType(elementType);
+          const childType = futureType.childType;
+          const isUnitResult = isUnitType(childType);
 
           // Get the Future type C name
           const futureTypeCName = context.types[futureType.id]?.cName;
@@ -455,7 +455,7 @@ export function generateFunctionBody(
           if (!isUnitResult) {
             const resultCode = generateExpr(lastExpr, indent, context);
             emitter.emitLine(
-              `${indent}${getTypeString(elementType, context)} _yo_async_result = ${resultCode};`
+              `${indent}${getTypeString(childType, context)} _yo_async_result = ${resultCode};`
             );
           } else {
             // For unit, just execute the expression as a statement

@@ -46,9 +46,9 @@ export function evaluateComptListType({
       errorMessage: `Expected type for element type, got:\n${exprToString(elementTypeExpr)}`,
     });
   }
-  const elementType = evaluatedElementTypeExpr.$.value.value;
+  const childType = evaluatedElementTypeExpr.$.value.value;
 
-  const comptListType = createComptListType(elementType);
+  const comptListType = createComptListType(childType);
   const comptListTypeValue = createTypeValue(comptListType);
 
   expr.$ = {

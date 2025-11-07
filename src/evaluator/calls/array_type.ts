@@ -60,7 +60,7 @@ export function tryToImplementArrayByArrayType({
 
     // Create a new array type with the inferred length
     const inferredLength = createComptIntValue(expectedLengthValue);
-    finalArrayType = createArrayType(arrayType.elementType, inferredLength);
+    finalArrayType = createArrayType(arrayType.childType, inferredLength);
   } else {
     throw formatErrorMessage({
       token: expr.func.token,
@@ -73,7 +73,7 @@ export function tryToImplementArrayByArrayType({
   let env = callerEnv;
 
   // Keep track of the expected element type, which may need updating for nested arrays
-  let expectedElementType = finalArrayType.elementType;
+  let expectedElementType = finalArrayType.childType;
 
   for (let i = 0; i < argExprs.length; i++) {
     const argExpr = argExprs[i]!;

@@ -74,7 +74,7 @@ export function evaluateAsync({
   // If context expects Future(T), we should expect T inside the async block
   let unwrappedFutureExpectedType: Type | undefined = undefined;
   if (context.expectedType && isFutureType(context.expectedType.type)) {
-    unwrappedFutureExpectedType = context.expectedType.type.elementType;
+    unwrappedFutureExpectedType = context.expectedType.type.childType;
   }
 
   // Create a map to track captured variables (similar to closures)

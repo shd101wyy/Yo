@@ -47,7 +47,7 @@ export function evaluateArrayFillMethod({
     env,
     context: {
       ...context,
-      expectedType: { type: arrayType.elementType, env },
+      expectedType: { type: arrayType.childType, env },
     },
   });
 
@@ -68,13 +68,13 @@ export function evaluateArrayFillMethod({
   // Check type compatibility
   if (
     !areTypesCompatible(
-      { type: arrayType.elementType, env },
+      { type: arrayType.childType, env },
       { type: fillValueType, env }
     )
   ) {
     throw formatErrorMessage({
       token: fillValueArg.token,
-      errorMessage: `Fill value type ${typeToString(fillValueType)} is not compatible with array element type ${typeToString(arrayType.elementType)}`,
+      errorMessage: `Fill value type ${typeToString(fillValueType)} is not compatible with array element type ${typeToString(arrayType.childType)}`,
     });
   }
 

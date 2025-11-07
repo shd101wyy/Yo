@@ -45,12 +45,12 @@ export interface CodeGenContext {
   /**
    * Array struct types that need to be generated
    */
-  arrayStructTypes: Map<string, { elementType: string; length: number }>;
+  arrayStructTypes: Map<string, { childType: string; length: number }>;
 
   /**
    * Slice struct types that need to be generated
    */
-  sliceStructTypes: Map<string, { elementType: string }>;
+  sliceStructTypes: Map<string, { childType: string }>;
 
   /**
    * Spawned function signatures that need task wrapper generation for cooperative multitasking
@@ -306,17 +306,17 @@ export function getTypeString(
     // Fixed size array
     case TypeTag.Array: {
       const arrayType = type as ArrayType;
-      const elementType = arrayType.elementType;
+      const childType = arrayType.childType;
       const length = arrayType.length;
       if (isNumberValue(length)) {
         // Generate struct wrapper for arrays to make them returnable by value
-        const elementTypeString = getTypeString(elementType, context);
+        const elementTypeString = getTypeString(childType, context);
         const arrayTypeName = `Array_${sanitizeForCIdentifier(elementTypeString)}_${length.value}`;
 
         // Register the array type if not already registered
         if (!context.arrayStructTypes.has(arrayTypeName)) {
           context.arrayStructTypes.set(arrayTypeName, {
-            elementType: elementTypeString,
+            childType: elementTypeString,
             length: length.value,
           });
         }
@@ -329,14 +329,14 @@ export function getTypeString(
       // Generate slice struct type name: Slice_ElementType
       const sliceType = type as SliceType;
       const elementTypeStr = sanitizeForCIdentifier(
-        getTypeString(sliceType.elementType, context)
+        getTypeString(sliceType.childType, context)
       );
       const sliceTypeName = `Slice_${elementTypeStr}`;
 
       // Register the slice type
       if (!context.sliceStructTypes.has(sliceTypeName)) {
         context.sliceStructTypes.set(sliceTypeName, {
-          elementType: getTypeString(sliceType.elementType, context),
+          childType: getTypeString(sliceType.childType, context),
         });
       }
 
@@ -371,13 +371,13 @@ export function getTypeString(
       // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
       if (isSliceType(baseType)) {
         const sliceType = baseType as SliceType;
-        const elementTypeString = getTypeString(sliceType.elementType, context);
+        const elementTypeString = getTypeString(sliceType.childType, context);
         const sliceTypeName = `Slice_${sanitizeForCIdentifier(elementTypeString)}`;
 
         // Register the slice type if not already registered
         if (!context.sliceStructTypes.has(sliceTypeName)) {
           context.sliceStructTypes.set(sliceTypeName, {
-            elementType: elementTypeString,
+            childType: elementTypeString,
           });
         }
 
@@ -490,10 +490,10 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
       emptyVariant = variant;
     } else if (variant.fields.length === 1) {
       // Variant with exactly one element
-      const elementType = variant.fields[0]!.type;
+      const childType = variant.fields[0]!.type;
 
       // Check if it's a pointer/reference type
-      if (isMutPtrType(elementType)) {
+      if (isMutPtrType(childType)) {
         if (pointerVariant) {
           return null; // More than one pointer variant
         }

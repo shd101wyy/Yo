@@ -115,8 +115,8 @@ export function generateAsyncBlockResumeFunction(
 ): void {
   const emitter = context.emitter;
 
-  const elementType = futureType.elementType;
-  const isUnitResult = isUnitType(elementType);
+  const childType = futureType.childType;
+  const isUnitResult = isUnitType(childType);
 
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);

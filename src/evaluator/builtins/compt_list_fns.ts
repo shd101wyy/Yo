@@ -72,8 +72,8 @@ export function evaluateYoComptListCar({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: comptListType.elementType,
-    value: createUnknownValue(comptListType.elementType), // Will be updated later
+    type: comptListType.childType,
+    value: createUnknownValue(comptListType.childType), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -151,7 +151,7 @@ export function evaluateYoComptListCdr({
   if (isComptListValue(comptListValue)) {
     const elements = comptListValue.elements;
     if (elements.length > 0) {
-      expr.$.value = createComptListValue(comptListType.elementType, [
+      expr.$.value = createComptListValue(comptListType.childType, [
         ...elements.slice(1),
       ]);
     } else {
@@ -245,12 +245,12 @@ export function evaluateYoComptListCons({
         type: carArgType,
         env,
       },
-      { type: comptListType.elementType, env }
+      { type: comptListType.childType, env }
     )
   ) {
     throw formatErrorMessage({
       token: carArg.token,
-      errorMessage: `Type mismatch: cannot cons value of type "${typeToString(carArgType)}" to ComptList of base type "${typeToString(comptListType.elementType)}" in "${expr.func.token.value}"`,
+      errorMessage: `Type mismatch: cannot cons value of type "${typeToString(carArgType)}" to ComptList of base type "${typeToString(comptListType.childType)}" in "${expr.func.token.value}"`,
     });
   }
 
@@ -265,7 +265,7 @@ export function evaluateYoComptListCons({
   if (isComptListValue(cdrValue)) {
     // Create a new ComptList value with the car as the first element
     const newElements = [carValue, ...cdrValue.elements];
-    expr.$.value = createComptListValue(comptListType.elementType, newElements);
+    expr.$.value = createComptListValue(comptListType.childType, newElements);
   } else {
     // cdrValue is unknown
   }
@@ -371,7 +371,7 @@ export function evaluateYoComptListAppend({
   ) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Type mismatch: cannot append ComptList of base type "${typeToString(secondComptListType.elementType)}" to ComptList of base type "${typeToString(firstComptListType.elementType)}" in "${expr.func.token.value}"`,
+      errorMessage: `Type mismatch: cannot append ComptList of base type "${typeToString(secondComptListType.childType)}" to ComptList of base type "${typeToString(firstComptListType.childType)}" in "${expr.func.token.value}"`,
     });
   }
 
@@ -391,7 +391,7 @@ export function evaluateYoComptListAppend({
         ...secondListValue.elements,
       ];
       expr.$.value = createComptListValue(
-        firstComptListType.elementType,
+        firstComptListType.childType,
         newElements
       );
     } else {
@@ -520,7 +520,7 @@ export function evaluateYoComptListElementType({
     });
   }
 
-  const typeValue = createTypeValue(comptListType.elementType);
+  const typeValue = createTypeValue(comptListType.childType);
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,

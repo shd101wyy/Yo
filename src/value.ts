@@ -302,7 +302,7 @@ export function isComptListValue(value?: Value): value is ComptListValue {
 }
 
 export function isExprListValue(value?: Value): value is ComptListValue {
-  return isComptListValue(value) && isExprType(value.type.elementType);
+  return isComptListValue(value) && isExprType(value.type.childType);
 }
 
 export function isNumberValue(value?: Value): value is NumberValue {
@@ -381,12 +381,12 @@ export function createComptStringValue(value: string): ComptStringValue {
 }
 
 export function createComptListValue(
-  elementType: Type,
+  childType: Type,
   elements: Value[]
 ): ComptListValue {
   return {
     tag: ValueTag.ComptList,
-    type: createComptListType(elementType),
+    type: createComptListType(childType),
     elements,
   };
 }

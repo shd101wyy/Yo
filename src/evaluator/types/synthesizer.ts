@@ -66,7 +66,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
   }
 
   if (isArrayType(type) || isSliceType(type)) {
-    return occursCheck(someTypeId, type.elementType);
+    return occursCheck(someTypeId, type.childType);
   }
 
   if (isMutPtrType(type)) {
@@ -84,7 +84,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
   }
 
   if (isFutureType(type)) {
-    return occursCheck(someTypeId, type.elementType);
+    return occursCheck(someTypeId, type.childType);
   }
 
   if (isClosureType(type)) {
@@ -500,11 +500,11 @@ export function synthesizeTypes(
     // Synthesize the element types of the arrays
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expected.type.elementType,
+        type: expected.type.childType,
         env: expected.env,
       },
       {
-        type: given.type.elementType,
+        type: given.type.childType,
         env: given.env,
       },
       checkedTypePairs
@@ -554,11 +554,11 @@ export function synthesizeTypes(
     // Synthesize the element types of the slices
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expected.type.elementType,
+        type: expected.type.childType,
         env: expected.env,
       },
       {
-        type: given.type.elementType,
+        type: given.type.childType,
         env: given.env,
       },
       checkedTypePairs
@@ -569,11 +569,11 @@ export function synthesizeTypes(
     // Synthesize the element types of the Futures
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expected.type.elementType,
+        type: expected.type.childType,
         env: expected.env,
       },
       {
-        type: given.type.elementType,
+        type: given.type.childType,
         env: given.env,
       },
       checkedTypePairs

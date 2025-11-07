@@ -117,23 +117,23 @@ export function createExprType(): Type {
 }
 
 const cachedComptListTypeMap: Map<Type, ComptListType> = new Map();
-export function createComptListType(elementType: Type): ComptListType {
-  if (cachedComptListTypeMap.has(elementType)) {
-    return cachedComptListTypeMap.get(elementType)!;
+export function createComptListType(childType: Type): ComptListType {
+  if (cachedComptListTypeMap.has(childType)) {
+    return cachedComptListTypeMap.get(childType)!;
   }
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
 
-  const typeId = `compt_list_${elementType.id}`;
+  const typeId = `compt_list_${childType.id}`;
   const type: ComptListType = {
     id: typeId,
     tag: TypeTag.ComptList,
-    elementType,
+    childType,
     module,
   };
   module.receiverType = type;
 
-  cachedComptListTypeMap.set(elementType, type);
+  cachedComptListTypeMap.set(childType, type);
 
   addModuleFieldsByCode(module, {
     type_info: `impl(Self, {
@@ -652,14 +652,14 @@ export function createType0(baseType?: Type): TypeHierarchyType {
   return createTypeHierarchy(0, baseType);
 }
 
-export function createArrayType(elementType: Type, length: Value): ArrayType {
+export function createArrayType(childType: Type, length: Value): ArrayType {
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
 
   const arrayType: ArrayType = {
-    id: `array_${elementType.id + "_" + hashString(valueToString(length))}`,
+    id: `array_${childType.id + "_" + hashString(valueToString(length))}`,
     tag: TypeTag.Array,
-    elementType,
+    childType,
     length,
     module,
   };
@@ -676,23 +676,23 @@ export function createArrayType(elementType: Type, length: Value): ArrayType {
 }
 
 const cachedSliceTypeMap: Map<Type, SliceType> = new Map();
-export function createSliceType(elementType: Type): SliceType {
-  if (cachedSliceTypeMap.has(elementType)) {
-    return cachedSliceTypeMap.get(elementType)!;
+export function createSliceType(childType: Type): SliceType {
+  if (cachedSliceTypeMap.has(childType)) {
+    return cachedSliceTypeMap.get(childType)!;
   }
 
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
 
   const sliceType: SliceType = {
-    id: `slice_${elementType.id}`,
+    id: `slice_${childType.id}`,
     tag: TypeTag.Slice,
-    elementType,
+    childType,
     module,
   };
   module.receiverType = sliceType;
 
-  cachedSliceTypeMap.set(elementType, sliceType);
+  cachedSliceTypeMap.set(childType, sliceType);
 
   return sliceType;
 }
@@ -1073,15 +1073,15 @@ export function createDynType(
 }
 
 export function createFutureType(
-  elementType: Type,
+  childType: Type,
   env: Environment
 ): FutureType {
   const module = createModuleType(env);
 
   const futureType: FutureType = {
-    id: `future_${elementType.id}`,
+    id: `future_${childType.id}`,
     tag: TypeTag.Future,
-    elementType,
+    childType,
     module,
     env,
   };

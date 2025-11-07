@@ -32,9 +32,9 @@ export function evaluateComptListValue({
   }
 
   // Check if we have an expected compt_list type from the context
-  let elementType: Type | undefined = undefined;
+  let childType: Type | undefined = undefined;
   if (context.expectedType && isComptListType(context.expectedType.type)) {
-    elementType = context.expectedType.type.elementType;
+    childType = context.expectedType.type.childType;
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -57,25 +57,25 @@ export function evaluateComptListValue({
     elements.push(value);
 
     // Check type
-    if (!elementType) {
-      elementType = evaluatedArg.$.type;
+    if (!childType) {
+      childType = evaluatedArg.$.type;
     } else {
       // Check if the type of the element matches the first element type
       if (
         !areTypesCompatible(
-          { type: elementType, env },
+          { type: childType, env },
           { type: evaluatedArg.$.type, env }
         )
       ) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Mismatched element types in compt_list. Expected element of type ${typeToString(elementType)}, got ${typeToString(evaluatedArg.$.type)}`,
+          errorMessage: `Mismatched element types in compt_list. Expected element of type ${typeToString(childType)}, got ${typeToString(evaluatedArg.$.type)}`,
         });
       }
     }
   }
 
-  const exprListValue = createComptListValue(elementType!, elements);
+  const exprListValue = createComptListValue(childType!, elements);
   expr.$ = {
     env,
     type: exprListValue.type,

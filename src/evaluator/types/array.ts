@@ -69,7 +69,7 @@ Got:\n${exprToString(expr)}`,
 If you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`,
     });
   }
-  const elementType = evaluatedElementTypeExpr.$.value.value;
+  const childType = evaluatedElementTypeExpr.$.value.value;
 
   // Handle underscore placeholder for length inference
   if (isLengthUnderscore) {
@@ -94,7 +94,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
       },
     });
 
-    const arrayType = createArrayType(elementType, unknownLength);
+    const arrayType = createArrayType(childType, unknownLength);
     const arrayTypeValue = createTypeValue(arrayType);
 
     expr.$ = {
@@ -155,7 +155,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
     lengthValue.type = createUsizeType();
   }
 
-  const arrayType = createArrayType(elementType, lengthValue);
+  const arrayType = createArrayType(childType, lengthValue);
   const arrayTypeValue = createTypeValue(arrayType);
 
   expr.$ = {

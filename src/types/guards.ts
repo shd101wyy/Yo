@@ -72,7 +72,7 @@ export function isComptListType(type?: Type): type is ComptListType {
 }
 
 export function isExprListType(type?: Type): boolean {
-  return isComptListType(type) && isExprType(type.elementType);
+  return isComptListType(type) && isExprType(type.childType);
 }
 
 export function isBooleanType(type?: Type): boolean {

@@ -158,11 +158,11 @@ export function evaluateAwait({
   }
 
   // Extract the element type T from Future(T)
-  const elementType = argType.elementType;
+  const childType = argType.childType;
 
   expr.$ = {
     env,
-    type: elementType,
+    type: childType,
     value: undefined, // Runtime value, not compile-time
     pathCollection: [],
   };

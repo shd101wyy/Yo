@@ -121,7 +121,7 @@ export function typeContainsARCType(
   // Recursively check in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsARCType((type as ArrayType).elementType, checkedTypes);
+      return typeContainsARCType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
         typeContainsARCType(field.type, checkedTypes)
@@ -178,10 +178,7 @@ export function typeContainsSomeType(
   // Recursively check for SomeType in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsSomeType(
-        (type as ArrayType).elementType,
-        checkedTypes
-      );
+      return typeContainsSomeType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
         typeContainsSomeType(field.type, checkedTypes)
@@ -217,10 +214,7 @@ export function typeContainsSomeType(
     case TypeTag.MutPtr:
       return typeContainsSomeType((type as MutPtrType).type, checkedTypes);
     case TypeTag.Future:
-      return typeContainsSomeType(
-        (type as FutureType).elementType,
-        checkedTypes
-      );
+      return typeContainsSomeType((type as FutureType).childType, checkedTypes);
     default:
       return false; // For other types, no SomeType is present
   }
@@ -253,7 +247,7 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
 
     switch (t.tag) {
       case TypeTag.Array:
-        helper((t as ArrayType).elementType);
+        helper((t as ArrayType).childType);
         break;
       case TypeTag.Tuple:
         (t as TupleType).fields.forEach((field) => helper(field.type));
@@ -276,7 +270,7 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         helper((t as MutPtrType).type);
         break;
       case TypeTag.Future:
-        helper((t as FutureType).elementType);
+        helper((t as FutureType).childType);
         break;
       default:
         break; // For other types, do nothing
@@ -301,7 +295,7 @@ export function typeRequiresInference(type?: Type): boolean {
       const arrayType = type as ArrayType;
       return (
         isUnknownValue(arrayType.length) ||
-        typeRequiresInference(arrayType.elementType)
+        typeRequiresInference(arrayType.childType)
       );
     }
     // NOTE: Let's only support ArrayType for now.
@@ -361,7 +355,7 @@ export function typeRequiresInference(type?: Type): boolean {
       return typeRequiresInference(closureType.callType);
     }
     case TypeTag.Future:
-      return typeRequiresInference((type as FutureType).elementType);
+      return typeRequiresInference((type as FutureType).childType);
     default:
       return false; // For other types, no unknown values are present
   }
@@ -426,8 +420,8 @@ export function convertComptTypeToRuntimeType({
   } else if (isComptFloatType(type)) {
     convertedType = createF64Type();
   } else if (isArrayType(type)) {
-    type.elementType = convertComptTypeToRuntimeType({
-      type: type.elementType,
+    type.childType = convertComptTypeToRuntimeType({
+      type: type.childType,
       expectedType: undefined,
       expr: undefined,
       env,
@@ -856,14 +850,14 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     // Complex types
     case TypeTag.Array: {
-      return `[${typeToString((type as ArrayType).elementType, visited)}; ${valueToString(
+      return `[${typeToString((type as ArrayType).childType, visited)}; ${valueToString(
         (type as ArrayType).length
       )}]`;
     }
 
     case TypeTag.Slice: {
       const sliceType = type as ArrayType;
-      return `[${typeToString(sliceType.elementType, visited)}]`;
+      return `[${typeToString(sliceType.childType, visited)}]`;
     }
 
     case TypeTag.Tuple: {
@@ -980,7 +974,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     }
 
     case TypeTag.ComptList: {
-      return `ComptList(${typeToString((type as ComptListType).elementType)})`;
+      return `ComptList(${typeToString((type as ComptListType).childType)})`;
     }
 
     case TypeTag.Dyn: {
@@ -993,7 +987,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.Future: {
       const futureType = type as FutureType;
-      return `Future(${typeToString(futureType.elementType, visited)})`;
+      return `Future(${typeToString(futureType.childType, visited)})`;
     }
 
     default: {
@@ -1035,7 +1029,7 @@ export function getTargetPointerSizeBytes(): number {
 }
 
 function getArrayTypeSize(type: ArrayType): number | null {
-  const elementSize = getSizeOfType(type.elementType);
+  const elementSize = getSizeOfType(type.childType);
   if (elementSize === null) {
     return null; // If the element size is unknown, return null
   }
@@ -1162,7 +1156,7 @@ export function getAlignmentOfType(type: Type): number | null {
   } else if (isF64Type(type)) {
     return 8; // 8 byte aligned
   } else if (isArrayType(type)) {
-    return getAlignmentOfType(type.elementType); // Array alignment is element alignment
+    return getAlignmentOfType(type.childType); // Array alignment is element alignment
   } else if (isTupleType(type)) {
     // Tuple alignment is the maximum alignment of its fields
     let maxAlign = 1;
@@ -1388,7 +1382,7 @@ function typeCanReferenceCyclicRefStruct(
   // Check through arrays
   if (isArrayType(type)) {
     return typeCanReferenceCyclicRefStruct(
-      type.elementType,
+      type.childType,
       originalRefStruct,
       visitedTypes
     );
@@ -1397,7 +1391,7 @@ function typeCanReferenceCyclicRefStruct(
   // Check through slices
   if (isSliceType(type)) {
     return typeCanReferenceCyclicRefStruct(
-      type.elementType,
+      type.childType,
       originalRefStruct,
       visitedTypes
     );
