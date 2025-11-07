@@ -31,12 +31,10 @@ export function evaluateComptListValue({
     });
   }
 
-  let elementType: Type | undefined = undefined;
-
   // Check if we have an expected compt_list type from the context
-  let expectedElementType: Type | undefined = undefined;
+  let elementType: Type | undefined = undefined;
   if (context.expectedType && isComptListType(context.expectedType.type)) {
-    expectedElementType = context.expectedType.type.elementType;
+    elementType = context.expectedType.type.elementType;
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -60,7 +58,7 @@ export function evaluateComptListValue({
 
     // Check type
     if (!elementType) {
-      elementType = expectedElementType || evaluatedArg.$.type;
+      elementType = evaluatedArg.$.type;
     } else {
       // Check if the type of the element matches the first element type
       if (

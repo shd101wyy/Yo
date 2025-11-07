@@ -15,6 +15,7 @@ import {
 import {
   ArrayType,
   ClosureType,
+  ComptListType,
   DynType,
   EnumType,
   FunctionParameter,
@@ -39,10 +40,10 @@ import {
   isClosureType,
   isComptFloatType,
   isComptIntType,
+  isComptListType,
   isComptStringType,
   isDynType,
   isEnumType,
-  isExprListType,
   isExprType,
   isF32Type,
   isF64Type,
@@ -86,7 +87,7 @@ export function typeRequiresComptModifier(type?: Type): boolean {
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||
-    isExprListType(type) ||
+    isComptListType(type) ||
     isExprType(type)
   );
 }
@@ -957,13 +958,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       return functionTypeToString(callType, visited);
     }
 
-    /*
-    case TypeTag.Literal: {
-      const literal = type as LiteralType;
-      return `${literal.value}:${typeToString(literal.type)}`;
-    }
-    */
-
     case TypeTag.SomeType: {
       const someType = type as SomeType;
       if (someType.functionApplication) {
@@ -983,6 +977,10 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.Expr: {
       return "Expr";
+    }
+
+    case TypeTag.ComptList: {
+      return `ComptList(${typeToString((type as ComptListType).elementType)})`;
     }
 
     case TypeTag.Dyn: {
@@ -1142,9 +1140,9 @@ export function getAlignmentOfType(type: Type): number | null {
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||
+    isComptListType(type) ||
     isModuleType(type) ||
-    isExprType(type) ||
-    isExprListType(type) // ^ disallowed in the runtime
+    isExprType(type) // ^ disallowed in the runtime
   ) {
     return 1; // Minimal alignment for compile-time only types
   } else if (isBooleanType(type)) {
@@ -1249,9 +1247,9 @@ export function getSizeOfType(type: Type): number | null {
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||
+    isComptListType(type) ||
     isModuleType(type) ||
-    isExprType(type) ||
-    isExprListType(type) // ^ disallowed in the runtime
+    isExprType(type) // ^ disallowed in the runtime
   ) {
     return 0;
   } else if (isBooleanType(type)) {

@@ -586,6 +586,7 @@ export const BuiltinFunctions = {
   __yo_compt_list_cons: ["__yo_compt_list_cons"],
   __yo_compt_list_append: ["__yo_compt_list_append"],
   __yo_compt_list_length: ["__yo_compt_list_length"],
+  __yo_compt_list_element_type: ["__yo_compt_list_element_type"],
 
   // compt_int related functions
   /// 2 args

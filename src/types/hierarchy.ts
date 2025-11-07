@@ -12,10 +12,10 @@ import {
   isClosureType,
   isComptFloatType,
   isComptIntType,
+  isComptListType,
   isComptStringType,
   isDynType,
   isEnumType,
-  isExprListType,
   isExprType,
   isFunctionType,
   isFutureType,
@@ -130,7 +130,7 @@ export function typeOfType(
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||
-    isExprListType(type)
+    isComptListType(type)
   ) {
     return createType0(type);
   } else if (isExprType(type)) {

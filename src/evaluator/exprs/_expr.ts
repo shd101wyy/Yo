@@ -32,6 +32,7 @@ import {
   evaluateYoComptListCar,
   evaluateYoComptListCdr,
   evaluateYoComptListCons,
+  evaluateYoComptListElementType,
   evaluateYoComptListLength,
 } from "../builtins/compt_list_fns";
 import { evaluateComptPrint } from "../builtins/compt_print";
@@ -600,6 +601,15 @@ ${exprToString(expr)}`,
     ) {
       // __yo_compt_list_length
       return evaluateYoComptListLength({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_element_type)
+    ) {
+      // __yo_compt_list_element_type
+      return evaluateYoComptListElementType({
         expr,
         env,
         context: { ...context },

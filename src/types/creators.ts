@@ -135,7 +135,7 @@ export function createComptListType(elementType: Type): ComptListType {
   cachedComptListTypeMap.set(elementType, type);
 
   addModuleElementsByCode(module, {
-    car: `((fn(compt(self): Self) -> compt(Expr))
+    car: `((fn(compt(self): Self) -> compt(__yo_compt_list_element_type(self)))
     __yo_compt_list_car(self)
   )`,
     cdr: `((fn(compt(self): Self) -> compt(Self))

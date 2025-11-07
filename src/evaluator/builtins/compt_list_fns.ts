@@ -15,6 +15,7 @@ import {
 import {
   createComptListValue,
   createNumberValue,
+  createTypeValue,
   createUnknownValue,
   isComptListValue,
 } from "../../value";
@@ -465,5 +466,59 @@ export function evaluateYoComptListLength({
     expr.$.value = lengthValue;
   }
 
+  return expr;
+}
+
+export function evaluateYoComptListElementType({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_compt_list_element_type,
+    1
+  );
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  if (!isComptListType(evaluatedArgExpr.$.type)) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+
+  const comptListType = evaluatedArgExpr.$.type;
+
+  const typeValue = createTypeValue(comptListType.elementType);
+
+  expr.$ = {
+    env: evaluatedArgExpr.$.env,
+    type: typeValue.type,
+    value: typeValue,
+    pathCollection: [],
+    isAccessingProperty: false,
+  };
   return expr;
 }
