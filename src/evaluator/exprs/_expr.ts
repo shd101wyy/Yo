@@ -27,7 +27,6 @@ import {
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "../builtins/compt_expect_error";
-import { evaluateYoComptFloatFunctions } from "../builtins/compt_float_fns";
 import { evaluateComptPrint } from "../builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "../builtins/compt_string_fns";
 import {
@@ -727,13 +726,6 @@ ${exprToString(expr)}`,
     else if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
       // while
       return evaluateWhile({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.for)) {
-      // for
-      return evaluateYoComptFloatFunctions({
-        expr,
-        env,
-        context: { ...context },
-      });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.va_start)) {
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });

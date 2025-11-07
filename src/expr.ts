@@ -482,7 +482,6 @@ export const BuiltinKeywords = {
   break: ["break"],
   continue: ["continue"],
   while: ["while"],
-  for: ["__for"], // NOTE: Let's deprecate this builtin `for` for now. I renamed it to `__for` to avoid confusion with future possible `for` keyword.
   if: ["if"],
   op_and: ["&&"],
   op_or: ["||"],
@@ -1118,7 +1117,6 @@ function exprToPrettyString(
           ...BuiltinKeywords.fn,
           ...BuiltinKeywords.if,
           ...BuiltinKeywords.while,
-          ...BuiltinKeywords.for,
         ].includes(funcName);
 
       // Regular function call

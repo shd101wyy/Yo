@@ -147,11 +147,10 @@ function searchRecursively(
     return;
   }
 
-  // Skip while/for loops - they execute multiple times so optimization would be incorrect
+  // Skip while loops - they execute multiple times so optimization would be incorrect
   if (
     exprIsFunctionCall(expr) &&
-    (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
-      exprIsFunctionCallOf(expr, BuiltinKeywords.for))
+    exprIsFunctionCallOf(expr, BuiltinKeywords.while)
   ) {
     // Don't apply optimization to while loops - the body can execute multiple times
     // which would create multiple references without corresponding dup calls
