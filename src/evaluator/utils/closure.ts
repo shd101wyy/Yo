@@ -12,8 +12,8 @@ import {
   areTypesCompatible,
   createStructType,
   StructType,
-  TupleElement,
   typeContainsARCType,
+  TypeElement,
   typeToString,
 } from "../../types";
 import {
@@ -130,7 +130,7 @@ export function createCaptureTypeAndValue({
       const inferredCaptureType = createStructType(env);
 
       // Create elements from captured variables
-      const captureElements: TupleElement[] = Array.from(
+      const captureElements: TypeElement[] = Array.from(
         capturedVariablesWithValues.entries()
       ).map(([varName, captureInfo]) => {
         return {

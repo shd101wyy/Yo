@@ -14,9 +14,9 @@ import {
   convertComptTypeToRuntimeType,
   createTupleType,
   isTupleType,
-  TupleElement,
   TupleType,
   Type,
+  TypeElement,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -46,7 +46,7 @@ export function evaluateTupleElementValue({
   elementIndex: number;
   runtimeArgExprsInOrder: Expr[];
 }): {
-  type: TupleElement;
+  type: TypeElement;
   value: Value | undefined;
   env: Environment;
 } {
@@ -175,7 +175,7 @@ export function evaluateTupleElementsValue({
   env: Environment;
   runtimeArgExprsInOrder: Expr[];
 } {
-  const tupleElements: TupleElement[] = [];
+  const tupleElements: TypeElement[] = [];
   const tupleValues: (Value | undefined)[] = [];
   const runtimeArgExprsInOrder: Expr[] = [];
 

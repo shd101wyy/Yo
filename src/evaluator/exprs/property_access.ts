@@ -21,7 +21,7 @@ import {
   isTupleType,
   isUnionType,
   ModuleElement,
-  TupleElement,
+  TypeElement,
   typeToString,
 } from "../../types";
 import {
@@ -379,7 +379,7 @@ export function evaluatePropertyAccess({
     isStructType(objectType) ||
     isUnionType(objectType)
   ) {
-    const elements: TupleElement[] = objectType.elements;
+    const elements: TypeElement[] = objectType.elements;
     const objectExprValue = objectExpr.$!.value;
 
     // Check if it's accessing the tuple element by

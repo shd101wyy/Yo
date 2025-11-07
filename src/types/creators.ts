@@ -26,9 +26,9 @@ import {
   SliceType,
   SomeType,
   StructType,
-  TupleElement,
   TupleType,
   Type,
+  TypeElement,
   TypeHierarchyType,
   UnionType,
   VoidType,
@@ -124,8 +124,9 @@ export function createComptListType(elementType: Type): ComptListType {
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
 
+  const typeId = `compt_list_${elementType.id}`;
   const type: ComptListType = {
-    id: `compt_list_${elementType.id}`,
+    id: typeId,
     tag: TypeTag.ComptList,
     elementType,
     module,
@@ -135,7 +136,17 @@ export function createComptListType(elementType: Type): ComptListType {
   cachedComptListTypeMap.set(elementType, type);
 
   addModuleElementsByCode(module, {
-    car: `((fn(compt(self): Self) -> compt(__yo_compt_list_element_type(self)))
+    type_info: `impl(Self, {
+      id :: "${typeId}";
+      export id;
+
+      tag :: "${TypeTag.ComptList}";
+      export tag;
+
+      element_type :: __yo_compt_list_element_type(Self);
+      export element_type;
+    })`,
+    car: `((fn(compt(self): Self) -> compt(__yo_compt_list_element_type(Self)))
     __yo_compt_list_car(self)
   )`,
     cdr: `((fn(compt(self): Self) -> compt(Self))
@@ -637,26 +648,8 @@ export function createLongDoubleType(): Type {
   return type;
 }
 
-const cachedType0Map: Map<Type | undefined, TypeHierarchyType> = new Map();
 export function createType0(baseType?: Type): TypeHierarchyType {
-  if (cachedType0Map.has(baseType)) {
-    return cachedType0Map.get(baseType)!;
-  }
-
-  const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
-
-  const type: TypeHierarchyType = {
-    id: "Type(0)",
-    tag: TypeTag.Type,
-    level: 0,
-    baseType,
-    module,
-  };
-  module.receiverType = type;
-
-  cachedType0Map.set(baseType, type);
-  return type;
+  return createTypeHierarchy(0, baseType);
 }
 
 export function createArrayType(elementType: Type, length: Value): ArrayType {
@@ -724,7 +717,7 @@ export function createVoidType(): VoidType {
   return voidType;
 }
 
-export function createTupleType(elements: TupleElement[]): TupleType {
+export function createTupleType(elements: TypeElement[]): TupleType {
   const emptyEnv = createEmptyEnv();
   const module = createModuleType(emptyEnv);
 
@@ -970,16 +963,23 @@ export function createSomeType(
 //   baseType?: Type;
 //   cache: TypeHierarchyType;
 // }[] = [];
+const cachedTypeMap: Map<
+  number,
+  Map<Type | undefined, TypeHierarchyType>
+> = new Map();
 export function createTypeHierarchy(
   level: number,
   baseType?: Type
 ): TypeHierarchyType {
   // Check if already exists
-  // for (const cached of typeHierarchyTypeCache) {
-  //   if (cached.level === level && cached.baseType === baseType) {
-  //     return cached.cache;
-  //   }
-  // }
+  if (cachedTypeMap.has(level)) {
+    const levelMap = cachedTypeMap.get(level)!;
+    if (levelMap.has(baseType)) {
+      return levelMap.get(baseType)!;
+    }
+  } else {
+    cachedTypeMap.set(level, new Map());
+  }
 
   const module: ModuleType = createModuleType(createEmptyEnv());
   const type: TypeHierarchyType = {
@@ -991,7 +991,8 @@ export function createTypeHierarchy(
   };
   module.receiverType = type;
 
-  // typeHierarchyTypeCache.push({ level, baseType, cache: type });
+  // Cache it
+  cachedTypeMap.get(level)!.set(baseType, type);
 
   return type;
 }

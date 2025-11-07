@@ -8,12 +8,16 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createEnumType, EnumVariant, ModuleElement } from "../../types";
+import {
+  createEnumType,
+  EnumVariant,
+  ModuleElement,
+  TypeElement,
+} from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
-import { evaluateElementType } from "./element";
-import { evaluateTupleElementsType } from "./tuple";
+import { evaluateTypeElement } from "./element";
 import {
   addARCFunctionSignaturesToEnumType,
   addARCFunctionsToEnumType,
@@ -58,7 +62,7 @@ export function evaluateEnumType({
     ) {
       const arg = enumArg;
 
-      const { type, env: nextEnv } = evaluateElementType({
+      const { element, env: nextEnv } = evaluateTypeElement({
         expr: arg,
         env,
         tupleElementIndex: i,
@@ -68,37 +72,47 @@ export function evaluateEnumType({
 
       // Check if there is duplicate labels
       const duplicateLabel = moduleElements.find(
-        (element) => element.label === type.label
+        (elem) => elem.label === element.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Duplicate label "${type.label}" in enum`,
+          errorMessage: `Duplicate label "${element.label}" in enum`,
         });
       }
 
       // Check if it duplicates with the existing variant names
-      if (variants.some((v) => v.name === type.label)) {
+      if (variants.some((v) => v.name === element.label)) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Duplicate label "${type.label}" in enum variants`,
+          errorMessage: `Duplicate label "${element.label}" in enum variants`,
         });
       }
 
-      if (!type.isCompileTimeOnly) {
+      if (!element.isCompileTimeOnly) {
         throw formatErrorMessage({
           token: arg.token,
           errorMessage: `Expected compile-time only field, got:\n${exprToString(
-            type.exprs.expr
+            element.exprs.expr
           )}`,
         });
       }
 
-      // Disallow to have the default value for enum type fields.
-      if (type.defaultValue) {
+      // Enum module field cannot have default value.
+      if (element.defaultValue) {
         throw formatErrorMessage({
-          token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-          errorMessage: `Enum type cannot have default value for its elements.`,
+          token:
+            element.exprs.defaultValueExpr?.token ?? element.exprs.expr.token,
+          errorMessage: `Enum module field cannot have default value.`,
+        });
+      }
+
+      // Enum module field must have assigned value.
+      if (!element.assignedValue) {
+        throw formatErrorMessage({
+          token:
+            element.exprs.assignedValueExpr?.token ?? element.exprs.expr.token,
+          errorMessage: `Enum module field must have assigned value.`,
         });
       }
 
@@ -116,7 +130,7 @@ export function evaluateEnumType({
       // if (type.label === BuiltinFunctions.dispose[0]) {
       //   validateDisposeFunction(type as ModuleElement, arg.token);
       // }
-      moduleElements.push(type as ModuleElement);
+      moduleElements.push(element as ModuleElement);
       env = nextEnv;
     }
 
@@ -124,6 +138,7 @@ export function evaluateEnumType({
     else {
       if (exprIsAtom(enumArg)) {
         const variantName = enumArg.token.value;
+
         if (!isValidVariableName(enumArg)) {
           throw formatErrorMessage({
             token: enumArg.token,
@@ -153,37 +168,46 @@ export function evaluateEnumType({
           });
         }
         const variantName = enumArg.func.token.value;
+        const elements: TypeElement[] = [];
+        for (let i = 0; i < enumArg.args.length; i++) {
+          const arg = enumArg.args[i]!;
+          const { element, env: nextEnv } = evaluateTypeElement({
+            expr: arg,
+            env,
+            tupleElementIndex: i,
+            context: { ...context, SelfType: enumType },
+            forType: "enum",
+          });
 
-        const { type: tupleType, env: nextEnv } = evaluateTupleElementsType({
-          args: enumArg.args,
-          env,
-          context: {
-            ...context,
-            SelfType: enumType,
-          },
-          forType: "enum",
-        });
-        env = nextEnv;
-
-        // We disallow to have isCompileTimeOnly for enum variant elements.
-        // Because enum variant fields cannot be marked as compile-time only.
-        for (let i = 0; i < tupleType.elements.length; i++) {
-          const element = tupleType.elements[i]!;
-          // QUESTION: Should we allow compile-time only field in enum variant?
-          // If yes, should we require it to have assignedValue?
-          if (element.isCompileTimeOnly) {
+          // Check if there is duplicate labels
+          const duplicateLabel = elements.find(
+            (elem) => elem.label === element.label
+          );
+          if (duplicateLabel) {
             throw formatErrorMessage({
-              token: element.exprs.expr.token,
-              errorMessage: `Enum variant element cannot be compile-time only, got:\n${exprToString(
-                element.exprs.expr
-              )}`,
+              token: exprIsFunctionCall(arg)
+                ? (arg.args[0]?.token ?? arg.token)
+                : arg.token,
+              errorMessage: `Duplicate field label "${element.label}" in enum variant`,
             });
           }
+
+          if (element.assignedValue) {
+            throw formatErrorMessage({
+              token:
+                element.exprs.assignedValueExpr?.token ??
+                element.exprs.expr.token,
+              errorMessage: `Enum variant field cannot have compile-time assigned value.`,
+            });
+          }
+
+          elements.push(element);
+          env = nextEnv;
         }
 
         variants.push({
           name: variantName,
-          elements: tupleType.elements,
+          elements: elements,
         });
       }
     }

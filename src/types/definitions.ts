@@ -204,7 +204,7 @@ export type ElementExprs = {
   assignedValueExpr?: Expr;
 };
 
-export interface ElementType {
+export interface TypeElement {
   type: Type;
   label: string;
   isCompileTimeOnly: boolean;
@@ -224,13 +224,9 @@ export interface ElementType {
   exprs: ElementExprs;
 }
 
-export interface TupleElement extends ElementType {
-  // Additional tuple-specific properties can be added here if needed
-}
-
 export interface TupleType extends Type {
   tag: TypeTag.Tuple;
-  elements: TupleElement[];
+  elements: TypeElement[];
   module: ModuleType;
 }
 
@@ -313,7 +309,7 @@ export interface StructType extends Type {
   /**
    * The elements of the struct.
    */
-  elements: TupleElement[];
+  elements: TypeElement[];
 
   /**
    * The module of the struct, which contains
@@ -400,7 +396,7 @@ export interface EnumVariant {
    * Without `.` prefix
    */
   name: string;
-  elements?: TupleElement[]; // Changed from TupleElement[] to TupleType for consistency
+  elements?: TypeElement[]; // Changed from TypeElement[] to TupleType for consistency
   // TODO: return type? For GADT
 }
 
@@ -466,7 +462,7 @@ export interface UnionType extends Type {
   /**
    * The elements of the union.
    */
-  elements: TupleElement[];
+  elements: TypeElement[];
 
   /**
    * The module of the union, which contains

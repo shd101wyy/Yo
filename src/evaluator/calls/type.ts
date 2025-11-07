@@ -11,8 +11,8 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  TupleElement,
   tupleElementToString,
+  TypeElement,
   typeToString,
 } from "../../types";
 import { Value } from "../../value";
@@ -32,7 +32,7 @@ export function tryToCallTypeWithArguments({
   context,
   isUnionType,
 }: {
-  memberElements: TupleElement[];
+  memberElements: TypeElement[];
   functionCalleeExpr: Expr;
   argExprs: Expr[];
   callerEnv: Environment;
@@ -52,7 +52,7 @@ export function tryToCallTypeWithArguments({
     });
   }
 
-  const checkedMemberElements: Set<TupleElement> = new Set();
+  const checkedMemberElements: Set<TypeElement> = new Set();
   const values: (Value | undefined)[] = Array(memberElements.length).fill(
     undefined
   );

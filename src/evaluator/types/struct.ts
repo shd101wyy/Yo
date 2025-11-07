@@ -8,10 +8,10 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createStructType, ModuleElement, TupleElement } from "../../types";
+import { createStructType, ModuleElement } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateElementType } from "./element";
+import { evaluateTypeElement } from "./element";
 import {
   addARCFunctionSignaturesToStructType,
   addARCFunctionsToStructType,
@@ -163,7 +163,7 @@ export function evaluateStructType({
     else 
     */
     {
-      const { type, env: nextEnv } = evaluateElementType({
+      const { element, env: nextEnv } = evaluateTypeElement({
         expr: arg,
         env,
         tupleElementIndex: i,
@@ -173,20 +173,20 @@ export function evaluateStructType({
 
       // Check if there is duplicate labels
       const duplicateLabel = elements.find(
-        (element) => element.label === type.label
+        (elem) => elem.label === element.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
           token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          errorMessage: `Duplicate label "${type.label}" in struct`,
+          errorMessage: `Duplicate label "${element.label}" in struct`,
         });
       }
 
-      if (type.isCompileTimeOnly) {
+      if (element.isCompileTimeOnly && element.assignedValue) {
         // ___drop function
-        if (type.label === BuiltinFunctions.___drop[0]) {
+        if (element.label === BuiltinFunctions.___drop[0]) {
           throw formatErrorMessage({
             token: exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
@@ -196,7 +196,7 @@ export function evaluateStructType({
         }
 
         // ___dup function
-        if (type.label === BuiltinFunctions.___dup[0]) {
+        if (element.label === BuiltinFunctions.___dup[0]) {
           throw formatErrorMessage({
             token: exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
@@ -208,19 +208,19 @@ export function evaluateStructType({
         // dispose function
         // Verify the disposeFunction has the correct type.
         // fn(self : Self) -> unit
-        if (type.label === BuiltinFunctions.dispose[0]) {
+        if (element.label === BuiltinFunctions.dispose[0]) {
           validateDisposeFunction(
-            type as ModuleElement,
+            element as ModuleElement,
             exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
               : arg.token
           );
         }
 
-        const moduleElement = type as ModuleElement;
+        const moduleElement = element as ModuleElement;
         structType.module.elements.push(moduleElement);
       } else {
-        elements.push(type as TupleElement);
+        elements.push(element);
       }
 
       env = nextEnv;

@@ -10,7 +10,7 @@ import {
   FuncCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import { createStructType, ModuleElement, TupleElement } from "../../types";
+import { createStructType, ModuleElement, TypeElement } from "../../types";
 import { randomId } from "../../utils";
 import {
   createStructValue,
@@ -20,7 +20,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { evaluateElementType } from "../types/element";
+import { evaluateTypeElement } from "../types/element";
 import { addARCFunctionsToStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
 
@@ -46,7 +46,7 @@ export function evaluateAnonymousStructValue({
 
   // Create structType
   const structType = createStructType(env);
-  const elements: TupleElement[] = structType.elements;
+  const elements: TypeElement[] = structType.elements;
   const moduleElements: ModuleElement[] = structType.module.elements;
   const values: (Value | undefined)[] = [];
   const runtimeArgExprsInOrder: Expr[] = [];
@@ -64,7 +64,7 @@ export function evaluateAnonymousStructValue({
         exprIsFunctionCallOf(arg, "=", 2) ||
         exprIsFunctionCallOf(arg, "?=", 2))
     ) {
-      const { type, env: nextEnv } = evaluateElementType({
+      const { element, env: nextEnv } = evaluateTypeElement({
         expr: arg,
         env,
         tupleElementIndex: i,
@@ -74,16 +74,16 @@ export function evaluateAnonymousStructValue({
 
       // Check if there is duplicate labels
       const duplicateLabel = moduleElements.find(
-        (element) => element.label === type.label
+        (elem) => elem.label === element.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Duplicate label "${type.label}" in anonymous struct`,
+          errorMessage: `Duplicate label "${element.label}" in anonymous struct`,
         });
       }
 
-      if (!type.isCompileTimeOnly) {
+      if (!element.isCompileTimeOnly) {
         throw formatErrorMessage({
           token: arg.token,
           errorMessage: `Expected compile-time only field for anonymous struct, got:\n${exprToString(
@@ -92,15 +92,26 @@ export function evaluateAnonymousStructValue({
         });
       }
 
-      // Disallow to have the default value for anonymous struct type fields.
-      if (type.defaultValue) {
+      // Disallow to have the default value for anonymous struct module fields.
+      if (element.defaultValue) {
         throw formatErrorMessage({
-          token: type.exprs.defaultValueExpr?.token ?? type.exprs.expr.token,
-          errorMessage: `Anonymous struct type cannot have default value for its elements.`,
+          token:
+            element.exprs.defaultValueExpr?.token ?? element.exprs.expr.token,
+          errorMessage: `Anonymous struct module field cannot have default value for its elements.`,
         });
       }
 
-      moduleElements.push(type as ModuleElement);
+      // Require to have assigned value for anonymous struct module fields.
+      if (!element.assignedValue) {
+        throw formatErrorMessage({
+          token: element.exprs.assignedValueExpr
+            ? element.exprs.assignedValueExpr.token
+            : element.exprs.expr.token,
+          errorMessage: `Anonymous struct module field must have assigned value.`,
+        });
+      }
+
+      moduleElements.push(element as ModuleElement);
       env = nextEnv;
       continue;
     }
@@ -213,7 +224,7 @@ export function evaluateAnonymousStructValue({
       }
       env = evaluatedArg.$.env;
       const type = evaluatedArg.$.type;
-      const element: TupleElement = {
+      const element: TypeElement = {
         exprs: {
           expr: valueExpr,
           labelExpr: undefined,

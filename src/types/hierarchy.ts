@@ -3,8 +3,8 @@ import { Token } from "../token";
 import { createType0, createTypeHierarchy } from "./creators";
 import {
   FunctionParameter,
-  TupleElement,
   Type,
+  TypeElement,
   TypeHierarchyType,
 } from "./definitions";
 import {
@@ -38,7 +38,7 @@ import { TypeTag } from "./tags";
  */
 function determineTypeUniverse(
   baseType: Type,
-  elements: TupleElement[],
+  elements: TypeElement[],
   /**
    * checkedTupleElements is used to prevent infinite recursion
    * when the type is a recursive type.
@@ -54,7 +54,7 @@ function determineTypeUniverse(
    *     next : Self
    *   ;
    */
-  checkedTupleElements: TupleElement[]
+  checkedTupleElements: TypeElement[]
 ): Type {
   let meetTypeTag = false;
   let maxTypeLevel = 0;
@@ -116,7 +116,7 @@ export function typeOfType(
    *     next : Self
    *   ;
    */
-  checkedTupleElements: TupleElement[] = []
+  checkedTupleElements: TypeElement[] = []
 ): Type {
   if (isDynType(type)) {
     return createType0(type); // All types are now level 0
@@ -175,7 +175,7 @@ export function typeOfType(
     );
   } else if (isEnumType(type)) {
     // For enums, check all variant
-    const elements: TupleElement[] = [];
+    const elements: TypeElement[] = [];
     for (const variant of type.variants) {
       if (variant.elements) {
         elements.push(

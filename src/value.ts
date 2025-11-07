@@ -206,6 +206,11 @@ export function valueToString(value?: Value): string {
           if (stringIsOperator(label)) {
             label = `(${label})`;
           }
+          if (value.type.elements[index]!.isCompileTimeOnly) {
+            label = stringIsOperator(label)
+              ? `compt${label}`
+              : `compt(${label})`;
+          }
           return `${label}: ${valueToString(element)}`;
         })
         .join(", ")})`;
@@ -214,8 +219,23 @@ export function valueToString(value?: Value): string {
       if (value.elements.length === 0) {
         return `.${value.variantName}`;
       }
+
+      const variant = value.type.variants.find(
+        (variant) => variant.name === value.variantName
+      );
       return `.${value.variantName}(${value.elements
-        .map(valueToString)
+        .map((element, index) => {
+          let label = variant?.elements![index]!.label ?? `_`;
+          if (stringIsOperator(label)) {
+            label = `(${label})`;
+          }
+          if (variant?.elements![index]!.isCompileTimeOnly) {
+            label = stringIsOperator(label)
+              ? `compt${label}`
+              : `compt(${label})`;
+          }
+          return `${label}: ${valueToString(element)}`;
+        })
         .join(", ")})`;
     }
     /*

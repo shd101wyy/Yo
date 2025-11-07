@@ -4,13 +4,13 @@ import { Expr, exprIsFunctionCall, FuncCallExpr } from "../../expr";
 import {
   createTupleType,
   createUnitType,
-  TupleElement,
   TupleType,
+  TypeElement,
   typeOfType,
 } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateElementType } from "./element";
+import { evaluateTypeElement } from "./element";
 
 export function evaluateTupleElementsType({
   args,
@@ -26,11 +26,11 @@ export function evaluateTupleElementsType({
   type: TupleType;
   env: Environment;
 } {
-  const tupleElements: TupleElement[] = [];
+  const tupleElements: TypeElement[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
-    const { type, env: nextEnv } = evaluateElementType({
+    const { element, env: nextEnv } = evaluateTypeElement({
       expr: arg,
       env,
       tupleElementIndex: i,
@@ -39,31 +39,31 @@ export function evaluateTupleElementsType({
     });
 
     // Check if there is duplicate labels
-    if (type.label) {
+    if (element.label) {
       const duplicateLabel = tupleElements.find(
-        (element) => element.label === type.label
+        (elem) => elem.label === element.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
           token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          errorMessage: `Duplicate label "${type.label}" in tuple`,
+          errorMessage: `Duplicate label "${element.label}" in tuple`,
         });
       }
     }
 
     // Check if it's compile-time only
-    if (type.isCompileTimeOnly) {
+    if (element.isCompileTimeOnly && element.assignedValue) {
       throw formatErrorMessage({
         token: exprIsFunctionCall(arg)
           ? (arg.args[0]?.token ?? arg.token)
           : arg.token,
-        errorMessage: `Tuple element cannot be compile-time only.`,
+        errorMessage: `Tuple cannot have module fields.`,
       });
     }
 
-    tupleElements.push(type as TupleElement);
+    tupleElements.push(element as TypeElement);
     env = nextEnv;
   }
 

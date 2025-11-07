@@ -12,7 +12,7 @@ import { VUnit } from "../../unit-value";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { evaluateElementType } from "../types/element";
+import { evaluateTypeElement } from "../types/element";
 
 export function evaluateYoSetTypeModule({
   expr,
@@ -97,7 +97,7 @@ export function evaluateYoSetTypeModule({
   for (let i = 1; i < expr.args.length; i++) {
     const arg = expr.args[i]!;
 
-    const { type, env: nextEnv } = evaluateElementType({
+    const { element, env: nextEnv } = evaluateTypeElement({
       expr: arg,
       env,
       tupleElementIndex: i - 1,
@@ -105,24 +105,31 @@ export function evaluateYoSetTypeModule({
       forType: "struct",
     });
 
-    if (!type.isCompileTimeOnly) {
+    if (!element.isCompileTimeOnly) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `All elements in __yo_type_set_module must be compile-time only (use :: syntax). Got runtime element: ${type.label}`,
+        errorMessage: `All elements in __yo_type_set_module must be compile-time only (use :: syntax). Got runtime element: ${element.label}`,
+      });
+    }
+
+    if (!element.assignedValue) {
+      throw formatErrorMessage({
+        token: arg.token,
+        errorMessage: `Compile-time only element "${element.label}" must have an assigned value in type module extension.`,
       });
     }
 
     const duplicateLabel = moduleType.elements.find(
-      (element) => element.label === type.label
+      (elem) => elem.label === element.label
     );
     if (duplicateLabel) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Duplicate label "${type.label}" in type module extension`,
+        errorMessage: `Duplicate label "${element.label}" in type module extension`,
       });
     }
 
-    moduleType.elements.push(type as ModuleElement);
+    moduleType.elements.push(element as ModuleElement);
     env = nextEnv;
   }
 

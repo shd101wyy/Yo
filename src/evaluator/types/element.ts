@@ -10,13 +10,12 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
-  ElementType,
   isModuleType,
   isStructType,
   isTupleType,
   prohibitVoidType,
   Type,
+  TypeElement,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -39,7 +38,7 @@ import { isValidVariableName } from "../utils";
  * i32 in (i32, ...)
  * (x: i32) in (x: i32, ...)
  */
-export function evaluateElementType({
+export function evaluateTypeElement({
   expr,
   tupleElementIndex,
   env,
@@ -51,7 +50,7 @@ export function evaluateElementType({
   env: Environment;
   context: EvaluatorContext;
   forType: "tuple" | "struct" | "enum" | "union";
-}): { type: ElementType; env: Environment } {
+}): { element: TypeElement; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
 
@@ -368,19 +367,25 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   if (typeRequiresComptModifier(elementType) && !isCompileTimeOnly) {
-    elementType = convertComptTypeToRuntimeType({
-      type: elementType,
-      expectedType: undefined,
-      expr: undefined,
-      env,
-      context: { ...context },
+    // NOTE: We shouldn't convert compt type to runtime type here:
+    // eg:
+    //   struct(name : compt_string)
+    // ^ here we shouldn't convert `compt_string` to its runtime type `[u8]`
+    //
+    //
+    // elementType = convertComptTypeToRuntimeType({
+    //   type: elementType,
+    //   expectedType: undefined,
+    //   expr: undefined,
+    //   env,
+    //   context: { ...context },
+    // });
+    // if (typeRequiresComptModifier(elementType)) {
+    throw formatErrorMessage({
+      token: labelExpr?.token ?? expr.token,
+      errorMessage: `Expected "compt" modifier for compile-time known value binding.`,
     });
-    if (typeRequiresComptModifier(elementType)) {
-      throw formatErrorMessage({
-        token: labelExpr?.token ?? expr.token,
-        errorMessage: `Expected "compt"  modifier for compile-time known value binding.`,
-      });
-    }
+    // }
   }
   if (isCompileTimeOnly && typeProhibitsComptModifier(elementType)) {
     throw formatErrorMessage({
@@ -417,7 +422,7 @@ Given type: ${typeToString(defaultValueType)}`,
   // Prohibit void type
   prohibitVoidType(elementType, expr.token);
 
-  const element: ElementType = {
+  const element: TypeElement = {
     label: label ?? `${tupleElementIndex}`,
     type: elementType,
     exprs: {
@@ -435,10 +440,11 @@ Given type: ${typeToString(defaultValueType)}`,
   if (element.isCompileTimeOnly) {
     // Compile-time field must have an assigned value
     if (!element.assignedValue) {
-      throw formatErrorMessage({
-        token: element.exprs.expr.token,
-        errorMessage: `Compile-time only field "${element.label}" must have an assigned value.`,
-      });
+      // NOTE: Let's allow to have compile-time only field without assigned value for now
+      // throw formatErrorMessage({
+      //   token: element.exprs.expr.token,
+      //   errorMessage: `Compile-time only field "${element.label}" must have an assigned value.`,
+      // });
     } else {
       // Attach .typeName info if necessary
       // But don't modify SelfType - it's a reference to the enclosing type
@@ -465,7 +471,7 @@ Given type: ${typeToString(defaultValueType)}`,
   }
 
   return {
-    type: element,
+    element: element,
     env,
   };
 }

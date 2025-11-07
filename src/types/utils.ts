@@ -26,9 +26,9 @@ import {
   MutPtrType,
   SomeType,
   StructType,
-  TupleElement,
   TupleType,
   Type,
+  TypeElement,
   UnionType,
 } from "./definitions";
 import {
@@ -619,7 +619,7 @@ export function functionParameterToString(
  * NOTE: Don't use element.exprs
  */
 export function tupleElementToString(
-  element: TupleElement,
+  element: TypeElement,
   visited: Set<string> = new Set()
 ): string {
   let label = element.label;

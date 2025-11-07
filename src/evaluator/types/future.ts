@@ -31,7 +31,7 @@ export function evaluateFutureType({
   if (expr.args.length !== 1) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Future type constructor expects exactly 1 argument, got ${expr.args.length}. Usage: Future(ElementType)`,
+      errorMessage: `Future type constructor expects exactly 1 argument, got ${expr.args.length}. Usage: Future(TypeElement)`,
     });
   }
 

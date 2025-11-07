@@ -18,6 +18,7 @@ import {
   createTypeValue,
   createUnknownValue,
   isComptListValue,
+  isTypeValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
@@ -500,7 +501,7 @@ export function evaluateYoComptListElementType({
       )}`,
     });
   }
-  if (!isComptListType(evaluatedArgExpr.$.type)) {
+  if (!isTypeValue(evaluatedArgExpr.$?.value)) {
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
@@ -509,7 +510,15 @@ export function evaluateYoComptListElementType({
     });
   }
 
-  const comptListType = evaluatedArgExpr.$.type;
+  const comptListType = evaluatedArgExpr.$.value.value;
+  if (!isComptListType(comptListType)) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${typeToString(
+        comptListType
+      )}`,
+    });
+  }
 
   const typeValue = createTypeValue(comptListType.elementType);
 
