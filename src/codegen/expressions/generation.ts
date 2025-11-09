@@ -3567,7 +3567,8 @@ function generateFieldAccess(
     else if (isPtrType(objectType)) {
       if (fieldName === "*") {
         // Regular dereference for pointers/references
-        return `*(${objectCode})`; // Dereference the pointer/reference
+        // Ensure proper parenthesization: (*ptr) not *(ptr)
+        return `(*${objectCode})`; // Dereference the pointer/reference
       } else {
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;
