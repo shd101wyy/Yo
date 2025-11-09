@@ -506,9 +506,17 @@ export function getMethodsByNameFromEnv(
   env: Environment,
   methodName: string,
   receiverType: Type,
-  onlyFromTypeMethods = false
-): { type: Type; value: Value | undefined }[] {
-  const methods: { type: Type; value: Value | undefined }[] = [];
+  isInfixOperatorCall = false
+): {
+  type: Type;
+  value: Value | undefined;
+  needsPointerConversion?: boolean;
+}[] {
+  const methods: {
+    type: Type;
+    value: Value | undefined;
+    needsPointerConversion?: boolean;
+  }[] = [];
 
   // Automatically dereference if it's pointer/reference type
   let dereferencedReceiverType = receiverType;
@@ -614,8 +622,16 @@ export function getMethodsByNameFromEnv(
   }
 
   function filterMethodsByReceiverType(
-    methods: { type: Type; value: Value | undefined }[]
-  ): { type: Type; value: Value | undefined }[] {
+    methods: {
+      type: Type;
+      value: Value | undefined;
+      needsPointerConversion?: boolean;
+    }[]
+  ): {
+    type: Type;
+    value: Value | undefined;
+    needsPointerConversion?: boolean;
+  }[] {
     const filtered = methods.filter((method) => {
       if (isFunctionType(method.type)) {
         if (method.type.parameters.length === 0) {
@@ -645,7 +661,7 @@ export function getMethodsByNameFromEnv(
         }
 
         // Check normal compatibility
-        return areTypesCompatible(
+        const isCompatible = areTypesCompatible(
           {
             type: methodFirstParamType,
             env: method.type.env,
@@ -653,6 +669,32 @@ export function getMethodsByNameFromEnv(
           { type: receiverType, env },
           true // isMethodReceiver
         );
+
+        if (isCompatible) {
+          return true;
+        }
+
+        // If not an infix operator call, check if we can convert receiver to pointer type
+        // This allows Rust-style method calls like `x.self()` where `self` parameter is `*(Self)`
+        if (!isInfixOperatorCall && isPtrType(methodFirstParamType)) {
+          const methodPtrChildType = methodFirstParamType.childType;
+          const receiverCompatibleWithPtrChild = areTypesCompatible(
+            {
+              type: methodPtrChildType,
+              env: method.type.env,
+            },
+            { type: receiverType, env },
+            true // isMethodReceiver
+          );
+
+          if (receiverCompatibleWithPtrChild) {
+            // Mark this method as needing pointer conversion
+            method.needsPointerConversion = true;
+            return true;
+          }
+        }
+
+        return false;
       }
       return true; // QUESTION: How to handle non-function types?
     });
@@ -786,7 +828,7 @@ export function getMethodsByNameFromEnv(
   // NOTE:
   // Type methods have higher priority than module methods,
   // so we check the module methods only if there are no type methods.
-  if (methods.length > 0 || onlyFromTypeMethods) {
+  if (methods.length > 0) {
     return filterMethodsByReceiverType(methods);
   }
 

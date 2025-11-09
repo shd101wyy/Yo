@@ -1,11 +1,13 @@
 import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
+  AtomExpr,
   attachTempVariableToExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
@@ -88,6 +90,8 @@ export function evaluateFunctionCall({
     type: Type;
     value?: Value;
     error?: Error | YoError;
+    needsPointerConversion?: boolean;
+    args?: Expr[]; // Store potentially modified args for this specific function
   }[] = [];
   if (givenFunc) {
     functions = [givenFunc];
@@ -157,14 +161,45 @@ export function evaluateFunctionCall({
             const methods = getMethodsByNameFromEnv(
               env,
               methodName,
-              receiverType
+              receiverType,
+              false // isInfixOperatorCall - property access allows auto pointer conversion
             );
-            functions = methods.map((method) => ({
-              type: method.type,
-              value: method.value,
-            }));
-            // TODO: Autocase to reference/immutable reference
-            args = [receiverArg, ...args];
+            functions = methods.map((method) => {
+              // If pointer conversion is needed, wrap the receiver in &()
+              let methodArgs: Expr[];
+              if (method.needsPointerConversion) {
+                // Create &(receiverArg) expression
+                const ampersandExpr: AtomExpr = {
+                  tag: ExprTag.Atom,
+                  token: receiverArg.token,
+                  $: undefined,
+                };
+                ampersandExpr.token = {
+                  ...receiverArg.token,
+                  value: "&",
+                  type: TokenType.Identifier,
+                };
+
+                const addressOfExpr: FuncCallExpr = {
+                  tag: ExprTag.FuncCall,
+                  func: ampersandExpr,
+                  args: [receiverArg],
+                  token: receiverArg.token,
+                  $: undefined,
+                };
+
+                methodArgs = [addressOfExpr, ...args];
+              } else {
+                methodArgs = [receiverArg, ...args];
+              }
+
+              return {
+                type: method.type,
+                value: method.value,
+                needsPointerConversion: method.needsPointerConversion,
+                args: methodArgs,
+              };
+            });
           } else {
             // 1.(Add.add)(3);
             // Try to evaluate the methodExpr
@@ -280,11 +315,13 @@ export function evaluateFunctionCall({
         const moduleMethods = getMethodsByNameFromEnv(
           env,
           methodName,
-          receiverType
+          receiverType,
+          true // isInfixOperatorCall - infix operators don't allow auto pointer conversion
         );
         functions = moduleMethods.map((method) => ({
           type: method.type,
           value: method.value,
+          needsPointerConversion: method.needsPointerConversion,
         }));
         // No need to change the args
       }
@@ -370,6 +407,9 @@ export function evaluateFunctionCall({
 
   // Find the functions whose parameters match the arguments
   const functionsToCall: FunctionToCall[] = functions.map((functionToCall) => {
+    // Use the stored args if available (e.g., with pointer conversion), otherwise use original args
+    const argsToUse = functionToCall.args ?? args;
+
     if (isFunctionType(functionToCall.type)) {
       try {
         const result = tryToCallFunctionWithArguments({
@@ -377,7 +417,7 @@ export function evaluateFunctionCall({
           functionType: functionToCall.type,
           expr,
           functionCalleeExpr: func,
-          argExprs: args,
+          argExprs: argsToUse,
           callerEnv: env,
           context: { ...context },
           isMethodCall: Boolean(methodExpr),
@@ -407,7 +447,7 @@ export function evaluateFunctionCall({
           functionType: closureType.callType,
           expr,
           functionCalleeExpr: func,
-          argExprs: args,
+          argExprs: argsToUse,
           callerEnv: env,
           context: { ...context },
           isMethodCall: Boolean(methodExpr),
@@ -437,7 +477,7 @@ export function evaluateFunctionCall({
           const result = tryToCallTypeWithArguments({
             typeFields: value.value.fields,
             functionCalleeExpr: func,
-            argExprs: args,
+            argExprs: argsToUse,
             callerEnv: env,
             context: { ...context },
           });
@@ -480,7 +520,7 @@ export function evaluateFunctionCall({
             const result = tryToCallTypeWithArguments({
               typeFields: selectedVariant.fields || [],
               functionCalleeExpr: func,
-              argExprs: args,
+              argExprs: argsToUse,
               callerEnv: env,
               context: { ...context },
             });
@@ -508,7 +548,7 @@ export function evaluateFunctionCall({
           const result = tryToCallTypeWithArguments({
             typeFields: value.value.fields,
             functionCalleeExpr: func,
-            argExprs: args,
+            argExprs: argsToUse,
             callerEnv: env,
             context: { ...context },
             isUnionType: true,
@@ -537,7 +577,7 @@ export function evaluateFunctionCall({
           const result = tryToImplementModuleWithArgumentsByModuleType({
             moduleExpr: func,
             moduleType: moduleType,
-            argExprs: args,
+            argExprs: argsToUse,
             callerEnv: env,
             context: { ...context },
           });
@@ -591,7 +631,7 @@ export function evaluateFunctionCall({
           tryToImplementArrayByArrayType({
             expr: expr,
             arrayType: arrayType,
-            argExprs: args,
+            argExprs: argsToUse,
             callerEnv: env,
             context: { ...context },
           });
@@ -618,7 +658,7 @@ export function evaluateFunctionCall({
           tryToImplementComptListByComptListType({
             expr: expr,
             comptListType: comptListType,
-            argExprs: args,
+            argExprs: argsToUse,
             callerEnv: env,
             context: { ...context },
           });
@@ -676,7 +716,7 @@ export function evaluateFunctionCall({
             expr,
             arrayType: functionToCall.type, // Array or Slice
             arrayValue: functionToCall.value as ArrayValue | undefined,
-            argExprs: args,
+            argExprs: argsToUse,
             callerEnv: env,
             context: { ...context },
           });
