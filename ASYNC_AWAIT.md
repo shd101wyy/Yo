@@ -6,7 +6,7 @@ Yo uses **async/await with state machine transformation** for efficient concurre
 
 **Spawning Model**: Yo uses **eager spawning** (JavaScript/Python-style) rather than lazy spawning (Rust-style). When you create an async block, the task starts executing immediately on a worker thread. This makes the behavior more intuitive and matches what most developers expect from async/await.
 
-```yo
+```rust
 // Task starts immediately when async block is created
 task := async { expensive_computation() };  // Already running!
 result := await task;  // Just waits for it to finish
@@ -24,7 +24,7 @@ result := await task;  // Just waits for it to finish
 
 ## Language Syntax
 
-```yo
+```rust
 // Async function - MUST return Future(T) type
 fetch_data :: (fn(url: String) -> Future(Data)) async {
   response := await http_get(url);
@@ -49,7 +49,7 @@ main :: (fn() -> unit) {
 };
 
 // Async blocks - spawn inline async tasks
-compute :: fn() -> unit {
+compute :: (fn() -> unit) {
   // Async block returns Future(T)
   future := async {
     x := await fetch_data("http://example.com");
@@ -64,7 +64,7 @@ compute :: fn() -> unit {
 
 ### Keywords
 
-```yo
+```rust
 async { ... }    // Async block expression (returns Future)
 await            // Suspend until Future ready (only in async functions and blocks!)
 ```
@@ -76,7 +76,7 @@ await            // Suspend until Future ready (only in async functions and bloc
 4. Async functions and blocks start executing **immediately** when created (eager spawning - JavaScript-style)
 5. `await` suspends the current async function/block until the Future completes
 
-```yo
+```rust
 task := fetch(url); // The task starts running IMMEDIATELY
 
 result := await task;  // Wait for the task to complete
@@ -86,9 +86,9 @@ result := await task;  // Wait for the task to complete
 
 Async blocks allow you to create inline async tasks:
 
-```yo
+```rust
 // Async block example
-compute :: fn() -> Future(i32) {
+compute :: (fn() -> Future(i32)) {
   // Async block spawns immediately and returns Future
   return async {
     x := await get_value();
@@ -98,7 +98,7 @@ compute :: fn() -> Future(i32) {
 };
 
 // Can be awaited in async context
-process :: fn() -> Future(unit) async {
+process :: (fn() -> Future(unit)) async {
   result := await compute();  // Await the Future from async block
   println(result);
 };
@@ -108,7 +108,7 @@ process :: fn() -> Future(unit) async {
 
 ### Future Type
 
-```yo
+```rust
 // Built-in Future type (compiler-generated struct with reference counting)
 // Future(T) has these fields:
 // - header: yo_ref_header_t (for reference counting with BRC)
@@ -129,7 +129,7 @@ The compiler transforms async functions into state machines at each `await` poin
 ### Example Transformation
 
 **Input Yo code:**
-```yo
+```rust
 fetch_data :: (fn(url: String) -> Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
@@ -306,15 +306,15 @@ State machines are **heap-allocated** but small (~32-500 bytes):
 
 ### Concurrency Control
 
-```yo
+```rust
 // Set the number of OS worker threads (default: hardware thread count)
 Concurrency.set_maximum_threads(n: usize) -> unit
 ```
 
 ### Example: Complete Async Program
 
-```yo
-open import "std";
+```rust
+
 
 // Async worker function - MUST return Future(T)
 worker :: (fn(id: i32) -> Future(i32)) async {
@@ -403,7 +403,7 @@ Yo's async/await provides:
 
 ### Quick Reference
 
-```yo
+```rust
 // Define async function - MUST return Future(T)
 fetch :: (fn(url: String) -> Future(Data)) async {
   response := await http_get(url);
@@ -426,7 +426,7 @@ result1 := await task1;  // Wait for completion
 result2 := await task2;  // Wait for completion
 
 // Async blocks
-compute :: fn() -> Future(i32) {
+compute :: (fn() -> Future(i32)) {
   return async {
     x := await get_value();
     y := await process(x);

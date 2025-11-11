@@ -1,5 +1,7 @@
 # Async I/O with Stackless State Machines
 
+`In Design`
+
 Yo integrates platform-specific async I/O APIs (epoll/kqueue/io_uring/IOCP) with async/await state machines to provide efficient, scalable I/O without blocking worker threads.
 
 ## Design Philosophy
@@ -232,7 +234,7 @@ read_file :: (fn(path: String) -> Future(Result(String, Error))) async {
 ## Example: HTTP Server
 
 ```yo
-open import "std";
+
 
 http_server :: (fn() -> Future(unit)) async {
   listener := Socket.listen("0.0.0.0", 8080).unwrap();

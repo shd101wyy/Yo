@@ -221,7 +221,7 @@ Objects created on one thread can be passed to tasks on other threads:
 ## Example
 
 ```yo
-open import "std";
+
 
 main :: (fn() -> unit) {
   async {

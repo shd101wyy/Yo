@@ -1,16 +1,13 @@
 # Language Design
 
-**Yo** is general-purpose, compiled programming language that incorporates the Linear Types, Mutable Value Semantics, and (Poor man's) Algebraic Effects.
+**Yo** is a multi-paradigm, general-purpose, compiled programming language.
+Yo aims to be **Simple** and **Fast** (around 0% - 20% slower than C).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
-
-**Yo** has a syntax design that looks like TypeScript, and uses uniform function call syntax (dot notation)~~, brace elison~~ to make the code more concise.
 
 **Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
 
 Our goal is to be a practical language that is easy to use and easy to learn.
-
-We will also post a series of articles on the design and implementation of **Yo**. Stay tuned!
 
 <!-- @import "[TOC]" {cmd="toc" depthFrom=2 depthTo=6 orderedList=false} -->
 
@@ -22,50 +19,38 @@ We will also post a series of articles on the design and implementation of **Yo*
 - [CLI Usage](#cli-usage)
 - [Types](#types)
   - [Type](#type)
-    - [`Free` Types](#free-types)
-    - [`Linear` Types.](#linear-types)
+    - [Primitive Types](#primitive-types)
+    - [Value Types vs Object Types](#value-types-vs-object-types)
   - [Variable Declaration](#variable-declaration)
-    - [`expr` declaration](#expr-declaration)
-      - [Macro using `expr`](#macro-using-expr)
-      - [`expr` lexical scope](#expr-lexical-scope)
-    - [No duplicate variable declaration](#no-duplicate-variable-declaration)
+    - [Variable shadowing in blocks](#variable-shadowing-in-blocks)
   - [Type inference](#type-inference)
-    - [Uninitialized variable `In Design`](#uninitialized-variable-in-design)
-    - [Type bounds `In Design`](#type-bounds-in-design)
-  - [Transfer ownership](#transfer-ownership)
-  - [immutable and mutable references](#immutable-and-mutable-references)
-  - [Unique Pointer `In Design`](#unique-pointer-in-design)
-  - [Cast Linear to Free](#cast-linear-to-free)
-- [Mutable Value Semantics](#mutable-value-semantics)
-  - [Second-Class References](#second-class-references)
-  - [Parameter passing modes](#parameter-passing-modes)
-  - [RAII](#raii)
-  - [Reverse Application Operator](#reverse-application-operator)
+    - [Uninitialized variable](#uninitialized-variable)
+  - [Object Types and Memory Management](#object-types-and-memory-management)
+    - [Object Type](#object-type)
+    - [Biased Reference Counting](#biased-reference-counting)
+    - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
+- [Pointers](#pointers)
+  - [Pointer Operations](#pointer-operations)
+  - [Nullable Pointers](#nullable-pointers)
+  - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Function Declaration](#function-declaration)
   - [Named arguments](#named-arguments)
-  - [Contextual parameters, aka implicit parameters](#contextual-parameters-aka-implicit-parameters)
-    - [Compiletime](#compiletime)
-    - [Runtime](#runtime)
-  - [Uniform Function Call Syntax](#uniform-function-call-syntax)
-    - [Priority](#priority)
-  - [`defer`](#defer)
+  - [Implicit Parameters](#implicit-parameters)
+  - [Type Methods (Similar to Rust)](#type-methods-similar-to-rust)
   - [`recur` `In Design`](#recur-in-design)
-  - [Custom Operators](#custom-operators)
   - [Variadic functions `In Design`](#variadic-functions-in-design)
 - [Duck Typing `In Design`](#duck-typing-in-design)
 - [Tuple](#tuple)
 - [Array & Slice](#array--slice)
-  - [Range with `..`](#range-with-)
-- [Closure `In Design`](#closure-in-design)
-- [Mutability `To be updated`](#mutability-to-be-updated)
+  - [Range with `:`](#range-with-)
+- [Closure](#closure)
 - [Generic](#generic)
   - [Type parameters](#type-parameters)
   - [Type constraints](#type-constraints)
 - [Control Flow](#control-flow)
   - [if/else](#ifelse)
+  - [cond](#cond)
   - [while](#while)
-  - [for](#for)
-  - [do while](#do-while)
     - [Iterator (for...in)](#iterator-forin)
 - [Type synonyms](#type-synonyms)
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
@@ -78,18 +63,17 @@ We will also post a series of articles on the design and implementation of **Yo*
   - [Refinement types `In Design`](#refinement-types-in-design)
   - [Higher Kinded Types](#higher-kinded-types)
   - [Generalized Algebraic Data Types (GADTs) `In Design`](#generalized-algebraic-data-types-gadts-in-design)
-- [Trait](#trait)
+- [Modules](#modules)
   - [`impl` a type](#impl-a-type)
   - [Associated types](#associated-types)
-  - [Without trait](#without-trait)
-  - [Optional class](#optional-class)
-  - [Type constraints alias using `expr`](#type-constraints-alias-using-expr)
+  - [Without module](#without-module)
+  - [Optional module](#optional-module)
   - [Named impl `In Design`](#named-impl-in-design)
   - [Higher Kinded Types example](#higher-kinded-types-example)
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Guard](#guard)
-- [Pointers](#pointers)
+- [Pointers](#pointers-1)
   - [Thin pointers](#thin-pointers)
     - [Linear pointers](#linear-pointers)
   - [Fat pointers](#fat-pointers)
@@ -101,19 +85,14 @@ We will also post a series of articles on the design and implementation of **Yo*
   - [ARC Collections](#arc-collections)
     - [ArrayList](#arraylist)
     - [Map](#map)
-- [Error handling `In Design`](#error-handling-in-design)
-  - [By algebraic effects](#by-algebraic-effects)
-  - [By data type](#by-data-type)
-  - [The `?` postfix operator](#the--postfix-operator)
-  - [Recovering from errors with the `??` infix operator](#recovering-from-errors-with-the--infix-operator)
+- [Error handling](#error-handling)
+  - [Error Propagation with match](#error-propagation-with-match)
 - [Type casting](#type-casting)
   - [Type casting in destructuring](#type-casting-in-destructuring)
-- [Callbacks and Async `In Design`](#callbacks-and-async-in-design)
-  - [Simplify using `with <-` keyword](#simplify-using-with---keyword)
-    - [with <-](#with--)
-    - [with <= and <<=](#with--and-)
-  - [`K` (continuation)](#k-continuation)
-- [Modules](#modules)
+- [Async/Await](#asyncawait)
+  - [Quick Overview](#quick-overview)
+  - [Key Features](#key-features)
+- [Modules](#modules-1)
 - [Dynamic Dispatch `In Design`](#dynamic-dispatch-in-design)
   - [`dyn` keyword](#dyn-keyword)
   - [Examples](#examples)
@@ -133,25 +112,17 @@ We will also post a series of articles on the design and implementation of **Yo*
 ## Philosophy
 
 It's just a combination of "Lisp" and "C"!  
-Yo has no keywords!
-Everthing is a function, even the `if`, `while`, `match`, etc.
+Yo has no keywords! Everything is a function, even `cond`, `while`, `match`, etc.  
 Extended with a little bit of functional programming.
-Interpret as much as possible. Otherwise, compile!
 
-Explicit is better than Implicit.  
-Strict is better than Loose.
+**Key Design Principles:**
 
-No subtyping!
-
-QUESTION: Should be allow hidden control flow?
-ANSWER: No
-
-QUESTION: Should we disable the RAII?
-ANSER: No. What's the point of having linear types if we use RAII?
-
-IDEA: Try to run the program without involving heaps. For example, us existential types instead of dynamic dispatch to avoid the heap memory allocation.
-
-IDEA: No Deref trait like in the Rust, as it is a bit implicit.
+- **No operator precedence** (explicit parentheses or newline-based associativity)
+- **First-class types** (types are values)
+- **Block-based variable shadowing** (similar to JavaScript)
+- **Reference counting with ownership analysis** (no garbage collection pauses)
+- **Object type with biased reference counting** (BRC) for automatic memory management
+- **Pointer-based memory model** (no references/borrowing complexity)
 
 ## Inspiration
 
@@ -161,39 +132,33 @@ The **Yo** language is heavily inspired by:
   - Syntax and semantics
   - Module system
 - [Koka](https://koka-lang.github.io/)
-  - ~~Brace elision~~
   - Dot notation (Uniform Function Call Syntax)
-  - Perceus and reuse
-  - ~~Algebraic effects~~
+  - Perceus and reuse analysis
+  - Type system design
 - [Rust](https://www.rust-lang.org/)
-  - ~~Borrow checker~~
-  - ~~Lifetime~~
   - Pattern matching
-- [Austral](https://austral-lang.org/)
-  - Linear types
-  - ~~Borrowing~~ Replaced with 2nd-Class Reference
+  - Compile-time memory safety analysis
 - [Haskell](https://www.haskell.org/)
-  - ~~Type and typeclass~~
+  - Type and typeclass
 - [OCaml](https://ocaml.org/)
   - Module system (Modular implicits)
 - [Go](https://go.dev/)
-  - Interface and method call
+  - Modules and method call
+  - Simplicity
 - [Python](https://python.org/)
   - Keyword arguments
 - [C++](https://isocpp.org/)
-  - ~~Reference~~
   - RAII
 - [Scheme (Lisp)](https://www.scheme.com/)
-  - `set!`
+  - Minimal syntax
   - [Meta-programming (Macros)](https://docs.racket-lang.org/reference/quasiquote.html)
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
   - Syntax
   - Compile time execution
-  - ~~`defer`~~
 - [Elixir](https://elixir-lang.org/)
   - [Meta-programming (Macros)](https://hexdocs.pm/elixir/quote-and-unquote.html)
 - [Nim](https://nim-lang.org/)
-  - ~~[Custom Operators](https://nim-lang.org/docs/manual.html#lexical-analysis-operators)~~
+  - Pragmatic design
 - [Io](https://iolanguage.org/)
   - Minimal syntax and semantic
 
@@ -216,9 +181,13 @@ Other languages that are worth mentioning that have influenced **Yo**:
 ## Hello World
 
 ```rust
-main := ()-> {
-  println("Hello World!");
-}
+open import "std/libc/stdio";
+
+main :: (fn()-> unit) {
+  printf("Hello World!\n");
+};
+
+export main;
 ```
 
 ## CLI Usage
@@ -229,11 +198,11 @@ yo --version
 yo init # Create a new project in the current directory
 
 # Compilation
-yo hello.yo -o hello
-yo hello.yo --c-compiler clang -o hello
-yo hello.yo --target wasm -o hello.wasm
+yo compile hello.yo -o hello
+yo compile hello.yo --c-compiler clang -o hello
+yo compile hello.yo --target wasm -o hello.wasm
 
-# Package management
+# Package management (In Design)
 yo install # Install dependencies defined in `yo.json` and `yo.lock`
 yo install package-name # Install a specific package
 yo install package-name@version # Install a specific version of a package
@@ -243,10 +212,10 @@ yo uninstall package-name # Uninstall a package
 # package-name could be
 #   github:shd101wyy/some-package@master
 
-# Run scripts
+# Run scripts (In Design)
 yo run test
 
-# Format code
+# Format code (In Design)
 yo format
 ```
 
@@ -255,16 +224,13 @@ yo format
 A type can have the following **Kind**:
 
 - Type
-  - Free
-    - i32
-    - u32
-    - ...
-  - Linear
-- Interface
+  - i32
+  - boolean
+  - ...
 
 ### Type
 
-#### `Free` Types
+#### Primitive Types
 
 - `boolean` (true or false)
 - `u8` (8-bit unsigned integer)
@@ -280,720 +246,414 @@ A type can have the following **Kind**:
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
 - `isize` (signed pointer size. It's `i32` on 32-bit system, `i64` on 64-bit system)
 - `()` (unit type, same as the `void` in C)
-- `char` (utf-8 character)
-- ~~`symbol` (a unique identifier)~~
+- `rune` (Unicode code point, 32-bit, similar to Go's rune. See `std/string/rune.yo`)
+- `char` (C char type, 8-bit)
 
-#### `Linear` Types.
+#### Value Types vs Object Types
 
-Linear types are types that can only be used exactly once. For example, a `String` is a linear type as it can only be used once.  
-The [Austral language](https://austral-lang.org/) has a very good explanation on the incentive of using [Linear Types](https://austral-lang.org/tutorial/linear-types).
+**Value Types** (stack-allocated, copied on assignment):
 
-- Linear values must be consumed once.
-- A Linear value cannot be consumed when there is a pointer or alias to it.
+- Primitive types: `i32`, `boolean`, `f32`, etc.
+- Structs defined with `struct(...)`
+- Fixed-size arrays: `Array(T, N)`
+- Tuples: `Tuple(T1, T2, ...)`
+
+**Object Types** (heap-allocated, reference-counted):
+
+- Types defined with `object(...)`
+- Use [Biased Reference Counting (BRC)](./BIASED_REFERENCE_COUNTING.md) for memory management
+- Automatic cycle detection and collection
+- Thread-affinity for performance (objects stay on the thread that created them)
+
+```rust
+// Value type - stack-allocated, copied
+Point :: struct(x: i32, y: i32);
+p1 := Point(3, 4);
+p2 := p1;  // p2 is a copy of p1
+
+// Object type - heap-allocated, reference-counted
+String :: object(
+  _bytes: ArrayList(u8),
+  // methods...
+);
+s1 := String.from("Hello");
+s2 := s1;  // s2 and s1 point to the same object (reference counted)
+```
 
 ### Variable Declaration
 
-Like `rust`, **Yo** defines variables with `:=` operator.
+Variables in Yo are declared with `:=` (runtime) or `::` (compile-time).
 
 ```rust
                // compt here means compile-time known
-mut(x) := 5;   // x: compt(i32), mutable
-mut(x) := 5    // x: compt(i32), mutable
-y := 5;        // y: compt(i32), immutable
-
-// or
-(:=) x, 5     // x: compt(i32), immutable
+x := 5;        // x: i32, runtime variable
+y :: 5;        // y: compt_int, compile-time variable
 
 // with explicit type declaration
-(mut(x) : i32) := 5; // x: i32, mutable
-(y : i32) := 5    ; // y: i32, immutable
+(x : i32) = 5; // x: i32, runtime variable
+(compt(y) : compt_int) = 5; // y: compt_int, compile-time variable
+// or
+compt(y) := 5;
 
-defn example(x: i32, y: i32), {
-  x = 1; // Error: x is immutable
-  y = 2; // Error: y is immutable
-}
-
-// with `mut` modifier
-defn another_example(mut(x): i32, y: i32), {
-  x = x + 1; // x is mutable,
-  y = 2; // Error: y is immutable
-}
+// All variables are mutable by default
+x := 1;
+x = 2;  // OK: reassignment is allowed
 ```
 
-#### No variable shadowing
+**Note**: Yo removed the `mut()` keyword for simplicity. All variables are mutable by default.
+
+#### Variable shadowing in blocks
+
+Yo supports block-based variable shadowing (similar to JavaScript):
 
 ```rust
 x := 1;
-x := 2; // Error: x is already declared
+x := 2; // Error: x is already declared in the same scope
 {
-  x := 2; // Error: x is already declared
+  x := 2; // Allowed: x is shadowed in this block scope
 }
+// x is still 1 here
 ```
 
-Below is allowed as they are in different regions:
+Variables can be shadowed in different block scopes:
 
 ```rust
 {
   x := 1;
 }
 {
-  x := 2;
+  x := 2; // Allowed: different scope
 }
 ```
 
 ### Type inference
 
 ```rust
-(my_string: String) := String.from("Hello, world"); // Stored on heap. Linear type.
-my_string_2 := my_string; // my_string_2: String. Linear type. my_string is moved and consumed. my_string_2 now takes the ownership.
-my_string_3 := my_string; // Error: my_string is already consumed.
-&my_string_2; // my_string_4: &String, Free type
+// String is an object type with automatic reference counting
+(my_string: String) = String.from("Hello, world"); // Heap-allocated
+my_string_2 := my_string; // Both point to the same object (RC incremented)
 
-my_int := 1; // Stored on stack. Free type
-my_int_2 := my_int; // my_int_2: i32, Free type
+// Primitive types are copied
+my_int := 1; // Stack-allocated
+my_int_2 := my_int; // my_int_2 is a copy
 
-(my_int_array: Array(i32, 3)) := [1, 2, 3]; // Stored on stack, with size 3. Free type
-(my_int_array: Array(i32, 100)) := [1, 2, 3]; // Stored on stack, with size 100. Free type
-my_int_array := [1, 2, 3]; // Array(compt(i32), 3); Free type
-(my_array_list: ArrayList(i32)) := ArrayList.from([1, 2, 3]); // Stored on heap. Linear type.
+// Fixed-size arrays are value types
+(my_int_array: Array(i32, 3)) = [1, 2, 3]; // Stack-allocated
+my_int_array := [1, 2, 3]; // Array(i32, 3)
 
-(my_set: Set(i32)) := Set.from([1, 2, 3]); // Stored on heap. Linear type.
-Map.from([
-  ["one", 1],
-  ["two", 2],
-]); // Stored on heap. Linear type.
+// ArrayList is an object type
+(my_array_list: ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
 
-Person := // Linear type, as it contains a linear type.
-  type .Person((String, i32))
-
-p := Person.Person (String.from("Alice"), 30); // p: Person. Linear type.
-// or:
-p: Person := .Person (String.from("Alice"), 30); // p: Person. Linear type.
-(Person.Person (name, age)) := p; // name: String, age: i32
+// Enum/ADT can be value or object type depending on definition
+Person :: struct(name: String, age: i32); // Value type (but contains object field)
+p := Person(name: String.from("Alice"), age: 30);
+_(name, age) := p; // name: String, age: i32
 ```
 
-#### Uninitialized variable `In Design`
+#### Uninitialized variable
 
 ```rust
-mut(x) : i32; // mut(x): i32, uninitialized
+x : i32; // x: i32, uninitialized
 
 // Compiler prevents using uninitialized variable.
 println(x); // Compiler Error: x is uninitialized.
 
-x := 1; // x: i32, initialized
-
-y : i32; // y: i32, uninitialized
-y = 12; // Compiler Error: cannot assign to constant.
+x = 1; // x: i32, initialized
 ```
 
-#### Type bounds `In Design`
+### Object Types and Memory Management
 
-From Scala.
+Yo uses **object types** with [**Biased Reference Counting (BRC)**](./BIASED_REFERENCE_COUNTING.md) for automatic memory management.
 
-- `:` (Colon)
+#### Object Type
 
-  - Usage: Typically used in type annotations or pattern matching.
-
-- `:>` (from F#) or `<:` (from Scala) (Upper Type Bound)
-  - Usage: Indicates that a type parameter must be a subtype of a specific type.  
-    PROBLEM: doesn't look good in the generic syntax, as we are using `<...>` for generics.
-    PROBLEM: This operator is hard to remember, and introduces complexity to the language.
-
-### Transfer ownership
-
-Linear types can only be used once. When a linear type is transferred, it is consumed and cannot be used again.
+Object types are heap-allocated types with automatic reference counting:
 
 ```rust
-x := String.from("Hello"); // x: String. Linear type
-y := x; // y: String. Linear type. x is moved and consumed.
-z := x; // Compiler Error: x is already consumed.
+// Define an object type
+String :: object(
+  _bytes: ArrayList(u8),
+
+  // Methods
+  from :: ((fn(slice: [u8]) -> Self) {
+    // Implementation...
+  }),
+
+  length :: ((fn(self: Self) -> usize) {
+    // Implementation...
+  })
+);
+
+// Usage
+s1 := String.from("Hello");  // RC = 1
+s2 := s1;                    // RC = 2 (both point to same object)
+s3 := s2;                    // RC = 3
+// When s1, s2, s3 go out of scope, RC decrements
+// When RC reaches 0, memory is freed
 ```
 
-### immutable and mutable references
+#### Biased Reference Counting
+
+Yo uses a high-performance reference counting strategy that's biased toward single-threaded access:
+
+**Key features:**
+
+- **Thread affinity**: Objects stay on the thread that created them
+- **Non-atomic fast path**: Owner thread operations are non-atomic (no CPU synchronization)
+- **Atomic slow path**: Cross-thread access uses atomic operations
+- **Cycle detection**: Automatic detection and collection of reference cycles
+
+See [BIASED_REFERENCE_COUNTING.md](./BIASED_REFERENCE_COUNTING.md) for implementation details.
+
+#### Compile-Time Reference Counting Optimization
+
+The compiler performs [ownership analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) to eliminate unnecessary reference counting operations.
+
+See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for details.
+
+## Pointers
+
+Yo uses pointers (`*(T)`) for direct memory access, similar to C:
 
 ```rust
-{
-  mut(x) := 1; // x: copied i32. Free type
-  p1 := &!(x).as(*!(i32)); // p1: *!(i32). Free type
-  p2 := &!(x).as(*!(i32)); // p2: *!(i32). Free type.
-  *p1 = 2;
-  // x == 2
-  // *p1 == 2
-  // *p2 == 2
-}
+// Pointer type: *(T)
+x := 1;
+y := 2;
+
+swap :: (fn(a: *(i32), b: *(i32)) -> unit) {
+  tmp := a.*;  // Dereference pointer
+  a.* = b.*;
+  b.* = tmp;
+};
+
+swap(&(x), &(y));  // Pass pointers to x and y
+// Now x == 2, y == 1
 ```
 
-A longer example:
+### Pointer Operations
 
 ```rust
-extern "C", {
-  length: ((x: &(String))-> i32);
-  push: ((x: &String, value: String)-> unit);
-  drop: ((x: String)-> unit);
-}
+// Create pointer with & operator
+x := 42;
+ptr := &(x);  // ptr: *(i32)
 
-defn main(), {
-  mut(x) := String.from("Hello, world"); // x: String. mutable
+// Dereference with .*
+value := ptr.*;  // value == 42
 
-  length(x);  // not allowed, type mismatch
-  length(&(x));  // allowed
-  length(&!(x));  // allowed
+// Modify through pointer
+ptr.* = 100;  // x is now 100
 
-  t := x;                           // transfer ownership
-
-  length(x); // error: cannot access `x` because `x` is consumed.
-  length(&x); // error: cannot access `x` because `x` is consumed.
-  length(&!(x)); // error: cannot access `x` because `x` is consumed.
-
-  drop(t);                             // consume `t`
-
-  length(x); // error: cannot access `x` because `x` is consumed.
-  length(&(x)); // error: cannot access `y` because `t` is consumed.
-  length(&!(x)); // error: cannot access `z` because `t` is consumed.
-}
+// Pointer arithmetic (unsafe)
+arr := [1, 2, 3, 4, 5];
+ptr := &(arr(0));  // Pointer to first element
+ptr2 := (ptr + (2).as(usize));  // Point to third element
+value := ptr2.*;  // value == 3
 ```
 
-We can only dereference the free type.
+### Nullable Pointers
+
+Yo uses `Option(*(T))` for nullable pointers:
 
 ```rust
-Person := // Linear type, as it contains a linear type.
-  type .Person {name: String, age: i32};
-
-name := String.from("Alice");
-p := Person {name, age: 30}; // p: Person. Linear type.
-
-{
-  name := p.name; // name: String, Linear type. The `p` variable is consumed
-                       // when you extract a linear field from it.
-                       // NOTE: If `p` has more than one linear field, then when you destructure, you have to consume all the linear fields, otherwise it will be a compiler error.
-
-  age := p.age; // Compiler Error: `p` is consumed already.
-}
-
-{
-  Person { name, mut(age) } := p;
-}
-
-{
-  Person { name, age } := p;
-}
-
-{
-  age := p.age; // age: i32, Free type. The `p` variable is not consumed
-                    // when you extract a free field from it.
-
-  name := p.name; // name: String, Linear type. The `p` variable is consumed
-}
-
-{
-  Person { name } := p; // name: String, Linear type. The `p` variable is consumed
-                    // when you destructure any linear type values from it.
-}
-
-{
-  Person { age } := p;  // age: i32, Free type. The `p` variable is not consumed
-                    // when you destructure only free fields from it.
-}
-
-{
-  mut(p) := Person { name: String.from("Alice"), age: 30 }; // p: Person. Linear type.
-  use &!(p), p_ref -> {
-    old_name := (p_ref.name = String.from("Bob")); // old_name: String. Linear type. Take the value out.
-    // old_name == String.from("Alice")
-  }
-}
-```
-
-```rust
-name := String.from("Alice");
-p := Person {name, age: 30}; // p: Person. Linear type.
-
-{ name, age } := p; // p is consumed and become uninitialized.
-
-// QUESTION: Should we allow this? Should we use := or =
-p := Person {name, age: 30}; // This is allowed. We restored a consumed value.
-```
-
-```rust
-mut(x) := [1, 2, 3, 4, 5]; // x: Array(compt(i32), 5). Free type
-mut(y) := x; // y: Array(compt(i32), 5). Free type. x is copied to y, not moved.
-x(0) = 10;
-
-// x: [10, 2, 3, 4, 5]
-// y: [1, 2, 3, 4, 5]
-```
-
-```rust
-mut(x) := [String.from("Hi"), String.from("World")];
-
-{
-  s := x(0); // Compiler Error: Cannot move linear type out of a slice.
-}
-
-{
-  old := (x(1) = String.from("Earth"));
-  // old: String. Linear type. old == String.from("World")
-}
-
-// x: [String.from("Hi"), String.from("Earth")]
-```
-
-### Unique Pointer `In Design`
-
-We use the `^` to denote the pointer, same as in Pascal.
-
-```rust
-some_int_ptr := malloc(sizeof(i32)); // int_ptr: Option<^i32>. Linear type
-match some_int_ptr,
-  .Some(int_ptr) -> { // int_ptr: ^i32. Linear type.
-    *(int_ptr) = 10;
-    free(int_ptr);
+// malloc returns Option(*(T))
+some_ptr := malloc(sizeof(i32));
+match(some_ptr,
+  .Some(ptr) => {
+    ptr.* = 42;
+    printf("value: %d\n", ptr.*);
+    free(some_ptr);
   },
-  .None -> {
-    // handle error
-  }
+  .None => printf("Allocation failed\n")
+);
 ```
 
-### Cast Linear to Free
+**Note**: Raw pointers are unsafe. Use object types for safe memory management whenever possible.
 
-NOTE: This is unsafe and should be avoided.
+### RAII (Resource Acquisition Is Initialization)
 
-```rust
-x := String.from("Hi"); // x: String. Linear type
-y := cast_to_free(x); // y: String. Free type
-```
-
-## Mutable Value Semantics
-
-Guarantee memory safety in low-level programming language is hard.  
-Rust uses the borrow checker to ensure memory safety, but it adds complexity to the language and burden to the programmer.  
-Mutable Value Semantics in contrast is a restriction to first-class references which makes you lose some generality but gain simplicity.
-Raw pointer is a natural thing in low-level programming languages. It's unavoidable.
-The goal of the **Yo** language is to let you write workable and kinda memory-safe code without the need to use raw pointers.
-
-### Second-Class References
-
-References in **Yo** are second-class citizens.
-
-- Can't be stored in ~~data structures or~~ variables.
-- ~~Can't be returned from functions.~~ Can't return the reference to local variables in function body, but can return the references that are the function arguments or from the function arguments.
-- Can only be created at function call sites, as a special parameter-passing mode.
-- Path to a value never appears twice in the function arguments. Path uniqueness.
-
-  ![](./path_uniqueness.png)
-
-  In this example, `(a)` is allowed while `(b)` is not allowed.
-
-NOTE: We need to allow to store references in data structures in order to support closures.  
-NOTE: Why cannot store as variables:
+Yo automatically manages memory for object types through reference counting. When an object's reference count reaches zero, it is automatically freed.
 
 ```rust
-x := String.from("Hello"); // x: String. Linear type
-y := String.from("World"); // y: String. Linear type
-l := longest_str(x.as_bytes(), y.as_bytes()); // l: &str;
-drop(x);
-drop(y);
-println(l); // Use after free
-```
-
-```rust
-Container :=
-  type .Container {
-    value: &(String)
-  };
-
-x := String.from("Hello"); // x: String. Linear type
-y := String.from("World"); // y: String. Linear type
-c := Container.Container { value: longest_str(&(x), &(y)) }; // c: Container that contains &String.
-drop(x);
-drop(y);
-println(c.value); // Use after free
-```
-
-```rust
-Container :=
-  type .Container {
-    value: &(String);
-  }
-
-some_func := (o: &!(Container), v: &(String))-> {
-  o.v = v; // Not allowed. v might have shorter lifetime than o.
-}
-```
-
-### Parameter passing modes
-
-NOTE: Why not use `inout`, `in`, and `out` keywords? Because it doesn't work with slice types, which requires `&` ahead of it.
-
-- `&!`
-
-  The `&!` parameter is a reference to a value that can be read and written.
-
-  ```rust
-  defn swap(a: &!(i32), b: &!(i32)), {
-    temp := *a;
-    *a = *b;
-    *b = temp;
-  }
-  mut(x) := 1;
-  mut(y) := 2;
-  swap(&!(x), &!(y));
-  ```
-
-- `&`
-
-  The `&` parameter is a reference to a value that can only be read.
-
-  ```rust
-  defn print(x: &(i32)), {
-    println(x);
-  }
-  x := 1;
-  print(&(x));
-  ```
-
-### RAII
-
-**Might not be supported**
-
-**Yo** supports the RAII to automatically insert the `drop` function when the variable of linear type goes out of scope.
-
-```rust
-defn test(), {
-  x := String.from("World!");
-
-  // `drop(x)` will be automatically inserted here.
-}
-```
-
-### `use` statement
-
-```rust
-defn return_self(v: &(String)): &(String), v;
-
-x := String.from("Hello, ");
-y := String.from("world");
-use return_self(&(x)), v -> {
-  println(v + y);
-}; // Compiler can optimize this part of code.
-
-use &(y), y_ref-> {
-  println("Used y reference here");
+test :: (fn() -> unit) {
+  x := String.from("World!");  // RC = 1
+  // ... use x ...
+  // At end of scope, RC is decremented
+  // If RC reaches 0, memory is automatically freed
 }
 ```
 
 ## Function Declaration
 
-Function parameters are immutable by default.
+Functions are declared using the `::` operator for compile-time definitions or `:=` for runtime values.
 
 ```rust
-// Top level function.
-defn add(x: i32, y: i32):i32, // function name and type
-  x + y // body
+// Function declaration with explicit type
+add :: (fn(x: i32, y: i32) -> i32)
+  (x + y)  // Function body
 ;
 
-// Type after `->` is the return type. If it's not specified, it's `()`.
-add : (x: i32, y: i32)-> i32; // Define the function type
-println(add(3, 4)) // Function hoisting is allowed.
-add := (fn(x, y)-> { // Actually function definition
-  return x + y;
-});
+// Or define type first, then implementation
+compt(add) : (fn(x: i32, y: i32) -> i32);
+add = (x, y) -> (x + y);
 
-// or
-add := ((fn(x: i32, y: i32): i32) -> {
-  return x + y; // The last expression is the return value.  `return` is optional.
-});
+// Anonymous function
+add = ((x, y) -> (x + y));  // Type inferred from usage
 
-// or
-(add : (i32, i32)-> i32) = (fn(x, y)-> x + y);
-
-last_unit_expr := (fn(x: i32, y: i32)-> {
-  x + y;
-  // This is allowed as the last expression is `()`.
-});
-
-// Default parameter values
-add := ((fn((x:i32) = 1, (y:i32) = 2): i32) -> {
-  return x + y;
-});
-add(); // 3
-add(y: 3); // 4
-add 2, 3; // 5
-
-// Function argument labels, and parameter names
-defn mul(x: i32, by: i32):i32, {
-  y := by;
-  x * y
-};
-mul(3, by: 4); // 12
-mul 4, by: 5;  // 20
-(mul 5, 6);    // 30
-
-// Named return values
-defn exponent(base: i32, power: i32):
-  ( result: i32,
-    some_ref: *i32),
-{
-  mut(r) := 1;
-  mut(i) := 0;
-  while i < power, i += 1, {
-    r *= base;
-  }
-  return (r, &(r).as(*(i32)));
+// With explicit return type
+multiply :: (fn(x: i32, y: i32) -> i32) {
+  return (x * y);  // Explicit return
 };
 
-// Generic function
-defn identity(T: Type, arg: T): T,
-  arg;
-/// or using forall
-forall (T: Type),
-  defn identity_with_for_all(arg: T): T,
-    arg;
+// Last expression is the return value
+divide :: (fn(x: i32, y: i32) -> i32)
+  (x / y)
+;
 
-x := identity(i32, 12); // x: i32
-y := identity_with_for_all(13); // y: i32
+// Default parameter values (using ?=)
+create_user :: (fn(
+    name: String,
+    (age: i32) ?= 18,
+    (role: String) ?= String.from("user")
+  ) -> User)
+  User(name: name, age: age, role: role)
+;
 
-// Dependency injection
-main := (?(raise): (error: &(str))-> i32)-> {
-  (x:i32) := raise("Hello, world");
-}
+create_user(name: "Alice");  // Uses defaults: age=18, role="user"
+create_user(name: "Bob", age: 30);  // Explicit age, default role
 
-// Value constraint `In Design`
-NotZero := i32 |: <@ != 0;
-defn divide(x: i32, y: NotZero): i32,
-  x / y;
+// Named arguments
+add :: (fn(x: i32, y: i32) -> i32) (x + y);
+add(3, 4);        // Positional: 7
+add(3, y: 4);     // Mixed: 7
+add(x: 3, y: 4);  // All named: 7
+// The named arguments have to be ordered for now.
 
-// Type constraint
-forall ((T: Type) <: Integral),
-  defn add(x: T, y: T): T, {
-    return x + y;
-  };
+// Generic function with forall
+identity :: (fn(forall(T: Type), arg: T) -> T)
+  arg
+;
 
-// Closure
-mut(y) := 0;
-use &!(y), y_ref -> {
-  add := ((fn(x: i32): i32)=> {
-    *(y_ref) = x + *(y_ref);
-    return *(y_ref);
-  });
-  add(1); // 1
-  add(1); // 2
-}
+x := identity(12);     // Type inferred: x: i32
+y := identity(true);   // Type inferred: y: boolean
 
-// y == 2
-```
+// Type constraints
+add :: (fn(forall(T: Type), x: T, y: T, using(AddT) : (T <: Add(T))) -> T)
+  AddT.(+)(x, y)
+;
 
-NOTE: Below is allowed
+// Recursion with recur
+factorial :: (fn(x: i32) -> i32)
+  if (x <= 1),
+    then: 1,
+    else: (x * recur(x - 1))  // recur calls the current function
+;
 
-```rust
-some_func:  forall (T <: (Trait1 & Trait2)), (x: T)-> T =
-            forall (X <: Trait1), fn(x: X)-> x;
-```
-
-but this is not allowed
-
-```rust
-some_func: forall (T <: Trait1), (x: T)-> T =
-           forall (X <: (Trait1 & Trait2)), fn(x: X)-> x;
+// Tail recursion
+factorial_tail :: (fn(x: i32, acc: i32) -> i32)
+  if (x <= 1),
+    then: acc,
+    else: recur((x - 1), (x * acc))
+;
 ```
 
 ### Named arguments
 
-```rust
-defn add(x: i32, y: i32): i32, {
-  return x + y;
-}
-add(y: 2, x: 1); // 3
-
-// QUESTION: Should we allow this?
-// You can also call a function without the parentheses:
-add y: 2, x: 1; // 3
-```
-
-### Contextual parameters, aka implicit parameters
-
-The contextual parameters are passed implicitly to the function.  
-**Yo** looks for the closest value that matches the contextual parameter by the **type**, not by **name**.
-
-NOTE: `implicit` should be part of the `type`.
+Named arguments in Yo must be provided in the same order as they are defined in the function signature:
 
 ```rust
-defn some_async_func(?(_): Async(i32)): i32, {
-  // Here we didn't give a parameter name for the implicit parameter.
-}
+add :: (fn(x: i32, y: i32) -> i32)
+  (x + y)
+;
+
+add(3, 4);        // OK: Positional arguments
+add(x: 3, y: 4);  // OK: Named arguments in correct order
+add(3, y: 4);     // OK: Mixed (positional then named)
+add(y: 4, x: 3);  // Error: Named arguments must be in order (x before y)
 ```
 
-#### Compiletime
+### Implicit Parameters
+
+Implicit parameters (contextual parameters) allow passing parameters without explicitly providing them at each call site. They can be defined using the `using` keyword.
 
 ```rust
 // id.yo
-defn Id(Self: Type),
-  interface {
-    id: (fn(self: Self)-> Self)
-  };
+Id :: module(
+  id: (fn(self : Self) -> Self)
+);
 
-impl Id(i32), {
-  id: ((self) -> {
-    return self;
-  })
-};
+I32Add :: impl(i32, Id(
+  id : ((self) -> self)
+));
 
-{ Id } // Export Id
+{ Id, I32Add } // Export Id
 
 // main.yo
-{ Id } := import "./id.yo";
+{ Id, I32Add } :: import "./id.yo";
 
-(12).id(); // 12
-use_id := forall ((T: Type) <: Id), (fn(x: T): T)-> {
-  return x.id();
-}
+I32.id(12); // 12
+use_id :: (fn(forall(T : Type), x : T, using(TId) : (T <: Id)) -> T) {
+  return TId.id(x);
+};
+use_id(34); // 34, implicitly use I32Add
+use_id(56, I32Add); // 56, explicitly use I32Add
 ```
 
-#### Runtime
+### Type Methods (Similar to Rust)
+
+Yo supports **type methods** - methods defined within the type's module. Unlike general Uniform Function Call Syntax (UFCS), you cannot call arbitrary free functions using method syntax.
+
+**Method calls only work for:**
+1. Methods defined in the type's own module
+2. Methods from implemented modules
 
 ```rust
-defn add(x: i32, ?(y): i32): i32, {
-  return x + y;
-}
+// Define a type with methods in its module
+Point :: struct(x: i32, y: i32,
+  // Type methods are defined in the struct's module
+  distance_from_origin :: ((self: Self) -> f64) {
+    sqrt(((self.x * self.x) + (self.y * self.y)).as(f64))
+  },
+  
+  move_by :: ((self: *(Self), dx: i32, dy: i32) -> unit) {
+    self.*.x = (self.*.x + dx);
+    self.*.y = (self.*.y + dy);
+  }
+);
 
-defn main(), {
-  {
-    add(3); // error: missing implicit parameter type i32
-  }
-  {
-    ?(y) := 4;
-    add(3); // ok, 7
-  }
-  {
-    ?(a) := 4;
-    (?(_): i32) = 5; // without giving a name
-    add(3); // will pick the closest value, which is 5, so it's 8
-  }
-  {
-    add(3, 4); // ok, 7
-  }
-  {
-    ?(y) := 4;
-    ?(y) := 5;
-    add(3); // ok, 8
-  }
-}
+p := Point(3, 4);
+d := p.distance_from_origin();  // Type method call - OK
+
+mut(p2) := Point(0, 0);
+p2.move_by(5, 10);  // Automatically takes pointer for `*(Self)` parameter
+// p2 is now Point(5, 10)
 ```
 
-The arguments are provided in lexical scope, not dynamic scope.
+**Automatic pointer conversion:**
+
+When a method expects `*(Self)` but you have `Self`, Yo automatically takes the pointer for you (Rust-style):
 
 ```rust
-defn test(x: i32, ?(id): ((x: i32)-> i32)), {
-  print(id(x))
-}
-
-?(id) := (fn(x: i32)-> x);
-defn use_test(), {
-  test(3); // print 3
-
-  ?(id) := (fn(x: i32)-> x + 1);
-  test(3); // print 4
-}
-
-defn main(), {
-  ?(id) := (fn(x: i32)-> x + 2); // This will not affect the `test` function calls in `use_test`
-  use_test();   // print 3
-                // print 4
-}
-```
-
-### Uniform Function Call Syntax
-
-Can only be used for the functions defined in `module`.
-IDEA: Actually let's still keep it. For the functions define in `impl` or `trait`, we don't allow to extract them and we force to call these functions with `.`.
-
-```rust
-g(f(a, b), x, y);
-// can be written as
-a.f(b).g(x, y);
-```
-
-```rust
-defn add_one(x: i32): i32, {
-  return x + 1;
-}
-
-(12).add_one(); // 13
-// is equalvalent to
-add_one(12); // 13
-
-s := String.from("Hello, world");
-s.length(); // 12
-// is equalvalent to
-length(&(s)); // 12
-// We will automatically convert to reference when needed.
-```
-
-#### Priority
-
-Record field access has higher priority than the free function and trait method.
-
-```rust
-S := {
-  (method: (fn() -> unit)) =
-    (fn()-> println("Record method"))
-}
-
-method := (fn(s: S)-> {
-  println("Free function");
-})
-
-SomeInterface := fn(Self: Type)->
-  interface {
-    (method: (self: *(Self))-> unit) =
-      fn()-> println("Trait method")
+Point :: struct(x: i32, y: i32,
+  set_x :: ((self: *(Self), new_x: i32) -> unit) {
+    self.*.x = new_x;
   }
+);
 
-impl SomeInterface(S), {}
-
-fn main(), {
-  (s : S) := {};
-  s.method();  // Record method
-  method(s);   // Free function
-  s.method();  // Record method
-  SomeInterface(S).method(&(s)); // Interface method
-}
+mut(p) := Point(3, 4);
+p.set_x(10);  // Automatically converts to &(p).set_x(10)
 ```
 
-### `defer`
-
-`defer` will execute an expression at the end of the current scope.
+**Important:** Free functions cannot be called with method syntax:
 
 ```rust
-defn test(), {
-  x := String.from("World!");
-  defer {
-    println(x);
-    drop(x);
-  };
+// This is a free function, NOT a type method
+add_one :: (fn(x: i32) -> i32)
+  (x + 1)
+;
 
-  y := String.from("Hello, ");
-  defer {
-    println(y);
-    drop(y);
-  };
-}
-
-test(); // Hello, World!
-```
-
-```rust
-defn defer_example(), {
-  mut(a) := 1;
-
-  {
-    defer a = 2;
-    a = 1;
-  }
-
-  println(a); // 2
-  return a;
-}
+x := 12;
+// x.add_one();  // Error: add_one is not a method of i32
+add_one(x);     // OK: call as regular function
 ```
 
 ### `recur` `In Design`
@@ -1022,19 +682,7 @@ If `recur` is the last expression, tail-call optimization will be applied.
       x * recur(x - 1)
   ```
 
-### Custom Operators
 
-```rust
-(|>) := forall (T: Type, U: Type, (F: Type) <: (FnOnce(value:T)-> U)), (fn(x: T, f: F): U)-> {
-  return f(x);
-}
-
-12 |> add_one; // 13
-
-(|>)(12, add_one); // 13
-
-((|>) 12, add_one) ; // 13
-```
 
 ### Variadic functions `In Design`
 
@@ -1095,16 +743,16 @@ add_va_yo :: (fn(forall(count: usize), ...(args) : Array(c_int, count)) -> c_int
 
 ```rust
 // This function can take any type that has a `length: i32` property.
-defn print_length(x: *({ length: i32 })), {
-  println(x.length);
+print_length :: (fn(x: *(struct(length: i32))) -> unit) {
+  println(x.*.length);
 };
 
-defn main(), {
+main :: (fn() -> unit) {
   s := String.from("Hello, world");
   print_length(&(s));
   // ^ This works as the compiler converts it to below from the background:
-  print_length(&({ length: s.length }))
-}
+  print_length(&(struct(length: s.length)))
+};
 ```
 
 ## Tuple
@@ -1139,166 +787,107 @@ MyTuple := (i32,);
 ## Array & Slice
 
 ```rust
-mut(i32_array) := [1, 2, 3, 4, 5]; // mut(i32_array): Array(compt(i32), 5). Free type
-                                 // In C: int i32_array[5] = {1, 2, 3, 4, 5};
+i32_array := [1, 2, 3, 4, 5]; // i32_array: Array(i32, 5)
+                              // In C: int i32_array[5] = {1, 2, 3, 4, 5};
 i32_array.length; // 5, compile-time known
 
 (i32_array2 : Array(i32, _)) = [1, 2, 3]; // i32_array2: Array(i32, 3)
 
-immutabl_i32_array := [1, 2, 3, 4, 5]; // immutabl_i32_array: Array(i32, 5). Free type
-                                            // In C: const int immutabl_i32_array[5] = {1, 2, 3, 4, 5};
+// Slices are created using range syntax (:)
+// No need for & operator - DST (Dynamically Sized Types) removed
+(end : usize) = 3;
+slice := i32_array(1:end);  // slice: Slice(i32)
+slice.length; // 2, runtime known
 
-// Convert from array to slice using `&`
-i32_array_ptr := &(i32_array); // i32_array_ptr: Slice(i32). Free type
-i32_array_ptr.length; // 5, runtime known
-i32_array_ptr(0) = 8; // automatically dereference
-// i32_array: [8, 2, 3, 4, 5]
+full_slice := i32_array(:);  // full_slice: Slice(i32)
 
-use &!(i32_array(0)), ptr -> {
-  *(ptr) = 9;
-}l
-// i32_array: [9, 2, 3, 4, 5]
+slice(0) = 10;  // Modify through slice
+slice(1) = 20;
+// i32_array: [1, 10, 20, 4, 5]
+
+slice_of_slice := slice(0:2);  // Slice from slice
 ```
 
-Slice in **Yo** is a reference to an array. It is a pointer to the first element of the array and the length of the slice calculated from the **runtime**.
+### Range with `:`
 
-QUESTION: We do we need `&` before slice?
-ANSWER: Yes we do. Not only because the size of slice is unknown at the compile-time, when we use it in function parameter, we also need to know if its mutability by & or &mut.
-
-- For array of linear type, we need to convert it to a slice of free type, so it requires `&`.
-- Slices are dynamically sized, so its size is unknown at compile time. We need to use `&` to coerce the array to a slice.
+Slices use the `:` operator for range syntax:
 
 ```rust
-(i32_array : Array(i32, _)) := [1, 2, 3]; // i32_array: Array(i32, 3). Free type
-i32_slice := &(i32_array); // i32_slice: &Slice(i32). Free type
-i32_slice := i32_array(0..some_func_return_usize());  // i32_slice: i32[]
-                                                        // Compiler Error: The size of the slice is not known at compile time.
-                                                        //                 Please use `&` to coerce i32_array to slice type &(Slice(i32))
-i32_slice := &(i32_array(0..some_func_return_usize()));
-i32_slice.length; // 3, runtime known
-i32_slice(0) = 10;
-// i32_array: [10, 2, 3, 4, 5]
+arr := [1, 2, 3, 4, 5];
 
+// Slice from index 1 to 3 (exclusive)
+slice1 := arr(1:3);  // [2, 3]
 
-defn set_value(arr: &!(Slice(i32)), index: usize, value: i32),
-  if index < arr.length,  // arr.length is runtime known
-    arr(index) = value;
+// Slice from start to index
+slice2 := arr(:3);  // [1, 2, 3]
 
-set_value(i32_array, 0, 11); // Compiler error: Please use `&` to coerce i32_array to slice type i32[]
-set_value(&!(i32_array), 0, 11); // Correct!
-// i32_array: [11, 2, 3, 4, 5]
-// i32_slice: [11, 2, 3]
+// Slice from index to end
+slice3 := arr(2:);  // [3, 4, 5]
 
-
-set_value := fn(arr: Slice(i32), index: usize, value: i32)-> { // Compiler Error: The size of the slice is not known at compile time.
-                                                           //                 Please use `&` to coerce arr to slice type &i32[]
-  // ...
-}
-
-// This is also allowed as the size of the array is known at compile time.
-set_value_3 := fn(arr: Array(i32, 3), index: usize, value: i32)-> {
-  // ...
-}
+// Full slice
+slice4 := arr(:);  // [1, 2, 3, 4, 5]
 ```
 
-### Range with `..`
+## Closure
+
+Closures in Yo are reference-counted objects, just like any other object type. They automatically capture variables from their environment.
+
+**Key features:**
+- Reference counted (like object types)
+- Automatic memory management
+- Can capture and mutate variables
+- Closure syntax: `((fn(...) => ReturnType) body)`
 
 ```rust
-// The range start..end contains all values with start <= x < end.
-// It is empty if start >= end.
-Range := type .Range {
-  start: i32,
-  end: i32,
-}
-
-range := (0 .. 5); // range: Range. Free type
-range := Range {
-  start: 0,
-  end: 4,
-};
-
-range2 := (0 ..= 5); // range2: Range<i32>. Free type, including the end value
-range2 := Range {
-  start: 0,
-  end: 5,
-}
-```
-
-## Closure `In Design`
-
-NOTE: Closure is a `class`, not `type`.
-
-The closure in **Yo** is a function that can capture ~~Linear~~ values from the outer scope.  
-**Yo** only supports **explicit captures** in closures.
-**Yo** **doesn't** support references in captured values.
-
-The closure type is defined as:
-
-- Closure that can be called once:
-  ```
-  FnOnce<type parameters>(parameters)-> return_type
-  ```
-- Closure that can be called multiple times:
-  ```
-  FnMut<<type parameters>(parameters)-> return_type>
-  Fn<<type parameters>(parameters)-> return_type>
-  ```
-
-A closure can be defined using the following syntax:
-
-- `FnOnce`:
-
-  ```
-  <type parameters>(paramters)=>> return_type { body }
-  ```
-
-- `FnMut` and `Fn` are the same as normal function, but will be automatically converted:
-  ```
-  <type parameters>(paramters)=> return_type { body }
-  ```
-
-QUESTION: Should we make the captures explicit?
-
-Examples:
-
-```rust
-defn test(), {
-  mut(x) := 1;
-
-  use fn(a: i32)=> {
-    *(x) = *(x) + a;
-  }, (increment)-> {
-    increment(1);
-    increment(2);
-  };
-  // x == 4
-};
-```
-
-```rust
-defn test(), {
-  (x: Data) := malloc(); // Some `Fake` Data.
-
-  increment := (fn() => {
-    drop(x);
+// Example 1: Simple closure capturing a variable
+main :: (fn() -> unit) {
+  x := 1;
+  closure := ((fn(y: i32) => i32) {
+    x = (x + y);
+    return x;
   });
-  increment(); //
-  increment(); // Compiler Error: closure is already consumed.
-}
+
+  closure(1); // 2
+  closure(1); // 3
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
+};
+
+// Example 2: Closure with object type capture
+MyBox :: object(
+  (*): i32,
+  
+  dispose :: (fn(self: Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.*);
+  }
+);
+
+main2 :: (fn() -> unit) {
+  x := MyBox(1);
+  closure := ((fn(v: i32) => i32) {
+    x.* = (x.* + v);
+    return x.*;
+  });
+
+  closure(2);  // x.* is now 3
+  closure(3);  // x.* is now 6
+  result := closure(4);  // x.* is now 10
+  printf("Final result: %d, %d\n", result, x.*);
+};
 ```
 
-**NOTE:** We can pass normal function fn() -> unit to a function argument that expects a closure, but not the other way around.
+**Note:** Closures are automatically reference counted and can be passed around like any other object type.
 
 ## Generic
 
 ### Type parameters
 
-Type is first-class citenzen in Yo
+Type is first-class citizen in Yo. Use `forall` inside `fn(...)` to declare type parameters.
 
 ```rust
-defn id(T: Type, x: T): T, {
-  return x;
-}
+id :: (fn(forall(T: Type), x: T) -> T)
+  x
+;
 ```
 
 ### Type constraints
@@ -1307,53 +896,54 @@ Type constraints are achieved using the `<:` operator.
 
 ```rust
 // Type constraints
-defn three_are_equal((T: Type) <: Eq, x: T, y: T, z: T): boolean, {
-  return (x == y) && (y == z);
-};
+three_are_equal :: (fn(forall((T: Type) <: Eq), x: T, y: T, z: T) -> boolean)
+  ((x == y) && (y == z))
+;
 // (T: Type) <: Eq is equivalent to (T: Type) <: Eq(T)
 
-defn show_compare((T: Type) <: (Show & Ord), x: T, y: T): String,
-  match compare(x, y),
-    .LT -> "Less than",
-    .EQ -> "Equal",
-    .GT -> "Greater than"
+show_compare :: (fn(forall((T: Type) <: (Show & Ord)), x: T, y: T) -> String)
+  match(compare(x, y),
+    .LT => "Less than",
+    .EQ => "Equal",
+    .GT => "Greater than"
+  )
 ;
 
-// Instance dependencies
-forall ((A: Type) <: Show, size: compt(usize)),
-  impl Show(Array(A, size)), {
-    show: ((self) -> {
-      // ...
-    })
-  };
+// Instance dependencies with forall
+// Note: forall is used at the top level, not inside impl
+(forall((A: Type) <: Show, size: compt(usize)))
+ArrayShow :: impl(Array(A, size), Show(
+  show: ((self) -> {
+    // ...
+  })
+));
 
-forall ((A: Type) <: Show,
-        (B: Type) <: Show),
-  impl Show((A, B)), {
-    show: ((self) -> {
-
-    })
-  };
+(forall((A: Type) <: Show, (B: Type) <: Show))
+TupleShow :: impl((A, B), Show(
+  show: ((self) -> {
+    // ...
+  })
+));
 ```
 
 ```rust
 // show.yo
-defn Show(Self: Type): Interface,
-  interface {
-    show: (fn(self: *(Self))-> String)
-  };
+Show :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    show: (fn(self: *(Self)) -> String)
+;
 
-impl Show(i32), {
+I32Show :: impl(i32, Show(
   show: ((self) -> {
     // ...
   })
-};
+));
 
-impl Show(String), {
+StringShow :: impl(String, Show(
   show: ((self) -> {
     // ...
   })
-};
+));
 
 { Show } // export Show
 
@@ -1361,18 +951,17 @@ impl Show(String), {
 // main.yo
 { Show } := import "./show.yo";
 
-forall ((T: Type) <: Show, size: compt(usize)), defn show(x: Array(T, size)): String, {
+show :: (fn(forall((T: Type) <: Show, size: compt(usize)), x: Array(T, size)) -> String) {
   // ...
 };
 { show } // export show
 
 
-{ Show } = import "./show.yo";
-forall ((T: Type) <: (Ord & Show)),
-  defn less_than(x: T, y: T): boolean, {
-    println(x.show());
-    return x < y;
-  };
+{ Show } := import "./show.yo";
+less_than :: (fn(forall((T: Type) <: (Ord & Show)), x: T, y: T) -> boolean) {
+  println(x.show());
+  return (x < y);
+};
 ```
 
 ## Control Flow
@@ -1381,9 +970,23 @@ forall ((T: Type) <: (Ord & Show)),
 
 `if(condition, then, else)`
 
+The `if` in Yo is actually a macro function (see `std/prelude.yo`):
+
 ```rust
-defn main(), {
-  // If no return type, it is `()`
+// Definition in prelude.yo
+if :: (fn(quote(condition): Expr,
+        quote(then): Expr,
+        (quote(else): Expr) ?= quote(())
+      ) -> unquote(Expr))
+  quote
+    cond 
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+;
+
+// Usage
+main :: (fn() -> unit) {
+  // If no return type, it is unit
   number := 3;
 
   if number < 5, then: {
@@ -1400,10 +1003,13 @@ defn main(), {
 ### cond
 
 ```rust
-defn use_cond(x: i32),
-  cond x == 1 -> println("x is 1"),
-       x == 2 -> println("x is 2"),
-       true   -> println("x is not 1 or 2")
+use_cond :: (fn(x: i32) -> unit)
+  cond(
+    (x == 1) => println("x is 1"),
+    (x == 2) => println("x is 2"),
+    true => println("x is not 1 or 2")
+  )
+;
 ```
 
 ### while
@@ -1412,22 +1018,25 @@ defn use_cond(x: i32),
 `while(condition, iteration, do: body)`
 
 ```rust
-defn factorial(n: i32): i32, {
+factorial :: (fn(n: i32) -> i32) {
   mut(result) := 1;
   mut(i) := 1;
-  while i <= n, do: {
-    result = result * i;
+  while((i <= n), do: {
+    result = (result * i);
     i += 1;
   };
   result
 };
 
-defn factorial(n: i32): i32, {
-  mut(result) := 1;
-  mut(i) := 1;
-  while i <= n, i += 1, result = result * i;
+factorial2 :: (fn(n: i32) -> i32) {
+  result := 1;
+  i := 1;
+  while((i <= n), do: {
+    result = (result * i);
+    i = (i + 1);
+  });
   result
-}
+};
 ```
 
 #### Iterator (for...in)
@@ -1448,25 +1057,25 @@ for mut_arr.iter_mut(), (value)-> {
 };
 ```
 
-`let...of...` requires the `impl Iterator` or `impl IntoIterator` trait.
+`let...of...` requires the `impl Iterator` or `impl IntoIterator` module.
 
 ```rust
-defn Iterator(Self: Type): Interface,
-  interface {
-    Item: Type;
-    next: (self: &!(Self))-> Option(this.Item);
-  };
+Iterator :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    Item: Type,
+    next: (fn(self: *(Self)) -> Option(Item))
+;
 
-defn IntoIterator(Self: Type): Interface,
-  interface {
-    Item: Type;
-    (IntoIterator: Type) <: Iterator(_, Item: this.Item);
-    // QUESTION: Should we group it as?
-    // IntoIterator: (Type <: Iterator(_, Item: this.Item))
-
+IntoIterator :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    Item: Type,
+    IntoIter: Type,
+    // IntoIter must implement Iterator with the same Item type
+    using(IteratorConstraint): (IntoIter <: Iterator, Iterator.Item == Item),
+    
     // IntoIterator will consume the value, while Iterator will not.
-    into_iter: (fn(self: Self)-> this.IntoIterator);
-  };
+    into_iter: (fn(self: Self) -> IntoIter)
+;
 ```
 
 ## Type synonyms
@@ -1497,11 +1106,12 @@ type Language = Lang<(year: i32)>;
 // Language is equal to
 type Language = { language: String; year: i32 };
 */
-defn Lang(T: Type): Type,
-  { language: String } & T; // Intersection types
-Language := Lang({year: i32});
+Lang :: (fn(compt(T): Type) -> Type)
+  ({ language: String } & T) // Intersection types
+;
+Language :: Lang({ year: i32 });
 // Language is equal to
-Language := { language: String; year: i32 };
+Language :: { language: String, year: i32 };
 ```
 
 Destructure the record:
@@ -1548,35 +1158,35 @@ There is also some optimization on the ADT. For example, if the ADT has only one
 In addition, if there is only one variant with one field, the field type will be used directly instead of wrapping it in a record. This is like the [newtype](https://wiki.haskell.org/Newtype) in Haskell.
 
 ```rust
-defn Option(T: Type): Type,
-  type (|
-    .Some(T),
-    .None);
+Option :: (fn(compt(T): Type) -> compt(Type))
+  enum(
+    Some(T),
+    None
+  )
+;
 
 (none: Option(i32)) = .None;
 (some: Option(i32)) = .Some(42);
 
-IpAddr :=
-  type (|
-    .V4((u8, u8, u8, u8)),
-    .V6(String)
-  );
+IpAddr :: enum(
+  V4((u8, u8, u8, u8)),
+  V6(String)
+);
 
-home := IpAddr.V4 (127, 0, 0, 1);
-loopback := IpAddr.V6 String.from("::1");
+home := IpAddr.V4(127, 0, 0, 1);
+loopback := IpAddr.V6(String.from("::1"));
 
 // Use record as variant
-Message :=
-  type (|
-    .Quit,
-    .Move({ x: i32, y: i32 }),
-    .Write(String),
-    .ChangeColor({ r: i32, g: i32, b: i32 })
-  );
+Message :: enum(
+  Quit,
+  Move(struct(x: i32, y: i32)),
+  Write(String),
+  ChangeColor(struct(r: i32, g: i32, b: i32))
+);
 
 m := Message.Write(String.from("hello"));
-m := Message.Move { x: 3, y: 4 };
-m := Message.ChangeColor { r: 1, g: 2, b: 3 };
+m := Message.Move(x: 3, y: 4);
+m := Message.ChangeColor(r: 1, g: 2, b: 3);
 ```
 
 ### Type parameters for specific variant
@@ -1668,21 +1278,22 @@ printf("%d", day); // 2
 Dependent types are types which depend on values.
 
 ```rust
-defn Vector(N: compt(i32)): Type,
-  Array(i32, N);
+Vector :: (fn(compt(N): compt(i32)) -> Type)
+  Array(i32, N)
+;
 
-forall (N: compt(i32)),
-  defn add_vectors(a: Vector(N), b: Vector(N)): Vector(N),
-    a.map(fn(x, i)-> (x + b(i)));
+add_vectors :: (fn(forall(N: compt(i32)), a: Vector(N), b: Vector(N)) -> Vector(N))
+  a.map((fn(x, i) -> (x + b(i))))
+;
 
-(v1: Vector(3)) := [1, 2, 3];
-(v2: Vector(3)) := [4, 5, 6];
-result := add_vectors(v1, v2); // [5, 7, 9];
+v1 := [1, 2, 3]; // v1: Array(i32, 3), which is Vector(3)
+v2 := [4, 5, 6]; // v2: Array(i32, 3), which is Vector(3)
+result := add_vectors(v1, v2); // [5, 7, 9]
 
 // The code below will not compile
-(v3: Vector(2)) := [1, 2];
-(v4: Vector(3)) := [4, 5, 6];
-// error := add_vectors(v3, v4); // Compiler Error: Vector<2> and Vector<3> are different types.
+v3 := [1, 2]; // v3: Array(i32, 2), which is Vector(2)
+v4 := [4, 5, 6]; // v4: Array(i32, 3), which is Vector(3)
+// error := add_vectors(v3, v4); // Compiler Error: Vector(2) and Vector(3) are different types.
 ```
 
 ### Refinement types `In Design`
@@ -1690,39 +1301,43 @@ result := add_vectors(v1, v2); // [5, 7, 9];
 Refinement types consists of all values of a given type which satisfy a given predicate.
 
 ```rust
-PositiveNumber := (compt(i32) |: @ > 0);
-NonEmptyString := (compt(String) |: @.length() > 0);
+PositiveNumber :: (compt(i32) |: (@ > 0));
+NonEmptyString :: (compt(String) |: (@.length() > 0));
 
-defn divide(x: PositiveNumber, y: PositiveNumber): PositiveNumber,
-  x / y;
+divide :: (fn(x: PositiveNumber, y: PositiveNumber) -> PositiveNumber)
+  (x / y)
+;
 
-(x: PositiveNumber) := 10; // Valid
-(y: PositiveNumber) := -10; // Compiler Error: -10 is not a PositiveNumber
+x := 10; // Valid: x: PositiveNumber
+// y := -10; // Compiler Error: -10 is not a PositiveNumber
 
 result := divide(10, 2); // Valid
 ```
 
 ```rust
-NaturalNumber := (i32 |: @ >= 0);
-PositiveNumber := (i32 |: @ > 0);
-forall (n: i32),
-  Equal := (i32 |: @ == n);
-forall (T: Type, a: Array(T, _)),
-  Index := NaturalNumber |: @ < a.length();
-forall (T: Type),
-  NotEmptyArray := Array(T, _) |: @.length() > 0;
+NaturalNumber :: (i32 |: (@ >= 0));
+PositiveNumber :: (i32 |: (@ > 0));
+Equal :: (fn(compt(n): i32) -> Type)
+  (i32 |: (@ == n))
+;
+Index :: (fn(compt(T): Type, compt(a): Array(T, _)) -> Type)
+  (NaturalNumber |: (@ < a.length()))
+;
+NotEmptyArray :: (fn(compt(T): Type) -> Type)
+  (Array(T, _) |: (@.length() > 0))
+;
 
-forall (T: Type, a: Array(T, _)),
-  defn get(index: Index(T, a), array: a): T,
-    array(index);
+get :: (fn(forall(T: Type, a: Array(T, _)), index: Index(T, a), array: a) -> T)
+  array(index)
+;
 
-forall (T: Type, a: Array(T, _)),
-  defn set(index: Index(T, a), array: a, value: T): a,
-    array(index) = value;
+set :: (fn(forall(T: Type, a: Array(T, _)), index: Index(T, a), array: a, value: T) -> a)
+  { array(index) = value; array }
+;
 
-forall (T: Type),
-  defn head(array: NotEmptyArray(T)): T,
-    array(0);
+head :: (fn(forall(T: Type), array: NotEmptyArray(T)) -> T)
+  array(0)
+;
 ```
 
 ### Higher Kinded Types
@@ -1730,86 +1345,94 @@ forall (T: Type),
 Higher Kinded Types are types that take other types as parameters.
 
 ```rust
-defn T1(F: (Type)-> Type, A: Type): Type,
-  F(A);
+T1 :: (fn(compt(F): (Type -> Type), compt(A): Type) -> Type)
+  F(A)
+;
 
-defn Option(T: Type): Type,
-  T1(Maybe, T);
+Option :: (fn(compt(T): Type) -> Type)
+  T1(Maybe, T)
+;
 ```
 
 ### Generalized Algebraic Data Types (GADTs) `In Design`
 
 ```rust
-defn MyExpr(T: Type): Type,
-  type (|
-    .IntExpr: ((i32)-> MyExpr(i32)),
-    .BoolExpr: ((boolean)-> MyExpr(boolean)),
-    .EqExpr: ((Expr(i32), Expr(i32)) -> Expr(boolean))
-  );
-
-forall (T: Type),
-  defn eval(expr: MyExpr(T)): T,
-    match expr,
-      .IntExpr(i) -> i,
-      .BoolExpr(b) -> b,
-      .EqExpr((left, right)) -> eval(left) == eval(right)
+MyExpr :: (fn(compt(T): Type) -> Type)
+  enum(
+    IntExpr(i32), // MyExpr(i32)
+    BoolExpr(boolean), // MyExpr(boolean)
+    EqExpr(MyExpr(i32), MyExpr(i32)) // MyExpr(boolean)
+  )
 ;
 
-(expr1 : MyExpr(boolean)) := .EqExpr(.IntExpr(1), .IntExpr(2));
+eval :: (fn(forall(T: Type), expr: MyExpr(T)) -> T)
+  match(expr,
+    .IntExpr(i) => i,
+    .BoolExpr(b) => b,
+    .EqExpr(left, right) => (eval(left) == eval(right))
+  )
+;
+
+expr1 := MyExpr.EqExpr(MyExpr.IntExpr(1), MyExpr.IntExpr(2)); // expr1: MyExpr(boolean)
 eval(expr1); // false
 ```
 
-## Interface
+## Modules
 
-Interface works similarly to the Trait in Rust.
+Modules define collections of functions and types that can be implemented for types. They work similarly to Traits in Rust. Note that `impl` takes the receiver type as the first argument, followed by the module implementation.
+
+A module is defined as a function that returns a `Module` type containing field definitions.
 
 ```rust
-defn Summary(Self: Type): Interface,
-  interface {
-    summarize: (fn(self: *(Self))-> String)
-  };
+// Define a module (like a trait in Rust)
+Summary :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    summarize: (fn(self: *(Self)) -> String)
+;
 
-defn Display(fn(self: Type) <: (Summary & SomeOtherClass)): Interface,
-  interface {
-    display: (fn(self: *(Self))-> String)
-  };
+Display :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    display: (fn(self: *(Self)) -> String)
+;
 
-NewsArticle := {
-  headline: String;
-  location: String;
-  author: String;
-  content: String;
-};
+NewsArticle :: struct(
+  headline: String,
+  location: String,
+  author: String,
+  content: String
+);
 
-impl Summary(NewsArticle) {
+// Implement the Summary module for NewsArticle
+NewsArticleSummary :: impl(NewsArticle, Summary(
   summarize: ((self) -> {
-    String.from("${self.headline}, by ${self.author} (${self.location})");
+    String.from("${self.headline}, by ${self.author} (${self.location})")
   })
-};
+));
 
 // Pass in function
-defn notify(item: &(NewsArticle)), {
+notify :: (fn(item: *(NewsArticle)) -> unit) {
   println("Breaking news! ", item.summarize());
 };
 
-forall ((T: Type) <: Display),
-  defn notify(item: &(T)), {
-    println("Breaking news! ", item.summarize());
-    println("Breaking news! ", item.display());
-  };
+// Generic function with module constraint
+notify2 :: (fn(forall((T: Type) <: Display), item: *(T)) -> unit) {
+  println("Breaking news! ", item.summarize());
+  println("Breaking news! ", item.display());
+};
 ```
 
 ```rust
-defn LuckyNumber(T: compt(i32)),
-  interface {
-    say_it: (fn(self: &(T))-> unit)
-  };
+// Module for compile-time integer
+LuckyNumber :: (fn(compt(T): compt_int) -> compt(Module))
+  module
+    say_it: (fn(self: *(T)) -> unit)
+;
 
-impl LuckyNumber(7), {
+LuckyNumber7 :: impl(7, LuckyNumber(
   say_it: ((self) -> {
-    println("Lucky number 7");
+    println("Lucky number 7")
   })
-};
+));
 
 7.say_it(); // Lucky number 7
 ```
@@ -1822,18 +1445,17 @@ ANSWER: Yes we allow
 
 ```rust
 // my_type.yo
-defn MyType(T: Type): Type,
-  type .MyType { value: T };
+MyType :: (fn(compt(T): Type) -> compt(Type))
+  struct(value: T)
+;
 
-forall (T: Type),
-  impl MyType(T), {
-    // `this` here means `MyType<T>`.
-    new: ((fn(value: T): this)-> {
-      return MyType {
-        value
-      };
-    })
-  };
+(forall(T: Type))
+MyTypeNew :: impl(MyType(T), module(
+  // `this` here means `MyType(T)`.
+  new: ((fn(value: T) -> this)
+    MyType(value: value)
+  )
+));
 
 // main.yo
 { MyType } := import("./my_type");
@@ -1845,90 +1467,86 @@ v := MyType(i32).new(1); // MyType { value: 1 }
 aka [Functional Dependencies](https://book.purescript.org/chapter6.html#functional-dependencies)
 
 ```rust
-defn Contains(Self: Type): Interface,
-  interface {
+Contains :: (fn(compt(Self): Type) -> compt(Module))
+  module
     A: Type,
     B: Type,
 
-    contains: (fn(self: &Self, a: this.A, b: this.B)-> boolean);
-            // QUESTION: Do we need `this.` here?
-            // ANSWER: Yes. Let's make it the same as typescript.
-            // `this` here means `Contains<Self>`.
-            // `this.A` means `Contains<Self>.A`.
-            // so `this.` is necessary.
-  };
+    contains: (fn(self: *(Self), a: A, b: B) -> boolean)
+    // Note: A and B are associated types defined in this module
+    // They will be specified when implementing this module for a type
+;
 
-Container := (i32, i32);
+Container :: (i32, i32);
 
-impl Contains(Container), {
-  A: i32;
-  B: i32;
+ContainerContains :: impl(Container, Contains(
+  A: i32,
+  B: i32,
 
-  contains: ((fn(self: &(Container), a: this.A, b: this.B): boolean) -> {
-    self.0 == a && self.1 == b
+  contains: ((self, a, b) -> {
+    ((self.0 == a) && (self.1 == b))
   })
-}
+));
 
-my_tuple: Container = (10, 20);
+my_tuple := Container(10, 20);
 my_tuple.contains(10, 20); // true
 
-MyI32 = Contains(Container).A; // i32
-Contains(Container).contains(&(my_tuple), 10, 20); // true
+// Access associated type from the impl
+MyI32 :: ContainerContains.A; // i32
 ```
 
-### Without interface
+### Without module
 
-Use `!(Interface)` to exclude an interface.
+Use `!(Module)` to exclude a module constraint.
 
 ```rust
-defn Summary(fn(self: Type) <: (Show & !(Eq))),
-  interface {
-    summarize: (fn(self: *(Self))-> String);
-  };
-// This trait `Summary` can only implement for `Type` that implements `Show` but not `Eq`.
+Summary :: (fn(compt(Self): Type, using(ShowImpl): (Self <: Show), using(NotEq): (Self <: !(Eq))) -> compt(Module))
+  module
+    summarize: (fn(self: *(Self)) -> String)
+;
+// This module can only be implemented for types that implement Show but not Eq.
 ```
 
-### Optional interface
+### Optional module
 
-Use `?(Interface)` to make a trait optional.
+Use `?(Module)` to make a module constraint optional.
 
 ```rust
-defn Summary(fn(self: Type) <: ?(Show)),
-  interface {
-    summarize: (fn(self: *(Self))-> String);
-  };
-// This trait `Summary` can implement for `Type` that implements `Show` or not.
+Summary :: (fn(compt(Self): Type, using(ShowImpl): (Self <: ?(Show))) -> compt(Module))
+  module
+    summarize: (fn(self: *(Self)) -> String)
+;
+// This module can be implemented for types whether or not they implement Show.
 ```
 
 ### Named impl `In Design`
 
-This is useful for resolving conflicts when implementing multiple classes for the same type.
+This is useful for resolving conflicts when implementing multiple modules for the same type.
 
 ```rust
 // id.yo
-defn Id(Self: Type),
-  interface {
-    id: (fn(self: *(Self))-> Self)
-  };
+Id :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    id: (fn(self: *(Self)) -> Self)
+;
 
 { Id }
 
 // id1.yo
-MyIdImplementation := impl Id(i32), {
-  id: (fn(self: &(i32)) -> *(self))
-};
+MyIdImplementation :: impl(i32, Id(
+  id: ((self) -> self.*)
+));
 { MyIdImplementation }
 
 // id2.yo
-impl Id(i32), {
-  id: (fn(self: &(i32)) -> (*(self) + 1))
-};
+AnotherIdImpl :: impl(i32, Id(
+  id: ((self) -> (self.* + 1))
+));
 
 // use_id.yo
 { MyIdImplementation } := import("./id1.yo");
 MyIdImplementation.id(&(12)); // 13
-12.id() // 13, using the `id` from `MyIdImplementation`.
-        // QUESTION: Should we allow this 12.id()?
+12.id(); // 13, using the `id` from `MyIdImplementation`.
 
 // another_use_id.yo
 { Id } := import("./id.yo");
@@ -1938,36 +1556,36 @@ MyIdImplementation.id(&(12)); // 13
 ### Higher Kinded Types example
 
 ```rust
-// Functor
-defn Functor(Wrapper: ((Type)-> Type)): Interface,
-  interface {
-    map: (forall
-            (A: Type, B: Type),
-            (fa: Wrapper(A), f: ((a: A)-> B))
-              -> Wrapper(B))
-  };
+// Functor module
+Functor :: (fn(compt(Wrapper): (Type -> Type)) -> compt(Module))
+  module
+    map: (fn(forall(A: Type, B: Type),
+            fa: Wrapper(A),
+            f: (fn(a: A) -> B)
+          ) -> Wrapper(B))
+;
 
-impl Functor(Maybe), {
-  map: (forall
-        (A: Type, B: Type),
-        (fn(fa: Maybe(A), f: ((a: A)-> B)): Maybe(B)) ->
-          match fa,
-            .Just(value) -> .Just(f(value)),
-            .Nothing     -> .Nothing)
-};
+MaybeFunctor :: impl(Maybe, Functor(
+  map: ((fa, f) ->
+    match(fa,
+      .Just(value) => .Just(f(value)),
+      .Nothing => .Nothing
+    )
+  )
+));
 
-forall (T: Type), impl Functor(Either(T)), {
-  map: (forall
-        (A: Type, B: Type),
-        (fn(fa: Either(T, A), f: ((a: A)-> B)): Either(T, B)) ->
-          match fa,
-            .Left(value) -> .Left(value),
-            .Right(value) -> .Right(f(value)))
-};
+(forall(T: Type))
+EitherFunctor :: impl(Either(T), Functor(
+  map: ((fa, f) ->
+    match(fa,
+      .Left(value) => .Left(value),
+      .Right(value) => .Right(f(value))
+    )
+  )
+));
 
-
-some_maybe := Just(1);
-result := some_maybe.map((x)-> x + 1); // Just(2)
+some_maybe := Maybe.Just(1);
+result := some_maybe.map((x) -> (x + 1)); // Just(2)
 ```
 
 ## Pattern Matching
@@ -1975,7 +1593,7 @@ result := some_maybe.map((x)-> x + 1); // Just(2)
 The compiler implements an exhaustive check on the pattern matching.
 
 ```rust
-Coin := type (|
+Coin :: enum(
   Penny,
   Nickel,
   Dime,
@@ -1985,37 +1603,43 @@ Coin := type (|
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-defn value_in_cents(coin: Coin): u8,
-  match coin,
-    .Penny -> {
-      println("Lucky penny!");
-      return 1;
+value_in_cents :: (fn(coin: Coin) -> u8)
+  match(coin,
+    .Penny => {
+      printf("Lucky penny!\n");
+      1
     },
-    .Nickel -> 5,
-    .Dime -> 10,
-    .Quarter -> 25;
+    .Nickel => 5,
+    .Dime => 10,
+    .Quarter => 25
+  )
+;
 
-defn List(T: Type),
-  type (|
-    .Nil,
-    .Cons((T, Box(List(T))))
-  );
+List :: (fn(compt(T): Type) -> Type)
+  enum(
+    Nil,
+    Cons(T, Box(List(T)))
+  )
+;
 
-forall (T, Type),
-  defn list_length(list: &(List(T))):i32,
-    match (list),
-      .Nil -> 0,
-      .Cons(_, tail) -> 1 + list_length(tail)
+list_length :: (fn(forall(T: Type), list: *(List(T))) -> i32)
+  match(list.*,
+    .Nil => 0,
+    .Cons(_, tail) => (1 + list_length(&(tail)))
+  )
+;
 ```
 
 ### Using Range in `case`
 
 ```rust
-defn check_int(x: i32),
-  match x,
-    (1..=6) -> println("1 to 6:"),
-    (7..10) -> println("7 to 10"),
-    _ -> println("Other");
+check_int :: (fn(x: i32) -> unit)
+  match(x,
+    (1..=6) => printf("1 to 6:\n"),
+    (7..10) => printf("7 to 10\n"),
+    _ => printf("Other\n")
+  )
+;
 ```
 
 ## Guard
@@ -2025,10 +1649,10 @@ QUESTION: Should we use `|-` operator instead to represent the `assert` meaning?
 1. Using `|:` which means `given` for guard
 
    ```rust
-   defn check_int = (x: i32)->
-     match x,
-       ((1..6) |: ((x % 2) == 0))-> {
-         println("1 to 6 and even");
+   check_int :: (fn(x: i32) -> unit)
+     match(x,
+       ((1..6) |: ((x % 2) == 0)) => {
+         printf("1 to 6 and even\n");
        },
        ((1..6) |: ((x % 2) != 0))-> {
          println("1 to 6 and odd");
@@ -2116,22 +1740,24 @@ constant_ptr_to_i32 := &!(i32_val); // ptr_to_i32: &!(i32)
 (slice: &(Slice(i32))) := &(arr(1..4)); // slice: &(Slice(i32)). Free type
 ```
 
-- Interface Object
+- Module Object (Dynamic Dispatch)
 
 ```rust
-defn Animal(Self: Type): Interface,
-  interface {
-    speak: (fn(self: *(Self))-> unit)
-  };
+Animal :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    speak: (fn(self: *(Self)) -> unit)
+;
 
-Dog := type {};
-impl Animal(Dog), {
+Dog :: struct();
+
+DogAnimal :: impl(Dog, Animal(
   speak: ((self) -> {
-    println("woof");
+    printf("woof\n");
   })
-};
-(animal: &(dyn(Animal))) := &(Dog);
-animal.speak();
+));
+
+animal := Dyn(Animal)(Dog()); // animal: Dyn(Animal)
+animal.speak(); // "woof"
 ```
 
 - Dynamic sized type
@@ -2209,50 +1835,63 @@ m2 := Map.from([
 m.set(String.from("one"), 4);
 ```
 
-## Error handling `In Design`
+## Error handling
 
-### By algebraic effects
-
-```rust
-MyError := {
-  message: &(str)
-};
-
-defn main(?(throw): Exception(MyError)), {
-  throw({
-    messaeg: "Something went wrong"
-  });
-};
-```
-
-### By data type
+Yo uses the `Result` type for error handling, similar to Rust:
 
 ```rust
-defn divide(x: i32, y: i32): Result(i32, &(str)),
-  if y == 0,
-  then: .Error("Division by zero"),
-  else: .Ok(x / y);
+// Define Result type (from standard library)
+Result :: (fn(compt(T): Type, compt(E): Type) -> compt(Type))
+  enum(
+    Ok(T),
+    Err(E)
+  )
+;
+
+// Define an error type
+DivisionError :: enum(
+  DivideByZero,
+  Overflow
+);
+
+// Function that can fail
+safe_div :: (fn(a: i32, b: i32) -> Result(i32, DivisionError))
+  if (b == 0),
+    then: Result(i32, DivisionError).Err(.DivideByZero),
+    else: Result(i32, DivisionError).Ok(a / b)
+;
+
+// Pattern matching for error handling
+division_result := safe_div(10, 2);
+match(division_result,
+  .Ok(value) => printf("Result: %d\n", value),
+  .Err(error) => match(error,
+    .DivideByZero => printf("Error: Cannot divide by zero\n"),
+    .Overflow => printf("Error: Overflow\n")
+  )
+);
 ```
 
-### The `try` function
+### Error Propagation with match
 
 ```rust
-defn use_safe_divide(): Result(i32, &(str)), do {
-  result1 <- try divide(6, 2); // 3
-  result2 <- try divide(6, 0); // Error("Division by zero")
-  println(result1); // This line and below will not be executed.
-};
+compute :: (fn(x: i32, y: i32) -> Result(i32, DivisionError)) {
+  result1 := safe_div(x, 2);
+  result2 := match(result1,
+    .Ok(v1) => {
+      temp := safe_div(v1, y);
+      match(temp,
+        .Ok(v2) => .Ok(v2),
+        .Err(e) => .Err(e)
+      )
+    },
+    .Err(e) => .Err(e)
+  );
+  return result2;
+}
 ```
 
-### Recovering from errors with the `??` infix operator
-
-```rust
-defn use_safe_divide(): i32, {
-  result := (divide(6, 0) ?? 3 ); // 3
-  println(result); // 3
-  return result;
-};
-```
+**Note**: Yo does not use algebraic effects for error handling. The language uses explicit Result types and pattern matching.
 
 ## Type casting
 
@@ -2274,74 +1913,55 @@ obj := {x: 1, y: 2, z: 3};
 y = 3; // Allowed
 ```
 
-## Callbacks and Async `In Design`
+## Async/Await
 
-### Simplify using `with <-` keyword
+Yo uses **async/await with state machine transformation** for efficient concurrent programming. This is a stackless coroutine model similar to Rust, JavaScript, C#, and Python.
 
-QUESTION: How do we handle `for` and `while` loop? `<-` won't be able to work there. Should we still implement loops?
-ANSWER: Yes we should.
+See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.
 
-PROBLEM: How to handle the rust `Pin/Unpin` problem?
-
-Any function that takes a callback as its last argument will be able to use the `with ...` notation.
-
-#### with <-
-
-For example, map an array:
+### Quick Overview
 
 ```rust
-defn main(), {
-  array := ArrayList.from([1, 2, 3, 4]);
-  new_array := array.map(fn(elem)-> (elem * 2));
-  println(new_array); // [2, 4, 6, 8]
+// Define async function - MUST return Future(T)
+fetch_data :: (fn(url: String) -> Future(Data)) async {
+  response := await http_get(url);
+  data := await response.read();
+  return data;
 };
-```
 
-```rust
-defn main(), {
-  array := ArrayList.from([1, 2, 3, 4]);
-  new_array := do {
-    elem <- array.map();
-    return elem * 2;
+// Call async function in async context
+main :: (fn() -> unit) {
+  async {
+    data := await fetch_data("http://example.com");
+    printf("Got data!\n");
   };
-  println(new_array); // [2, 4, 6, 8]
-}
-```
+};
 
-#### with <= and <<=
-
-Use `<=` for handling passing closure for `Fn` and `FnMut`
-Use `<<=` for handling passing the closure for `FnOnce`
-
-```rust
-defn some_async_func(), do {
-  response <= fetch("https://api.example.com");
-  json <= response.json();
-  println(json);
+// Async blocks for inline async tasks
+compute :: (fn() -> Future(i32)) {
+  return async {
+    x := await get_value();
+    y := await process(x);
+    return (x + y);
+  };
 };
 ```
 
-### `K` (continuation)
+### Key Features
 
-NOTE: Let's not use `Future` and `async` here in case we want to support Rust like async/await which uses the state machine.
-QUESTION: We can support `K` type, but should we support `K` block?
+- **Stackless coroutines**: State machine transformation at compile time
+- **Eager spawning**: Tasks start running immediately when created (JavaScript-style)
+- **Thread affinity**: Tasks stay on assigned worker thread (no work stealing)
+- **Memory efficient**: ~200 bytes per task vs 16KB+ for stackful coroutines
+- **BRC compatible**: Respects biased reference counting thread affinity
+- **Worker thread pool**: Fixed number of OS threads executing async tasks
 
-```rust
-defn wait_for_seconds(sec: i32): K(unit), {
-  K.new((resume)=>> {
-    set_timeout(()=>> {
-      println(sec);
-      resume();
-    }, sec * 1000);
-  });
-}
+**Syntax Rules:**
 
-defn use_wait(), do {
-  // NOTE: Unlike JavaScript Promise, which starts executing immediately, a `K` in Yo will only start executing when it is `resumed`ed.
-  sec <- wait_for_seconds(14).resume();
-  println(sec);
-}
-```
+1. Async functions **must** return `Future(T)` type
+2. `await` can **only** be used inside `async { ... }` blocks
+3. Async blocks return `Future(T)` where T is the block's result type
+4. Tasks start executing **immediately** when created (eager spawning)
 
 ## Modules
 
@@ -2357,46 +1977,46 @@ QUESTION: Should we allow to `export` a linear type value?
 // module1.yo
 { copy } := import "https://github.com/yo-lang/yo/std/fs.yo";
 
-defn test(), {
+test :: (fn() -> unit) {
   println("Hello, world!");
 };
 
-{ test, copy } // The last expression of the module will be exported.
+export test, copy; // Export multiple values
 
 // module2.yo
 // Export the type
-defn Option(T: Type): Type,
-  type (|
-    .Some(T),
-    .None
-  );
-{ Option }
+Option :: (fn(compt(T): Type) -> compt(Type))
+  enum(
+    Some(T),
+    None
+  )
+;
+export Option;
 
 // module3.yo
-// Export the interface.
-defn Id(Self: Type): Interface,
-  interface {
-    id: (fn(self: Self)-> Self);
-  };
+// Export the module (interface).
+Id :: (fn(compt(Self): Type) -> compt(Module))
+  module
+    id: (fn(self: Self) -> Self)
+;
 
-// Explicitly export the functions defined in the instance.
-// The implementations will be exported implicitly.
-impl Id(i32), {
-  id: (fn(x) -> x)
-};
+// Implement the interface for i32
+I32Id :: impl(i32, Id(
+  id: ((x) -> x)
+));
 
-{ id }
+export Id, I32Id;
 ```
 
 ```rust
-{ ...(*) } := import("./test.yo"); // Import everything from test.yo
-Test := import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
-{ test } := import("./test.yo"); // Import test function from test.yo
-{ test: test2 } := import("./test.yo"); // Import test function from test.yo and rename it to test2
+open import("./test.yo"); // Import everything from test.yo
+Test :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
+{ test } :: import("./test.yo"); // Import test function from test.yo
+{ test: test2 } :: import("./test.yo"); // Import test function from test.yo and rename it to test2
 
-{ Option } := import("./test.yo"); // Import Option type from test.yo
+{ Option } :: import("./test.yo"); // Import Option type from test.yo
 
-{ Id } := import("./test.yo"); // Import `Id` class from test.yo
+{ Id } :: import("./test.yo"); // Import `Id` module from test.yo
 ```
 
 `yo.json` and `yo.lock`
@@ -2415,124 +2035,75 @@ Test := import("./test.yo"); // Import everything from test.yo and put it in the
 
 ### `dyn` keyword
 
-`dyn` can be applied to `trait` to make it `type` for dynamic dispatch.
-~~`@Type(with:)` can be applied to `class` to make it `type` for static dispatch.~~
-~~NOTE: `@Type(with:)` is not concrete type. So we can't pass it to type argument.~~
+`Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through trait objects.
+
+**Key features:**
+- Reference counted automatically
+- No need for `&` operator - they are objects
+- Automatic memory management
+- Support multiple trait bounds
 
 ### Examples
 
 ```rust
-defn Shape(Self: Type): Interface,
-  interface {
-    area: (fn(self: *(Self))-> f32)
-  };
-
-Circle = type .Circle {
-  radius: f32
-};
-impl Shape(Circle), {
-  area:
-    ((self) ->
-      3.14 * self.radius * self.radius
-    )
-};
-
-Square := type .Square {
-  side: f32;
-};
-impl Shape(Square), {
-  area:
-    ((self) ->
-      self.side * self.side
-    )
-};
-
-// Static dispatch
-// Similar to C++'s template
-forall ((T: Type) <: Shape),
-  defn print_area(shape: &(T)),
-    println(shape.area());
-// or
-// NOTE: Below is not going to be implemented for now.
-defn print_area(shape: &(impl(Shape))), // This will omit type parameter, and you cannot pass type argument to it.
-  printl(shape.area());
-
-(circle: Circle) := Circle { radius: 1.0 };
-(square: Square) := Square { side: 2.0 };
-print_area(&(circle));
-print_area(&(square));
-
-// Dynamic Dispatch - Needs design.
-// NOTE: Here we use (dyn Class) as type, so it becomes dynamic dispatch.
-/*
-It's like in C:
-
-typedef struct {
-  float (*area)(void*);
-  void* data;
-} Shape;
-
-void print_area(Shape* shape) {
-  printf("%f\n", shape->area(shape->data));
-}
-*/
-defn print_area(shape: &(dyn(Shape))),
-  println(shape.area());
-
-[ // NOTE: We have to add `&` ahead dynamic Trait as it's unsized. It works similar to slice that requires `&` ahead.
-  &(circle),
-  &(square),
-].as((&(Slice(dyn(Shape))))) |> (fn(shapes)-> {
-  shapes(0).print_area();
-  shapes(1).print_area();
-});
-
-// With multiple classes
-defn print_area(shape: &(dyn(Shape & Display))),
-  println(shape.area());
-
-// ADT
-MyShape := type (|
-  .MyCircle(Circle),
-  .MySquare(Square)
+Speak :: module(
+  speak: (fn(self: Self) -> i32)
 );
 
-// IDEA: The trait could be automatically implemented.
-// IDEA: So when we see the definition of `MyShape` above, we could say its `.value` already implemented the `Shape` trait. So it's legit to call `my_shape.value.area()` on it.
-impl Shape(MyShape), {
-  area: ((self) -> {
-    match self,
-      .MyCircle(value) -> value.area(),
-      .MySquare(value) -> value.area(),
-    // or directly:
-    // self.value.area()
+Run :: module(
+  run: (fn(self: Self) -> i32)
+);
+
+// Must be object type to work with Dyn
+Dog :: object();
+
+DogSpeak :: impl(Dog, Speak(
+  speak: ((self: Self) -> {
+    printf("Woof!\n");
+    return 1;
   })
-}
-(shapes2: Array(MyShape, 2)) := [
-  MyShape.MyCircle(circle),
-  MyShape.MySquare(square),
-]
-shapes2(0).area();
-shapes2(1).area();
+));
+
+DogRun :: impl(Dog, Run(
+  run: ((self: Self) -> {
+    printf("The dog is running!\n");
+    return 2;
+  })
+));
+
+// Dyn type is reference counted - no & needed
+act :: (fn(s: Dyn(Speak, Run)) -> i32)
+  (s.speak() + s.run())
+;
+
+main :: (fn() -> i32) {
+  dog := Dog();
+  // dyn() creates a reference-counted trait object
+  result := act(dyn(dog, (DogSpeak, DogRun)));
+  return result;
+};
 ```
+
+**Note:** `Dyn` types are internally reference-counted objects, providing automatic memory management without manual pointer handling.
 
 ## Attributes
 
 Attributes are defined with the `@` symbol.
 
 ```rust
-@doc("Add two numbers");
-defn add(x: i32, y: i32): i32,
-  x + y;
+@doc("Add two numbers")
+add :: (fn(x: i32, y: i32) -> i32)
+  (x + y)
+;
 
 @derive(Eq, Ord)
-Centimeters := i32;
+Centimeters :: i32;
 
 
-impl Drop(i32), {
-  @noop() // ignored by the compiler when generating C code
-  drop: (value)-> {}
-}
+DropI32 :: impl(i32, Drop(
+  @noop // ignored by the compiler when generating C code
+  drop: ((value) -> {})
+));
 ```
 
 ## C Interoperability
@@ -2540,19 +2111,19 @@ impl Drop(i32), {
 ### To C
 
 ```rust
-@c_name("c_add_numbers") <| // Export to C with the name `c_add_numbers`
-defn add_numbers(a: i32, b: i32): i32, {
-  return a + b;
-}
+@c_name("c_add_numbers") // Export to C with the name `c_add_numbers`
+add_numbers :: (fn(a: i32, b: i32) -> i32) {
+  return (a + b);
+};
 
-@c_name("some_struct_t") <| // Export to C with the name `some_struct_t`
-SomeStruct := type .SomeStruct {
+@c_name("some_struct_t") // Export to C with the name `some_struct_t`
+SomeStruct :: struct(
   @c_name("another_name") // Export to C with the name `another_name`
   a: i32,
 
   b: i32,
-  c: i32,
-};
+  c: i32
+);
 ```
 
 ### From C
@@ -2567,6 +2138,8 @@ struct some_struct_t {
   int c;
 };
 ```
+
+
 
 ```rust
 {*} := import("./some_c.h");
@@ -2676,45 +2249,52 @@ list2 = :((1, x, 3)); // tuple (1, :(x), 3)
 
 ### Macro
 
-QUESTION: Should we just use `quote` instead of `quasiquote`?
+Macro functions use `quote` and `unquote` for code generation. See `std/prelude.yo` for real examples like the `if` macro.
 
-Use the `macro` keyword to define a macro.
+- `quote(...)` : Quote an expression
+- `unquote(...)` : Unquote within a quoted expression
+- `gensym(...)` : Generate unique symbol
 
-- `:` : `quote`
-- ~~`::` : `quasiquote`~~
-- `$` : `unquote`
-- ~~`...$` : `unquote_splicing`~~
+`unquote` can only be used within `quote`.
 
-`unquote` and `unquote_splicing` can only be used in `quote`.
+Example from `std/prelude.yo`:
 
 ```rust
-defn my_if(quote(condition), quote(then)),
+// The `if` macro function
+if :: (fn(quote(condition): Expr,
+        quote(then): Expr,
+        (quote(else): Expr) ?= quote(())
+      ) -> unquote(Expr))
   quote
-    if unquote(condition), unquote(then)
-  ;
+    cond 
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+;
 
-my_if true, {
+// Usage
+if(true, {
   println("true");
+});
+
+// The `try` macro for Result types
+try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
+  temp :: gensym("try");
+  quote {
+    unquote(temp) := unquote(expr_to_try);
+    match(unquote(temp),
+      .Ok => unquote(temp).value,
+      .Error => {
+        return unquote(temp).error;
+      }
+    )
+  }
 };
 
-defn my_if(quote(condition), quote(then), quote(else)),
+// Custom macro example
+unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
   quote
-    match unquote(condition),
-      true -> unqoute(then),
-      _ -> unquote(else)
-  ;
-
-my_if true, then: {
-  println("true");
-}, else: {
-  println("false");
-};
-
-defn unless(quote(condition), quote(do)),
-  quote
-    my_if(!(unquote(condition)), do: unquote(do))
-  ;
-
+    if(not(unquote(condition)), unquote(do))
+;
 ```
 
 ## References
@@ -2756,6 +2336,6 @@ defn unless(quote(condition), quote(do)),
 - [Continuation Passing for C](https://www.irif.fr/~jch/cpc.pdf)
 - [Refinement Types for TypeScript](https://goto.ucsd.edu/~pvekris/docs/pldi16.pdf)
 - [Continuations and Delimited Control
-](https://okmij.org/ftp/continuations/)
+  ](https://okmij.org/ftp/continuations/)
 - [Custom allocators in Rust](https://nical.github.io/posts/rust-custom-allocators.html)
 - [Ownership You Can Count On: A Hybrid Approach to Safe Explicit Memory Management](https://inko-lang.org/papers/ownership.pdf)
