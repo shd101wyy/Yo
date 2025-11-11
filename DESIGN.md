@@ -603,6 +603,7 @@ use_id(56, I32Add); // 56, explicitly use I32Add
 Yo supports **type methods** - methods defined within the type's module. Unlike general Uniform Function Call Syntax (UFCS), you cannot call arbitrary free functions using method syntax.
 
 **Method calls only work for:**
+
 1. Methods defined in the type's own module
 2. Methods from implemented modules
 
@@ -613,7 +614,7 @@ Point :: struct(x: i32, y: i32,
   distance_from_origin :: ((self: Self) -> f64) {
     sqrt(((self.x * self.x) + (self.y * self.y)).as(f64))
   },
-  
+
   move_by :: ((self: *(Self), dx: i32, dy: i32) -> unit) {
     self.*.x = (self.*.x + dx);
     self.*.y = (self.*.y + dy);
@@ -681,8 +682,6 @@ If `recur` is the last expression, tail-call optimization will be applied.
     else:
       x * recur(x - 1)
   ```
-
-
 
 ### Variadic functions `In Design`
 
@@ -833,6 +832,7 @@ slice4 := arr(:);  // [1, 2, 3, 4, 5]
 Closures in Yo are reference-counted objects, just like any other object type. They automatically capture variables from their environment.
 
 **Key features:**
+
 - Reference counted (like object types)
 - Automatic memory management
 - Can capture and mutate variables
@@ -856,7 +856,7 @@ main :: (fn() -> unit) {
 // Example 2: Closure with object type capture
 MyBox :: object(
   (*): i32,
-  
+
   dispose :: (fn(self: Self) -> unit) {
     printf("Disposing MyBox with value: %d\n", self.*);
   }
@@ -979,7 +979,7 @@ if :: (fn(quote(condition): Expr,
         (quote(else): Expr) ?= quote(())
       ) -> unquote(Expr))
   quote
-    cond 
+    cond
       unquote(condition) => unquote(then),
       true => unquote(else)
 ;
@@ -1072,7 +1072,7 @@ IntoIterator :: (fn(compt(Self): Type) -> compt(Module))
     IntoIter: Type,
     // IntoIter must implement Iterator with the same Item type
     using(IteratorConstraint): (IntoIter <: Iterator, Iterator.Item == Item),
-    
+
     // IntoIterator will consume the value, while Iterator will not.
     into_iter: (fn(self: Self) -> IntoIter)
 ;
@@ -1680,92 +1680,6 @@ QUESTION: Should we use `|-` operator instead to represent the `assert` meaning?
    };
    ```
 
-## Pointers
-
-### Thin pointers
-
-In C, there are 4 types of pointers:
-
-- Pointer to a constant
-  `const int*`
-- Constant pointer to a constant
-  `const int* const`
-- Pointer to a non-constant
-  `int*`
-- Constant pointer to a non-constant
-  `int* const`
-
-In Yo, these 4 categories are represented as:
-
-```rust
-// Pointer to a constant
-constant_i32 := 12;
-mut(ptr_to_constant) := &(constant_i32); // mut(ptr_to_constant): &(i32)
-
-// Constant pointer to a constant
-constant_i32 := 12;
-constant_ptr_to_constant := &(constant_i32); // constant_ptr_to_constant: &(i32)
-
-// Pointer to a non-constant
-mut(i32_val) := 12;
-mut(ptr_to_i32) := &!(i32_val); // mut(ptr_to_i32): &!(i32)
-
-
-// Constant pointer to a non-constant
-mut(i32_val) := 12;
-constant_ptr_to_i32 := &!(i32_val); // ptr_to_i32: &!(i32)
-```
-
-#### Linear pointers
-
-```rust
-// `^` means linear pointer
-{
-  some_i := malloc(sizeof(i32)); // i: Option(^!(i32));
-  i := some_i.unwrap(); // i: ^!(i32); Linear type
-
-  p := i; // p: ^!(i32). Linear type, ownership is transferred.
-  free(p);
-
-  println(*(i)); // Compile Error: The value it points to is consumed.
-}
-```
-
-### Fat pointers
-
-- Slice
-
-```rust
-(arr: Array(i32, 5)) := [1, 2, 3, 4, 5];
-(slice: &(Slice(i32))) := &(arr(1..4)); // slice: &(Slice(i32)). Free type
-```
-
-- Module Object (Dynamic Dispatch)
-
-```rust
-Animal :: (fn(compt(Self): Type) -> compt(Module))
-  module
-    speak: (fn(self: *(Self)) -> unit)
-;
-
-Dog :: struct();
-
-DogAnimal :: impl(Dog, Animal(
-  speak: ((self) -> {
-    printf("woof\n");
-  })
-));
-
-animal := Dyn(Animal)(Dog()); // animal: Dyn(Animal)
-animal.speak(); // "woof"
-```
-
-- Dynamic sized type
-
-```rust
-(s: &(str)) := "Hello, world!";
-```
-
 ## String
 
 ### C String
@@ -1777,25 +1691,6 @@ s = "Hello".to_cstring(); // s: *u8
 // (const char) *const s1 = "Hello";
 ```
 
-### UTF-8 string literal
-
-NOTE: Should we support this or just use `String`?
-
-This is not a 0 terminated string.
-Similar to the `str` in Rust.
-NOTE: UTF-8 is a variable-width encoding (each character can be 1 to 4 bytes long), so we cannot get the `n`th character like `s[n]`.
-
-```rust
-immutable_s := "Hello"; // immutable_s: &str, free type
-immutable_s.length; // 5
-
-// where it is stored in struct like
-str = type {
-  data: u8;
-  length: usize;
-};
-```
-
 ### String (Immutable String)
 
 UTF-8 encoded string.
@@ -1803,36 +1698,246 @@ UTF-8 encoded string.
 ```rust
 s := String.new();
 s2 := String.from("Hello World!");
-s3 := s + s2; // Create a new string.
+s3 := (s + s2); // Create a new string.
 ```
 
-## Collections `In Design`
+## Collections
 
-### ARC Collections
+Yo provides efficient, reference-counted collection types in the standard library.
 
-#### ArrayList
+### ArrayList
 
-This is the dynamic array.
+Dynamic array with automatic resizing.
 
 ```rust
-(v: ArrayList(i32, .Arc)) := ArrayList(i32, .Arc).new();
-v2 := ArrayList.from([1, 2, 3]);
-value := v2.at(0);
+{ ArrayList } :: import "std/collections/array_list";
+
+// Create a new ArrayList
+list := ArrayList(i32).new();
+
+// Push elements
+list.push((42).as(i32));
+list.push((100).as(i32));
+list.push((200).as(i32));
+
+printf("Length: %zu\n", list.length());
+printf("Capacity: %zu\n", list.capacity());
+
+// Get elements by index
+first := list.get((0).as(usize));
+match(first,
+  .Some(value) => printf("First element: %d\n", value),
+  .None => printf("No first element\n")
+);
+
+// Set an element
+list.set((1).as(usize), (150).as(i32));
+
+// Pop an element
+popped := list.pop();
+match(popped,
+  .Some(value) => printf("Popped: %d\n", value),
+  .None => printf("List is empty\n")
+);
+
+// Create with initial capacity
+list2 := ArrayList(i32).with_capacity((10).as(usize));
+
+// Clear and shrink
+list.clear();
+list.shrink_to_fit();
 ```
 
-#### Map
+### HashMap
 
-The unordered map.
+Hash map with key-value pairs.
 
 ```rust
-(m: Map(String, i32)) = Map.new();
-m2 := Map.from([
-  (String.from("one"), 1),
-  (String.from("two"), 2),
-  (String.from("three"), 3),
-]);
+{ HashMap } :: import "std/collections/hash_map";
 
-m.set(String.from("one"), 4);
+// Create a new HashMap
+map := HashMap(i32, i32).new();
+
+// Insert key-value pairs
+result := map.set(1.as(i32), 100.as(i32));
+match(result,
+  .Ok(opt) => match(opt,
+    .None => printf("Inserted new key\n"),
+    .Some(old_val) => printf("Updated, old value: %d\n", old_val)
+  ),
+  .Error(_) => printf("Insert failed\n")
+);
+
+// Get a value
+value_opt := map.get(1.as(i32));
+match(value_opt,
+  .Some(v) => printf("Value: %d\n", v),
+  .None => printf("Key not found\n")
+);
+
+// Check if key exists
+cond(
+  (map.has(1.as(i32))) => printf("Contains key 1\n"),
+  true => printf("Does not contain key 1\n")
+);
+
+// Remove a key
+removed := map.remove(1.as(i32));
+match(removed,
+  .Some(v) => printf("Removed value: %d\n", v),
+  .None => printf("Key not found\n")
+);
+
+// Check length and empty
+printf("Length: %zu\n", map.length());
+cond(
+  (map.is_empty()) => printf("Map is empty\n"),
+  true => printf("Map is not empty\n")
+);
+
+// Clear the map
+map.clear();
+```
+
+### HashSet
+
+Hash set for unique values.
+
+```rust
+{ HashSet } :: import "std/collections/hash_set";
+
+// Create a new HashSet
+set := HashSet(i32).new();
+
+// Insert elements
+result := set.add(42.as(i32));
+match(result,
+  .Ok(was_new) => cond(
+    was_new => printf("Inserted new element\n"),
+    true => printf("Element already exists\n")
+  ),
+  .Error(_) => printf("Insert failed\n")
+);
+
+// Check if has
+cond(
+  (set.has(42.as(i32))) => printf("Contains 42\n"),
+  true => printf("Does not contain 42\n")
+);
+
+// Remove element
+removed := set.remove(42.as(i32));
+cond(
+  removed => printf("Removed element\n"),
+  true => printf("Element not found\n")
+);
+
+// Set operations
+set1 := HashSet(i32).new();
+set2 := HashSet(i32).new();
+
+set1.add(1.as(i32));
+set1.add(2.as(i32));
+set1.add(3.as(i32));
+
+set2.add(2.as(i32));
+set2.add(3.as(i32));
+set2.add(4.as(i32));
+
+// Union
+union_result := set1.union(set2);
+match(union_result,
+  .Ok(union_set) => printf("Union size: %zu\n", union_set.length()),
+  .Error(_) => printf("Union failed\n")
+);
+
+// Intersection
+inter_result := set1.intersection(set2);
+match(inter_result,
+  .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.length()),
+  .Error(_) => printf("Intersection failed\n")
+);
+
+// Subset check
+is_sub := set1.is_subset(set2);
+cond(
+  is_sub => printf("set1 is subset of set2\n"),
+  true => printf("set1 is not subset of set2\n")
+);
+```
+
+### LinkedList
+
+Doubly-linked list.
+
+```rust
+{ LinkedList } :: import "std/collections/linked_list";
+
+// Create a new LinkedList
+list := LinkedList(i32).new();
+
+// Push to front and back
+list.push_front(1.as(i32));
+list.push_back(2.as(i32));
+list.push_front(0.as(i32));
+
+printf("Length: %zu\n", list.len());
+
+// Access front and back
+match(list.front(),
+  .Some(v) => printf("Front: %d\n", v),
+  .None => printf("List is empty\n")
+);
+
+match(list.back(),
+  .Some(v) => printf("Back: %d\n", v),
+  .None => printf("List is empty\n")
+);
+
+// Pop from front and back
+match(list.pop_front(),
+  .Some(v) => printf("Popped front: %d\n", v),
+  .None => printf("List is empty\n")
+);
+
+match(list.pop_back(),
+  .Some(v) => printf("Popped back: %d\n", v),
+  .None => printf("List is empty\n")
+);
+
+// Get by index
+match(list.get((0).as(usize)),
+  .Some(v) => printf("At index 0: %d\n", v),
+  .None => printf("Index out of bounds\n")
+);
+
+// Insert at index
+match(list.set((1).as(usize), 20.as(i32)),
+  .Ok(_) => printf("Inserted at index 1\n"),
+  .Error(err) => match(err,
+    .IndexOutOfBounds => printf("Index out of bounds\n"),
+    .EmptyList => printf("List is empty\n")
+  )
+);
+
+// Remove at index
+match(list.remove((0).as(usize)),
+  .Ok(v) => printf("Removed: %d\n", v),
+  .Error(err) => printf("Remove failed\n")
+);
+
+// Check if has
+cond(
+  (list.has(20.as(i32), i32.Eq)) => printf("Contains 20\n"),
+  true => printf("Does not contain 20\n")
+);
+
+// Reverse the list
+list.reverse();
+
+// Clear
+list.clear();
+assert(list.is_empty(), "List should be empty");
 ```
 
 ## Error handling
@@ -2038,6 +2143,7 @@ Test :: import("./test.yo"); // Import everything from test.yo and put it in the
 `Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through trait objects.
 
 **Key features:**
+
 - Reference counted automatically
 - No need for `&` operator - they are objects
 - Automatic memory management
@@ -2138,8 +2244,6 @@ struct some_struct_t {
   int c;
 };
 ```
-
-
 
 ```rust
 {*} := import("./some_c.h");
@@ -2266,7 +2370,7 @@ if :: (fn(quote(condition): Expr,
         (quote(else): Expr) ?= quote(())
       ) -> unquote(Expr))
   quote
-    cond 
+    cond
       unquote(condition) => unquote(then),
       true => unquote(else)
 ;

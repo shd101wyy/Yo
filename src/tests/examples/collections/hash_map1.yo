@@ -6,7 +6,7 @@ test_basic_insert_and_get :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  result := map.insert(1.as(i32), 100.as(i32));
+  result := map.set(1.as(i32), 100.as(i32));
   match(result,
     .Ok(opt) => match(opt,
       .None => { printf("✓ Inserted new key: 1 -> 100\n"); },
@@ -36,9 +36,9 @@ test_update_existing_key :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.insert(42.as(i32), 1.as(i32));
+  map.set(42.as(i32), 1.as(i32));
   
-  result := map.insert(42.as(i32), 2.as(i32));
+  result := map.set(42.as(i32), 2.as(i32));
   match(result,
     .Ok(opt) => match(opt,
       .Some(old_val) => cond(
@@ -75,8 +75,8 @@ test_remove :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.insert(10.as(i32), 20.as(i32));
-  map.insert(30.as(i32), 40.as(i32));
+  map.set(10.as(i32), 20.as(i32));
+  map.set(30.as(i32), 40.as(i32));
   
   removed := map.remove(10.as(i32));
   match(removed,
@@ -116,17 +116,17 @@ test_contains_key :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.insert(5.as(i32), 10.as(i32));
+  map.set(5.as(i32), 10.as(i32));
   
   cond(
-    (map.contains_key(5.as(i32))) => {
+    (map.has(5.as(i32))) => {
       printf("✓ Contains key 5\n");
     },
     true => panic("Should contain key 5")
   );
   
   cond(
-    (map.contains_key(99.as(i32))) => panic("Should not contain key 99"),
+    (map.has(99.as(i32))) => panic("Should not contain key 99"),
     true => {
       printf("✓ Does not contain key 99\n");
     }
@@ -142,7 +142,7 @@ test_resize :: (fn() -> unit) {
   
   i := (0).as(i32);
   while(i < (20).as(i32), i = (i + (1).as(i32)), {
-    map.insert(i, (i * (2).as(i32)));
+    map.set(i, (i * (2).as(i32)));
   });
   
   printf("✓ Inserted 20 elements (triggers resize)\n");
@@ -174,11 +174,11 @@ test_multiple_insertions :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.insert(1.as(i32), 10.as(i32));
-  map.insert(2.as(i32), 20.as(i32));
-  map.insert(3.as(i32), 30.as(i32));
-  map.insert(4.as(i32), 40.as(i32));
-  map.insert(5.as(i32), 50.as(i32));
+  map.set(1.as(i32), 10.as(i32));
+  map.set(2.as(i32), 20.as(i32));
+  map.set(3.as(i32), 30.as(i32));
+  map.set(4.as(i32), 40.as(i32));
+  map.set(5.as(i32), 50.as(i32));
   
   cond(
     (map.length() == (5).as(usize)) => {
@@ -218,9 +218,9 @@ test_collision_handling :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.insert(16.as(i32), 1.as(i32));
-  map.insert(32.as(i32), 2.as(i32));
-  map.insert(48.as(i32), 3.as(i32));
+  map.set(16.as(i32), 1.as(i32));
+  map.set(32.as(i32), 2.as(i32));
+  map.set(48.as(i32), 3.as(i32));
   
   v1 := map.get(16.as(i32));
   v2 := map.get(32.as(i32));

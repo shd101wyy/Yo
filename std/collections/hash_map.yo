@@ -327,7 +327,7 @@ HashMap :: (fn(
      * Insert or update a key-value pair
      * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
      */
-    insert :: ((fn(self: Self, key: K, value: V) -> Result(Option(V), HashMapError))
+    set :: ((fn(self: Self, key: K, value: V) -> Result(Option(V), HashMapError))
       {
         hash := KeyHash.(hash)(key);
         bucket_opt := self._find_bucket(key, hash);
@@ -393,7 +393,7 @@ HashMap :: (fn(
     /**
      * Check if a key exists in the map
      */
-    contains_key :: ((fn(self: Self, key: K) -> boolean)
+    has :: ((fn(self: Self, key: K) -> boolean)
       {
         hash := KeyHash.(hash)(key);
         bucket_opt := self._find_bucket(key, hash);

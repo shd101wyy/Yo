@@ -315,7 +315,7 @@ HashSet :: (fn(
      * Insert an element into the set
      * Returns Ok(true) if element was newly inserted, Ok(false) if already present
      */
-    insert :: ((fn(self: Self, element: T) -> Result(boolean, HashSetError))
+    add :: ((fn(self: Self, element: T) -> Result(boolean, HashSetError))
       {
         hash := ElementHash.(hash)(element);
         slot_opt := self._find_slot(element, hash);
@@ -354,7 +354,7 @@ HashSet :: (fn(
     /**
      * Check if an element exists in the set
      */
-    contains :: ((fn(self: Self, element: T) -> boolean)
+    has :: ((fn(self: Self, element: T) -> boolean)
       {
         hash := ElementHash.(hash)(element);
         slot_opt := self._find_slot(element, hash);
@@ -432,7 +432,7 @@ HashSet :: (fn(
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                 element := (data_ptr + i).*;
-                contains_result := other.contains(element);
+                contains_result := other.has(element);
                 cond(
                   (contains_result == false) => {
                     is_sub = false;
@@ -476,7 +476,7 @@ HashSet :: (fn(
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
               element := (data_ptr + i).*;
-              contains_result := larger.contains(element);
+              contains_result := larger.has(element);
               cond(
                 (contains_result == true) => {
                   result = false;
@@ -525,7 +525,7 @@ HashSet :: (fn(
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                   element := (data_ptr + i).*;
-                  _ := result_set.insert(element);
+                  _ := result_set.add(element);
                 },
                 true => ()
               );
@@ -539,7 +539,7 @@ HashSet :: (fn(
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                   element := (other_data_ptr + j).*;
-                  _ := result_set.insert(element);
+                  _ := result_set.add(element);
                 },
                 true => ()
               );
@@ -573,8 +573,8 @@ HashSet :: (fn(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                   element := (data_ptr + i).*;
                   cond(
-                    (larger.contains(element)) => {
-                      _ := result_set.insert(element);
+                    (larger.has(element)) => {
+                      _ := result_set.add(element);
                     },
                     true => ()
                   );
@@ -607,10 +607,10 @@ HashSet :: (fn(
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                   element := (data_ptr + i).*;
-                  contains_result := other.contains(element);
+                  contains_result := other.has(element);
                   cond(
                     (contains_result == false) => {
-                      _ := result_set.insert(element);
+                      _ := result_set.add(element);
                     },
                     true => ()
                   );
@@ -643,10 +643,10 @@ HashSet :: (fn(
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                   element := (data_ptr + i).*;
-                  contains_result := other.contains(element);
+                  contains_result := other.has(element);
                   cond(
                     (contains_result == false) => {
-                      _ := result_set.insert(element);
+                      _ := result_set.add(element);
                     },
                     true => ()
                   );
@@ -663,10 +663,10 @@ HashSet :: (fn(
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                   element := (other_data_ptr + j).*;
-                  contains_result := self.contains(element);
+                  contains_result := self.has(element);
                   cond(
                     (contains_result == false) => {
-                      _ := result_set.insert(element);
+                      _ := result_set.add(element);
                     },
                     true => ()
                   );

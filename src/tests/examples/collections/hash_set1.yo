@@ -7,7 +7,7 @@ test_basic_insert_and_contains :: (fn() -> unit) {
   
   set := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  result := set.insert(42.as(i32));
+  result := set.add(42.as(i32));
   match(result,
     .Ok(was_new) => {
       assert(was_new, "Expected true for new element");
@@ -16,11 +16,11 @@ test_basic_insert_and_contains :: (fn() -> unit) {
     .Error(_) => panic("Insert failed")
   );
   
-  contains := set.contains(42.as(i32));
+  contains := set.has(42.as(i32));
   assert(contains, "Set should contain 42");
   printf("✓ Set contains 42\n");
   
-  not_contains := set.contains(99.as(i32));
+  not_contains := set.has(99.as(i32));
   assert((not_contains == false), "Set should not contain 99");
   printf("✓ Set does not contain 99\n");
   
@@ -32,7 +32,7 @@ test_insert_duplicate :: (fn() -> unit) {
   
   set := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  result1 := set.insert(10.as(i32));
+  result1 := set.add(10.as(i32));
   match(result1,
     .Ok(was_new) => {
       assert(was_new, "First insert should return true");
@@ -41,7 +41,7 @@ test_insert_duplicate :: (fn() -> unit) {
     .Error(_) => panic("Insert failed")
   );
   
-  result2 := set.insert(10.as(i32));
+  result2 := set.add(10.as(i32));
   match(result2,
     .Ok(was_new) => {
       assert((was_new == false), "Duplicate insert should return false");
@@ -61,20 +61,20 @@ test_remove :: (fn() -> unit) {
   
   set := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set.insert(1.as(i32));
-  set.insert(2.as(i32));
-  set.insert(3.as(i32));
+  set.add(1.as(i32));
+  set.add(2.as(i32));
+  set.add(3.as(i32));
   
   removed := set.remove(2.as(i32));
   assert(removed, "Remove should return true");
   printf("✓ Removed element 2\n");
   
-  contains := set.contains(2.as(i32));
+  contains := set.has(2.as(i32));
   assert((contains == false), "Set should not contain 2");
   printf("✓ Set no longer contains 2\n");
   
-  assert(set.contains(1.as(i32)), "Set should still contain 1");
-  assert(set.contains(3.as(i32)), "Set should still contain 3");
+  assert(set.has(1.as(i32)), "Set should still contain 1");
+  assert(set.has(3.as(i32)), "Set should still contain 3");
   printf("✓ Other elements still present\n");
   
   not_removed := set.remove(99.as(i32));
@@ -93,9 +93,9 @@ test_length_and_empty :: (fn() -> unit) {
   assert((set.length() == (0).as(usize)), "New set length should be 0");
   printf("✓ New set is empty\n");
   
-  set.insert(1.as(i32));
-  set.insert(2.as(i32));
-  set.insert(3.as(i32));
+  set.add(1.as(i32));
+  set.add(2.as(i32));
+  set.add(3.as(i32));
   
   assert((set.is_empty() == false), "Set should not be empty");
   assert((set.length() == (3).as(usize)), "Length should be 3");
@@ -117,7 +117,7 @@ test_resize :: (fn() -> unit) {
   
   i := (0).as(i32);
   while(i < (20).as(i32), i = (i + (1).as(i32)), {
-    set.insert(i);
+    set.add(i);
   });
   
   printf("✓ Inserted 20 elements (triggers resize)\n");
@@ -127,7 +127,7 @@ test_resize :: (fn() -> unit) {
   
   j := (0).as(i32);
   while(j < (20).as(i32), j = (j + (1).as(i32)), {
-    contains := set.contains(j);
+    contains := set.has(j);
     assert(contains, "All elements should be present after resize");
   });
   
@@ -140,13 +140,13 @@ test_is_subset :: (fn() -> unit) {
   set1 := HashSet(i32, i32.Eq, i32.Hash).new();
   set2 := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set1.insert(1.as(i32));
-  set1.insert(2.as(i32));
+  set1.add(1.as(i32));
+  set1.add(2.as(i32));
   
-  set2.insert(1.as(i32));
-  set2.insert(2.as(i32));
-  set2.insert(3.as(i32));
-  set2.insert(4.as(i32));
+  set2.add(1.as(i32));
+  set2.add(2.as(i32));
+  set2.add(3.as(i32));
+  set2.add(4.as(i32));
   
   is_sub := set1.is_subset(set2);
   assert(is_sub, "set1 should be subset of set2");
@@ -157,8 +157,8 @@ test_is_subset :: (fn() -> unit) {
   printf("✓ {1,2,3,4} is not subset of {1,2}\n");
   
   set3 := HashSet(i32, i32.Eq, i32.Hash).new();
-  set3.insert(1.as(i32));
-  set3.insert(2.as(i32));
+  set3.add(1.as(i32));
+  set3.add(2.as(i32));
   
   is_self_sub := set3.is_subset(set1);
   assert(is_self_sub, "Equal sets should be subsets");
@@ -173,12 +173,12 @@ test_is_superset :: (fn() -> unit) {
   set1 := HashSet(i32, i32.Eq, i32.Hash).new();
   set2 := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set1.insert(1.as(i32));
-  set1.insert(2.as(i32));
-  set1.insert(3.as(i32));
+  set1.add(1.as(i32));
+  set1.add(2.as(i32));
+  set1.add(3.as(i32));
   
-  set2.insert(1.as(i32));
-  set2.insert(2.as(i32));
+  set2.add(1.as(i32));
+  set2.add(2.as(i32));
   
   is_super := set1.is_superset(set2);
   assert(is_super, "set1 should be superset of set2");
@@ -197,19 +197,19 @@ test_is_disjoint :: (fn() -> unit) {
   set1 := HashSet(i32, i32.Eq, i32.Hash).new();
   set2 := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set1.insert(1.as(i32));
-  set1.insert(2.as(i32));
+  set1.add(1.as(i32));
+  set1.add(2.as(i32));
   
-  set2.insert(3.as(i32));
-  set2.insert(4.as(i32));
+  set2.add(3.as(i32));
+  set2.add(4.as(i32));
   
   is_disj := set1.is_disjoint(set2);
   assert(is_disj, "Sets should be disjoint");
   printf("✓ {1,2} and {3,4} are disjoint\n");
   
   set3 := HashSet(i32, i32.Eq, i32.Hash).new();
-  set3.insert(2.as(i32));
-  set3.insert(5.as(i32));
+  set3.add(2.as(i32));
+  set3.add(5.as(i32));
   
   is_not_disj := set1.is_disjoint(set3);
   assert((is_not_disj == false), "Sets should not be disjoint");
@@ -224,13 +224,13 @@ test_union :: (fn() -> unit) {
   set1 := HashSet(i32, i32.Eq, i32.Hash).new();
   set2 := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set1.insert(1.as(i32));
-  set1.insert(2.as(i32));
-  set1.insert(3.as(i32));
+  set1.add(1.as(i32));
+  set1.add(2.as(i32));
+  set1.add(3.as(i32));
   
-  set2.insert(3.as(i32));
-  set2.insert(4.as(i32));
-  set2.insert(5.as(i32));
+  set2.add(3.as(i32));
+  set2.add(4.as(i32));
+  set2.add(5.as(i32));
   
   result := set1.union(set2);
   match(result,
@@ -238,11 +238,11 @@ test_union :: (fn() -> unit) {
       assert((union_set.length() == (5).as(usize)), "Union should have 5 elements");
       printf("✓ Union has 5 elements\n");
       
-      assert(union_set.contains(1.as(i32)), "Union should contain 1");
-      assert(union_set.contains(2.as(i32)), "Union should contain 2");
-      assert(union_set.contains(3.as(i32)), "Union should contain 3");
-      assert(union_set.contains(4.as(i32)), "Union should contain 4");
-      assert(union_set.contains(5.as(i32)), "Union should contain 5");
+      assert(union_set.has(1.as(i32)), "Union should contain 1");
+      assert(union_set.has(2.as(i32)), "Union should contain 2");
+      assert(union_set.has(3.as(i32)), "Union should contain 3");
+      assert(union_set.has(4.as(i32)), "Union should contain 4");
+      assert(union_set.has(5.as(i32)), "Union should contain 5");
       printf("✓ Union contains all elements {1,2,3,4,5}\n");
     },
     .Error(_) => panic("Union failed")
@@ -257,13 +257,13 @@ test_intersection :: (fn() -> unit) {
   set1 := HashSet(i32, i32.Eq, i32.Hash).new();
   set2 := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set1.insert(1.as(i32));
-  set1.insert(2.as(i32));
-  set1.insert(3.as(i32));
+  set1.add(1.as(i32));
+  set1.add(2.as(i32));
+  set1.add(3.as(i32));
   
-  set2.insert(2.as(i32));
-  set2.insert(3.as(i32));
-  set2.insert(4.as(i32));
+  set2.add(2.as(i32));
+  set2.add(3.as(i32));
+  set2.add(4.as(i32));
   
   result := set1.intersection(set2);
   match(result,
@@ -271,10 +271,10 @@ test_intersection :: (fn() -> unit) {
       assert((inter_set.length() == (2).as(usize)), "Intersection should have 2 elements");
       printf("✓ Intersection has 2 elements\n");
       
-      assert(inter_set.contains(2.as(i32)), "Intersection should contain 2");
-      assert(inter_set.contains(3.as(i32)), "Intersection should contain 3");
-      assert((inter_set.contains(1.as(i32)) == false), "Intersection should not contain 1");
-      assert((inter_set.contains(4.as(i32)) == false), "Intersection should not contain 4");
+      assert(inter_set.has(2.as(i32)), "Intersection should contain 2");
+      assert(inter_set.has(3.as(i32)), "Intersection should contain 3");
+      assert((inter_set.has(1.as(i32)) == false), "Intersection should not contain 1");
+      assert((inter_set.has(4.as(i32)) == false), "Intersection should not contain 4");
       printf("✓ Intersection contains {2,3}\n");
     },
     .Error(_) => panic("Intersection failed")
@@ -289,13 +289,13 @@ test_difference :: (fn() -> unit) {
   set1 := HashSet(i32, i32.Eq, i32.Hash).new();
   set2 := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set1.insert(1.as(i32));
-  set1.insert(2.as(i32));
-  set1.insert(3.as(i32));
+  set1.add(1.as(i32));
+  set1.add(2.as(i32));
+  set1.add(3.as(i32));
   
-  set2.insert(2.as(i32));
-  set2.insert(3.as(i32));
-  set2.insert(4.as(i32));
+  set2.add(2.as(i32));
+  set2.add(3.as(i32));
+  set2.add(4.as(i32));
   
   result := set1.difference(set2);
   match(result,
@@ -303,10 +303,10 @@ test_difference :: (fn() -> unit) {
       assert((diff_set.length() == (1).as(usize)), "Difference should have 1 element");
       printf("✓ Difference has 1 element\n");
       
-      assert(diff_set.contains(1.as(i32)), "Difference should contain 1");
-      assert((diff_set.contains(2.as(i32)) == false), "Difference should not contain 2");
-      assert((diff_set.contains(3.as(i32)) == false), "Difference should not contain 3");
-      assert((diff_set.contains(4.as(i32)) == false), "Difference should not contain 4");
+      assert(diff_set.has(1.as(i32)), "Difference should contain 1");
+      assert((diff_set.has(2.as(i32)) == false), "Difference should not contain 2");
+      assert((diff_set.has(3.as(i32)) == false), "Difference should not contain 3");
+      assert((diff_set.has(4.as(i32)) == false), "Difference should not contain 4");
       printf("✓ Difference contains {1}\n");
     },
     .Error(_) => panic("Difference failed")
@@ -321,14 +321,14 @@ test_symmetric_difference :: (fn() -> unit) {
   set1 := HashSet(i32, i32.Eq, i32.Hash).new();
   set2 := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set1.insert(1.as(i32));
-  set1.insert(2.as(i32));
-  set1.insert(3.as(i32));
+  set1.add(1.as(i32));
+  set1.add(2.as(i32));
+  set1.add(3.as(i32));
   
-  set2.insert(2.as(i32));
-  set2.insert(3.as(i32));
-  set2.insert(4.as(i32));
-  set2.insert(5.as(i32));
+  set2.add(2.as(i32));
+  set2.add(3.as(i32));
+  set2.add(4.as(i32));
+  set2.add(5.as(i32));
   
   result := set1.symmetric_difference(set2);
   match(result,
@@ -336,11 +336,11 @@ test_symmetric_difference :: (fn() -> unit) {
       assert((sym_diff_set.length() == (3).as(usize)), "Symmetric difference should have 3 elements");
       printf("✓ Symmetric difference has 3 elements\n");
       
-      assert(sym_diff_set.contains(1.as(i32)), "Symmetric difference should contain 1");
-      assert(sym_diff_set.contains(4.as(i32)), "Symmetric difference should contain 4");
-      assert(sym_diff_set.contains(5.as(i32)), "Symmetric difference should contain 5");
-      assert((sym_diff_set.contains(2.as(i32)) == false), "Symmetric difference should not contain 2");
-      assert((sym_diff_set.contains(3.as(i32)) == false), "Symmetric difference should not contain 3");
+      assert(sym_diff_set.has(1.as(i32)), "Symmetric difference should contain 1");
+      assert(sym_diff_set.has(4.as(i32)), "Symmetric difference should contain 4");
+      assert(sym_diff_set.has(5.as(i32)), "Symmetric difference should contain 5");
+      assert((sym_diff_set.has(2.as(i32)) == false), "Symmetric difference should not contain 2");
+      assert((sym_diff_set.has(3.as(i32)) == false), "Symmetric difference should not contain 3");
       printf("✓ Symmetric difference contains {1,4,5}\n");
     },
     .Error(_) => panic("Symmetric difference failed")
@@ -354,13 +354,13 @@ test_collision_handling :: (fn() -> unit) {
   
   set := HashSet(i32, i32.Eq, i32.Hash).new();
   
-  set.insert(16.as(i32));
-  set.insert(32.as(i32));
-  set.insert(48.as(i32));
+  set.add(16.as(i32));
+  set.add(32.as(i32));
+  set.add(48.as(i32));
   
-  assert(set.contains(16.as(i32)), "Set should contain 16");
-  assert(set.contains(32.as(i32)), "Set should contain 32");
-  assert(set.contains(48.as(i32)), "Set should contain 48");
+  assert(set.has(16.as(i32)), "Set should contain 16");
+  assert(set.has(32.as(i32)), "Set should contain 32");
+  assert(set.has(48.as(i32)), "Set should contain 48");
   printf("✓ All colliding keys present\n");
   
   assert((set.length() == (3).as(usize)), "Length should be 3");
