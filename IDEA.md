@@ -1,3 +1,43 @@
+Type reflection
+
+```rust,f#
+// Type reflection
+
+TypeField :: struct(
+  compt(type) : Type,
+  compt(label) : compt_string,
+  compt(is_compt) : boolean
+);
+
+TypeInfo :: enum(
+  Module(
+    compt(fields) : ComptList(TypeField),
+    compt(receiver_type) : enum(
+      None,
+      Some(compt(type) : Type)
+    )
+  ),
+  I32(
+    compt(id) : compt_string,
+    compt(module) : Self.Module
+  ),
+  Boolean(
+    compt(id) : compt_string,
+    compt(module) : Self.Module
+  )
+);
+
+
+I32Info :: TypeInfo.I32(
+  id: "i32",
+  module: TypeInfo.Module(
+    fields : ComptList(TypeField)(),
+    receiver_type : .None
+  )
+);
+```
+
+
 ```rust,f#
 swap ::
   (fn(forall(R1 : Region, compt(R2) : Region),

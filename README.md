@@ -58,7 +58,7 @@ $ bun run build
 Test some local yo-cli:
 
 ```bash
-$ bun run src/yo-cli.ts src/tests/examples/fixme.yo
+$ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
 ```
 
 ## License

@@ -5,16 +5,17 @@ import packageJson from "../package.json";
 import { CodeGenerator } from "./codegen";
 
 yargs(hideBin(process.argv))
+  .wrap(null)
   .usage(
     `Usage:
 
-yo <file> [options]              Compile a '.yo' file
+yo compile <file> [options]      Compile a '.yo' file
 Example:
-  $ yo hello.yo -o  hello
-  $ yo hello.yo -cc clang -o hello
-  $ yo hello.yo -t  wasm -o hello.wasm
+  $ yo compile hello.yo -o hello
+  $ yo compile hello.yo -cc clang -o hello
+  $ yo compile hello.yo -t wasm -o hello.wasm
 
-yo --help                        Show this help message  
+yo --help                        Show this help message
 yo --version                     Show version number
 
 yo install                       Install all packages
@@ -101,12 +102,13 @@ yo run <script>                  Run a script defined in 'yo.json'
     default: [],
   })
   .command(
-    "$0 <file> [options]",
-    "The default command",
+    "compile <file>",
+    "Compile a '.yo' file",
     (yargs) => {
       yargs.positional("file", {
         describe: "File to compile",
         type: "string",
+        demandOption: true,
       });
     },
     (argv) => {
@@ -138,5 +140,7 @@ yo run <script>                  Run a script defined in 'yo.json'
       });
     }
   )
+  .demandCommand(1, "You need to specify a command (e.g., 'compile')")
+  .strict()
   .help()
   .version("version", "Show version number", `yo ${packageJson.version}`).argv;
