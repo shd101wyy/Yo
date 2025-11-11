@@ -1117,19 +1117,16 @@ Language :: { language: String, year: i32 };
 Destructure the record:
 
 ```rust
-User := type .User {
-  name: String,
-  age: i32
-}
+User :: struct(name: String, age: i32);
 
 (user: User) := User {
   name: String.from("johndoe"),
-  age: 12
-}
+  age: 12.as(i32)
+};
 
 {
   User {age} := user; // Compiler Error: `user` is consumed while `name` is not moved out.
-}
+};
 
 {
   User {name, age} := user;
@@ -1160,7 +1157,7 @@ In addition, if there is only one variant with one field, the field type will be
 ```rust
 Option :: (fn(compt(T): Type) -> compt(Type))
   enum(
-    Some(T),
+    Some(value : T),
     None
   )
 ;
@@ -1169,7 +1166,7 @@ Option :: (fn(compt(T): Type) -> compt(Type))
 (some: Option(i32)) = .Some(42);
 
 IpAddr :: enum(
-  V4((u8, u8, u8, u8)),
+  V4((a : u8, b : u8, c : u8, d : u8)),
   V6(String)
 );
 
@@ -1179,9 +1176,9 @@ loopback := IpAddr.V6(String.from("::1"));
 // Use record as variant
 Message :: enum(
   Quit,
-  Move(struct(x: i32, y: i32)),
-  Write(String),
-  ChangeColor(struct(r: i32, g: i32, b: i32))
+  Move(x: i32, y: i32),
+  Write(v : String),
+  ChangeColor(r: i32, g: i32, b: i32)
 );
 
 m := Message.Write(String.from("hello"));
@@ -1192,12 +1189,12 @@ m := Message.ChangeColor(r: 1, g: 2, b: 3);
 ### Type parameters for specific variant
 
 ```rust
-MixedData :=
-  type (|
-    .NoForall((i32, String)),
-    .WithForall: (forall ((T: Type) <: Show),
-                  (a: T)-> MixedData)
-  );
+MixedData :: enum(
+  NoForall(a : i32, b : String),
+  WithForall(forall(T: Type),
+            (a : T)-> MixedData,
+            using(TToString) : (T <: Show))
+);
 
 
 mixed := MixedData.WithForall(12); // mixed: MixedData.WithForall(i32)
@@ -1206,19 +1203,11 @@ mixed := MixedData.WithForall(12); // mixed: MixedData.WithForall(i32)
 ## C struct
 
 ```rust
-Point := type .Point {
-  x: i32;
-  y: i32;
-};
+Point :: struct(x: i32, y: i32);
 
-my_point := Point.Point {
-  x: 10,
-  y: 20
-};
-// Or
-(my_point: Point) := .Point {
-  x: 10,
-  y: 20
+my_point := Point {
+  x: 10.as(i32),
+  y: 20.as(i32)
 };
 
 ```
@@ -1232,13 +1221,132 @@ struct Point {
 };
 ```
 
+## Newtype
+
+The `newtype` keyword defines a struct with a single field along with methods, constants, and module implementations in one declaration. It provides zero-cost abstraction - at runtime, it's identical to the wrapped type, but at compile time it's a distinct type. This is similar to Haskell's `newtype`.
+
+**Key properties:**
+- Zero runtime overhead (no wrapper allocation)
+- Type safety through distinct types
+- Methods and constants defined inline
+- Module implementations included in definition
+- Access wrapped value via the field name
+
+**Syntax:**
+```rust
+newtype(
+  field_name : FieldType,
+  
+  // Methods
+  method_name :: ((fn(...) -> ReturnType) body),
+  
+  // Constants
+  CONSTANT_NAME :: Value,
+  
+  // Module implementations
+  ModuleName :: impl(Self, Module(...))
+)
+```
+
+**Example:**
+```rust
+// Simple newtype with methods and constants
+UserId :: newtype(
+  value : i32,
+  
+  // Methods
+  from_i32 :: ((fn(v: i32) -> Self) Self(value: v)),
+  
+  to_i32 :: ((fn(self: Self) -> i32) self.value),
+  
+  // Constants
+  ADMIN :: Self(value: 0.as(i32)),
+  
+  // Module implementations
+  Eq :: impl(Self, Eq(Self)(
+    (==) : ((fn(a: Self, b: Self) -> boolean)
+      (a.value == b.value)
+    ),
+    
+    (!=) : ((fn(a: Self, b: Self) -> boolean)
+      (a.value != b.value)
+    )
+  )),
+  
+  Ord :: impl(Self, Ord(Self)(
+    (<) : ((fn(a: Self, b: Self) -> boolean)
+      (a.value < b.value)
+    )
+  ))
+);
+
+// Create newtype values
+user_id := UserId(value: 42.as(i32));
+admin_id := UserId.ADMIN;
+
+// Call methods
+id_value := user_id.to_i32();  // 42
+
+// Use module implementations
+cond(
+  (user_id == admin_id) => println("Admin user"),
+  true => println("Regular user")
+);
+```
+
+**More complex example** (see `std/string/rune.yo`):
+```rust
+rune :: newtype(
+  c : u32,
+
+  // Constructor with validation
+  from_u32 :: ((fn(value: u32) -> Option(Self))
+    cond(
+      ((value <= 0x10FFFF.as(u32)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
+      true => .None
+    )
+  ),
+
+  to_u32 :: ((fn(self: Self) -> u32) self.c),
+
+  is_ascii :: ((fn(self: Self) -> boolean) (self.c <= 0x7F)),
+
+  // Constants
+  NUL        :: Self(c: 0x00),
+  TAB        :: Self(c: 0x09),
+  NEWLINE    :: Self(c: 0x0A),
+  SPACE      :: Self(c: 0x20),
+
+  // Module implementations
+  Eq :: impl(Self, Eq(Self)(
+    (==) : ((fn(a: Self, b: Self) -> boolean) (a.c == b.c)),
+    (!=) : ((fn(a: Self, b: Self) -> boolean) (a.c != b.c))
+  ))
+);
+```
+
+**Use cases:**
+- Type-safe IDs (UserId, OrderId, etc.)
+- Unicode characters (rune wrapping u32)
+- Units of measurement (Meters, Seconds, Dollars)
+- Validated types (Email, PhoneNumber, PositiveInt)
+- Semantic distinction (Username vs Password)
+
+**Memory layout:**
+```rust
+UserId :: newtype(value : i32, /* methods... */);
+// sizeof(UserId) == sizeof(i32)
+// In C: just an i32, no struct wrapper at runtime
+```
+
 ## C union
 
 ```rust
-MyNumber := type (|
-  { i: i32 },
-  { j: f32 });
-(my_number: MyNumber) := { i: 10 };
+MyNumber := union(
+  i : i32,
+  j : f32
+); 
+(my_number : MyNumber) = MyNumber(i : 10);
 my_number.j = 1.2;
 ```
 
@@ -1256,12 +1364,11 @@ union MyNumber {
 It's the same as the ADT, but all variants have no fields.
 
 ```rust
-State := type (|
-  Working = 1,
-  Failed = 0
+State := enum(
+  Working,
+  Failed
 );
-
-Week := type (|
+Week := enum(
   Monday, // 0
   Tuesday, // 1
   Wednesay // 2
@@ -1359,9 +1466,9 @@ Option :: (fn(compt(T): Type) -> Type)
 ```rust
 MyExpr :: (fn(compt(T): Type) -> Type)
   enum(
-    IntExpr(i32), // MyExpr(i32)
-    BoolExpr(boolean), // MyExpr(boolean)
-    EqExpr(MyExpr(i32), MyExpr(i32)) // MyExpr(boolean)
+    IntExpr(i : i32), // MyExpr(i32)
+    BoolExpr(b : boolean), // MyExpr(boolean)
+    EqExpr(a : MyExpr(i32), b : MyExpr(i32)) // MyExpr(boolean)
   )
 ;
 
@@ -1529,28 +1636,25 @@ Id :: (fn(compt(Self): Type) -> compt(Module))
   module
     id: (fn(self: *(Self)) -> Self)
 ;
-
-{ Id }
+export Id;
 
 // id1.yo
+{ Id } :: import "./id.yo";
 MyIdImplementation :: impl(i32, Id(
   id: ((self) -> self.*)
 ));
-{ MyIdImplementation }
+export MyIdImplementation;
 
 // id2.yo
+{ Id } :: import "./id.yo";
 AnotherIdImpl :: impl(i32, Id(
   id: ((self) -> (self.* + 1))
 ));
+export AnotherIdImpl;
 
 // use_id.yo
 { MyIdImplementation } := import("./id1.yo");
 MyIdImplementation.id(&(12)); // 13
-12.id(); // 13, using the `id` from `MyIdImplementation`.
-
-// another_use_id.yo
-{ Id } := import("./id.yo");
-12.id(); // Compiler Error: Ambiguous call to `id` function.
 ```
 
 ### Higher Kinded Types example
@@ -1618,7 +1722,7 @@ value_in_cents :: (fn(coin: Coin) -> u8)
 List :: (fn(compt(T): Type) -> Type)
   enum(
     Nil,
-    Cons(T, Box(List(T)))
+    Cons(head : T, tail : Box(List(T)))
   )
 ;
 
@@ -1948,8 +2052,8 @@ Yo uses the `Result` type for error handling, similar to Rust:
 // Define Result type (from standard library)
 Result :: (fn(compt(T): Type, compt(E): Type) -> compt(Type))
   enum(
-    Ok(T),
-    Error(E)
+    Ok(value : T),
+    Error(error : E)
   )
 ;
 
@@ -2092,7 +2196,7 @@ export test, copy; // Export multiple values
 // Export the type
 Option :: (fn(compt(T): Type) -> compt(Type))
   enum(
-    Some(T),
+    Some(value : T),
     None
   )
 ;
