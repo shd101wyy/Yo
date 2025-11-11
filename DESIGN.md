@@ -1949,7 +1949,7 @@ Yo uses the `Result` type for error handling, similar to Rust:
 Result :: (fn(compt(T): Type, compt(E): Type) -> compt(Type))
   enum(
     Ok(T),
-    Err(E)
+    Error(E)
   )
 ;
 
@@ -1962,7 +1962,7 @@ DivisionError :: enum(
 // Function that can fail
 safe_div :: (fn(a: i32, b: i32) -> Result(i32, DivisionError))
   if (b == 0),
-    then: Result(i32, DivisionError).Err(.DivideByZero),
+    then: Result(i32, DivisionError).Error(.DivideByZero),
     else: Result(i32, DivisionError).Ok(a / b)
 ;
 
@@ -1970,7 +1970,7 @@ safe_div :: (fn(a: i32, b: i32) -> Result(i32, DivisionError))
 division_result := safe_div(10, 2);
 match(division_result,
   .Ok(value) => printf("Result: %d\n", value),
-  .Err(error) => match(error,
+  .Error(error) => match(error,
     .DivideByZero => printf("Error: Cannot divide by zero\n"),
     .Overflow => printf("Error: Overflow\n")
   )
@@ -1987,10 +1987,10 @@ compute :: (fn(x: i32, y: i32) -> Result(i32, DivisionError)) {
       temp := safe_div(v1, y);
       match(temp,
         .Ok(v2) => .Ok(v2),
-        .Err(e) => .Err(e)
+        .Error(e) => .Error(e)
       )
     },
-    .Err(e) => .Err(e)
+    .Error(e) => .Error(e)
   );
   return result2;
 }
