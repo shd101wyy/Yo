@@ -1,7 +1,96 @@
 open import "std/libc/stdio";
 
+Node :: (fn(compt(T): Type) -> compt(Type))
+  object(
+    value : T,
+    next : Option(Self),
+    prev : Option(Self)
+  )
+;
+
+LinkedList :: (fn(compt(T): Type) -> compt(Type))
+  object(
+    head : Option(Node(T)),
+    tail : Option(Node(T)),
+    length : usize,
+
+    /**
+     * Create a new empty LinkedList
+     */
+    new :: ((fn() -> Self)
+      Self(
+        head: .None,
+        tail: .None,
+        length: (0).as(usize)
+      )
+    ),
+
+    push_back :: ((fn(self: Self, value: T) -> unit)
+      {
+        new_node := Node(T)(
+          value: value,
+          next: .None,
+          prev: self.tail
+        );
+        
+        match(self.tail,
+          .None => {
+            self.head = .Some(new_node);
+          },
+          .Some(old_tail) => {
+            old_tail.next = .Some(new_node);
+          }
+        );
+        
+        self.tail = .Some(new_node);
+        self.length = (self.length + (1).as(usize));
+      }
+    ),
+
+    has :: ((fn(
+      self: Self, 
+      value: T,
+      using(ElementEqual) : (T <: Eq(T, T))
+    ) -> boolean)
+      {
+        current_opt := self.head;
+        i := (0).as(usize);
+        
+        while(i < self.length, i = (i + (1).as(usize)), {
+          match(current_opt,
+            .None => {
+              return false;
+            },
+            .Some(current) => {
+              cond(
+                (ElementEqual.(==)(current.value, value)) => {
+                  return true;
+                },
+                true => {
+                  current_opt = current.next;
+                }
+              );
+            }
+          );
+        });
+        
+        false
+      }
+    )
+  )
+;
+
 main :: (fn() -> unit) {
   printf("Hello, World!\n");
+
+  l := LinkedList(i32).new();
+  l.push_back(1);
+  l.push_back(2);
+  l.push_back(3);
+  printf("List has 1: %d\n", l.has(1));
+  printf("List has 2: %d\n", l.has(2));
+  printf("List has 3: %d\n", l.has(3));
+  printf("List has 4: %d\n", l.has(4));
 };
 
 export main;

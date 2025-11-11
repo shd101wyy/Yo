@@ -420,141 +420,60 @@ cond(
 - Doesn't optimize across function boundaries
 - Conservative: Falls back to dup/drop when uncertain
 
-### Phase 2: Advanced Optimization (Future)
+## Future Optimizations
 
-Implement **ownership chain tracking** and **Perceus-inspired optimizations** to eliminate dup/drop in safe cases.
+The current implementation (Phase 1 + Phase 1.5) provides a **good balance** of safety, simplicity, and performance:
 
-#### Perceus Algorithm Insights
+- ✅ Zero memory safety bugs
+- ✅ Simple "assignments always own" model
+- ✅ Eliminates redundant dup/drop pairs within scopes
+- ✅ Parameters borrow by default (no RC overhead on calls)
 
-The [Perceus algorithm](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) from Koka provides several key optimization techniques:
-
-**1. Last-Use Analysis**
-
-Track the last use of each variable to transfer ownership instead of dup/drop:
-
-```rust
-x := Point(3, 4);   // temp_var owns Point(3, 4)
-y := x;             // Last use of x - transfer ownership
-z := y;             // Last use of y - transfer ownership
-
-// Without last-use: ___dup(x), ___drop(x), ___dup(y), ___drop(y)
-// With last-use:    Just pointer moves, no RC operations!
-```
-
-**2. Borrowed Parameter Analysis**
-
-Distinguish between parameters that are only read vs. stored:
+**For zero-cost iteration**, the proper solution is **pointer types**, not RC optimization:
 
 ```rust
-// Read-only access - no dup needed
-fn print_point(p: Point) -> unit {
-  printf("(%d, %d)", p.x, p.y);  // Just reading, not storing
-}
+// With pointer types (future feature):
+current_ptr := &(self.head);  // Borrow pointer, no RC operations
 
-// Storing access - dup needed
-fn store_point(p: Point, container: Container) -> unit {
-  container.point = p;  // Storing, needs dup
+while runtval(true), {
+  match(current_ptr.*,
+    .None => return false,
+    .Some(current) => {
+      current_ptr = &(current.next);  // Pointer reassignment, no RC!
+    }
+  );
 }
 ```
 
-**3. Ownership Chain Tracking**
+**Why pointer types are necessary:**
 
-Track field access chains to prove same-root ownership:
-
-```rust
-current_opt := self.head;
-// Path: current_opt → self.head → owned by self parameter
-
-current_opt = current.next;
-// New path: current_opt → current.next → same chain (self.head)
-// Same root owner (self) → no dup/drop needed!
-```
-
-**4. Destructive Reads in Pattern Matching**
-
-Optimize pattern matching by recognizing destructive field access:
+Attempting to eliminate `___dup` on assignments breaks the "assignments always own" invariant:
 
 ```rust
-match(current_opt,
-  .Some(current) => {
-    // Perceus insight:
-    // - Deconstructing current_opt to get current
-    // - Accessing current.next (same ownership chain)
-    // - Reassigning current_opt
-    // Optimization: Just move the pointer, reuse the Some wrapper
-    current_opt = current.next;  // No dup/drop!
-  }
-)
+// Problem: Inconsistent ownership semantics
+current_opt := self.head;     // If we skip dup → current_opt borrows
+
+// Later in code:
+local := Node(42, .None);
+current_opt = local;          // Should this dup or not?
+                              // - If it dups: inconsistent (initial borrowed, now owns)
+                              // - If it doesn't dup: use-after-free (local drops, current_opt invalid)
 ```
 
-#### Phase 2 Implementation Plan
+**The choice is binary:**
+1. **Always own** (current model): Safe, simple, some RC overhead
+2. **Explicit borrowing** (pointer types): Zero overhead, requires lifetime tracking
 
-1. **Last-use tracking**:
+Trying to optimize RC while maintaining "assignments always own" leads to inconsistent or unsound behavior. The correct solution is to introduce proper pointer types with borrow checking, similar to how Rust uses `&T` for borrowed pointers.
 
-   - Perform dataflow analysis to find last use of each variable
-   - At last use, mark as "transfer ownership" instead of "borrow"
-   - Eliminate dup/drop pairs for ownership transfers
+**Note on Nim's approach:**
 
-2. **Ownership path analysis**:
+Nim uses ARC with a similar "assignments own" model. For iteration, Nim relies on:
+1. The `lent T` type for temporary borrows (compiler-checked, limited scope)
+2. `var T` parameters for mutable borrows (function parameters only)
+3. Cursor inference to detect last-use and eliminate RC operations in simple cases
 
-   - Track field access chains (e.g., `self.head` → `node.next` → `next_node.next`)
-   - Maintain "root owner" for each borrowed value
-   - When reassigning to value with same root owner, skip dup/drop
-
-3. **Borrowed vs owned parameter tracking**:
-
-   - Analyze function bodies to determine if parameters are only read
-   - Mark read-only parameters as "borrowed" (no dup on pass)
-   - Mark stored parameters as "owned" (dup required)
-
-4. **Pattern matching optimization**:
-   - Recognize destructive reads in match expressions
-   - Reuse enum/struct wrappers when possible
-   - Eliminate allocation/deallocation pairs
-
-**Benefits:**
-
-- Eliminates dup/drop in linked list traversals
-- Eliminates dup/drop in tree traversals
-- Reduces function call overhead
-- More efficient code without sacrificing safety
-
-**Complexity:**
-
-- Requires sophisticated dataflow analysis
-- Needs to handle aliasing correctly
-- Conservative fallback when analysis is uncertain
-
-#### Example: Optimized Linked List Traversal
-
-```rust
-// Phase 1 (simple ownership):
-current_opt := self.head;     // ___dup(self.head)
-
-.Some(current) => {
-  current_opt = current.next; // ___dup(current.next), ___drop(old current_opt)
-}
-
-// ___drop(current_opt)
-// Cost: 1 initial dup + 2 RC operations per iteration + 1 final drop
-
-// Phase 2 (Perceus-optimized):
-current_opt := self.head;     // No dup! Eliminated (self outlives current_opt)
-
-.Some(current) => {
-  current_opt = current.next; // No dup/drop! Eliminated (same ownership chain)
-}
-
-// No drop! (current_opt was borrowing)
-// Cost: 0 RC operations total
-```
-
-**Optimization techniques applied:**
-
-1. **Ownership chain tracking**: `self.head` → `current.next` same chain
-2. **Last-use analysis**: Old `current_opt` value not used after reassignment
-3. **Borrowed parameter analysis**: `self` parameter outlives `current_opt`
-4. **Destructive read**: Match destructures and reassigns in one operation
+However, Nim's optimizations are heuristic-based and can be unpredictable. Our approach prioritizes simplicity and predictability, with explicit pointer types as the solution for zero-cost traversal patterns.
 
 ## Summary
 
@@ -577,16 +496,13 @@ Yo's compile-time reference counting uses a **simple ownership model** with **pr
 - **Scope-local optimization**: Works within begin blocks and branch bodies
 - **Reassignment temps**: Optimizes temporary variables created during reassignments in branches
 
-**Phase 2 - Perceus Optimizations (Future):**
+**Future Direction:**
 
-- **Last-use analysis**: Transfer ownership instead of dup/drop
-- **Ownership chain tracking**: Eliminate dup/drop when borrowing from same root
-- **Borrowed parameter analysis**: Detect read-only vs stored parameters
-- **Destructive reads**: Optimize pattern matching to reuse allocations
+For zero-cost iteration and traversal, the solution is **pointer types** with borrow checking, not RC optimization. Attempting to optimize away `___dup` while maintaining "assignments always own" leads to inconsistent ownership semantics. See "Future Optimizations" section above for details.
 
 **Design Goals:**
 
 - **Phase 1**: Simple, correct, safe - easy to implement and understand ✅
 - **Phase 1.5**: Eliminate obvious dup/drop pairs without complex analysis ✅
-- **Phase 2**: Fast, optimized - eliminate unnecessary RC operations transparently (future)
+- **Future**: Add pointer types for zero-cost borrowing patterns
 - **Overall**: Make Yo safe and ergonomic by default, with transparent performance optimizations
