@@ -8,22 +8,6 @@ Node :: (fn(compt(T): Type) -> compt(Type))
   )
 ;
 
-has_recursive :: (fn(
-          compt(T) : Type,
-          current_opt: Option(Node(T)),
-          value: T,
-          using(ElementEqual) : (T <: Eq(T, T))
-        ) -> boolean)
-  match(current_opt,
-    .None => false,
-    .Some(current) => cond(
-      (ElementEqual.(==)(current.value, value)) => true,
-      true => recur(T, current.next, value, ElementEqual)
-    )
-  )
-;
-
-/*
 LinkedList :: (fn(compt(T): Type) -> compt(Type))
   object(
     head : Option(Node(T)),
@@ -69,20 +53,22 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
       using(ElementEqual) : (T <: Eq(T, T))
     ) -> boolean)
       {
+
+        flag := ElementEqual.(==)(value, value); // Dummy use to test codegen
+
         has_recursive :: (fn(
           current_opt: Option(Node(T)),
-          value: T,
-          using(ElementEqual) : (T <: Eq(T, T))
+          value: T
         ) -> boolean)
           match(current_opt,
             .None => false,
             .Some(current) => cond(
               (ElementEqual.(==)(current.value, value)) => true,
-              true => recur(current.next, value, ElementEqual)
+              true => recur(current.next, value)
             )
           );
         
-        has_recursive(self.head, value, ElementEqual)
+        has_recursive(self.head, value)
       }
     )
   )
@@ -95,13 +81,11 @@ factorial :: (fn(x : i32) -> i32) {
     true => (x * recur(x - 1))
   );
 };
-*/
 
 main :: (fn() -> unit) {
-  printf("Hello, World!\n");
+printf("Hello, World!\n");
   // x := factorial(5);
   // printf("Factorial of 5 is: %d\n", x);
-  /*
   l := LinkedList(i32).new();
   l.push_back(1);
   l.push_back(2);
@@ -110,7 +94,6 @@ main :: (fn() -> unit) {
   printf("List has 2: %d\n", l.has(2));
   printf("List has 3: %d\n", l.has(3));
   printf("List has 4: %d\n", l.has(4));
-  */
 };
 
 export main;

@@ -1,8 +1,63 @@
 import { Expr, exprIsAtom, exprIsFunctionCall } from "../../expr";
 import { isFunctionType, typeContainsSomeType } from "../../types";
-import { isFunctionValue, isTypeValue, ModuleValue } from "../../value";
+import {
+  isFunctionValue,
+  isTypeValue,
+  isUnknownValue,
+  ModuleValue,
+} from "../../value";
 import { collectType } from "../types";
 import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
+
+/**
+ * Check if an expression tree contains any UnknownValue.
+ * This indicates that the expression was not fully evaluated, which usually means
+ * it's part of a generic function that wasn't fully specialized.
+ */
+function exprContainsUnknownValue(expr: Expr): boolean {
+  // Check if this expression has an unknown value
+  if (expr.$ && expr.$.value && isUnknownValue(expr.$.value)) {
+    return true;
+  }
+
+  // Recursively check function calls
+  if (exprIsFunctionCall(expr)) {
+    if (exprContainsUnknownValue(expr.func)) {
+      return true;
+    }
+    for (const arg of expr.args) {
+      if (exprContainsUnknownValue(arg)) {
+        return true;
+      }
+    }
+  }
+
+  // Check macro expansions
+  if (expr.$ && expr.$.macroExpansion) {
+    if (exprContainsUnknownValue(expr.$.macroExpansion)) {
+      return true;
+    }
+  }
+
+  // Check deferred expressions
+  if (expr.$?.deferredDupExpressions) {
+    for (const dupExpr of expr.$.deferredDupExpressions) {
+      if (exprContainsUnknownValue(dupExpr)) {
+        return true;
+      }
+    }
+  }
+
+  if (expr.$?.deferredDropExpressions) {
+    for (const dropExpr of expr.$.deferredDropExpressions) {
+      if (exprContainsUnknownValue(dropExpr)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 /**
  * First pass: collect all functions that need to be generated
@@ -97,6 +152,12 @@ export function findFunctionCallsInExpr(
           // return;
           // NOTE: We shouldn't return here, because it's arguments might be different
         } else {
+          // Skip collecting functions whose body contains UnknownValue
+          // This means the function wasn't fully evaluated (e.g., nested function in an unspecialized generic)
+          if (exprContainsUnknownValue(functionValue.body)) {
+            return;
+          }
+
           // Collect the function if it's not already collected
           context.functions[functionValue.funcId] = {
             value: functionValue,
@@ -143,6 +204,12 @@ export function findFunctionCallsInExpr(
         // Already collected this function
         return;
       } else {
+        // Skip collecting functions whose body contains UnknownValue
+        // This means the function wasn't fully evaluated (e.g., nested function in an unspecialized generic)
+        if (exprContainsUnknownValue(functionValue.body)) {
+          return;
+        }
+
         // Collect the function if it's not already collected
         context.functions[functionValue.funcId] = {
           value: functionValue,
