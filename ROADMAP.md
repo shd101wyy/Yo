@@ -66,6 +66,7 @@ The roadmap from 2024 is now revised and updated for 2025, based on the new desi
 
 ### To be considered
 
+- [ ] Tail call optimization for `recur` in codegen.  
 - [ ] Type reflection. I wonder if this should be done in the phase of self-hosting compiler.
 - [ ] BRC optimization.
 - [ ] GC optimization.

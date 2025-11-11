@@ -1240,10 +1240,22 @@ Got:   ${typeToString(argType)}`,
   // Check if function has compile-time parameters and create specialized version if needed
   let specializedFunctionValue: FunctionValue | undefined;
 
+  // Check if we're recursively calling the function we're currently specializing
+  // to avoid infinite recursion during specialization
+  const isRecursiveCallDuringSpecialization =
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
+    context.isEvaluatingFunctionBodyOrAsyncBlock.value &&
+    isFunctionValue(context.isEvaluatingFunctionBodyOrAsyncBlock.value) &&
+    functionValue &&
+    isFunctionValue(functionValue) &&
+    context.isEvaluatingFunctionBodyOrAsyncBlock.value.funcId ===
+      functionValue.funcId;
+
   if (
     functionValue &&
     isFunctionValue(functionValue) && // functionValue might be UnknownValue, so this condition check is necessary
-    isFunctionSpecializable(functionType)
+    isFunctionSpecializable(functionType) &&
+    !isRecursiveCallDuringSpecialization // Don't specialize if we're already specializing this function
   ) {
     specializedFunctionValue = createSpecializedFunctionInline({
       originalFunction: functionValue,
