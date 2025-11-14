@@ -19,73 +19,59 @@ z = y;              // ___dup(y), ___drop(old z), z owns
 
 **Rule:** Variables always own their values. Every assignment calls `___dup`, every scope exit calls `___drop`.
 
-### 2. Function Parameters: Borrow by Default
+### 2. Function Parameters: Always Own
 
-Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
+Function parameters **always own** their values. The caller must call `___dup` at the call site:
 
 ```rust
 fn print_point(p: Point) -> unit {
-  printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
+  printf("(%d, %d)", p.x, p.y);
+  // p is dropped at end of function
 }
 
 point := Point(3, 4);
-print_point(point);  // No ___dup at call site, p borrows point
+print_point(point);  // ___dup(point) at call site, p owns a copy
+// point is still valid after the call
 ```
 
-**Rule:** Parameters borrow unless explicitly marked with `own()`. Not having `own()` means borrow.
+**Rule:** Parameters always own their values. Every function call creates independent ownership via `___dup`.
 
-**Destructuring also borrows:**
+**Destructuring also owns:**
 
 ```rust
-// Destructuring assignment borrows
-Point(x, y) := point;  // x and y borrow from point, no dup
+// Destructuring assignment owns
+Point(x, y) := point;  // ___dup fields from point, x and y own
 
-// Match destructuring borrows
+// Match destructuring owns
 match(result,
-  .Ok(value) => printf("%d", value),  // value borrows from result
-  .Err(e) => printf("error")
+  .Ok(value) => printf("%d", value),  // ___dup from result, value owns
+  .Err(e) => printf("error")          // ___dup from result, e owns
 );
 ```
 
-### 3. Parameter Mutation: Allowed, Reassignment: Forbidden
-
-You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
+**Why always own?** This prevents use-after-free bugs in multi-threaded environments:
 
 ```rust
-fn move_point(p: Point, dx: i32, dy: i32) -> unit {
-  p.x = (p.x + dx);  // ✅ OK: Mutating field through parameter
-  p.y = (p.y + dy);  // ✅ OK: Mutating field through parameter
-}
+x := Container(a: box(42));  // x owns the container
 
-fn broken(p: Point) -> unit {
-  p = Point(0, 0);   // ❌ ERROR: Cannot reassign parameter
-}
+// Thread 1:
+func1(x.a);  // ___dup(x.a), func1's param owns a separate reference
+  // Inside func1, param has RC ≥ 2 (caller still holds reference)
+
+// Thread 2 (concurrent):
+x.a = box(100);  // ___dup(box(100)), ___drop(old x.a)
+  // The old box(42) RC decrements but stays ≥ 1 (func1 still owns it)
+
+// Back in Thread 1:
+// func1's param still points to VALID MEMORY ✅ Safe!
+// When func1 returns, ___drop(param) finally frees the old box(42)
 ```
-
-**Rule:** Parameters are **not reassignable** to prevent ownership state changes.
-
-### 4. Explicit Ownership Transfer: `own()` keyword
-
-Use `own()` to transfer ownership to a function parameter. The caller must call `___dup` at the call site:
-
-```rust
-fn consume(own(box): Box(i32)) -> unit {
-  printf("value: %d\n", box.(*));
-  // box is dropped at end of function
-}
-
-b := box(42);      // b owns
-consume(b);        // ___dup(b) at call site, ownership transferred to function
-                   // b still owns its reference after the call
-```
-
-**Rule:** `own()` parameters take ownership via `___dup` at call site. The caller's variable remains valid.
 
 ## Basic Model
 
 ### Ownership and Reference Counting
 
-Each heap allocated ARC value has a unique owner. Its reference counter starts at 1.
+Each heap allocated ARC value can have multiple owners through reference counting. Its reference counter starts at 1.
 
 ```rust
 Point :: object(x : i32, y : i32);
@@ -114,59 +100,21 @@ ___drop(p1);       // RC = 1
 ___drop(temp_var); // RC = 0, memory freed
 ```
 
-### Function Parameters Borrow
+### Function Parameters Own
 
-Function parameters do not increment the reference count:
+Function parameters always increment the reference count via `___dup` at call site:
 
 ```rust
 fn use_point(p: Point) -> unit {
-  printf("(%d, %d)", p.x, p.y);  // p borrows, no RC change
+  printf("(%d, %d)", p.x, p.y);
+  // p is dropped at end of function
 }
 
 point := Point(3, 4);  // temp_var owns, RC = 1
                        // ___dup(temp_var), point owns, RC = 2
-use_point(point);      // No ___dup, p borrows point
+use_point(point);      // ___dup(point) at call site, p owns, RC = 3
+                       // ___drop(p) at end of use_point, RC = 2
 // End of scope: ___drop(point), ___drop(temp_var)
-```
-
-## The Lifetime Problem
-
-**Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
-
-```rust
-x := box(12);      // temp_var_x owns box(12), RC = 1
-                   // ___dup(temp_var_x), x owns, RC = 2
-{
-  y := box(13);    // temp_var_y owns box(13), RC = 1
-                   // ___dup(temp_var_y), y owns, RC = 2
-  x = y;           // DANGER if x just borrows from y...
-
-  // End of inner scope
-  ___drop(y);           // RC = 1
-  ___drop(temp_var_y);  // RC = 0, memory freed
-};
-
-printf("%d\n", x.*); // BUG: x would point to freed memory!
-```
-
-**Solution**: Always call `___dup` on assignment to maintain ownership.
-
-With our model (assignments always own):
-
-```rust
-x := box(12);      // ___dup, x owns, RC = 2
-{
-  y := box(13);    // ___dup, y owns, RC = 2
-  x = y;           // ___dup(y), ___drop(old x), x owns new value
-                   // New box(13): RC = 3, old box(12): RC = 1
-
-  ___drop(y);           // box(13): RC = 2
-  ___drop(temp_var_y);  // box(13): RC = 1
-  ___drop(temp_var_x);  // box(12): RC = 0, freed
-};
-
-printf("%d\n", x.*); // ✅ Safe: x owns box(13), RC = 1
-___drop(x);          // box(13): RC = 0, freed
 ```
 
 ## Our Approach: Simple Ownership with Optimization
@@ -174,9 +122,9 @@ ___drop(x);          // box(13): RC = 0, freed
 Yo prioritizes **safety and simplicity** with a path to optimization:
 
 1. **Always safe**: Code never has use-after-free bugs
-2. **Simple rules**: Assignments own, parameters borrow
+2. **Simple rules**: Everything always owns (assignments, parameters, destructuring)
 3. **Predictable**: Easy to understand when dup/drop happens
-4. **Optimizable**: Phase 2 analysis eliminates unnecessary operations
+4. **Optimizable**: Compiler analysis eliminates unnecessary operations
 
 **Example - simple and safe:**
 
@@ -191,11 +139,11 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 
 **Trade-offs:**
 
-- ✅ Simple mental model (assignments always own)
+- ✅ Simple mental model (everything always owns)
 - ✅ Zero risk of memory safety bugs
-- ✅ Parameters borrow by default (efficient for reads)
-- ⚠️ May have RC overhead from assignments
-- ✅ Can be optimized away through Phase 2 analysis
+- ✅ Thread-safe by construction (RC ≥ 2 prevents premature free)
+- ⚠️ RC overhead from function calls and assignments
+- ✅ Can be optimized away through compiler analysis
 
 ## When to call `___dup` to increase the reference count?
 
@@ -236,11 +184,12 @@ result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 
 ### Rule 3: Returning from Functions
 
-**Call `___dup` when returning a borrowed parameter:**
+**Call `___dup` when returning a parameter:**
 
 ```rust
-fn identity(p: Point) -> Point {  // p borrows (parameter)
+fn identity(p: Point) -> Point {  // p owns (parameter always owns)
   return p;  // ___dup(p), return value owns a copy
+  // ___drop(p) after return
 }
 
 fn create() -> Point {
@@ -250,42 +199,35 @@ fn create() -> Point {
 }
 ```
 
-### Rule 4: The `own()` Keyword
+### Rule 4: Function Calls
 
-**`own()` parameters take ownership, caller must dup:**
-
-```rust
-fn consume(own(box): Box(i32)) -> unit {
-  printf("value: %d\n", box.(*));
-  // box is dropped at end of function
-}
-
-b := box(42);      // b owns
-consume(b);        // ___dup(b) at call site, b is consumed
-// b cannot be used after this point
-```
-
-### Exception: Function Parameters (Borrow by Default)
-
-**No `___dup` when passing to borrowed parameters (parameters without `own()`):**
+**Always call `___dup` when passing arguments to function parameters:**
 
 ```rust
-fn print_point(p: Point) -> unit {  // p borrows (no own keyword)
+fn print_point(p: Point) -> unit {  // p owns (parameter always owns)
   printf("(%d, %d)", p.x, p.y);
+  // ___drop(p) at end of function
 }
 
 point := Point(3, 4);  // point owns
-print_point(point);    // No ___dup! p borrows point
+print_point(point);    // ___dup(point) at call site, p owns a copy
+                       // point is still valid after call
 ```
 
-**Destructuring in match expressions also borrows:**
+### Rule 5: Destructuring
+
+**Destructuring always calls `___dup` to create owned copies:**
 
 ```rust
+// Destructuring assignment owns
+Point(x, y) := point;  // ___dup fields, x and y own copies
+
+// Match destructuring owns
 match(optional,
   .Some(value) => {
-    // `value` borrows from optional, no ___dup
-    // `value` is also not reassignable.
+    // ___dup from optional, value owns a copy
     printf("%d", value);
+    // ___drop(value) at end of branch
   },
   .None => ()
 );
@@ -304,8 +246,10 @@ while runtval(true), {
   match(current_opt,
     .None => return false,
     .Some(current) => {
+      // ___dup from current_opt, current owns
       current_opt = current.next;  // ___dup(current.next)
                                    // ___drop(old current_opt)
+      // ___drop(current) at end of branch
     }
   );
 }
@@ -316,41 +260,42 @@ while runtval(true), {
 **Analysis:**
 
 - Initial: `___dup(self.head)` creates owned copy
-- Each iteration: `___dup(current.next)` + `___drop(old current_opt)`
+- Each iteration:
+  - Match destructuring: `___dup(current)` from current_opt
+  - Assignment: `___dup(current.next)` + `___drop(old current_opt)`
+  - End of branch: `___drop(current)`
 - End: `___drop(current_opt)` cleans up
 
-**Cost:** 2 RC operations per iteration (dup + drop)
+**Cost:** 3 RC operations per iteration (2 dups + 1 drop)
 
-This is conservative but correct. Phase 2 optimization can eliminate these operations.
+This is conservative but correct. Compiler optimization can eliminate these operations.
 
 ## Implementation Strategy
 
 ### Phase 1: Simple Ownership (Implemented ✅)
 
-The straightforward "always own" model is now fully implemented:
+The straightforward "everything always owns" model is now fully implemented:
 
 **Rules:**
 
 1. **Assignments (`:=` and `=`)**: Always call `___dup` on RHS, `___drop` on old LHS ✅
-2. **Function parameters**: Borrow by default (no `own()` keyword), no `___dup` at call site ✅
-3. **Parameters are not reassignable**: Prevent `param = value` (compile error) ✅
-4. **Parameters can be mutated**: Allow `param.field = value` (calls dup) ✅
-5. **`own()` parameters**: Call `___dup` at call site ✅
-6. **Scope exit**: Call `___drop` on all owned variables ✅
-7. **Deferred drops in branches**: All branching constructs (cond, match, while, for) properly emit drop calls ✅
-8. **Destructuring borrows**: Both destructuring assignment and match destructuring borrow by default ✅
+2. **Function parameters**: Always own, call `___dup` at call site ✅
+3. **Parameters are not reassignable**: Language-level constraint (applies to all bindings) ✅
+4. **Scope exit**: Call `___drop` on all owned variables ✅
+5. **Deferred drops in branches**: All branching constructs (cond, match, while, for) properly emit drop calls ✅
+6. **Destructuring owns**: Both destructuring assignment and match destructuring call `___dup` ✅
 
 **Example:**
 
 ```rust
 fn process(p: Point) -> unit {
-  p.x = 10;        // ✅ OK: Mutate field (if Point is mutable)
-  p = Point(0, 0); // ❌ ERROR: Cannot reassign parameter
+  printf("(%d, %d)", p.x, p.y);
+  // ___drop(p) at end of function
 }
 
 x := Point(3, 4);  // ___dup, x owns
 y := x;            // ___dup(x), y owns
-process(y);        // No dup (y is borrowed by process)
+process(y);        // ___dup(y), process's p owns a copy
 z := y;            // ___dup(y), z owns
 
 // ___drop(z), ___drop(y), ___drop(x), ___drop(temp_vars...)
@@ -420,14 +365,110 @@ cond(
 - Doesn't optimize across function boundaries
 - Conservative: Falls back to dup/drop when uncertain
 
+### Phase 2: Thread-Safe Dup/Drop Optimization (Proposed)
+
+A more sophisticated optimization that **maintains RC > 1** throughout a variable's lifetime, ensuring thread-safety while eliminating unnecessary operations:
+
+**Algorithm: Smart Dup/Drop Balancing**
+
+For each variable in a scope, count all `___dup` and `___drop` operations, then apply these rules:
+
+1. **Balanced (dup_count == drop_count)**: Keep one pair minimum
+   - Keep the **earliest dup** (establishes ownership)
+   - Keep the **latest drop** (cleanup at scope end)
+   - Remove all other dup/drop operations
+   - **Guarantees**: RC ≥ 2 during lifetime (thread-safe!)
+
+2. **More dups (dup_count > drop_count)**: Keep earliest dup only
+   - Keep the **earliest dup** (establishes ownership)
+   - Remove all other dup operations
+   - Remove all drop operations
+   - **Guarantees**: RC ≥ 2 during lifetime (thread-safe!)
+
+3. **More drops (dup_count < drop_count)**: Keep latest drop only
+   - Remove all dup operations
+   - Keep the **latest drop** (cleanup at scope end)
+   - Remove all other drop operations
+   - **Guarantees**: RC ≥ 2 during lifetime (thread-safe!)
+
+**Example 1: Balanced case**
+
+```rust
+x := Point(3, 4);   // temp_var owns, RC = 1
+                    // ___dup(temp_var), x owns, RC = 2  [EARLIEST DUP - KEEP]
+y := x;             // ___dup(x), y owns, RC = 3         [REMOVE]
+z := x;             // ___dup(x), z owns, RC = 4         [REMOVE]
+// ___drop(z)       // RC = 3                            [REMOVE]
+// ___drop(y)       // RC = 2                            [REMOVE]
+// ___drop(x)       // RC = 1                            [LATEST DROP - KEEP]
+// ___drop(temp_var) // RC = 0, freed
+
+// After optimization:
+// Only ___dup(temp_var) and ___drop(x) remain!
+// x's RC stays at 2 throughout its lifetime (thread-safe)
+```
+
+**Example 2: More dups than drops**
+
+```rust
+x := Point(3, 4);   // temp_var owns, RC = 1
+                    // ___dup(temp_var), x owns, RC = 2  [EARLIEST DUP - KEEP]
+y := x;             // ___dup(x), y owns, RC = 3         [REMOVE]
+process(x);         // ___dup(x), param owns, RC = 4     [REMOVE]
+                    // ___drop(param), RC = 3
+// ___drop(y)       // RC = 2                            [REMOVE]
+// ___drop(x)       // RC = 1                            [REMOVE]
+// ___drop(temp_var) // RC = 0, freed
+
+// After optimization:
+// Only ___dup(temp_var) remains!
+// x's RC stays at 2+ throughout its lifetime (thread-safe)
+```
+
+**Example 3: More drops than dups (unusual but possible)**
+
+```rust
+// Passed from outer scope, no local dup
+fn process(x: Point) -> unit {
+  // x owns, but no dup in this scope
+  y := x;             // ___dup(x), y owns              [REMOVE]
+  // ___drop(y)       // cleanup                        [REMOVE]
+  // ___drop(x)       // cleanup                        [LATEST DROP - KEEP]
+}
+
+// After optimization:
+// Only ___drop(x) remains!
+```
+
+**Why this is thread-safe:**
+
+By keeping at least one `___dup` or ensuring RC starts ≥ 2, we guarantee that:
+- The reference count never drops to 1 during the variable's active lifetime
+- Even if another thread drops its reference, RC stays ≥ 1
+- No use-after-free in multi-threaded environments
+
+**Implementation strategy:**
+
+1. Collect all `___dup` and `___drop` calls for each variable in a scope
+2. Track the position (earliest/latest) of each operation
+3. Apply the balancing algorithm based on dup/drop counts
+4. Remove optimized-away operations from the AST
+
+**Benefits:**
+
+- ✅ Dramatically reduces RC overhead (eliminates most dup/drop pairs)
+- ✅ Maintains thread-safety (RC > 1 invariant)
+- ✅ Predictable and verifiable optimization
+- ✅ Works within scope boundaries without complex lifetime analysis
+
 ## Future Optimizations
 
-The current implementation (Phase 1 + Phase 1.5) provides a **good balance** of safety, simplicity, and performance:
+The proposed implementation (Phase 1 + Phase 1.5 + Phase 2) provides an **excellent balance** of safety, simplicity, and performance:
 
 - ✅ Zero memory safety bugs
-- ✅ Simple "assignments always own" model
-- ✅ Eliminates redundant dup/drop pairs within scopes
-- ✅ Parameters borrow by default (no RC overhead on calls)
+- ✅ Simple "everything always owns" model
+- ✅ Eliminates most dup/drop pairs while maintaining thread-safety (RC > 1)
+- ✅ Predictable and verifiable optimization algorithm
 
 **For zero-cost iteration**, the proper solution is **pointer types**, not RC optimization:
 
@@ -481,11 +522,10 @@ Yo's compile-time reference counting uses a **simple ownership model** with **pr
 
 **Phase 1 - Simple Ownership (Implemented ✅):**
 
+- **Everything always owns**: Variables, parameters, destructured values - all use `___dup` to own
 - **Assignments always own**: `:=` and `=` always call dup/drop
-- **Parameters borrow by default**: No RC overhead for function calls
-- **Parameters are not reassignable**: Prevents ownership state changes
-- **Parameters can be mutated**: Field mutation is allowed (`p.field = value`)
-- **Explicit ownership with `own()`**: Clear when ownership transfers (not yet implemented)
+- **Function calls always dup**: Call site performs `___dup` for each argument
+- **Destructuring always owns**: Both assignment and match destructuring call `___dup`
 - **Scope exit cleanup**: All owned variables call `___drop` at scope exit
 - **Branch cleanup**: All branching constructs (cond, match, while, for) properly emit deferred drops
 
@@ -496,13 +536,22 @@ Yo's compile-time reference counting uses a **simple ownership model** with **pr
 - **Scope-local optimization**: Works within begin blocks and branch bodies
 - **Reassignment temps**: Optimizes temporary variables created during reassignments in branches
 
+**Phase 2 - Thread-Safe Dup/Drop Optimization (Proposed):**
+
+- **Smart dup/drop balancing**: Count-based algorithm keeps minimal operations while maintaining RC > 1
+- **Three optimization cases**: Balanced (keep earliest dup + latest drop), more dups (keep earliest dup), more drops (keep latest drop)
+- **Thread-safety guarantee**: Always maintains RC ≥ 2 during variable's active lifetime
+- **Dramatic RC reduction**: Eliminates most dup/drop operations without complex analysis
+- **Predictable and verifiable**: Simple counting algorithm, easy to understand and validate
+
 **Future Direction:**
 
 For zero-cost iteration and traversal, the solution is **pointer types** with borrow checking, not RC optimization. Attempting to optimize away `___dup` while maintaining "assignments always own" leads to inconsistent ownership semantics. See "Future Optimizations" section above for details.
 
 **Design Goals:**
 
-- **Phase 1**: Simple, correct, safe - easy to implement and understand ✅
+- **Phase 1**: Simple "everything owns" model - easy to implement and understand ✅
 - **Phase 1.5**: Eliminate obvious dup/drop pairs without complex analysis ✅
+- **Phase 2**: Smart balancing algorithm that maintains thread-safety (RC > 1) while minimizing operations
 - **Future**: Add pointer types for zero-cost borrowing patterns
-- **Overall**: Make Yo safe and ergonomic by default, with transparent performance optimizations
+- **Overall**: Make Yo safe and ergonomic by default, thread-safe by construction, with transparent and aggressive performance optimizations
