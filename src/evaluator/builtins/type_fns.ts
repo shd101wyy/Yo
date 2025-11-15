@@ -77,6 +77,7 @@ export function evaluateYoTypeToString({
   if (isTypeValue(typeValue)) {
     expr.$.value = createComptStringValue(typeToString(typeValue.value));
   }
+
   return expr;
 }
 

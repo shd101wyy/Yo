@@ -186,11 +186,13 @@ export function evaluateBeginExpression({
             errorMessage: `Return expression is not evaluated correctly:\n${exprToString(returnArg)}`,
           });
         }
-        env = evaluatedReturnArgExpr.$.env;
 
         // Attach temp variable to return value expression if it's non-unit
         // This is needed for C codegen to store the value before running deferred drops
         attachTempVariableToExpr(evaluatedReturnArgExpr);
+
+        // NOTE: Update `env` after calling attachTempVariableToExpr
+        env = evaluatedReturnArgExpr.$.env;
 
         exprToEvaluate.$ = {
           env,
