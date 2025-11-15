@@ -15,7 +15,7 @@ import {
   typeContainsGcType,
   typeToString,
 } from "./types";
-import { generateNewTempVariableName, generateVarialeId } from "./utils";
+import { generateNewTempVariableName } from "./utils";
 import { isTypeValue, ModuleValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -1273,7 +1273,6 @@ export function mergeAndCheckEnvs(
 
   // Check each frame
   for (let i = 0; i <= maxFrameLevel; i++) {
-    const frameLevel = i; // Store frame level for use in nested loops
     const frame = env.frames[i]!;
     const frameVariables = [...frame.variables];
 
@@ -1458,37 +1457,6 @@ export function mergeAndCheckEnvs(
             })
           );
         }
-      }
-
-      // Check for reassignment across branches
-      // When a variable is reassigned in any branch, its ID changes (see assignment.ts)
-      // We need to detect this and generate a new ID for the merged environment
-      const originalVariableId = frameVariables[i]!.id;
-      const variableIds: string[] = [];
-
-      for (let j = 1; j < rows; j++) {
-        const caseEnv = caseEnvs[j - 1]!;
-        const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
-        const caseVariable = caseEnvFrameVariables[i]!;
-        variableIds.push(caseVariable.id);
-      }
-
-      // Check if any branch has a different variable ID (indicating reassignment)
-      const hasReassignmentInSomeBranch = variableIds.some(
-        (id) => id !== originalVariableId
-      );
-
-      if (hasReassignmentInSomeBranch) {
-        // Generate a new ID for the merged environment to distinguish from pre-cond/match state
-        // This ensures dup/drop optimization won't incorrectly match calls across the boundary
-        const newVariableId = generateVarialeId(env.modulePath, variableName);
-
-        const newVariable: Variable = {
-          ...frameVariables[i]!,
-          id: newVariableId,
-        };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
       }
     }
   }

@@ -24,6 +24,7 @@ import {
   ModuleField,
   ModuleType,
   PtrType,
+  SliceType,
   SomeType,
   StructType,
   TupleType,
@@ -119,6 +120,8 @@ export function typeContainsGcType(
   switch (type.tag) {
     case TypeTag.Array:
       return typeContainsGcType((type as ArrayType).childType, checkedTypes);
+    case TypeTag.Slice:
+      return typeContainsGcType((type as SliceType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
         typeContainsGcType(field.type, checkedTypes)
@@ -144,7 +147,9 @@ export function typeContainsGcType(
     case TypeTag.Function: {
       return !!(type as FunctionType).isClosure;
     }
-    // No need to consider ptr/ref types, as they are not owning types
+    case TypeTag.Ptr: {
+      return typeContainsGcType((type as PtrType).childType, checkedTypes);
+    }
     default:
       return false; // For other types, no references are present
   }

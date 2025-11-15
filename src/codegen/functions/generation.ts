@@ -19,6 +19,7 @@ import {
   isFutureType,
   isStructType,
   isUnitType,
+  typeContainsGcType,
   typeContainsSomeType,
   typeToString,
 } from "../../types";
@@ -294,6 +295,49 @@ int main(void) {
 }
 
 /**
+ * Collect all GC pointer local variables from a function body.
+ * This scans the function's environment to find variables that contain GC pointers.
+ *
+ * @param body - The function body expression
+ * @returns Array of GC pointer local variable names
+ */
+function collectGcPointerLocals(body: Expr): string[] {
+  const gcLocals: string[] = [];
+  const seen = new Set<string>();
+
+  // Get the environment from the body expression
+  if (!body.$?.env) {
+    return [];
+  }
+
+  const env = body.$.env;
+
+  // Scan all variables in all frames
+  for (const frame of env.frames) {
+    for (const variable of frame.variables) {
+      // Skip if we've already seen this variable ID
+      if (seen.has(variable.id)) {
+        continue;
+      }
+      seen.add(variable.id);
+
+      // Skip compile-time only variables (they don't exist at runtime)
+      if (variable.isCompileTimeOnly) {
+        continue;
+      }
+
+      // Check if the variable's type contains GC pointers
+      // This handles both direct GC types and structs containing GC types
+      if (typeContainsGcType(variable.type)) {
+        gcLocals.push(variable.name);
+      }
+    }
+  }
+
+  return gcLocals;
+}
+
+/**
  * Generate C code for a function
  */
 export function generateFunction(
@@ -321,6 +365,59 @@ export function generateFunction(
     .currentFunctionType;
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
+
+  // Collect GC pointer locals for shadow stack (Phase 3)
+  const gcPointerLocals = collectGcPointerLocals(functionValue.body);
+  const needsShadowFrame = gcPointerLocals.length > 0;
+
+  // Generate shadow frame setup if needed (Phase 3 TODO 3)
+  if (needsShadowFrame) {
+    emitter.emitLine(`  // Shadow frame setup`);
+    emitter.emitLine(`  YoShadowFrame __yo_shadow_frame;`);
+    emitter.emitLine(`  void* __yo_roots[${gcPointerLocals.length}];`);
+    emitter.emitLine(`  __yo_shadow_frame.prev = yo_shadow_stack_top;`);
+    emitter.emitLine(`  __yo_shadow_frame.roots = __yo_roots;`);
+    emitter.emitLine(
+      `  __yo_shadow_frame.num_roots = ${gcPointerLocals.length};`
+    );
+    emitter.emitLine(`  __yo_shadow_frame.function_name = "${cFunctionName}";`);
+    emitter.emitLine(`  yo_shadow_stack_top = &__yo_shadow_frame;`);
+    emitter.emitLine(``);
+
+    // Initialize GC pointer locals to NULL and register in roots array
+    for (let i = 0; i < gcPointerLocals.length; i++) {
+      const localName = gcPointerLocals[i]!;
+      const sanitizedName = sanitizeForCIdentifier(localName);
+
+      // Find the variable in the environment to get its type
+      const env = functionValue.body.$?.env;
+      if (env) {
+        for (const frame of env.frames) {
+          const variable = frame.variables.find((v) => v.name === localName);
+          if (variable && !variable.isCompileTimeOnly) {
+            // Skip function parameters - they're already declared
+            const isParameter = functionType.parameters.some(
+              (p) => p.label === localName
+            );
+            if (isParameter) {
+              // Just register the parameter in roots array, don't declare it
+              emitter.emitLine(`  __yo_roots[${i}] = &${sanitizedName};`);
+            } else {
+              // Declare and initialize local variable, then register in roots array
+              const varType = getTypeString(variable.type, context);
+              emitter.emitLine(`  ${varType} ${sanitizedName} = NULL;`);
+              emitter.emitLine(`  __yo_roots[${i}] = &${sanitizedName};`);
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    if (gcPointerLocals.length > 0) {
+      emitter.emitLine(``);
+    }
+  }
 
   // Set closure capture context if this is a closure function
   const previousClosureCaptures = context.currentClosureCaptures;

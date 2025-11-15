@@ -65,6 +65,71 @@ static yo_gc_state_t yo_gc = {
 };
 
 // =============================================================================
+// Shadow Stack - Phase 3
+// =============================================================================
+
+/**
+ * Shadow stack frame for tracking GC pointer locals
+ * Each function with GC pointer locals creates a frame on the C stack
+ */
+typedef struct YoShadowFrame {
+  struct YoShadowFrame* prev;   // Previous frame (caller's frame)
+  void** roots;                 // Array of pointers to GC pointer locals
+  size_t num_roots;             // Number of roots in this frame
+  const char* function_name;    // Function name (for debugging)
+} YoShadowFrame;
+
+// Thread-local shadow stack top
+// Points to the current function's shadow frame
+__thread YoShadowFrame* yo_shadow_stack_top = NULL;
+
+// Forward declaration
+static void yo_gc_mark_object(void* obj_ptr);
+
+/**
+ * Scan shadow stack and mark all roots
+ */
+static void yo_gc_scan_shadow_stack(void) {
+  ${debugGc}
+  size_t total_frames = 0;
+  size_t total_roots = 0;
+  #endif
+  
+  for (YoShadowFrame* frame = yo_shadow_stack_top; 
+       frame != NULL; 
+       frame = frame->prev) {
+    
+    ${debugGc}
+    total_frames++;
+    printf("[GC]   Frame: %s, roots=%zu\\n", 
+           frame->function_name ? frame->function_name : "<unknown>",
+           frame->num_roots);
+    #endif
+    
+    // Scan all roots in this frame
+    for (size_t i = 0; i < frame->num_roots; i++) {
+      // frame->roots[i] is a pointer to a local variable (void*)
+      // Dereference it to get the object pointer (cast to void** first)
+      void* obj = *(void**)frame->roots[i];
+      
+      ${debugGc}
+      total_roots++;
+      printf("[GC]     Root[%zu]: %p\\n", i, obj);
+      #endif
+      
+      if (obj != NULL) {
+        yo_gc_mark_object(obj);
+      }
+    }
+  }
+  
+  ${debugGc}
+  printf("[GC] Scanned shadow stack: %zu frames, %zu total roots\\n",
+         total_frames, total_roots);
+  #endif
+}
+
+// =============================================================================
 // GC Allocation
 // =============================================================================
 
@@ -190,17 +255,15 @@ static void yo_gc_mark_object(void* obj_ptr) {
 /**
  * Mark all root objects
  * 
- * Phase 2: No roots yet (no shadow stack)
- * Phase 3: Will scan shadow stack for roots
+ * Phase 3: Scan shadow stack for roots
  */
 static void yo_gc_mark_roots(void) {
   ${debugGc}
-  printf("[GC] Marking roots (Phase 2: no shadow stack yet)\\n");
+  printf("[GC] Marking roots from shadow stack\\n");
   #endif
   
-  // TODO Phase 3: Scan shadow stack
-  // For now, we have no roots, so nothing will be marked
-  // This means GC will collect everything (which is wrong, but safe for testing)
+  // Scan shadow stack to find all GC pointer locals
+  yo_gc_scan_shadow_stack();
 }
 
 // =============================================================================

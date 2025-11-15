@@ -17,7 +17,13 @@ import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
 function exprContainsUnknownValue(expr: Expr): boolean {
   // Check if this expression has an unknown value
   if (expr.$ && expr.$.value && isUnknownValue(expr.$.value)) {
-    return true;
+    // If the expression has a function type that is extern, it's not truly unknown
+    // External functions (like printf, gc_collect) are known at codegen time
+    if (isFunctionType(expr.$.type) && expr.$.type.isExtern) {
+      // return false; // Continue to check args
+    } else {
+      return true;
+    }
   }
 
   // Recursively check function calls

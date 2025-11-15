@@ -9,9 +9,19 @@ MyBox :: object(
   })
 );
 
-main :: (fn() -> unit) {
+test_x :: (fn() -> unit) {
   x := MyBox(42);
-  printf("MyBox value: %d\n", x.(*));
+  printf("x value: %d\n", x.(*));
+};
+
+test_y :: (fn() -> unit) {
+  y := { box : MyBox(66) };
+  printf("y.box value: %d\n", y.box.(*));
+};
+
+main :: (fn() -> unit) {
+  test_x();
+  test_y();
 
   gc_collect();
 };
