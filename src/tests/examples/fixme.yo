@@ -1,4 +1,5 @@
 open import "std/libc/stdio";
+{ gc_collect } :: import "std/gc";
 
 MyBox :: object(
   (*) : i32,
@@ -11,6 +12,8 @@ MyBox :: object(
 main :: (fn() -> unit) {
   x := MyBox(42);
   printf("MyBox value: %d\n", x.(*));
+
+  gc_collect();
 };
 
 export main;

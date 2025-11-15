@@ -27,12 +27,11 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Uninitialized variable](#uninitialized-variable)
   - [Object Types and Memory Management](#object-types-and-memory-management)
     - [Object Type](#object-type)
-    - [Biased Reference Counting](#biased-reference-counting)
-    - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
+    - [Garbage Collection](#garbage-collection)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
   - [Nullable Pointers](#nullable-pointers)
-  - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
+  - [GC Finalization with `dispose`](#gc-finalization-with-dispose)
 - [Function Declaration](#function-declaration)
   - [Named arguments](#named-arguments)
   - [Implicit Parameters](#implicit-parameters)
@@ -56,6 +55,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
   - [Type parameters for specific variant](#type-parameters-for-specific-variant)
 - [C struct](#c-struct)
+- [Newtype](#newtype)
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Advanced Types `In Design`](#advanced-types-in-design)
@@ -73,18 +73,14 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Guard](#guard)
-- [Pointers](#pointers-1)
-  - [Thin pointers](#thin-pointers)
-    - [Linear pointers](#linear-pointers)
-  - [Fat pointers](#fat-pointers)
 - [String](#string)
   - [C String](#c-string)
-  - [UTF-8 string literal](#utf-8-string-literal)
   - [String (Immutable String)](#string-immutable-string)
-- [Collections `In Design`](#collections-in-design)
-  - [ARC Collections](#arc-collections)
-    - [ArrayList](#arraylist)
-    - [Map](#map)
+- [Collections](#collections)
+  - [ArrayList](#arraylist)
+  - [HashMap](#hashmap)
+  - [HashSet](#hashset)
+  - [LinkedList](#linkedlist)
 - [Error handling](#error-handling)
   - [Error Propagation with match](#error-propagation-with-match)
 - [Type casting](#type-casting)
@@ -120,9 +116,10 @@ Extended with a little bit of functional programming.
 - **No operator precedence** (explicit parentheses or newline-based associativity)
 - **First-class types** (types are values)
 - **Block-based variable shadowing** (similar to JavaScript)
-- **Reference counting with ownership analysis** (no garbage collection pauses)
-- **Object type with biased reference counting** (BRC) for automatic memory management
-- **Pointer-based memory model** (no references/borrowing complexity)
+- **Precise garbage collection** (concurrent, generational, <5ms pause times)
+- **Object types with GC** for automatic heap memory management
+- **Value types with RAII** for deterministic resource cleanup
+- **Hybrid type system** (stack-allocated values + GC-managed heap objects)
 
 ## Inspiration
 
@@ -148,7 +145,7 @@ The **Yo** language is heavily inspired by:
 - [Python](https://python.org/)
   - Keyword arguments
 - [C++](https://isocpp.org/)
-  - RAII
+  - ~~RAII~~
 - [Scheme (Lisp)](https://www.scheme.com/)
   - Minimal syntax
   - [Meta-programming (Macros)](https://docs.racket-lang.org/reference/quasiquote.html)
@@ -258,12 +255,12 @@ A type can have the following **Kind**:
 - Fixed-size arrays: `Array(T, N)`
 - Tuples: `Tuple(T1, T2, ...)`
 
-**Object Types** (heap-allocated, reference-counted):
+**Object Types** (heap-allocated, garbage collected):
 
 - Types defined with `object(...)`
-- Use [Biased Reference Counting (BRC)](./BIASED_REFERENCE_COUNTING.md) for memory management
-- Automatic cycle detection and collection
-- Thread-affinity for performance (objects stay on the thread that created them)
+- Use [Precise Garbage Collection](./GC_DESIGN.md) with shadow stack and tri-color marking
+- Automatic memory management with <5ms pause times
+- Work-stealing friendly (no thread affinity constraints)
 
 ```rust
 // Value type - stack-allocated, copied
@@ -271,13 +268,13 @@ Point :: struct(x: i32, y: i32);
 p1 := Point(3, 4);
 p2 := p1;  // p2 is a copy of p1
 
-// Object type - heap-allocated, reference-counted
+// Object type - heap-allocated, garbage collected
 String :: object(
   _bytes: ArrayList(u8),
   // methods...
 );
 s1 := String.from("Hello");
-s2 := s1;  // s2 and s1 point to the same object (reference counted)
+s2 := s1;  // s2 and s1 point to the same object (GC-managed)
 ```
 
 ### Variable Declaration
@@ -329,9 +326,9 @@ Variables can be shadowed in different block scopes:
 ### Type inference
 
 ```rust
-// String is an object type with automatic reference counting
-(my_string: String) = String.from("Hello, world"); // Heap-allocated
-my_string_2 := my_string; // Both point to the same object (RC incremented)
+// String is an object type with garbage collection
+(my_string: String) = String.from("Hello, world"); // Heap-allocated, GC-managed
+my_string_2 := my_string; // Both point to the same object (GC tracks reachability)
 
 // Primitive types are copied
 my_int := 1; // Stack-allocated
@@ -342,7 +339,7 @@ my_int_2 := my_int; // my_int_2 is a copy
 my_int_array := [1, 2, 3]; // Array(i32, 3)
 
 // ArrayList is an object type
-(my_array_list: ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
+(my_array_list: ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, GC-managed
 
 // Enum/ADT can be value or object type depending on definition
 Person :: struct(name: String, age: i32); // Value type (but contains object field)
@@ -363,11 +360,11 @@ x = 1; // x: i32, initialized
 
 ### Object Types and Memory Management
 
-Yo uses **object types** with [**Biased Reference Counting (BRC)**](./BIASED_REFERENCE_COUNTING.md) for automatic memory management.
+Yo uses **object types** with [**Precise Garbage Collection**](./GC_DESIGN.md) for automatic memory management.
 
 #### Object Type
 
-Object types are heap-allocated types with automatic reference counting:
+Object types are heap-allocated types managed by the garbage collector:
 
 ```rust
 // Define an object type
@@ -381,35 +378,34 @@ String :: object(
 
   length :: ((fn(self: Self) -> usize) {
     // Implementation...
+  }),
+
+  dispose :: ((fn(self: Self) -> unit) {
+    // Optional finalizer called by GC when object is collected
+    printf("Finalizing string\n");
   })
 );
 
 // Usage
-s1 := String.from("Hello");  // RC = 1
-s2 := s1;                    // RC = 2 (both point to same object)
-s3 := s2;                    // RC = 3
-// When s1, s2, s3 go out of scope, RC decrements
-// When RC reaches 0, memory is freed
+s1 := String.from("Hello");  // Allocated on GC heap
+s2 := s1;                    // Both point to same object (GC tracks reachability)
+s3 := s2;                    // All three variables reference the same object
+// When s1, s2, s3 go out of scope and object becomes unreachable, GC will collect it
 ```
 
-#### Biased Reference Counting
+#### Garbage Collection
 
-Yo uses a high-performance reference counting strategy that's biased toward single-threaded access:
+Yo uses a precise, concurrent, generational mark-sweep GC with shadow stack:
 
 **Key features:**
 
-- **Thread affinity**: Objects stay on the thread that created them
-- **Non-atomic fast path**: Owner thread operations are non-atomic (no CPU synchronization)
-- **Atomic slow path**: Cross-thread access uses atomic operations
-- **Cycle detection**: Automatic detection and collection of reference cycles
+- **Precise GC**: Shadow stack tracks all GC pointers accurately
+- **Concurrent marking**: Most GC work happens in parallel with program execution
+- **Generational collection**: Young generation for fast frequent collections
+- **Low latency**: <5ms pause times (99.9th percentile)
+- **Work-stealing friendly**: No thread affinity constraints
 
-See [BIASED_REFERENCE_COUNTING.md](./BIASED_REFERENCE_COUNTING.md) for implementation details.
-
-#### Compile-Time Reference Counting Optimization
-
-The compiler performs [ownership analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) to eliminate unnecessary reference counting operations.
-
-See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for details.
+See [GC_DESIGN.md](./GC_DESIGN.md) for complete implementation details.
 
 ## Pointers
 
@@ -469,18 +465,27 @@ match(some_ptr,
 
 **Note**: Raw pointers are unsafe. Use object types for safe memory management whenever possible.
 
-### RAII (Resource Acquisition Is Initialization)
+### GC Finalization with `dispose`
 
-Yo automatically manages memory for object types through reference counting. When an object's reference count reaches zero, it is automatically freed.
+Object types can define a `dispose` method that is called by the garbage collector when the object is freed. This is **not** deterministic and should **not** be used for managing critical resources:
 
 ```rust
+MyBox :: object(
+  value: i32,
+  dispose :: ((fn(self: Self) -> unit) {
+    printf("Finalizing MyBox with value: %d\n", self.value);
+  })
+);
+
 test :: (fn() -> unit) {
-  x := String.from("World!");  // RC = 1
-  // ... use x ...
-  // At end of scope, RC is decremented
-  // If RC reaches 0, memory is automatically freed
-}
+  box := MyBox(42);
+  // Use box...
+}  // box becomes unreachable, GC will eventually call dispose (timing not guaranteed)
 ```
+
+**Use `dispose` for**: Logging, debugging, or non-critical cleanup only.
+
+**Important**: `dispose` is non-deterministic and called by the GC when the object is freed. The timing is unpredictable, so it should NOT be used for managing critical resources like file handles, sockets, or locks.
 
 ## Function Declaration
 
@@ -721,7 +726,6 @@ add_va_c :: ((...(args) : VarList) -> c_int) {
   while i < count, i = (i + 1), {
     result = (result + args.arg(i32)); // Pop the variadic argument and set it to i32
   };
-  // RAII clean up the "args";
   return result;
 };
 
@@ -732,7 +736,6 @@ add_va_yo :: (fn(forall(count: usize), ...(args) : Array(c_int, count)) -> c_int
   while i < count, i = (i + 1), {
     result = (result + args(i));
   };
-  // RAII clean up the "args";
   return result;
 };
 

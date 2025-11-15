@@ -17,7 +17,7 @@ Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
 To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo` to compile the `fixme.yo`. Or run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --emit-c --skip-c-compiler` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
-Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-brc` to debug the biased reference counter, and `--debug-concurrency` to debug the concurrency model, and `--debug-async-await` for debugging async/await.
+Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector, `--debug-concurrency` to debug the concurrency model, and `--debug-async-await` for debugging async/await.
 
 Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
 
@@ -62,9 +62,7 @@ When you are working on the C codegen. Do not call `emitter.emitLine` multiple t
 
 Don't add unnecessary comments to the code.
 
-For understanding the compile-time reference counting ownership model, please read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` document.
-
-For understanding the biased reference counting implementation, please read `BIASED_REFERENCE_COUNTING.md` document.
+For understanding the garbage collection design, please read `GC_DESIGN.md` document.
 
 For understanding the concurrency design, please read `CONCURRENCY.md` document. <- Stackful coroutine might be deprecated in favor of async/await
 For understanding the async IO, please read `ASYNC_IO.md` document. <- Stackful coroutine might be deprecated in favor of async/await
@@ -83,9 +81,9 @@ While implementing the evaluate or codegen, no shortcuts or simplcations!
    - This avoids confusion with C's `char` type
 
 2. **Type naming conventions:**
-   - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `boolean`
-   - Use `struct(...)` for value types
-   - Use `object(...)` for reference-counted types
+   - Lowercase for value types (stack-allocated): `rune`, `i32`, `u32`, `boolean`
+   - Use `struct(...)` for value types (stack-allocated, copied)
+   - Use `object(...)` for GC-managed heap types (garbage collected)
 
 3. **No operator precedence:**
    - Always use parentheses to group operations: `((a + b) * c)` not `a + b * c`

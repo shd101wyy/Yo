@@ -731,7 +731,7 @@ export function getMethodsByNameFromEnv(
   if (isDynType(dereferencedReceiverType)) {
     // Then, for dynamic dispatch, check all module types in the DynType for wrapped object methods
     // A method might exist in only some modules, and that's perfectly valid
-    const moduleTypes = dereferencedReceiverType.moduleTypes.slice(1); // Skip the wrappedObjectARCModuleType that contains ___dup, ___drop, ___dispose since we already checked it above.
+    const moduleTypes = dereferencedReceiverType.moduleTypes.slice(1);
     for (const moduleType of moduleTypes) {
       const method = moduleType.fields.find(
         (field) =>

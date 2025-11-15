@@ -19,9 +19,9 @@ Yo aims to be **Simple** and **Fast** (around 0% - 20% slower than C).
 - Homoiconicity and metaprogramming (**Yo** is just a combination of **Lisp** and **C**).
 - Closure
 - [Async/await](./ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking).
-- `object` type with [Biased Reference Counting](./BIASED_REFERENCE_COUNTING.md) and Cycle detection.
-- [Compile-time Reference Counting with Ownership and Lifetime Analysis](./BIASED_REFERENCE_COUNTING.md).
-- [Thread-per-core and thread affinity concurrency model](./CONCURRENCY.md).
+- `object` type with [Precise Garbage Collection](./GC_DESIGN.md) using shadow stack and tri-color marking.
+- [Concurrent, generational GC](./GC_DESIGN.md) with <5ms pause times.
+- Work-stealing concurrency with no thread affinity constraints.
 - Modular implicits.
 - **C** interop.  
 - etc

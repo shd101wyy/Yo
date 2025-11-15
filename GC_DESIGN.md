@@ -84,18 +84,171 @@ For a statically-typed language transpiling to C with <5ms latency goals:
 4. ✅ Use `struct` with `___drop` for RAII resources
 
 **Compiler changes**:
-1. Remove all `___dup()` and `___drop()` calls
-2. Generate shadow stack setup/teardown in functions
-3. Emit type descriptors for all GC types
-4. Insert write barriers on GC pointer assignments
-5. Insert safepoints at loops and allocations
+1. ✅ **DONE**: Remove all `___dup()` and `___drop()` calls from evaluator
+2. ⏳ **IN PROGRESS**: Remove all RC codegen (BRC runtime, ___dup/___drop, __yo_incr_rc, __yo_decr_rc)
+3. ⏳ **TODO**: Generate shadow stack setup/teardown in functions
+4. ⏳ **TODO**: Emit type descriptors for all GC types
+5. ⏳ **TODO**: Insert write barriers on GC pointer assignments
+6. ⏳ **TODO**: Insert safepoints at loops and allocations
 
 **Runtime changes**:
-1. Replace mimalloc with GC heap allocator
-2. Implement tri-color marking algorithm
-3. Add shadow stack scanning
-4. Implement write barriers and safepoints
-5. Add work-stealing scheduler (no thread affinity)
+1. ⏳ **TODO**: Replace mimalloc with GC heap allocator
+2. ⏳ **TODO**: Implement tri-color marking algorithm
+3. ⏳ **TODO**: Add shadow stack scanning
+4. ⏳ **TODO**: Implement write barriers and safepoints
+5. ⏳ **TODO**: Add work-stealing scheduler (no thread affinity)
+
+---
+
+## Migration Progress (as of Nov 15, 2025)
+
+### ✅ Completed: Evaluator RC Removal
+
+**Files cleaned:**
+- ✅ `src/expr.ts`: Removed all RC builtin functions (___dup, ___drop, __yo_incr_rc, __yo_decr_rc, etc.)
+- ✅ `src/evaluator/exprs/_expr.ts`: Removed RC evaluator calls
+- ✅ `src/evaluator/builtins/dup.ts`: **DELETED**
+- ✅ `src/evaluator/builtins/drop.ts`: **DELETED**
+- ✅ `src/evaluator/builtins/arc_fns.ts`: **DELETED**
+- ✅ `src/evaluator/types/utils.ts`: Removed all ARC function generation (addARCFunctionsToStructType, etc.)
+- ✅ `src/evaluator/exprs/begin.ts`: Cleaned up (dup/drop optimization logic removed)
+- ✅ Tests passing: `bun test src/tests/fixme.test.ts` works
+
+**Key decisions made:**
+- ✅ Kept `dispose` method for GC finalization (called when GC frees object)
+- ✅ Kept `__yo_gc_collect` builtin for manual GC triggering
+- ✅ Added `__yo_gc_alloc` builtin (to be implemented in codegen)
+
+### 🚧 Next Steps: C Codegen RC Removal
+
+**Files to clean:**
+1. `src/codegen/c/codegen-c.ts`: Remove BRC runtime code generation
+2. `src/codegen/functions/generation.ts`: Remove `generateAtomicGCRuntimeFunctions`
+3. `src/codegen/expressions/generation.ts`: Remove RC operation handlers
+4. `src/codegen/values/`: Remove RC value codegen
+5. `src/codegen/types/`: Update type codegen for GC
+
+**Object header design (`yo_ref_header_t` → `yo_gc_header_t`):**
+
+**OLD (BRC):**
+```c
+typedef struct {
+  _Atomic(uint64_t) ref_count;  // Biased reference counter
+  uint32_t type_tag;             // Type identifier
+  uint32_t size;                 // Object size
+} yo_ref_header_t;
+```
+
+**NEW (GC):**
+```c
+typedef struct {
+  uint8_t mark_bits : 2;      // WHITE=0, GRAY=1, BLACK=2 (tri-color marking)
+  uint8_t generation : 1;     // 0=young, 1=old (for generational GC)
+  uint8_t has_finalizer : 1;  // 1 if dispose() method exists
+  uint8_t reserved : 4;       // Future use
+  uint32_t type_tag;          // Type identifier (for type descriptor lookup)
+  uint32_t size;              // Object size in bytes
+  void* type_descriptor;      // Pointer to YoTypeDescriptor (for pointer scanning)
+} yo_gc_header_t;
+```
+
+**Key changes:**
+- ❌ **Removed**: `ref_count` (no more reference counting)
+- ✅ **Added**: `mark_bits` for tri-color marking (WHITE/GRAY/BLACK)
+- ✅ **Added**: `generation` bit for generational GC
+- ✅ **Added**: `has_finalizer` flag (if `dispose()` exists)
+- ✅ **Added**: `type_descriptor` pointer for precise GC scanning
+
+### 🔮 Implementation Strategy
+
+**Shadow Stack: Codegen Phase (NOT Evaluator)**
+
+The shadow stack should be handled **entirely in C codegen**, not in the evaluator:
+
+**Why codegen and not evaluator?**
+1. **Evaluator is language-level**: Works with AST, types, and semantics
+2. **Shadow stack is runtime-level**: C-specific implementation detail
+3. **Codegen has full control**: Knows exact function boundaries, locals, and control flow
+4. **Separation of concerns**: Evaluator shouldn't know about C stack layout
+
+**Codegen responsibilities:**
+- Identify which locals are GC pointers (from type information)
+- Generate shadow frame setup at function entry
+- Generate `roots` array initialization
+- Update `roots` array on GC pointer assignments
+- Generate shadow frame teardown at function exit
+
+**Example transformation:**
+```yo
+// Yo source
+process :: (fn(x: i32) -> Node) {
+  node := Node(value: x, next: .None);
+  return node;
+}
+```
+
+**Generated C (with shadow stack):**
+```c
+YoNode* process(int32_t x) {
+  // Shadow frame setup
+  YoShadowFrame frame;
+  frame.prev = yo_shadow_stack_top;
+  YoNode* node = NULL;  // Initialize to NULL
+  void* roots[1] = { &node };  // Track GC pointer locals
+  frame.roots = roots;
+  frame.num_roots = 1;
+  yo_shadow_stack_top = &frame;
+  
+  // Function body
+  node = yo_gc_alloc(&Node_descriptor);
+  node->value = x;
+  node->next = YoOption_Node_None();
+  
+  // Restore frame on return
+  yo_shadow_stack_top = frame.prev;
+  return node;
+}
+```
+
+**Evaluator's role:**
+- ✅ Track type information (which types are GC types)
+- ✅ Attach type metadata to expressions
+- ❌ NO shadow stack logic
+- ❌ NO C-specific code generation
+
+**Codegen's role:**
+- ✅ Generate shadow stack setup/teardown
+- ✅ Identify GC pointer locals from type information
+- ✅ Generate `roots` array with correct size
+- ✅ Handle early returns and exceptions
+
+### 📋 Codegen TODO List
+
+**Phase 1: Remove BRC Runtime**
+1. Remove `generateAtomicGCRuntimeFunctions()` - delete entire function
+2. Remove `__yo_incr_rc`, `__yo_decr_rc` handlers from expression codegen
+3. Remove `__yo_dup`, `__yo_drop`, `__yo_dyn_drop`, `__yo_dyn_dup`, `__yo_closure_drop`, `__yo_closure_dup` handlers
+4. Remove biased RC logic from struct/object allocation
+5. Update `yo_ref_header_t` to `yo_gc_header_t`
+
+**Phase 2: Implement Basic GC Infrastructure**
+1. Implement `__yo_gc_alloc(type_descriptor)` - heap allocation
+2. Implement `__yo_gc_collect()` - manual GC trigger
+3. Generate type descriptors for all GC types (struct/object/dyn/fn)
+4. Implement basic mark-sweep (stop-the-world, single-threaded)
+
+**Phase 3: Add Shadow Stack**
+1. Generate shadow frame setup at function entry (for functions with GC locals)
+2. Generate `roots` array initialization
+3. Track which locals are GC pointers
+4. Generate shadow frame teardown at function exit
+5. Implement `yo_gc_scan_shadow_stack()` in runtime
+
+**Phase 4: Concurrent GC (Future)**
+1. Implement tri-color marking
+2. Add write barriers on GC pointer assignments
+3. Add safepoints at loops and allocations
+4. Implement concurrent marking and sweeping
 
 ### Comparison to Other Languages
 

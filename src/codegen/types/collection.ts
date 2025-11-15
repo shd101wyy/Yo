@@ -133,7 +133,7 @@ export function collectTypesFromExpr(
             collectType(field.type, context);
           }
 
-          // Collect functions from the module (___dup, ___drop, etc.)
+          // Collect functions from the module.
           for (const field of captureType.module.fields) {
             if (field.assignedValue && isFunctionValue(field.assignedValue)) {
               const functionValue = field.assignedValue;
@@ -212,7 +212,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
       cName: cTypeName,
     };
 
-    // For struct types, collect functions from the module (___dup, ___drop, etc.)
+    // For struct types, collect functions from the module.
     if (isStructType(type)) {
       // Recursively collect types from struct fields
       for (const field of type.fields) {

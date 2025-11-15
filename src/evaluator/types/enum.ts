@@ -109,20 +109,6 @@ export function evaluateEnumType({
         });
       }
 
-      // ___drop function
-      // if (type.label === BuiltinFunctions.___drop[0]) {
-      //   throw formatErrorMessage({
-      //     token: arg.token,
-      //     errorMessage: `The label "${BuiltinFunctions.___drop[0]}()" is reserved for the auto-generated drop function. You cannot define it as a compile-time-only element.`,
-      //   });
-      // }
-
-      // dispose function
-      // Verify the disposeFunction has the correct type.
-      // fn(self : Self) -> unit
-      // if (type.label === BuiltinFunctions.dispose[0]) {
-      //   validateDisposeFunction(type as ModuleField, arg.token);
-      // }
       moduleFields.push(field as ModuleField);
       env = nextEnv;
     }
