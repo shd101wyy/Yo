@@ -207,10 +207,10 @@ function generateFuncCall(
       // Generate a unique temporary variable name for the capture data
       const captureTempVar = `__capture_${closureType.id}_${Date.now()}`;
 
-      // Allocate capture data on heap using standard C (no GNU extensions)
+      // Allocate capture data on heap using GC allocator
       // We'll emit this as separate statements before the constructor call
       emitter.emitLine(
-        `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_malloc(sizeof(${captureCName}));`
+        `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_gc_alloc(sizeof(${captureCName}), NULL);  // TODO: Pass type descriptor`
       );
       emitter.emitLine(`${indent}*${captureTempVar} = ${captureDataCode};`);
 

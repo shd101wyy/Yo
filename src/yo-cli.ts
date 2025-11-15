@@ -38,7 +38,7 @@ yo run <script>                  Run a script defined in 'yo.json'
     describe: "C Compiler to use",
     type: "string",
     demandOption: false,
-    default: "clang",
+    default: "cc",
   })
   .option("t", {
     alias: "target",
