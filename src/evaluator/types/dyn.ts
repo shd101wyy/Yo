@@ -6,7 +6,6 @@ import {
   expectExprToBeFunctionCallOf,
   FuncCallExpr,
 } from "../../expr";
-import { generateExprFromCode } from "../../parser";
 import {
   createDynType,
   isFunctionType,
@@ -17,7 +16,6 @@ import {
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToDynType } from "./utils";
 
 export function evaluateDynType({
   expr,
@@ -85,13 +83,8 @@ export function evaluateDynType({
     }
   }
 
-  // Prevent having ___dup, ___drop, ___dispose, dispose in moduleTypes
-  const reservedFunctionNames = [
-    BuiltinFunctions.___dup[0]!,
-    BuiltinFunctions.___drop[0]!,
-    BuiltinFunctions.___dispose[0]!,
-    BuiltinFunctions.dispose[0]!,
-  ];
+  // Prevent having "dispose" in moduleTypes
+  const reservedFunctionNames = [BuiltinFunctions.dispose[0]!];
   for (const moduleType of moduleTypes) {
     for (const element of moduleType.fields) {
       if (
@@ -108,56 +101,9 @@ export function evaluateDynType({
     }
   }
 
-  // QUESTION: From the C codegen, it seems like only the ___dispose is used for the wrapped object
-  // So do we still need to have ___dup and ___drop in the module type for the wrapped object?
-  // Create a module type that defines the ARC interface for the wrapped object
-  // This will be used to call ___dup, ___drop, ___dispose on the inner data
-  const wrappedObjectARCModuleTypeExpr = generateExprFromCode(`
-module(
-  Self : Type,
-  /// ___dup :
-  ///   fn(self: Self) -> Self,
-  /// ___drop :
-  ///   fn(self: Self) -> unit,
-  ___dispose :
-    fn(self: Self) -> unit
-)
-`);
-  /// evaluate the wrappedObjectARCModuleTypeExpr
-  const evaluatedWrappedObjectARCModuleTypeExpr = evaluateExpression({
-    expr: wrappedObjectARCModuleTypeExpr,
-    env,
-    context: {
-      ...context,
-    },
-  });
-  /// get its type value, which should be a ModuleType
-  const wrappedObjectARCModuleTypeValue =
-    evaluatedWrappedObjectARCModuleTypeExpr.$?.value;
-  if (!isTypeValue(wrappedObjectARCModuleTypeValue)) {
-    throw new Error(
-      `Expected a type value for wrapped object ARC module type.`
-    );
-  }
-  if (!isModuleType(wrappedObjectARCModuleTypeValue.value)) {
-    throw new Error(
-      `Expected a module type for wrapped object ARC module type.`
-    );
-  }
-  const wrappedObjectARCModuleType = wrappedObjectARCModuleTypeValue.value;
+  // Create the dyn type
+  const dynType = createDynType([...moduleTypes], env);
 
-  // Create the dyn type with its own module for ARC functions
-  const dynType = createDynType(
-    [wrappedObjectARCModuleType, ...moduleTypes],
-    env
-  );
-
-  // Add ARC functions to the dyn type's module
-  env = addARCFunctionsToDynType({
-    dynType,
-    env,
-    context,
-  });
   const dynTypeValue = createTypeValue(dynType);
 
   expr.$ = {

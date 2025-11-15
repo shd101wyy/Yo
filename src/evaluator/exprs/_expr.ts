@@ -14,16 +14,6 @@ import {
 import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
 import { evaluateAndOr } from "../builtins/and_or";
-import {
-  evaluateIsUniquelyOwned,
-  evaluateYoClosureDrop,
-  evaluateYoClosureDup,
-  evaluateYoDecrRc,
-  evaluateYoDynVtableDrop,
-  evaluateYoDynVtableDup,
-  evaluateYoIncrRc,
-  evaluateYoRcOwn,
-} from "../builtins/arc_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "../builtins/compt_expect_error";
@@ -41,8 +31,6 @@ import {
   evaluateAsync,
   evaluateTaskSetMaximumThreads,
 } from "../builtins/concurrency_fns";
-import { evaluateDrop } from "../builtins/drop";
-import { evaluateDup } from "../builtins/dup";
 import {
   evaluateYoExprEq,
   evaluateYoExprGetArgs,
@@ -51,11 +39,7 @@ import {
   evaluateYoExprIsFnCall,
   evaluateYoExprToString,
 } from "../builtins/expr_fns";
-import {
-  evaluateAwait,
-  evaluateYoFutureDrop,
-  evaluateYoFutureDup,
-} from "../builtins/future_fns";
+import { evaluateAwait } from "../builtins/future_fns";
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateMacroExpand } from "../builtins/macro_expand";
@@ -67,7 +51,7 @@ import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
   evaluateYoAreTypesCompatible,
-  evaluateYoTypeContainsArcType,
+  evaluateYotypeContainsGcType,
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
 import { evaluateYoSetTypeModule } from "../builtins/type_module";
@@ -353,12 +337,6 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
-      // __yo_future_drop
-      return evaluateYoFutureDrop({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
-      // __yo_future_dup
-      return evaluateYoFutureDup({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
       // import
       return evaluateImport({
@@ -471,36 +449,6 @@ ${exprToString(expr)}`,
     ) {
       // && ||
       return evaluateAndOr({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
-      // ___drop
-      return evaluateDrop({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___dup)) {
-      // ___dup
-      return evaluateDup({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
-      // __yo_decr_rc
-      return evaluateYoDecrRc({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc)) {
-      // __yo_incr_rc
-      return evaluateYoIncrRc({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
-      // __yo_rc_own
-      return evaluateYoRcOwn({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.is_uniquely_owned)) {
-      // is_uniquely_owned
-      return evaluateIsUniquelyOwned({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_drop)) {
-      // __yo_dyn_drop
-      return evaluateYoDynVtableDrop({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
-      // __yo_dyn_dup
-      return evaluateYoDynVtableDup({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_drop)) {
-      // __yo_closure_drop
-      return evaluateYoClosureDrop({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dup)) {
-      // __yo_closure_dup
-      return evaluateYoClosureDup({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
       // __yo_gc_collect
       return evaluateYoGcCollect({ expr, env, context: { ...context } });
@@ -734,7 +682,7 @@ ${exprToString(expr)}`,
       )
     ) {
       // __yo_type_contains_arc_type
-      return evaluateYoTypeContainsArcType({
+      return evaluateYotypeContainsGcType({
         expr,
         env,
         context: { ...context },

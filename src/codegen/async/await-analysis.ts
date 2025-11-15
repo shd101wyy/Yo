@@ -74,13 +74,6 @@ export interface CapturedVariable {
    * - "outer": A variable captured from outer scope (uses variable name as field name)
    */
   kind: "local" | "outer";
-
-  /**
-   * If this variable is borrowing an ARC value from another variable,
-   * this field holds a reference to the owner variable.
-   * This is used to resolve temporary variable names in deferred drops.
-   */
-  isOwningTheSameARCValueAs: CapturedVariable | undefined;
 }
 
 /**
@@ -115,13 +108,6 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
 
   // Walk the expression tree and collect await points
   walkExprForAwaits(body, awaitPoints, capturedVariables);
-
-  // Also walk through deferred drop expressions to capture variables referenced there
-  if (body.$?.deferredDropExpressions) {
-    for (const dropExpr of body.$.deferredDropExpressions) {
-      walkExprForAwaits(dropExpr, awaitPoints, capturedVariables);
-    }
-  }
 
   // If there are no await points, we don't need to capture any variables
   // since everything executes in a single state (state 0)
@@ -160,41 +146,19 @@ function walkExprForAwaits(
 
           // In state machines, we need to capture ALL local variables that are used
           // across await points, regardless of whether they're borrowing or owning.
-          // This includes:
-          // - Variables owning ARC values
-          // - Variables borrowing ARC values (like task1_future, task2_future)
-          // - Temp variables owning ARC values
-          // - Non-ARC variables (primitives, etc.)
           // But skip compile-time-only values (types, compile-time functions, etc.)
           if (
             variable &&
             !capturedVariables.has(variable.id) &&
             !variable.isCompileTimeOnly
           ) {
-            // Check if this variable is borrowing from another variable
-            if (variable.isOwningTheSameARCValueAs) {
-              const ownerVar = variable.isOwningTheSameARCValueAs;
-              // Only capture the owner variable, not the borrower
-              // The borrower is just an alias and doesn't need separate storage
-              if (!capturedVariables.has(ownerVar.id)) {
-                const ownerCaptured: CapturedVariable = {
-                  id: ownerVar.id,
-                  name: ownerVar.name,
-                  type: ownerVar.type,
-                  kind: "local",
-                  isOwningTheSameARCValueAs: undefined,
-                };
-                capturedVariables.set(ownerVar.id, ownerCaptured);
-              }
-              // Don't capture the borrower itself - it's just an alias
-            } else {
+            {
               // Variable is not borrowing - capture it normally
               capturedVariables.set(variable.id, {
                 id: variable.id,
                 name: varName,
                 type: varType,
                 kind: "local",
-                isOwningTheSameARCValueAs: undefined,
               });
             }
           }
@@ -230,13 +194,7 @@ function walkExprForAwaits(
             );
             if (futureVariables.length > 0) {
               const futureVar = futureVariables[futureVariables.length - 1]!;
-              // If the Future variable is borrowing from another variable, use the owner's ID
-              // This ensures we reference the correct field in the state machine struct
-              if (futureVar.isOwningTheSameARCValueAs) {
-                futureVariableId = futureVar.isOwningTheSameARCValueAs.id;
-              } else {
-                futureVariableId = futureVar.id;
-              }
+              futureVariableId = futureVar.id;
             }
           }
 
@@ -337,7 +295,6 @@ function collectVariableBindings(
                 const variable = vars[vars.length - 1];
                 if (
                   variable &&
-                  !variable.isOwningTheSameARCValueAs &&
                   !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
@@ -346,7 +303,6 @@ function collectVariableBindings(
                     name: varName,
                     type: varType,
                     kind: "local",
-                    isOwningTheSameARCValueAs: undefined,
                   });
                   seen.add(variable.id);
                 }
@@ -369,7 +325,6 @@ function collectVariableBindings(
                 const variable = vars[vars.length - 1];
                 if (
                   variable &&
-                  !variable.isOwningTheSameARCValueAs &&
                   !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
@@ -378,7 +333,6 @@ function collectVariableBindings(
                     name: varName,
                     type: varType,
                     kind: "local",
-                    isOwningTheSameARCValueAs: undefined,
                   });
                   seen.add(variable.id);
                 }

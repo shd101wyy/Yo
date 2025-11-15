@@ -8,7 +8,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   convertComptTypeToRuntimeType,
@@ -99,8 +98,6 @@ ${typeToString(expectedTupleType)}`,
         : undefined,
     },
   });
-
-  setExprAsNeedsToCallDup(evaluatedRhs, context);
 
   if (!evaluatedRhs.$) {
     throw formatErrorMessage({
@@ -276,7 +273,7 @@ export function evaluateTupleValue({
   };
 
   // Attach temp variable to the expr
-  attachTempVariableToExpr(expr, true);
+  attachTempVariableToExpr(expr);
 
   return expr;
 }

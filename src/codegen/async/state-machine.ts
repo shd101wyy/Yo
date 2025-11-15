@@ -6,7 +6,6 @@
 
 import { Expr, exprIsFunctionCallOf } from "../../expr";
 import { FutureType, isUnitType, StructType } from "../../types";
-import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
@@ -205,7 +204,6 @@ export function generateAsyncBlockResumeFunction(
           name: field.label,
           type: field.type,
           kind: "outer",
-          isOwningTheSameARCValueAs: undefined,
         });
       }
     }
@@ -250,19 +248,6 @@ export function generateAsyncBlockResumeFunction(
       );
 
       if (!hasReturnStatement) {
-        // Generate deferred drops for the body expression before completing the Future
-        // Keep state machine context active for this
-        if (bodyExpr.$?.deferredDropExpressions) {
-          emitter.emitLine(`      // Drop local variables before completion`);
-          for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
-            const dropCode = generateExpr(dropExpr, "      ", context);
-            if (dropCode) {
-              emitter.emitLine(`      ${dropCode};`);
-            }
-          }
-          emitter.emitLine(``);
-        }
-
         emitter.emitLine(`      // Final state - complete the result Future`);
         emitter.emitLine(
           `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`

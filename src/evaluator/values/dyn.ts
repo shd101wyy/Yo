@@ -1,14 +1,12 @@
 import { Environment, getVariablesFromEnvByFilter } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  attachTempVariableToExpr,
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   Expr,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -82,7 +80,6 @@ export function evaluateDynValue({
     });
   }
 
-  setExprAsNeedsToCallDup(evaluatedValueExpr, context);
   env = evaluatedValueExpr.$!.env!;
 
   const moduleTypes: ModuleType[] = [];
@@ -441,9 +438,6 @@ ${filteredImplicitVariables
     pathCollection: evaluatedValueExpr.$.pathCollection,
     dynCallModuleValues: orderedModuleValues, // Store ordered module values for C codegen
   };
-
-  // Attach temp variable to the expr
-  attachTempVariableToExpr(expr, true);
 
   return expr;
 }

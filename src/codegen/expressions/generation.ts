@@ -29,11 +29,9 @@ import {
   isTupleType,
   isUnionType,
   isUnitType,
-  ModuleType,
   SliceType,
   StructType,
   Type,
-  typeContainsARCType,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -184,42 +182,7 @@ function generateFuncCall(
 
       const captureCName = captureTypeEntry.cName;
 
-      // Get captured variable values
-      // Dup expressions are created at evaluation time and don't have correct context for code generation
-      // When in a closure or state machine, always use generateAtom for proper context-aware access
-      // Otherwise, use dup expressions if available (they handle proper ARC semantics)
-      const functionContext = context as FunctionGenerationContext;
-      const inSpecialContext =
-        functionContext.currentClosureCaptures !== undefined ||
-        functionContext.inStateMachine !== undefined;
-
       const captureArgs = captureType.fields.map((field) => {
-        // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for ARC types,
-        // so we need to match by variable name, not by index
-        let dupExpr: Expr | undefined;
-        if (!inSpecialContext && expr.$?.deferredDupExpressions) {
-          for (const possibleDupExpr of expr.$.deferredDupExpressions) {
-            // Dup expression is in the form: ___dup(varName)
-            // Extract the variable name from the first argument
-            if (
-              exprIsFunctionCall(possibleDupExpr) &&
-              possibleDupExpr.args.length > 0 &&
-              exprIsAtom(possibleDupExpr.args[0])
-            ) {
-              const varName = possibleDupExpr.args[0].token.value;
-              if (varName === field.label) {
-                dupExpr = possibleDupExpr;
-                break;
-              }
-            }
-          }
-        }
-
-        if (dupExpr) {
-          return generateExpr(dupExpr, indent, context);
-        }
-
         // Fallback: generate proper variable access using generateAtom
         // This handles closure context and state machine access properly
         const atomExpr: AtomExpr = {
@@ -301,100 +264,6 @@ function generateFuncCall(
       const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
       return `${constructorName}(${castCallFunction}, NULL)`;
     }
-  }
-
-  // __yo_decr_rc - handle reference count decrement
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_decr_rc requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_decr_rc(${selfCode})`;
-  }
-
-  // __yo_incr_rc - handle reference count increment
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_incr_rc requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc(${selfCode})`;
-  }
-
-  // __yo_rc_own - return the value itself, used for transferring ownership
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_rc_own requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return selfCode; // Just return the argument as-is
-  }
-
-  // __yo_dyn_drop - call dispose on dyn object via dispose function then __yo_decr_rc on dyn
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_dyn_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Decrement RC - dispose function is stored in header
-    return `__yo_decr_rc((void*)(${selfCode}))`;
-  }
-
-  // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_dyn_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Only increment the dyn object's own reference count, don't duplicate wrapped object
-    return `__yo_incr_rc((void*)(${selfCode}))`;
-  }
-
-  // __yo_closure_drop - call dispose on closure via vtable then __yo_decr_rc on closure
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_closure_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Decrement RC - dispose function is stored in header
-    return `__yo_decr_rc((void*)(${selfCode}))`;
-  }
-
-  // __yo_closure_dup - call __yo_incr_rc on closure
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_closure_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc((void*)(${selfCode}))`;
-  }
-
-  // __yo_future_drop - call __yo_decr_rc on future with special running check
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_future_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Use a special dispose function that checks is_running flag
-    return `__yo_future_drop((void*)(${selfCode}))`;
-  }
-
-  // __yo_future_dup - call __yo_incr_rc on future
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_future_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
   // __yo_gc_collect - trigger garbage collection
@@ -549,10 +418,6 @@ function generateFuncCall(
         );
       }
 
-      if (expr.$.deferredDropExpressions) {
-        generateDeferredDropExpressions(expr, indent, context);
-      }
-
       // Check if we're in a state machine - if so, complete the Future instead of returning
       const functionContext = context as FunctionGenerationContext;
       if (functionContext.inStateMachine) {
@@ -635,10 +500,6 @@ function generateFuncCall(
 
       return `return ${expr.$.variableName}`;
     } else {
-      if (expr.$?.deferredDropExpressions) {
-        generateDeferredDropExpressions(expr, indent, context);
-      }
-
       return "return";
     }
   }
@@ -799,9 +660,7 @@ function generateFuncCall(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isOwningTheSameARCValueAs
-            ? variable.isOwningTheSameARCValueAs.id
-            : variable.id;
+          const idToCheck = variable.id;
 
           if (functionContext.stateMachineVariables.has(idToCheck)) {
             isStateMachineVar = true;
@@ -835,7 +694,6 @@ function generateFuncCall(
           }
         } else {
           // Copying from another array - use direct struct assignment
-          // Handle temp variable assignment for ARC values
           let rhsCode: string;
           if (rhs.$?.variableName) {
             const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
@@ -879,7 +737,7 @@ function generateFuncCall(
         // Non-array initialization - use existing logic
         let rhsCode: string;
 
-        // If RHS has a temp variable name (e.g., for ARC values), we need to:
+        // If RHS has a temp variable name (e.g., for Gc values), we need to:
         // 1. First generate the RHS expression and assign it to the temp variable
         // 2. Then use the temp variable for the assignment
         // BUT: don't create temp variables for captured variables
@@ -893,36 +751,12 @@ function generateFuncCall(
           if (tempVarName === sanitizedVarName) {
             // Just use the variable directly, no temp variable needed
             rhsCode = generateExpr(rhs, indent, context);
-
-            // Handle deferred dup expressions even for simple variable references
-            if (
-              rhs.$?.deferredDupExpressions &&
-              rhs.$.deferredDupExpressions.length > 0
-            ) {
-              generateDeferredDupExpressions(rhs, indent, functionContext);
-              const dupExpr = rhs.$.deferredDupExpressions[0]!;
-              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
-              }
-            }
           } else if (
             exprIsAtom(rhs) &&
             tempVarName === sanitizeForCIdentifier(rhs.token.value)
           ) {
             // Just use the variable directly, no temp variable needed
             rhsCode = generateExpr(rhs, indent, context);
-
-            // Handle deferred dup expressions even for simple variable references
-            if (
-              rhs.$?.deferredDupExpressions &&
-              rhs.$.deferredDupExpressions.length > 0
-            ) {
-              generateDeferredDupExpressions(rhs, indent, functionContext);
-              const dupExpr = rhs.$.deferredDupExpressions[0]!;
-              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
-              }
-            }
           } else {
             // Check if this temp variable is for a captured variable - if so, skip temp variable creation
             const functionContext = context as FunctionGenerationContext;
@@ -976,43 +810,12 @@ function generateFuncCall(
                 );
               }
 
-              // Handle deferred dup expressions for RHS
-              // After generating the RHS temp variable, check if we need to dup it
-              if (
-                rhs.$?.deferredDupExpressions &&
-                rhs.$.deferredDupExpressions.length > 0
-              ) {
-                generateDeferredDupExpressions(rhs, indent, functionContext);
-                // Use the dup result variable instead of the original temp variable
-                const dupExpr = rhs.$.deferredDupExpressions[0]!;
-                if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                  rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
-                } else {
-                  // Use temp variable for the main assignment
-                  rhsCode = tempVarName;
-                }
-              } else {
-                // Use temp variable for the main assignment
-                rhsCode = tempVarName;
-              }
+              // Use temp variable for the main assignment
+              rhsCode = tempVarName;
             }
           }
         } else {
           rhsCode = generateExpr(rhs, indent, context);
-
-          // Handle deferred dup expressions for RHS without temp variable
-          if (
-            rhs.$?.deferredDupExpressions &&
-            rhs.$.deferredDupExpressions.length > 0
-          ) {
-            const functionContext = context as FunctionGenerationContext;
-            generateDeferredDupExpressions(rhs, indent, functionContext);
-            // Use the dup result variable
-            const dupExpr = rhs.$.deferredDupExpressions[0]!;
-            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
-            }
-          }
         }
 
         // Special handling for slice initialization.
@@ -1112,33 +915,6 @@ function generateFuncCall(
       // Since we use struct wrappers consistently, we can use direct struct assignment
       const rhsCode = generateExpr(rhs, indent, context);
 
-      // Handle deferred dup expressions for RHS
-      const functionContext = context as FunctionGenerationContext;
-      let finalRhsCode = rhsCode;
-      if (
-        rhs.$?.deferredDupExpressions &&
-        rhs.$.deferredDupExpressions.length > 0
-      ) {
-        // If RHS has a variable name, we need to declare it first
-        if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
-          // Only emit the variable declaration if it's not the same as rhsCode
-          if (rhsVarName !== rhsCode.trim()) {
-            const rhsTypeStr = getTypeString(rhs.$.type, context);
-            context.emitter.emitLine(
-              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
-            );
-          }
-        }
-
-        generateDeferredDupExpressions(rhs, indent, functionContext);
-        // Use the dup result variable instead of the original
-        const dupExpr = rhs.$.deferredDupExpressions[0]!;
-        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
-        }
-      }
-
       if (isInitialization) {
         // For initialization
         const varTypeAndName = getVariableTypeString(
@@ -1146,43 +922,14 @@ function generateFuncCall(
           generateExpr(lhs, indent, context),
           context
         );
-        context.emitter.emitLine(
-          `${indent}${varTypeAndName} = ${finalRhsCode};`
-        );
+        context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
       } else {
         // For assignment to existing array variable, use direct struct assignment
-        context.emitter.emitLine(`${indent}${lhsCode} = ${finalRhsCode};`);
+        context.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
       }
     } else {
       // Non-array assignment - use existing logic
       const rhsCode = generateExpr(rhs, indent, context);
-
-      // Handle deferred dup expressions for RHS
-      const functionContext = context as FunctionGenerationContext;
-      let finalRhsCode = rhsCode;
-      if (
-        rhs.$?.deferredDupExpressions &&
-        rhs.$.deferredDupExpressions.length > 0
-      ) {
-        // If RHS has a variable name, we need to declare it first
-        if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
-          // Only emit the variable declaration if it's not the same as rhsCode
-          if (rhsVarName !== rhsCode.trim()) {
-            const rhsTypeStr = getTypeString(rhs.$.type, context);
-            context.emitter.emitLine(
-              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
-            );
-          }
-        }
-
-        generateDeferredDupExpressions(rhs, indent, functionContext);
-        // Use the dup result variable instead of the original
-        const dupExpr = rhs.$.deferredDupExpressions[0]!;
-        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
-        }
-      }
 
       // Check if we need to cast closure types
       const lhsType = lhs.$.type;
@@ -1200,7 +947,7 @@ function generateFuncCall(
 
       if (!isUnitType(lhs.$.type)) {
         context.emitter.emitLine(
-          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${finalRhsCode};`
+          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
         );
       }
     }
@@ -1259,16 +1006,6 @@ function generateFuncCall(
         );
       }
 
-      // Generate deferred drop expressions before closing the block
-      if (expr.$?.deferredDropExpressions) {
-        for (const dropExpr of expr.$.deferredDropExpressions) {
-          const dropCode = generateExpr(dropExpr, indent + "  ", context);
-          if (dropCode) {
-            context.emitter.emitLine(`${indent}  ${dropCode};`);
-          }
-        }
-      }
-
       context.emitter.emitLine(`${indent}} // end begin block`);
 
       return isUnitType(valueType) || expr.$?.controlFlow
@@ -1285,16 +1022,6 @@ function generateFuncCall(
           context.emitter.emitLine(`${indent}  ${argCode};`);
         }
       });
-
-      // Generate deferred drop expressions before closing the block
-      if (expr.$?.deferredDropExpressions) {
-        for (const dropExpr of expr.$.deferredDropExpressions) {
-          const dropCode = generateExpr(dropExpr, indent + "  ", context);
-          if (dropCode) {
-            context.emitter.emitLine(`${indent}  ${dropCode};`);
-          }
-        }
-      }
 
       context.emitter.emitLine(`${indent}} // end begin block`);
       return "";
@@ -1427,25 +1154,10 @@ function generateFuncCall(
     const tempVar = expr.$?.variableName;
 
     if (runtimeArgExprs && cName) {
-      const functionContext = context as FunctionGenerationContext;
-
       // Generate tuple initialization with dup handling for each argument
       const argsList = runtimeArgExprs
         .map((arg) => {
           const argCode = generateExpr(arg, indent, context);
-
-          // Handle deferred dup expressions for tuple fields
-          if (
-            arg.$?.deferredDupExpressions &&
-            arg.$.deferredDupExpressions.length > 0
-          ) {
-            generateDeferredDupExpressions(arg, indent, functionContext);
-            // Use the dup result variable instead of the original
-            const dupExpr = arg.$.deferredDupExpressions[0]!;
-            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
-            }
-          }
 
           return argCode;
         })
@@ -1476,25 +1188,10 @@ function generateFuncCall(
     const tempVar = expr.$?.variableName;
 
     if (isArrayType(arrayType) && runtimeArgExprs) {
-      const functionContext = context as FunctionGenerationContext;
-
       // Generate struct wrapper initialization with dup handling for each element
       const argsList = runtimeArgExprs
         .map((arg) => {
           const argCode = generateExpr(arg, indent, context);
-
-          // Handle deferred dup expressions for array fields
-          if (
-            arg.$?.deferredDupExpressions &&
-            arg.$.deferredDupExpressions.length > 0
-          ) {
-            generateDeferredDupExpressions(arg, indent, functionContext);
-            // Use the dup result variable instead of the original
-            const dupExpr = arg.$.deferredDupExpressions[0]!;
-            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
-            }
-          }
 
           return argCode;
         })
@@ -1520,25 +1217,10 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
     if (runtimeArgExprs) {
-      const functionContext = context as FunctionGenerationContext;
-
       // Generate recur call with arguments and dup handling
       const argsList = runtimeArgExprs
         .map((arg) => {
           const argCode = generateExpr(arg, indent, context);
-
-          // Handle deferred dup expressions for recur arguments
-          if (
-            arg.$?.deferredDupExpressions &&
-            arg.$.deferredDupExpressions.length > 0
-          ) {
-            generateDeferredDupExpressions(arg, indent, functionContext);
-            // Use the dup result variable instead of the original
-            const dupExpr = arg.$.deferredDupExpressions[0]!;
-            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
-            }
-          }
 
           return argCode;
         })
@@ -1554,34 +1236,12 @@ function generateFuncCall(
     const argCode = generateExpr(arg, indent, context);
     return `sizeof(${argCode})`; // Use sizeof operator on the argument
   }
-  // __yo_decr_rc
-  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
-    const arg = expr.args[0]!;
-    const argCode = generateExpr(arg, indent, context);
-    return `__yo_decr_rc(${argCode})`;
-  }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
     if (runtimeArgExprs) {
-      const functionContext = context as FunctionGenerationContext;
-
       const args = runtimeArgExprs.map((arg) => {
         const argCode = generateExpr(arg, indent, context);
-
-        // Handle deferred dup expressions for inline function arguments
-        if (
-          arg.$?.deferredDupExpressions &&
-          arg.$.deferredDupExpressions.length > 0
-        ) {
-          generateDeferredDupExpressions(arg, indent, functionContext);
-          // Use the dup result variable instead of the original
-          const dupExpr = arg.$.deferredDupExpressions[0]!;
-          if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-            return sanitizeForCIdentifier(dupExpr.$.variableName);
-          }
-        }
-
         return argCode;
       });
 
@@ -1689,50 +1349,11 @@ function generateFuncCall(
                 `${indent}${varTypeAndName} = ${argCode};`
               );
             }
-
-            // Handle deferred dup expressions for function arguments
-            // After generating the argument temp variable, check if we need to dup it
-            let finalArgVarName = arg.$.variableName;
-            if (
-              arg.$?.deferredDupExpressions &&
-              arg.$.deferredDupExpressions.length > 0
-            ) {
-              generateDeferredDupExpressions(arg, indent, functionContext);
-              // Use the dup result variable instead of the original temp variable
-              const dupExpr = arg.$.deferredDupExpressions[0]!;
-              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                finalArgVarName = sanitizeForCIdentifier(
-                  dupExpr.$.variableName
-                );
-              }
-            }
+            const finalArgVarName = arg.$.variableName;
 
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
             // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
             if (isDynMethodCall && index === 0) {
-              // Check if this method exists in the dyn type's own module
-              if (
-                exprIsFunctionCall(expr.func) &&
-                exprIsFunctionCallOf(expr.func, ".", 2)
-              ) {
-                const objectExpr = expr.func.args[0];
-                const dynType = objectExpr?.$?.type;
-                const methodExpr = expr.func.args[1];
-
-                if (exprIsAtom(methodExpr) && isDynType(dynType)) {
-                  const methodName = methodExpr.token.value;
-                  // Check if this method exists in the dyn type's module
-                  const dynMethod = dynType.module.fields.find(
-                    (field) => field.label === methodName
-                  );
-
-                  if (dynMethod) {
-                    // This is a dyn object's own method, pass the dyn object directly
-                    return finalArgVarName;
-                  }
-                }
-              }
-
               // For all other methods (wrapped object methods), pass the wrapped object data
               return `${finalArgVarName}->data`;
             } else {
@@ -1748,29 +1369,6 @@ function generateFuncCall(
             // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
             if (isDynMethodCall && index === 0) {
               const dynObjectCode = generateExpr(arg, indent, context);
-
-              // Check if this method exists in the dyn type's own module
-              if (
-                exprIsFunctionCall(expr.func) &&
-                exprIsFunctionCallOf(expr.func, ".", 2)
-              ) {
-                const objectExpr = expr.func.args[0];
-                const dynType = objectExpr?.$?.type;
-                const methodExpr = expr.func.args[1];
-
-                if (exprIsAtom(methodExpr) && isDynType(dynType)) {
-                  const methodName = methodExpr.token.value;
-                  // Check if this method exists in the dyn type's module
-                  const dynMethod = dynType.module.fields.find(
-                    (field) => field.label === methodName
-                  );
-
-                  if (dynMethod) {
-                    // This is a dyn object's own method, pass the dyn object directly
-                    return dynObjectCode;
-                  }
-                }
-              }
 
               // For all other methods (wrapped object methods), pass the wrapped object data
               return `${dynObjectCode}->data`;
@@ -1797,11 +1395,6 @@ function generateFuncCall(
             context.emitter.emitLine(
               `${indent}${externFuncName}(${argsList});`
             );
-
-            // Handle deferred drop expressions if they exist
-            if (expr.$?.deferredDropExpressions) {
-              generateDeferredDropExpressions(expr, indent, context);
-            }
 
             return ""; // No return value
           } else {
@@ -1833,11 +1426,6 @@ function generateFuncCall(
               // If the function returns unit, just call it without assignment
               context.emitter.emitLine(`${indent}${cFuncName}(${argsList});`);
 
-              // Handle deferred drop expressions if they exist
-              if (expr.$?.deferredDropExpressions) {
-                generateDeferredDropExpressions(expr, indent, context);
-              }
-
               return ""; // No return value
             } else {
               // If it returns a value, assign to a temp variable
@@ -1846,11 +1434,6 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${getTypeString(functionValue.specializedType?.return.type ?? functionType.return.type, context)} ${tempVar} = ${cFuncName}(${argsList});`
                 );
-
-                // Handle deferred drop expressions if they exist
-                if (expr.$?.deferredDropExpressions) {
-                  generateDeferredDropExpressions(expr, indent, context);
-                }
 
                 return tempVar; // Return the temp variable name
               } else {
@@ -1865,11 +1448,6 @@ function generateFuncCall(
             // Generate regular extern function call
             const cFuncName = externFunction.cName;
 
-            // Handle deferred drop expressions if they exist
-            if (expr.$?.deferredDropExpressions) {
-              generateDeferredDropExpressions(expr, indent, context);
-            }
-
             return `${cFuncName}(${argsList})`;
           } else {
             // Function parameter call (e.g., callback(x))
@@ -1877,11 +1455,6 @@ function generateFuncCall(
             if (isUnitType(functionType.return.type)) {
               // If the function returns unit, just call it without assignment
               context.emitter.emitLine(`${indent}${funcCode}(${argsList});`);
-
-              // Handle deferred drop expressions if they exist
-              if (expr.$?.deferredDropExpressions) {
-                generateDeferredDropExpressions(expr, indent, context);
-              }
 
               return ""; // No return value
             } else {
@@ -1891,11 +1464,6 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${getTypeString(functionType.return.type, context)} ${tempVar} = ${funcCode}(${argsList});`
                 );
-
-                // Handle deferred drop expressions if they exist
-                if (expr.$?.deferredDropExpressions) {
-                  generateDeferredDropExpressions(expr, indent, context);
-                }
 
                 return tempVar; // Return the temp variable name
               } else {
@@ -1988,20 +1556,7 @@ function generateFuncCall(
                 functionContext.inStateMachine && argCode.startsWith("sm->");
 
               // Handle deferred dup expressions for closure call arguments
-              let finalArgVarName = arg.$.variableName;
-              if (
-                arg.$?.deferredDupExpressions &&
-                arg.$.deferredDupExpressions.length > 0
-              ) {
-                generateDeferredDupExpressions(arg, indent, functionContext);
-                // Use the dup result variable instead of the original
-                const dupExpr = arg.$.deferredDupExpressions[0]!;
-                if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                  finalArgVarName = sanitizeForCIdentifier(
-                    dupExpr.$.variableName
-                  );
-                }
-              }
+              const finalArgVarName = arg.$.variableName;
 
               return isStateMachineCapturedVariable ? argCode : finalArgVarName;
             }
@@ -2022,11 +1577,6 @@ function generateFuncCall(
           // If the closure returns unit, just call it without assignment
           context.emitter.emitLine(`${indent}${closureCall};`);
 
-          // Handle deferred drop expressions if they exist
-          if (expr.$?.deferredDropExpressions) {
-            generateDeferredDropExpressions(expr, indent, context);
-          }
-
           return ""; // No return value
         } else {
           // If it returns a value, assign to a temp variable or return directly
@@ -2035,11 +1585,6 @@ function generateFuncCall(
             context.emitter.emitLine(
               `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
             );
-
-            // Handle deferred drop expressions if they exist
-            if (expr.$?.deferredDropExpressions) {
-              generateDeferredDropExpressions(expr, indent, context);
-            }
 
             return tempVar; // Return the temp variable name
           } else {
@@ -2090,42 +1635,10 @@ function generateFuncCall(
 
           if (structType.isReferenceSemantics) {
             // For object, call the constructor function
-            const functionContext = context as FunctionGenerationContext;
 
             const argsList = runtimeArgExprs
               .map((arg) => {
                 const argCode = generateExpr(arg, indent, context);
-
-                // Handle deferred dup expressions for constructor arguments
-                if (
-                  arg.$?.deferredDupExpressions &&
-                  arg.$.deferredDupExpressions.length > 0
-                ) {
-                  // If the arg has a variable name but generateExpr didn't create a declaration,
-                  // we need to create it now so the dup call can reference it
-                  if (arg.$?.variableName && arg.$?.type) {
-                    const argVarName = sanitizeForCIdentifier(
-                      arg.$.variableName
-                    );
-                    // Only emit the declaration if argCode is different from the variable name
-                    // to avoid generating code like: prev_opt = prev_opt;
-                    if (argCode !== argVarName) {
-                      const argType = arg.$.type;
-                      const argTypeStr = getTypeString(argType, context);
-                      // Emit the variable declaration and assignment
-                      context.emitter.emitLine(
-                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`
-                      );
-                    }
-                  }
-
-                  generateDeferredDupExpressions(arg, indent, functionContext);
-                  // Use the dup result variable instead of the original
-                  const dupExpr = arg.$.deferredDupExpressions[0]!;
-                  if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    return sanitizeForCIdentifier(dupExpr.$.variableName);
-                  }
-                }
 
                 return argCode;
               })
@@ -2149,48 +1662,12 @@ function generateFuncCall(
               return structValue;
             }
           } else {
-            // For regular struct, generate struct initialization as before
-            const functionContext = context as FunctionGenerationContext;
-
             const argsList = runtimeArgExprs
               .map((arg, index) => {
                 const argCode = generateExpr(arg, indent, context);
                 const sanitizedLabel = sanitizeForCIdentifier(labels[index]!);
 
-                // Handle deferred dup expressions for struct fields
-                let finalArgValue = argCode;
-                if (
-                  arg.$?.deferredDupExpressions &&
-                  arg.$.deferredDupExpressions.length > 0
-                ) {
-                  // If the arg has a variable name but generateExpr didn't create a declaration,
-                  // we need to create it now so the dup call can reference it
-                  if (arg.$?.variableName && arg.$?.type) {
-                    const argVarName = sanitizeForCIdentifier(
-                      arg.$.variableName
-                    );
-                    const argType = arg.$.type;
-                    const argTypeStr = getTypeString(argType, context);
-                    // Only emit the variable declaration if argCode is different from argVarName
-                    // to prevent self-assignment like: var = var;
-                    if (argCode !== argVarName) {
-                      context.emitter.emitLine(
-                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`
-                      );
-                    }
-                  }
-
-                  generateDeferredDupExpressions(arg, indent, functionContext);
-                  // Use the dup result variable instead of the original
-                  const dupExpr = arg.$.deferredDupExpressions[0]!;
-                  if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    finalArgValue = sanitizeForCIdentifier(
-                      dupExpr.$.variableName
-                    );
-                  }
-                }
-
-                return `.${sanitizedLabel} = ` + finalArgValue;
+                return `.${sanitizedLabel} = ` + argCode;
               })
               .join(", ");
             const structValue = `(${cName}){ ${argsList} }`;
@@ -2231,32 +1708,11 @@ function generateFuncCall(
           const fieldExpr = arg.args[1]!;
           const cName = context.types[functionValue.value.id]?.cName;
           if (cName && exprIsAtom(labelExpr) && fieldExpr) {
-            const functionContext = context as FunctionGenerationContext;
             const label = labelExpr.token.value;
             const sanitizedLabel = sanitizeForCIdentifier(label);
             const fieldCode = generateExpr(fieldExpr, indent, context);
 
-            // Handle deferred dup expressions for union field
-            let finalFieldValue = fieldCode;
-            if (
-              fieldExpr.$?.deferredDupExpressions &&
-              fieldExpr.$.deferredDupExpressions.length > 0
-            ) {
-              generateDeferredDupExpressions(
-                fieldExpr,
-                indent,
-                functionContext
-              );
-              // Use the dup result variable instead of the original
-              const dupExpr = fieldExpr.$.deferredDupExpressions[0]!;
-              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                finalFieldValue = sanitizeForCIdentifier(
-                  dupExpr.$.variableName
-                );
-              }
-            }
-
-            const unionValue = `(${cName}){ .${sanitizedLabel} = ${finalFieldValue} }`;
+            const unionValue = `(${cName}){ .${sanitizedLabel} = ${fieldCode} }`;
 
             // If this union has a temporary variable name, declare it
             if (tempVar && expr.$?.type) {
@@ -2365,8 +1821,6 @@ function generateFuncCall(
             const nonUnitElements =
               variant.fields?.filter((field) => !isUnitType(field.type)) || [];
 
-            const functionContext = context as FunctionGenerationContext;
-
             const argsList = runtimeArgExprs
               .map((arg, index) => {
                 if (variant.fields) {
@@ -2375,30 +1829,7 @@ function generateFuncCall(
                     const argCode = generateExpr(arg, indent, context);
                     const sanitizedLabel = sanitizeForCIdentifier(field.label);
 
-                    // Handle deferred dup expressions for enum variant fields
-                    let finalArgValue = argCode;
-                    if (
-                      arg.$?.deferredDupExpressions &&
-                      arg.$.deferredDupExpressions.length > 0
-                    ) {
-                      generateDeferredDupExpressions(
-                        arg,
-                        indent,
-                        functionContext
-                      );
-                      // Use the dup result variable instead of the original
-                      const dupExpr = arg.$.deferredDupExpressions[0]!;
-                      if (
-                        exprIsFunctionCall(dupExpr) &&
-                        dupExpr.$?.variableName
-                      ) {
-                        finalArgValue = sanitizeForCIdentifier(
-                          dupExpr.$.variableName
-                        );
-                      }
-                    }
-
-                    return `.${sanitizedLabel} = ` + finalArgValue;
+                    return `.${sanitizedLabel} = ` + argCode;
                   }
                   return ""; // Skip if no field matches or if it's unit type
                 } else {
@@ -2705,42 +2136,8 @@ function generateAsyncBlock(
       ? existingCaptureTypeEntry.cName
       : `async_capture_${captureType.id}`;
 
-    // Build the capture struct literal
-    // Dup expressions are created at evaluation time and don't have correct context for code generation
-    // When in a closure or state machine, always use generateAtom for proper context-aware access
-    // Otherwise, use dup expressions if available (they handle proper ARC semantics)
-    const functionContext = context as FunctionGenerationContext;
-    const inSpecialContext =
-      functionContext.currentClosureCaptures !== undefined ||
-      functionContext.inStateMachine !== undefined;
-
     const captureFields = captureType.fields
       .map((elem) => {
-        // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for ARC types,
-        // so we need to match by variable name, not by index
-        let dupExpr: Expr | undefined;
-        if (!inSpecialContext && expr.$?.deferredDupExpressions) {
-          for (const possibleDupExpr of expr.$.deferredDupExpressions) {
-            // Dup expression is in the form: ___dup(varName)
-            // Extract the variable name from the first argument
-            if (
-              exprIsFunctionCall(possibleDupExpr) &&
-              possibleDupExpr.args.length > 0 &&
-              exprIsAtom(possibleDupExpr.args[0])
-            ) {
-              const varName = possibleDupExpr.args[0].token.value;
-              if (varName === elem.label) {
-                dupExpr = possibleDupExpr;
-                break;
-              }
-            }
-          }
-        }
-
-        if (dupExpr) {
-          return `.${elem.label} = ${generateExpr(dupExpr, indent, context)}`;
-        }
         // Fallback: generate proper variable access using generateAtom
         // This handles closure context and state machine access properly
         const atomExpr: AtomExpr = {
@@ -2817,43 +2214,6 @@ function generateAsyncBlockStateDisposeFunction(
   emitter.emitLine(
     `  ASYNC_DEBUG("${disposeFunctionName}: Disposing state machine\\n");`
   );
-  emitter.emitLine(``);
-
-  // Drop capture struct (like closures do)
-  if (captureType && typeContainsARCType(captureType)) {
-    const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType
-    );
-    if (!existingCaptureTypeEntry) {
-      emitter.emitLine(
-        `  /* Error: capture struct type not found in context */`
-      );
-    } else {
-      const captureTypeName = existingCaptureTypeEntry.cName;
-
-      // Find the ___drop function for the capture struct
-      const dropFunction = captureType.module.fields.find(
-        (field) => field.label === BuiltinFunctions.___drop[0]
-      );
-      if (
-        dropFunction &&
-        dropFunction.assignedValue &&
-        isFunctionValue(dropFunction.assignedValue)
-      ) {
-        const dropFunctionCName =
-          context.functions[dropFunction.assignedValue.funcId]?.cName;
-        if (dropFunctionCName) {
-          emitter.emitLine(`  ASYNC_DEBUG("  Dropping capture struct\\n");`);
-          emitter.emitLine(`  ${dropFunctionCName}(sm->__capture);`);
-        }
-      } else {
-        emitter.emitLine(
-          `  /* Warning: ___drop function not found for capture struct ${captureTypeName} */`
-        );
-      }
-    }
-  }
-
   emitter.emitLine(``);
 
   // NOTE: Local variables are ALWAYS handled by deferred drop expressions
@@ -3087,47 +2447,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
             : `var_${varId}`;
         return `sm->${fieldName}`;
       }
-
-      // Also check if this variable is the owner of a borrowed variable in the state machine
-      // e.g., _temp_123 owns the value, future1 borrows from _temp_123
-      // In deferred drops, we drop _temp_123, but in state machine it's stored as sm->var_future1
-      if (
-        capturedVar.isOwningTheSameARCValueAs &&
-        capturedVar.isOwningTheSameARCValueAs.name === varName
-      ) {
-        const fieldName =
-          capturedVar.kind === "outer"
-            ? `__capture.${varName}`
-            : `var_${varId}`;
-        return `sm->${fieldName}`;
-      }
-    }
-
-    // Variable not found directly - check if it's borrowing from a captured variable
-    // This handles the case where we reference `future1` but only `temp_2198` (its owner) is captured
-    if (expr.$?.env) {
-      const variables = getVariablesFromEnv(expr.$.env, varName);
-      if (variables.length > 0) {
-        const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheSameARCValueAs) {
-          // This variable is borrowing - try to find the owner in state machine
-          const ownerName = variable.isOwningTheSameARCValueAs.name;
-          const ownerId = variable.isOwningTheSameARCValueAs.id;
-
-          for (const [
-            varId,
-            capturedVar,
-          ] of functionContext.stateMachineVariables) {
-            if (capturedVar.name === ownerName || varId === ownerId) {
-              const fieldName =
-                capturedVar.kind === "outer"
-                  ? `__capture.${ownerName}`
-                  : `var_${varId}`;
-              return `sm->${fieldName}`;
-            }
-          }
-        }
-      }
     }
 
     // Variable not in stateMachineVariables - it's a local C variable in the resume function
@@ -3137,7 +2456,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  // If this atom has a temp variable name (e.g., for ARC values), use that instead of regenerating code
+  // If this atom has a temp variable name (e.g., for Gc values), use that instead of regenerating code
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
   // ALSO: if this is a compile-time only variable with a value, inline it instead
@@ -3456,49 +2775,6 @@ function generateFieldAccess(
       const cFunctionName =
         context.functions[functionValue.funcId]?.cName || functionValue.funcId;
       return cFunctionName;
-    }
-
-    // Fallback: Check if this is an ARC method call (___drop, ___dup, ___dispose)
-    // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
-    // So they are using the `undefined` function value, before we actually update its module fields.
-    if (
-      !expr.$?.value &&
-      (BuiltinFunctions.___dispose.includes(fieldName) ||
-        BuiltinFunctions.___drop.includes(fieldName) ||
-        BuiltinFunctions.___dup.includes(fieldName)) &&
-      objectType
-    ) {
-      // For ARC methods, we need to look up the function from the type's module
-      // and return the function name directly instead of treating it as field access
-      let typeModule: ModuleType | null = null;
-
-      if (isStructType(objectType)) {
-        typeModule = objectType.module;
-      } else if (isEnumType(objectType)) {
-        typeModule = objectType.module;
-      }
-
-      if (typeModule) {
-        // Find the function in the type's module
-        const functionElement = typeModule.fields.find(
-          (field) =>
-            field.label === fieldName &&
-            field.assignedValue &&
-            isFunctionValue(field.assignedValue)
-        );
-
-        if (functionElement && isFunctionValue(functionElement.assignedValue)) {
-          const functionValue = functionElement.assignedValue;
-          const cFunctionName =
-            context.functions[functionValue.funcId]?.cName ||
-            functionValue.funcId;
-          return cFunctionName;
-        } else {
-          return `/* ERROR: ARC method ${fieldName} not found in type module */`;
-        }
-      } else {
-        return `/* ERROR: No module found for ARC method ${fieldName} */`;
-      }
     }
 
     // Handle newtype field access - just return the object itself (zero-cost abstraction)
@@ -3832,11 +3108,6 @@ function generateCondExpression(
                   );
                 }
               }
-            }
-
-            // Generate deferred drop expressions for the begin block
-            if (value.$?.deferredDropExpressions) {
-              generateDeferredDropExpressions(value, valueIndent, context);
             }
           } else {
             // Generate the value expression INSIDE the conditional block
@@ -4467,10 +3738,6 @@ usleep((${args[0]!}) * 1000)
 #endif
 )`;
   }
-  // __yo_decr_rc
-  else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {
-    return `__yo_decr_rc((void*)(${args[0]!}))`;
-  }
   // __yo_ptr_cast
   else if (BuiltinFunctions.__yo_ptr_cast.includes(functionName)) {
     const typeValueArg = expr.args[expr.args.length - 1]!;
@@ -4597,16 +3864,6 @@ function generateLoopBody(
         context.emitter.emitLine(`${indent}${argCode};`);
       }
     }
-
-    // Generate deferred drop expressions before end of loop body
-    if (bodyExpr.$?.deferredDropExpressions) {
-      for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
-        const dropCode = generateExpr(dropExpr, indent, context);
-        if (dropCode) {
-          context.emitter.emitLine(`${indent}${dropCode};`);
-        }
-      }
-    }
   } else {
     // For non-begin expressions, generate normally
     const bodyCode = generateExpr(bodyExpr, indent, context);
@@ -4646,11 +3903,6 @@ function generateCaseBody(
     if (beginArgs.length > 0) {
       const finalExpr = beginArgs[beginArgs.length - 1]!;
       finalExprCode = generateExpr(finalExpr, indent, context);
-    }
-
-    // Generate deferred drop expressions for the begin block
-    if (bodyExpr.$?.deferredDropExpressions) {
-      generateDeferredDropExpressions(bodyExpr, indent, context);
     }
 
     return finalExprCode;
@@ -4727,48 +3979,6 @@ function generateWhileLoop(
       `${indent}/* Error: while loop expects 2 or 3 arguments, got ${args.length} */`
     );
     return "";
-  }
-}
-
-export function generateDeferredDropExpressions(
-  expr: Expr,
-  indent: string,
-  context: FunctionGenerationContext
-) {
-  const emitter = context.emitter;
-
-  if (expr.$?.deferredDropExpressions) {
-    for (const dropExpr of expr.$.deferredDropExpressions) {
-      const dropCode = generateExpr(dropExpr, indent, context);
-      if (dropCode) {
-        emitter.emitLine(`${indent}${dropCode};`);
-      }
-    }
-  }
-}
-
-/**
- * Generate C code for all deferred dup expressions.
- * This is used to generate dup calls for expressions that need reference counting.
- * The dup expressions are created during evaluation and deferred to codegen to ensure
- * proper context (e.g., closure captures, state machine variables).
- */
-export function generateDeferredDupExpressions(
-  expr: Expr,
-  indent: string,
-  context: FunctionGenerationContext
-) {
-  const emitter = context.emitter;
-
-  if (expr.$?.deferredDupExpressions) {
-    for (const dupExpr of expr.$.deferredDupExpressions) {
-      if (exprIsFunctionCall(dupExpr)) {
-        const dupCode = generateExpr(dupExpr, indent, context);
-        if (dupCode) {
-          emitter.emitLine(`${indent}${dupCode};`);
-        }
-      }
-    }
   }
 }
 

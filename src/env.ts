@@ -8,7 +8,6 @@ import {
   isPtrType,
   ModuleType,
   Type,
-  typeContainsARCType,
   typeContainsSomeType,
   typeToString,
 } from "./types";
@@ -60,38 +59,6 @@ export interface Variable {
    * x :: 1;
    */
   isCompileTimeOnly: boolean;
-
-  /**
-   * Whether the variable is owning the ARC value or borrowing the ARC value.
-   * This is only relevant for types that are managed by ARC.
-   *
-   * Under the new simplified ownership model:
-   * - Variables created by := or = always own (isOwningTheARCValue: true)
-   * - Function parameters borrow by default (isOwningTheARCValue: false)
-   * - Function parameters with own() explicitly own (isOwningTheARCValue: true)
-   * - For non-ARC types, this is always false (no ownership tracking needed)
-   */
-  isOwningTheARCValue?: boolean;
-
-  /**
-   * Tracks when this variable owns a share of the same ARC object as another variable.
-   * This is used for dup/drop optimization across variable reassignments.
-   *
-   * When a temp variable is created to hold the old value during reassignment:
-   * - The temp variable's `isOwningTheSameARCValueAs` points to the original variable
-   * - This allows us to optimize away `dup(original) + drop(temp)` pairs
-   *
-   * Example:
-   * ```yo
-   * x := MyBox(42);
-   * y := x;              // y dups x, both own shares of MyBox(42)
-   * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
-   * ```
-   *
-   * Here, `temp` would have `isOwningTheSameARCValueAs = y` because both own
-   * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
-   */
-  isOwningTheSameARCValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -391,23 +358,11 @@ export function popEnvFrame(
 ): Environment {
   if (!ignoreCheck) {
     const frameToPop = env.frames[env.frames.length - 1]!;
-    // Check if there is any Linear/Type0 value in the frame that is not consumed or uninitialized.
-    const unconsumedVariables = getVariablesNeedingDrop(env);
 
     const undefinedVariables = frameToPop.variables.filter(
       (variable) => !variable.initializedAtToken
     );
-    if (unconsumedVariables.length > 0) {
-      throw formatErrorMessages(
-        unconsumedVariables.map((variable) => {
-          return {
-            token: variable.token,
-            errorMessage: `Variable "${variable.name}" was not consumed. It is supposed to be consumed before going out of scope.
-Typeof "${variable.name}": ${typeToString(variable.type)}`,
-          };
-        })
-      );
-    } else if (undefinedVariables.length > 0) {
+    if (undefinedVariables.length > 0) {
       throw formatErrorMessages(
         undefinedVariables.map((variable) => {
           return {
@@ -464,8 +419,6 @@ export function printEnvVarNames(env: Environment) {
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isUndefined: !variable.initializedAtToken,
-        isOwningTheARCValue: !!variable.isOwningTheARCValue,
-        isOwningTheSameARCValueAs: variable.isOwningTheSameARCValueAs?.name,
         isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
@@ -483,8 +436,6 @@ export function printEnvFrame(frame: Frame) {
       value: valueToString(variable.value),
       isCompileTimeOnly: variable.isCompileTimeOnly,
       isUndefined: !variable.initializedAtToken,
-      isOwningTheARCValue: !!variable.isOwningTheARCValue,
-      isOwningTheSameARCValueAs: variable.isOwningTheSameARCValueAs?.name,
       isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))
@@ -778,20 +729,6 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
-    // First, check the dyn object's own module for its ARC methods (___drop, ___dup, ___dispose)
-    const dynMethod = dereferencedReceiverType.module.fields.find(
-      (field) =>
-        field.label === methodName &&
-        (isFunctionType(field.type) || isModuleType(field.type))
-    );
-    if (dynMethod && isFunctionType(dynMethod.type)) {
-      // For dyn object's own methods, we can use the assigned value directly
-      const value =
-        dynMethod.assignedValue ||
-        createUnknownValue(dynMethod.type, dynMethod.label);
-      methods.push({ type: dynMethod.type, value });
-    }
-
     // Then, for dynamic dispatch, check all module types in the DynType for wrapped object methods
     // A method might exist in only some modules, and that's perfectly valid
     const moduleTypes = dereferencedReceiverType.moduleTypes.slice(1); // Skip the wrappedObjectARCModuleType that contains ___dup, ___drop, ___dispose since we already checked it above.
@@ -916,29 +853,6 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
     modulePath: env.modulePath,
     inputString: env.inputString,
   };
-}
-
-/**
- * Get all variables in the top frame that need to be consumed (dropped).
- * Returns variables that are Linear or Type0 types, not consumed, and not compile-time only.
- * Variables are returned in reverse order (end to start) for proper drop order.
- */
-export function getVariablesNeedingDrop(env: Environment): Variable[] {
-  if (env.frames.length === 0) {
-    return [];
-  }
-
-  const topFrame = env.frames[env.frames.length - 1]!;
-  const variables = topFrame.variables.filter(
-    (variable) =>
-      !variable.consumedAtToken &&
-      // !variable.isCompileTimeOnly &&
-      variable.isOwningTheARCValue &&
-      typeContainsARCType(variable.type)
-  );
-
-  // Return in reverse order (end to start) for proper drop order
-  return variables.reverse();
 }
 
 export function variableExistsInEnvTopFrame(

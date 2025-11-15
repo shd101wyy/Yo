@@ -54,7 +54,6 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
-import { addARCFunctionsToClosureType } from "./utils";
 
 /**
  * type:
@@ -75,7 +74,6 @@ export function evaluateFunctionParameter({
   let label: string | undefined = undefined;
   let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
-  let isOwningTheARCValue: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -144,17 +142,6 @@ export function evaluateFunctionParameter({
         throw formatErrorMessage({
           token: lhsExpr.token,
           errorMessage: `Expected one argument for "compt" , got ${lhsExpr.args.length}`,
-        });
-      }
-      lhsExpr = lhsExpr.args[0]!;
-    }
-
-    if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "own")) {
-      isOwningTheARCValue = true;
-      if (lhsExpr.args.length !== 1) {
-        throw formatErrorMessage({
-          token: lhsExpr.token,
-          errorMessage: `Expected one argument for "own", got ${lhsExpr.args.length}`,
         });
       }
       lhsExpr = lhsExpr.args[0]!;
@@ -402,8 +389,6 @@ use_id :: (fn(forall(T : Type),
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
-      isOwningTheARCValue: isOwningTheARCValue,
-      isOwningTheSameARCValueAs: undefined, // Parameters don't borrow from other variables
       isReassignable: false, // Mark as not reassigable
     },
     skipCheckingFunctionOverloading: true,
@@ -446,7 +431,6 @@ use_id :: (fn(forall(T : Type),
       }),
       isCompileTimeOnly,
       isQuote,
-      isOwningTheARCValue,
     },
     env,
   };
@@ -700,7 +684,6 @@ Expected order: forall(...), regular parameters, using(...)`,
         isQuote,
         label: parameterName,
         type: parameterType,
-        isOwningTheARCValue: false,
       };
 
       if (parameterName !== "...") {
@@ -717,8 +700,6 @@ Expected order: forall(...), regular parameters, using(...)`,
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
-            isOwningTheARCValue: variadicParameter.isOwningTheARCValue,
-            isOwningTheSameARCValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
           },
         });
@@ -1125,11 +1106,6 @@ ${typeToString(returnType)}`,
   let finalType;
   if (isClosure) {
     finalType = createClosureType(functionType, env);
-    env = addARCFunctionsToClosureType({
-      closureType: finalType,
-      env,
-      context,
-    });
   } else {
     finalType = functionType;
   }

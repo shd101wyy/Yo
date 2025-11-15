@@ -15,11 +15,9 @@ import {
 import { VUnit } from "../../unit-value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToFutureType } from "../types/utils";
 import {
   createCaptureTypeAndValue,
   enrichCapturedVariables,
-  generateCapturedVariableDupExpressions,
 } from "../utils/closure";
 
 /**
@@ -123,13 +121,6 @@ export function evaluateAsync({
   // Create Future(returnType)
   const futureType = createFutureType(returnType, env);
 
-  // Add ARC functions to the future type
-  env = addARCFunctionsToFutureType({
-    futureType,
-    env,
-    context: { ...context },
-  });
-
   // Enrich captured variables with values and types (convert to FunctionCapturedVariableInfo)
   const capturedVariables =
     capturedVariablesMap.size > 0
@@ -149,15 +140,6 @@ export function evaluateAsync({
       context: { ...context },
     });
 
-  // Generate dup expressions for captured ARC variables
-  const { capturedVariableDupExpressions, env: updatedEnv } =
-    generateCapturedVariableDupExpressions({
-      capturedVariablesWithValues: capturedVariables,
-      env,
-      context: { ...context },
-    });
-  env = updatedEnv;
-
   // Store the captured variables for codegen (bodyExpr already has evaluated data)
   expr.$ = {
     env,
@@ -166,14 +148,9 @@ export function evaluateAsync({
     pathCollection: [],
     // Store metadata for async codegen
     captureType: captureType, // Store the capture struct type for codegen (used for both closures and async blocks)
-    deferredDupExpressions:
-      capturedVariableDupExpressions &&
-      capturedVariableDupExpressions.length > 0
-        ? capturedVariableDupExpressions
-        : undefined,
   };
 
-  attachTempVariableToExpr(expr, true);
+  attachTempVariableToExpr(expr);
   return expr;
 }
 

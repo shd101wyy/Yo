@@ -234,7 +234,7 @@ export function evaluateCond({
         value: value,
         pathCollection: [],
       };
-      attachTempVariableToExpr(expr, true);
+      attachTempVariableToExpr(expr);
 
       return expr;
     }
@@ -413,7 +413,7 @@ export function evaluateCond({
         value: value,
         pathCollection: [],
       };
-      attachTempVariableToExpr(expr, true);
+      attachTempVariableToExpr(expr);
 
       return expr;
     } else {

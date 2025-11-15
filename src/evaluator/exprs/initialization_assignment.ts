@@ -6,13 +6,11 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   prohibitVoidType,
-  typeContainsARCType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -27,7 +25,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findARCValueOwnerRelationship, isValidVariableName } from "../utils";
+import { isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -106,10 +104,6 @@ export function evaluateInitializationAssignment({
   }
 
   if (exprIsAtom(lhs)) {
-    // Insert dup
-    // NOTE: For destructuring in `else` block, we don't insert dup there.
-    //       Because for simplicity destructuring uses borrowing, not owning.
-    setExprAsNeedsToCallDup(rhs, { ...context });
     if (rhs.$?.env) {
       env = rhs.$?.env;
     }
@@ -261,17 +255,6 @@ ${exprToString(rhs)}`,
     // Add variable to env
     // Attach the updated env to expr
 
-    // Under the new simplified ownership model:
-    // All variables own their values
-    // But we track shared ownership for dup/drop optimization
-
-    // Find if RHS is sharing ownership with another variable
-    const rhsOwningVariable = findARCValueOwnerRelationship(
-      rhs,
-      env,
-      env.modulePath
-    );
-
     // Create new variable
     const { env: nextEnv } = addVariableToEnv({
       env,
@@ -283,9 +266,6 @@ ${exprToString(rhs)}`,
         token: lhs.token,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
-        // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheARCValue: typeContainsARCType(lhs.$.type),
-        isOwningTheSameARCValueAs: rhsOwningVariable, // Track shared ownership for optimization
         isReassignable: true, // This is not a function parameter
       },
     });

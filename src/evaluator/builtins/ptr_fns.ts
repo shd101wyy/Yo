@@ -81,7 +81,7 @@ export function evaluateAddressCall({
       value: undefined, // reference is only available for runtime
       pathCollection: evaluatedArgExpr.$.pathCollection,
     };
-    attachTempVariableToExpr(expr, false);
+    attachTempVariableToExpr(expr);
     return expr;
   }
 }

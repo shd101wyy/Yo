@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr, setExprAsNeedsToCallDup } from "../../expr";
+import { Expr, FuncCallExpr } from "../../expr";
 import { areTypesCompatible, ComptListType, typeToString } from "../../types";
 import { createComptListValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -51,8 +51,6 @@ export function tryToImplementComptListByComptListType({
         errorMessage: `Failed to evaluate ComptList element at index ${i}.`,
       });
     }
-
-    setExprAsNeedsToCallDup(evaluatedArg, context);
 
     env = evaluatedArg.$.env;
 

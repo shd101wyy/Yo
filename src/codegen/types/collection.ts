@@ -126,8 +126,7 @@ export function collectTypesFromExpr(
           cName: `yo_${captureType.id}`, // Use the capture struct's own ID for uniqueness
         };
 
-        // Now collect the capture type's nested types and module functions (___drop, etc.)
-        // This is crucial for generating ARC functions for the capture struct
+        // Now collect the capture type's nested types and module functions.
         if (isStructType(captureType)) {
           // Recursively collect types from struct fields
           for (const field of captureType.fields) {

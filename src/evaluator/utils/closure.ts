@@ -4,15 +4,13 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { BuiltinFunctions, Expr, ExprTag } from "../../expr";
+import { ExprTag } from "../../expr";
 import { FunctionCapturedVariableInfo } from "../../function-value";
-import { generateExprFromCode } from "../../parser";
 import { Token } from "../../token";
 import {
   areTypesCompatible,
   createStructType,
   StructType,
-  typeContainsARCType,
   TypeField,
   typeToString,
 } from "../../types";
@@ -23,8 +21,6 @@ import {
   Value,
 } from "../../value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
-import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToStructType } from "../types/utils";
 
 /**
  * Consume captured variables for closures.
@@ -106,7 +102,6 @@ export function createCaptureTypeAndValue({
   capturedVariablesWithValues,
   env,
   closureToken,
-  context,
 }: {
   expectedCaptureType: StructType | undefined;
   capturedVariablesWithValues:
@@ -154,12 +149,6 @@ export function createCaptureTypeAndValue({
       inferredCaptureType.fields = captureFields;
       captureType = inferredCaptureType;
 
-      env = addARCFunctionsToStructType({
-        structType: inferredCaptureType,
-        env,
-        context: { ...context },
-      });
-
       // Create a struct value if all captured values are compile-time known
       const captureValues = Array.from(
         capturedVariablesWithValues.values()
@@ -177,12 +166,6 @@ export function createCaptureTypeAndValue({
       // No captured variables but expected undefined capture type - create empty struct
       const emptyStructType = createStructType(env);
       emptyStructType.fields = [];
-
-      env = addARCFunctionsToStructType({
-        structType: emptyStructType,
-        env,
-        context: { ...context },
-      });
 
       captureType = emptyStructType;
       captureValue = createStructValue(emptyStructType, []);
@@ -294,71 +277,4 @@ export function enrichCapturedVariables({
   }
 
   return enrichedMap;
-}
-
-/**
- * Generate ___dup expressions for captured ARC variables.
- *
- * This function creates and evaluates ___dup expressions for all captured variables
- * that require ARC (Automatic Reference Counting). These expressions are used during
- * closure construction to properly handle reference counting.
- *
- * @param capturedVariablesWithValues - Map of captured variables with their values and types
- * @param env - The environment to use for evaluation
- * @param context - The evaluator context
- * @returns Object containing the generated dup expressions and updated environment
- */
-export function generateCapturedVariableDupExpressions({
-  capturedVariablesWithValues,
-  env,
-  context,
-}: {
-  capturedVariablesWithValues:
-    | Map<string, FunctionCapturedVariableInfo>
-    | undefined;
-  env: Environment;
-  context: EvaluatorContext;
-}): {
-  capturedVariableDupExpressions: Expr[] | undefined;
-  env: Environment;
-} {
-  const capturedVariableDupExpressions: Expr[] = [];
-  let finalEnv = env;
-
-  if (capturedVariablesWithValues && capturedVariablesWithValues.size > 0) {
-    for (const [
-      varName,
-      captureInfo,
-    ] of capturedVariablesWithValues.entries()) {
-      // Check if the captured variable type requires ARC (contains ARC types)
-      if (typeContainsARCType(captureInfo.type)) {
-        // Create an expression: varName.___dup()
-        const dupExpr: Expr = generateExprFromCode(
-          `${BuiltinFunctions.___dup[0]!}(${varName})`
-        );
-
-        // Evaluate the dupExpr to ensure it's properly typed and processed
-        const evaluatedDupExpr = evaluateExpression({
-          expr: dupExpr,
-          env: finalEnv,
-          context: { ...context },
-        });
-
-        capturedVariableDupExpressions.push(evaluatedDupExpr);
-
-        // Update the environment with the evaluated expression's environment
-        if (evaluatedDupExpr.$ && evaluatedDupExpr.$.env) {
-          finalEnv = evaluatedDupExpr.$.env;
-        }
-      }
-    }
-  }
-
-  return {
-    capturedVariableDupExpressions:
-      capturedVariableDupExpressions.length > 0
-        ? capturedVariableDupExpressions
-        : undefined,
-    env: finalEnv,
-  };
 }

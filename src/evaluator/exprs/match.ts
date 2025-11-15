@@ -862,7 +862,7 @@ Supported patterns:
           : createUnknownValue(resultType.type),
       pathCollection: [],
     };
-    attachTempVariableToExpr(expr, true);
+    attachTempVariableToExpr(expr);
   } else {
     // All cases have control flow - determine which one to use
     if (controlFlows.length === 0) {

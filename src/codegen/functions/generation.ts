@@ -26,11 +26,7 @@ import { canRefStructFormCycles } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
-import {
-  generateDeferredDropExpressions,
-  generateExpr,
-  generateReturnStatement,
-} from "../expressions";
+import { generateExpr, generateReturnStatement } from "../expressions";
 import {
   canOptimizeAsNullablePointer,
   CodeGenContext,
@@ -201,14 +197,14 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
-  // Generate closure constructor and ARC functions
+  // Generate closure constructor
   generateClosureConstructorFunctions(context);
 
   // NOTE: Don't generate capture dispose functions here yet!
   // They will be generated after deferred async blocks are processed
   // because closure creation happens during async block generation
 
-  // Generate dyn type constructor and ARC functions
+  // Generate dyn type constructor
   generateDynConstructorFunctions(context);
 
   for (const funcId in context.functions) {
@@ -528,10 +524,6 @@ export function generateFunctionBody(
           generateReturnStatement(lastExpr, indent, context);
         }
       }
-
-      // Generate deferred drop expressions AFTER generating the last expression
-      // This ensures that variables used in the last expression are not dropped prematurely
-      generateDeferredDropExpressions(expr, indent, context);
     } else if (findReturn && args.length > 0) {
       // We found an explicit return statement, but there might be a trailing unit expression
       // that we should ignore (don't generate as a statement)
@@ -542,9 +534,6 @@ export function generateFunctionBody(
       }
     }
   } else {
-    // Generate deferred drop expressions before the return statement
-    generateDeferredDropExpressions(expr, indent, context);
-
     // Single expression function body
     if (isUnitType(functionType.return.type)) {
       // For unit/void functions, generate the expression as a statement
@@ -1838,7 +1827,7 @@ export function generateRefStructConstructorFunctions(
 }
 
 /**
- * Generate constructor function implementations for closures and their ARC functions
+ * Generate constructor function implementations for closures
  */
 export function generateClosureConstructorFunctions(
   context: FunctionGenerationContext
@@ -1963,62 +1952,10 @@ export function generateClosureDisposeFunctions(
       `void ${disposeFunctionName}(void* closure_ptr);`
     );
   }
-
-  // Then generate function implementations
-  for (const [
-    closureInstanceId,
-    { closureCName, captureType, captureCName },
-  ] of context.closureCaptureMap) {
-    const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
-
-    // Get the drop function for the capture type
-    const dropFunction = captureType.module.fields.find(
-      (field) => field.label === BuiltinFunctions.___drop[0]
-    );
-
-    if (!dropFunction || !dropFunction.assignedValue) {
-      continue; // Skip if no drop function
-    }
-
-    if (!isFunctionValue(dropFunction.assignedValue)) {
-      continue;
-    }
-
-    const dropFunctionValue = dropFunction.assignedValue;
-    const dropFunctionCName =
-      context.functions[dropFunctionValue.funcId]?.cName;
-
-    if (!dropFunctionCName) {
-      continue; // Skip if drop function C name not found
-    }
-
-    // Generate the dispose function
-    // Signature: void dispose(void* closure_ptr)
-    // This function receives the CLOSURE pointer (not capture pointer),
-    // extracts the capture data, calls drop, and frees it
-    emitter.emitLine(
-      `void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName}`
-    );
-    emitter.emitLine(`  if (closure_ptr) {`);
-    emitter.emitLine(
-      `    ${closureCName}* closure = (${closureCName}*)closure_ptr;`
-    );
-    emitter.emitLine(`    if (closure->data) {`);
-    emitter.emitLine(
-      `      ${dropFunctionCName}(*(${captureCName}*)closure->data); // Drop the capture struct (dereference pointer to pass by value)`
-    );
-    emitter.emitLine(
-      `      __yo_free(closure->data); // Free the capture data`
-    );
-    emitter.emitLine(`    }`);
-    emitter.emitLine(`  }`);
-    emitter.emitLine(`}`);
-    emitter.emitLine(``);
-  }
 }
 
 /**
- * Generate constructor function implementations for dyn types and their ARC functions
+ * Generate constructor function implementations for dyn types
  */
 export function generateDynConstructorFunctions(
   context: FunctionGenerationContext

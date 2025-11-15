@@ -12,10 +12,6 @@ import { createStructType, ModuleField } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
-import {
-  addARCFunctionSignaturesToStructType,
-  addARCFunctionsToStructType,
-} from "./utils";
 import { validateDisposeFunction } from "./validation";
 
 export function evaluateStructType({
@@ -45,7 +41,6 @@ export function evaluateStructType({
   // Create structType with empty fields
   // This is used as the SelfType for the following evaluations.
   const structType = createStructType(env, isReferenceSemantics, isNewtype);
-  addARCFunctionSignaturesToStructType({ structType, env, context });
 
   // Evaluate the fields
   const fields = structType.fields;
@@ -70,29 +65,6 @@ export function evaluateStructType({
             : arg.token,
           errorMessage: `Duplicate label "${field.label}" in struct`,
         });
-      }
-
-      // Reserved function names check for compile-time-only fields
-      if (field.isCompileTimeOnly) {
-        // ___drop function
-        if (field.label === BuiltinFunctions.___drop[0]) {
-          throw formatErrorMessage({
-            token: exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            errorMessage: `The label "${BuiltinFunctions.___drop[0]}()" is reserved for the auto-generated function. You cannot define it as a compile-time-only field.`,
-          });
-        }
-
-        // ___dup function
-        if (field.label === BuiltinFunctions.___dup[0]) {
-          throw formatErrorMessage({
-            token: exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            errorMessage: `The label "${BuiltinFunctions.___dup[0]}()" is reserved for the auto-generated function. You cannot define it as a compile-time-only field.`,
-          });
-        }
       }
 
       if (field.isCompileTimeOnly && field.assignedValue) {
@@ -124,13 +96,6 @@ export function evaluateStructType({
       errorMessage: `Newtype struct must have exactly one field, but got ${fields.length} fields.`,
     });
   }
-
-  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  env = addARCFunctionsToStructType({
-    structType,
-    env,
-    context,
-  });
 
   // console.log(typeToString(structType));
   const structTypeValue = createTypeValue(structType);

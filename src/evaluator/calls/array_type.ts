@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr, setExprAsNeedsToCallDup } from "../../expr";
+import { Expr, FuncCallExpr } from "../../expr";
 import {
   areTypesCompatible,
   ArrayType,
@@ -94,8 +94,6 @@ export function tryToImplementArrayByArrayType({
         errorMessage: `Failed to evaluate array element at index ${i}.`,
       });
     }
-
-    setExprAsNeedsToCallDup(evaluatedArg, context);
 
     env = evaluatedArg.$.env;
 

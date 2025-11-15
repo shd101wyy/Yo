@@ -7,7 +7,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   PathCollection,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -129,7 +128,6 @@ ${tupleFieldToString(paramElement_)}`,
       });
     }
 
-    setExprAsNeedsToCallDup(evaluatedArgExpr, context);
     callerEnv = evaluatedArgExpr.$.env;
 
     // Get the type of the evaluated arg expr

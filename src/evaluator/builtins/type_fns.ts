@@ -10,7 +10,7 @@ import {
   areTypesCompatible,
   createComptStringType,
   isTypeHierarchyType,
-  typeContainsARCType,
+  typeContainsGcType,
   typeToString,
 } from "../../types";
 import {
@@ -149,7 +149,7 @@ export function evaluateYoAreTypesCompatible({
   return expr;
 }
 
-export function evaluateYoTypeContainsArcType({
+export function evaluateYotypeContainsGcType({
   expr,
   env,
   context,
@@ -197,7 +197,7 @@ export function evaluateYoTypeContainsArcType({
     });
   }
 
-  const flag = typeContainsARCType(typeValue.value);
+  const flag = typeContainsGcType(typeValue.value);
   const value = createBooleanValue(flag);
 
   expr.$ = {

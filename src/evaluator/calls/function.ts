@@ -872,12 +872,8 @@ ${functionsWithMatchingTypes
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isUnquote
     ) {
-      const {
-        returnValue,
-        callerEnv,
-        pathCollection,
-        deferredDropExpressions,
-      } = getFunctionCallResult(functionToCall);
+      const { returnValue, callerEnv, pathCollection } =
+        getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
 
@@ -887,7 +883,6 @@ ${functionsWithMatchingTypes
         value: returnValue,
         originType: createExprType(), // Macro result's origin type is the expression type
         pathCollection: pathCollection,
-        deferredDropExpressions,
       };
 
       return expr;
@@ -916,7 +911,6 @@ ${functionsWithMatchingTypes
         pathCollection,
         specializedFunctionValue,
         runtimeArgExprsInOrder,
-        deferredDropExpressions,
       } = getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
@@ -964,11 +958,10 @@ ${functionsWithMatchingTypes
         originType: returnType, // Function call result's origin type is its return type
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
-        deferredDropExpressions,
       };
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      attachTempVariableToExpr(expr);
 
       // Attach necessary info to the func
       func.$ = {
@@ -997,7 +990,6 @@ ${functionsWithMatchingTypes
       pathCollection,
       specializedFunctionValue,
       runtimeArgExprsInOrder,
-      deferredDropExpressions,
     } = getFunctionCallResult(functionToCall);
 
     env = popEnvFrame(callerEnv);
@@ -1043,11 +1035,10 @@ ${functionsWithMatchingTypes
       originType: returnType, // Function call result's origin type is its return type
       pathCollection: pathCollection,
       runtimeArgExprsInOrder,
-      deferredDropExpressions,
     };
 
     // Set temp variable which holds the result of the function call
-    attachTempVariableToExpr(expr, true);
+    attachTempVariableToExpr(expr);
 
     // Attach necessary info to the func
     func.$ = {
@@ -1101,7 +1092,7 @@ ${functionsWithMatchingTypes
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      attachTempVariableToExpr(expr);
 
       // Attach necessary info to the func
       func.$ = {
@@ -1152,7 +1143,7 @@ ${functionsWithMatchingTypes
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      attachTempVariableToExpr(expr);
 
       // Attach necessary info to the func
       func.$ = {
@@ -1181,7 +1172,7 @@ ${functionsWithMatchingTypes
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
       // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      attachTempVariableToExpr(expr);
 
       // Attach necessary info to the func
       func.$ = {
@@ -1291,7 +1282,7 @@ ${functionsWithMatchingTypes
         isAccessingProperty: true,
       };
 
-      attachTempVariableToExpr(expr, false); // NOTE: This is like property access, so it doesn't own the value
+      attachTempVariableToExpr(expr); // NOTE: This is like property access, so it doesn't own the value
 
       return expr;
     }

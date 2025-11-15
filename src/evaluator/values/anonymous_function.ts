@@ -37,13 +37,11 @@ import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import { addARCFunctionsToClosureType } from "../types/utils";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
   createCaptureTypeAndValue,
   enrichCapturedVariables,
-  generateCapturedVariableDupExpressions,
 } from "../utils/closure";
 
 export function evaluateAnonymousFunctionImplementation({
@@ -406,7 +404,6 @@ Got:      "${paramName}"`,
     env,
     context: evaluationContext,
     variablesToAdd: [],
-    isEvaluatingFunctionBodyBeginBlock: true,
   });
 
   if (!evaluatedBody.$) {
@@ -467,7 +464,6 @@ Got:      "${paramName}"`,
   // Set the type and value of the expression
   let finalType: Type;
   let finalValue: Value | undefined;
-  let capturedVariableDupExpressions: Expr[] | undefined;
   let captureType: StructType | undefined;
 
   if (isCreatingClosure && expectedClosureType) {
@@ -483,23 +479,6 @@ Got:      "${paramName}"`,
     captureType = result.captureType;
 
     const closureType = createClosureType(newFunctionType, env);
-
-    // Add ARC functions to the closure type
-    env = addARCFunctionsToClosureType({
-      closureType,
-      env,
-      context,
-    });
-
-    // Generate ___dup expressions for captured ARC variables
-    const { capturedVariableDupExpressions: dupExpressions, env: updatedEnv } =
-      generateCapturedVariableDupExpressions({
-        capturedVariablesWithValues,
-        env,
-        context,
-      });
-    capturedVariableDupExpressions = dupExpressions;
-    env = updatedEnv;
 
     // Update the existing function value for closures
     functionValue.funcId = `closure_${randomId()}`;
@@ -528,10 +507,6 @@ Got:      "${paramName}"`,
       isClosureFunction && capturedVariables
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
         : [],
-    deferredDupExpressions:
-      isCreatingClosure && capturedVariableDupExpressions
-        ? capturedVariableDupExpressions
-        : undefined,
     captureType: isCreatingClosure ? captureType : undefined, // Store the capture struct type for codegen (used for both closures and async blocks)
     closureFunctionValue: isCreatingClosure ? functionValue : undefined,
   };
@@ -539,7 +514,7 @@ Got:      "${paramName}"`,
   // For closures, attach a temporary variable so they can be consumed
   // This must be done AFTER expr.$ is set since attachTempVariableToExpr expects it
   if (isClosureFunction) {
-    attachTempVariableToExpr(expr, true);
+    attachTempVariableToExpr(expr);
   }
 
   return expr;

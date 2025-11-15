@@ -7,22 +7,15 @@ import {
   Variable,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
-import { EvaluatorContext } from "./evaluator/context";
-import { evaluateExpression } from "./evaluator/exprs/expr";
-import { generateExprFromCode } from "./parser";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
   StructType,
   Type,
-  typeContainsARCType,
+  typeContainsGcType,
   typeToString,
 } from "./types";
-import {
-  generateNewTempVariableName,
-  generateVarialeId,
-  isTempVariableName,
-} from "./utils";
+import { generateNewTempVariableName, generateVarialeId } from "./utils";
 import { isTypeValue, ModuleValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -192,35 +185,8 @@ export interface EvaluatedExprData {
   comment?: string;
 
   /**
-   * For closures that capture ARC variables, this contains expressions that
-   * call ___dup on the captured variables. Used by C codegen to generate
-   * proper ARC handling in closure ___dup methods.
-   *
-   * Example: If a closure captures `x: MyBox`, this would contain the expression `x.___dup()`
-   */
-  deferredDupExpressions?: Expr[];
-
-  /**
-   * Contains expressions that call ___drop on variables that need cleanup.
-   * Used to defer drop call generation to codegen phase instead of inserting
-   * them directly into the AST during evaluation, preventing use-after-free errors.
-   *
-   * Example: If a variable `x: MyBox` needs dropping, this would contain the expression `___drop(x)`
-   */
-  deferredDropExpressions?: Expr[];
-
-  /**
-   * For async expressions, this contains the optional stack size configuration (runtime-known).
-   * If undefined, the default stack size (16KB) is used.
-   *
-   * Example: For `async say("hello"), { stack_size: 1024 * 64 }`, this contains the evaluated expression `1024 * 64`
-   */
-  asyncStackSize?: Expr;
-
-  /**
    * For closure and async block expressions, this contains the capture struct type that holds all
    * captured variables from outer scope.
-   * The capture struct has ARC functions (___drop, ___dup, ___dispose) auto-generated.
    *
    * Example: For `async { printf("%d", x); }` where `x: MyBox` is from outer scope,
    * this would contain a StructType with a single field `x: MyBox`.
@@ -882,32 +848,12 @@ export const BuiltinFunctions = {
   // Error handling
   panic: ["panic"],
 
-  // ARC related
-  is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
-  __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
-  __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
-  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheARCValue to be true. This is useful for implementing ___dup function.
-
-  // Garbage collection for cycle detection
+  // Garbage collection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
+  __yo_gc_alloc: ["__yo_gc_alloc"], // allocate memory on GC heap
 
-  // Dynamic dispatch ARC functions
-  __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
-  __yo_dyn_dup: ["__yo_dyn_dup"], // dup the dyn object with wrapped object
-
-  // Closure ARC functions
-  __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
-  __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
-
-  // Future ARC functions
-  __yo_future_drop: ["__yo_future_drop"], // drop future object and handle cleanup
-  __yo_future_dup: ["__yo_future_dup"], // dup future object with proper reference counting
-
-  // ARC functions
-  ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
-  ___dispose: ["___dispose"],
-  ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
-  dispose: ["dispose"], // Destructor to run when an object is dropped
+  // Keep dispose for GC finalization (called when GC frees an object)
+  dispose: ["dispose"], // Finalizer to run when GC frees an object
 
   /// Others
   __yo_noop: ["__yo_noop"],
@@ -1215,11 +1161,7 @@ function exprToPrettyString(
   return exprToCompactString(expr);
 }
 
-export function attachTempVariableToExpr(
-  expr: Expr,
-  isOwningTheARCValue: boolean,
-  isOwningTheSameARCValueAs?: Variable
-): void {
+export function attachTempVariableToExpr(expr: Expr): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
 ${exprToString(expr)}`);
@@ -1227,10 +1169,7 @@ ${exprToString(expr)}`);
   const { env, type, value, originType } = expr.$;
   const modulePath = env.modulePath;
 
-  // NOTE: For now let's make all the isOwningTheARCValue variable runtime-only
-  // so the `object` value can only be used in runtime.
-  // Actually, all C pointer related should be runtime-only.
-  const _isOwningTheARCValue = isOwningTheARCValue && typeContainsARCType(type);
+  const _containsGcType = typeContainsGcType(type);
 
   // Check if a temp variable already exists
   if (expr.$.variableName) {
@@ -1241,10 +1180,8 @@ ${exprToString(expr)}`);
       const updatedVariable: Variable = {
         ...existingVariable,
         type,
-        value: _isOwningTheARCValue ? undefined : value,
-        isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
-        isOwningTheARCValue: _isOwningTheARCValue,
-        isOwningTheSameARCValueAs,
+        value: _containsGcType ? undefined : value,
+        isCompileTimeOnly: _containsGcType ? false : Boolean(value),
       };
       expr.$.env = updateExistingVariable(
         env,
@@ -1269,11 +1206,9 @@ ${exprToString(expr)}`);
     variable: {
       name: tempVariableName,
       type,
-      value: _isOwningTheARCValue ? undefined : value,
-      isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
+      value: _containsGcType ? undefined : value,
+      isCompileTimeOnly: _containsGcType ? false : Boolean(value),
       initializedAtToken: expr.token,
-      isOwningTheARCValue: _isOwningTheARCValue,
-      isOwningTheSameARCValueAs,
       consumedAtToken: undefined,
       token: expr.token,
     },
@@ -1350,14 +1285,12 @@ export function mergeAndCheckEnvs(
       consumedAtToken: Token | undefined;
       initializedAtToken: Token | undefined;
       type: Type;
-      isOwningTheARCValue: boolean;
     }[][] = [[]];
     frameVariables.forEach((variable) => {
       matrix[0]!.push({
         consumedAtToken: variable.consumedAtToken,
         initializedAtToken: variable.initializedAtToken,
         type: variable.type,
-        isOwningTheARCValue: variable.isOwningTheARCValue ?? false,
       });
     });
 
@@ -1402,7 +1335,6 @@ export function mergeAndCheckEnvs(
           consumedAtToken: variable.consumedAtToken,
           initializedAtToken: variable.initializedAtToken,
           type: variable.type,
-          isOwningTheARCValue: variable.isOwningTheARCValue ?? false,
         });
       });
     }
@@ -1417,17 +1349,9 @@ export function mergeAndCheckEnvs(
     for (let i = 0; i < cols; i++) {
       const variableName = frameVariables[i]!.name;
       const initializedAtTokens: (Token | undefined)[] = [];
-      const isOwningTheARCValueAtTokens: (Token | undefined)[] = [];
       const types: Type[] = [];
       for (let j = 1; j < rows; j++) {
-        const caseEnv = caseEnvs[j - 1]!;
-        const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
-        isOwningTheARCValueAtTokens.push(
-          matrix[j]![i]!.isOwningTheARCValue
-            ? caseEnvFrameVariables[i]!.token
-            : undefined
-        );
         types.push(matrix[j]![i]!.type);
       }
 
@@ -1536,72 +1460,6 @@ export function mergeAndCheckEnvs(
         }
       }
 
-      // Check isOwningTheARCValueAtTokens
-      // Variable is not owning the ARC value outside, but the only case makes it owning.
-      // case 1
-      /*
-      if (isOwningTheARCValueAtTokens.length === 1) {
-        if (
-          !frameVariables[i]!.isOwningTheARCValue &&
-          isOwningTheARCValueAtTokens[0]
-        ) {
-          throw formatErrorMessages([
-            {
-              token: frameVariables[i]!.token,
-              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the ARC value in all cases.`,
-            },
-            {
-              token: isOwningTheARCValueAtTokens[0]!,
-              errorMessage: `Might be owning the ARC value here:`,
-            },
-          ]);
-        }
-      }
-      // case 2
-      // variable is not owning the ARC value outside, but all cases make it owning.
-      else 
-      */
-      if (
-        !frameVariables[i]!.isOwningTheARCValue &&
-        isOwningTheARCValueAtTokens.every((u) => u)
-      ) {
-        const newVariable: Variable = {
-          ...frameVariables[i]!,
-          isOwningTheARCValue: true,
-          isOwningTheSameARCValueAs: undefined,
-        };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
-      }
-      // case 3
-      else {
-        const isOwningTheARCValue = isOwningTheARCValueAtTokens.filter(
-          (u) => !!u
-        );
-        const isNotOwningTheARCValue = isOwningTheARCValueAtTokens.filter(
-          (u) => !u
-        );
-        if (
-          isOwningTheARCValue.length > 0 &&
-          isNotOwningTheARCValue.length > 0
-        ) {
-          throw formatErrorMessages(
-            isOwningTheARCValueAtTokens.map((token, index) => {
-              return {
-                errorMessage:
-                  (index === 0
-                    ? `Variable "${variableName}" might be owning the ARC value in some cases but not owning the ARC value in other cases:\n`
-                    : "") +
-                  (token
-                    ? "Might be owning the ARC value here:"
-                    : "Might be not owning the ARC value here:"),
-                token: token ?? bodies[index]!.token,
-              };
-            })
-          );
-        }
-      }
-
       // Check for reassignment across branches
       // When a variable is reassigned in any branch, its ID changes (see assignment.ts)
       // We need to detect this and generate a new ID for the merged environment
@@ -1628,8 +1486,6 @@ export function mergeAndCheckEnvs(
         const newVariable: Variable = {
           ...frameVariables[i]!,
           id: newVariableId,
-          // Clear ownership tracking since the value may come from different sources
-          isOwningTheSameARCValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
@@ -1773,94 +1629,6 @@ export function setExprAsConsumed(
   }
 
   return env;
-}
-
-/**
- * @param expr
- * @param context
- * @returns
- */
-export function setExprAsNeedsToCallDup(
-  expr: Expr,
-  context: EvaluatorContext
-): void {
-  if (!expr.$) {
-    return;
-  }
-
-  if (!expr.$.variableName) {
-    // If expr has no variableName, then we just ignore it for now.
-    // For example, calling __yo_rc_own(...) function has no variableName.
-    return;
-  }
-
-  if (typeContainsARCType(expr.$.type)) {
-    // replace this expr with ___dup(...)
-    const dupCallExpr = generateExprFromCode(
-      `${BuiltinFunctions.___dup[0]!}(${expr.$.variableName})`
-    );
-
-    const variableName = expr.$.variableName;
-
-    // Check if the expr.variableName is owning the ARC value
-    // if yes, then no need to call dup
-    // We just need to set it as consumed
-    if (isTempVariableName(expr.$.env.modulePath, variableName)) {
-      if (exprIsAtom(expr) && expr.token.value !== variableName) {
-        // Do nothing
-        // We need to call ___dup on it
-      } else {
-        const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
-        if (variables.length > 0) {
-          const variable = variables[variables.length - 1]!;
-          if (variable.isOwningTheARCValue) {
-            // Set the variable as consumed so we won't need to drop it later
-            if (!variable.consumedAtToken) {
-              expr.$.env = updateExistingVariable(expr.$.env, variable, {
-                ...variable,
-                consumedAtToken: expr.token,
-              });
-            }
-
-            return;
-          }
-        }
-      }
-    }
-
-    // console.trace(exprToString(dupCallExpr), expr.$.env.frames.length);
-    // printEnvFrame(expr.$.env.frames[expr.$.env.frames.length - 1]!);
-    const evaluatedDupCallExpr = evaluateExpression({
-      expr: dupCallExpr,
-      env: expr.$.env,
-      context: { ...context },
-    }) as FuncCallExpr;
-
-    if (evaluatedDupCallExpr.$?.variableName) {
-      // Set the variable as consumed so we won't need to drop it later
-      const variables = getVariablesFromEnv(
-        evaluatedDupCallExpr.$.env,
-        evaluatedDupCallExpr.$.variableName
-      );
-      if (variables.length > 0) {
-        const variable = variables[variables.length - 1]!;
-        if (!variable.consumedAtToken) {
-          evaluatedDupCallExpr.$.env = updateExistingVariable(
-            evaluatedDupCallExpr.$.env,
-            variable,
-            {
-              ...variable,
-              consumedAtToken: evaluatedDupCallExpr.token,
-            }
-          );
-        }
-      }
-    }
-
-    expr.$.deferredDupExpressions = [evaluatedDupCallExpr];
-    expr.$.env = evaluatedDupCallExpr.$!.env;
-    // replaceExprWithFuncCallExpr(expr, evaluatedDupCallExpr);
-  }
 }
 
 /**

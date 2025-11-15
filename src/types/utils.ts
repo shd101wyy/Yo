@@ -100,7 +100,7 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
  * Check if the type contains `object`
  * @param type
  */
-export function typeContainsARCType(
+export function typeContainsGcType(
   type?: Type,
   checkedTypes: Type[] = []
 ): boolean {
@@ -121,28 +121,28 @@ export function typeContainsARCType(
   // Recursively check in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsARCType((type as ArrayType).childType, checkedTypes);
+      return typeContainsGcType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsGcType(field.type, checkedTypes)
       );
     case TypeTag.Union:
       return (type as UnionType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsGcType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsGcType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.fields?.some((param) =>
-          typeContainsARCType(param.type, checkedTypes)
+          typeContainsGcType(param.type, checkedTypes)
         )
       );
     case TypeTag.Module:
       return (type as ModuleType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsGcType(field.type, checkedTypes)
       );
     case TypeTag.Function: {
       return !!(type as FunctionType).isClosure;
@@ -980,7 +980,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     case TypeTag.Dyn: {
       const dynType = type as DynType;
       return `Dyn(${dynType.moduleTypes
-        .slice(1) // skip the baseModuleType which contains ___dup, ___drop, ___dispose
         .map((mt) => typeToString(mt, visited))
         .join(", ")})`;
     }

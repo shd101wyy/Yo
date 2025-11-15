@@ -253,17 +253,10 @@ export interface FunctionParameter {
    * Whether this parameter is compile-time only.
    */
   isCompileTimeOnly: boolean;
-
   /**
    * Whether this parameter is a quote parameter for constructing macro.
    */
   isQuote: boolean;
-  /**
-   * Whether this parameter takes ownership of ARC values.
-   * When true, the caller must dup the value before passing.
-   * The parameter becomes the owner and will be dropped at function exit.
-   */
-  isOwningTheARCValue: boolean;
   /**
    * The expression information of the parameter.
    */
@@ -596,10 +589,9 @@ export interface ClosureType extends Type {
   callType: FunctionType & { isClosure: true };
 
   /**
-   * The module that contains the closure's ARC functions (___drop, ___dup).
-   * Similar to DynType's module property.
+   * No module for ClosureType
    */
-  module: ModuleType;
+  module: undefined;
 
   /**
    * The env when the closure type is created.
@@ -624,11 +616,9 @@ export interface DynType extends Type {
   moduleTypes: ModuleType[];
 
   /**
-   * The module of the dyn type, which contains
-   * the ARC methods (___dup, ___drop) for the dyn wrapper itself.
-   * These operate on the dyn object, not the wrapped object.
+   * No module for DynType
    */
-  module: ModuleType;
+  module: undefined;
 
   /**
    * The env when the dyn type is created.
@@ -662,10 +652,9 @@ export interface FutureType extends Type {
   childType: Type;
 
   /**
-   * The module associated with this future type.
-   * Contains ARC functions (___dup, ___drop) for reference counting.
+   * No module for FutureType
    */
-  module: ModuleType;
+  module: undefined;
 
   /**
    * The env when the future type is created.

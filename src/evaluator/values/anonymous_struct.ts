@@ -8,7 +8,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import { createStructType, ModuleField, TypeField } from "../../types";
 import { randomId } from "../../utils";
@@ -21,7 +20,6 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateTypeField } from "../types/field";
-import { addARCFunctionsToStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
 
 export function evaluateAnonymousStructValue({
@@ -211,8 +209,6 @@ export function evaluateAnonymousStructValue({
         },
       });
 
-      setExprAsNeedsToCallDup(evaluatedArg, context);
-
       if (!evaluatedArg.$) {
         throw formatErrorMessage({
           token: valueExpr.token,
@@ -249,13 +245,6 @@ export function evaluateAnonymousStructValue({
       }
     }
   }
-
-  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  env = addARCFunctionsToStructType({
-    structType,
-    env,
-    context,
-  });
 
   // Check if it's comptime value
   let structValue: StructValue | undefined = undefined;
@@ -295,7 +284,7 @@ export function evaluateAnonymousStructValue({
   };
 
   // Attach temp variable to the expr
-  attachTempVariableToExpr(expr, true);
+  attachTempVariableToExpr(expr);
 
   return expr;
 }

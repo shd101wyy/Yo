@@ -39,23 +39,6 @@ function exprContainsUnknownValue(expr: Expr): boolean {
     }
   }
 
-  // Check deferred expressions
-  if (expr.$?.deferredDupExpressions) {
-    for (const dupExpr of expr.$.deferredDupExpressions) {
-      if (exprContainsUnknownValue(dupExpr)) {
-        return true;
-      }
-    }
-  }
-
-  if (expr.$?.deferredDropExpressions) {
-    for (const dropExpr of expr.$.deferredDropExpressions) {
-      if (exprContainsUnknownValue(dropExpr)) {
-        return true;
-      }
-    }
-  }
-
   return false;
 }
 
@@ -227,20 +210,6 @@ export function findFunctionCallsInExpr(
   // expr might be a compt function call that returns a type
   if (isTypeValue(expr.$?.value)) {
     collectType(expr.$.value.value, context);
-  }
-
-  // Check for deferredDupExpressions and collect their functions
-  if (expr.$?.deferredDupExpressions) {
-    for (const dupExpr of expr.$.deferredDupExpressions) {
-      findFunctionCallsInExpr(dupExpr, context);
-    }
-  }
-
-  // Check for deferredDropExpressions and collect their functions
-  if (expr.$?.deferredDropExpressions) {
-    for (const dropExpr of expr.$.deferredDropExpressions) {
-      findFunctionCallsInExpr(dropExpr, context);
-    }
   }
 
   // Check for dynCallModuleValues and collect their functions

@@ -5,7 +5,6 @@ import { createFutureType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToFutureType } from "./utils";
 
 /**
  * Evaluate a Future type constructor call
@@ -68,13 +67,6 @@ export function evaluateFutureType({
 
   // Create the Future type
   const futureType = createFutureType(childType, env);
-
-  // Add ARC functions to the future type
-  env = addARCFunctionsToFutureType({
-    futureType,
-    env,
-    context: { ...context },
-  });
 
   const typeValueForFuture = createTypeValue(futureType);
 

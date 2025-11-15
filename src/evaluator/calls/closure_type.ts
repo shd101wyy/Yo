@@ -8,13 +8,11 @@ import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import { addARCFunctionsToClosureType } from "../types/utils";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
   createCaptureTypeAndValue,
   enrichCapturedVariables,
-  generateCapturedVariableDupExpressions,
 } from "../utils/closure";
 import { createFunctionBodyEvaluationContext } from "./function_type";
 
@@ -77,7 +75,6 @@ export function tryToImplementClosureByClosureType({
     env,
     context: evaluationContext,
     variablesToAdd: [],
-    isEvaluatingFunctionBodyBeginBlock: true,
   });
 
   if (!evaluatedClosureBody.$) {
@@ -151,22 +148,6 @@ export function tryToImplementClosureByClosureType({
   // The closure type is already created with the correct callType
   const finalClosureType = closureType;
 
-  // Add ARC functions to the closure type
-  finalCallerEnv = addARCFunctionsToClosureType({
-    closureType: finalClosureType,
-    env: finalCallerEnv,
-    context,
-  });
-
-  // Generate ___dup expressions for captured ARC variables
-  const { capturedVariableDupExpressions, env: updatedEnv } =
-    generateCapturedVariableDupExpressions({
-      capturedVariablesWithValues,
-      env: finalCallerEnv,
-      context,
-    });
-  finalCallerEnv = updatedEnv;
-
   // Set the closure info on the function value for easy codegen access
   functionValue.closureInfo = {
     closureType: finalClosureType,
@@ -182,17 +163,10 @@ export function tryToImplementClosureByClosureType({
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
         : [],
-    deferredDupExpressions:
-      capturedVariableDupExpressions &&
-      capturedVariableDupExpressions.length > 0
-        ? capturedVariableDupExpressions
-        : undefined,
     captureType: inferredCaptureType, // Store the capture struct type for codegen (used for both closures and async blocks)
     closureFunctionValue: functionValue,
   };
 
-  // Attach a temp variable to the expr to hold the ARC value for closure
-  attachTempVariableToExpr(expr, true);
-
+  attachTempVariableToExpr(expr);
   return expr;
 }

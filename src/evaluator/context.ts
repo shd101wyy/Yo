@@ -168,11 +168,6 @@ export interface FunctionCallResult {
    * Otherwise, this is undefined.
    */
   specializedFunctionValue?: FunctionValue;
-  /**
-   * Drop expressions that need to be executed to clean up temporary variables
-   * created during the function call (e.g., for function arguments that own ARC values).
-   */
-  deferredDropExpressions?: Expr[];
 }
 
 export interface TypeCallResult {

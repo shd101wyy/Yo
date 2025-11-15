@@ -448,7 +448,7 @@ export function evaluatePropertyAccess({
           expr.$.value = values?.[index];
         }
 
-        attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
+        attachTempVariableToExpr(expr); // NOTE: This should not take the ownership of the value
 
         return expr;
       } else if (isValidVariableName(propertyExpr)) {
@@ -513,7 +513,7 @@ export function evaluatePropertyAccess({
             }
           }
 
-          attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
+          attachTempVariableToExpr(expr); // NOTE: This should not take the ownership of the value
 
           return expr;
         }

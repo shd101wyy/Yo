@@ -15,7 +15,6 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -30,7 +29,6 @@ import {
   StructType,
   TupleType,
   Type,
-  typeContainsARCType,
   typeRequiresInference,
   typeToString,
 } from "../../types";
@@ -55,7 +53,6 @@ import {
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findARCValueOwnerRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -222,11 +219,6 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
     env = rhs.$.env;
 
-    // Under the new ownership model, all assignments transfer ownership
-    // so we always need to call dup on the RHS
-    setExprAsNeedsToCallDup(rhs, context);
-    env = rhs.$.env;
-
     if (rhs.$?.controlFlow) {
       throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
     }
@@ -387,8 +379,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       } as EnumType;
     }
     let isMutatingDefinedVariable = false;
-    const oldVariableIsOwningTheSameARCValueAs =
-      variable.isOwningTheSameARCValueAs;
+
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
@@ -442,24 +433,11 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         // For reference semantics enums, keep the original value to share the reference
       }
 
-      // Under the new simplified ownership model:
-      // Variables created by := always own their values
-      // But we track shared ownership for dup/drop optimization
-
-      // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findARCValueOwnerRelationship(
-        rhs,
-        env,
-        env.modulePath
-      );
-
       env = updateExistingVariable(env, variable, {
         ...variable,
         initializedAtToken: lhs.token,
         value: valueToStore,
         type: variableType,
-        isOwningTheARCValue: typeContainsARCType(variableType),
-        isOwningTheSameARCValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
     } else {
       // For closures, track variable writes to outer scope
@@ -514,13 +492,6 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       // won't be matched with drop calls on the new ID
       const newVariableId = generateVarialeId(env.modulePath, variableName);
 
-      // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findARCValueOwnerRelationship(
-        rhs,
-        env,
-        env.modulePath
-      );
-
       // Under the new simplified ownership model:
       // Variables always own their values
       // But we track shared ownership for dup/drop optimization
@@ -529,8 +500,6 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore,
         type: variableType,
-        isOwningTheARCValue: typeContainsARCType(variableType),
-        isOwningTheSameARCValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
       isMutatingDefinedVariable = true;
     }
@@ -559,17 +528,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       };
 
       // This temp variable is used to hold the old value of lhs
-      attachTempVariableToExpr(
-        expr,
-        true,
-
-        // Check if the oldVariableIsOwningTheSameARCValueAs is located on the same frame level
-        // If not, we can't track the relationship as the old variable is out of scope
-        oldVariableIsOwningTheSameARCValueAs?.frameLevel ===
-          env.frames.length - 1
-          ? oldVariableIsOwningTheSameARCValueAs
-          : undefined
-      );
+      attachTempVariableToExpr(expr);
     }
 
     return expr;
@@ -639,9 +598,6 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         errorMessage: `Failed to evaluate right-hand side of assignment: ${exprToString(rhs)}`,
       });
     }
-    env = rhs.$.env;
-
-    setExprAsNeedsToCallDup(rhs, context);
     env = rhs.$.env;
 
     let rhsType = rhs.$?.type;
@@ -835,7 +791,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     };
 
     // This temp variable is used to hold the old value of lhs
-    attachTempVariableToExpr(expr, true);
+    attachTempVariableToExpr(expr);
 
     // Update the lhs with the new value
     // Let's not set evaluatedLhs.$ as it is causing problem in C codegen.

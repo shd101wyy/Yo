@@ -1038,17 +1038,14 @@ export function createClosureType(
 
   // Use only call type for closure ID
   const closureId = `closure_${callType.id}`;
-  const module = createModuleType(env);
 
   const closureType: ClosureType = {
     id: closureId,
     tag: TypeTag.Closure,
     callType: callType as FunctionType & { isClosure: true },
-    module,
     env,
+    module: undefined,
   };
-
-  module.receiverType = closureType;
 
   return closureType;
 }
@@ -1057,17 +1054,13 @@ export function createDynType(
   moduleTypes: ModuleType[],
   env: Environment
 ): DynType {
-  const module = createModuleType(env);
-
   const dynType: DynType = {
     id: `dyn_${moduleTypes.map((m) => m.id).join("_")}`,
     tag: TypeTag.Dyn,
     moduleTypes,
-    module,
+    module: undefined,
     env,
   };
-
-  module.receiverType = dynType;
 
   return dynType;
 }
@@ -1076,17 +1069,13 @@ export function createFutureType(
   childType: Type,
   env: Environment
 ): FutureType {
-  const module = createModuleType(env);
-
   const futureType: FutureType = {
     id: `future_${childType.id}`,
     tag: TypeTag.Future,
     childType,
-    module,
+    module: undefined,
     env,
   };
-
-  module.receiverType = futureType;
 
   return futureType;
 }

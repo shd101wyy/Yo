@@ -18,10 +18,6 @@ import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";
-import {
-  addARCFunctionSignaturesToEnumType,
-  addARCFunctionsToEnumType,
-} from "./utils";
 
 export function evaluateEnumType({
   expr,
@@ -41,7 +37,6 @@ export function evaluateEnumType({
 
   // Create enumType with empty variants
   const enumType = createEnumType(env);
-  addARCFunctionSignaturesToEnumType({ enumType, env, context });
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;
@@ -209,13 +204,6 @@ export function evaluateEnumType({
       }
     }
   }
-
-  // Auto-generate ARC functions using the systematic approach
-  env = addARCFunctionsToEnumType({
-    enumType,
-    env,
-    context,
-  });
 
   const enumTypeValue = createTypeValue(enumType);
   expr.$ = {

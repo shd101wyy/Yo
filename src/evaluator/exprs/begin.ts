@@ -1,17 +1,13 @@
 import {
   addVariableToEnv,
   Environment,
-  getVariablesFromEnv,
-  getVariablesNeedingDrop,
   popEnvFrame,
   pushEnvFrame,
-  updateExistingVariable,
   Variable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
-  BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
   expectExprToBeFunctionCallOf,
@@ -25,218 +21,12 @@ import {
   FuncCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsConsumed,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
-import { generateExprFromCode } from "../../parser";
-import { areTypesCompatible, isClosureType, typeToString } from "../../types";
+import { areTypesCompatible, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
-
-/**
- * For debugging the dup/drop optimization.
- * Set it to `false` to disable the optimization.
- */
-const OPTIMIZE_DUP_AND_DROP_PAIRS = true;
-
-/**
- * Generate ___drop expressions for variables that need cleanup.
- *
- * This function creates and evaluates ___drop expressions for variables that require
- * cleanup at the end of a scope. These expressions are deferred to the codegen phase
- * to prevent use-after-free errors that would occur if drop calls were inserted
- * directly into the AST during evaluation.
- *
- * @param variablesToDrop - Array of variables that need drop calls
- * @param env - The environment to use for evaluation
- * @param context - The evaluator context
- * @param dropToken - Token to use for the drop expressions (typically the end of scope token)
- * @returns Object containing the generated drop expressions and updated environment
- */
-function generateDeferredDropExpressions({
-  variablesToDrop,
-  env,
-  context,
-}: {
-  variablesToDrop: Variable[];
-  env: Environment;
-  context: EvaluatorContext;
-}): {
-  deferredDropExpressions: Expr[] | undefined;
-  env: Environment;
-} {
-  const deferredDropExpressions: Expr[] = [];
-  let finalEnv = env;
-
-  for (const variable of variablesToDrop) {
-    // Create a drop expression: ___drop(varName)
-    const dropExpr: Expr = generateExprFromCode(
-      `${BuiltinFunctions.___drop[0]!}(${variable.name})`
-    );
-
-    // Evaluate the dropExpr to ensure it's properly typed and processed
-    const evaluatedDropExpr = evaluateExpression({
-      expr: dropExpr,
-      env: finalEnv,
-      context: { ...context },
-    });
-
-    deferredDropExpressions.push(evaluatedDropExpr);
-
-    // Update the environment with the evaluated expression's environment
-    if (evaluatedDropExpr.$ && evaluatedDropExpr.$.env) {
-      finalEnv = evaluatedDropExpr.$.env;
-    }
-  }
-
-  return {
-    deferredDropExpressions:
-      deferredDropExpressions.length > 0 ? deferredDropExpressions : undefined,
-    env: finalEnv,
-  };
-}
-
-function searchRecursively(
-  expr: Expr,
-  dupCalls: Map<string, FuncCallExpr[]>
-): void {
-  // Check the captured dup expressions first
-  if (expr.$?.deferredDupExpressions) {
-    for (const dupExpr of expr.$.deferredDupExpressions) {
-      searchRecursively(dupExpr, dupCalls);
-    }
-  }
-
-  // Look for function calls like (x.___dup)()
-  if (
-    exprIsFunctionCall(expr) &&
-    exprIsFunctionCall(expr.func) &&
-    exprIsFunctionCallOf(expr.func, ".", 2) &&
-    exprIsAtom(expr.func.args[0]) &&
-    exprIsAtom(expr.func.args[1]) &&
-    expr.func.args[1].token.value === BuiltinFunctions.___dup[0] &&
-    expr.args.length === 0 &&
-    expr.$?.env
-  ) {
-    const variableName = expr.func.args[0].token.value;
-
-    // Look up the variable in the expression's environment
-    const variables = getVariablesFromEnv(expr.$.env, variableName);
-    if (variables.length > 0) {
-      const variable = variables[variables.length - 1]!;
-
-      // Track dup calls for optimization:
-      // 1. If the variable owns the same ARC value as another variable (optimization tracking)
-      // 2. If the variable itself is owning (new pattern with assignments always own)
-      if (variable.isOwningTheSameARCValueAs) {
-        // Store the dup call mapped to the shared variable ID
-        const sharedVariableId = variable.isOwningTheSameARCValueAs.id;
-        if (!dupCalls.has(sharedVariableId)) {
-          dupCalls.set(sharedVariableId, []);
-        }
-        dupCalls.get(sharedVariableId)!.push(expr);
-      } else if (variable.isOwningTheARCValue) {
-        // For owning variables, track the dup call directly under the variable's ID
-        if (!dupCalls.has(variable.id)) {
-          dupCalls.set(variable.id, []);
-        }
-        dupCalls.get(variable.id)!.push(expr);
-      }
-    }
-    return;
-  }
-
-  // Skip while loops - they execute multiple times so optimization would be incorrect
-  if (
-    exprIsFunctionCall(expr) &&
-    exprIsFunctionCallOf(expr, BuiltinKeywords.while)
-  ) {
-    // Don't apply optimization to while loops - the body can execute multiple times
-    // which would create multiple references without corresponding dup calls
-    return;
-  }
-  // Skip closures - they may be called multiple times
-  if (exprIsFunctionCall(expr) && isClosureType(expr.$?.type)) {
-    return;
-  }
-
-  // Helper function to handle branching expressions (cond, match)
-  function handleBranchingExpression(
-    expr: FuncCallExpr,
-    startIndex: number
-  ): void {
-    const branchDupCalls: Map<string, FuncCallExpr[]>[] = [];
-
-    // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
-    for (let i = startIndex; i < expr.args.length; i++) {
-      const statement = expr.args[i]!;
-      if (
-        exprIsFunctionCall(statement) &&
-        exprIsFunctionCallOf(statement, "=>", 2)
-      ) {
-        const branchBody = statement.args[1]!; // The body is the second argument
-        const branchDups = collectDupCallsConservatively(branchBody);
-        branchDupCalls.push(branchDups);
-      }
-    }
-
-    // Only include dup calls that are present in ALL branches
-    if (branchDupCalls.length > 0) {
-      const firstBranchDups = branchDupCalls[0]!;
-      for (const [varName, _dupCallArray] of firstBranchDups) {
-        const isPresentInAllBranches = branchDupCalls.every((branchDups) =>
-          branchDups.has(varName)
-        );
-
-        if (isPresentInAllBranches) {
-          // Collect all dup call expressions from all branches
-          const allDupCallsForVar: FuncCallExpr[] = [];
-          for (const branchDups of branchDupCalls) {
-            allDupCallsForVar.push(...branchDups.get(varName)!);
-          }
-          dupCalls.set(varName, allDupCallsForVar);
-        }
-      }
-    }
-  }
-
-  // Handle cond expressions - only include dup calls that are present in ALL branches
-  if (
-    exprIsFunctionCall(expr) &&
-    exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
-  ) {
-    handleBranchingExpression(expr, 0);
-    return;
-  }
-
-  // Handle match expressions - only include dup calls that are present in ALL branches
-  if (
-    exprIsFunctionCall(expr) &&
-    exprIsFunctionCallOf(expr, BuiltinKeywords.match)
-  ) {
-    handleBranchingExpression(expr, 1); // Skip the first argument (scrutinee)
-    return;
-  }
-
-  // Recursively search in function calls
-  if (exprIsFunctionCall(expr)) {
-    searchRecursively(expr.func, dupCalls);
-    for (const arg of expr.args) {
-      searchRecursively(arg, dupCalls);
-    }
-  }
-}
-
-// Function to recursively collect dup calls with conservative cross-branch analysis
-function collectDupCallsConservatively(
-  currentExpr: Expr
-): Map<string, FuncCallExpr[]> {
-  const dupCalls = new Map<string, FuncCallExpr[]>();
-
-  searchRecursively(currentExpr, dupCalls);
-  return dupCalls;
-}
 
 /**
  * Checks if an expression represents a unit value (empty tuple)
@@ -248,60 +38,16 @@ function isUnitValueExpression(expr: Expr): boolean {
   );
 }
 
-/**
- * Helper to get the base variable ID by following the isOwningTheSameARCValueAs chain.
- * This is used for dup/drop optimization to identify which variables share the same ARC value.
- */
-function getBaseVariableId(variable: Variable): string {
-  let current = variable;
-  while (current.isOwningTheSameARCValueAs) {
-    current = current.isOwningTheSameARCValueAs;
-  }
-  return current.id;
-}
-
-/**
- * Remove optimized dup calls from deferredDupExpressions recursively.
- * This is used after identifying which dup/drop pairs can be cancelled.
- */
-function removeDupCallsFromExpr(
-  expr: Expr,
-  dupCallsToRemove: Set<FuncCallExpr>
-): void {
-  if (expr.$?.deferredDupExpressions) {
-    expr.$.deferredDupExpressions = expr.$.deferredDupExpressions.filter(
-      (dupExpr) => !dupCallsToRemove.has(dupExpr as FuncCallExpr)
-    );
-    if (expr.$.deferredDupExpressions.length === 0) {
-      expr.$.deferredDupExpressions = undefined;
-    }
-  }
-
-  if (exprIsFunctionCall(expr)) {
-    removeDupCallsFromExpr(expr.func, dupCallsToRemove);
-    for (const arg of expr.args) {
-      removeDupCallsFromExpr(arg, dupCallsToRemove);
-    }
-  }
-}
-
 export function evaluateBeginExpression({
   expr,
   env,
   context,
   variablesToAdd = [],
-  isEvaluatingFunctionBodyBeginBlock = false,
 }: {
   expr: Expr;
   env: Environment;
   context: EvaluatorContext;
   variablesToAdd: Omit<Variable, "frameLevel" | "id">[];
-  /**
-   * Whether we are evaluating a function body's begin block.
-   * When true, don't push a new frame because the parameters frame
-   * should be reused as the function body frame.
-   */
-  isEvaluatingFunctionBodyBeginBlock?: boolean;
 }): Expr {
   if (
     !exprIsFunctionCall(expr) ||
@@ -359,7 +105,6 @@ export function evaluateBeginExpression({
   }
 
   let lastExpr = beginExpressions[beginExpressions.length - 1]!;
-  let returnExpr: Expr | undefined = undefined;
 
   // Evaluate expressions
   for (let i = 0; i < beginExpressions.length; i++) {
@@ -398,7 +143,6 @@ export function evaluateBeginExpression({
           errorMessage: `The "return" keyword can only be used inside a function body or async block.`,
         });
       }
-      returnExpr = exprToEvaluate;
 
       if (exprIsAtom(exprToEvaluate)) {
         // return;
@@ -446,7 +190,7 @@ export function evaluateBeginExpression({
 
         // Attach temp variable to return value expression if it's non-unit
         // This is needed for C codegen to store the value before running deferred drops
-        attachTempVariableToExpr(evaluatedReturnArgExpr, true);
+        attachTempVariableToExpr(evaluatedReturnArgExpr);
 
         exprToEvaluate.$ = {
           env,
@@ -677,164 +421,9 @@ export function evaluateBeginExpression({
   }
   */
 
-  let returnVariable: Variable | undefined = undefined;
-  let returnValueExpr: Expr | undefined = lastExpr;
-  if (
-    exprIsFunctionCall(lastExpr) &&
-    exprIsFunctionCallOf(lastExpr, BuiltinKeywords.return, 1)
-  ) {
-    returnValueExpr = lastExpr.args[0];
-  }
-  const returnValueExprVariableName = returnValueExpr
-    ? returnValueExpr.$?.variableName
-    : undefined;
-  if (returnValueExprVariableName) {
-    const variables = getVariablesFromEnv(env, returnValueExprVariableName);
-    if (variables.length) {
-      const variable = variables[variables.length - 1]!;
-      returnVariable = variable;
-    }
-  }
-
-  // Optimization (Design: cancellation of ___dup + ___drop when returning a borrower):
-  // If we are returning a variable that owns the same ARC value as another variable in this frame,
-  // treat it as transferring ownership out of the frame.
-  // Mark the owning variable as consumed so it will not receive an auto ___drop,
-  // and skip adding a ___dup for the returned expression later.
-  // Likewise, if directly returning an owning variable from this frame, mark it consumed.
-  if (returnVariable?.isOwningTheSameARCValueAs && returnValueExpr) {
-    const ownerVariable = returnVariable.isOwningTheSameARCValueAs;
-    if (
-      ownerVariable.isOwningTheARCValue &&
-      ownerVariable.frameLevel === env.frames.length - 1 &&
-      !ownerVariable.consumedAtToken
-    ) {
-      env = updateExistingVariable(env, ownerVariable, {
-        ...ownerVariable,
-        consumedAtToken: lastExpr.token,
-      });
-    } else {
-      // Needs to call dup on the return value expression
-      setExprAsNeedsToCallDup(returnValueExpr, context);
-      env = returnValueExpr.$!.env!;
-    }
-  } else if (
-    returnVariable?.isOwningTheARCValue &&
-    returnVariable.frameLevel === env.frames.length - 1 &&
-    !returnVariable.consumedAtToken
-  ) {
-    env = updateExistingVariable(env, returnVariable, {
-      ...returnVariable,
-      consumedAtToken: lastExpr.token,
-    });
-  } else if (!returnVariable?.isOwningTheARCValue && returnValueExpr) {
-    setExprAsNeedsToCallDup(returnValueExpr, context);
-    env = returnValueExpr.$!.env!;
-  } else {
-    // Set the last expression as the return value
-    // and mark it as consumed.
-    env = setExprAsConsumed(lastExpr, env);
-  }
-
-  // Handle automatic drop insertion for RAII before popping the frame
-  // Get variables that need drop calls using the helper function
-  // When evaluating function body begin block, also check the parameters frame (previous frame)
-  let variablesNeedingDrop = getVariablesNeedingDrop(env);
-  const variablesActuallyNeedingDrop: Variable[] = [];
-
-  if (OPTIMIZE_DUP_AND_DROP_PAIRS) {
-    if (isEvaluatingFunctionBodyBeginBlock && env.frames.length >= 2) {
-      // Also get variables from the parameters frame (one level down)
-      const parametersFrameEnv = {
-        ...env,
-        frames: env.frames.slice(0, -1), // Remove the current frame, keep parameters frame as top
-      };
-      const parametersNeedingDrop = getVariablesNeedingDrop(parametersFrameEnv);
-      // Combine both lists, parameters first (they should be dropped last, in reverse order)
-      variablesNeedingDrop = [
-        ...variablesNeedingDrop,
-        ...parametersNeedingDrop,
-      ];
-    }
-
-    // Optimization: Collect all dup calls using the existing infrastructure
-    const dupCallsByBaseVariable = new Map<string, FuncCallExpr[]>();
-
-    // Scan through all expressions in the begin block to collect dup calls
-    if (exprIsFunctionCall(expr)) {
-      for (const arg of expr.args) {
-        const dupCallsInArg = collectDupCallsConservatively(arg);
-        for (const [variableId, dupCallExprs] of dupCallsInArg) {
-          if (!dupCallsByBaseVariable.has(variableId)) {
-            dupCallsByBaseVariable.set(variableId, []);
-          }
-          dupCallsByBaseVariable.get(variableId)!.push(...dupCallExprs);
-        }
-      }
-    }
-
-    // Optimize: For each variable needing drop, check if there's a matching dup call
-    const dupCallsToRemove = new Set<FuncCallExpr>(); // Track which dup calls to remove
-
-    for (const variable of variablesNeedingDrop) {
-      const baseId = getBaseVariableId(variable);
-      const dupCalls = dupCallsByBaseVariable.get(baseId);
-
-      if (dupCalls && dupCalls.length > 0) {
-        // We can optimize: cancel one dup/drop pair
-        const dupCallToRemove = dupCalls[0]!;
-        dupCallsToRemove.add(dupCallToRemove);
-
-        // Remove this dup call from the list so it won't be matched again
-        dupCalls.shift();
-
-        // Mark the variable as consumed so it won't generate a drop call
-        env = updateExistingVariable(env, variable, {
-          ...variable,
-          consumedAtToken: lastExpr.token,
-        });
-      } else {
-        // No matching dup call, this variable actually needs drop
-        variablesActuallyNeedingDrop.push(variable);
-      }
-    }
-
-    // Remove the optimized dup calls from deferredDupExpressions
-    if (exprIsFunctionCall(expr)) {
-      for (const arg of expr.args) {
-        removeDupCallsFromExpr(arg, dupCallsToRemove);
-      }
-    }
-  }
-
-  // Generate deferred drop expressions instead of inserting them directly
-  let deferredDropExpressions: Expr[] | undefined = undefined;
-
-  if (
-    (OPTIMIZE_DUP_AND_DROP_PAIRS
-      ? variablesActuallyNeedingDrop
-      : variablesNeedingDrop
-    ).length > 0
-  ) {
-    const dropResult = generateDeferredDropExpressions({
-      variablesToDrop: OPTIMIZE_DUP_AND_DROP_PAIRS
-        ? variablesActuallyNeedingDrop
-        : variablesNeedingDrop,
-      env,
-      context,
-    });
-    deferredDropExpressions = dropResult.deferredDropExpressions;
-    env = dropResult.env;
-  }
-
-  // Attach deferredDropExpressions to returnExpr if exists
-  if (returnExpr && returnExpr.$) {
-    returnExpr.$.deferredDropExpressions = deferredDropExpressions;
-    // NOTE: Don't attach temp variable to the return expression itself
-    // The temp variable should be attached to the value being returned, if needed
-    // attachTempVariableToExpr(returnExpr, true);
-    // ^ This line will cause C codegen problem.
-  }
+  // Set the last expression as the return value
+  // and mark it as consumed.
+  env = setExprAsConsumed(lastExpr, env);
 
   // Now pop the environment frame
   env = popEnvFrame(env);
@@ -845,10 +434,9 @@ export function evaluateBeginExpression({
     value: lastExpr.$.value,
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
-    deferredDropExpressions,
   };
 
-  attachTempVariableToExpr(expr, true);
+  attachTempVariableToExpr(expr);
 
   return expr;
 }
