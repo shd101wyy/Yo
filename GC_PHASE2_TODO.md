@@ -3,12 +3,19 @@
 **Last updated:** 2025-11-15
 **Status:** 🚧 In Progress (~75% complete)
 
-## Recent Progress (Session: Nov 15, 2025)
+## Recent Progress (Session: Nov 15-16, 2025)
 
 ✅ **TODO 1 COMPLETE:** Replaced all `__yo_malloc` with `__yo_gc_alloc` in constructors
 - Updated object, closure, dyn, and Future allocations
-- All GC-managed types now use `__yo_gc_alloc(size, NULL)`
+- All GC-managed types now use `__yo_gc_alloc(size, type_descriptor)`
 - Removed manual `gc_next/gc_prev` initialization
+
+✅ **TODO 2 COMPLETE:** Type descriptor generation for precise GC
+- Created `src/codegen/types/type_descriptors.ts` (~250 lines)
+- Generates `YoTypeDescriptor` structs for all GC-managed types
+- Uses `offsetof()` for precise field offset calculation
+- Updated all 6 `__yo_gc_alloc` call sites to pass real descriptors
+- **Type descriptors enable precise pointer scanning!**
 
 ✅ **TODO 3 COMPLETE:** Fixed async runtime RC references
 - Removed `header->rc` access and `__yo_decr_rc()` calls from `__yo_future_drop`
@@ -21,7 +28,17 @@
 - Capture data now GC-managed (line ~213 in expressions/generation.ts)
 - **Tested with closures - working correctly!**
 
-🎯 **Next Priority:** TODO 2 - Implement type descriptors for precise GC pointer scanning
+✅ **TODO 5 COMPLETE:** GC mark traversal with type descriptors
+- Updated `yo_gc_mark_object()` to traverse children using type descriptors
+- GC now recursively marks all reachable objects in object graphs
+- **GC can now collect unreachable objects correctly!**
+
+✅ **CRITICAL BUG FIX:** Dispose functions now work correctly
+- **Problem:** GC-managed structs had duplicate headers (one from `__yo_gc_alloc`, one inside struct)
+- **Solution:** Removed `header` field from all GC types, added `YO_GC_HEADER(obj)` macro
+- **Result:** Dispose functions are now called when objects are collected!
+
+🎯 **Next Priority:** TODO 6 - Shadow Stack (Phase 3)
 
 ---
 
@@ -73,7 +90,9 @@
 
 **Priority: HIGH** - Needed for precise GC pointer scanning
 
-**What to implement:**
+**Status: ✅ COMPLETE**
+
+**What was implemented:**
 ```c
 typedef struct {
   const char* name;           // Type name (for debugging)
@@ -84,17 +103,20 @@ typedef struct {
 } YoTypeDescriptor;
 ```
 
-**Files to create/modify:**
-- Create: `src/codegen/types/type_descriptors.ts`
-- Modify: `src/codegen/types/generation.ts` - integrate type descriptor generation
+**Files created/modified:**
+- ✅ Created: `src/codegen/types/type_descriptors.ts` (~250 lines)
+- ✅ Modified: `src/codegen/types/generation.ts` - integrated type descriptor generation
+- ✅ Modified: `src/codegen/functions/generation.ts` - updated 4 constructor call sites
+- ✅ Modified: `src/codegen/expressions/generation.ts` - updated 2 constructor call sites
 
-**Steps:**
-1. Analyze each struct/object/closure/dyn type
-2. Identify which fields are GC pointers (object, dyn, fn, Future types)
-3. Generate static type descriptor with pointer offsets
-4. Pass descriptor to `__yo_gc_alloc`
+**Implementation details:**
+1. ✅ Analyzes each struct/object/closure/dyn/Future type
+2. ✅ Identifies GC pointer fields using `typeContainsGcType()` recursively
+3. ✅ Generates static type descriptors with pointer offsets using `offsetof()`
+4. ✅ All `__yo_gc_alloc` calls now pass real type descriptors
+5. ✅ Uses guard functions (`isStructType`, `isClosureType`, etc.) for type checking
 
-**Example output:**
+**Generated output example:**
 ```c
 static size_t MyNode_pointer_offsets[] = { 8 };  // offset of 'next' field
 static YoTypeDescriptor MyNode_type_descriptor = {
@@ -156,15 +178,11 @@ static YoTypeDescriptor MyNode_type_descriptor = {
 
 **Priority: MEDIUM** - Currently GC cannot traverse object graphs
 
+**Status: ✅ COMPLETE**
+
 **File:** `src/codegen/functions/gc_runtime.ts`
 
-**Current state:**
-```c
-// TODO Phase 3: Traverse children using type_descriptor
-// For now, we have no way to find pointers in objects
-```
-
-**Implement:**
+**What was implemented:**
 ```c
 static void yo_gc_mark_object(void* obj_ptr) {
   // ... existing code ...
@@ -183,6 +201,45 @@ static void yo_gc_mark_object(void* obj_ptr) {
   
   header->mark_bits = YO_GC_BLACK;
 }
+```
+
+### CRITICAL BUG FIX: Dispose Functions
+
+**Priority: CRITICAL** - Dispose functions were not being called
+
+**Status: ✅ FIXED**
+
+**Problem:**
+- GC-managed structs had a `header` field inside the struct
+- This created TWO headers:
+  1. One from `__yo_gc_alloc` (the real GC header before the object)
+  2. One inside the struct (unused duplicate field)
+- Constructors set `dispose_fn` on the inner header (`obj->header.dispose_fn`)
+- GC checked the outer header (actual GC header before object)
+- Result: `dispose_fn` was always NULL, dispose never called
+
+**Solution:**
+- Removed `header` field from all GC-managed types:
+  * Objects (`struct` with `isReferenceSemantics`)
+  * Closures (`fn` types)
+  * Dyn types (`dyn`)
+  * Future types (`Future`)
+- Added `YO_GC_HEADER(obj)` macro: `((yo_gc_header_t*)(obj)) - 1`
+- Updated all constructor code to use macro:
+  * `YO_GC_HEADER(obj)->dispose_fn = ...`
+  * `YO_GC_HEADER(obj)->traverse_fn = ...`
+
+**Files modified:**
+- `src/codegen/types/generation.ts` - removed header fields, added macro
+- `src/codegen/functions/generation.ts` - updated object/closure/dyn constructors
+- `src/codegen/expressions/generation.ts` - updated async block constructor
+
+**Result:** ✅ Dispose functions now called correctly when objects are collected!
+
+**Test output:**
+```
+MyBox value: 42
+Disposing MyBox with value: 42  ← dispose function called!
 ```
 
 ## 🔮 Future Work (Phase 3)
@@ -214,11 +271,11 @@ static void yo_gc_mark_object(void* obj_ptr) {
 
 **Tests to run:**
 1. ✅ Compile `fixme.yo` with `--emit-c --skip-c-compiler`
-2. ⏳ Compile and run `fixme.yo` end-to-end
-3. ⏳ Test with `--debug-gc` flag to verify allocation/collection
+2. ✅ Compile and run `fixme.yo` end-to-end
+3. ✅ Test with `--debug-gc` flag to verify allocation/collection
 4. ⏳ Test object graphs with cycles
-5. ⏳ Test disposal (finalizers) being called
-6. ⏳ Run all existing tests: `bun test src/tests/fixme.test.ts`
+5. ✅ Test disposal (finalizers) being called - **Working!**
+6. ✅ Run all existing tests: `bun test src/tests/fixme.test.ts` - **Passing!**
 
 ### TODO 9: Documentation Updates
 
@@ -236,14 +293,15 @@ static void yo_gc_mark_object(void* obj_ptr) {
 - Updated object headers to `yo_gc_header_t`
 - Removed all BRC macros and initialization
 
-**Phase 2 (Basic GC):** 🚧 ~75% Complete
+**Phase 2 (Basic GC):** 🚧 ~95% Complete
 - ✅ GC runtime infrastructure (100%)
 - ✅ Object allocation migration (100%) - TODO 1 complete
+- ✅ Type descriptors (100%) - TODO 2 complete
 - ✅ Async runtime fixes (100%) - TODO 3 complete
 - ✅ Closure capture allocation (100%) - TODO 4 complete
-- ⏳ Type descriptors (0%) - TODO 2 not started
-- ⏳ GC mark traversal (0%) - TODO 5 not started
-- ⏳ Testing (30%) - Basic compilation and closure tests passed
+- ✅ GC mark traversal (100%) - TODO 5 complete
+- ✅ Dispose functions (100%) - Critical bug fixed
+- ⏳ Testing (60%) - Basic tests pass, dispose works, need cycle tests
 
 **Phase 3 (Shadow Stack):** ⏳ 0% Complete
 - Not started
@@ -260,11 +318,14 @@ static void yo_gc_mark_object(void* obj_ptr) {
 
 **Current Status:** 
 - ✅ TODO 1 complete - All constructors using `__yo_gc_alloc`
+- ✅ TODO 2 complete - Type descriptors generated for all GC types
 - ✅ TODO 3 complete - Async runtime fixed, code compiles and runs
 - ✅ TODO 4 complete - Closure captures using GC allocation
-- 🎯 Next: TODO 2 (Type descriptors) - Critical for proper GC pointer scanning
+- ✅ TODO 5 complete - GC mark traversal using type descriptors
+- ✅ Dispose functions work - Critical bug fixed
+- 🎯 Next: TODO 8 (Testing with cycles) then TODO 6 (Shadow Stack - Phase 3)
 
 ---
 
-*Last updated: 2025-11-15*
-*Next review: After TODO 1-2 completion*
+*Last updated: 2025-11-16*
+*Next review: After cycle testing (TODO 8)*

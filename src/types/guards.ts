@@ -243,16 +243,16 @@ export function isDynType(type?: Type): type is DynType {
 }
 
 /**
- * This checks if the type is using the reference semantics.
+ * This checks if the type is GC-managed (garbage collected).
  * @param type
  * @returns
  */
-export function isARCType(type?: Type): boolean {
+export function isGcType(type?: Type): boolean {
   return (
     isObjectType(type) ||
-    isDynType(type) || // All Dyn types are reference semantics
-    isClosureType(type) || // All closures are reference semantics
-    isFutureType(type) // All futures are reference semantics
+    isDynType(type) || // All Dyn types are GC-managed
+    isClosureType(type) || // All closures are GC-managed
+    isFutureType(type) // All futures are GC-managed
   );
 }
 

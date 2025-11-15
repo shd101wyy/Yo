@@ -27,6 +27,7 @@ import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
 import { generateExpr, generateReturnStatement } from "../expressions";
+import { getTypeDescriptorName } from "../types/type_descriptors";
 import {
   canOptimizeAsNullablePointer,
   CodeGenContext,
@@ -470,12 +471,14 @@ export function generateFunctionBody(
 
           // Allocate and initialize the Future
           emitter.emitLine(
-            `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_gc_alloc(sizeof(${futureTypeCName}), NULL);  // TODO: Pass type descriptor`
+            `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_gc_alloc(sizeof(${futureTypeCName}), ${getTypeDescriptorName(futureTypeCName)});`
           );
           emitter.emitLine(
-            `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
+            `${indent}YO_GC_HEADER(_yo_future)->dispose_fn = yo_future_dispose;`
           );
-          emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
+          emitter.emitLine(
+            `${indent}YO_GC_HEADER(_yo_future)->traverse_fn = NULL;`
+          );
           emitter.emitLine(
             `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
           );
@@ -936,7 +939,7 @@ export function generateRefStructConstructorFunctions(
 
       emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)__yo_gc_alloc(sizeof(${cName}), NULL);  // TODO: Pass type descriptor`
+        `  ${cName}* obj = (${cName}*)__yo_gc_alloc(sizeof(${cName}), ${getTypeDescriptorName(cName)});`
       );
 
       // Set dispose function pointer to user's dispose function (not ___dispose which includes ref counting)
@@ -956,16 +959,18 @@ export function generateRefStructConstructorFunctions(
           context.functions[disposeFunctionValue.funcId]?.cName ||
           disposeFunctionValue.funcId;
         emitter.emitLine(
-          `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`
+          `  YO_GC_HEADER(obj)->dispose_fn = (void(*)(void*))${disposeFunctionCName};`
         );
       } else {
         // Fallback to NULL if no dispose function found
-        emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+        emitter.emitLine(`  YO_GC_HEADER(obj)->dispose_fn = NULL;`);
       }
 
       // Set traversal function pointer for GC
       const traversalFunctionName = `__yo_traverse_${cName}`;
-      emitter.emitLine(`  obj->header.traverse_fn = ${traversalFunctionName};`);
+      emitter.emitLine(
+        `  YO_GC_HEADER(obj)->traverse_fn = ${traversalFunctionName};`
+      );
 
       // Initialize fields
       type.fields.forEach((field) => {
@@ -1040,8 +1045,8 @@ export function generateClosureConstructorFunctions(
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)__yo_gc_alloc(sizeof(${cName}), NULL);  // TODO: Pass type descriptor`
       );
-      emitter.emitLine(`  obj->header.dispose_fn = dispose;`);
-      emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
+      emitter.emitLine(`  YO_GC_HEADER(obj)->dispose_fn = dispose;`);
+      emitter.emitLine(`  YO_GC_HEADER(obj)->traverse_fn = NULL;`);
       emitter.emitLine(`  obj->data = data;`);
 
       // Set vtable function pointers directly
@@ -1134,8 +1139,8 @@ export function generateDynConstructorFunctions(
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)__yo_gc_alloc(sizeof(${cName}), NULL);  // TODO: Pass type descriptor`
       );
-      emitter.emitLine(`  obj->header.dispose_fn = dispose_fn;`);
-      emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
+      emitter.emitLine(`  YO_GC_HEADER(obj)->dispose_fn = dispose_fn;`);
+      emitter.emitLine(`  YO_GC_HEADER(obj)->traverse_fn = NULL;`);
 
       emitter.emitLine(`  va_list args;`);
       emitter.emitLine(`  va_start(args, dispose_fn);`);

@@ -58,6 +58,7 @@ import {
 } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";
+import { getTypeDescriptorName } from "../types/type_descriptors";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -210,7 +211,7 @@ function generateFuncCall(
       // Allocate capture data on heap using GC allocator
       // We'll emit this as separate statements before the constructor call
       emitter.emitLine(
-        `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_gc_alloc(sizeof(${captureCName}), NULL);  // TODO: Pass type descriptor`
+        `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_gc_alloc(sizeof(${captureCName}), ${getTypeDescriptorName(captureCName)});`
       );
       emitter.emitLine(`${indent}*${captureTempVar} = ${captureDataCode};`);
 
@@ -2282,10 +2283,10 @@ function generateAsyncBlockConstructor(
   // Allocate and initialize Future
   emitter.emitLine(`  // Allocate and initialize Future`);
   emitter.emitLine(
-    `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_gc_alloc(sizeof(${futureTypeCName}), NULL);  // TODO: Pass type descriptor`
+    `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_gc_alloc(sizeof(${futureTypeCName}), ${getTypeDescriptorName(futureTypeCName)});`
   );
-  emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);
-  emitter.emitLine(`  future->header.traverse_fn = NULL;`);
+  emitter.emitLine(`  YO_GC_HEADER(future)->dispose_fn = yo_future_dispose;`);
+  emitter.emitLine(`  YO_GC_HEADER(future)->traverse_fn = NULL;`);
   emitter.emitLine(
     `  future->state_machine_dispose_fn = ${disposeFunctionName};`
   );

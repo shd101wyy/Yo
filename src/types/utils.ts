@@ -32,7 +32,6 @@ import {
   UnionType,
 } from "./definitions";
 import {
-  isARCType,
   isArrayType,
   isBooleanType,
   isCCompatibleType,
@@ -49,6 +48,7 @@ import {
   isF64Type,
   isFloatType,
   isFunctionType,
+  isGcType,
   isI16Type,
   isI32Type,
   isI64Type,
@@ -101,20 +101,17 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
  * @param type
  */
 export function typeContainsGcType(
-  type?: Type,
-  checkedTypes: Type[] = []
+  type: Type,
+  checkedTypes: Set<string> = new Set()
 ): boolean {
-  if (!type) {
+  // Avoid infinite recursion for recursive types
+  if (checkedTypes.has(type.id)) {
     return false;
   }
+  checkedTypes.add(type.id);
 
-  if (checkedTypes.includes(type)) {
-    return false;
-  } else {
-    checkedTypes.push(type);
-  }
-
-  if (isARCType(type)) {
+  // Check if the type itself is an GC type
+  if (isGcType(type)) {
     return true;
   }
 

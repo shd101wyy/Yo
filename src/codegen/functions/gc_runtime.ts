@@ -157,11 +157,33 @@ static void yo_gc_mark_object(void* obj_ptr) {
   printf("[GC] Marking object at %p (size: %u bytes)\\n", obj_ptr, header->size);
   #endif
   
-  // TODO Phase 3: Traverse children using type_descriptor
-  // For now, we have no way to find pointers in objects
-  // This will be implemented when we add type descriptors
+  // Traverse children using type descriptor
+  if (header->type_descriptor != NULL) {
+    YoTypeDescriptor* desc = (YoTypeDescriptor*)header->type_descriptor;
+    
+    ${debugGc}
+    printf("[GC]   Type: %s, pointer_count: %zu\\n", desc->name, desc->pointer_count);
+    #endif
+    
+    // Scan all GC pointer fields in this object
+    for (size_t i = 0; i < desc->pointer_count; i++) {
+      // Calculate pointer to the field using offset
+      void** field_ptr = (void**)((char*)obj_ptr + desc->pointer_offsets[i]);
+      void* child = *field_ptr;
+      
+      ${debugGc}
+      printf("[GC]   Field[%zu] at offset %zu: %p\\n", 
+             i, desc->pointer_offsets[i], child);
+      #endif
+      
+      // Recursively mark child object
+      if (child != NULL) {
+        yo_gc_mark_object(child);
+      }
+    }
+  }
   
-  // Mark as BLACK (children scanned)
+  // Mark as BLACK (children fully scanned)
   header->mark_bits = YO_GC_BLACK;
 }
 
@@ -209,12 +231,23 @@ static void yo_gc_sweep(void) {
       void* obj_ptr = (void*)(obj + 1);
       printf("[GC] Collecting object at %p (size: %u bytes)\\n", 
              obj_ptr, obj->size);
+      printf("[GC]   dispose_fn: %p\\n", (void*)obj->dispose_fn);
       #endif
       
       // Call finalizer if present
       if (obj->dispose_fn != NULL) {
         void* obj_ptr = (void*)(obj + 1);
+        
+        ${debugGc}
+        printf("[GC] Calling dispose function at %p for object at %p\\n", 
+               (void*)obj->dispose_fn, obj_ptr);
+        #endif
+        
         obj->dispose_fn(obj_ptr);
+        
+        ${debugGc}
+        printf("[GC] Dispose function completed\\n");
+        #endif
       }
       
       // Remove from linked list

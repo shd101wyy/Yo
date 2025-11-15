@@ -27,6 +27,7 @@ import {
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
+import { generateTypeDescriptorDeclarations } from "./type_descriptors";
 
 /**
  * Generate type declarations for all collected types
@@ -141,6 +142,9 @@ static inline size_t __yo_get_thread_id(void) {
 typedef struct yo_thread_gc_state yo_thread_gc_state_t;
 
 // GC object header - must be defined before yo_thread_gc_state_t
+// Macro to get GC header from object pointer
+#define YO_GC_HEADER(obj) (((yo_gc_header_t*)(obj)) - 1)
+
 typedef struct yo_gc_header_t {
   // GC marking and generation fields
   uint8_t mark_bits : 2;                                 // WHITE=0, GRAY=1, BLACK=2 (for tri-color marking)
@@ -171,8 +175,8 @@ struct yo_thread_gc_state {
 
 // Generic Future type - used by async runtime for type-agnostic operations
 // All concrete Future types share this same layout for common fields
+// Note: GC header is added separately by __yo_gc_alloc
 typedef struct {
-  yo_gc_header_t header;
   _Atomic(yo_future_state_t) state;
   void* state_machine;
   void (*state_machine_dispose_fn)(void*);
@@ -421,6 +425,10 @@ typedef struct {
     }
     // Note: isEnumType and isStructType are handled in the passes above
   }
+
+  // Generate type descriptors for GC pointer scanning
+  // This must come after all type declarations so offsetof() can be used
+  generateTypeDescriptorDeclarations(context);
 }
 
 /**
@@ -526,7 +534,6 @@ export function generateClosureDeclaration(
   emitter.emitDeclarationLine(
     `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (GC managed)`
   );
-  emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
   emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
 
   // Data field is always void* to allow different capture types for same closure type
@@ -558,11 +565,11 @@ export function generateStructDeclaration(
   }
 
   if (structType.isReferenceSemantics) {
-    // For object, generate a struct with the common reference header
+    // For object, generate a struct WITHOUT a header field
+    // The GC allocator (__yo_gc_alloc) adds the header separately
     emitter.emitDeclarationLine(
-      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
+      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (GC managed)`
     );
-    emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
 
     for (const field of structType.fields) {
       const fieldTypeStr = getTypeString(field.type, context);
@@ -835,7 +842,6 @@ export function generateDynDeclaration(
   emitter.emitDeclarationLine(
     `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (GC managed)`
   );
-  emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
   emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
   emitter.emitDeclarationLine(`  void* data; // Actual object data`);
   emitter.emitDeclarationLine(`} ${cName};`);
@@ -858,7 +864,6 @@ export function generateFutureDeclaration(
   emitter.emitDeclarationLine(
     `typedef struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (GC managed)`
   );
-  emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
 
   // Future state (atomic for thread-safe access across threads)
   emitter.emitDeclarationLine(
