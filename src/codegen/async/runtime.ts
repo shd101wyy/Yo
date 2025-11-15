@@ -33,35 +33,24 @@ void __yo_future_drop(void* ptr) {
   
   ASYNC_DEBUG("__yo_future_drop: ptr=%p\\n", ptr);
   
-  // Load the current state atomically
-  yo_future_state_t current_state = atomic_load_explicit(&future->state, memory_order_acquire);
+  // Futures are now GC-managed - they will be collected automatically
+  // when unreachable. We only need to handle running tasks here.
   
-  // Get the current reference count
-  int32_t current_rc = atomic_load_explicit(&header->rc, memory_order_acquire);
+  yo_future_state_t current_state = atomic_load_explicit(&future->state, memory_order_acquire);
   
   #ifdef YO_DEBUG_ASYNC_AWAIT
   size_t current_tid = __yo_get_thread_id();
-  ASYNC_DEBUG("__yo_future_drop: state=%d, rc=%d, current_tid=%zu\\n",
-              current_state, current_rc, current_tid);
+  ASYNC_DEBUG("__yo_future_drop: ptr=%p, state=%d, current_tid=%zu\\n",
+              ptr, current_state, current_tid);
   #endif
 
-  // Check if this will be the last reference (RC will become 0 after decrement)
-  bool is_last_ref = (current_rc == 1);  // If this is the last reference AND the Future is still RUNNING,
-  // mark it as detached and DON'T decrement RC
-  // The async runtime now owns this reference and will drop it when the task completes
-  if (is_last_ref && current_state == YO_FUTURE_RUNNING) {
-    ASYNC_DEBUG("__yo_future_drop: Future %p is still RUNNING with rc=1, marking as detached (async runtime takes ownership)\\n", ptr);
+  // If Future is still running, mark as detached so async runtime continues execution
+  if (current_state == YO_FUTURE_RUNNING) {
+    ASYNC_DEBUG("__yo_future_drop: Future %p is still RUNNING, marking as detached\\n", ptr);
     atomic_store_explicit(&future->detached, true, memory_order_release);
-    // Don't decrement RC - async runtime now owns the last reference
-    // When task completes, it will drop the Future normally
-    return;
   }
   
-  // Otherwise, proceed with normal reference counting
-  ASYNC_DEBUG("__yo_future_drop: Calling __yo_decr_rc on Future (state=%d, is_last_ref=%d)\\n", current_state, is_last_ref);
-  __yo_decr_rc(ptr);
-  
-  ASYNC_DEBUG("__yo_future_drop: Returned from __yo_decr_rc\\n");
+  // Note: GC will handle memory cleanup when Future becomes unreachable
 }
 
 // Thread support
@@ -241,9 +230,7 @@ static void* __yo_worker_thread_func(void* arg) {
   
   CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
   
-  // Clean up thread-local GC state before exiting
-  // This is important for threads that had objects queued to them
-  __yo_cleanup_thread_gc();
+  // Note: Thread-local GC state cleaned up automatically by GC runtime
   
   #ifdef _WIN32
   return 0;
@@ -424,7 +411,7 @@ typedef struct {
 #if defined(_WIN32)
   __declspec(thread) static yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
 #else
-  __thread static yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
+  static __thread yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
 #endif
 
 // Enqueue a continuation to be executed

@@ -37,6 +37,10 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { FunctionGenerationContext } from "./context";
+import {
+  generateGCRuntimeDeclarations,
+  generateGCRuntimeFunctions,
+} from "./gc_runtime";
 
 /**
  * Generate function declarations (prototypes)
@@ -71,6 +75,9 @@ export function generateFunctionDeclarations(
   );
   emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
   emitter.emitDeclarationLine("");
+
+  // Generate forward declarations for GC runtime functions
+  generateGCRuntimeDeclarations(emitter);
 
   // Generate constructor functions for objects
   emitter.emitDeclarationLine(`/// Object constructors`);
@@ -190,6 +197,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
   // Generate async/await runtime first (defines yo_continuation_t used by worker threads)
   generateAsyncRuntime(context.emitter, context.debugAsyncAwait);
+
+  // Generate GC runtime functions (Phase 2: Basic mark-sweep collector)
+  generateGCRuntimeFunctions(context);
 
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
@@ -460,10 +470,8 @@ export function generateFunctionBody(
 
           // Allocate and initialize the Future
           emitter.emitLine(
-            `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+            `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_gc_alloc(sizeof(${futureTypeCName}), NULL);  // TODO: Pass type descriptor`
           );
-          emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
-          emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
           emitter.emitLine(
             `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
           );
@@ -928,9 +936,8 @@ export function generateRefStructConstructorFunctions(
 
       emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
+        `  ${cName}* obj = (${cName}*)__yo_gc_alloc(sizeof(${cName}), NULL);  // TODO: Pass type descriptor`
       );
-      emitter.emitLine(`  obj->header.gc_next = NULL;`);
 
       // Set dispose function pointer to user's dispose function (not ___dispose which includes ref counting)
       const disposeFunctionElement = type.module.fields.find(
@@ -1031,10 +1038,8 @@ export function generateClosureConstructorFunctions(
         `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
       );
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
+        `  ${cName}* obj = (${cName}*)__yo_gc_alloc(sizeof(${cName}), NULL);  // TODO: Pass type descriptor`
       );
-      emitter.emitLine(`  obj->header.gc_next = NULL;`);
-      emitter.emitLine(`  obj->header.gc_prev = NULL;`);
       emitter.emitLine(`  obj->header.dispose_fn = dispose;`);
       emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
       emitter.emitLine(`  obj->data = data;`);
@@ -1127,10 +1132,8 @@ export function generateDynConstructorFunctions(
         `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...) {`
       );
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
+        `  ${cName}* obj = (${cName}*)__yo_gc_alloc(sizeof(${cName}), NULL);  // TODO: Pass type descriptor`
       );
-      emitter.emitLine(`  obj->header.gc_next = NULL;`);
-      emitter.emitLine(`  obj->header.gc_prev = NULL;`);
       emitter.emitLine(`  obj->header.dispose_fn = dispose_fn;`);
       emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
 

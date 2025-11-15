@@ -2282,10 +2282,8 @@ function generateAsyncBlockConstructor(
   // Allocate and initialize Future
   emitter.emitLine(`  // Allocate and initialize Future`);
   emitter.emitLine(
-    `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+    `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_gc_alloc(sizeof(${futureTypeCName}), NULL);  // TODO: Pass type descriptor`
   );
-  emitter.emitLine(`  future->header.gc_next = NULL;`);
-  emitter.emitLine(`  future->header.gc_prev = NULL;`);
   emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);
   emitter.emitLine(`  future->header.traverse_fn = NULL;`);
   emitter.emitLine(
