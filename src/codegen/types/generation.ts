@@ -33,9 +33,9 @@ import {
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
   // Always generate atomic reference counter header for objects and ref enums
-  const debugBrcDefine = context.debugBrc
-    ? "#define YO_DEBUG_BRC 1"
-    : "// #define YO_DEBUG_BRC 1";
+  const debugGcDefine = context.debugGc
+    ? "#define YO_DEBUG_GC 1"
+    : "// #define YO_DEBUG_GC 1";
 
   const debugConcurrencyDefine = context.debugConcurrency
     ? "#define YO_DEBUG_CONCURRENCY 1"
@@ -46,17 +46,11 @@ export function generateTypeDeclarations(context: CodeGenContext): void {
     : "// #define YO_DEBUG_ASYNC_AWAIT 1";
 
   context.emitter
-    .emitDeclarationLine(`// Biased Reference Counting (BRC) header for objects and ref enums
+    .emitDeclarationLine(`// Precise Garbage Collection (GC) header for objects and ref enums
 // Per-thread GC with stop-the-world collection for better scalability
 
-// Debug flag for BRC operations - use --debug-brc flag to enable
-${debugBrcDefine}
-
-#ifdef YO_DEBUG_BRC
-  #define BRC_DEBUG(...) fprintf(stderr, "BRC: " __VA_ARGS__)
-#else
-  #define BRC_DEBUG(...)
-#endif
+// Debug flag for GC operations - use --debug-gc flag to enable
+${debugGcDefine}
 
 // Debug flag for concurrency operations - use --debug-concurrency flag to enable
 ${debugConcurrencyDefine}
@@ -110,91 +104,7 @@ static inline size_t __yo_get_thread_id(void) {
     return (size_t)tid;
 }
 
-// BRC bit field definitions for split biased/shared words
-
-// Biased word bit fields (32 bits, non-atomic)
-#define BRC_BIASED_COUNTER_BITS    14
-#define BRC_BIASED_COUNTER_MASK    ((1U << BRC_BIASED_COUNTER_BITS) - 1)
-#define BRC_BIASED_COUNTER_SHIFT   0
-
-#define BRC_GC_FLAGS_BITS          2   // GC flags in biased word (owner thread access)
-#define BRC_GC_FLAGS_MASK          ((1U << BRC_GC_FLAGS_BITS) - 1)
-#define BRC_GC_FLAGS_SHIFT         14
-
-#define BRC_BIASED_RESERVED_BITS   16  // Reserved space in biased word (increased from 13)
-#define BRC_BIASED_RESERVED_SHIFT  (BRC_GC_FLAGS_SHIFT + BRC_GC_FLAGS_BITS)
-
-// Shared word bit fields (32 bits, atomic)
-#define BRC_SHARED_COUNTER_BITS    14
-#define BRC_SHARED_COUNTER_MASK    ((1U << BRC_SHARED_COUNTER_BITS) - 1)
-#define BRC_SHARED_COUNTER_SHIFT   0
-#define BRC_SHARED_COUNTER_SIGN_BIT (1U << (BRC_SHARED_COUNTER_BITS - 1))
-
-#define BRC_FLAGS_BITS             2   // BRC flags in shared word 
-#define BRC_FLAGS_MASK             ((1U << BRC_FLAGS_BITS) - 1)
-#define BRC_FLAGS_SHIFT            14
-
-#define BRC_SHARED_RESERVED_BITS   16  // Reserved space in shared word
-#define BRC_SHARED_RESERVED_SHIFT  (BRC_FLAGS_SHIFT + BRC_FLAGS_BITS)
-
-// BRC and GC flag definitions
-// BRC flags (bits 14-15 of shared word) - atomic access required
-#define BRC_FLAG_MERGED            0x1  // Object has been merged from biased to shared state
-#define BRC_FLAG_QUEUED            0x2  // Object has been queued to owner thread (shared counter went negative)
-
-// Convenience aliases for common flag combinations
-#define BRC_NO_BIAS                0x0  // Object is biased (default state)
-#define BRC_UNBIASED               BRC_FLAG_MERGED  // Object is unbiased (merged/shared)
-
-// GC flags (bits 0-1 of biased GC flags field) - owner thread access only
-#define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
-#define YO_GC_TRIAL_DECREMENTED    0x02  // Biased counter was decremented during trial deletion (vs shared counter)
-
-// Biased word manipulation macros (non-atomic, owner thread only)
-#define BRC_GET_BIASED_COUNTER(biased_word) \
-  ((biased_word >> BRC_BIASED_COUNTER_SHIFT) & BRC_BIASED_COUNTER_MASK)
-
-#define BRC_SET_BIASED_COUNTER(biased_word, count) \
-  ((biased_word & ~(BRC_BIASED_COUNTER_MASK << BRC_BIASED_COUNTER_SHIFT)) | \
-   ((count & BRC_BIASED_COUNTER_MASK) << BRC_BIASED_COUNTER_SHIFT))
-
-#define BRC_GET_GC_FLAGS(biased_word) \
-  ((biased_word >> BRC_GC_FLAGS_SHIFT) & BRC_GC_FLAGS_MASK)
-
-#define BRC_SET_GC_FLAGS(biased_word, flags) \
-  ((biased_word & ~(BRC_GC_FLAGS_MASK << BRC_GC_FLAGS_SHIFT)) | \
-   (((uint32_t)(flags) & BRC_GC_FLAGS_MASK) << BRC_GC_FLAGS_SHIFT))
-
-// Shared word manipulation macros (atomic access)
-#define BRC_GET_SHARED_COUNTER(shared_word) \
-  ((int16_t)((shared_word >> BRC_SHARED_COUNTER_SHIFT) & BRC_SHARED_COUNTER_MASK))
-
-#define BRC_SET_SHARED_COUNTER(shared_word, count) \
-  ((shared_word & ~(BRC_SHARED_COUNTER_MASK << BRC_SHARED_COUNTER_SHIFT)) | \
-   (((uint32_t)(count) & BRC_SHARED_COUNTER_MASK) << BRC_SHARED_COUNTER_SHIFT))
-
-#define BRC_GET_FLAGS(shared_word) \
-  ((shared_word >> BRC_FLAGS_SHIFT) & BRC_FLAGS_MASK)
-
-#define BRC_SET_FLAGS(shared_word, flags) \
-  ((shared_word & ~(BRC_FLAGS_MASK << BRC_FLAGS_SHIFT)) | \
-   (((uint32_t)(flags) & BRC_FLAGS_MASK) << BRC_FLAGS_SHIFT))
-
-#define BRC_HAS_FLAG(shared_word, flag) \
-  ((BRC_GET_FLAGS(shared_word) & (flag)) != 0)
-
-#define BRC_SET_FLAG(shared_word, flag) \
-  BRC_SET_FLAGS(shared_word, BRC_GET_FLAGS(shared_word) | (flag))
-
-#define BRC_CLEAR_FLAG(shared_word, flag) \
-  BRC_SET_FLAGS(shared_word, BRC_GET_FLAGS(shared_word) & ~(flag))
-
-// Convenience macros for GC flag operations (non-atomic, owner thread only)
-#define YO_GC_HAS_FLAG(biased_word, flag)    ((BRC_GET_GC_FLAGS(biased_word) & (flag)) != 0)
-#define YO_GC_SET_FLAG(biased_word, flag)    BRC_SET_GC_FLAGS(biased_word, BRC_GET_GC_FLAGS(biased_word) | (flag))
-#define YO_GC_CLEAR_FLAG(biased_word, flag)  BRC_SET_GC_FLAGS(biased_word, BRC_GET_GC_FLAGS(biased_word) & ~(flag))
-
-// Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
+// Forward declare yo_thread_gc_state_t for use in yo_gc_header_t
 
 // Thread synchronization for stop-the-world GC
 #ifndef YO_THREAD_SYNC_TYPE
@@ -227,36 +137,31 @@ static inline size_t __yo_get_thread_id(void) {
 #endif
 #endif
 
-// Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
+// Forward declare yo_thread_gc_state_t for use in yo_gc_header_t
 typedef struct yo_thread_gc_state yo_thread_gc_state_t;
 
-// Reference counting header - must be defined before yo_thread_gc_state_t
-typedef struct yo_ref_header_t {
-  // Biased Reference Counting fields
-  size_t owner_thread_id;                                // Thread ID that owns this object (0 = no owner/shared)
-  uint32_t biased_word;                                 // Biased counter + GC flags (non-atomic, owner thread only)
-  _Atomic(uint32_t) shared_word;                        // Shared counter + BRC flags (atomic access)
+// GC object header - must be defined before yo_thread_gc_state_t
+typedef struct yo_gc_header_t {
+  // GC marking and generation fields
+  uint8_t mark_bits : 2;                                 // WHITE=0, GRAY=1, BLACK=2 (for tri-color marking)
+  uint8_t generation : 1;                                // 0=young, 1=old (for generational GC)
+  uint8_t has_finalizer : 1;                            // 1 if dispose() exists
+  uint8_t reserved : 4;                                  // Reserved for future use
   
-  // Biased word format (32 bits):
-  // Bits 0-13:   Biased counter (14 bits) - non-atomic access by owner thread only
-  // Bits 14-15:  GC flags (2 bits) - non-atomic access by owner thread only  
-  // Bits 16-31:  Reserved (16 bits) - for future use
-  
-  // Shared word format (32 bits):
-  // Bits 0-13:   Shared counter (14 bits) - atomic access, can be negative (signed)
-  // Bits 14-15:  BRC flags (2 bits) - merged (bit 0), queued (bit 1) (atomic access)
-  // Bits 16-31:  Reserved (16 bits) - for future use
+  uint32_t type_tag;                                     // Runtime type information
+  uint32_t size;                                         // Object size in bytes
+  void* type_descriptor;                                 // Pointer to type descriptor (for pointer scanning)
   
   // GC object management fields (doubly-linked list for O(1) deletion)
-  struct yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
-  struct yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
+  struct yo_gc_header_t* gc_next;                       // Next object in thread-local GC tracking list
+  struct yo_gc_header_t* gc_prev;                       // Previous object in thread-local GC tracking list
   void (*dispose_fn)(void*);                             // Dispose function for this object type (immutable after construction)
   void (*traverse_fn)(void*, void (*visit)(void*));     // Traversal function for GC marking (immutable after construction)
-} yo_ref_header_t;
+} yo_gc_header_t;
 
-// Per-thread GC state - defined after yo_ref_header_t so it can use complete type
+// Per-thread GC state - defined after yo_gc_header_t so it can use complete type
 struct yo_thread_gc_state {
-  yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
+  yo_gc_header_t* tracked_objects;          // Head of this thread's tracked objects list
   size_t tracked_count;                      // Number of objects tracked by this thread
   size_t thread_id;                          // Thread identifier
   _Atomic(int) gc_paused;                    // Flag indicating if this thread is paused for GC
@@ -267,7 +172,7 @@ struct yo_thread_gc_state {
 // Generic Future type - used by async runtime for type-agnostic operations
 // All concrete Future types share this same layout for common fields
 typedef struct {
-  yo_ref_header_t header;
+  yo_gc_header_t header;
   _Atomic(yo_future_state_t) state;
   void* state_machine;
   void (*state_machine_dispose_fn)(void*);
@@ -619,11 +524,9 @@ export function generateClosureDeclaration(
 
   // Generate the closure structure with vtable and captured data pointer
   emitter.emitDeclarationLine(
-    `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (reference counted)`
+    `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (GC managed)`
   );
-  emitter.emitDeclarationLine(
-    `  yo_ref_header_t header; // Reference count header`
-  );
+  emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
   emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
 
   // Data field is always void* to allow different capture types for same closure type
@@ -659,9 +562,7 @@ export function generateStructDeclaration(
     emitter.emitDeclarationLine(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
     );
-    emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Reference count header`
-    );
+    emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
 
     for (const field of structType.fields) {
       const fieldTypeStr = getTypeString(field.type, context);
@@ -932,11 +833,9 @@ export function generateDynDeclaration(
   // Generate the dynamic dispatch object structure
   // Contains vtable pointer + actual data pointer
   emitter.emitDeclarationLine(
-    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (reference counted)`
+    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (GC managed)`
   );
-  emitter.emitDeclarationLine(
-    `  yo_ref_header_t header; // Reference count header`
-  );
+  emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
   emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
   emitter.emitDeclarationLine(`  void* data; // Actual object data`);
   emitter.emitDeclarationLine(`} ${cName};`);
@@ -957,11 +856,9 @@ export function generateFutureDeclaration(
   const isUnit = isUnitType(futureType.childType);
 
   emitter.emitDeclarationLine(
-    `typedef struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (reference counted)`
+    `typedef struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (GC managed)`
   );
-  emitter.emitDeclarationLine(
-    `  yo_ref_header_t header; // Reference count header`
-  );
+  emitter.emitDeclarationLine(`  yo_gc_header_t header; // GC header`);
 
   // Future state (atomic for thread-safe access across threads)
   emitter.emitDeclarationLine(

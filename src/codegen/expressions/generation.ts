@@ -2284,11 +2284,6 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(
     `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
   );
-  emitter.emitLine(`  future->header.owner_thread_id = __yo_get_thread_id();`);
-  emitter.emitLine(
-    `  future->header.biased_word = BRC_SET_BIASED_COUNTER(0, 1);`
-  );
-  emitter.emitLine(`  future->header.shared_word = 0;`);
   emitter.emitLine(`  future->header.gc_next = NULL;`);
   emitter.emitLine(`  future->header.gc_prev = NULL;`);
   emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);

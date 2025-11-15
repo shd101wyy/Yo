@@ -34,7 +34,7 @@ export class CodeGeneratorC {
     modulePath: string,
     moduleValue: ModuleValue,
     options: {
-      debugBrc?: boolean;
+      debugGc?: boolean;
       debugConcurrency?: boolean;
       debugAsyncAwait?: boolean;
     } = {}
@@ -66,7 +66,7 @@ export class CodeGeneratorC {
         "<stdio.h>",
         "<string.h>",
       ]),
-      debugBrc: options.debugBrc ?? false,
+      debugGc: options.debugGc ?? false,
       debugConcurrency: options.debugConcurrency ?? false,
       debugAsyncAwait: options.debugAsyncAwait ?? false,
       deferredAsyncBlocks: [], // Initialize deferred async blocks array

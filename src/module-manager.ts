@@ -74,12 +74,12 @@ export class ModuleManager {
     modulePath: string,
     {
       emitC,
-      debugBrc,
+      debugGc,
       debugConcurrency,
       debugAsyncAwait,
     }: {
       emitC?: boolean;
-      debugBrc?: boolean;
+      debugGc?: boolean;
       debugConcurrency?: boolean;
       debugAsyncAwait?: boolean;
     } = {}
@@ -97,7 +97,7 @@ export class ModuleManager {
     }
 
     this.codeGenratorC.compileModule(modulePath, moduleValue, {
-      debugBrc,
+      debugGc,
       debugConcurrency,
       debugAsyncAwait,
     });

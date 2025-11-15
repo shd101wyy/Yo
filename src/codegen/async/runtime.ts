@@ -9,7 +9,7 @@ import { Emitter } from "../../emitter";
 
 /**
  * Generates the async runtime code with per-thread task queues.
- * This respects BRC thread affinity - Futures stay on their owner thread.
+ * Futures stay on their owner thread for proper memory management.
  */
 export function generateAsyncRuntime(
   emitter: Emitter,
@@ -21,44 +21,36 @@ export function generateAsyncRuntime(
 // ============================================================================
 // This implements a cooperative async runtime with thread affinity.
 // Each thread has its own task queue for Futures owned by that thread.
-// This respects the BRC memory model where objects stay on their owner thread.
+// Objects stay on their owner thread for proper memory management.
 
 // Special drop function for Future types
 // Futures should not be freed while they're still running, even if RC=0
 void __yo_future_drop(void* ptr) {
   if (!ptr) return;
   
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  yo_gc_header_t* header = (yo_gc_header_t*)ptr;
   yo_future_generic_t* future = (yo_future_generic_t*)ptr;
   
-  ASYNC_DEBUG("__yo_future_drop: ptr=%p, owner_tid=%zu\\n", ptr, header->owner_thread_id);
+  ASYNC_DEBUG("__yo_future_drop: ptr=%p\\n", ptr);
   
   // Load the current state atomically
   yo_future_state_t current_state = atomic_load_explicit(&future->state, memory_order_acquire);
   
-  // Calculate combined reference count (biased + shared)
-  uint64_t biased_word = header->biased_word;
-  uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
-  uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
-  int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
-  
-  // Combined RC = biased + shared (BRC invariant I1)
-  int32_t combined_rc = (int32_t)biased_counter + shared_counter;
+  // Get the current reference count
+  int32_t current_rc = atomic_load_explicit(&header->rc, memory_order_acquire);
   
   #ifdef YO_DEBUG_ASYNC_AWAIT
   size_t current_tid = __yo_get_thread_id();
-  ASYNC_DEBUG("__yo_future_drop: state=%d, combined_rc=%d (biased=%u, shared=%d), current_tid=%zu, owner_tid=%zu\\n", 
-    current_state, combined_rc, biased_counter, shared_counter, current_tid, header->owner_thread_id);
+  ASYNC_DEBUG("__yo_future_drop: state=%d, rc=%d, current_tid=%zu\\n",
+              current_state, current_rc, current_tid);
   #endif
 
-  // Check if this will be the last reference (combined RC will become 0 after decrement)
-  bool is_last_ref = (combined_rc == 1);
-  
-  // If this is the last reference AND the Future is still RUNNING,
+  // Check if this will be the last reference (RC will become 0 after decrement)
+  bool is_last_ref = (current_rc == 1);  // If this is the last reference AND the Future is still RUNNING,
   // mark it as detached and DON'T decrement RC
   // The async runtime now owns this reference and will drop it when the task completes
   if (is_last_ref && current_state == YO_FUTURE_RUNNING) {
-    ASYNC_DEBUG("__yo_future_drop: Future %p is still RUNNING with combined_rc=1, marking as detached (async runtime takes ownership)\\n", ptr);
+    ASYNC_DEBUG("__yo_future_drop: Future %p is still RUNNING with rc=1, marking as detached (async runtime takes ownership)\\n", ptr);
     atomic_store_explicit(&future->detached, true, memory_order_release);
     // Don't decrement RC - async runtime now owns the last reference
     // When task completes, it will drop the Future normally
@@ -250,7 +242,7 @@ static void* __yo_worker_thread_func(void* arg) {
   CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
   
   // Clean up thread-local GC state before exiting
-  // This is important for threads that had objects queued to them via BRC
+  // This is important for threads that had objects queued to them
   __yo_cleanup_thread_gc();
   
   #ifdef _WIN32
@@ -456,7 +448,7 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
   ASYNC_DEBUG("Queue count: %zu\\n", yo_thread_async_queue.count);
 }
 
-// Note: yo_future_generic_t is now defined in type declarations (after yo_ref_header_t)
+// Note: yo_future_generic_t is now defined in type declarations (after yo_gc_header_t)
 
 // Dispose function for Future types - frees the state machine
 void yo_future_dispose(void* future_ptr) {

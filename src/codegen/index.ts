@@ -43,7 +43,7 @@ export class CodeGenerator {
       /**
        * Enable debug logging for Biased Reference Counting operations.
        */
-      debugBrc?: boolean;
+      debugGc?: boolean;
       /**
        * Enable debug logging for cooperative task scheduler operations.
        */
@@ -65,7 +65,7 @@ export class CodeGenerator {
     if (!options.skipCodegen) {
       this.moduleManager.compileModule(modulePath, {
         emitC: options.emitC,
-        debugBrc: options.debugBrc,
+        debugGc: options.debugGc,
         debugConcurrency: options.debugConcurrency,
         debugAsyncAwait: options.debugAsyncAwait,
       });

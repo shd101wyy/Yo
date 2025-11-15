@@ -65,8 +65,8 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: false,
   })
-  .option("debug-brc", {
-    describe: "Enable debug logging for Biased Reference Counting operations.",
+  .option("debug-gc", {
+    describe: "Enable debug logging for Garbage Collection operations.",
     type: "boolean",
     demandOption: false,
     default: false,
@@ -132,7 +132,7 @@ yo run <script>                  Run a script defined in 'yo.json'
         emitC: argv.emitC,
         skipCodegen: argv.skipCodegen,
         skipCCompiler: argv.skipCCompiler,
-        debugBrc: argv.debugBrc,
+        debugGc: argv.debugGc,
         debugConcurrency: argv.debugConcurrency,
         debugAsyncAwait: argv.debugAsyncAwait,
         release: argv.release,

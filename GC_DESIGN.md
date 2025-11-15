@@ -224,7 +224,7 @@ YoNode* process(int32_t x) {
 
 ### 📋 Codegen TODO List
 
-**Phase 1: Remove BRC Runtime**
+**✅ Phase 1: Remove BRC Runtime**
 1. Remove `generateAtomicGCRuntimeFunctions()` - delete entire function
 2. Remove `__yo_incr_rc`, `__yo_decr_rc` handlers from expression codegen
 3. Remove `__yo_dup`, `__yo_drop`, `__yo_dyn_drop`, `__yo_dyn_dup`, `__yo_closure_drop`, `__yo_closure_dup` handlers
