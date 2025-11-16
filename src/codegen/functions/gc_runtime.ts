@@ -193,6 +193,54 @@ static void yo_safepoint_init(void) {
   pthread_cond_init(&yo_safepoint_state.cond, NULL);
 }
 
+// =============================================================================
+// GC Thread Management - Phase 4: Concurrent GC Threads
+// =============================================================================
+
+/**
+ * GC thread state
+ * Dedicated background threads for concurrent marking and sweeping
+ */
+typedef struct {
+  pthread_t thread_id;   // Thread ID
+  bool running;          // Thread is active
+  bool should_exit;      // Signal thread to exit
+} YoGCThread;
+
+/**
+ * Work queue for triggering GC cycles
+ */
+typedef struct {
+  bool work_available;   // GC work needs to be done
+  bool gc_in_progress;   // GC cycle currently running
+  pthread_mutex_t mutex; // Protects work queue state
+  pthread_cond_t cond;   // Signals when work is available
+} YoGCWorkQueue;
+
+// Global GC thread and work queue
+static YoGCThread yo_gc_thread = {
+  .running = false,
+  .should_exit = false
+};
+
+static YoGCWorkQueue yo_gc_work_queue = {
+  .work_available = false,
+  .gc_in_progress = false
+};
+
+/**
+ * Initialize GC work queue
+ */
+static void yo_gc_work_queue_init(void) {
+  pthread_mutex_init(&yo_gc_work_queue.mutex, NULL);
+  pthread_cond_init(&yo_gc_work_queue.cond, NULL);
+}
+
+// Forward declarations for GC thread functions
+static void* yo_gc_thread_main(void* arg);
+static void yo_gc_concurrent_cycle(void);
+static void yo_gc_maybe_collect(void);
+
 // Forward declaration for slow path
 static void yo_safepoint_slow(void);
 
@@ -470,12 +518,9 @@ void* __yo_gc_alloc(size_t size, void* type_descriptor) {
   #endif
   
   // Trigger GC if threshold exceeded
-  if (yo_gc.gc_enabled && yo_gc.total_bytes > yo_gc.gc_threshold) {
-    ${debugGc}
-    printf("[GC] Threshold exceeded (%zu > %zu), triggering collection\\n",
-           yo_gc.total_bytes, yo_gc.gc_threshold);
-    #endif
-    __yo_gc_collect();
+  // With concurrent GC, this signals the GC thread instead of blocking
+  if (yo_gc.gc_enabled) {
+    yo_gc_maybe_collect();
   }
   
   // Return pointer to object data (after header)
@@ -908,6 +953,210 @@ static void yo_gc_concurrent_sweep(void) {
   printf("[GC] Remaining: %zu objects (%zu bytes)\\n",
          yo_gc.total_objects, yo_gc.total_bytes);
   #endif
+}
+
+// =============================================================================
+// GC Thread Implementation - Phase 4: Background Concurrent GC
+// =============================================================================
+
+/**
+ * Perform a complete concurrent GC cycle
+ * Called by GC thread in background
+ */
+static void yo_gc_concurrent_cycle(void) {
+  if (!yo_gc.gc_enabled) {
+    return;
+  }
+  
+  ${debugGc}
+  printf("\\n[GC] ===== GC Thread: Starting Concurrent Cycle =====\\n");
+  printf("[GC] Before: %zu objects, %zu bytes\\n",
+         yo_gc.total_objects, yo_gc.total_bytes);
+  #endif
+  
+  // Phase 1: Initial mark (STW - brief)
+  // Marks roots from shadow stack as GRAY
+  ${debugGc}
+  printf("[GC] Phase 1: Initial mark (STW)\\n");
+  #endif
+  yo_gc_mark_roots();  // This does STW, marks roots, resumes
+  
+  // Phase 2: Concurrent mark (parallel with mutators)
+  // Process gray queue until empty
+  ${debugGc}
+  printf("[GC] Phase 2: Concurrent mark\\n");
+  #endif
+  while (yo_gc_has_gray_objects()) {
+    void* obj = yo_gc_pop_gray();
+    if (obj != NULL) {
+      yo_gc_mark_children_concurrent(obj);
+      yo_gc_set_color(obj, YO_GC_BLACK);
+    }
+  }
+  
+  // Phase 3: Remark (STW - brief)
+  // Re-scan shadow stacks and finish marking
+  ${debugGc}
+  printf("[GC] Phase 3: Remark (STW)\\n");
+  #endif
+  yo_gc_stop_the_world();
+  
+  // Re-scan shadow stack (may have changed during concurrent mark)
+  yo_gc_scan_shadow_stack();
+  
+  // Finish any remaining gray objects
+  while (yo_gc_has_gray_objects()) {
+    void* obj = yo_gc_pop_gray();
+    if (obj != NULL) {
+      yo_gc_mark_children_concurrent(obj);
+      yo_gc_set_color(obj, YO_GC_BLACK);
+    }
+  }
+  
+  // Clear marking flag
+  __atomic_store_n(&yo_gc_is_marking, false, __ATOMIC_RELEASE);
+  
+  yo_gc_resume_world();
+  
+  // Phase 4: Concurrent sweep (parallel with mutators)
+  ${debugGc}
+  printf("[GC] Phase 4: Concurrent sweep\\n");
+  #endif
+  yo_gc_concurrent_sweep();
+  
+  // Adjust GC threshold
+  yo_gc.gc_threshold = yo_gc.total_bytes * 2;
+  if (yo_gc.gc_threshold < 1024 * 1024) {
+    yo_gc.gc_threshold = 1024 * 1024;
+  }
+  
+  ${debugGc}
+  printf("[GC] ===== GC Thread: Cycle Complete =====\\n\\n");
+  #endif
+}
+
+/**
+ * GC thread main loop
+ * Waits for GC work and performs concurrent GC cycles
+ */
+static void* yo_gc_thread_main(void* arg) {
+  (void)arg;  // Unused
+  
+  ${debugGc}
+  printf("[GC] GC thread started (tid=%lu)\\n", pthread_self());
+  #endif
+  
+  while (!yo_gc_thread.should_exit) {
+    // Wait for GC work
+    pthread_mutex_lock(&yo_gc_work_queue.mutex);
+    
+    while (!yo_gc_work_queue.work_available && !yo_gc_thread.should_exit) {
+      pthread_cond_wait(&yo_gc_work_queue.cond, &yo_gc_work_queue.mutex);
+    }
+    
+    if (yo_gc_thread.should_exit) {
+      pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+      break;
+    }
+    
+    // Clear work flag and set in_progress
+    yo_gc_work_queue.work_available = false;
+    yo_gc_work_queue.gc_in_progress = true;
+    
+    pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+    
+    // Perform GC cycle
+    yo_gc_concurrent_cycle();
+    
+    // Clear in_progress flag
+    pthread_mutex_lock(&yo_gc_work_queue.mutex);
+    yo_gc_work_queue.gc_in_progress = false;
+    pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+  }
+  
+  ${debugGc}
+  printf("[GC] GC thread exiting\\n");
+  #endif
+  
+  return NULL;
+}
+
+/**
+ * Start GC thread
+ */
+static void yo_gc_thread_start(void) {
+  if (yo_gc_thread.running) {
+    return;
+  }
+  
+  yo_gc_thread.should_exit = false;
+  
+  int result = pthread_create(&yo_gc_thread.thread_id, NULL, yo_gc_thread_main, NULL);
+  if (result != 0) {
+    fprintf(stderr, "[GC] Failed to create GC thread: %d\\n", result);
+    return;
+  }
+  
+  yo_gc_thread.running = true;
+  
+  ${debugGc}
+  printf("[GC] Started GC thread\\n");
+  #endif
+}
+
+/**
+ * Stop GC thread
+ */
+static void yo_gc_thread_stop(void) {
+  if (!yo_gc_thread.running) {
+    return;
+  }
+  
+  ${debugGc}
+  printf("[GC] Stopping GC thread...\\n");
+  #endif
+  
+  // Signal thread to exit
+  pthread_mutex_lock(&yo_gc_work_queue.mutex);
+  yo_gc_thread.should_exit = true;
+  pthread_cond_signal(&yo_gc_work_queue.cond);
+  pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+  
+  // Wait for thread to exit
+  pthread_join(yo_gc_thread.thread_id, NULL);
+  
+  yo_gc_thread.running = false;
+  
+  ${debugGc}
+  printf("[GC] GC thread stopped\\n");
+  #endif
+}
+
+/**
+ * Trigger GC if heap size exceeds threshold
+ * Called from allocation path
+ */
+static void yo_gc_maybe_collect(void) {
+  size_t heap_size = __atomic_load_n(&yo_gc.total_bytes, __ATOMIC_RELAXED);
+  size_t threshold = __atomic_load_n(&yo_gc.gc_threshold, __ATOMIC_RELAXED);
+  
+  if (heap_size > threshold) {
+    // Signal GC thread to run
+    pthread_mutex_lock(&yo_gc_work_queue.mutex);
+    
+    // Only trigger if GC not already running
+    if (!yo_gc_work_queue.gc_in_progress && !yo_gc_work_queue.work_available) {
+      yo_gc_work_queue.work_available = true;
+      pthread_cond_signal(&yo_gc_work_queue.cond);
+      
+      ${debugGc}
+      printf("[GC] Triggered GC (heap: %zu bytes, threshold: %zu bytes)\\n",
+             heap_size, threshold);
+      #endif
+    }
+    
+    pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+  }
 }
 
 // =============================================================================

@@ -565,11 +565,23 @@ static void yo_gc_concurrent_sweep(void) {
 - `src/codegen/functions/gc_runtime.ts` - implement concurrent sweep
 - `src/codegen/functions/gc_runtime.ts` - use atomic operations for object list
 
-### TODO 6: GC Thread Management
+### ✅ TODO 6: GC Thread Management - COMPLETE
 
 **Priority: MEDIUM** - Coordinate GC threads
 
-**What to implement:**
+**Status: COMPLETE (100%)**
+
+**Implementation Summary:**
+- ✅ YoGCThread structure for background GC thread
+- ✅ YoGCWorkQueue with mutex/condvar for triggering collections
+- ✅ yo_gc_thread_main() loop waits for work and performs concurrent cycles
+- ✅ yo_gc_concurrent_cycle() runs all 4 phases (initial mark, concurrent mark, remark, concurrent sweep)
+- ✅ yo_gc_maybe_collect() in allocation path signals GC thread when threshold exceeded
+- ✅ yo_gc_thread_start() and yo_gc_thread_stop() manage thread lifecycle
+- ✅ Initialization in main() starts GC thread, cleanup on exit stops it
+- ✅ Tests passing with background GC thread running
+
+**What was implemented:**
 
 Dedicated GC thread(s) that run concurrent marking and sweeping.
 
@@ -889,7 +901,7 @@ test_pause_time :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 4 Progress:** 🚀 ~56% Complete
+**Overall Phase 4 Progress:** 🚀 ~67% Complete
 
 **TODO Status:**
 - ✅ TODO 1: Tri-color marking infrastructure (100%) - COMPLETE
@@ -920,8 +932,13 @@ test_pause_time :: (fn() -> unit) {
   - Safe concurrent execution (mutators only allocate)
   - Integrated into __yo_gc_collect()
   - Tested with GC collections and allocations
-- 🚀 TODO 6: GC thread management (0%) - NEXT
-- ⏳ TODO 7: Thread-local allocation buffers (0%)
+- ✅ TODO 6: GC thread management (100%) - COMPLETE
+  - Background GC thread with work queue
+  - yo_gc_concurrent_cycle() performs full GC cycle
+  - yo_gc_maybe_collect() triggers GC from allocations
+  - Thread lifecycle managed in main()
+  - Tests passing with concurrent GC
+- 🚀 TODO 7: Thread-local allocation buffers (0%) - NEXT
 - ⏳ TODO 8: GC timing and statistics (0%)
 - ⏳ TODO 9: Testing & validation (0%)
 

@@ -281,6 +281,12 @@ int main(void) {
   // Initialize GC safepoint mechanism
   yo_safepoint_init();
   
+  // Initialize GC work queue
+  yo_gc_work_queue_init();
+  
+  // Start GC thread for concurrent collection
+  yo_gc_thread_start();
+  
   // Initialize async runtime (in case async blocks are used)
   __yo_async_scheduler_init();
   
@@ -290,6 +296,9 @@ int main(void) {
   // Wait for all async tasks to complete
   // This ensures any async blocks spawned in main finish before exit
   __yo_async_wait_all();
+  
+  // Stop GC thread before exit
+  yo_gc_thread_stop();
   
   return 0;
 }
