@@ -22,9 +22,11 @@ Phase 4 implements **Concurrent Garbage Collection** to achieve the <5ms latency
 
 ## 📋 TODO List
 
-### TODO 1: Tri-Color Marking Infrastructure
+### ✅ TODO 1: Tri-Color Marking Infrastructure - COMPLETE
 
 **Priority: HIGH** - Foundation for concurrent marking
+
+**Status: COMPLETE (100%)**
 
 **What to implement:**
 
@@ -86,9 +88,11 @@ typedef struct {
    static void* yo_gc_pop_gray(void);
    ```
 
-### TODO 2: Concurrent Mark Phase
+### ✅ TODO 2: Concurrent Mark Phase - COMPLETE
 
 **Priority: HIGH** - Core concurrent GC functionality
+
+**Status: COMPLETE (100%)**
 
 **What to implement:**
 
@@ -201,11 +205,21 @@ static void yo_gc_remark(void) {
 - `src/codegen/functions/gc_runtime.ts` - implement concurrent marking phases
 - `src/codegen/functions/gc_runtime.ts` - add gray queue implementation
 
-### TODO 3: Write Barriers
+### ✅ TODO 3: Write Barriers - COMPLETE
 
 **Priority: HIGH** - Maintain tri-color invariant during concurrent marking
 
-**What to implement:**
+**Status: COMPLETE (100%)**
+
+**Implementation Summary:**
+- ✅ Write barrier function `yo_write_barrier()` implemented in gc_runtime.ts
+- ✅ Barrier insertion logic added to assignment codegen (field and array assignments)
+- ✅ Type checking uses `isGcType()` utility for precision
+- ✅ Fast path optimization: single flag check (`yo_gc_is_marking`)
+- ✅ Shadow frame bugs fixed (NULL initialization, NULL checks)
+- ✅ Discriminated union scanning fixed (uses traverse_fn)
+
+**What was implemented:**
 
 Write barrier intercepts GC pointer writes to maintain tri-color invariant during concurrent marking.
 
@@ -303,9 +317,11 @@ obj->field = new_obj;
 - Slow path: Only when writing WHITE object during marking
 - Expected overhead: <1% overall, ~5-10% during marking
 
-### TODO 4: Safepoint Mechanism
+### 🚀 TODO 4: Safepoint Mechanism - READY TO START
 
 **Priority: HIGH** - Required for stopping mutator threads
+
+**Status: 0% - Next priority**
 
 **What to implement:**
 
@@ -865,8 +881,12 @@ test_pause_time :: (fn() -> unit) {
   - Concurrent mark phase (processes gray queue)
   - Remark phase (STW - finishes marking)
   - All three phases working correctly
-- ⏳ TODO 3: Write barriers (0%)
-- ⏳ TODO 4: Safepoint mechanism (0%)
+- ✅ TODO 3: Write barriers (100%) - COMPLETE
+  - Write barrier function implemented
+  - Barrier insertion in assignment codegen
+  - Type checking with isGcType() utility
+  - Shadow frame and union scanning fixed
+- 🚀 TODO 4: Safepoint mechanism (0%) - NEXT
 - ⏳ TODO 5: Concurrent sweep phase (0%)
 - ⏳ TODO 6: GC thread management (0%)
 - ⏳ TODO 7: Thread-local allocation buffers (0%)

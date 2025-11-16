@@ -161,6 +161,133 @@ function registerGcPointerLocal(
 }
 
 /**
+ * Helper to emit write barrier for values containing GC pointers.
+ * For value types (enums, structs), we need to mark all GC pointers within them.
+ * This is done by checking the type structure and emitting barrier calls for each pointer field.
+ */
+function emitWriteBarrierForValueType(
+  indent: string,
+  valueCode: string,
+  valueType: Type,
+  context: CodeGenContext
+): void {
+  const emitter = context.emitter;
+
+  // For enums, we need to handle each variant that contains GC pointers
+  if (isEnumType(valueType)) {
+    emitter.emitLine(
+      `${indent}// Write barrier for enum containing GC pointers`
+    );
+    emitter.emitLine(`${indent}switch (${valueCode}.tag) {`);
+
+    for (const variant of valueType.variants) {
+      if (
+        variant.fields &&
+        variant.fields.some((f) => typeContainsGcType(f.type))
+      ) {
+        const variantEnumName = `${context.types[valueType.id]?.cName?.toUpperCase()}_${variant.name.toUpperCase()}`;
+        emitter.emitLine(`${indent}case ${variantEnumName}:`);
+
+        // Emit barrier for each GC pointer field in this variant
+        for (const field of variant.fields) {
+          if (
+            isObjectType(field.type) ||
+            isDynType(field.type) ||
+            isClosureType(field.type) ||
+            isFutureType(field.type)
+          ) {
+            const fieldAccess = `${valueCode}.data.${variant.name}.${field.label}`;
+            emitter.emitLine(
+              `${indent}  if (${fieldAccess}) yo_write_barrier_object((void*)${fieldAccess});`
+            );
+          } else if (typeContainsGcType(field.type)) {
+            // Recursively handle nested value types
+            const fieldAccess = `${valueCode}.data.${variant.name}.${field.label}`;
+            emitWriteBarrierForValueType(
+              indent + "  ",
+              fieldAccess,
+              field.type,
+              context
+            );
+          }
+        }
+
+        emitter.emitLine(`${indent}  break;`);
+      }
+    }
+
+    emitter.emitLine(`${indent}default: break;`);
+    emitter.emitLine(`${indent}}`);
+  }
+  // For structs, emit barrier for each GC pointer field
+  else if (isStructType(valueType) || isTupleType(valueType)) {
+    const fields = isStructType(valueType)
+      ? valueType.fields
+      : valueType.fields;
+
+    for (const field of fields) {
+      if (
+        isObjectType(field.type) ||
+        isDynType(field.type) ||
+        isClosureType(field.type) ||
+        isFutureType(field.type)
+      ) {
+        const fieldAccess = `${valueCode}.${field.label}`;
+        emitter.emitLine(
+          `${indent}if (${fieldAccess}) yo_write_barrier_object((void*)${fieldAccess});`
+        );
+      } else if (typeContainsGcType(field.type)) {
+        // Recursively handle nested value types
+        const fieldAccess = `${valueCode}.${field.label}`;
+        emitWriteBarrierForValueType(indent, fieldAccess, field.type, context);
+      }
+    }
+  }
+}
+
+/**
+ * Extract the slot address from an lvalue expression
+ * For field access like obj.field, returns "&(obj->field)" or "&(obj.field)"
+ * For array index like arr(i), returns "&(arr.data[i])"
+ */
+function getLValueSlotAddress(
+  lhsCode: string,
+  lhs: Expr,
+  _context: CodeGenContext
+): string | null {
+  // Check if this is a field access (obj.field or obj->field)
+  if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ".", 2)) {
+    const objectExpr = lhs.args[0];
+    const objectType = objectExpr?.$?.type;
+
+    // Check if object is a pointer type (uses ->)
+    if (objectType && isPtrType(objectType)) {
+      // lhsCode is something like "obj->field"
+      // We need to get the address: &(obj->field)
+      return `&(${lhsCode})`;
+    } else {
+      // lhsCode is something like "obj.field"
+      // We need to get the address: &(obj.field)
+      return `&(${lhsCode})`;
+    }
+  }
+
+  // Check if this is an array index access arr(i)
+  if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "()", 2)) {
+    const arrayExpr = lhs.args[0];
+    const arrayType = arrayExpr?.$?.type;
+
+    if (arrayType && isArrayType(arrayType)) {
+      // lhsCode is something like "arr.data[i]"
+      // We need to get the address: &(arr.data[i])
+      return `&(${lhsCode})`;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Generate C code for an expression - extracted from original codegen-c.ts
  */
 export function generateExpr(
@@ -1092,6 +1219,58 @@ function generateFuncCall(
       }
 
       if (!isUnitType(lhs.$.type)) {
+        // Check if we need a write barrier for this assignment
+        // Write barriers are needed for field/index assignments when the value contains GC pointers
+        const isFieldOrIndexAssignment =
+          (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ".", 2)) || // obj.field = value
+          (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, "()", 2)); // arr(i) = value
+
+        const containsGcPointer = typeContainsGcType(lhs.$.type);
+
+        if (
+          isFieldOrIndexAssignment &&
+          !isInitialization &&
+          containsGcPointer
+        ) {
+          const lhsType = lhs.$.type;
+
+          // Case 1: Direct GC pointer assignment (object, Dyn, Closure, Future)
+          // Use simple write barrier with slot address
+          if (
+            isObjectType(lhsType) ||
+            isDynType(lhsType) ||
+            isClosureType(lhsType) ||
+            isFutureType(lhsType)
+          ) {
+            const slotAddress = getLValueSlotAddress(lhsCode, lhs, context);
+            if (slotAddress) {
+              context.emitter.emitLine(
+                `${indent}yo_write_barrier((void**)${slotAddress}, (void*)${rhsCode});`
+              );
+            }
+          }
+          // Case 2: Pointer to GC type (e.g., *(object))
+          else if (
+            isPtrType(lhsType) &&
+            (isObjectType(lhsType.childType) ||
+              isDynType(lhsType.childType) ||
+              isClosureType(lhsType.childType) ||
+              isFutureType(lhsType.childType))
+          ) {
+            const slotAddress = getLValueSlotAddress(lhsCode, lhs, context);
+            if (slotAddress) {
+              context.emitter.emitLine(
+                `${indent}yo_write_barrier((void**)${slotAddress}, (void*)${rhsCode});`
+              );
+            }
+          }
+          // Case 3: Value type containing GC pointers (enum, struct)
+          // Use type-specific barrier emission to mark all contained GC pointers
+          else {
+            emitWriteBarrierForValueType(indent, rhsCode, lhsType, context);
+          }
+        }
+
         context.emitter.emitLine(
           `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
         );

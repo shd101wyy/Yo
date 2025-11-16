@@ -204,6 +204,11 @@ static inline void yo_write_barrier(void** slot, void* new_value) {
   }
 }
 
+// Write barrier helper for a single GC object (used for value types)
+static inline void yo_write_barrier_object(void* obj) {
+  yo_write_barrier(NULL, obj);
+}
+
 // =============================================================================
 // Shadow Stack - Phase 3
 // =============================================================================
