@@ -54,4 +54,13 @@ export interface FunctionGenerationContext extends CodeGenContext {
       targetVariableId?: string; // Variable that receives the cond result (if any)
     }
   >;
+  // Loop tracking for while loops with await
+  whileLoopInfo?: Map<
+    number,
+    {
+      conditionExpr: Expr; // The loop condition expression
+      bodyExpr: Expr; // The loop body expression
+      bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
+    }
+  >;
 }

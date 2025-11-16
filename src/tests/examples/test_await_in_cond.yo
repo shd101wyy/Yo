@@ -53,10 +53,36 @@ test_await_in_cond_2 :: (fn() -> Future(unit))
   }
 ;
 
+test_await_in_cond_3 :: (fn() -> Future(unit))
+  async {
+    printf("Test 3: await in cond\n");
+    
+    use_branch_a: boolean;
+    use_branch_a = true;
+    
+    result := cond(
+      use_branch_a => {
+        printf("Taking branch A\n");
+        await(simple_async_task(88))
+      },
+      true => {
+        printf("Taking branch B\n");
+        await(simple_async_task(88))
+      }
+    );
+    
+    printf("Got result: %d\n", result);
+    assert(result == 88, "Expected value to be 88");
+    printf("Test 3 completed\n");
+  }
+;
+
+
 main :: (fn() -> unit) {
   async {
     await test_await_in_cond_1();
     await test_await_in_cond_2();
+    await test_await_in_cond_3();
   };
 };
 

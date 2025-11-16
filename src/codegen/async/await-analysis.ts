@@ -53,6 +53,12 @@ export interface AwaitPoint {
    * If true, the state machine needs a cond_branch_X field to track which branch was taken
    */
   isInsideCond?: boolean;
+
+  /**
+   * Whether this await is inside a while loop
+   * If true, the state machine needs a while_loop_X_active field to track loop state
+   */
+  isInsideWhile?: boolean;
 }
 
 /**
@@ -173,6 +179,27 @@ function walkExprForAwaits(
       break;
 
     case ExprTag.FuncCall: {
+      // Check if this is a while loop - handle specially
+      if (exprIsFunctionCallOf(expr, "while")) {
+        // For while loops, awaits in the loop body need special handling
+        const initialAwaitCount = awaitPoints.length;
+
+        // Walk through the condition and body
+        walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+        for (const arg of expr.args) {
+          walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+        }
+
+        // Mark all awaits found in this while loop as isInsideWhile
+        const newAwaitCount = awaitPoints.length;
+        if (newAwaitCount > initialAwaitCount) {
+          for (let i = initialAwaitCount; i < newAwaitCount; i++) {
+            awaitPoints[i]!.isInsideWhile = true;
+          }
+        }
+        break;
+      }
+
       // Check if this is a cond expression - handle specially
       if (exprIsFunctionCallOf(expr, "cond")) {
         // For cond expressions, all awaits in branches are mutually exclusive

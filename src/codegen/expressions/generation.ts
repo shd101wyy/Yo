@@ -2506,6 +2506,23 @@ function generateAsyncBlock(
     emitter.emitDeclarationLine(``);
   }
 
+  // Add while_loop_X_active fields for while loops with await
+  // These track whether the loop is still active (should continue iterating)
+  const whileAwaitPoints = analysis.awaitPoints.filter(
+    (ap) => ap.isInsideWhile
+  );
+  if (whileAwaitPoints.length > 0) {
+    emitter.emitDeclarationLine(
+      `  // Loop state tracking for while loops with await`
+    );
+    for (const awaitPoint of whileAwaitPoints) {
+      emitter.emitDeclarationLine(
+        `  _Bool while_loop_${awaitPoint.index}_active;  // Whether while loop ${awaitPoint.index} should continue`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
   emitter.emitDeclarationLine(`} ${structName};`);
   emitter.emitDeclarationLine(``);
 
