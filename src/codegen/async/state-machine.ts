@@ -4,6 +4,7 @@
  * Generates C code for async function state machines.
  */
 
+import { Emitter } from "../../emitter";
 import { Expr, exprIsFunctionCallOf } from "../../expr";
 import {
   FutureType,
@@ -109,7 +110,7 @@ export function getStateMachineFieldName(
 function generateAsyncShadowFrameTeardown(
   indent: string,
   needsShadowFrame: boolean,
-  emitter: any
+  emitter: Emitter
 ): void {
   if (needsShadowFrame) {
     emitter.emitLine(`${indent}// Shadow frame teardown`);
@@ -301,122 +302,180 @@ export function generateAsyncBlockResumeFunction(
       // Check if this await was part of a cond expression
       // If so, we need to execute the remaining code from the chosen branch
       const functionContext = context as FunctionGenerationContext;
-      const condBranchData = functionContext.condBranchInfo?.get(
-        prevAwait.index
-      );
-      if (condBranchData && condBranchData.branches.some((b) => b.hasAwait)) {
-        emitter.emitLine(
-          `      // Execute remaining code from chosen cond branch`
+
+      if (prevAwait) {
+        const condBranchData = functionContext.condBranchInfo?.get(
+          prevAwait.index
         );
-        emitter.emitLine(`      switch (sm->cond_branch_${prevAwait.index}) {`);
-
-        for (const branch of condBranchData.branches) {
-          if (branch.hasAwait) {
-            emitter.emitLine(`        case ${branch.index}: {`);
-            emitter.emitLine(
-              `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
-            );
-
-            // If there are remaining expressions, generate them
-            if (branch.remainingExprs && branch.remainingExprs.length > 0) {
-              // Set up state machine context for code generation
-              const previousInStateMachineForBranch = context.inStateMachine;
-              const previousStateMachineVariablesForBranch =
-                context.stateMachineVariables;
-
-              context.inStateMachine = { futureType };
-
-              // Combine outer captured variables and local variables
-              const combinedVariables = new Map<string, CapturedVariable>();
-              for (const v of analysis.capturedVariables) {
-                combinedVariables.set(v.id, v);
-              }
-              if (captureType) {
-                for (const field of captureType.fields) {
-                  combinedVariables.set(field.label, {
-                    id: field.label,
-                    name: field.label,
-                    type: field.type,
-                    kind: "outer",
-                  });
-                }
-              }
-              context.stateMachineVariables = combinedVariables;
-
-              // Generate the remaining expressions
-              for (const expr of branch.remainingExprs) {
-                const code = generateExpr(expr, "          ", context);
-                // Skip empty code, expressions without metadata, and temp variable references
-                if (
-                  !code ||
-                  !expr.$ ||
-                  isTempVariableName(expr.$.env.modulePath, code)
-                ) {
-                  // Skip
-                } else {
-                  emitter.emitLine(`          ${code};`);
-                }
-              }
-
-              // Restore context
-              context.inStateMachine = previousInStateMachineForBranch;
-              context.stateMachineVariables =
-                previousStateMachineVariablesForBranch;
-            }
-
-            emitter.emitLine(`          break;`);
-            emitter.emitLine(`        }`);
-          }
-        }
-
-        emitter.emitLine(`      }`);
-
-        // If the cond result is assigned to a variable, assign the await result now
-        if (condBranchData.targetVariableId) {
-          const fieldName = getStateMachineFieldName(
-            condBranchData.targetVariableId,
-            "local"
-          );
-          emitter.emitLine(`      // Assign cond result to target variable`);
+        if (condBranchData && condBranchData.branches.some((b) => b.hasAwait)) {
           emitter.emitLine(
-            `      sm->${fieldName} = sm->await_result_${prevAwait.index};`
+            `      // Execute remaining code from chosen cond branch`
           );
-        }
+          emitter.emitLine(
+            `      switch (sm->cond_branch_${prevAwait.index}) {`
+          );
 
-        emitter.emitLine(``);
+          for (const branch of condBranchData.branches) {
+            if (branch.hasAwait) {
+              emitter.emitLine(`        case ${branch.index}: {`);
+              emitter.emitLine(
+                `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
+              );
+
+              // If there are remaining expressions, generate them
+              if (branch.remainingExprs && branch.remainingExprs.length > 0) {
+                // Set up state machine context for code generation
+                const previousInStateMachineForBranch = context.inStateMachine;
+                const previousStateMachineVariablesForBranch =
+                  context.stateMachineVariables;
+
+                context.inStateMachine = { futureType };
+
+                // Combine outer captured variables and local variables
+                const combinedVariables = new Map<string, CapturedVariable>();
+                for (const v of analysis.capturedVariables) {
+                  combinedVariables.set(v.id, v);
+                }
+                if (captureType) {
+                  for (const field of captureType.fields) {
+                    combinedVariables.set(field.label, {
+                      id: field.label,
+                      name: field.label,
+                      type: field.type,
+                      kind: "outer",
+                    });
+                  }
+                }
+                context.stateMachineVariables = combinedVariables;
+
+                // Generate the remaining expressions
+                for (const expr of branch.remainingExprs) {
+                  const code = generateExpr(expr, "          ", context);
+                  // Skip empty code, expressions without metadata, and temp variable references
+                  if (
+                    !code ||
+                    !expr.$ ||
+                    isTempVariableName(expr.$.env.modulePath, code)
+                  ) {
+                    // Skip
+                  } else {
+                    emitter.emitLine(`          ${code};`);
+                  }
+                }
+
+                // Restore context
+                context.inStateMachine = previousInStateMachineForBranch;
+                context.stateMachineVariables =
+                  previousStateMachineVariablesForBranch;
+              }
+
+              emitter.emitLine(`          break;`);
+              emitter.emitLine(`        }`);
+            }
+          }
+
+          emitter.emitLine(`      }`);
+
+          // If the cond result is assigned to a variable, assign the await result now
+          if (condBranchData.targetVariableId) {
+            const fieldName = getStateMachineFieldName(
+              condBranchData.targetVariableId,
+              "local"
+            );
+            emitter.emitLine(`      // Assign cond result to target variable`);
+            emitter.emitLine(
+              `      sm->${fieldName} = sm->await_result_${prevAwait.index};`
+            );
+          }
+
+          emitter.emitLine(``);
+        }
       }
 
       // Check if this await was part of a while loop
       // If so, we need to execute remaining body expressions, then re-evaluate the loop condition
-      const whileLoopData = functionContext.whileLoopInfo?.get(prevAwait.index);
-      if (whileLoopData) {
-        emitter.emitLine(
-          `      // Execute remaining code from while loop body and continue loop`
+      if (prevAwait) {
+        const whileLoopData = functionContext.whileLoopInfo?.get(
+          prevAwait.index
         );
-        emitter.emitLine(
-          `      if (sm->while_loop_${prevAwait.index}_active) {`
-        );
+        if (whileLoopData) {
+          emitter.emitLine(
+            `      // Execute remaining code from while loop body and continue loop`
+          );
+          emitter.emitLine(
+            `      if (sm->while_loop_${prevAwait.index}_active) {`
+          );
 
-        // If there are remaining expressions after the await, generate them
-        if (
-          whileLoopData.bodyExprsAfterAwait &&
-          whileLoopData.bodyExprsAfterAwait.length > 0
-        ) {
-          // Set up state machine context for code generation
-          const previousInStateMachineForLoop = context.inStateMachine;
-          const previousStateMachineVariablesForLoop =
+          // If there are remaining expressions after the await, generate them
+          if (
+            whileLoopData.bodyExprsAfterAwait &&
+            whileLoopData.bodyExprsAfterAwait.length > 0
+          ) {
+            // Set up state machine context for code generation
+            const previousInStateMachineForLoop = context.inStateMachine;
+            const previousStateMachineVariablesForLoop =
+              context.stateMachineVariables;
+
+            context.inStateMachine = { futureType };
+
+            // Combine outer captured variables and local variables
+            const combinedVariables = new Map<string, CapturedVariable>();
+            for (const v of analysis.capturedVariables) {
+              combinedVariables.set(v.id, v);
+            }
+            if (captureType) {
+              for (const field of captureType.fields) {
+                combinedVariables.set(field.label, {
+                  id: field.label,
+                  name: field.label,
+                  type: field.type,
+                  kind: "outer",
+                });
+              }
+            }
+            context.stateMachineVariables = combinedVariables;
+
+            // Generate the remaining expressions
+            for (const expr of whileLoopData.bodyExprsAfterAwait) {
+              const code = generateExpr(expr, "        ", context);
+              // Skip empty code, expressions without metadata, and temp variable references
+              if (
+                !code ||
+                !expr.$ ||
+                isTempVariableName(expr.$.env.modulePath, code)
+              ) {
+                // Skip
+              } else {
+                emitter.emitLine(`        ${code};`);
+              }
+            }
+
+            // Restore context
+            context.inStateMachine = previousInStateMachineForLoop;
+            context.stateMachineVariables =
+              previousStateMachineVariablesForLoop;
+          }
+
+          // Re-evaluate the loop condition
+          emitter.emitLine(
+            `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
+          );
+
+          // Set up state machine context for condition evaluation
+          const previousInStateMachineForCond = context.inStateMachine;
+          const previousStateMachineVariablesForCond =
             context.stateMachineVariables;
 
           context.inStateMachine = { futureType };
 
           // Combine outer captured variables and local variables
-          const combinedVariables = new Map<string, CapturedVariable>();
+          const combinedVariablesForCond = new Map<string, CapturedVariable>();
           for (const v of analysis.capturedVariables) {
-            combinedVariables.set(v.id, v);
+            combinedVariablesForCond.set(v.id, v);
           }
           if (captureType) {
             for (const field of captureType.fields) {
-              combinedVariables.set(field.label, {
+              combinedVariablesForCond.set(field.label, {
                 id: field.label,
                 name: field.label,
                 type: field.type,
@@ -424,97 +483,49 @@ export function generateAsyncBlockResumeFunction(
               });
             }
           }
-          context.stateMachineVariables = combinedVariables;
+          context.stateMachineVariables = combinedVariablesForCond;
 
-          // Generate the remaining expressions
-          for (const expr of whileLoopData.bodyExprsAfterAwait) {
-            const code = generateExpr(expr, "        ", context);
-            // Skip empty code, expressions without metadata, and temp variable references
-            if (
-              !code ||
-              !expr.$ ||
-              isTempVariableName(expr.$.env.modulePath, code)
-            ) {
-              // Skip
-            } else {
-              emitter.emitLine(`        ${code};`);
-            }
-          }
+          // Generate condition check
+          const condCode = generateExpr(
+            whileLoopData.conditionExpr,
+            "        ",
+            context
+          );
 
           // Restore context
-          context.inStateMachine = previousInStateMachineForLoop;
-          context.stateMachineVariables = previousStateMachineVariablesForLoop;
+          context.inStateMachine = previousInStateMachineForCond;
+          context.stateMachineVariables = previousStateMachineVariablesForCond;
+
+          emitter.emitLine(`        if (!(${condCode})) {`);
+          emitter.emitLine(
+            `          sm->while_loop_${prevAwait.index}_active = false;`
+          );
+          emitter.emitLine(
+            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
+          );
+          emitter.emitLine(`        } else {`);
+          emitter.emitLine(
+            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
+          );
+
+          // Transition back to the state where the while loop started
+          // The while loop is in the state that contains the await - which is prevAwait.index
+          const whileLoopStateNumber = prevAwait.index;
+          emitter.emitLine(
+            `          // Loop back by transitioning to while loop state`
+          );
+          emitter.emitLine(`          sm->state = ${whileLoopStateNumber};`);
+          emitter.emitLine(
+            `          goto while_loop_${whileLoopStateNumber}_start;`
+          );
+
+          emitter.emitLine(`        }`);
+          emitter.emitLine(`      }`);
+
+          emitter.emitLine(``);
+          // Add label for code after while loop (for break to jump to)
+          emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
         }
-
-        // Re-evaluate the loop condition
-        emitter.emitLine(
-          `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
-        );
-
-        // Set up state machine context for condition evaluation
-        const previousInStateMachineForCond = context.inStateMachine;
-        const previousStateMachineVariablesForCond =
-          context.stateMachineVariables;
-
-        context.inStateMachine = { futureType };
-
-        // Combine outer captured variables and local variables
-        const combinedVariablesForCond = new Map<string, CapturedVariable>();
-        for (const v of analysis.capturedVariables) {
-          combinedVariablesForCond.set(v.id, v);
-        }
-        if (captureType) {
-          for (const field of captureType.fields) {
-            combinedVariablesForCond.set(field.label, {
-              id: field.label,
-              name: field.label,
-              type: field.type,
-              kind: "outer",
-            });
-          }
-        }
-        context.stateMachineVariables = combinedVariablesForCond;
-
-        // Generate condition check
-        const condCode = generateExpr(
-          whileLoopData.conditionExpr,
-          "        ",
-          context
-        );
-
-        // Restore context
-        context.inStateMachine = previousInStateMachineForCond;
-        context.stateMachineVariables = previousStateMachineVariablesForCond;
-
-        emitter.emitLine(`        if (!(${condCode})) {`);
-        emitter.emitLine(
-          `          sm->while_loop_${prevAwait.index}_active = false;`
-        );
-        emitter.emitLine(
-          `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
-        );
-        emitter.emitLine(`        } else {`);
-        emitter.emitLine(
-          `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
-        );
-
-        // Transition back to the state where the while loop started
-        // The while loop is in the state that contains the await - which is prevAwait.index
-        const whileLoopStateNumber = prevAwait.index;
-        emitter.emitLine(
-          `          // Loop back by transitioning to while loop state`
-        );
-        emitter.emitLine(`          sm->state = ${whileLoopStateNumber};`);
-        emitter.emitLine(
-          `          goto while_loop_${whileLoopStateNumber}_start;`
-        );
-
-        emitter.emitLine(`        }`);
-        emitter.emitLine(`      }`);
-
-        emitter.emitLine(``);
-        // Add label for code after while loop (for break to jump to)
-        emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
       }
     }
 
