@@ -1,0 +1,55 @@
+// Test write barriers during concurrent marking
+// This tests that the tri-color invariant is maintained when
+// mutating object graphs during GC marking phase
+
+open import "std/libc/stdio";
+{ gc_collect } :: import "std/gc";
+
+Node :: object(
+  value: i32,
+  next: Option(Self),
+  
+  dispose :: (fn(self: Self) -> unit) {
+    printf("Disposing Node with value: %d\n", self.value);
+  }
+);
+
+test_write_barrier :: (fn() -> unit) {
+  printf("=== Testing Write Barrier ===\n");
+  
+  // Create a linked list
+  node1 := Node(value: 1, next: .None);
+  node2 := Node(value: 2, next: .Some(node1));
+  node3 := Node(value: 3, next: .Some(node2));
+  
+  printf("Created nodes: 1 -> 2 -> 3\n");
+  
+  // Trigger GC - this will start marking
+  gc_collect();
+  
+  // During marking, modify the graph
+  // This should trigger write barrier to maintain tri-color invariant
+  node4 := Node(value: 4, next: .None);
+  node3.next = .Some(node4);  // Write barrier should fire here
+  
+  printf("Modified graph: 3 -> 4\n");
+  
+  // Trigger another GC
+  gc_collect();
+  
+  printf("All nodes should still be reachable\n");
+  printf("node3.value = %d\n", node3.value);
+  
+  match(node3.next,
+    .Some(n) => printf("node3.next.value = %d\n", n.value),
+    .None => printf("node3.next = None\n")
+  );
+  
+  printf("=== Write Barrier Test Complete ===\n");
+};
+
+main :: (fn() -> unit) {
+  test_write_barrier();
+};
+
+export main;

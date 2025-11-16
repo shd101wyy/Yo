@@ -65,6 +65,146 @@ static yo_gc_state_t yo_gc = {
 };
 
 // =============================================================================
+// Concurrent GC - Phase 4: Tri-Color Marking
+// =============================================================================
+
+/**
+ * Gray queue for concurrent marking
+ * Tracks objects marked GRAY (pending scan) during concurrent marking phase
+ */
+typedef struct {
+  void** objects;        // Array of gray objects to scan
+  size_t size;          // Current number of objects
+  size_t capacity;      // Array capacity
+  pthread_mutex_t lock; // For concurrent access
+} YoGrayQueue;
+
+static YoGrayQueue yo_gray_queue = {
+  .objects = NULL,
+  .size = 0,
+  .capacity = 0
+};
+
+// Concurrent marking state
+static volatile bool yo_gc_is_marking = false;
+
+/**
+ * Initialize gray queue
+ */
+static void yo_gray_queue_init(void) {
+  if (yo_gray_queue.objects == NULL) {
+    yo_gray_queue.capacity = 1024;  // Initial capacity
+    yo_gray_queue.objects = (void**)malloc(yo_gray_queue.capacity * sizeof(void*));
+    pthread_mutex_init(&yo_gray_queue.lock, NULL);
+  }
+  yo_gray_queue.size = 0;
+}
+
+/**
+ * Push object to gray queue (thread-safe)
+ */
+static void yo_gc_push_gray(void* obj) {
+  pthread_mutex_lock(&yo_gray_queue.lock);
+  
+  // Resize if needed
+  if (yo_gray_queue.size >= yo_gray_queue.capacity) {
+    yo_gray_queue.capacity *= 2;
+    yo_gray_queue.objects = (void**)realloc(
+      yo_gray_queue.objects,
+      yo_gray_queue.capacity * sizeof(void*)
+    );
+  }
+  
+  yo_gray_queue.objects[yo_gray_queue.size++] = obj;
+  
+  pthread_mutex_unlock(&yo_gray_queue.lock);
+}
+
+/**
+ * Pop object from gray queue (thread-safe)
+ * Returns NULL if queue is empty
+ */
+static void* yo_gc_pop_gray(void) {
+  pthread_mutex_lock(&yo_gray_queue.lock);
+  
+  void* obj = NULL;
+  if (yo_gray_queue.size > 0) {
+    obj = yo_gray_queue.objects[--yo_gray_queue.size];
+  }
+  
+  pthread_mutex_unlock(&yo_gray_queue.lock);
+  return obj;
+}
+
+/**
+ * Check if gray queue has objects
+ */
+static bool yo_gc_has_gray_objects(void) {
+  pthread_mutex_lock(&yo_gray_queue.lock);
+  bool has_objects = yo_gray_queue.size > 0;
+  pthread_mutex_unlock(&yo_gray_queue.lock);
+  return has_objects;
+}
+
+/**
+ * Get color of an object
+ */
+static inline uint8_t yo_gc_get_color(void* obj) {
+  yo_gc_header_t* header = YO_GC_HEADER(obj);
+  return header->mark_bits;
+}
+
+/**
+ * Set color of an object
+ */
+static inline void yo_gc_set_color(void* obj, uint8_t color) {
+  yo_gc_header_t* header = YO_GC_HEADER(obj);
+  header->mark_bits = color;
+}
+
+// =============================================================================
+// Write Barrier - Phase 4: Maintain Tri-Color Invariant
+// =============================================================================
+
+/**
+ * Write barrier for GC pointer writes (Dijkstra insertion barrier)
+ * 
+ * Maintains tri-color invariant during concurrent marking:
+ * - If marking is active and new_value is WHITE, mark it GRAY
+ * - This prevents BLACK objects from pointing to WHITE objects
+ * 
+ * Called before every GC pointer write: obj->field = new_value
+ * 
+ * Performance: Fast path is a single flag check (well-predicted)
+ */
+static inline void yo_write_barrier(void** slot, void* new_value) {
+  (void)slot;  // Unused for now
+  
+  // Fast path: Skip barrier if not marking
+  if (!__atomic_load_n(&yo_gc_is_marking, __ATOMIC_ACQUIRE)) {
+    return;
+  }
+  
+  // Only barrier non-null GC pointers
+  if (new_value == NULL) {
+    return;
+  }
+  
+  // If new_value is WHITE, mark it GRAY
+  uint8_t color = yo_gc_get_color(new_value);
+  if (color == YO_GC_WHITE) {
+    // Mark as GRAY (simple write since we're already synchronized)
+    // In a truly concurrent implementation, this would use atomic CAS
+    yo_gc_set_color(new_value, YO_GC_GRAY);
+    yo_gc_push_gray(new_value);
+    
+    ${debugGc}
+    printf(\"[GC] Write barrier: marked %p as GRAY\\\\n\", new_value);
+    #endif
+  }
+}
+
+// =============================================================================
 // Shadow Stack - Phase 3
 // =============================================================================
 
@@ -197,10 +337,8 @@ void* __yo_gc_alloc(size_t size, void* type_descriptor) {
 // =============================================================================
 
 /**
- * Mark an object and its children (tri-color marking)
- * 
- * Phase 2: Simple recursive marking (no shadow stack yet)
- * Phase 3: Will use shadow stack for roots
+ * Mark an object and add to gray queue (for concurrent marking)
+ * Phase 4: Concurrent marking with gray queue
  */
 static void yo_gc_mark_object(void* obj_ptr) {
   if (obj_ptr == NULL) {
@@ -208,22 +346,60 @@ static void yo_gc_mark_object(void* obj_ptr) {
   }
   
   // Get header from object pointer
-  yo_gc_header_t* header = ((yo_gc_header_t*)obj_ptr) - 1;
+  yo_gc_header_t* header = YO_GC_HEADER(obj_ptr);
   
   // Already marked? Skip
-  if (header->mark_bits != YO_GC_WHITE) {
+  uint8_t color = yo_gc_get_color(obj_ptr);
+  if (color != YO_GC_WHITE) {
     return;
   }
   
-  // Mark as GRAY (will scan children)
-  header->mark_bits = YO_GC_GRAY;
+  // Mark as GRAY and add to work queue
+  yo_gc_set_color(obj_ptr, YO_GC_GRAY);
+  yo_gc_push_gray(obj_ptr);
   
   ${debugGc}
-  printf("[GC] Marking object at %p (size: %u bytes)\\n", obj_ptr, header->size);
+  printf("[GC] Marked object at %p as GRAY (size: %u bytes)\\n", obj_ptr, header->size);
+  #endif
+}
+
+// Helper function to mark a child as GRAY (used by traverse functions)
+static void yo_gc_mark_child_gray(void* child) {
+  if (child != NULL && yo_gc_get_color(child) == YO_GC_WHITE) {
+    yo_gc_set_color(child, YO_GC_GRAY);
+    yo_gc_push_gray(child);
+  }
+}
+
+/**
+ * Mark children of an object (concurrent marking)
+ * Used during concurrent mark phase to scan GRAY objects
+ */
+static void yo_gc_mark_children_concurrent(void* obj_ptr) {
+  if (obj_ptr == NULL) {
+    return;
+  }
+  
+  yo_gc_header_t* header = YO_GC_HEADER(obj_ptr);
+  
+  ${debugGc}
+  printf("[GC] Scanning children of object at %p\\n", obj_ptr);
   #endif
   
-  // Traverse children using type descriptor
-  if (header->type_descriptor != NULL) {
+  // Mark this object as BLACK (scanning/scanned)
+  yo_gc_set_color(obj_ptr, YO_GC_BLACK);
+  
+  // Use traverse function if available (handles discriminated unions correctly)
+  if (header->traverse_fn != NULL) {
+    ${debugGc}
+    printf("[GC]   Using traverse_fn\\n");
+    #endif
+    
+    // Call traverse function with a visitor that marks children GRAY
+    header->traverse_fn(obj_ptr, yo_gc_mark_child_gray);
+  }
+  // Fallback to type descriptor scanning for simple types
+  else if (header->type_descriptor != NULL) {
     YoTypeDescriptor* desc = (YoTypeDescriptor*)header->type_descriptor;
     
     ${debugGc}
@@ -234,36 +410,173 @@ static void yo_gc_mark_object(void* obj_ptr) {
     for (size_t i = 0; i < desc->pointer_count; i++) {
       // Calculate pointer to the field using offset
       void** field_ptr = (void**)((char*)obj_ptr + desc->pointer_offsets[i]);
-      void* child = *field_ptr;
+      void* child = *field_ptr;  // TODO: Use atomic load for concurrent GC
       
       ${debugGc}
       printf("[GC]   Field[%zu] at offset %zu: %p\\n", 
              i, desc->pointer_offsets[i], child);
       #endif
       
-      // Recursively mark child object
-      if (child != NULL) {
-        yo_gc_mark_object(child);
+      // Mark child if WHITE
+      if (child != NULL && yo_gc_get_color(child) == YO_GC_WHITE) {
+        yo_gc_set_color(child, YO_GC_GRAY);
+        yo_gc_push_gray(child);
+      }
+    }
+  }
+}
+
+/**
+ * Scan shadow stack and mark roots as GRAY (for concurrent marking)
+ */
+static void yo_gc_scan_shadow_stack_concurrent(void) {
+  ${debugGc}
+  size_t total_frames = 0;
+  size_t total_roots = 0;
+  #endif
+  
+  for (YoShadowFrame* frame = yo_shadow_stack_top; 
+       frame != NULL; 
+       frame = frame->prev) {
+    
+    ${debugGc}
+    total_frames++;
+    printf("[GC]   Frame: %s, roots=%zu\\n", 
+           frame->function_name ? frame->function_name : "<unknown>",
+           frame->num_roots);
+    #endif
+    
+    // Scan all roots in this frame
+    for (size_t i = 0; i < frame->num_roots; i++) {
+      // Skip NULL root entries (uninitialized/unregistered locals)
+      if (frame->roots[i] == NULL) continue;
+      
+      void* obj = *(void**)frame->roots[i];
+      
+      ${debugGc}
+      total_roots++;
+      printf("[GC]     Root[%zu]: %p\\n", i, obj);
+      #endif
+      
+      // Mark root as GRAY if WHITE
+      if (obj != NULL && yo_gc_get_color(obj) == YO_GC_WHITE) {
+        yo_gc_set_color(obj, YO_GC_GRAY);
+        yo_gc_push_gray(obj);
       }
     }
   }
   
-  // Mark as BLACK (children fully scanned)
-  header->mark_bits = YO_GC_BLACK;
+  ${debugGc}
+  printf("[GC] Scanned shadow stack: %zu frames, %zu total roots\\n",
+         total_frames, total_roots);
+  #endif
+}
+
+/**
+ * Phase 1: Initial Mark (STW - brief)
+ * Reset all objects to WHITE and mark roots as GRAY
+ */
+static void yo_gc_initial_mark(void) {
+  ${debugGc}
+  printf("[GC] Phase 1: Initial mark (STW)\\n");
+  #endif
+  
+  // Initialize gray queue
+  yo_gray_queue_init();
+  
+  // Reset all mark bits to WHITE
+  for (yo_gc_header_t* header = yo_gc.all_objects; 
+       header != NULL; 
+       header = header->gc_next) {
+    header->mark_bits = YO_GC_WHITE;
+  }
+  
+  // Set marking flag
+  __atomic_store_n(&yo_gc_is_marking, true, __ATOMIC_RELEASE);
+  
+  // Mark all shadow stack roots as GRAY
+  yo_gc_scan_shadow_stack_concurrent();
+  
+  ${debugGc}
+  printf("[GC] Initial mark complete, %zu objects in gray queue\\n",
+         yo_gray_queue.size);
+  #endif
+}
+
+/**
+ * Phase 2: Concurrent Mark (Parallel)
+ * Process gray objects and mark their children
+ * TODO: Currently runs in main thread, will be concurrent in future
+ */
+static void yo_gc_concurrent_mark(void) {
+  ${debugGc}
+  printf("[GC] Phase 2: Concurrent mark\\n");
+  size_t objects_scanned = 0;
+  #endif
+  
+  // Process all gray objects
+  while (yo_gc_has_gray_objects()) {
+    void* obj = yo_gc_pop_gray();
+    if (obj == NULL) break;
+    
+    ${debugGc}
+    objects_scanned++;
+    #endif
+    
+    // Scan children and mark them GRAY
+    yo_gc_mark_children_concurrent(obj);
+  }
+  
+  ${debugGc}
+  printf("[GC] Concurrent mark complete, scanned %zu objects\\n",
+         objects_scanned);
+  #endif
+}
+
+/**
+ * Phase 3: Remark (STW - brief)
+ * Re-scan roots and finish marking any remaining GRAY objects
+ * TODO: Process write barriers when implemented
+ */
+static void yo_gc_remark(void) {
+  ${debugGc}
+  printf("[GC] Phase 3: Remark (STW)\\n");
+  #endif
+  
+  // Re-scan shadow stacks (may have changed during concurrent mark)
+  yo_gc_scan_shadow_stack_concurrent();
+  
+  // Finish marking any remaining GRAY objects
+  while (yo_gc_has_gray_objects()) {
+    void* obj = yo_gc_pop_gray();
+    if (obj == NULL) break;
+    
+    yo_gc_mark_children_concurrent(obj);
+  }
+  
+  // Clear marking flag
+  __atomic_store_n(&yo_gc_is_marking, false, __ATOMIC_RELEASE);
+  
+  ${debugGc}
+  printf("[GC] Remark complete\\n");
+  #endif
 }
 
 /**
  * Mark all root objects
  * 
- * Phase 3: Scan shadow stack for roots
+ * Phase 2-3: Uses shadow stack scanning
+ * Phase 4: Three-phase concurrent marking (initial, concurrent, remark)
  */
 static void yo_gc_mark_roots(void) {
   ${debugGc}
-  printf("[GC] Marking roots from shadow stack\\n");
+  printf("[GC] === Starting Mark Phase ===\\n");
   #endif
   
-  // Scan shadow stack to find all GC pointer locals
-  yo_gc_scan_shadow_stack();
+  // Phase 4: Use three-phase concurrent marking
+  yo_gc_initial_mark();     // STW: Mark roots as GRAY
+  yo_gc_concurrent_mark();  // Concurrent: Scan GRAY objects
+  yo_gc_remark();           // STW: Finish marking
 }
 
 // =============================================================================

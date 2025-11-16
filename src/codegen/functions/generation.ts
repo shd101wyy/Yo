@@ -24,7 +24,6 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import { canRefStructFormCycles } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -457,6 +456,12 @@ export function generateFunction(
     emitter.emitLine(`  // Shadow frame setup`);
     emitter.emitLine(`  YoShadowFrame __yo_shadow_frame;`);
     emitter.emitLine(`  void* __yo_roots[${totalGcLocals}];`);
+
+    // Initialize all roots to NULL to prevent GC from scanning uninitialized pointers
+    for (let i = 0; i < totalGcLocals; i++) {
+      emitter.emitLine(`  __yo_roots[${i}] = NULL;`);
+    }
+
     emitter.emitLine(`  __yo_shadow_frame.prev = yo_shadow_stack_top;`);
     emitter.emitLine(`  __yo_shadow_frame.roots = __yo_roots;`);
     emitter.emitLine(`  __yo_shadow_frame.num_roots = ${totalGcLocals};`);
@@ -1162,10 +1167,7 @@ export function generateRefStructConstructorFunctions(
         emitter.emitLine(`  obj->${fieldName} = ${fieldName};`);
       });
 
-      // Register with GC if this type might participate in cycles
-      if (canRefStructFormCycles(type)) {
-        emitter.emitLine(`  __yo_gc_register(obj);`);
-      }
+      // GC tracking is now automatic via __yo_gc_alloc
 
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);

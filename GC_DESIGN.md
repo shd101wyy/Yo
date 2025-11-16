@@ -311,6 +311,10 @@ YoNode* process(int32_t x) {
 3. ⏳ Add safepoints at loops and allocations
 4. ⏳ Implement concurrent sweeping
 
+**Phase 5: Future**
+1. Generational GC
+2. Incremental GC
+
 ### Comparison to Other Languages
 
 **Go** (concurrent mark-sweep, stack maps):

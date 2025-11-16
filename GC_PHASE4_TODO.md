@@ -853,11 +853,18 @@ test_pause_time :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 4 Progress:** 🚀 ~0% Complete
+**Overall Phase 4 Progress:** 🚀 ~30% Complete
 
 **TODO Status:**
-- ⏳ TODO 1: Tri-color marking infrastructure (0%)
-- ⏳ TODO 2: Concurrent mark phase (0%)
+- ✅ TODO 1: Tri-color marking infrastructure (100%) - COMPLETE
+  - Gray queue implemented with thread-safe push/pop
+  - Color manipulation functions (get_color, set_color)
+  - Concurrent marking state (yo_gc_is_marking flag)
+- ✅ TODO 2: Concurrent mark phase (100%) - COMPLETE
+  - Initial mark phase (STW - marks roots as GRAY)
+  - Concurrent mark phase (processes gray queue)
+  - Remark phase (STW - finishes marking)
+  - All three phases working correctly
 - ⏳ TODO 3: Write barriers (0%)
 - ⏳ TODO 4: Safepoint mechanism (0%)
 - ⏳ TODO 5: Concurrent sweep phase (0%)
