@@ -66,6 +66,43 @@ static yo_gc_state_t yo_gc = {
 };
 
 // =============================================================================
+// Generational GC - Phase 5: Young/Old Generation Separation
+// =============================================================================
+
+/**
+ * Generational GC state
+ * Separates young (nursery) and old (tenured) generations
+ * Most objects die young, so we can collect young generation more frequently
+ */
+typedef struct {
+  yo_gc_header_t* young_objects;  // Head of young generation list
+  yo_gc_header_t* old_objects;    // Head of old generation list
+  
+  size_t young_bytes;             // Bytes in young generation
+  size_t old_bytes;               // Bytes in old generation
+  
+  size_t young_threshold;         // Trigger minor GC at this size (default: 256KB)
+  size_t major_gc_threshold;      // Trigger major GC at this size (default: 8MB)
+  
+  uint64_t minor_collections;     // Count of minor GCs
+  uint64_t major_collections;     // Count of major GCs
+  
+  uint8_t promotion_age;          // Promote after N survivals (default: 3)
+} YoGenerationalGC;
+
+static YoGenerationalGC yo_gen_gc = {
+  .young_objects = NULL,
+  .old_objects = NULL,
+  .young_bytes = 0,
+  .old_bytes = 0,
+  .young_threshold = 256 * 1024,   // 256KB young generation
+  .major_gc_threshold = 8 * 1024 * 1024,  // 8MB total heap
+  .minor_collections = 0,
+  .major_collections = 0,
+  .promotion_age = 3  // Promote after surviving 3 minor GCs
+};
+
+// =============================================================================
 // Concurrent GC - Phase 4: Tri-Color Marking
 // =============================================================================
 
@@ -289,7 +326,7 @@ static uint64_t yo_get_time_ns(void) {
 
 // Forward declarations for GC thread functions
 static void* yo_gc_thread_main(void* arg);
-static void yo_gc_concurrent_cycle(void);
+static void yo_gc_major_collect(void);
 static void yo_gc_maybe_collect(void);
 
 // Forward declaration for slow path
@@ -541,9 +578,9 @@ void* __yo_gc_alloc(size_t size, void* type_descriptor) {
   
   // Initialize GC header
   header->mark_bits = YO_GC_WHITE;
-  header->generation = 0;  // Young generation
+  header->generation = 0;  // Young generation (Phase 5)
+  header->age = 0;         // Start at age 0 (Phase 5)
   header->has_finalizer = 0;
-  header->reserved = 0;
   header->type_tag = 0;  // TODO: Set from type descriptor
   header->size = (uint32_t)size;
   header->type_descriptor = type_descriptor;
@@ -552,7 +589,14 @@ void* __yo_gc_alloc(size_t size, void* type_descriptor) {
   header->dispose_fn = NULL;
   header->traverse_fn = NULL;
   
-  // Add to global tracking list (at head for O(1))
+  // Phase 5: Add to young generation list (at head for O(1))
+  if (yo_gen_gc.young_objects != NULL) {
+    yo_gen_gc.young_objects->gc_prev = header;
+  }
+  header->gc_next = yo_gen_gc.young_objects;
+  yo_gen_gc.young_objects = header;
+  
+  // Also add to global tracking list (for compatibility)
   if (yo_gc.all_objects != NULL) {
     yo_gc.all_objects->gc_prev = header;
   }
@@ -562,6 +606,7 @@ void* __yo_gc_alloc(size_t size, void* type_descriptor) {
   // Update GC stats
   yo_gc.total_objects++;
   yo_gc.total_bytes += total_size;
+  yo_gen_gc.young_bytes += total_size;  // Phase 5: Track young generation size
   
   // Track allocation statistics
   yo_gc_stats.bytes_allocated_since_last_gc += total_size;
@@ -1047,39 +1092,255 @@ static void yo_gc_concurrent_sweep(void) {
 }
 
 // =============================================================================
+// Generational GC - Phase 5: Minor/Major Collection
+// =============================================================================
+
+/**
+ * Promote object from young to old generation
+ */
+static void yo_gc_promote_object(yo_gc_header_t* header) {
+  size_t obj_size = sizeof(yo_gc_header_t) + header->size;
+  
+  // Remove from young generation list
+  if (header->gc_prev != NULL) {
+    header->gc_prev->gc_next = header->gc_next;
+  } else {
+    yo_gen_gc.young_objects = header->gc_next;
+  }
+  if (header->gc_next != NULL) {
+    header->gc_next->gc_prev = header->gc_prev;
+  }
+  
+  // Update generation and age
+  header->generation = 1;  // Old generation
+  header->age = 0;         // Reset age
+  
+  // Add to old generation list (at head)
+  if (yo_gen_gc.old_objects != NULL) {
+    yo_gen_gc.old_objects->gc_prev = header;
+  }
+  header->gc_next = yo_gen_gc.old_objects;
+  header->gc_prev = NULL;
+  yo_gen_gc.old_objects = header;
+  
+  // Update size counters
+  yo_gen_gc.young_bytes -= obj_size;
+  yo_gen_gc.old_bytes += obj_size;
+  
+  ${debugGc}
+  printf("[GC] Promoted object at %p to old generation (age was %u)\\\\n",
+         (void*)(header + 1), header->age);
+  #endif
+}
+
+/**
+ * Sweep young generation, free unmarked objects
+ * Increments age for survivors
+ */
+static void yo_gc_sweep_young_generation(void) {
+  ${debugGc}
+  printf("[GC] Sweeping young generation\\\\n");
+  #endif
+  
+  size_t collected_objects = 0;
+  size_t collected_bytes = 0;
+  
+  yo_gc_header_t* obj = yo_gen_gc.young_objects;
+  yo_gc_header_t* prev = NULL;
+  
+  while (obj != NULL) {
+    yo_gc_header_t* next = obj->gc_next;
+    
+    if (obj->mark_bits == YO_GC_WHITE) {
+      // Young object is garbage - free it
+      
+      ${debugGc}
+      printf("[GC] Collecting young object at %p (age: %u)\\\\n",
+             (void*)(obj + 1), obj->age);
+      #endif
+      
+      // Call finalizer if present
+      if (obj->dispose_fn != NULL) {
+        obj->dispose_fn((void*)(obj + 1));
+      }
+      
+      // Remove from young list
+      if (prev != NULL) {
+        prev->gc_next = next;
+      } else {
+        yo_gen_gc.young_objects = next;
+      }
+      if (next != NULL) {
+        next->gc_prev = prev;
+      }
+      
+      // Update stats
+      size_t obj_size = sizeof(yo_gc_header_t) + obj->size;
+      collected_objects++;
+      collected_bytes += obj_size;
+      yo_gen_gc.young_bytes -= obj_size;
+      
+      // Also remove from global list
+      if (obj->gc_prev != NULL) {
+        obj->gc_prev->gc_next = obj->gc_next;
+      } else {
+        yo_gc.all_objects = obj->gc_next;
+      }
+      if (obj->gc_next != NULL) {
+        obj->gc_next->gc_prev = obj->gc_prev;
+      }
+      
+      // Free memory
+      __yo_free(obj);
+      
+      // Continue from prev
+      obj = next;
+    } else {
+      // Object survived - increment age and reset color
+      obj->age++;
+      obj->mark_bits = YO_GC_WHITE;
+      prev = obj;
+      obj = next;
+    }
+  }
+  
+  yo_gc.total_objects -= collected_objects;
+  yo_gc.total_bytes -= collected_bytes;
+  
+  ${debugGc}
+  printf("[GC] Young sweep collected %zu objects (%zu bytes)\\\\n",
+         collected_objects, collected_bytes);
+  #endif
+}
+
+/**
+ * Promote survivors that reached promotion age
+ */
+static void yo_gc_promote_survivors(void) {
+  ${debugGc}
+  printf("[GC] Checking for promotions (age threshold: %u)\\\\n",
+         yo_gen_gc.promotion_age);
+  #endif
+  
+  size_t promoted_count = 0;
+  yo_gc_header_t* obj = yo_gen_gc.young_objects;
+  
+  while (obj != NULL) {
+    yo_gc_header_t* next = obj->gc_next;
+    
+    if (obj->age >= yo_gen_gc.promotion_age) {
+      yo_gc_promote_object(obj);
+      promoted_count++;
+    }
+    
+    obj = next;
+  }
+  
+  ${debugGc}
+  if (promoted_count > 0) {
+    printf("[GC] Promoted %zu objects to old generation\\\\n", promoted_count);
+  }
+  #endif
+}
+
+/**
+ * Minor GC: Collect young generation only
+ * Much faster than major GC since old generation is not scanned
+ */
+static void yo_gc_minor_collect(void) {
+  yo_gen_gc.minor_collections++;
+  
+  ${debugGc}
+  printf("\\\\n[GC] ===== Minor GC #%llu (young generation only) =====\\\\n",
+         yo_gen_gc.minor_collections);
+  printf("[GC] Young gen: %zu bytes, Old gen: %zu bytes\\\\n",
+         yo_gen_gc.young_bytes, yo_gen_gc.old_bytes);
+  #endif
+  
+  uint64_t start_time = yo_get_time_ns();
+  
+  // Phase 1: Initial mark (STW - brief)
+  yo_gc_initial_mark();  // Uses existing tri-color marking infrastructure
+  
+  // Phase 2: Concurrent mark (young generation only)
+  // Process gray queue but skip old generation objects
+  ${debugGc}
+  printf("[GC] Concurrent mark (young only)\\\\n");
+  #endif
+  
+  while (yo_gc_has_gray_objects()) {
+    void* obj = yo_gc_pop_gray();
+    if (obj == NULL) break;
+    
+    yo_gc_header_t* header = YO_GC_HEADER(obj);
+    
+    // Skip if object is in old generation
+    if (header->generation == 1) {
+      yo_gc_set_color(obj, YO_GC_BLACK);  // Mark as scanned but don't scan children
+      continue;
+    }
+    
+    // Scan young object's children
+    yo_gc_mark_children_concurrent(obj);
+    yo_gc_set_color(obj, YO_GC_BLACK);
+  }
+  
+  // Phase 3: Remark (STW - brief)
+  yo_gc_remark();  // Uses existing remark infrastructure
+  
+  // Phase 4: Sweep young generation
+  yo_gc_sweep_young_generation();
+  
+  // Phase 5: Promote survivors
+  yo_gc_promote_survivors();
+  
+  uint64_t end_time = yo_get_time_ns();
+  uint64_t duration = end_time - start_time;
+  
+  ${debugGc}
+  printf("[GC] Minor GC complete in %.2fms\\\\n", duration / 1e6);
+  printf("[GC] Young gen: %zu bytes, Old gen: %zu bytes\\\\n\\\\n",
+         yo_gen_gc.young_bytes, yo_gen_gc.old_bytes);
+  #endif
+}
+
+// =============================================================================
 // GC Thread Implementation - Phase 4: Background Concurrent GC
 // =============================================================================
 
 /**
- * Perform a complete concurrent GC cycle
+ * Major GC: Collect entire heap (young + old generations)
  * Called by GC thread in background
+ * This is the full concurrent cycle from Phase 4
  */
-static void yo_gc_concurrent_cycle(void) {
+static void yo_gc_major_collect(void) {
   if (!yo_gc.gc_enabled) {
     return;
   }
   
-  // Increment collection counter
+  // Increment collection counters
   yo_gc_stats.total_collections++;
+  yo_gen_gc.major_collections++;
   
   ${debugGc}
-  printf("\\n[GC] ===== GC Thread: Starting Concurrent Cycle #%llu =====\\n",
-         yo_gc_stats.total_collections);
-  printf("[GC] Before: %zu objects, %zu bytes\\n",
-         yo_gc.total_objects, yo_gc.total_bytes);
+  printf("\\\\n[GC] ===== Major GC #%llu (full heap) =====\\\\n",
+         yo_gen_gc.major_collections);
+  printf("[GC] Before: %zu objects, %zu bytes (young: %zu, old: %zu)\\\\n",
+         yo_gc.total_objects, yo_gc.total_bytes,
+         yo_gen_gc.young_bytes, yo_gen_gc.old_bytes);
   #endif
   
   // Phase 1: Initial mark (STW - brief)
   // Marks roots from shadow stack as GRAY
   ${debugGc}
-  printf("[GC] Phase 1: Initial mark (STW)\\n");
+  printf("[GC] Phase 1: Initial mark (STW)\\\\n");
   #endif
   yo_gc_mark_roots();  // This does STW, marks roots, resumes
   
   // Phase 2: Concurrent mark (parallel with mutators)
-  // Process gray queue until empty
+  // Process gray queue until empty - scans BOTH young and old generations
   ${debugGc}
-  printf("[GC] Phase 2: Concurrent mark\\n");
+  printf("[GC] Phase 2: Concurrent mark (full heap)\\\\n");
   #endif
   while (yo_gc_has_gray_objects()) {
     void* obj = yo_gc_pop_gray();
@@ -1092,7 +1353,7 @@ static void yo_gc_concurrent_cycle(void) {
   // Phase 3: Remark (STW - brief)
   // Re-scan shadow stacks and finish marking
   ${debugGc}
-  printf("[GC] Phase 3: Remark (STW)\\n");
+  printf("[GC] Phase 3: Remark (STW)\\\\n");
   #endif
   yo_gc_stop_the_world();
   
@@ -1114,8 +1375,9 @@ static void yo_gc_concurrent_cycle(void) {
   yo_gc_resume_world();
   
   // Phase 4: Concurrent sweep (parallel with mutators)
+  // Sweeps BOTH young and old generations
   ${debugGc}
-  printf("[GC] Phase 4: Concurrent sweep\\n");
+  printf("[GC] Phase 4: Concurrent sweep (full heap)\\\\n");
   #endif
   yo_gc_concurrent_sweep();
   
@@ -1160,8 +1422,8 @@ static void* yo_gc_thread_main(void* arg) {
     
     pthread_mutex_unlock(&yo_gc_work_queue.mutex);
     
-    // Perform GC cycle
-    yo_gc_concurrent_cycle();
+    // Perform major GC cycle (full heap)
+    yo_gc_major_collect();
     
     // Clear in_progress flag
     pthread_mutex_lock(&yo_gc_work_queue.mutex);
@@ -1234,9 +1496,23 @@ static void yo_gc_thread_stop(void) {
 static void yo_gc_maybe_collect(void) {
   size_t heap_size = __atomic_load_n(&yo_gc.total_bytes, __ATOMIC_RELAXED);
   size_t threshold = __atomic_load_n(&yo_gc.gc_threshold, __ATOMIC_RELAXED);
+  size_t young_size = yo_gen_gc.young_bytes;
+  size_t young_threshold = yo_gen_gc.young_threshold;
   
+  // Check if minor GC is needed (young generation full)
+  if (young_size > young_threshold) {
+    // Minor GC is fast enough to run directly (no background thread needed)
+    ${debugGc}
+    printf("[GC] Triggering minor GC (young: %zu bytes, threshold: %zu bytes)\\\\n",
+           young_size, young_threshold);
+    #endif
+    yo_gc_minor_collect();
+    return;
+  }
+  
+  // Check if major GC is needed (total heap pressure)
   if (heap_size > threshold) {
-    // Signal GC thread to run
+    // Signal GC thread to run major GC
     pthread_mutex_lock(&yo_gc_work_queue.mutex);
     
     // Only trigger if GC not already running
@@ -1245,7 +1521,7 @@ static void yo_gc_maybe_collect(void) {
       pthread_cond_signal(&yo_gc_work_queue.cond);
       
       ${debugGc}
-      printf("[GC] Triggered GC (heap: %zu bytes, threshold: %zu bytes)\\n",
+      printf("[GC] Triggered major GC (heap: %zu bytes, threshold: %zu bytes)\\\\n",
              heap_size, threshold);
       #endif
     }

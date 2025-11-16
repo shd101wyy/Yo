@@ -1,0 +1,75 @@
+// Test generational GC behavior
+// This should trigger minor GCs frequently since young generation is only 256KB
+{ printf } :: import "std/libc/stdio.yo";
+{ ArrayList } :: import "std/collections/array_list.yo";
+
+main :: (fn() -> unit) {
+  printf("Testing Generational GC\n");
+  
+  // Allocate many small ArrayList objects to fill young generation (256KB)
+  // Each ArrayList allocates heap memory, triggering GC
+  printf("Allocating 300 ArrayLists to trigger minor GC...\n");
+  
+  i := 0;
+  while (i < 300), {
+    // Create ArrayList with initial capacity - allocates heap memory
+    list := ArrayList(i32).with_capacity((256).as(usize));  // ~1KB allocation
+    
+    // Add some elements
+    list.push(i);
+    list.push((i + 1));
+    list.push((i + 2));
+    
+    i = (i + 1);
+  };
+  
+  printf("Done! Should have triggered multiple minor GCs.\n");
+  
+  // Now allocate some long-lived objects that will survive and get promoted
+  printf("\nAllocating long-lived ArrayLists...\n");
+  
+  long_lived_1 := ArrayList(i32).with_capacity((512).as(usize));
+  long_lived_1.push(100);
+  
+  long_lived_2 := ArrayList(i32).with_capacity((512).as(usize));
+  long_lived_2.push(200);
+  
+  long_lived_3 := ArrayList(i32).with_capacity((512).as(usize));
+  long_lived_3.push(300);
+  
+  // Trigger more minor GCs - long_lived objects should get promoted
+  printf("Allocating more ArrayLists to trigger promotion...\n");
+  
+  j := 0;
+  while (j < 400), {
+    list := ArrayList(i32).with_capacity((256).as(usize));
+    _ := list.push(j);
+    j = (j + 1);
+  };
+  
+  printf("Done! Long-lived objects should have been promoted to old generation.\n");
+  
+  // Verify long-lived objects still have their data
+  v1 := long_lived_1.get((0).as(usize));
+  v2 := long_lived_2.get((0).as(usize));
+  v3 := long_lived_3.get((0).as(usize));
+  
+  match(v1,
+    .Some(val) => { printf("long_lived_1[0] = %d\n", val); },
+    .None => ()
+  );
+  
+  match(v2,
+    .Some(val) => { printf("long_lived_2[0] = %d\n", val); },
+    .None => ()
+  );
+  
+  match(v3,
+    .Some(val) => { printf("long_lived_3[0] = %d\n", val); },
+    .None => ()
+  );
+  
+  printf("\nGenerational GC test complete!\n");
+};
+
+export main;
