@@ -109,3 +109,9 @@ If you meet error like:
       Compilation failed with exit code 1
 
 then it means the `main` function is not exported. Please add `export main;` at the end of the `.yo` file.
+
+If you meet error like:
+
+      error: Unhandled function call: XXX()
+
+then it means the function `XXX` is not type collected correctly.

@@ -1,5 +1,5 @@
 import { Expr, exprIsAtom, exprIsFunctionCall } from "../../expr";
-import { isFunctionType, typeContainsSomeType } from "../../types";
+import { isFunctionType, isUnitType, typeContainsSomeType } from "../../types";
 import {
   isFunctionValue,
   isTypeValue,
@@ -21,6 +21,8 @@ function exprContainsUnknownValue(expr: Expr): boolean {
     // External functions (like printf, gc_collect) are known at codegen time
     if (isFunctionType(expr.$.type) && expr.$.type.isExtern) {
       // return false; // Continue to check args
+    } else if (isUnitType(expr.$.type)) {
+      // Continue to check args
     } else {
       return true;
     }
@@ -32,6 +34,10 @@ function exprContainsUnknownValue(expr: Expr): boolean {
       return true;
     }
     for (const arg of expr.args) {
+      if (arg.$?.type && isUnitType(arg.$.type)) {
+        continue;
+      }
+
       if (exprContainsUnknownValue(arg)) {
         return true;
       }
@@ -40,6 +46,10 @@ function exprContainsUnknownValue(expr: Expr): boolean {
 
   // Check macro expansions
   if (expr.$ && expr.$.macroExpansion) {
+    if (expr.$.type && isUnitType(expr.$.type)) {
+      return false;
+    }
+
     if (exprContainsUnknownValue(expr.$.macroExpansion)) {
       return true;
     }

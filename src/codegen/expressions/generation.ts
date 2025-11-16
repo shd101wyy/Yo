@@ -2461,7 +2461,27 @@ function generateAsyncBlock(
     emitter.emitDeclarationLine(``);
   }
 
-  // Note: We don't need separate await_future_X fields because we use the captured Future variables directly
+  // Add await_future_X fields for await points without captured Future variables
+  // This happens when awaiting pattern-matched variables (e.g., .Some(task) => await task)
+  if (analysis.awaitPoints.length > 0) {
+    const needsFutureFields = analysis.awaitPoints.some(
+      (awaitPoint) => awaitPoint.futureVariableId === undefined
+    );
+    if (needsFutureFields) {
+      emitter.emitDeclarationLine(
+        `  // Future references for pattern-matched awaits`
+      );
+      for (const awaitPoint of analysis.awaitPoints) {
+        if (awaitPoint.futureVariableId === undefined) {
+          emitter.emitDeclarationLine(
+            `  ${futureTypeCName}* await_future_${awaitPoint.index};`
+          );
+        }
+      }
+      emitter.emitDeclarationLine(``);
+    }
+  }
+
   emitter.emitDeclarationLine(`} ${structName};`);
   emitter.emitDeclarationLine(``);
 

@@ -47,12 +47,9 @@ export function getFutureFieldName(
     }
   }
 
-  // This should never happen - if we have an await, we must have captured the Future variable
-  throw new Error(
-    `getFutureFieldName: Could not find captured variable for await point ${awaitPoint.index} ` +
-      `(futureVariableId=${awaitPoint.futureVariableId}). ` +
-      `Captured variables: ${analysis.capturedVariables.map((v) => `${v.id}/${v.name}`).join(", ")}`
-  );
+  // Fallback: If we can't find the variable (e.g., it's a pattern-bound variable from match),
+  // use a dedicated await_future_{index} field
+  return `await_future_${awaitPoint.index}`;
 }
 
 /**

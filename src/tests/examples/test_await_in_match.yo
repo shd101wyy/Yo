@@ -1,0 +1,33 @@
+// Test: await inside match expression
+
+open import "std/libc/stdio.yo";
+
+simple_async_task :: (fn() -> Future(unit))
+  async {
+    printf("Task executed\n");
+  }
+;
+
+test_await_in_match :: (fn() -> Future(unit))
+  async {
+    printf("Test: await in match\n");
+    
+    task_opt: Option(Future(unit));
+    task_opt = .Some(simple_async_task());
+    
+    match(task_opt,
+      .Some(task) => { await task; },
+      .None => ()
+    );
+    
+    printf("Test completed\n");
+  }
+;
+
+main :: (fn() -> unit) {
+  async {
+    await test_await_in_match();
+  };
+};
+
+export main;

@@ -63,6 +63,10 @@ export function generateFunctionDeclarations(
     if (type.isExtern === "c" && type.cInclude) {
       continue; // C extern types with cInclude are defined in header files, no need to generate extern declarations
     }
+    // Skip GCC/Clang atomic builtins - the compiler already knows about them
+    if (cName.startsWith("__atomic_") || cName.startsWith("__sync_")) {
+      continue;
+    }
     generateFunctionDeclaration(type, cName, true, context);
   }
   emitter.emitDeclarationLine("");
