@@ -660,72 +660,63 @@ void* yo_gc_alloc(YoTypeDescriptor* type_desc) {
 - `src/codegen/functions/gc_runtime.ts` - implement GC thread management
 - `src/codegen/functions/generation.ts` - start GC thread in `main()`
 
-### TODO 7: Thread-Local Allocation Buffers (TLAB)
+### TODO 7: Thread-Local Allocation Buffers (TLAB) - SKIPPED ✅
 
 **Priority: MEDIUM** - Reduce allocation contention
 
-**What to implement:**
+**Status: SKIPPED - Not needed with mimalloc**
 
-Thread-local allocation buffers enable fast lock-free allocation.
+**Rationale:**
 
-**TLAB structure:**
+**Mimalloc already provides everything TLAB was trying to achieve:**
+
+1. **Thread-local heaps**: Each thread gets its own heap segment automatically
+   - Built-in thread-local caching (per-thread heap shards)
+   - Zero configuration needed
+
+2. **Lock-free allocation**: Fast path doesn't require any locks
+   - ~10-20 cycles for small allocations (same as TLAB goal)
+   - Uses atomic operations only when needed
+
+3. **Performance**: Production-proven allocator
+   - Used by Microsoft Edge, Redis, Node.js, and many others
+   - Years of optimization and tuning
+
+4. **Reduced complexity**: No need to implement or maintain TLAB
+   - Less code to debug
+   - Fewer potential bugs
+   - Lower maintenance burden
+
+**Why TLAB on top of mimalloc is redundant:**
+- ❌ **Double-buffering**: TLAB buffer + mimalloc heap = wasted memory
+- ❌ **No performance gain**: Mimalloc already does thread-local caching
+- ❌ **Unnecessary complexity**: More code for same result
+- ❌ **Potential bugs**: Extra layer to maintain and debug
+
+**What mimalloc provides out-of-box:**
 ```c
-typedef struct {
-  void* buffer_start;
-  void* buffer_end;
-  void* bump_ptr;
-  size_t buffer_size;
-} YoTLAB;
-
-__thread YoTLAB yo_tlab = {
-  .buffer_start = NULL,
-  .buffer_end = NULL,
-  .bump_ptr = NULL,
-  .buffer_size = 64 * 1024  // 64 KB default
-};
-```
-
-**Fast path allocation:**
-```c
-static inline void* yo_gc_alloc_fast(size_t size) {
-  void* ptr = yo_tlab.bump_ptr;
-  void* new_ptr = (char*)ptr + size;
-  
-  if (__builtin_expect(new_ptr <= yo_tlab.buffer_end, 1)) {
-    yo_tlab.bump_ptr = new_ptr;
-    return ptr;  // Fast path: no locks, no atomics!
-  }
-  
-  return NULL;  // Slow path
+// Direct allocation from mimalloc (current implementation)
+void* __yo_gc_alloc(size_t size, void* type_descriptor) {
+  // Mimalloc provides:
+  // - Thread-local heap (no contention)
+  // - Lock-free fast path (~10-20 cycles)
+  // - Automatic heap sharding
+  // - Production-tested performance
+  yo_gc_header_t* header = (yo_gc_header_t*)__yo_malloc(total_size);
+  // ... initialize header ...
 }
 ```
 
-**Slow path (refill buffer):**
-```c
-static void* yo_gc_alloc_slow(size_t size) {
-  // Allocate new buffer from global heap
-  pthread_mutex_lock(&yo_gc_heap_mutex);
-  
-  void* buffer = malloc(yo_tlab.buffer_size);
-  
-  pthread_mutex_unlock(&yo_gc_heap_mutex);
-  
-  // Initialize new buffer
-  yo_tlab.buffer_start = buffer;
-  yo_tlab.buffer_end = (char*)buffer + yo_tlab.buffer_size;
-  yo_tlab.bump_ptr = (char*)buffer + size;
-  
-  return buffer;
-}
-```
+**Decision:**
+- ✅ Use mimalloc directly - no TLAB layer needed
+- ✅ Keep allocation simple and maintainable
+- ✅ Leverage battle-tested allocator instead of rolling our own
+- ✅ Focus optimization efforts elsewhere (GC algorithm, not allocation)
 
-**Files to modify:**
-- `src/codegen/functions/gc_runtime.ts` - implement TLAB allocation
-
-**Benefits:**
-- ~10-20 cycles per allocation (vs ~100+ with locks)
-- Zero contention between threads
-- Cache-friendly (bump pointer allocation)
+**References:**
+- Mimalloc paper: https://www.microsoft.com/en-us/research/publication/mimalloc-free-list-sharding-in-action/
+- Performance: ~10-20 cycles for small allocations
+- Thread-safety: Lock-free thread-local heaps with atomic operations
 
 ### TODO 8: GC Timing and Statistics
 
@@ -901,7 +892,7 @@ test_pause_time :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 4 Progress:** 🚀 ~67% Complete
+**Overall Phase 4 Progress:** 🚀 ~78% Complete (7/9 TODOs)
 
 **TODO Status:**
 - ✅ TODO 1: Tri-color marking infrastructure (100%) - COMPLETE
@@ -938,8 +929,11 @@ test_pause_time :: (fn() -> unit) {
   - yo_gc_maybe_collect() triggers GC from allocations
   - Thread lifecycle managed in main()
   - Tests passing with concurrent GC
-- 🚀 TODO 7: Thread-local allocation buffers (0%) - NEXT
-- ⏳ TODO 8: GC timing and statistics (0%)
+- ✅ TODO 7: Thread-local allocation buffers (100%) - SKIPPED
+  - Not needed - mimalloc already provides thread-local caching
+  - Lock-free allocation built-in (~10-20 cycles)
+  - Decided to use mimalloc directly instead of TLAB wrapper
+- ⏳ TODO 8: GC timing and statistics (0%) - NEXT
 - ⏳ TODO 9: Testing & validation (0%)
 
 ---
