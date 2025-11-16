@@ -32,6 +32,7 @@ import {
   SliceType,
   StructType,
   Type,
+  typeContainsGcType,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -95,6 +96,68 @@ function checkVariableIsClosureCaptured(
 
   // Check if it's from a captured frame level
   return latestVariable.frameLevel <= closureCaptureFrameLevel;
+}
+
+/**
+ * Register a GC pointer local variable in the shadow frame.
+ * Should be called immediately after emitting a variable declaration.
+ *
+ * Handles variable shadowing by using unique variable IDs instead of names.
+ */
+function registerGcPointerLocal(
+  variableName: string,
+  variableType: Type,
+  indent: string,
+  context: CodeGenContext,
+  env?: Environment
+): void {
+  const functionContext = context as FunctionGenerationContext;
+
+  // Check if shadow frame is active and variable needs registration
+  if (
+    !functionContext.currentFunctionHasShadowFrame ||
+    !functionContext.currentShadowFrameRoots ||
+    functionContext.currentShadowFrameNextIndex === undefined
+  ) {
+    return;
+  }
+
+  // Check if this type contains GC pointers
+  if (!typeContainsGcType(variableType)) {
+    return;
+  }
+
+  // Get unique variable ID to handle shadowing correctly
+  // For temp variables (without env), use the variable name as the ID
+  let variableId: string;
+  if (env) {
+    const variables = getVariablesFromEnv(env, variableName);
+    if (variables.length > 0) {
+      // Use the latest variable's ID (handles shadowing)
+      variableId = variables[variables.length - 1]!.id;
+    } else {
+      // Variable not found in env (shouldn't happen), use name as fallback
+      variableId = variableName;
+    }
+  } else {
+    // No env provided (temp variables), use name as ID
+    variableId = variableName;
+  }
+
+  // Check if variable is already registered using its unique ID
+  if (functionContext.currentShadowFrameRoots.has(variableId)) {
+    return;
+  }
+
+  // Register the variable in the shadow frame using its unique ID
+  const rootIndex = functionContext.currentShadowFrameNextIndex;
+  functionContext.currentShadowFrameRoots.set(variableId, rootIndex);
+  functionContext.currentShadowFrameNextIndex++;
+
+  // Emit the registration using the C variable name
+  context.emitter.emitLine(
+    `${indent}__yo_roots[${rootIndex}] = &${variableName}; // Register GC root`
+  );
 }
 
 /**
@@ -417,6 +480,15 @@ function generateFuncCall(
         context.emitter.emitLine(
           `${indent}${returnType} ${expr.$.variableName} = ${argCode};`
         );
+
+        // Register GC pointer local in shadow frame if needed
+        registerGcPointerLocal(
+          expr.$.variableName,
+          expr.$.type,
+          indent,
+          context,
+          expr.$?.env
+        );
       }
 
       // Check if we're in a state machine - if so, complete the Future instead of returning
@@ -632,6 +704,15 @@ function generateFuncCall(
         context.emitter.emitLine(
           `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
         );
+
+        // Register GC pointer local in shadow frame if needed
+        registerGcPointerLocal(
+          sanitizedVariableName,
+          type,
+          indent,
+          context,
+          expr.$?.env
+        );
       });
       return "";
     }
@@ -711,6 +792,15 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${tempVarType} = ${rhsExprCode};`
                 );
+
+                // Register GC pointer temp variable in shadow frame if needed
+                registerGcPointerLocal(
+                  tempVarName,
+                  rhs.$.type!,
+                  indent,
+                  context,
+                  rhs.$?.env
+                );
               }
             }
 
@@ -731,6 +821,15 @@ function generateFuncCall(
             );
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${rhsCode};`
+            );
+
+            // Register GC pointer local in shadow frame if needed
+            registerGcPointerLocal(
+              varName,
+              lhs.$.type,
+              indent,
+              context,
+              lhs.$?.env
             );
           }
         }
@@ -809,6 +908,15 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${tempVarType} = ${rhsExprCode};`
                 );
+
+                // Register GC pointer temp variable in shadow frame if needed
+                registerGcPointerLocal(
+                  tempVarName,
+                  rhs.$.type!,
+                  indent,
+                  context,
+                  rhs.$?.env
+                );
               }
 
               // Use temp variable for the main assignment
@@ -849,6 +957,15 @@ function generateFuncCall(
             );
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${rhsCode};`
+            );
+
+            // Register GC pointer local in shadow frame if needed
+            registerGcPointerLocal(
+              varName,
+              lhs.$.type,
+              indent,
+              context,
+              lhs.$?.env
             );
           }
         }
@@ -901,10 +1018,28 @@ function generateFuncCall(
           context.emitter.emitLine(
             `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
           );
+
+          // Register GC pointer local in shadow frame if needed
+          registerGcPointerLocal(
+            tempVarName,
+            lhs.$.type,
+            indent,
+            context,
+            lhs.$?.env
+          );
         } else {
           if (!isUnitType(lhs.$.type)) {
             context.emitter.emitLine(
               `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+            );
+
+            // Register GC pointer local in shadow frame if needed
+            registerGcPointerLocal(
+              tempVarName,
+              lhs.$.type,
+              indent,
+              context,
+              lhs.$?.env
             );
           }
         }
@@ -918,12 +1053,22 @@ function generateFuncCall(
 
       if (isInitialization) {
         // For initialization
+        const varName = generateExpr(lhs, indent, context);
         const varTypeAndName = getVariableTypeString(
           lhs.$.type,
-          generateExpr(lhs, indent, context),
+          varName,
           context
         );
         context.emitter.emitLine(`${indent}${varTypeAndName} = ${rhsCode};`);
+
+        // Register GC pointer local in shadow frame if needed
+        registerGcPointerLocal(
+          varName,
+          lhs.$.type,
+          indent,
+          context,
+          lhs.$?.env
+        );
       } else {
         // For assignment to existing array variable, use direct struct assignment
         context.emitter.emitLine(`${indent}${lhsCode} = ${rhsCode};`);
@@ -950,6 +1095,17 @@ function generateFuncCall(
         context.emitter.emitLine(
           `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${rhsCode};`
         );
+
+        // Register GC pointer local in shadow frame if needed (only for initialization)
+        if (isInitialization) {
+          registerGcPointerLocal(
+            lhsCode,
+            lhs.$.type,
+            indent,
+            context,
+            lhs.$?.env
+          );
+        }
       }
     }
 
@@ -978,6 +1134,15 @@ function generateFuncCall(
       if (!isUnitType(valueType) && !expr.$?.controlFlow) {
         context.emitter.emitLine(
           `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
+        );
+
+        // Register GC pointer local in shadow frame if needed
+        registerGcPointerLocal(
+          tempVariableName,
+          valueType,
+          indent,
+          context,
+          expr.$?.env
         );
       }
 
@@ -1173,6 +1338,16 @@ function generateFuncCall(
           context
         );
         context.emitter.emitLine(`${indent}${varTypeAndName} = ${tupleValue};`);
+
+        // Register GC pointer local in shadow frame if needed
+        registerGcPointerLocal(
+          tempVar,
+          expr.$.type,
+          indent,
+          context,
+          expr.$?.env
+        );
+
         return tempVar;
       } else {
         return `(${cName}){ ${argsList} }`;
@@ -1208,6 +1383,16 @@ function generateFuncCall(
           context
         );
         context.emitter.emitLine(`${indent}${varTypeAndName} = ${arrayValue};`);
+
+        // Register GC pointer local in shadow frame if needed
+        registerGcPointerLocal(
+          tempVar,
+          expr.$.type,
+          indent,
+          context,
+          expr.$?.env
+        );
+
         return tempVar;
       } else {
         return `(${arrayTypeName}){ .data = { ${argsList} } }`;
@@ -2912,6 +3097,9 @@ function generateCondExpression(
     if (!isUnit && tempVar) {
       const varType = getTypeString(valueType, context);
       context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
+
+      // Register GC pointer local in shadow frame if needed
+      registerGcPointerLocal(tempVar, valueType, indent, context);
     }
 
     // Generate if-else chain for each condition => value pair
@@ -3173,6 +3361,15 @@ function generateMatchExpression(
   if (!isUnit && tempVariableName) {
     const varType = getTypeString(valueType, context);
     context.emitter.emitLine(`${indent}${varType} ${tempVariableName};`);
+
+    // Register GC pointer local in shadow frame if needed
+    registerGcPointerLocal(
+      tempVariableName,
+      valueType,
+      indent,
+      context,
+      expr.$?.env
+    );
   }
 
   // Generate the matched value

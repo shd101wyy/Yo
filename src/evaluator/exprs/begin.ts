@@ -427,6 +427,9 @@ export function evaluateBeginExpression({
   // and mark it as consumed.
   env = setExprAsConsumed(lastExpr, env);
 
+  // Save the current frame before popping (for shadow stack GC local collection)
+  const currentFrame = env.frames[env.frames.length - 1];
+
   // Now pop the environment frame
   env = popEnvFrame(env);
 
@@ -436,6 +439,7 @@ export function evaluateBeginExpression({
     value: lastExpr.$.value,
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
+    poppedEnvFrame: currentFrame,
   };
 
   attachTempVariableToExpr(expr);

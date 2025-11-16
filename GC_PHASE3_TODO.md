@@ -88,9 +88,19 @@ interface FunctionGcInfo {
 }
 ```
 
-### TODO 3: Generate Shadow Frame Setup
+### TODO 3: Generate Shadow Frame Setup ✅ COMPLETE
 
 **Priority: HIGH** - Core shadow stack functionality
+
+**Status: COMPLETE** - Dynamic registration implemented and working!
+
+**Implementation details:**
+- Shadow frames allocated on C stack at function entry
+- Parameters pre-registered in shadow frame setup
+- Local variables registered dynamically during code generation
+- Uses `registerGcPointerLocal()` helper function called after each variable declaration
+- Handles variable shadowing correctly by using unique variable IDs
+- Properly filters GC pointer types using `typeContainsGcType()` from utils.ts
 
 **What to generate at function entry:**
 ```c
@@ -130,9 +140,11 @@ YoNode* process(int32_t x) {
 3. Initialize all GC pointer locals to `NULL`
 4. Populate `__yo_roots` array with addresses of locals
 
-### TODO 4: Generate Shadow Frame Teardown
+### TODO 4: Generate Shadow Frame Teardown ✅ COMPLETE
 
 **Priority: HIGH** - Must restore stack on function exit
+
+**Status: COMPLETE** - Shadow frame properly torn down before returns
 
 **What to generate at function exit:**
 ```c
@@ -311,16 +323,23 @@ test_cycle_with_roots :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 3 Progress:** 🚀 ~25% Complete
+**Overall Phase 3 Progress:** 🚀 ~50% Complete
 
 **TODO Status:**
 - ✅ TODO 1: Shadow stack data structures (100%) - COMPLETE
 - ✅ TODO 2: Identify GC pointer locals (100%) - COMPLETE
-- ⏳ TODO 3: Generate shadow frame setup (0%)
-- ⏳ TODO 4: Generate shadow frame teardown (0%)
+- ✅ TODO 3: Generate shadow frame setup (100%) - COMPLETE
+  - Dynamic local registration working
+  - Variables properly registered in shadow frames
+  - Handles shadowing correctly using variable IDs
+- ✅ TODO 4: Generate shadow frame teardown (100%) - COMPLETE
 - ⏳ TODO 5: Optimization - leaf functions (0%)
 - ⏳ TODO 6: Handle nested scopes (0%)
-- ⏳ TODO 7: Testing & validation (0%)
+- 🔄 TODO 7: Testing & validation (20%) - Basic test passing
+  - ✅ Basic shadow stack test working (fixme.yo)
+  - ⏳ Nested function calls
+  - ⏳ Multiple GC pointer locals
+  - ⏳ Cycles with shadow stack
 - ⏳ TODO 8: Debug support (0%)
 
 ---
@@ -332,10 +351,10 @@ test_cycle_with_roots :: (fn() -> unit) {
 2. TODO 2: Identify GC pointer locals
 3. Initial testing (verify identification works)
 
-**Week 2: Core Implementation**
-4. TODO 3: Generate shadow frame setup
-5. TODO 4: Generate shadow frame teardown
-6. TODO 7: Basic testing (simple cases)
+**Week 2: Core Implementation** ✅ COMPLETE
+4. ✅ TODO 3: Generate shadow frame setup
+5. ✅ TODO 4: Generate shadow frame teardown
+6. 🔄 TODO 7: Basic testing (simple cases) - First test passing!
 
 **Week 3: Optimization & Edge Cases**
 7. TODO 5: Leaf function optimization

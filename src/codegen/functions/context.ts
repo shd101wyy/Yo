@@ -18,6 +18,9 @@ export interface FunctionGenerationContext extends CodeGenContext {
   >;
   currentFunctionName: string;
   currentFunctionType?: FunctionType; // Type of the current function being generated
+  currentFunctionHasShadowFrame?: boolean; // True if current function has shadow frame for GC roots
+  currentShadowFrameRoots?: Map<string, number>; // Variable name -> root index mapping for shadow frame
+  currentShadowFrameNextIndex?: number; // Next available index in the roots array
   currentClosureCaptures?: string[]; // Variables captured by current closure function
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
   currentClosureType?: ClosureType; // Current closure type being generated

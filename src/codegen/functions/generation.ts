@@ -1,3 +1,4 @@
+import { Frame, Variable } from "../../env";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -295,46 +296,109 @@ int main(void) {
 }
 
 /**
- * Collect all GC pointer local variables from a function body.
- * This scans the function's environment to find variables that contain GC pointers.
+ * Collect all GC pointer parameters from a function.
+ * We only pre-register parameters because they're already declared in the function signature.
+ * Local variables will be registered dynamically during expression generation.
  *
  * @param body - The function body expression
- * @returns Array of GC pointer local variable names
+ * @param functionType - The function type (to identify parameters)
+ * @returns Array of GC pointer function parameters
  */
-function collectGcPointerLocals(body: Expr): string[] {
-  const gcLocals: string[] = [];
+function collectGcPointerParameters(
+  body: Expr,
+  functionType: FunctionType
+): Variable[] {
+  const gcParameters: Variable[] = [];
   const seen = new Set<string>();
 
-  // Get the environment from the body expression
-  if (!body.$?.env) {
+  // Get module path from body
+  const modulePath = body.$?.env.modulePath || "";
+
+  // Only scan the first frame (function parameters)
+  if (!body.$?.env || body.$?.env.frames.length === 0) {
     return [];
   }
 
-  const env = body.$.env;
+  const firstFrame = body.$.env.frames[0]!;
+  for (const variable of firstFrame.variables) {
+    // Skip if already seen
+    if (seen.has(variable.id)) {
+      continue;
+    }
+    seen.add(variable.id);
 
-  // Scan all variables in all frames
-  for (const frame of env.frames) {
-    for (const variable of frame.variables) {
-      // Skip if we've already seen this variable ID
-      if (seen.has(variable.id)) {
-        continue;
-      }
-      seen.add(variable.id);
+    // Skip compile-time only variables
+    if (variable.isCompileTimeOnly) {
+      continue;
+    }
 
-      // Skip compile-time only variables (they don't exist at runtime)
-      if (variable.isCompileTimeOnly) {
-        continue;
-      }
+    // Skip temp variables
+    if (isTempVariableName(modulePath, variable.name)) {
+      continue;
+    }
 
-      // Check if the variable's type contains GC pointers
-      // This handles both direct GC types and structs containing GC types
-      if (typeContainsGcType(variable.type)) {
-        gcLocals.push(variable.name);
-      }
+    // Only collect function parameters
+    const isParameter = functionType.parameters.some(
+      (p) => p.label === variable.name
+    );
+    if (!isParameter) {
+      continue;
+    }
+
+    // Check if the variable's type contains GC pointers
+    if (typeContainsGcType(variable.type)) {
+      gcParameters.push(variable);
     }
   }
 
-  return gcLocals;
+  return gcParameters;
+}
+
+/**
+ * Count total GC pointer locals (both parameters and local variables) from function body.
+ * This is used to determine the roots array size.
+ */
+function countTotalGcPointerLocals(
+  body: Expr,
+  _functionType: FunctionType
+): number {
+  const seen = new Set<string>();
+  const modulePath = body.$?.env.modulePath || "";
+  let count = 0;
+
+  const countFromFrame = (frame: Frame) => {
+    for (const variable of frame.variables) {
+      if (seen.has(variable.id)) continue;
+      seen.add(variable.id);
+
+      if (variable.isCompileTimeOnly) continue;
+      if (isTempVariableName(modulePath, variable.name)) continue;
+      if (typeContainsGcType(variable.type)) {
+        count++;
+      }
+    }
+  };
+
+  const scanExpr = (expr: Expr): void => {
+    if (!expr.$) return;
+    if (expr.$.poppedEnvFrame) {
+      countFromFrame(expr.$.poppedEnvFrame);
+    }
+    if (exprIsFunctionCall(expr)) {
+      for (const arg of expr.args) {
+        scanExpr(arg);
+      }
+    }
+  };
+
+  if (body.$?.env) {
+    for (const frame of body.$.env.frames) {
+      countFromFrame(frame);
+    }
+  }
+
+  scanExpr(body);
+  return count;
 }
 
 /**
@@ -366,55 +430,46 @@ export function generateFunction(
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
-  // Collect GC pointer locals for shadow stack (Phase 3)
-  const gcPointerLocals = collectGcPointerLocals(functionValue.body);
-  const needsShadowFrame = gcPointerLocals.length > 0;
+  // Collect GC pointer parameters and count total locals for shadow stack (Phase 3)
+  const gcPointerParameters = collectGcPointerParameters(
+    functionValue.body,
+    functionType
+  );
+  const totalGcLocals = countTotalGcPointerLocals(
+    functionValue.body,
+    functionType
+  );
+  const needsShadowFrame = totalGcLocals > 0;
 
   // Generate shadow frame setup if needed (Phase 3 TODO 3)
   if (needsShadowFrame) {
+    // Set flag so generateFunctionBody knows to emit teardown
+    context.currentFunctionHasShadowFrame = true;
+
+    // Initialize shadow frame roots tracking
+    context.currentShadowFrameRoots = new Map<string, number>();
+    context.currentShadowFrameNextIndex = 0;
+
     emitter.emitLine(`  // Shadow frame setup`);
     emitter.emitLine(`  YoShadowFrame __yo_shadow_frame;`);
-    emitter.emitLine(`  void* __yo_roots[${gcPointerLocals.length}];`);
+    emitter.emitLine(`  void* __yo_roots[${totalGcLocals}];`);
     emitter.emitLine(`  __yo_shadow_frame.prev = yo_shadow_stack_top;`);
     emitter.emitLine(`  __yo_shadow_frame.roots = __yo_roots;`);
-    emitter.emitLine(
-      `  __yo_shadow_frame.num_roots = ${gcPointerLocals.length};`
-    );
+    emitter.emitLine(`  __yo_shadow_frame.num_roots = ${totalGcLocals};`);
     emitter.emitLine(`  __yo_shadow_frame.function_name = "${cFunctionName}";`);
     emitter.emitLine(`  yo_shadow_stack_top = &__yo_shadow_frame;`);
     emitter.emitLine(``);
 
-    // Initialize GC pointer locals to NULL and register in roots array
-    for (let i = 0; i < gcPointerLocals.length; i++) {
-      const localName = gcPointerLocals[i]!;
-      const sanitizedName = sanitizeForCIdentifier(localName);
-
-      // Find the variable in the environment to get its type
-      const env = functionValue.body.$?.env;
-      if (env) {
-        for (const frame of env.frames) {
-          const variable = frame.variables.find((v) => v.name === localName);
-          if (variable && !variable.isCompileTimeOnly) {
-            // Skip function parameters - they're already declared
-            const isParameter = functionType.parameters.some(
-              (p) => p.label === localName
-            );
-            if (isParameter) {
-              // Just register the parameter in roots array, don't declare it
-              emitter.emitLine(`  __yo_roots[${i}] = &${sanitizedName};`);
-            } else {
-              // Declare and initialize local variable, then register in roots array
-              const varType = getTypeString(variable.type, context);
-              emitter.emitLine(`  ${varType} ${sanitizedName} = NULL;`);
-              emitter.emitLine(`  __yo_roots[${i}] = &${sanitizedName};`);
-            }
-            break;
-          }
-        }
-      }
+    // Register GC pointer parameters in roots array (they're already declared)
+    for (const variable of gcPointerParameters) {
+      const sanitizedName = sanitizeForCIdentifier(variable.name);
+      const rootIndex = context.currentShadowFrameNextIndex!;
+      context.currentShadowFrameRoots.set(variable.name, rootIndex);
+      context.currentShadowFrameNextIndex!++;
+      emitter.emitLine(`  __yo_roots[${rootIndex}] = &${sanitizedName};`);
     }
 
-    if (gcPointerLocals.length > 0) {
+    if (gcPointerParameters.length > 0) {
       emitter.emitLine(``);
     }
   }
@@ -465,6 +520,15 @@ export function generateFunction(
   // Generate function body with proper return handling
   generateFunctionBody(functionValue.body, functionType, "  ", context);
 
+  // Generate shadow frame teardown before function end (for functions without explicit return)
+  // This handles the case where the function has unit return type or falls through
+  generateShadowFrameTeardown("  ", context);
+
+  // Clear shadow frame flag and tracking state
+  context.currentFunctionHasShadowFrame = false;
+  context.currentShadowFrameRoots = undefined;
+  context.currentShadowFrameNextIndex = undefined;
+
   // Restore previous function name, type, and closure captures
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
@@ -477,6 +541,21 @@ export function generateFunction(
     previousClosureCaptureTypeCName;
 
   emitter.emitLine(`}`);
+}
+
+/**
+ * Generate shadow frame teardown code if needed
+ */
+function generateShadowFrameTeardown(
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  // Check if we're in a function with a shadow frame
+  if (context.currentFunctionHasShadowFrame) {
+    context.emitter.emitLine(
+      `${indent}yo_shadow_stack_top = __yo_shadow_frame.prev;`
+    );
+  }
 }
 
 /**
@@ -536,6 +615,7 @@ export function generateFunctionBody(
         if (isAsyncBlock) {
           // Last expression is an async block - return it directly
           const resultCode = generateExpr(lastExpr, indent, context);
+          generateShadowFrameTeardown(indent, context);
           emitter.emitLine(`${indent}return ${resultCode};`);
         } else {
           // For async functions, wrap the return value in a Future
@@ -587,6 +667,7 @@ export function generateFunctionBody(
             emitter.emitLine(`${indent}_yo_future->result = _yo_async_result;`);
           }
 
+          generateShadowFrameTeardown(indent, context);
           emitter.emitLine(`${indent}return _yo_future;`);
         }
       } else if (lastExpr && isUnitType(functionType.return.type)) {
@@ -619,6 +700,7 @@ export function generateFunctionBody(
           }
         } else {
           // For other functions, return the last expression
+          generateShadowFrameTeardown(indent, context);
           generateReturnStatement(lastExpr, indent, context);
         }
       }
@@ -641,6 +723,7 @@ export function generateFunctionBody(
       }
     } else {
       // For other functions, return the expression
+      generateShadowFrameTeardown(indent, context);
       generateReturnStatement(expr, indent, context);
     }
   }
