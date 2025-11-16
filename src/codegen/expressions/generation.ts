@@ -2407,7 +2407,9 @@ function generateFuncCall(
   }
 
   if (exprIsFunctionCall(expr)) {
-    throw new Error(`Unhandled function call: ${exprToString(expr)}`);
+    throw new Error(`Unhandled function call: ${exprToString(expr)}
+
+This usually means the function type is not collected properly.`);
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;

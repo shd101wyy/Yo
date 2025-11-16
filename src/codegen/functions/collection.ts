@@ -20,7 +20,7 @@ function exprContainsUnknownValue(expr: Expr): boolean {
     // If the expression has a function type that is extern, it's not truly unknown
     // External functions (like printf, gc_collect) are known at codegen time
     if (isFunctionType(expr.$.type) && expr.$.type.isExtern) {
-      // return false; // Continue to check args
+      // Continue to check args
     } else if (isUnitType(expr.$.type)) {
       // Continue to check args
     } else {
@@ -130,6 +130,7 @@ export function findFunctionCallsInExpr(
     if (isFunctionType(functionType)) {
       if (isFunctionValue(functionValue)) {
         // Skip collecting functions that have generic types
+        // Note: Extern types like YO_THREAD_SYNC_TYPE are excluded by typeContainsSomeType
         if (
           typeContainsSomeType(functionValue.type) &&
           !functionValue.specializedType
@@ -198,7 +199,6 @@ export function findFunctionCallsInExpr(
       ) {
         return;
       }
-
       if (context.functions[functionValue.funcId]) {
         // Already collected this function
         return;

@@ -186,6 +186,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
   }
 
   // Skip collecting any types that contain SomeType (generic type parameters)
+  // Note: Extern types like YO_THREAD_SYNC_TYPE are excluded by typeContainsSomeType
   if (typeContainsSomeType(type)) {
     return;
   }

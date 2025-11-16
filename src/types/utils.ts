@@ -157,6 +157,8 @@ export function typeContainsGcType(
 
 /**
  * Check if a type contains SomeType.
+ * Extern types (like YO_THREAD_SYNC_TYPE) are represented as SomeType but are concrete at codegen time,
+ * so they are excluded from this check.
  */
 export function typeContainsSomeType(
   type?: Type,
@@ -174,6 +176,15 @@ export function typeContainsSomeType(
 
   // Check if the type is a SomeType
   if (isSomeType(type)) {
+    // If it's an extern type, it's concrete at codegen time, so don't count it
+    // eg:
+    //
+    //    extern("yo", YO_THREAD_SYNC_TYPE: Type);
+    //
+    // YO_THREAD_SYNC_TYPE is SomeType but concrete
+    if (type.isExtern) {
+      return false;
+    }
     return true;
   }
 
