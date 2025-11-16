@@ -298,7 +298,12 @@ int main(void) {
   // This ensures any async blocks spawned in main finish before exit
   __yo_async_wait_all();
   
-  // Stop GC thread before exit
+  // Run final GC collection to ensure all dispose functions are called
+  // This provides deterministic cleanup of resources (files, connections, etc.)
+  // Do this BEFORE stopping GC thread so GC infrastructure is still active
+  __yo_gc_collect();
+  
+  // Stop GC thread after final collection
   yo_gc_thread_stop();
   
   // Print GC statistics if debug-gc enabled
@@ -472,14 +477,17 @@ export function generateFunction(
     emitter.emitLine(`  // Shadow frame setup`);
     emitter.emitLine(`  YoShadowFrame __yo_shadow_frame;`);
     emitter.emitLine(`  void* __yo_roots[${totalGcLocals}];`);
+    emitter.emitLine(`  YoTypeDescriptor* __yo_root_types[${totalGcLocals}];`);
 
     // Initialize all roots to NULL to prevent GC from scanning uninitialized pointers
     for (let i = 0; i < totalGcLocals; i++) {
       emitter.emitLine(`  __yo_roots[${i}] = NULL;`);
+      emitter.emitLine(`  __yo_root_types[${i}] = NULL;`);
     }
 
     emitter.emitLine(`  __yo_shadow_frame.prev = yo_shadow_stack_top;`);
     emitter.emitLine(`  __yo_shadow_frame.roots = __yo_roots;`);
+    emitter.emitLine(`  __yo_shadow_frame.root_types = __yo_root_types;`);
     emitter.emitLine(`  __yo_shadow_frame.num_roots = ${totalGcLocals};`);
     emitter.emitLine(`  __yo_shadow_frame.function_name = "${cFunctionName}";`);
     emitter.emitLine(`  yo_shadow_stack_top = &__yo_shadow_frame;`);
@@ -492,6 +500,7 @@ export function generateFunction(
       context.currentShadowFrameRoots.set(variable.name, rootIndex);
       context.currentShadowFrameNextIndex!++;
       emitter.emitLine(`  __yo_roots[${rootIndex}] = &${sanitizedName};`);
+      // root_types[rootIndex] remains NULL for direct GC pointers
     }
 
     if (gcPointerParameters.length > 0) {
@@ -1022,7 +1031,7 @@ export function generateClosureVtableDeclarations(
 }
 
 /**
- * Generate traversal functions for objects (used by GC for marking)
+ * Generate traversal functions for objects and value types (used by GC for marking)
  */
 function generateRefStructTraversalFunctions(
   context: FunctionGenerationContext
@@ -1031,7 +1040,14 @@ function generateRefStructTraversalFunctions(
 
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
-    if (isStructType(type) && type.isReferenceSemantics) {
+    // Generate traverse functions for:
+    // 1. Object types (reference semantics)
+    // 2. Value types containing GC pointers (needed for shadow frame traversal)
+    if (
+      isStructType(type) &&
+      (type.isReferenceSemantics ||
+        (!type.isReferenceSemantics && typeContainsGcType(type)))
+    ) {
       // Skip generic structs that contain SomeType parameters
       const hasGenericTypes = type.fields.some((field) =>
         typeContainsSomeType(field.type)
@@ -1043,10 +1059,13 @@ function generateRefStructTraversalFunctions(
 
       // Generate traversal function for this struct type
       const traversalFunctionName = `__yo_traverse_${cName}`;
+      const structTypeName = type.isReferenceSemantics
+        ? cName
+        : `struct ${cName}_struct`;
       emitter.emitLine(
         `void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
       );
-      emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
+      emitter.emitLine(`  ${structTypeName}* obj = (${structTypeName}*)ptr;`);
 
       // Visit each reference field in the struct
       for (const field of type.fields) {

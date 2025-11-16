@@ -57,14 +57,45 @@ export function generateTypeDescriptorDeclarations(
   emitter.emitDeclarationLine(
     `  void (*finalizer)(void*);   // Dispose function`
   );
+  emitter.emitDeclarationLine(
+    `  void (*traverse_fn)(void*, void (*)(void*)); // Traverse function for marking GC pointers`
+  );
   emitter.emitDeclarationLine(`} YoTypeDescriptor;`);
   emitter.emitDeclarationLine(``);
 
+  // Forward declare traverse functions for value types with GC pointers
+  emitter.emitDeclarationLine(`// Forward declarations for traverse functions`);
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (
+      isStructType(type) &&
+      !type.isReferenceSemantics &&
+      typeContainsGcType(type)
+    ) {
+      emitter.emitDeclarationLine(
+        `void __yo_traverse_${cName}(void* ptr, void (*visit)(void*));`
+      );
+    }
+    // Also for object types
+    if (isStructType(type) && type.isReferenceSemantics) {
+      emitter.emitDeclarationLine(
+        `void __yo_traverse_${cName}(void* ptr, void (*visit)(void*));`
+      );
+    }
+  }
+  emitter.emitDeclarationLine(``);
+
   // Generate type descriptors for each GC-managed type
+  // Also generate for value types that contain GC pointers (needed for shadow frame traversal)
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
 
-    if (isGcType(type)) {
+    if (
+      isGcType(type) ||
+      (isStructType(type) &&
+        !type.isReferenceSemantics &&
+        typeContainsGcType(type))
+    ) {
       generateTypeDescriptor(type, cName, context);
     }
   }
@@ -85,9 +116,15 @@ function generateTypeDescriptor(
   const gcPointerFields = collectGcPointerFields(type, cName, context);
 
   if (gcPointerFields.length === 0) {
-    // Type has no GC pointers - generate descriptor with NULL pointer_offsets
+    // Type has no direct GC pointer fields
+    // For value types with nested GC pointers, we still need a traverse function
+    const isValueTypeWithGcPointers =
+      isStructType(type) &&
+      !type.isReferenceSemantics &&
+      typeContainsGcType(type);
+
     emitter.emitDeclarationLine(
-      `// Type descriptor for ${cName} (no GC pointers)`
+      `// Type descriptor for ${cName} ${isValueTypeWithGcPointers ? "(value type with GC pointers)" : "(no GC pointers)"}`
     );
     emitter.emitDeclarationLine(
       `static YoTypeDescriptor ${descriptorName} = {`
@@ -99,8 +136,16 @@ function generateTypeDescriptor(
     emitter.emitDeclarationLine(`  .pointer_count = 0,`);
     emitter.emitDeclarationLine(`  .pointer_offsets = NULL,`);
     emitter.emitDeclarationLine(
-      `  .finalizer = NULL  // Set during object construction`
+      `  .finalizer = NULL,  // Set during object construction`
     );
+
+    // Set traverse function for value types with GC pointers
+    if (isValueTypeWithGcPointers) {
+      emitter.emitDeclarationLine(`  .traverse_fn = __yo_traverse_${cName}`);
+    } else {
+      emitter.emitDeclarationLine(`  .traverse_fn = NULL`);
+    }
+
     emitter.emitDeclarationLine(`};`);
     emitter.emitDeclarationLine(``);
     return;
@@ -132,8 +177,16 @@ function generateTypeDescriptor(
   emitter.emitDeclarationLine(`  .pointer_count = ${gcPointerFields.length},`);
   emitter.emitDeclarationLine(`  .pointer_offsets = ${offsetsArrayName},`);
   emitter.emitDeclarationLine(
-    `  .finalizer = NULL  // Set during object construction`
+    `  .finalizer = NULL,  // Set during object construction`
   );
+
+  // For value types with GC pointers, set the traverse function
+  if (isStructType(type) && !type.isReferenceSemantics) {
+    emitter.emitDeclarationLine(`  .traverse_fn = __yo_traverse_${cName}`);
+  } else {
+    emitter.emitDeclarationLine(`  .traverse_fn = NULL`);
+  }
+
   emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(``);
 }

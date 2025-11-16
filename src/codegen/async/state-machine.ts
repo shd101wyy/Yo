@@ -5,7 +5,13 @@
  */
 
 import { Expr, exprIsFunctionCallOf } from "../../expr";
-import { FutureType, isUnitType, StructType } from "../../types";
+import {
+  FutureType,
+  isStructType,
+  isUnitType,
+  StructType,
+  typeContainsGcType,
+} from "../../types";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
@@ -99,6 +105,20 @@ export function getStateMachineFieldName(
 }
 
 /**
+ * Generates shadow frame teardown code if needed.
+ */
+function generateAsyncShadowFrameTeardown(
+  indent: string,
+  needsShadowFrame: boolean,
+  emitter: any
+): void {
+  if (needsShadowFrame) {
+    emitter.emitLine(`${indent}// Shadow frame teardown`);
+    emitter.emitLine(`${indent}yo_shadow_stack_top = __yo_shadow_frame.prev;`);
+  }
+}
+
+/**
  * Generates the resume function implementation for an async block state machine.
  * This is the canonical implementation used for all async code (functions are just syntax sugar).
  */
@@ -120,8 +140,111 @@ export function generateAsyncBlockResumeFunction(
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
+  // Calculate which state machine fields need to be in the shadow frame
+  // Fields that contain GC pointers (either direct pointers or value types containing pointers)
+  const gcRootFields: { fieldName: string; variable: CapturedVariable }[] = [];
+
+  // Check captured variables for GC pointers
+  for (const v of analysis.capturedVariables) {
+    if (typeContainsGcType(v.type)) {
+      const fieldName =
+        v.kind === "outer"
+          ? `__capture.${sanitizeForCIdentifier(v.name)}`
+          : sanitizeForCIdentifier(`var_${v.id}`);
+      gcRootFields.push({ fieldName, variable: v });
+    }
+  }
+
+  // Also check outer captured variables from capture struct
+  if (captureType) {
+    for (const field of captureType.fields) {
+      if (typeContainsGcType(field.type)) {
+        // Check if not already processed
+        const fieldName = `__capture.${sanitizeForCIdentifier(field.label)}`;
+        const alreadyProcessed = analysis.capturedVariables.some(
+          (v) => v.kind === "outer" && v.name === field.label
+        );
+        if (!alreadyProcessed) {
+          gcRootFields.push({
+            fieldName,
+            variable: {
+              id: field.label,
+              name: field.label,
+              type: field.type,
+              kind: "outer",
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // Always include sm->result (the Future itself)
+  gcRootFields.push({
+    fieldName: "result",
+    variable: {
+      id: "result",
+      name: "result",
+      type: futureType,
+      kind: "local",
+    },
+  });
+
+  const totalGcRoots = gcRootFields.length;
+  const needsShadowFrame = totalGcRoots > 0;
+
   emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
   emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
+
+  // Set up shadow frame if needed
+  if (needsShadowFrame) {
+    emitter.emitLine(`  // Shadow frame setup for state machine GC roots`);
+    emitter.emitLine(`  YoShadowFrame __yo_shadow_frame;`);
+    emitter.emitLine(`  void* __yo_roots[${totalGcRoots}];`);
+    emitter.emitLine(`  YoTypeDescriptor* __yo_root_types[${totalGcRoots}];`);
+
+    // Initialize roots array with pointers to state machine fields
+    // and type descriptors for value types
+    for (let i = 0; i < gcRootFields.length; i++) {
+      const { fieldName, variable } = gcRootFields[i]!;
+      const varType = variable.type;
+
+      emitter.emitLine(`  __yo_roots[${i}] = &sm->${fieldName};`);
+
+      // Check if this is a value type that needs traverse function
+      if (
+        isStructType(varType) &&
+        !varType.isReferenceSemantics &&
+        typeContainsGcType(varType)
+      ) {
+        // Value type containing GC pointers - need type descriptor for traverse function
+        const typeEntry = context.types[varType.id];
+        if (typeEntry) {
+          emitter.emitLine(
+            `  __yo_root_types[${i}] = &${typeEntry.cName}_type_descriptor;`
+          );
+        } else {
+          emitter.emitLine(
+            `  __yo_root_types[${i}] = NULL; // Type descriptor not found`
+          );
+        }
+      } else {
+        // Direct GC pointer or reference type - no type descriptor needed
+        emitter.emitLine(`  __yo_root_types[${i}] = NULL;`);
+      }
+    }
+
+    emitter.emitLine(`  __yo_shadow_frame.prev = yo_shadow_stack_top;`);
+    emitter.emitLine(`  __yo_shadow_frame.roots = __yo_roots;`);
+    emitter.emitLine(`  __yo_shadow_frame.root_types = __yo_root_types;`);
+    emitter.emitLine(`  __yo_shadow_frame.num_roots = ${totalGcRoots};`);
+    emitter.emitLine(
+      `  __yo_shadow_frame.function_name = "${resumeFunctionName}";`
+    );
+    emitter.emitLine(`  yo_shadow_stack_top = &__yo_shadow_frame;`);
+    emitter.emitLine(``);
+  }
+
   emitter.emitLine(
     `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
   );
@@ -239,6 +362,7 @@ export function generateAsyncBlockResumeFunction(
       emitter.emitLine(
         `        yo_async_register_continuation((void*)sm->${futureFieldName}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
       );
+      generateAsyncShadowFrameTeardown("        ", needsShadowFrame, emitter);
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      }`);
     } else if (isLastSegment) {
@@ -311,6 +435,7 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(
           `      sm->state = ${stateNumber + 1};  // Terminal state`
         );
+        generateAsyncShadowFrameTeardown("      ", needsShadowFrame, emitter);
         emitter.emitLine(`      return;`);
       }
 

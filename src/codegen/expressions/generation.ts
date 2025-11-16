@@ -2653,7 +2653,7 @@ function generateAsyncBlockConstructor(
   // Allocate state machine
   emitter.emitLine(`  // Allocate async block state machine`);
   emitter.emitLine(
-    `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`
+    `  ${structName}* sm = (${structName}*)__yo_calloc(1, sizeof(${structName}));`
   );
   emitter.emitLine(`  sm->state = 0;`);
   emitter.emitLine(``);

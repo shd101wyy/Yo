@@ -366,7 +366,8 @@ static inline void yo_write_barrier_object(void* obj) {
  */
 typedef struct YoShadowFrame {
   struct YoShadowFrame* prev;   // Previous frame (caller's frame)
-  void** roots;                 // Array of pointers to GC pointer locals
+  void** roots;                 // Array of pointers to GC pointer locals or value types containing GC pointers
+  YoTypeDescriptor** root_types; // Array of type descriptors for each root (NULL for direct GC pointers)
   size_t num_roots;             // Number of roots in this frame
   const char* function_name;    // Function name (for debugging)
 } YoShadowFrame;
@@ -400,17 +401,36 @@ static void yo_gc_scan_shadow_stack(void) {
     
     // Scan all roots in this frame
     for (size_t i = 0; i < frame->num_roots; i++) {
-      // frame->roots[i] is a pointer to a local variable (void*)
-      // Dereference it to get the object pointer (cast to void** first)
-      void* obj = *(void**)frame->roots[i];
+      YoTypeDescriptor* root_type = frame->root_types ? frame->root_types[i] : NULL;
       
-      ${debugGc}
-      total_roots++;
-      printf("[GC]     Root[%zu]: %p\\n", i, obj);
-      #endif
-      
-      if (obj != NULL) {
-        yo_gc_mark_object(obj);
+      if (root_type != NULL && root_type->traverse_fn != NULL) {
+        // This is a value type containing GC pointers - use traverse function
+        // frame->roots[i] points to the value type itself
+        void* value_ptr = frame->roots[i];
+        
+        ${debugGc}
+        total_roots++;
+        printf("[GC]     Root[%zu] (value type %s): %p\\n", i, root_type->name, value_ptr);
+        #endif
+        
+        if (value_ptr != NULL) {
+          // Call traverse function to mark all GC pointers within the value type
+          root_type->traverse_fn(value_ptr, yo_gc_mark_object);
+        }
+      } else {
+        // This is a direct GC pointer - dereference to get the object
+        // frame->roots[i] is a pointer to a local variable (void*)
+        // Dereference it to get the object pointer (cast to void** first)
+        void* obj = *(void**)frame->roots[i];
+        
+        ${debugGc}
+        total_roots++;
+        printf("[GC]     Root[%zu]: %p\\n", i, obj);
+        #endif
+        
+        if (obj != NULL) {
+          yo_gc_mark_object(obj);
+        }
       }
     }
   }
@@ -681,6 +701,17 @@ static void yo_gc_mark_children_concurrent(void* obj_ptr) {
 /**
  * Scan shadow stack and mark roots as GRAY (for concurrent marking)
  */
+// Helper to mark object as GRAY (used by traverse functions in concurrent GC)
+static void yo_gc_mark_gray_visitor(void* obj) {
+  if (obj != NULL && yo_gc_get_color(obj) == YO_GC_WHITE) {
+    yo_gc_set_color(obj, YO_GC_GRAY);
+    yo_gc_push_gray(obj);
+  }
+}
+
+/**
+ * Scan shadow stack concurrently and mark roots as GRAY
+ */
 static void yo_gc_scan_shadow_stack_concurrent(void) {
   ${debugGc}
   size_t total_frames = 0;
@@ -703,17 +734,35 @@ static void yo_gc_scan_shadow_stack_concurrent(void) {
       // Skip NULL root entries (uninitialized/unregistered locals)
       if (frame->roots[i] == NULL) continue;
       
-      void* obj = *(void**)frame->roots[i];
+      YoTypeDescriptor* root_type = frame->root_types ? frame->root_types[i] : NULL;
       
-      ${debugGc}
-      total_roots++;
-      printf("[GC]     Root[%zu]: %p\\n", i, obj);
-      #endif
-      
-      // Mark root as GRAY if WHITE
-      if (obj != NULL && yo_gc_get_color(obj) == YO_GC_WHITE) {
-        yo_gc_set_color(obj, YO_GC_GRAY);
-        yo_gc_push_gray(obj);
+      if (root_type != NULL && root_type->traverse_fn != NULL) {
+        // This is a value type containing GC pointers - use traverse function
+        void* value_ptr = frame->roots[i];
+        
+        ${debugGc}
+        total_roots++;
+        printf("[GC]     Root[%zu] (value type %s): %p\\n", i, root_type->name, value_ptr);
+        #endif
+        
+        if (value_ptr != NULL) {
+          // Call traverse function with a visitor that marks objects GRAY
+          root_type->traverse_fn(value_ptr, yo_gc_mark_gray_visitor);
+        }
+      } else {
+        // This is a direct GC pointer
+        void* obj = *(void**)frame->roots[i];
+        
+        ${debugGc}
+        total_roots++;
+        printf("[GC]     Root[%zu]: %p\\n", i, obj);
+        #endif
+        
+        // Mark root as GRAY if WHITE
+        if (obj != NULL && yo_gc_get_color(obj) == YO_GC_WHITE) {
+          yo_gc_set_color(obj, YO_GC_GRAY);
+          yo_gc_push_gray(obj);
+        }
       }
     }
   }
