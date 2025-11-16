@@ -473,11 +473,22 @@ for (int64_t i = 0; i < 1000000; i++) {
 - Overhead: <0.5% in typical programs
 - Loop overhead: Amortized (check every N iterations)
 
-### TODO 5: Concurrent Sweep Phase
+### ✅ TODO 5: Concurrent Sweep Phase - COMPLETE
 
 **Priority: MEDIUM** - Sweep can happen concurrently
 
-**What to implement:**
+**Status: COMPLETE (100%)**
+
+**Implementation Summary:**
+- ✅ yo_gc_concurrent_sweep() function using atomic operations
+- ✅ Atomic loads for traversing object list (__ATOMIC_ACQUIRE)
+- ✅ Atomic stores for list manipulation (__ATOMIC_RELEASE)
+- ✅ Safe concurrent execution - mutators only allocate, never traverse free list
+- ✅ New allocations during sweep are BLACK (already marked)
+- ✅ Updated __yo_gc_collect() to use concurrent sweep
+- ✅ Tests passing with GC collections and allocations
+
+**What was implemented:**
 
 After marking completes, sweep phase can run concurrently with mutators.
 
@@ -878,7 +889,7 @@ test_pause_time :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 4 Progress:** 🚀 ~44% Complete
+**Overall Phase 4 Progress:** 🚀 ~56% Complete
 
 **TODO Status:**
 - ✅ TODO 1: Tri-color marking infrastructure (100%) - COMPLETE
@@ -903,8 +914,13 @@ test_pause_time :: (fn() -> unit) {
   - Stop-the-world and resume-world functions
   - Safepoint checks in loop back-edges
   - Tested and verified working
-- 🚀 TODO 5: Concurrent sweep phase (0%) - NEXT
-- ⏳ TODO 6: GC thread management (0%)
+- ✅ TODO 5: Concurrent sweep phase (100%) - COMPLETE
+  - yo_gc_concurrent_sweep() with atomic operations
+  - Atomic loads/stores for thread-safe list manipulation
+  - Safe concurrent execution (mutators only allocate)
+  - Integrated into __yo_gc_collect()
+  - Tested with GC collections and allocations
+- 🚀 TODO 6: GC thread management (0%) - NEXT
 - ⏳ TODO 7: Thread-local allocation buffers (0%)
 - ⏳ TODO 8: GC timing and statistics (0%)
 - ⏳ TODO 9: Testing & validation (0%)

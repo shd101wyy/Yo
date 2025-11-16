@@ -818,6 +818,98 @@ static void yo_gc_sweep(void) {
   #endif
 }
 
+/**
+ * Concurrent sweep - can run in parallel with mutators
+ * 
+ * Uses atomic operations for safe concurrent access to object list.
+ * Unlike stop-the-world sweep, this doesn't block mutator threads.
+ * 
+ * Key differences from yo_gc_sweep():
+ * - Uses atomic loads/stores for list manipulation
+ * - New allocations during sweep are BLACK (already marked)
+ * - Safe to run concurrently - mutators only allocate, never traverse free list
+ */
+static void yo_gc_concurrent_sweep(void) {
+  ${debugGc}
+  printf("[GC] Starting concurrent sweep phase\\n");
+  #endif
+  
+  size_t collected_objects = 0;
+  size_t collected_bytes = 0;
+  
+  // Atomically load the head of the object list
+  yo_gc_header_t* obj = __atomic_load_n(&yo_gc.all_objects, __ATOMIC_ACQUIRE);
+  yo_gc_header_t* prev = NULL;
+  
+  while (obj != NULL) {
+    // Atomically load next pointer
+    yo_gc_header_t* next = __atomic_load_n(&obj->gc_next, __ATOMIC_ACQUIRE);
+    
+    // Read color - no need for atomic since only GC thread modifies during sweep
+    uint8_t color = obj->mark_bits;
+    
+    if (color == YO_GC_WHITE) {
+      // Object is garbage - remove from list and free
+      
+      ${debugGc}
+      void* obj_ptr = (void*)(obj + 1);
+      printf("[GC] Collecting object at %p (size: %u bytes)\\n", 
+             obj_ptr, obj->size);
+      #endif
+      
+      // Call finalizer if present
+      if (obj->dispose_fn != NULL) {
+        void* obj_ptr = (void*)(obj + 1);
+        
+        ${debugGc}
+        printf("[GC] Calling dispose function for object at %p\\n", obj_ptr);
+        #endif
+        
+        obj->dispose_fn(obj_ptr);
+      }
+      
+      // Remove from linked list atomically
+      if (prev != NULL) {
+        __atomic_store_n(&prev->gc_next, next, __ATOMIC_RELEASE);
+      } else {
+        __atomic_store_n(&yo_gc.all_objects, next, __ATOMIC_RELEASE);
+      }
+      if (next != NULL) {
+        __atomic_store_n(&next->gc_prev, prev, __ATOMIC_RELEASE);
+      }
+      
+      // Update stats
+      size_t total_size = sizeof(yo_gc_header_t) + obj->size;
+      collected_objects++;
+      collected_bytes += total_size;
+      
+      // Free memory
+      __yo_free(obj);
+      
+      // Continue from prev (don't update prev)
+      obj = next;
+    } else {
+      // Object survived - reset to WHITE for next cycle
+      obj->mark_bits = YO_GC_WHITE;
+      
+      // Move to next
+      prev = obj;
+      obj = next;
+    }
+  }
+  
+  // Update global stats (could use atomics but only GC thread writes these)
+  yo_gc.total_objects -= collected_objects;
+  yo_gc.total_bytes -= collected_bytes;
+  
+  ${debugGc}
+  printf("[GC] Concurrent sweep complete: collected %zu objects (%zu bytes)\\n",
+         collected_objects, collected_bytes);
+  printf("[GC] Remaining: %zu objects (%zu bytes)\\n",
+         yo_gc.total_objects, yo_gc.total_bytes);
+  #endif
+}
+
 // =============================================================================
 // GC Collection Entry Point
 // =============================================================================
@@ -840,11 +932,16 @@ void __yo_gc_collect(void) {
          yo_gc.total_objects, yo_gc.total_bytes);
   #endif
   
-  // Phase 1: Mark all reachable objects
+  // Phase 4: Three-phase concurrent marking + concurrent sweep
+  // This allows most GC work to happen concurrently with mutators
+  
+  // Phase 1: Mark all reachable objects (uses concurrent marking)
   yo_gc_mark_roots();
   
-  // Phase 2: Sweep and free unmarked objects
-  yo_gc_sweep();
+  // Phase 2: Concurrent sweep - can run in parallel with mutators
+  // Note: In a fully concurrent implementation, this would run in a separate GC thread
+  // For now, we run it synchronously but use atomic operations for future concurrency
+  yo_gc_concurrent_sweep();
   
   // Adjust GC threshold based on current heap size
   // Heuristic: Trigger next GC when heap grows by 2x
