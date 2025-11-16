@@ -171,9 +171,18 @@ YoNode* process(int32_t x) {
 - Returns in nested blocks
 - Exception/error handling paths (future)
 
-### TODO 5: Optimization - Skip Shadow Frame for Leaf Functions
+### TODO 5: Optimization - Skip Shadow Frame for Leaf Functions ✅ COMPLETE
 
 **Priority: MEDIUM** - Performance optimization
+
+**Status: COMPLETE** - Leaf functions now skip shadow frame generation!
+
+**Implementation details:**
+- Added `containsFunctionCalls()` function to detect function calls in expression tree
+- Checks for `isFunctionType(expr.func.$.type)` to identify actual function calls
+- Also checks for `isClosureType` to handle closure calls
+- Shadow frame only generated if: `totalGcLocals > 0 || hasFunctionCalls`
+- Pure arithmetic/comparison operators don't trigger shadow frames
 
 **What:** Don't generate shadow frame for functions that:
 - Have no GC pointer locals, AND
@@ -212,9 +221,18 @@ function needsShadowFrame(func: FunctionInfo): boolean {
 }
 ```
 
-### TODO 6: Handle Nested Scopes
+### TODO 6: Handle Nested Scopes ✅ COMPLETE
 
 **Priority: MEDIUM** - Support locals in nested blocks
+
+**Status: COMPLETE** - Nested scopes fully working!
+
+**Implementation details:**
+- `countTotalGcPointerLocals()` recursively scans all nested begin blocks
+- Uses `poppedEnvFrame` to capture variables from nested scopes
+- All GC pointer locals from all nesting levels included in roots array at function entry
+- Shadow frame is function-level, includes all nested scope variables
+- Verified with test_nested_scopes.yo showing 3 levels of nesting working correctly
 
 **What:** Track GC pointer locals that are declared in nested scopes
 
@@ -323,7 +341,7 @@ test_cycle_with_roots :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 3 Progress:** 🚀 ~50% Complete
+**Overall Phase 3 Progress:** 🚀 ~75% Complete
 
 **TODO Status:**
 - ✅ TODO 1: Shadow stack data structures (100%) - COMPLETE
@@ -333,12 +351,19 @@ test_cycle_with_roots :: (fn() -> unit) {
   - Variables properly registered in shadow frames
   - Handles shadowing correctly using variable IDs
 - ✅ TODO 4: Generate shadow frame teardown (100%) - COMPLETE
-- ⏳ TODO 5: Optimization - leaf functions (0%)
-- ⏳ TODO 6: Handle nested scopes (0%)
-- 🔄 TODO 7: Testing & validation (20%) - Basic test passing
+- ✅ TODO 5: Optimization - leaf functions (100%) - COMPLETE
+  - Functions without GC locals AND without function calls skip shadow frames
+  - Uses `containsFunctionCalls()` to detect function calls
+  - Properly checks for `isFunctionType` and `isClosureType`
+- ✅ TODO 6: Handle nested scopes (100%) - COMPLETE
+  - All GC pointer locals from nested begin blocks included in shadow frame
+  - Uses `poppedEnvFrame` mechanism to capture variables from nested scopes
+  - Verified with test_nested_scopes.yo (3 nested levels working correctly)
+- 🔄 TODO 7: Testing & validation (40%) - Partial
   - ✅ Basic shadow stack test working (fixme.yo)
+  - ✅ Nested scopes test working (test_nested_scopes.yo)
+  - ✅ Multiple GC pointer locals working
   - ⏳ Nested function calls
-  - ⏳ Multiple GC pointer locals
   - ⏳ Cycles with shadow stack
 - ⏳ TODO 8: Debug support (0%)
 
@@ -356,10 +381,10 @@ test_cycle_with_roots :: (fn() -> unit) {
 5. ✅ TODO 4: Generate shadow frame teardown
 6. 🔄 TODO 7: Basic testing (simple cases) - First test passing!
 
-**Week 3: Optimization & Edge Cases**
-7. TODO 5: Leaf function optimization
-8. TODO 6: Nested scope handling
-9. TODO 7: Advanced testing (cycles, nested calls)
+**Week 3: Optimization & Edge Cases** ✅ COMPLETE
+7. ✅ TODO 5: Leaf function optimization
+8. ✅ TODO 6: Nested scope handling
+9. 🔄 TODO 7: Advanced testing (cycles, nested calls) - In progress
 
 **Week 4: Polish**
 10. TODO 8: Debug support

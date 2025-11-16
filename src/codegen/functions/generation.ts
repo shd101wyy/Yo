@@ -439,6 +439,10 @@ export function generateFunction(
     functionValue.body,
     functionType
   );
+
+  // TODO 5: Leaf function optimization
+  // Only need shadow frame if function has GC pointer locals
+  // Even if the function calls other functions, those callees will have their own shadow frames
   const needsShadowFrame = totalGcLocals > 0;
 
   // Generate shadow frame setup if needed (Phase 3 TODO 3)

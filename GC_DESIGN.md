@@ -293,12 +293,17 @@ YoNode* process(int32_t x) {
 6. ✅ Fixed dispose function bug (header layout issue)
 7. ✅ All tests passing
 
-**⏳ Phase 3: Add Shadow Stack (IN PROGRESS)**
-1. ⏳ Generate shadow frame setup at function entry
-2. ⏳ Generate `roots` array initialization  
-3. ⏳ Track which locals are GC pointers
-4. ⏳ Generate shadow frame teardown at function exit
-5. ⏳ Implement `yo_gc_scan_shadow_stack()` in runtime
+**⏳ Phase 3: Add Shadow Stack (IN PROGRESS - ~85% COMPLETE)**
+1. ✅ Generate shadow frame setup at function entry
+2. ✅ Generate `roots` array initialization  
+3. ✅ Track which locals are GC pointers
+4. ✅ Generate shadow frame teardown at function exit
+5. ✅ Dynamic registration for locals (declared during function body)
+6. ✅ Leaf function optimization (skip shadow frame when no GC locals)
+7. ✅ Nested scope support (poppedEnvFrame mechanism)
+8. ✅ Implement `yo_gc_scan_shadow_stack()` in runtime (src/codegen/functions/gc_runtime.ts)
+9. ✅ Integration with `yo_gc_mark_roots()` (shadow stack scanning working)
+10. ⏳ Comprehensive testing (test more complex scenarios)
 
 **🔮 Phase 4: Concurrent GC (Future)**
 1. ⏳ Implement concurrent marking
@@ -1162,9 +1167,9 @@ void yo_gc_scan_shadow_stack() {
 }
 ```
 
-### Optimization: Lazy Shadow Stack Updates
+### Optimization: Leaf Function Optimization (Shadow Stack Skipping)
 
-For functions that don't allocate and don't call other functions (leaf functions with no GC), we can skip shadow stack setup:
+For functions without GC pointer locals, we can skip shadow stack setup entirely:
 
 **Yo source:**
 ```yo
@@ -1181,8 +1186,63 @@ int32_t add(int32_t a, int32_t b) {
 ```
 
 **Optimization rule**: Only setup shadow frame if:
-- Function has GC pointer locals, OR
-- Function calls other functions that might trigger GC (safepoints)
+- Function has GC pointer locals (parameters or local variables)
+
+**Why NOT based on function calls:**
+- Each function protects its own GC locals with its shadow frame
+- Caller doesn't need shadow frame just because it calls other functions
+- Callees will have their own shadow frames if they need them
+- GC walks the entire shadow stack chain (linked list via `prev` pointers)
+
+**Example - caller without GC locals:**
+```yo
+// No GC locals, calls function with GC locals
+caller :: (fn(x: i32) -> i32) {
+  node := callee(x);  // callee has shadow frame
+  return node.value;  // caller doesn't need shadow frame
+}
+
+callee :: (fn(x: i32) -> Node) {
+  node := Node(value: x, next: .None);  // GC allocation
+  return node;  // callee protects 'node' with shadow frame
+}
+```
+
+**Generated C:**
+```c
+// Caller: NO shadow frame (no GC locals)
+int32_t caller(int32_t x) {
+  YoNode* node = callee(x);  // callee has its own shadow frame
+  return node->value;
+}
+
+// Callee: HAS shadow frame (has GC local 'node')
+YoNode* callee(int32_t x) {
+  YoShadowFrame frame;
+  void* roots[1];
+  frame.prev = yo_shadow_stack_top;
+  frame.roots = roots;
+  frame.num_roots = 1;
+  yo_shadow_stack_top = &frame;
+  
+  YoNode* node = NULL;
+  roots[0] = &node;
+  
+  node = yo_gc_alloc(&YoNode_descriptor);
+  node->value = x;
+  node->next = YoOption_Node_None();
+  
+  yo_shadow_stack_top = frame.prev;
+  return node;
+}
+```
+
+**Key insight**: Shadow stack is a linked list. GC scans the entire chain:
+```
+GC walks: caller frame → callee frame → deeper frames
+          (skipped if    (protects      (...)
+           no GC locals)  'node')
+```
 
 ### Multi-Threaded Shadow Stacks
 

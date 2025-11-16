@@ -1,0 +1,65 @@
+open import "std/libc/stdio";
+{ gc_collect } :: import "std/gc";
+
+MyBox :: object(
+  value: i32,
+
+  dispose :: ((fn(self: Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.value);
+  })
+);
+
+// Test nested scopes with GC pointer locals
+test_nested_scopes :: (fn() -> unit) {
+  outer := MyBox(1);
+  printf("Created outer: %d\n", outer.value);
+  
+  {
+    inner := MyBox(2);
+    printf("Created inner: %d\n", inner.value);
+    
+    {
+      deep := MyBox(3);
+      printf("Created deep: %d\n", deep.value);
+      
+      gc_collect();  // Should NOT collect any (all on shadow stack)
+      
+      printf("After GC - outer: %d, inner: %d, deep: %d\n", 
+             outer.value, inner.value, deep.value);
+    };
+    // 'deep' out of scope now, but 'outer' and 'inner' still tracked
+    
+    printf("After deep scope - outer: %d, inner: %d\n", 
+           outer.value, inner.value);
+  };
+  // 'inner' out of scope now, but 'outer' still tracked
+  
+  printf("After inner scope - outer: %d\n", outer.value);
+};
+
+// Test multiple locals in same scope
+test_multiple_locals :: (fn() -> unit) {
+  a := MyBox(10);
+  b := MyBox(20);
+  c := MyBox(30);
+  
+  printf("Created a: %d, b: %d, c: %d\n", a.value, b.value, c.value);
+  
+  gc_collect();  // Should NOT collect any (all on shadow stack)
+  
+  printf("After GC - a: %d, b: %d, c: %d\n", a.value, b.value, c.value);
+};
+
+main :: (fn() -> unit) {
+  printf("=== Test nested scopes ===\n");
+  test_nested_scopes();
+  
+  printf("\n=== Test multiple locals ===\n");
+  test_multiple_locals();
+  
+  printf("\n=== Final GC ===\n");
+  gc_collect();
+  printf("Done\n");
+};
+
+export main;
