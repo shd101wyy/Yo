@@ -362,35 +362,100 @@ Phase 4 concurrent GC achieves excellent performance:
 
 ### Comparison to Other Languages
 
-**Go** (concurrent mark-sweep, stack maps):
-- Similar latency: <5ms (Yo: 0.29ms measured ✓)
-- No generational GC (same approach as Yo)
-- Escape analysis reduces heap pressure (Yo uses explicit struct/object)
-- More mature GC (10+ years of optimization)
-- Stack allocation for short-lived objects
+**Yo** (concurrent mark-sweep, shadow stack):
+- Architecture: 1 dedicated GC thread + shadow stack for precise roots
+- Concurrency: Concurrent (not incremental)
+- Pause times: 0.29ms measured (10x better than 5ms goal)
+- Threads: 1 GC thread + N worker threads (N = hardware_cores - 1)
+- Work distribution: GC thread does all GC work concurrently
+- Best for: Multi-core systems, explicit allocation control
+
+**Go** (concurrent + incremental mark-sweep, stack maps):
+- Architecture: No dedicated GC threads, work distributed to goroutines
+- Concurrency: Concurrent + Incremental marking
+- Pause times: ~0.5ms typical
+- Threads: Mark workers temporarily use goroutine threads
+- Work distribution: Mutators help with marking (mark assist)
+- Best for: Any system, scales with goroutines, heavy escape analysis
+
+**JavaScript V8** (concurrent + incremental mark-sweep, generational):
+- Architecture: Multiple GC threads, separate young/old generation
+- Concurrency: Concurrent + Incremental + Generational
+- Pause times: <5ms for minor GC, <50ms for major GC
+- Threads: Multiple concurrent marker threads + incremental mutator work
+- Work distribution: Dedicated GC threads + incremental mutator work
+- Best for: Short-lived objects, interactive applications
+
+**Rust** (no GC, ownership + borrow checker):
+- Architecture: No GC - compile-time memory management
+- Concurrency: Lock-free by design (ownership prevents data races)
+- Pause times: 0ms (no GC)
+- Threads: N/A
+- Work distribution: N/A
+- Best for: Systems programming, zero-cost abstractions, no runtime
+
+**Java HotSpot G1** (concurrent + incremental, generational, compacting):
+- Architecture: Multiple GC threads, region-based heap
+- Concurrency: Concurrent + Incremental + Generational
+- Pause times: 10-50ms typical, tunable
+- Threads: Multiple concurrent GC threads
+- Work distribution: Dedicated GC threads do all work
+- Best for: Server applications, large heaps, high throughput
+
+**C# .NET** (concurrent, generational):
+- Architecture: Server GC (multiple threads) or Workstation GC (1 thread)
+- Concurrency: Concurrent + Generational
+- Pause times: <10ms for gen0/1, longer for gen2
+- Threads: Configurable (1 or multiple GC threads)
+- Work distribution: Dedicated GC threads
+- Best for: Server apps (multi-thread) or desktop apps (single-thread)
+
+**Python CPython** (reference counting + mark-sweep backup):
+- Architecture: Per-object reference counting + cycle detector
+- Concurrency: Limited (GIL prevents true parallelism)
+- Pause times: Instant for RC, occasional for cycle collection
+- Threads: No dedicated GC thread (cycle detector runs periodically)
+- Work distribution: RC immediate, cycle detector occasional
+- Best for: Simple programs, C extension interop
+
+**OCaml** (precise, generational):
+- Architecture: Shadow stack-like approach, young/old generations
+- Concurrency: Mostly concurrent with brief STW pauses
+- Pause times: <5ms typical
+- Threads: 1 GC thread per domain (multicore OCaml 5.0+)
+- Work distribution: Dedicated GC threads per domain
+- Best for: Functional programming, pattern matching heavy code
+
+### GC Architecture Comparison
+
+| Language | GC Type | Incremental | Generational | Threads | Pause Time | Best Use Case |
+|----------|---------|-------------|--------------|---------|------------|---------------|
+| **Yo** | Concurrent Mark-Sweep | ❌ No | ❌ No | 1 dedicated | 0.29ms | Multi-core, explicit allocation |
+| **Go** | Concurrent + Incremental | ✅ Yes | ❌ No | Distributed | ~0.5ms | Any, goroutine-heavy |
+| **JavaScript V8** | Concurrent + Incremental + Gen | ✅ Yes | ✅ Yes | Multiple | <5ms minor | Interactive apps |
+| **Rust** | No GC (ownership) | N/A | N/A | N/A | 0ms | Systems, zero-cost |
+| **Java G1** | Concurrent + Incremental + Gen | ✅ Yes | ✅ Yes | Multiple | 10-50ms | Servers, large heaps |
+| **C# .NET** | Concurrent + Gen | Partial | ✅ Yes | 1 or multiple | <10ms | Desktop or servers |
+| **Python** | Reference Counting + Cycle | ❌ No | ❌ No | None | ~instant | Simple scripts |
+| **OCaml** | Concurrent + Gen | ❌ No | ✅ Yes | 1 per domain | <5ms | Functional code |
+
+### Key Insights
+
+**Why Yo doesn't need incremental GC:**
+- Concurrent GC already achieves 0.29ms pauses
+- Incremental adds complexity without clear benefit
+- Multi-core systems are common (can spare 1 thread for GC)
+
+**Why Yo doesn't need generational GC (yet):**
+- Explicit `struct` vs `object` gives allocation control
+- Should measure real workloads before adding complexity
+- Current performance is already excellent
 
 **Yo's advantage:**
 - Explicit struct/object distinction gives programmer control
 - Simpler mental model than escape analysis
 - Similar or better GC latency than Go
-
-**Java HotSpot** (generational, parallel, compacting):
-- Better throughput (highly optimized)
-- Higher latency: 10-50ms typical
-- Complex implementation (JIT + GC)
-- Overkill for Yo's needs
-
-**D Language** (conservative mark-sweep):
-- Simpler GC, but imprecise
-- Higher latency: 10-30ms
-- No generational collection
-- Good C interop (like Yo)
-
-**OCaml** (precise, generational):
-- Similar design to Yo's proposal
-- Good latency: <5ms
-- Uses similar shadow stack approach
-- Proven design for functional languages
+- Cleaner implementation than complex generational schemes
 
 This document describes a garbage collection system for Yo that replaces the biased reference counting model. The design enables work-stealing concurrency while maintaining C interoperability through a hybrid value/reference type system.
 

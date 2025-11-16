@@ -168,11 +168,16 @@ fetch_data :: (fn(url: String) -> Future(Data)) async {
 
 ### Worker Thread Pool
 
+Thread allocation:
+- Number of worker threads = hardware threads - 1 (reserve 1 core for GC thread)
+- Example: 8-core CPU → 7 async worker threads + 1 GC thread
+
 Each worker thread:
 - Is a real OS thread (1:1 mapping)
-- Is pinned to a dedicated CPU core
-- Has its own task queue (no contention)
+- Is pinned to a dedicated CPU core for cache locality
+- Has its own task queue (no lock contention between workers)
 - Executes state machine continuations
+- Can execute tasks from any async block (task migration enabled by tracing GC)
 
 ### Continuation
 
@@ -189,12 +194,12 @@ Each worker continuously:
 3. Executes the continuation's resume function
 4. Frees the continuation
 
-### Thread Affinity
+### Task Assignment and Migration
 
 - Async tasks are assigned to workers round-robin when spawned
-- Tasks stay on their assigned worker (no work stealing)
-- This is essential for **Biased Reference Counting** (BRC)
-- BRC assumes objects stay on the thread that created them
+- Tasks can migrate between workers (enabled by tracing GC)
+- **Historical note**: The old Biased Reference Counting (BRC) required tasks to stay on their owner thread. With the new concurrent tracing GC, this constraint is removed.
+- Work-stealing is now possible (not yet implemented, but architecturally supported)
 
 ## Implementation Details
 
@@ -379,7 +384,7 @@ main :: (fn() -> unit) {
 
 | Language | Model | Spawning | Memory/Task | Max Concurrency | Work Stealing |
 |----------|-------|----------|-------------|-----------------|---------------|
-| **Yo** | Stackless state machines | **Eager** | ~200 bytes | Millions | ❌ No (thread affinity) |
+| **Yo** | Stackless state machines | **Eager** | ~200 bytes | Millions | 🚧 Possible (not yet implemented) |
 | **Rust** | Stackless futures | Lazy | ~100 bytes | Millions | Depends on executor |
 | **JavaScript** | Stackless promises | **Eager** | ~100 bytes | Millions | N/A (single-threaded) |
 | **Python (asyncio)** | Stackless coroutines | **Eager** | ~200 bytes | Millions | N/A (single-threaded) |
@@ -395,11 +400,11 @@ Yo's async/await provides:
 
 1. ✅ **Familiar async/await syntax** - like Rust, JavaScript, C#, Python
 2. ✅ **State machine transformation** - zero-cost abstraction at compile time
-3. ✅ **Thread affinity** - tasks never migrate between workers (no work stealing)
+3. ✅ **Task migration support** - tasks can move between workers (enabled by tracing GC)
 4. ✅ **Memory efficiency** - millions of concurrent tasks (~200 bytes each)
-5. ✅ **Worker thread pool** - efficient parallel execution on OS threads
+5. ✅ **Worker thread pool** - efficient parallel execution (hardware threads - 1 for async, 1 for GC)
 6. ✅ **Simple to learn** - just `async` block and `await` future
-7. ✅ **BRC compatible** - respects biased reference counting thread affinity
+7. ✅ **GC-friendly** - concurrent tracing GC runs on dedicated thread without blocking async work
 
 ### Quick Reference
 
@@ -441,5 +446,5 @@ compute :: (fn() -> Future(i32)) {
 2. **Eager execution** - tasks start running immediately when created (JavaScript-style)
 3. **`await` waits for result** - suspends until Future ready (only in async contexts)
 4. **State machines** - compiler transforms each `await` into state transition
-5. **Thread affinity** - async tasks stay on assigned worker thread (no migration)
+5. **Task migration** - tasks can move between workers (tracing GC enables safe migration)
 6. **Zero-cost** - no runtime overhead, compiled to efficient C code

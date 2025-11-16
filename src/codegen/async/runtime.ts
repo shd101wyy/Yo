@@ -186,6 +186,7 @@ static void* __yo_worker_thread_func(void* arg) {
   yo_worker_thread_t* worker = (yo_worker_thread_t*)arg;
   yo_thread_id_t thread_id = YO_THREAD_ID();
   
+  // Pin this worker thread to its assigned CPU core for optimal cache locality
   __yo_set_thread_affinity(worker->core_id);
   
   CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
@@ -344,7 +345,11 @@ void __yo_concurrency_set_maximum_threads(size_t num) {
   
   if (yo_worker_thread_count == 0) {
     size_t hardware_threads = __yo_concurrency_get_hardware_threads();
-    __yo_thread_pool_init(hardware_threads);
+    // Reserve 1 core for GC thread to avoid contention
+    size_t worker_threads = hardware_threads > 1 ? hardware_threads - 1 : 1;
+    CONCURRENCY_DEBUG("[POOL] Hardware threads: %zu, reserving 1 for GC, using %zu for async workers\\n", 
+                      hardware_threads, worker_threads);
+    __yo_thread_pool_init(worker_threads);
   }
   
   if (num <= yo_worker_thread_count) {
