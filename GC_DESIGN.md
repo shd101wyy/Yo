@@ -316,12 +316,44 @@ YoNode* process(int32_t x) {
 8. ✅ **Measured performance: 0.29ms pause time** (<5ms goal ✓)
 9. ✅ **99.9% concurrent work, 0.1% STW overhead**
 
-**🔮 Phase 5: Generational GC (Next)**
-1. Young/old generation separation (nursery + tenured)
-2. Minor GC (young only) + Major GC (full heap)
-3. Remember set for old→young pointers
-4. Age-based promotion policy (survive N collections)
-5. Expected: 5-10x reduction in GC overhead
+**🎯 GC SYSTEM STATUS: PRODUCTION READY**
+
+Phase 4 concurrent GC achieves excellent performance:
+- 0.29ms pause times (10x better than 5ms goal)
+- 99.9% of work done concurrently
+- Minimal STW overhead
+- Robust shadow stack precision
+- Background GC thread handles collections
+
+**❌ Phase 5: Generational GC - SKIPPED**
+
+**Decision:** Generational GC is **not needed** for Yo at this time.
+
+**Rationale:**
+1. **Explicit allocation control** - Yo has `struct` (stack) vs `object` (heap)
+   - Programmers explicitly choose allocation strategy
+   - Unlike Go which uses escape analysis automatically
+   - Well-designed Yo code uses `struct` for short-lived data
+
+2. **Phase 4 is excellent** - 0.29ms pauses are already production-ready
+   - No performance bottleneck observed
+   - Adding complexity without proven need
+
+3. **Measurement before optimization** - Should profile real Yo programs first
+   - Do most `object` allocations actually die young?
+   - Is GC overhead actually a problem?
+   - Need data to justify the complexity
+
+4. **Simplicity matters** - Generational GC adds:
+   - Remember sets (old→young pointer tracking)
+   - More complex write barriers
+   - Two GC algorithms to maintain (minor + major)
+   - More edge cases and bugs
+
+**When to reconsider:**
+- If profiling shows GC is >10% of runtime
+- If measurements show >70% of objects die young
+- If escape analysis is added (making heap-heavy like Go)
 
 **Phase 6: Advanced (Future)**
 1. Incremental marking for very large heaps
@@ -331,18 +363,16 @@ YoNode* process(int32_t x) {
 ### Comparison to Other Languages
 
 **Go** (concurrent mark-sweep, stack maps):
-- Similar latency: <5ms (Yo: 0.29ms measured)
-- No generational GC (Yo will add this advantage)
-- Escape analysis reduces heap pressure (Yo doesn't have this yet)
+- Similar latency: <5ms (Yo: 0.29ms measured ✓)
+- No generational GC (same approach as Yo)
+- Escape analysis reduces heap pressure (Yo uses explicit struct/object)
 - More mature GC (10+ years of optimization)
-- Stack allocation for short-lived objects (Yo is heap-heavy)
+- Stack allocation for short-lived objects
 
-**Why Yo needs Generational GC:**
-- Without escape analysis, more objects go to heap than Go
-- Shadow stack already provides precise roots
-- Young objects die quickly (typical 90%+ death rate)
-- Can reduce GC overhead by 5-10x by only scanning young generation
-- Infrastructure already in place (generation field in header)
+**Yo's advantage:**
+- Explicit struct/object distinction gives programmer control
+- Simpler mental model than escape analysis
+- Similar or better GC latency than Go
 
 **Java HotSpot** (generational, parallel, compacting):
 - Better throughput (highly optimized)

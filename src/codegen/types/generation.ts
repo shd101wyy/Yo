@@ -147,10 +147,11 @@ typedef struct yo_thread_gc_state yo_thread_gc_state_t;
 
 typedef struct yo_gc_header_t {
   // GC marking and generation fields (Phase 5: Generational GC)
-  uint8_t mark_bits : 2;                                 // WHITE=0, GRAY=1, BLACK=2 (for tri-color marking)
-  uint8_t generation : 2;                                // 0=young, 1=old (2-3 reserved for future)
-  uint8_t age : 3;                                       // Age in young generation (0-7, promotes at threshold)
-  uint8_t has_finalizer : 1;                            // 1 if dispose() exists
+  // Phase 4: Concurrent GC - tri-color marking
+  uint8_t mark_bits : 2;      // WHITE=0, GRAY=1, BLACK=2 (tri-color)
+  uint8_t generation : 1;     // Reserved for future use
+  uint8_t reserved : 4;       // Reserved for future use
+  uint8_t has_finalizer : 1;  // 1 if dispose() exists
   
   uint32_t type_tag;                                     // Runtime type information
   uint32_t size;                                         // Object size in bytes
