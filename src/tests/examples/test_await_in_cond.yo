@@ -1,0 +1,65 @@
+// Test: await inside cond expression
+
+open import "std/libc/stdio.yo";
+
+simple_async_task :: (fn(value: i32) -> Future(i32))
+  async {
+    printf("Task executed with value: %d\n", value);
+    value
+  }
+;
+
+test_await_in_cond :: (fn() -> Future(unit))
+  async {
+    printf("Test: await in cond\n");
+    
+    use_branch_a: boolean;
+    use_branch_a = true;
+    
+    cond(
+      use_branch_a => {
+        value := await simple_async_task(42);
+        printf("Got result: %d\n", value);
+        assert(value == 42, "Expected value to be 42");
+      },
+      true => {
+        value := await simple_async_task(99);
+        printf("Got result: %d\n", value);
+        assert(value == 42, "Expected value to be 42");
+      }
+    );
+    
+    printf("Test completed\n");
+  }
+;
+
+/*
+test_await_in_cond :: (fn() -> Future(unit))
+  async {
+    printf("Test: await in cond\n");
+    
+    use_branch_a: boolean;
+    use_branch_a = true;
+    
+    result := cond(
+      use_branch_a => {
+        await simple_async_task(42);
+      },
+      true => {
+        await simple_async_task(99);
+      }
+    );
+    
+    printf("Got result: %d\n", result);
+    printf("Test completed\n");
+  }
+;
+*/
+
+main :: (fn() -> unit) {
+  async {
+    await test_await_in_cond();
+  };
+};
+
+export main;

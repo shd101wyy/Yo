@@ -1,0 +1,35 @@
+// Test: await inside while loop
+
+open import "std/libc/stdio.yo";
+
+counter_task :: (fn(n: i32) -> Future(i32))
+  async {
+    printf("Counter task: %d\n", n);
+    n
+  }
+;
+
+test_await_in_while :: (fn() -> Future(unit))
+  async {
+    printf("Test: await in while\n");
+    
+    i: i32;
+    i = 0;
+    
+    while (i < 3), {
+      count := await counter_task(i);
+      i = ((count + 1));
+    };
+    
+    printf("Final count: %d\n", i);
+    printf("Test completed\n");
+  }
+;
+
+main :: (fn() -> unit) {
+  async {
+    await test_await_in_while();
+  };
+};
+
+export main;

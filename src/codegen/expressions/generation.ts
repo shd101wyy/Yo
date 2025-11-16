@@ -2473,9 +2473,18 @@ function generateAsyncBlock(
       );
       for (const awaitPoint of analysis.awaitPoints) {
         if (awaitPoint.futureVariableId === undefined) {
-          emitter.emitDeclarationLine(
-            `  ${futureTypeCName}* await_future_${awaitPoint.index};`
-          );
+          // Get the Future type from the await expression's argument
+          const awaitExpr = awaitPoint.expr;
+          if (awaitExpr.tag === ExprTag.FuncCall && awaitExpr.args[0]) {
+            const futureExpr = awaitExpr.args[0];
+            const futureType = futureExpr.$?.type;
+            if (futureType && futureType.tag === TypeTag.Future) {
+              const awaitedFutureTypeCName = getTypeString(futureType, context);
+              emitter.emitDeclarationLine(
+                `  ${awaitedFutureTypeCName} await_future_${awaitPoint.index};`
+              );
+            }
+          }
         }
       }
       emitter.emitDeclarationLine(``);
