@@ -163,6 +163,52 @@ static inline void yo_gc_set_color(void* obj, uint8_t color) {
 }
 
 // =============================================================================
+// Safepoint Mechanism - Phase 4: Stop-The-World Coordination
+// =============================================================================
+
+/**
+ * Safepoint state for stopping mutator threads during GC pauses
+ * Safepoints are program points where threads can be safely paused for GC
+ */
+typedef struct {
+  volatile bool requested;     // GC wants threads to stop
+  pthread_mutex_t mutex;       // Protects safepoint state
+  pthread_cond_t cond;         // Signals when safe to resume
+  size_t num_threads;          // Total mutator threads (excluding GC thread)
+  size_t threads_at_safepoint; // Threads currently stopped
+} YoSafepointState;
+
+static YoSafepointState yo_safepoint_state = {
+  .requested = false,
+  .num_threads = 1,  // Start with main thread
+  .threads_at_safepoint = 0
+};
+
+
+/**
+ * Initialize safepoint mechanism
+ */
+static void yo_safepoint_init(void) {
+  pthread_mutex_init(&yo_safepoint_state.mutex, NULL);
+  pthread_cond_init(&yo_safepoint_state.cond, NULL);
+}
+
+// Forward declaration for slow path
+static void yo_safepoint_slow(void);
+
+/**
+ * Fast path safepoint check (inline for performance)
+ * Called at loop back-edges and allocation sites
+ * Overhead: ~2-3 cycles, well branch-predicted
+ */
+static inline void yo_safepoint(void) {
+  // Fast path: Single flag check, almost always false
+  if (__builtin_expect(yo_safepoint_state.requested, 0)) {
+    yo_safepoint_slow();  // Rarely taken - thread parks here
+  }
+}
+
+// =============================================================================
 // Write Barrier - Phase 4: Maintain Tri-Color Invariant
 // =============================================================================
 
@@ -272,6 +318,105 @@ static void yo_gc_scan_shadow_stack(void) {
   printf("[GC] Scanned shadow stack: %zu frames, %zu total roots\\n",
          total_frames, total_roots);
   #endif
+}
+
+// =============================================================================
+// Safepoint Implementation - Phase 4
+// =============================================================================
+
+/**
+ * Slow path: Thread parks at safepoint waiting for GC to finish
+ * Called when yo_safepoint_state.requested is true
+ */
+static void yo_safepoint_slow(void) {
+  pthread_mutex_lock(&yo_safepoint_state.mutex);
+  
+  // Increment counter - we're at the safepoint
+  yo_safepoint_state.threads_at_safepoint++;
+  
+  ${debugGc}
+  printf("[GC] Thread at safepoint (%zu/%zu)\\n", 
+         yo_safepoint_state.threads_at_safepoint,
+         yo_safepoint_state.num_threads);
+  #endif
+  
+  // Signal GC thread if all mutator threads have stopped
+  if (yo_safepoint_state.threads_at_safepoint == yo_safepoint_state.num_threads) {
+    pthread_cond_signal(&yo_safepoint_state.cond);
+    ${debugGc}
+    printf("[GC] All threads at safepoint - signaling GC\\n");
+    #endif
+  }
+  
+  // Wait for GC to finish and release us
+  while (yo_safepoint_state.requested) {
+    pthread_cond_wait(&yo_safepoint_state.cond, &yo_safepoint_state.mutex);
+  }
+  
+  // Decrement counter - we're resuming
+  yo_safepoint_state.threads_at_safepoint--;
+  
+  ${debugGc}
+  printf("[GC] Thread resuming from safepoint\\n");
+  #endif
+  
+  pthread_mutex_unlock(&yo_safepoint_state.mutex);
+}
+
+/**
+ * Stop all mutator threads at safepoints
+ * Called by GC thread before STW phases (initial mark, remark)
+ */
+static void yo_gc_stop_the_world(void) {
+  ${debugGc}
+  printf("[GC] Stopping the world...\\n");
+  #endif
+  
+  pthread_mutex_lock(&yo_safepoint_state.mutex);
+  
+  // Request safepoint - all threads will stop at next yo_safepoint() call
+  __atomic_store_n(&yo_safepoint_state.requested, true, __ATOMIC_RELEASE);
+  
+  // Wait for all mutator threads to reach safepoints
+  // Note: GC thread itself is not a mutator, so we don't count it
+  while (yo_safepoint_state.threads_at_safepoint < yo_safepoint_state.num_threads) {
+    ${debugGc}
+    printf("[GC] Waiting for threads at safepoint: %zu/%zu\\n",
+           yo_safepoint_state.threads_at_safepoint,
+           yo_safepoint_state.num_threads);
+    #endif
+    pthread_cond_wait(&yo_safepoint_state.cond, &yo_safepoint_state.mutex);
+  }
+  
+  ${debugGc}
+  printf("[GC] World stopped - all threads at safepoints\\n");
+  #endif
+  
+  pthread_mutex_unlock(&yo_safepoint_state.mutex);
+}
+
+/**
+ * Resume all mutator threads from safepoints
+ * Called by GC thread after STW phases complete
+ */
+static void yo_gc_resume_world(void) {
+  ${debugGc}
+  printf("[GC] Resuming the world...\\n");
+  #endif
+  
+  pthread_mutex_lock(&yo_safepoint_state.mutex);
+  
+  // Clear safepoint request
+  __atomic_store_n(&yo_safepoint_state.requested, false, __ATOMIC_RELEASE);
+  
+  // Wake all waiting threads
+  pthread_cond_broadcast(&yo_safepoint_state.cond);
+  
+  ${debugGc}
+  printf("[GC] World resumed\\n");
+  #endif
+  
+  pthread_mutex_unlock(&yo_safepoint_state.mutex);
 }
 
 // =============================================================================

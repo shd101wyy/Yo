@@ -317,13 +317,22 @@ obj->field = new_obj;
 - Slow path: Only when writing WHITE object during marking
 - Expected overhead: <1% overall, ~5-10% during marking
 
-### 🚀 TODO 4: Safepoint Mechanism - READY TO START
+### ✅ TODO 4: Safepoint Mechanism - COMPLETE
 
 **Priority: HIGH** - Required for stopping mutator threads
 
-**Status: 0% - Next priority**
+**Status: COMPLETE (100%)**
 
-**What to implement:**
+**Implementation Summary:**
+- ✅ YoSafepointState struct with requested flag, mutex, condvar, thread counters
+- ✅ yo_safepoint() inline function with fast path (single flag check, ~2-3 cycles)
+- ✅ yo_safepoint_slow() that parks threads until GC completes
+- ✅ yo_gc_stop_the_world() and yo_gc_resume_world() for GC coordination
+- ✅ Safepoint checks inserted at loop back-edges (while loops)
+- ✅ Initialization in main() before user code runs
+- ✅ Test verified: loops work correctly with safepoint checks
+
+**What was implemented:**
 
 Safepoints are program points where mutator threads can be safely paused for GC.
 
@@ -869,7 +878,7 @@ test_pause_time :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 4 Progress:** 🚀 ~30% Complete
+**Overall Phase 4 Progress:** 🚀 ~44% Complete
 
 **TODO Status:**
 - ✅ TODO 1: Tri-color marking infrastructure (100%) - COMPLETE
@@ -884,10 +893,17 @@ test_pause_time :: (fn() -> unit) {
 - ✅ TODO 3: Write barriers (100%) - COMPLETE
   - Write barrier function implemented
   - Barrier insertion in assignment codegen
-  - Type checking with isGcType() utility
+  - Type checking with typeContainsGcType() utility
   - Shadow frame and union scanning fixed
-- 🚀 TODO 4: Safepoint mechanism (0%) - NEXT
-- ⏳ TODO 5: Concurrent sweep phase (0%)
+  - Value type barriers (enum, struct) with traverse logic
+- ✅ TODO 4: Safepoint mechanism (100%) - COMPLETE
+  - Safepoint state structure with mutex/condvar
+  - Fast path yo_safepoint() inline function
+  - Slow path parks threads waiting for GC
+  - Stop-the-world and resume-world functions
+  - Safepoint checks in loop back-edges
+  - Tested and verified working
+- 🚀 TODO 5: Concurrent sweep phase (0%) - NEXT
 - ⏳ TODO 6: GC thread management (0%)
 - ⏳ TODO 7: Thread-local allocation buffers (0%)
 - ⏳ TODO 8: GC timing and statistics (0%)

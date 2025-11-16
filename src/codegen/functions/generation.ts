@@ -278,6 +278,9 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     emitter.emitLine(`
 // Main wrapper - calls yo_user_main directly
 int main(void) {
+  // Initialize GC safepoint mechanism
+  yo_safepoint_init();
+  
   // Initialize async runtime (in case async blocks are used)
   __yo_async_scheduler_init();
   

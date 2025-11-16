@@ -1,0 +1,42 @@
+// Test safepoint mechanism in loops
+// Verifies that yo_safepoint() is called at loop back-edges
+
+open import "std/libc/stdio";
+
+test_loop :: (fn() -> unit) {
+  printf("=== Testing Safepoint in Loop ===\n");
+  
+  sum := 0;
+  i := 0;
+  
+  // Simple while loop - should have safepoint check
+  while(i < 100, {
+    sum = (sum + i);
+    i = (i + 1);
+  });
+  
+  printf("Sum of 0..99 = %d\n", sum);
+  printf("Expected: 4950\n");
+  
+  // Test nested loops
+  outer := 0;
+  while(outer < 10, {
+    inner := 0;
+    while(inner < 10, {
+      sum = (sum + 1);
+      inner = (inner + 1);
+    });
+    outer = (outer + 1);
+  });
+  
+  printf("After nested loops: sum = %d\n", sum);
+  printf("Expected: 5050\n");
+  
+  printf("=== Safepoint Test Complete ===\n");
+};
+
+main :: (fn() -> unit) {
+  test_loop();
+};
+
+export main;

@@ -4307,6 +4307,8 @@ function generateWhileLoop(
     context.currentLoopLabel = loopLabel;
 
     context.emitter.emitLine(`${indent}while (true) {`);
+    // Safepoint check at loop back-edge - allows GC to stop threads
+    context.emitter.emitLine(`${indent}  yo_safepoint();`);
     const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
     context.emitter.emitLine(`${indent}  if (!(${conditionCode})) {`);
     context.emitter.emitLine(`${indent}    break;`);
@@ -4331,6 +4333,8 @@ function generateWhileLoop(
     context.currentLoopLabel = loopLabel;
 
     context.emitter.emitLine(`${indent}while (true) {`);
+    // Safepoint check at loop back-edge - allows GC to stop threads
+    context.emitter.emitLine(`${indent}  yo_safepoint();`);
     const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
     context.emitter.emitLine(`${indent}  if (!(${conditionCode})) {`);
     context.emitter.emitLine(`${indent}    break;`);
