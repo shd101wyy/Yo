@@ -275,6 +275,7 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
 
   {
     // Sync main - call it directly and wait for any async tasks
+    const debugGcStats = context.debugGc ? "" : "// "; // Comment out if debug-gc disabled
     emitter.emitLine(`
 // Main wrapper - calls yo_user_main directly
 int main(void) {
@@ -299,6 +300,9 @@ int main(void) {
   
   // Stop GC thread before exit
   yo_gc_thread_stop();
+  
+  // Print GC statistics if debug-gc enabled
+  ${debugGcStats}__yo_gc_print_stats();
   
   return 0;
 }

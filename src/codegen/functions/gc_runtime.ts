@@ -19,6 +19,7 @@ export function generateGCRuntimeDeclarations(emitter: Emitter): void {
     `void* __yo_gc_alloc(size_t size, void* type_descriptor);`
   );
   emitter.emitDeclarationLine(`void __yo_gc_collect(void);`);
+  emitter.emitDeclarationLine(`void __yo_gc_print_stats(void);`);
   emitter.emitDeclarationLine(``);
 }
 
@@ -236,6 +237,56 @@ static void yo_gc_work_queue_init(void) {
   pthread_cond_init(&yo_gc_work_queue.cond, NULL);
 }
 
+// =============================================================================
+// GC Statistics - Phase 4: Performance Monitoring
+// =============================================================================
+
+/**
+ * GC performance statistics
+ * Tracks timing and memory metrics for monitoring and tuning
+ */
+typedef struct {
+  // Collection counters
+  uint64_t total_collections;
+  
+  // Pause time statistics (STW phases only)
+  uint64_t total_pause_time_ns;
+  uint64_t max_pause_time_ns;
+  
+  // Per-phase timing (including concurrent phases)
+  uint64_t initial_mark_time_ns;
+  uint64_t concurrent_mark_time_ns;
+  uint64_t remark_time_ns;
+  uint64_t concurrent_sweep_time_ns;
+  
+  // Memory statistics
+  size_t bytes_allocated_since_last_gc;
+  size_t total_bytes_allocated;
+  size_t total_bytes_freed;
+} YoGCStats;
+
+static YoGCStats yo_gc_stats = {
+  .total_collections = 0,
+  .total_pause_time_ns = 0,
+  .max_pause_time_ns = 0,
+  .initial_mark_time_ns = 0,
+  .concurrent_mark_time_ns = 0,
+  .remark_time_ns = 0,
+  .concurrent_sweep_time_ns = 0,
+  .bytes_allocated_since_last_gc = 0,
+  .total_bytes_allocated = 0,
+  .total_bytes_freed = 0
+};
+
+/**
+ * Get current time in nanoseconds
+ */
+static uint64_t yo_get_time_ns(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
+
 // Forward declarations for GC thread functions
 static void* yo_gc_thread_main(void* arg);
 static void yo_gc_concurrent_cycle(void);
@@ -293,7 +344,7 @@ static inline void yo_write_barrier(void** slot, void* new_value) {
     yo_gc_push_gray(new_value);
     
     ${debugGc}
-    printf(\"[GC] Write barrier: marked %p as GRAY\\\\n\", new_value);
+    printf("[GC] Write barrier: marked %p as GRAY\\\\n", new_value);
     #endif
   }
 }
@@ -512,6 +563,10 @@ void* __yo_gc_alloc(size_t size, void* type_descriptor) {
   yo_gc.total_objects++;
   yo_gc.total_bytes += total_size;
   
+  // Track allocation statistics
+  yo_gc_stats.bytes_allocated_since_last_gc += total_size;
+  yo_gc_stats.total_bytes_allocated += total_size;
+  
   ${debugGc}
   printf("[GC] Allocated %zu bytes at %p (total: %zu objects, %zu bytes)\\n",
          size, (void*)(header + 1), yo_gc.total_objects, yo_gc.total_bytes);
@@ -672,6 +727,8 @@ static void yo_gc_scan_shadow_stack_concurrent(void) {
  * Reset all objects to WHITE and mark roots as GRAY
  */
 static void yo_gc_initial_mark(void) {
+  uint64_t start_time = yo_get_time_ns();
+  
   ${debugGc}
   printf("[GC] Phase 1: Initial mark (STW)\\n");
   #endif
@@ -692,9 +749,17 @@ static void yo_gc_initial_mark(void) {
   // Mark all shadow stack roots as GRAY
   yo_gc_scan_shadow_stack_concurrent();
   
+  uint64_t end_time = yo_get_time_ns();
+  uint64_t duration = end_time - start_time;
+  yo_gc_stats.initial_mark_time_ns += duration;
+  yo_gc_stats.total_pause_time_ns += duration;  // STW phase
+  if (duration > yo_gc_stats.max_pause_time_ns) {
+    yo_gc_stats.max_pause_time_ns = duration;
+  }
+  
   ${debugGc}
-  printf("[GC] Initial mark complete, %zu objects in gray queue\\n",
-         yo_gray_queue.size);
+  printf("[GC] Initial mark complete, %zu objects in gray queue (%.2fms)\\n",
+         yo_gray_queue.size, duration / 1e6);
   #endif
 }
 
@@ -704,6 +769,8 @@ static void yo_gc_initial_mark(void) {
  * TODO: Currently runs in main thread, will be concurrent in future
  */
 static void yo_gc_concurrent_mark(void) {
+  uint64_t start_time = yo_get_time_ns();
+  
   ${debugGc}
   printf("[GC] Phase 2: Concurrent mark\\n");
   size_t objects_scanned = 0;
@@ -722,9 +789,13 @@ static void yo_gc_concurrent_mark(void) {
     yo_gc_mark_children_concurrent(obj);
   }
   
+  uint64_t end_time = yo_get_time_ns();
+  uint64_t duration = end_time - start_time;
+  yo_gc_stats.concurrent_mark_time_ns += duration;
+  
   ${debugGc}
-  printf("[GC] Concurrent mark complete, scanned %zu objects\\n",
-         objects_scanned);
+  printf("[GC] Concurrent mark complete, scanned %zu objects (%.2fms)\\n",
+         objects_scanned, duration / 1e6);
   #endif
 }
 
@@ -734,6 +805,8 @@ static void yo_gc_concurrent_mark(void) {
  * TODO: Process write barriers when implemented
  */
 static void yo_gc_remark(void) {
+  uint64_t start_time = yo_get_time_ns();
+  
   ${debugGc}
   printf("[GC] Phase 3: Remark (STW)\\n");
   #endif
@@ -752,8 +825,16 @@ static void yo_gc_remark(void) {
   // Clear marking flag
   __atomic_store_n(&yo_gc_is_marking, false, __ATOMIC_RELEASE);
   
+  uint64_t end_time = yo_get_time_ns();
+  uint64_t duration = end_time - start_time;
+  yo_gc_stats.remark_time_ns += duration;
+  yo_gc_stats.total_pause_time_ns += duration;  // STW phase
+  if (duration > yo_gc_stats.max_pause_time_ns) {
+    yo_gc_stats.max_pause_time_ns = duration;
+  }
+  
   ${debugGc}
-  printf("[GC] Remark complete\\n");
+  printf("[GC] Remark complete (%.2fms)\\n", duration / 1e6);
   #endif
 }
 
@@ -875,6 +956,8 @@ static void yo_gc_sweep(void) {
  * - Safe to run concurrently - mutators only allocate, never traverse free list
  */
 static void yo_gc_concurrent_sweep(void) {
+  uint64_t start_time = yo_get_time_ns();
+  
   ${debugGc}
   printf("[GC] Starting concurrent sweep phase\\n");
   #endif
@@ -947,9 +1030,17 @@ static void yo_gc_concurrent_sweep(void) {
   yo_gc.total_objects -= collected_objects;
   yo_gc.total_bytes -= collected_bytes;
   
+  // Update GC statistics
+  yo_gc_stats.total_bytes_freed += collected_bytes;
+  yo_gc_stats.bytes_allocated_since_last_gc = 0;  // Reset allocation counter
+  
+  uint64_t end_time = yo_get_time_ns();
+  uint64_t duration = end_time - start_time;
+  yo_gc_stats.concurrent_sweep_time_ns += duration;
+  
   ${debugGc}
-  printf("[GC] Concurrent sweep complete: collected %zu objects (%zu bytes)\\n",
-         collected_objects, collected_bytes);
+  printf("[GC] Concurrent sweep complete: collected %zu objects (%zu bytes) (%.2fms)\\n",
+         collected_objects, collected_bytes, duration / 1e6);
   printf("[GC] Remaining: %zu objects (%zu bytes)\\n",
          yo_gc.total_objects, yo_gc.total_bytes);
   #endif
@@ -968,8 +1059,12 @@ static void yo_gc_concurrent_cycle(void) {
     return;
   }
   
+  // Increment collection counter
+  yo_gc_stats.total_collections++;
+  
   ${debugGc}
-  printf("\\n[GC] ===== GC Thread: Starting Concurrent Cycle =====\\n");
+  printf("\\n[GC] ===== GC Thread: Starting Concurrent Cycle #%llu =====\\n",
+         yo_gc_stats.total_collections);
   printf("[GC] Before: %zu objects, %zu bytes\\n",
          yo_gc.total_objects, yo_gc.total_bytes);
   #endif
@@ -1235,6 +1330,86 @@ void __yo_gc_stats(size_t* out_objects, size_t* out_bytes) {
   if (out_bytes != NULL) {
     *out_bytes = yo_gc.total_bytes;
   }
+}
+
+/**
+ * Print GC performance statistics
+ * Can be called explicitly by user code or automatically with --debug-gc
+ */
+void __yo_gc_print_stats(void) {
+  printf("\\n");
+  printf("=============================================================================\\n");
+  printf("                          GC Performance Statistics                          \\n");
+  printf("=============================================================================\\n");
+  printf("\\n");
+  
+  printf("Collections:\\n");
+  printf("  Total GC cycles:        %llu\\n", 
+         (unsigned long long)yo_gc_stats.total_collections);
+  
+  if (yo_gc_stats.total_collections > 0) {
+    printf("\\n");
+    printf("Pause Times (Stop-The-World only):\\n");
+    printf("  Total pause time:       %.2f ms\\n", 
+           yo_gc_stats.total_pause_time_ns / 1e6);
+    printf("  Max pause time:         %.2f ms\\n", 
+           yo_gc_stats.max_pause_time_ns / 1e6);
+    printf("  Average pause time:     %.2f ms\\n",
+           (double)yo_gc_stats.total_pause_time_ns / yo_gc_stats.total_collections / 1e6);
+    
+    printf("\\n");
+    printf("Phase Breakdown:\\n");
+    printf("  Initial mark (STW):     %.2f ms  (avg: %.2f ms)\\n",
+           yo_gc_stats.initial_mark_time_ns / 1e6,
+           (double)yo_gc_stats.initial_mark_time_ns / yo_gc_stats.total_collections / 1e6);
+    printf("  Concurrent mark:        %.2f ms  (avg: %.2f ms)\\n",
+           yo_gc_stats.concurrent_mark_time_ns / 1e6,
+           (double)yo_gc_stats.concurrent_mark_time_ns / yo_gc_stats.total_collections / 1e6);
+    printf("  Remark (STW):           %.2f ms  (avg: %.2f ms)\\n",
+           yo_gc_stats.remark_time_ns / 1e6,
+           (double)yo_gc_stats.remark_time_ns / yo_gc_stats.total_collections / 1e6);
+    printf("  Concurrent sweep:       %.2f ms  (avg: %.2f ms)\\n",
+           yo_gc_stats.concurrent_sweep_time_ns / 1e6,
+           (double)yo_gc_stats.concurrent_sweep_time_ns / yo_gc_stats.total_collections / 1e6);
+    
+    uint64_t total_time = yo_gc_stats.initial_mark_time_ns +
+                          yo_gc_stats.concurrent_mark_time_ns +
+                          yo_gc_stats.remark_time_ns +
+                          yo_gc_stats.concurrent_sweep_time_ns;
+    printf("  Total GC time:          %.2f ms  (avg: %.2f ms/cycle)\\n",
+           total_time / 1e6,
+           (double)total_time / yo_gc_stats.total_collections / 1e6);
+    
+    // Calculate concurrent vs pause percentages
+    uint64_t concurrent_time = yo_gc_stats.concurrent_mark_time_ns +
+                                yo_gc_stats.concurrent_sweep_time_ns;
+    double concurrent_pct = (double)concurrent_time / total_time * 100.0;
+    double pause_pct = (double)yo_gc_stats.total_pause_time_ns / total_time * 100.0;
+    printf("  Concurrent work:        %.1f%%\\n", concurrent_pct);
+    printf("  STW pause overhead:     %.1f%%\\n", pause_pct);
+  }
+  
+  printf("\\n");
+  printf("Memory:\\n");
+  printf("  Total allocated:        %.2f MB\\n",
+         yo_gc_stats.total_bytes_allocated / 1e6);
+  printf("  Total freed:            %.2f MB\\n",
+         yo_gc_stats.total_bytes_freed / 1e6);
+  printf("  Current live objects:   %zu\\n",
+         yo_gc.total_objects);
+  printf("  Current heap size:      %.2f MB\\n",
+         yo_gc.total_bytes / 1e6);
+  
+  if (yo_gc_stats.total_bytes_allocated > 0) {
+    double survival_rate = 
+      (double)(yo_gc_stats.total_bytes_allocated - yo_gc_stats.total_bytes_freed) /
+      yo_gc_stats.total_bytes_allocated * 100.0;
+    printf("  Survival rate:          %.1f%%\\n", survival_rate);
+  }
+  
+  printf("\\n");
+  printf("=============================================================================\\n");
+  printf("\\n");
 }
 `);
 }

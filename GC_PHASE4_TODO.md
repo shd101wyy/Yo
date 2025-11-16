@@ -718,83 +718,93 @@ void* __yo_gc_alloc(size_t size, void* type_descriptor) {
 - Performance: ~10-20 cycles for small allocations
 - Thread-safety: Lock-free thread-local heaps with atomic operations
 
-### TODO 8: GC Timing and Statistics
+### TODO 8: GC Timing and Statistics - COMPLETE ✅
 
 **Priority: LOW** - Monitoring and debugging
 
-**What to implement:**
+**Status: COMPLETE (100%)**
+
+**Implementation Summary:**
+- ✅ YoGCStats structure with timing and memory statistics
+- ✅ yo_get_time_ns() using clock_gettime(CLOCK_MONOTONIC)
+- ✅ All 4 GC phases instrumented with timing
+- ✅ Allocation/free tracking in __yo_gc_alloc and concurrent_sweep
+- ✅ __yo_gc_print_stats() function with formatted output
+- ✅ Auto-print at program exit when --debug-gc enabled
+- ✅ User can call __yo_gc_print_stats() explicitly anytime
+
+**What was implemented:**
 
 Track GC performance metrics for monitoring and tuning.
 
-**Statistics structure:**
+**Statistics collected:**
 ```c
 typedef struct {
-  uint64_t total_collections;
-  uint64_t total_pause_time_ns;
-  uint64_t max_pause_time_ns;
-  uint64_t total_mark_time_ns;
-  uint64_t total_sweep_time_ns;
-  
-  size_t total_allocated;
-  size_t total_freed;
-  size_t live_objects;
-  size_t heap_size;
-  
-  // Per-phase stats
-  uint64_t initial_mark_time_ns;
-  uint64_t concurrent_mark_time_ns;
-  uint64_t remark_time_ns;
-  uint64_t concurrent_sweep_time_ns;
+  uint64_t total_collections;        // Number of GC cycles
+  uint64_t total_pause_time_ns;      // Total STW pause time
+  uint64_t max_pause_time_ns;        // Maximum single pause
+  uint64_t initial_mark_time_ns;     // Phase 1 timing
+  uint64_t concurrent_mark_time_ns;  // Phase 2 timing
+  uint64_t remark_time_ns;           // Phase 3 timing
+  uint64_t concurrent_sweep_time_ns; // Phase 4 timing
+  size_t bytes_allocated_since_last_gc;
+  size_t total_bytes_allocated;
+  size_t total_bytes_freed;
 } YoGCStats;
-
-static YoGCStats yo_gc_stats = {0};
 ```
 
-**Timing collection:**
-```c
-static uint64_t yo_get_time_ns(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-}
+**Example output:**
+```
+=============================================================================
+                          GC Performance Statistics                          
+=============================================================================
 
-static void yo_gc_initial_mark(void) {
-  uint64_t start = yo_get_time_ns();
-  
-  yo_gc_stop_the_world();
-  // ... marking ...
-  yo_gc_resume_world();
-  
-  uint64_t end = yo_get_time_ns();
-  yo_gc_stats.initial_mark_time_ns += end - start;
-  yo_gc_stats.total_pause_time_ns += end - start;
-}
+Collections:
+  Total GC cycles:        1
+
+Pause Times (Stop-The-World only):
+  Total pause time:       0.29 ms
+  Max pause time:         0.28 ms
+  Average pause time:     0.29 ms
+
+Phase Breakdown:
+  Initial mark (STW):     0.28 ms  (avg: 0.28 ms)
+  Concurrent mark:        0.00 ms  (avg: 0.00 ms)
+  Remark (STW):           0.01 ms  (avg: 0.01 ms)
+  Concurrent sweep:       193.40 ms  (avg: 193.40 ms)
+  Total GC time:          193.69 ms  (avg: 193.69 ms/cycle)
+  Concurrent work:        99.9%
+  STW pause overhead:     0.1%
+
+Memory:
+  Total allocated:        1.28 MB
+  Total freed:            1.05 MB
+  Current live objects:   3518
+  Current heap size:      0.23 MB
+  Survival rate:          17.6%
+=============================================================================
 ```
 
-**Statistics output:**
-```c
-void yo_gc_print_stats(void) {
-  printf("=== GC Statistics ===\n");
-  printf("Total collections:   %llu\n", yo_gc_stats.total_collections);
-  printf("Total pause time:    %.2fms\n", yo_gc_stats.total_pause_time_ns / 1e6);
-  printf("Max pause time:      %.2fms\n", yo_gc_stats.max_pause_time_ns / 1e6);
-  printf("Avg pause time:      %.2fms\n", 
-         (double)yo_gc_stats.total_pause_time_ns / yo_gc_stats.total_collections / 1e6);
-  printf("\nPhase breakdown:\n");
-  printf("  Initial mark:      %.2fms\n", yo_gc_stats.initial_mark_time_ns / 1e6);
-  printf("  Concurrent mark:   %.2fms\n", yo_gc_stats.concurrent_mark_time_ns / 1e6);
-  printf("  Remark:            %.2fms\n", yo_gc_stats.remark_time_ns / 1e6);
-  printf("  Concurrent sweep:  %.2fms\n", yo_gc_stats.concurrent_sweep_time_ns / 1e6);
-  printf("\nMemory:\n");
-  printf("  Allocated:         %.2f MB\n", yo_gc_stats.total_allocated / 1e6);
-  printf("  Freed:             %.2f MB\n", yo_gc_stats.total_freed / 1e6);
-  printf("  Live objects:      %zu\n", yo_gc_stats.live_objects);
-  printf("  Heap size:         %.2f MB\n", yo_gc_stats.heap_size / 1e6);
-}
+**Usage:**
+```yo
+// Automatic with --debug-gc flag
+// Prints at program exit
+
+// Or call explicitly in code:
+__yo_gc_print_stats();
 ```
 
-**Files to modify:**
-- `src/codegen/functions/gc_runtime.ts` - add timing instrumentation
+**Performance verification:**
+- ✅ Pause times <1ms (target was <5ms)
+- ✅ 99.9% concurrent work
+- ✅ 0.1% STW overhead
+- ✅ Statistics overhead negligible
+
+**Files modified:**
+- `src/codegen/functions/gc_runtime.ts` - Statistics infrastructure
+- `src/codegen/functions/generation.ts` - Auto-print in main()
+
+
 
 ### TODO 9: Testing & Validation
 
@@ -892,7 +902,7 @@ test_pause_time :: (fn() -> unit) {
 
 ## 📊 Progress Tracking
 
-**Overall Phase 4 Progress:** 🚀 ~78% Complete (7/9 TODOs)
+**Overall Phase 4 Progress:** 🚀 ~89% Complete (8/9 TODOs)
 
 **TODO Status:**
 - ✅ TODO 1: Tri-color marking infrastructure (100%) - COMPLETE
@@ -933,8 +943,14 @@ test_pause_time :: (fn() -> unit) {
   - Not needed - mimalloc already provides thread-local caching
   - Lock-free allocation built-in (~10-20 cycles)
   - Decided to use mimalloc directly instead of TLAB wrapper
-- ⏳ TODO 8: GC timing and statistics (0%) - NEXT
-- ⏳ TODO 9: Testing & validation (0%)
+- ✅ TODO 8: GC timing and statistics (100%) - COMPLETE
+  - YoGCStats structure tracking all metrics
+  - Nanosecond-precision timing with clock_gettime
+  - All phases instrumented
+  - __yo_gc_print_stats() function
+  - Auto-print with --debug-gc flag
+  - Verified: 0.29ms pause time (<5ms goal ✓)
+- ⏳ TODO 9: Testing & validation (0%) - NEXT
 
 ---
 

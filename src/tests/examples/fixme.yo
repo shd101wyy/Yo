@@ -1,5 +1,5 @@
 open import "std/libc/stdio";
-{ gc_collect } :: import "std/gc";
+Gc :: import "std/gc";
 
 MyBox :: object(
   (*) : i32,
@@ -17,7 +17,7 @@ test_x :: (fn() -> unit) {
 test_y :: (fn() -> unit) {
   y := { box : MyBox(66) };
 
-  gc_collect(); // Expected `x` to be collected here.
+  Gc.collect(); // Expected `x` to be collected here.
 
   printf("y.box value: %d\n", y.box.(*));
 };
@@ -26,7 +26,8 @@ main :: (fn() -> unit) {
   test_x();
   test_y();
 
-  gc_collect();
+  Gc.collect();
+  Gc.print_stats();
 };
 
 export main;
