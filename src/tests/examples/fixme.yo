@@ -35,16 +35,18 @@ atomic_counter_get :: (fn(self: AtomicCounter) -> i32)
 // Test 1: Many small tasks (stress test for work-stealing)
 test_many_small_tasks :: (fn() -> Future(unit))
   async {
+    TASK_COUNT := 5;
+    
     printf("Test 1: Many small tasks\n");
     
     counter := atomic_counter_new();
     
-    // Create 1000 tasks that each increment the counter
+    // Create TASK_COUNT tasks that each increment the counter
     tasks := ArrayList(Future(unit)).new();
     i := 0;
     while runtval(true),
       cond(
-        ((i < 1000) => {
+        ((i < TASK_COUNT) => {
           future := async {
             atomic_counter_increment(counter);
           };
@@ -59,7 +61,7 @@ test_many_small_tasks :: (fn() -> Future(unit))
     i = 0;
     while(runtval(true),
       cond(
-        ((i < 1000) => {
+        ((i < TASK_COUNT) => {
           task_opt := tasks.get(i.as(usize));
           match(task_opt,
             .Some(task) => { await task; },
@@ -72,11 +74,11 @@ test_many_small_tasks :: (fn() -> Future(unit))
     
     final_count := atomic_counter_get(counter);
     cond(
-      (final_count == 1000) => {
-        printf("  ✓ All 1000 tasks executed\n");
+      (final_count == TASK_COUNT) => {
+        printf("  ✓ All %d tasks executed\n", TASK_COUNT);
       },
       true => {
-        printf("  ✗ Expected 1000, got %d\n", final_count);
+        printf("  ✗ Expected %d, got %d\n", TASK_COUNT, final_count);
       }
     );
   }

@@ -36,6 +36,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
+import { isTempVariableName } from "../../utils";
 import {
   isArrayValue,
   isBooleanValue,
@@ -173,12 +174,39 @@ function emitWriteBarrierForValueType(
 ): void {
   const emitter = context.emitter;
 
+  // Skip write barrier if the value is NULL (can happen with Option types)
+  if (valueCode === "NULL" || valueCode === "null") {
+    return;
+  }
+
+  // Skip if this enum is optimized as a nullable pointer - these are handled by direct pointer write barriers
+  // Option types like Option(*(T)) are optimized to just T* in C, so no need for enum-specific barriers
+  if (isEnumType(valueType) && canOptimizeAsNullablePointer(valueType)) {
+    return; // Skip - this will be handled as a pointer assignment
+  }
+
   // For enums, we need to handle each variant that contains GC pointers
   if (isEnumType(valueType)) {
     emitter.emitLine(
       `${indent}// Write barrier for enum containing GC pointers`
     );
-    emitter.emitLine(`${indent}switch (${valueCode}.tag) {`);
+
+    // Check if valueType is behind a pointer - if so, we need to check for NULL first
+    // and use -> instead of .
+    const isPointerAccess =
+      valueCode.includes("*") ||
+      (valueCode.startsWith("(") && valueCode.includes("*"));
+    const tagAccess = isPointerAccess
+      ? `${valueCode}->tag`
+      : `${valueCode}.tag`;
+
+    // If it's a pointer type, check for NULL before accessing
+    if (isPointerAccess) {
+      emitter.emitLine(`${indent}if (${valueCode}) {`);
+      emitter.emitLine(`${indent}  switch (${tagAccess}) {`);
+    } else {
+      emitter.emitLine(`${indent}switch (${tagAccess}) {`);
+    }
 
     for (const variant of valueType.variants) {
       if (
@@ -218,6 +246,14 @@ function emitWriteBarrierForValueType(
 
     emitter.emitLine(`${indent}default: break;`);
     emitter.emitLine(`${indent}}`);
+
+    // Close the NULL check if we added one (check same condition as above)
+    if (
+      valueCode.includes("*") ||
+      (valueCode.startsWith("(") && valueCode.includes("*"))
+    ) {
+      emitter.emitLine(`${indent}}`);
+    }
   }
   // For structs, emit barrier for each GC pointer field
   else if (isStructType(valueType) || isTupleType(valueType)) {
@@ -1287,7 +1323,8 @@ function generateFuncCall(
           }
           // Case 3: Value type containing GC pointers (enum, struct)
           // Use type-specific barrier emission to mark all contained GC pointers
-          else {
+          // Skip if lhsType is a pointer type - pointers are handled by cases 1 and 2
+          else if (!isPtrType(lhsType)) {
             emitWriteBarrierForValueType(indent, rhsCode, lhsType, context);
           }
         }
@@ -1362,8 +1399,13 @@ function generateFuncCall(
         // Emit immediately to preserve order (generateExpr might emit temp vars as side effects)
         // But skip emitting the last expression if it's being used as the return value
         const isLastExpr = idx === expr.args.length - 1;
+
         if (result && !(isLastExpr && isReturningValue)) {
-          context.emitter.emitLine(`${indent}  ${result};`);
+          if (arg.$ && isTempVariableName(arg.$.env.modulePath, result)) {
+            // Skip
+          } else {
+            context.emitter.emitLine(`${indent}  ${result};`);
+          }
         }
       }
       if (isReturningValue) {
@@ -3530,7 +3572,12 @@ function generateCondExpression(
             for (let j = 0; j < beginArgs.length - 1; j++) {
               const arg = beginArgs[j]!;
               const argCode = generateExpr(arg, valueIndent, context);
-              if (argCode) {
+              // Skip temp variable references
+              if (
+                argCode &&
+                arg.$ &&
+                !isTempVariableName(arg.$.env.modulePath, argCode)
+              ) {
                 context.emitter.emitLine(`${valueIndent}${argCode};`);
               }
             }

@@ -12,6 +12,7 @@ import {
   StructType,
   typeContainsGcType,
 } from "../../types";
+import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
@@ -345,7 +346,14 @@ export function generateAsyncBlockResumeFunction(
               // Generate the remaining expressions
               for (const expr of branch.remainingExprs) {
                 const code = generateExpr(expr, "          ", context);
-                if (code) {
+                // Skip empty code, expressions without metadata, and temp variable references
+                if (
+                  !code ||
+                  !expr.$ ||
+                  isTempVariableName(expr.$.env.modulePath, code)
+                ) {
+                  // Skip
+                } else {
                   emitter.emitLine(`          ${code};`);
                 }
               }
@@ -421,8 +429,14 @@ export function generateAsyncBlockResumeFunction(
           // Generate the remaining expressions
           for (const expr of whileLoopData.bodyExprsAfterAwait) {
             const code = generateExpr(expr, "        ", context);
-            // Skip empty code and standalone identifiers (unused temp variables)
-            if (code && !code.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) {
+            // Skip empty code, expressions without metadata, and temp variable references
+            if (
+              !code ||
+              !expr.$ ||
+              isTempVariableName(expr.$.env.modulePath, code)
+            ) {
+              // Skip
+            } else {
               emitter.emitLine(`        ${code};`);
             }
           }
