@@ -2,6 +2,7 @@
 
 open import "std/libc/stdio.yo";
 Gc :: import "std/gc";
+Concurrency :: import "std/concurrency";
 { ArrayList } :: import "std/collections/array_list.yo";
 
 // Simple atomic counter using raw C atomic_int
@@ -35,8 +36,8 @@ atomic_counter_get :: (fn(self: AtomicCounter) -> i32)
 // Test 1: Many small tasks (stress test for work-stealing)
 test_many_small_tasks :: (fn() -> Future(unit))
   async {
-    TASK_COUNT := 5;
-    
+    TASK_COUNT := 1000;
+
     printf("Test 1: Many small tasks\n");
     
     counter := atomic_counter_new();
@@ -48,7 +49,10 @@ test_many_small_tasks :: (fn() -> Future(unit))
       cond(
         ((i < TASK_COUNT) => {
           future := async {
+            printf("Spawned task %d at thread %zu\n", i, Concurrency.get_thread_id());
+            // printf("About to increment counter\n");
             atomic_counter_increment(counter);
+            // printf("Counter incremented\n");
           };
           tasks.push(future);
           i = (i + 1);
@@ -62,16 +66,23 @@ test_many_small_tasks :: (fn() -> Future(unit))
     while(runtval(true),
       cond(
         ((i < TASK_COUNT) => {
-          task_opt := tasks.get(i.as(usize));
-          match(task_opt,
-            .Some(task) => { await task; },
-            .None => ()
-          );
+          // task_opt := tasks.get(i.as(usize));
+          // match(task_opt,
+          //   .Some(task) => {
+          //     await(task);
+          //     printf("Awaited task %d\n", i);
+          //   },
+          //   .None => ()
+          // );
+          
+          await(tasks.get(i.as(usize)).unwrap());
+          printf("Awaited task %d\n", i);
+          
           i = (i + 1);
         }),
         true => break
       ));
-    
+    printf("All tasks awaited\n");
     final_count := atomic_counter_get(counter);
     cond(
       (final_count == TASK_COUNT) => {

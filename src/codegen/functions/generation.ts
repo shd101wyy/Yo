@@ -382,6 +382,51 @@ function collectGcPointerParameters(
  * Count total GC pointer locals (both parameters and local variables) from function body.
  * This is used to determine the roots array size.
  */
+/**
+ * Count total number of expressions in a tree (for estimating temp variables)
+ */
+function countExpressions(expr: Expr): number {
+  let count = 1; // Count the current expression
+
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of expr.args) {
+      count += countExpressions(arg);
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Count temp variables with GC types in an expression tree
+ */
+function countTempVariablesWithGcTypes(expr: Expr): number {
+  const seenTempVars = new Set<string>();
+  let count = 0;
+
+  const scanExpr = (e: Expr): void => {
+    if (!e.$) return;
+
+    // Check if this expression has a temp variable with GC type
+    if (e.$.variableName && e.$.type && typeContainsGcType(e.$.type)) {
+      if (!seenTempVars.has(e.$.variableName)) {
+        seenTempVars.add(e.$.variableName);
+        count++;
+      }
+    }
+
+    // Recursively scan child expressions
+    if (exprIsFunctionCall(e)) {
+      for (const arg of e.args) {
+        scanExpr(arg);
+      }
+    }
+  };
+
+  scanExpr(expr);
+  return count;
+}
+
 function countTotalGcPointerLocals(
   body: Expr,
   _functionType: FunctionType
@@ -422,6 +467,11 @@ function countTotalGcPointerLocals(
   }
 
   scanExpr(body);
+
+  // Add temp variables with GC types to the count
+  const tempVarCount = countTempVariablesWithGcTypes(body);
+  count += tempVarCount;
+
   return count;
 }
 
@@ -459,10 +509,18 @@ export function generateFunction(
     functionValue.body,
     functionType
   );
-  const totalGcLocals = countTotalGcPointerLocals(
+  let totalGcLocals = countTotalGcPointerLocals(
     functionValue.body,
     functionType
   );
+
+  // FIXME: This is currently not correct and needs optimization:
+  // Add safety margin for temp variables created during code generation
+  // These are created inline in conditionals, loops, etc. and aren't in the AST
+  // Use a conservative multiplier based on function complexity
+  const expressionCount = countExpressions(functionValue.body);
+  const safetyMargin = Math.max(10, Math.ceil(expressionCount * 0.5));
+  totalGcLocals += safetyMargin;
 
   // TODO 5: Leaf function optimization
   // Only need shadow frame if function has GC pointer locals
@@ -650,8 +708,13 @@ export function generateFunctionBody(
           BuiltinFunctions.async
         );
 
-        if (isAsyncBlock) {
-          // Last expression is an async block - return it directly
+        // Check if the last expression already returns a Future type
+        // If so, return it directly without wrapping (e.g., from Option.unwrap())
+        const lastExprType = lastExpr.$?.type;
+        const isAlreadyFuture = lastExprType && isFutureType(lastExprType);
+
+        if (isAsyncBlock || isAlreadyFuture) {
+          // Last expression is an async block or already returns a Future - return it directly
           const resultCode = generateExpr(lastExpr, indent, context);
           generateShadowFrameTeardown(indent, context);
           emitter.emitLine(`${indent}return ${resultCode};`);

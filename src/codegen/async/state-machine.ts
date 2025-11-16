@@ -498,15 +498,23 @@ export function generateAsyncBlockResumeFunction(
           `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
         );
 
-        // Jump back to the while loop start label (in the previous state)
-        // This re-evaluates the condition and continues the loop
-        emitter.emitLine(`          // Loop back to re-evaluate condition`);
-        emitter.emitLine(`          goto while_loop_${prevAwait.index}_start;`);
+        // Transition back to the state where the while loop started
+        // The while loop is in the state that contains the await - which is prevAwait.index
+        const whileLoopStateNumber = prevAwait.index;
+        emitter.emitLine(
+          `          // Loop back by transitioning to while loop state`
+        );
+        emitter.emitLine(`          sm->state = ${whileLoopStateNumber};`);
+        emitter.emitLine(
+          `          goto while_loop_${whileLoopStateNumber}_start;`
+        );
 
         emitter.emitLine(`        }`);
         emitter.emitLine(`      }`);
 
         emitter.emitLine(``);
+        // Add label for code after while loop (for break to jump to)
+        emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
       }
     }
 
@@ -563,6 +571,18 @@ export function generateAsyncBlockResumeFunction(
       const nextState = stateNumber + 1;
       const futureFieldName = getFutureFieldName(segment.awaitPoint, analysis);
 
+      // If this await is inside a while loop, wrap the await logic in a check for loop active flag
+      const isInsideWhile = segment.awaitPoint?.isInsideWhile;
+      if (isInsideWhile) {
+        const whileLoopIndex = segment.awaitPoint.index;
+        emitter.emitLine(
+          `      // Only await if while loop is still active (not broken)`
+        );
+        emitter.emitLine(
+          `      if (sm->while_loop_${whileLoopIndex}_active) {`
+        );
+      }
+
       emitter.emitLine(`      // Transition to next state after await`);
       emitter.emitLine(`      sm->state = ${nextState};`);
       emitter.emitLine(``);
@@ -581,6 +601,17 @@ export function generateAsyncBlockResumeFunction(
       generateAsyncShadowFrameTeardown("        ", needsShadowFrame, emitter);
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      }`);
+
+      if (isInsideWhile) {
+        const whileLoopIndex = segment.awaitPoint.index;
+        // Add else branch to jump to code after while loop when broken
+        emitter.emitLine(`      } else {`);
+        emitter.emitLine(
+          `        // While loop was broken, jump to code after loop`
+        );
+        emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
+        emitter.emitLine(`      }`);
+      }
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>

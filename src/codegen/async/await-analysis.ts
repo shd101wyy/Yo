@@ -8,6 +8,7 @@
 import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
+  BuiltinKeywords,
   Expr,
   exprIsFunctionCallOf,
   ExprTag,
@@ -180,7 +181,7 @@ function walkExprForAwaits(
 
     case ExprTag.FuncCall: {
       // Check if this is a while loop - handle specially
-      if (exprIsFunctionCallOf(expr, "while")) {
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // For while loops, awaits in the loop body need special handling
         const initialAwaitCount = awaitPoints.length;
 
@@ -201,7 +202,7 @@ function walkExprForAwaits(
       }
 
       // Check if this is a cond expression - handle specially
-      if (exprIsFunctionCallOf(expr, "cond")) {
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
         // For cond expressions, all awaits in branches are mutually exclusive
         // They should share the same await index
         const initialAwaitCount = awaitPoints.length;
@@ -218,6 +219,44 @@ function walkExprForAwaits(
         if (newAwaitCount > initialAwaitCount) {
           // Mark all awaits found in this cond as isInsideCond
           for (let i = initialAwaitCount; i < newAwaitCount; i++) {
+            awaitPoints[i]!.isInsideCond = true;
+          }
+
+          if (newAwaitCount > initialAwaitCount + 1) {
+            // Multiple awaits were found in branches - make them share the same index
+            const firstAwaitIndex = initialAwaitCount;
+            for (let i = initialAwaitCount + 1; i < newAwaitCount; i++) {
+              awaitPoints[i]!.index = firstAwaitIndex;
+            }
+            // Remove duplicate entries, keeping only the first one
+            awaitPoints.splice(
+              initialAwaitCount + 1,
+              newAwaitCount - initialAwaitCount - 1
+            );
+          }
+        }
+        break;
+      }
+
+      // Check if this is a match expression - handle specially
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
+        // For match expressions, all awaits in branches are mutually exclusive
+        // They should share the same await index
+        const initialAwaitCount = awaitPoints.length;
+
+        // Walk through all branches
+        walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+        for (const arg of expr.args) {
+          walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+        }
+
+        // If multiple await points were added, merge them to use the same index
+        // and mark them as inside match
+        const newAwaitCount = awaitPoints.length;
+        if (newAwaitCount > initialAwaitCount) {
+          // Mark all awaits found in this match as isInsideMatch
+          for (let i = initialAwaitCount; i < newAwaitCount; i++) {
+            // Use isInsideCond since match branches work similarly to cond branches
             awaitPoints[i]!.isInsideCond = true;
           }
 
