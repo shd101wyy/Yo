@@ -537,8 +537,14 @@ static void __yo_thread_pool_init(size_t num_threads) {
     yo_worker_threads[i].handle = (HANDLE)_beginthreadex(
       NULL, 0, __yo_worker_thread_func, &yo_worker_threads[i], 0, NULL
     );
+    if (yo_worker_threads[i].handle == NULL) {
+      fprintf(stderr, "[POOL] Failed to create worker thread %zu\\n", i);
+    }
     #else
-    pthread_create(&yo_worker_threads[i].handle, NULL, __yo_worker_thread_func, &yo_worker_threads[i]);
+    int result = pthread_create(&yo_worker_threads[i].handle, NULL, __yo_worker_thread_func, &yo_worker_threads[i]);
+    if (result != 0) {
+      fprintf(stderr, "[POOL] Failed to create worker thread %zu: %d\\n", i, result);
+    }
     #endif
     
     CONCURRENCY_DEBUG("[POOL] Spawned worker thread %zu (will pin to core %zu)\\n", i, i);

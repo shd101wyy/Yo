@@ -17,9 +17,10 @@ Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
 To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo` to compile the `fixme.yo`. Or run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `cc -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
-Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo -o a.out --release && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector, `--debug-concurrency` to debug the concurrency model, and `--debug-async-await` for debugging async/await.
+Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo -o a.out --release && ./a.out` directly to test the full pipeline.
+Use `--debug-gc` to debug the garbage collector, `--debug-concurrency` to debug the concurrency model, and `--debug-async-await` for debugging async/await.
 
-Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
+Feel free to run `gdb` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
 
 You can ignore the editor erros for the `.yo` files, because the vscode extension might not use the updated Yo language grammar or evaluator/compiler code.
 

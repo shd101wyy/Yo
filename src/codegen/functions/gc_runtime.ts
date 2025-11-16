@@ -76,10 +76,10 @@ static yo_gc_state_t yo_gc = {
  * Tracks objects marked GRAY (pending scan) during concurrent marking phase
  */
 typedef struct {
-  void** objects;        // Array of gray objects to scan
-  size_t size;          // Current number of objects
-  size_t capacity;      // Array capacity
-  pthread_mutex_t lock; // For concurrent access
+  void** objects;           // Array of gray objects to scan
+  size_t size;              // Current number of objects
+  size_t capacity;          // Array capacity
+  YO_THREAD_SYNC_TYPE lock; // For concurrent access
 } YoGrayQueue;
 
 static YoGrayQueue yo_gray_queue = {
@@ -98,7 +98,7 @@ static void yo_gray_queue_init(void) {
   if (yo_gray_queue.objects == NULL) {
     yo_gray_queue.capacity = 1024;  // Initial capacity
     yo_gray_queue.objects = (void**)malloc(yo_gray_queue.capacity * sizeof(void*));
-    pthread_mutex_init(&yo_gray_queue.lock, NULL);
+    yo_mutex_init(&yo_gray_queue.lock);
   }
   yo_gray_queue.size = 0;
 }
@@ -107,7 +107,7 @@ static void yo_gray_queue_init(void) {
  * Push object to gray queue (thread-safe)
  */
 static void yo_gc_push_gray(void* obj) {
-  pthread_mutex_lock(&yo_gray_queue.lock);
+  yo_mutex_lock(&yo_gray_queue.lock);
   
   // Resize if needed
   if (yo_gray_queue.size >= yo_gray_queue.capacity) {
@@ -120,7 +120,7 @@ static void yo_gc_push_gray(void* obj) {
   
   yo_gray_queue.objects[yo_gray_queue.size++] = obj;
   
-  pthread_mutex_unlock(&yo_gray_queue.lock);
+  yo_mutex_unlock(&yo_gray_queue.lock);
 }
 
 /**
@@ -128,14 +128,14 @@ static void yo_gc_push_gray(void* obj) {
  * Returns NULL if queue is empty
  */
 static void* yo_gc_pop_gray(void) {
-  pthread_mutex_lock(&yo_gray_queue.lock);
+  yo_mutex_lock(&yo_gray_queue.lock);
   
   void* obj = NULL;
   if (yo_gray_queue.size > 0) {
     obj = yo_gray_queue.objects[--yo_gray_queue.size];
   }
   
-  pthread_mutex_unlock(&yo_gray_queue.lock);
+  yo_mutex_unlock(&yo_gray_queue.lock);
   return obj;
 }
 
@@ -143,9 +143,9 @@ static void* yo_gc_pop_gray(void) {
  * Check if gray queue has objects
  */
 static bool yo_gc_has_gray_objects(void) {
-  pthread_mutex_lock(&yo_gray_queue.lock);
+  yo_mutex_lock(&yo_gray_queue.lock);
   bool has_objects = yo_gray_queue.size > 0;
-  pthread_mutex_unlock(&yo_gray_queue.lock);
+  yo_mutex_unlock(&yo_gray_queue.lock);
   return has_objects;
 }
 
@@ -174,11 +174,11 @@ static inline void yo_gc_set_color(void* obj, uint8_t color) {
  * Safepoints are program points where threads can be safely paused for GC
  */
 typedef struct {
-  volatile bool requested;     // GC wants threads to stop
-  pthread_mutex_t mutex;       // Protects safepoint state
-  pthread_cond_t cond;         // Signals when safe to resume
-  size_t num_threads;          // Total mutator threads (excluding GC thread)
-  size_t threads_at_safepoint; // Threads currently stopped
+  volatile bool requested;        // GC wants threads to stop
+  YO_THREAD_SYNC_TYPE mutex;      // Protects safepoint state
+  YO_COND_TYPE cond;              // Signals when safe to resume
+  size_t num_threads;             // Total mutator threads (excluding GC thread)
+  size_t threads_at_safepoint;    // Threads currently stopped
 } YoSafepointState;
 
 static YoSafepointState yo_safepoint_state = {
@@ -192,8 +192,8 @@ static YoSafepointState yo_safepoint_state = {
  * Initialize safepoint mechanism
  */
 static void yo_safepoint_init(void) {
-  pthread_mutex_init(&yo_safepoint_state.mutex, NULL);
-  pthread_cond_init(&yo_safepoint_state.cond, NULL);
+  yo_mutex_init(&yo_safepoint_state.mutex);
+  yo_cond_init(&yo_safepoint_state.cond);
 }
 
 // =============================================================================
@@ -205,19 +205,19 @@ static void yo_safepoint_init(void) {
  * Dedicated background threads for concurrent marking and sweeping
  */
 typedef struct {
-  pthread_t thread_id;   // Thread ID
-  bool running;          // Thread is active
-  bool should_exit;      // Signal thread to exit
+  YO_THREAD_TYPE thread_id;  // Thread ID
+  bool running;              // Thread is active
+  bool should_exit;          // Signal thread to exit
 } YoGCThread;
 
 /**
  * Work queue for triggering GC cycles
  */
 typedef struct {
-  bool work_available;   // GC work needs to be done
-  bool gc_in_progress;   // GC cycle currently running
-  pthread_mutex_t mutex; // Protects work queue state
-  pthread_cond_t cond;   // Signals when work is available
+  bool work_available;        // GC work needs to be done
+  bool gc_in_progress;        // GC cycle currently running
+  YO_THREAD_SYNC_TYPE mutex;  // Protects work queue state
+  YO_COND_TYPE cond;          // Signals when work is available
 } YoGCWorkQueue;
 
 // Global GC thread and work queue
@@ -235,8 +235,8 @@ static YoGCWorkQueue yo_gc_work_queue = {
  * Initialize GC work queue
  */
 static void yo_gc_work_queue_init(void) {
-  pthread_mutex_init(&yo_gc_work_queue.mutex, NULL);
-  pthread_cond_init(&yo_gc_work_queue.cond, NULL);
+  yo_mutex_init(&yo_gc_work_queue.mutex);
+  yo_cond_init(&yo_gc_work_queue.cond);
 }
 
 // =============================================================================
@@ -450,7 +450,7 @@ static void yo_gc_scan_shadow_stack(void) {
  * Called when yo_safepoint_state.requested is true
  */
 static void yo_safepoint_slow(void) {
-  pthread_mutex_lock(&yo_safepoint_state.mutex);
+  yo_mutex_lock(&yo_safepoint_state.mutex);
   
   // Increment counter - we're at the safepoint
   yo_safepoint_state.threads_at_safepoint++;
@@ -463,7 +463,7 @@ static void yo_safepoint_slow(void) {
   
   // Signal GC thread if all mutator threads have stopped
   if (yo_safepoint_state.threads_at_safepoint == yo_safepoint_state.num_threads) {
-    pthread_cond_signal(&yo_safepoint_state.cond);
+    yo_cond_signal(&yo_safepoint_state.cond);
     ${debugGc}
     printf("[GC] All threads at safepoint - signaling GC\\n");
     #endif
@@ -471,7 +471,7 @@ static void yo_safepoint_slow(void) {
   
   // Wait for GC to finish and release us
   while (yo_safepoint_state.requested) {
-    pthread_cond_wait(&yo_safepoint_state.cond, &yo_safepoint_state.mutex);
+    yo_cond_wait(&yo_safepoint_state.cond, &yo_safepoint_state.mutex);
   }
   
   // Decrement counter - we're resuming
@@ -481,7 +481,7 @@ static void yo_safepoint_slow(void) {
   printf("[GC] Thread resuming from safepoint\\n");
   #endif
   
-  pthread_mutex_unlock(&yo_safepoint_state.mutex);
+  yo_mutex_unlock(&yo_safepoint_state.mutex);
 }
 
 /**
@@ -493,7 +493,7 @@ static void yo_gc_stop_the_world(void) {
   printf("[GC] Stopping the world...\\n");
   #endif
   
-  pthread_mutex_lock(&yo_safepoint_state.mutex);
+  yo_mutex_lock(&yo_safepoint_state.mutex);
   
   // Request safepoint - all threads will stop at next yo_safepoint() call
   __atomic_store_n(&yo_safepoint_state.requested, true, __ATOMIC_RELEASE);
@@ -506,14 +506,14 @@ static void yo_gc_stop_the_world(void) {
            yo_safepoint_state.threads_at_safepoint,
            yo_safepoint_state.num_threads);
     #endif
-    pthread_cond_wait(&yo_safepoint_state.cond, &yo_safepoint_state.mutex);
+    yo_cond_wait(&yo_safepoint_state.cond, &yo_safepoint_state.mutex);
   }
   
   ${debugGc}
   printf("[GC] World stopped - all threads at safepoints\\n");
   #endif
   
-  pthread_mutex_unlock(&yo_safepoint_state.mutex);
+  yo_mutex_unlock(&yo_safepoint_state.mutex);
 }
 
 /**
@@ -525,19 +525,19 @@ static void yo_gc_resume_world(void) {
   printf("[GC] Resuming the world...\\n");
   #endif
   
-  pthread_mutex_lock(&yo_safepoint_state.mutex);
+  yo_mutex_lock(&yo_safepoint_state.mutex);
   
   // Clear safepoint request
   __atomic_store_n(&yo_safepoint_state.requested, false, __ATOMIC_RELEASE);
   
   // Wake all waiting threads
-  pthread_cond_broadcast(&yo_safepoint_state.cond);
+  yo_cond_broadcast(&yo_safepoint_state.cond);
   
   ${debugGc}
   printf("[GC] World resumed\\n");
   #endif
   
-  pthread_mutex_unlock(&yo_safepoint_state.mutex);
+  yo_mutex_unlock(&yo_safepoint_state.mutex);
 }
 
 // =============================================================================
@@ -1189,19 +1189,19 @@ static void* yo_gc_thread_main(void* arg) {
   (void)arg;  // Unused
   
   ${debugGc}
-  printf("[GC] GC thread started (tid=%lu)\\n", pthread_self());
+  printf("[GC] GC thread started (tid=%lu)\\n", (unsigned long)yo_thread_self());
   #endif
   
   while (!yo_gc_thread.should_exit) {
     // Wait for GC work
-    pthread_mutex_lock(&yo_gc_work_queue.mutex);
+    yo_mutex_lock(&yo_gc_work_queue.mutex);
     
     while (!yo_gc_work_queue.work_available && !yo_gc_thread.should_exit) {
-      pthread_cond_wait(&yo_gc_work_queue.cond, &yo_gc_work_queue.mutex);
+      yo_cond_wait(&yo_gc_work_queue.cond, &yo_gc_work_queue.mutex);
     }
     
     if (yo_gc_thread.should_exit) {
-      pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+      yo_mutex_unlock(&yo_gc_work_queue.mutex);
       break;
     }
     
@@ -1209,15 +1209,15 @@ static void* yo_gc_thread_main(void* arg) {
     yo_gc_work_queue.work_available = false;
     yo_gc_work_queue.gc_in_progress = true;
     
-    pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+    yo_mutex_unlock(&yo_gc_work_queue.mutex);
     
     // Perform GC cycle
     yo_gc_concurrent_cycle();
     
     // Clear in_progress flag
-    pthread_mutex_lock(&yo_gc_work_queue.mutex);
+    yo_mutex_lock(&yo_gc_work_queue.mutex);
     yo_gc_work_queue.gc_in_progress = false;
-    pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+    yo_mutex_unlock(&yo_gc_work_queue.mutex);
   }
   
   ${debugGc}
@@ -1237,7 +1237,7 @@ static void yo_gc_thread_start(void) {
   
   yo_gc_thread.should_exit = false;
   
-  int result = pthread_create(&yo_gc_thread.thread_id, NULL, yo_gc_thread_main, NULL);
+  int result = yo_thread_create(&yo_gc_thread.thread_id, yo_gc_thread_main, NULL);
   if (result != 0) {
     fprintf(stderr, "[GC] Failed to create GC thread: %d\\n", result);
     return;
@@ -1263,13 +1263,13 @@ static void yo_gc_thread_stop(void) {
   #endif
   
   // Signal thread to exit
-  pthread_mutex_lock(&yo_gc_work_queue.mutex);
+  yo_mutex_lock(&yo_gc_work_queue.mutex);
   yo_gc_thread.should_exit = true;
-  pthread_cond_signal(&yo_gc_work_queue.cond);
-  pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+  yo_cond_signal(&yo_gc_work_queue.cond);
+  yo_mutex_unlock(&yo_gc_work_queue.mutex);
   
   // Wait for thread to exit
-  pthread_join(yo_gc_thread.thread_id, NULL);
+  yo_thread_join(yo_gc_thread.thread_id);
   
   yo_gc_thread.running = false;
   
@@ -1288,12 +1288,12 @@ static void yo_gc_maybe_collect(void) {
   
   if (heap_size > threshold) {
     // Signal GC thread to run
-    pthread_mutex_lock(&yo_gc_work_queue.mutex);
+    yo_mutex_lock(&yo_gc_work_queue.mutex);
     
     // Only trigger if GC not already running
     if (!yo_gc_work_queue.gc_in_progress && !yo_gc_work_queue.work_available) {
       yo_gc_work_queue.work_available = true;
-      pthread_cond_signal(&yo_gc_work_queue.cond);
+      yo_cond_signal(&yo_gc_work_queue.cond);
       
       ${debugGc}
       printf("[GC] Triggered GC (heap: %zu bytes, threshold: %zu bytes)\\n",
@@ -1301,7 +1301,7 @@ static void yo_gc_maybe_collect(void) {
       #endif
     }
     
-    pthread_mutex_unlock(&yo_gc_work_queue.mutex);
+    yo_mutex_unlock(&yo_gc_work_queue.mutex);
   }
 }
 
