@@ -47,6 +47,12 @@ export interface AwaitPoint {
    * This is used to reference the captured Future variable instead of creating a separate await_future_X field
    */
   futureVariableId?: string;
+
+  /**
+   * Whether this await is inside a cond expression
+   * If true, the state machine needs a cond_branch_X field to track which branch was taken
+   */
+  isInsideCond?: boolean;
 }
 
 /**
@@ -167,6 +173,43 @@ function walkExprForAwaits(
       break;
 
     case ExprTag.FuncCall: {
+      // Check if this is a cond expression - handle specially
+      if (exprIsFunctionCallOf(expr, "cond")) {
+        // For cond expressions, all awaits in branches are mutually exclusive
+        // They should share the same await index
+        const initialAwaitCount = awaitPoints.length;
+
+        // Walk through all branches
+        walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+        for (const arg of expr.args) {
+          walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+        }
+
+        // If multiple await points were added, merge them to use the same index
+        // and mark them as inside cond
+        const newAwaitCount = awaitPoints.length;
+        if (newAwaitCount > initialAwaitCount) {
+          // Mark all awaits found in this cond as isInsideCond
+          for (let i = initialAwaitCount; i < newAwaitCount; i++) {
+            awaitPoints[i]!.isInsideCond = true;
+          }
+
+          if (newAwaitCount > initialAwaitCount + 1) {
+            // Multiple awaits were found in branches - make them share the same index
+            const firstAwaitIndex = initialAwaitCount;
+            for (let i = initialAwaitCount + 1; i < newAwaitCount; i++) {
+              awaitPoints[i]!.index = firstAwaitIndex;
+            }
+            // Remove duplicate entries, keeping only the first one
+            awaitPoints.splice(
+              initialAwaitCount + 1,
+              newAwaitCount - initialAwaitCount - 1
+            );
+          }
+        }
+        break;
+      }
+
       // Check if this is an await call
       if (isAwaitCall(expr)) {
         // This is an await expression
