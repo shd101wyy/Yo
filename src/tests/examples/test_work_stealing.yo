@@ -1,0 +1,353 @@
+// Test: Work-stealing scheduler with various workload patterns
+
+open import "std/libc/stdio.yo";
+Gc :: import "std/gc";
+{ ArrayList } :: import "std/collections/array_list.yo";
+
+// Simple atomic counter using raw C atomic_int
+AtomicCounter :: object(
+  value: i32
+);
+
+extern "C",
+  __atomic_fetch_add:
+    (fn(ptr: *(i32), val: i32, memorder: i32) -> i32),
+  __atomic_load_n:
+    (fn(ptr: *(i32), memorder: i32) -> i32),
+  __atomic_store_n:
+    (fn(ptr: *(i32), val: i32, memorder: i32) -> unit);
+
+__ATOMIC_SEQ_CST :: 5;
+
+atomic_counter_new :: (fn() -> AtomicCounter)
+  AtomicCounter(value: 0)
+;
+
+atomic_counter_increment :: (fn(self: AtomicCounter) -> unit) {
+  __atomic_fetch_add(&(self.value), 1, __ATOMIC_SEQ_CST);
+};
+
+atomic_counter_get :: (fn(self: AtomicCounter) -> i32)
+  __atomic_load_n(&(self.value), __ATOMIC_SEQ_CST)
+;
+
+// Test 1: Many small tasks (stress test for work-stealing)
+test_many_small_tasks :: (fn() -> Future(unit))
+  async {
+    printf("Test 1: Many small tasks\n");
+    
+    counter := atomic_counter_new();
+    
+    // Create 1000 tasks that each increment the counter
+    tasks := ArrayList(Future(unit)).new();
+    i := 0;
+    while runtval(true),
+      cond(
+        ((i < 1000) => {
+          future := async {
+            atomic_counter_increment(counter);
+          };
+          tasks.push(future);
+          i = (i + 1);
+        }),
+        true => break
+      )
+    ;
+    
+    // Wait for all tasks
+    i = 0;
+    while runtval(true),
+      cond(
+        ((i < 1000) => {
+          task_opt := tasks.get(i.as(usize));
+          match task_opt,
+            .Some(task) => { await task; },
+            .None => ();
+          i = (i + 1);
+        }),
+        true => break
+      )
+    ;
+    
+    final_count := atomic_counter_get(counter);
+    cond(
+      (final_count == 1000) => {
+        printf("  ✓ All 1000 tasks executed\n");
+      },
+      true => {
+        printf("  ✗ Expected 1000, got %d\n", final_count);
+      }
+    );
+  }
+;
+
+// Test 2: Imbalanced workload (some tasks do more work)
+test_imbalanced_workload :: (fn() -> Future(unit))
+  async {
+    printf("Test 2: Imbalanced workload\n");
+  
+  counter := atomic_counter_new();
+  
+  // Mix of light and heavy tasks
+  tasks := ArrayList(Future(unit)).new();
+  i := 0;
+  while runtval(true),
+    cond(
+      ((i < 100) => {
+        // Every 10th task is heavy
+        is_heavy := ((i % 10) == 0);
+        
+        future := async {
+          cond(
+            (is_heavy => {
+              // Heavy task: increment 100 times
+              j := 0;
+              while runtval(true),
+                cond(
+                  ((j < 100) => {
+                    atomic_counter_increment(counter);
+                    j = (j + 1);
+                  }),
+                  true => break
+                )
+              ;
+            }),
+            true => atomic_counter_increment(counter)  // Light task
+          );
+        };
+        
+        tasks.push(future);
+        i = (i + 1);
+      }),
+      true => break
+    )
+  ;
+  
+  // Wait for all tasks
+  i = 0;
+  while runtval(true),
+    cond(
+      ((i < 100) => {
+        task_opt := tasks.get(i.as(usize));
+        match task_opt,
+          .Some(task) => { await task; },
+          .None => ();
+        i = (i + 1);
+      }),
+      true => break
+    )
+  ;
+  
+  // Expected: 10 heavy tasks * 100 + 90 light tasks * 1 = 1090
+  final_count := atomic_counter_get(counter);
+  cond(
+    (final_count == 1090) => {
+      printf("  ✓ Imbalanced workload handled correctly\n");
+    },
+    true => {
+      printf("  ✗ Expected 1090, got %d\n", final_count);
+    }
+  );
+  }
+;
+
+// Test 3: Bursty workload (spawn tasks in bursts)
+test_bursty_workload :: (fn() -> Future(unit))
+  async {
+    printf("Test 3: Bursty workload\n");
+  
+  counter := atomic_counter_new();
+  
+  // Spawn 5 bursts of 20 tasks each
+  all_tasks := ArrayList(Future(unit)).new();
+  burst := 0;
+  while runtval(true),
+    cond(
+      ((burst < 5) => {
+        // Spawn 20 tasks at once
+        i := 0;
+        while runtval(true),
+          cond(
+            ((i < 20) => {
+              future := async {
+                atomic_counter_increment(counter);
+              };
+              all_tasks.push(future);
+              i = (i + 1);
+            }),
+            true => break
+          )
+        ;
+        
+        burst = (burst + 1);
+      }),
+      true => break
+    )
+  ;
+  
+  // Wait for all tasks
+  i := 0;
+  while runtval(true),
+    cond(
+      ((i < 100) => {
+        task_opt := all_tasks.get(i.as(usize));
+        match task_opt,
+          .Some(task) => { await task; },
+          .None => ();
+        i = (i + 1);
+      }),
+      true => break
+    )
+  ;
+  
+  final_count := atomic_counter_get(counter);
+  cond(
+    (final_count == 100) => {
+      printf("  ✓ Bursty workload handled\n"); },
+    true => {
+      printf("  ✗ Expected 100, got %d\n", final_count);
+    }
+  );
+  }
+;
+
+// Test 4: Work-stealing with GC (ensure stolen tasks are tracked)
+MyBox :: object(
+  value: i32,
+  counter: AtomicCounter,
+  
+  dispose :: (fn(self: Self) -> unit)
+    atomic_counter_increment(self.counter)
+);
+
+test_work_stealing_with_gc :: (fn() -> Future(unit))
+  async {
+    printf("Test 4: Work-stealing with GC\n");
+  
+  counter := atomic_counter_new();
+  
+  // Create 50 tasks that allocate GC objects
+  tasks := ArrayList(Future(unit)).new();
+  i := 0;
+  while runtval(true),
+    cond(
+      ((i < 50) => {
+        current_i := i;  // Capture i value
+        future := async {
+          // Allocate a GC object
+          box := MyBox(
+            value: current_i,
+            counter: counter
+          );
+          
+          // Do some work
+          j := 0;
+          while runtval(true),
+            cond(
+              ((j < 10) => {
+                j = (j + 1);
+              }),
+              true => break
+            )
+          ;
+          
+          // Let box be collected
+        };
+        
+        tasks.push(future);
+        i = (i + 1);
+      }),
+      true => break
+    )
+  ;
+  
+  // Wait for all tasks
+  i = 0;
+  while runtval(true),
+    cond(
+      ((i < 50) => {
+        task_opt := tasks.get(i.as(usize));
+        match task_opt,
+          .Some(task) => { await task; },
+          .None => ();
+        i = (i + 1);
+      }),
+      true => break
+    )
+  ;
+  
+  // Force GC to collect all boxes
+  Gc.collect();
+  
+  final_count := atomic_counter_get(counter);
+  cond(
+    ((final_count == 50) => {
+      printf("  ✓ All GC objects disposed (work-stealing + GC works)\n");
+    }),
+    true => {
+      printf("  ✗ Expected 50 disposals, got %d\n", final_count);
+    }
+  );
+  }
+;
+
+// Test 5: Chain of dependent tasks (tests task ordering)
+test_task_chain :: (fn() -> Future(unit))
+  async {
+    printf("Test 5: Task chain\n");
+  
+  counter := atomic_counter_new();
+  
+  // Create a chain: task1 -> task2 -> task3 -> ... -> task10
+  // Each task increments counter and returns the result
+  task := async {
+    atomic_counter_increment(counter);
+    atomic_counter_get(counter)
+  };
+  
+  i := 1;
+  while runtval(true),
+    cond(
+      ((i < 10) => {
+        prev_task := task;
+        task = async {
+          prev_value := await prev_task;
+          atomic_counter_increment(counter);
+          atomic_counter_get(counter)
+        };
+        i = (i + 1);
+      }),
+      true => break
+    )
+  ;
+  
+  final_value := await task;
+  
+  cond(
+    ((final_value == 10) => {
+      printf("  ✓ Task chain executed in order\n");
+    }),
+    true => {
+      printf("  ✗ Expected 10, got %d\n", final_value);
+    }
+  );
+  }
+;
+
+main :: (fn() -> unit) {
+  async {
+    printf("=== Work-Stealing Scheduler Tests ===\n");
+    printf("\n");
+    
+    await test_many_small_tasks();
+    await test_imbalanced_workload();
+    await test_bursty_workload();
+    await test_work_stealing_with_gc();
+    await test_task_chain();
+    
+    printf("\n");
+    printf("=== All tests complete ===\n");
+  };
+};
+
+export main;

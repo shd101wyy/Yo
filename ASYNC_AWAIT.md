@@ -197,9 +197,31 @@ Each worker continuously:
 ### Task Assignment and Migration
 
 - Async tasks are assigned to workers round-robin when spawned
-- Tasks can migrate between workers (enabled by tracing GC)
+- Tasks can migrate between workers via **work-stealing**
 - **Historical note**: The old Biased Reference Counting (BRC) required tasks to stay on their owner thread. With the new concurrent tracing GC, this constraint is removed.
-- Work-stealing is now possible (not yet implemented, but architecturally supported)
+- **Work-stealing is now implemented** for automatic load balancing
+
+### Work-Stealing Scheduler
+
+Yo uses a **work-stealing scheduler** for optimal load balancing:
+
+**Architecture:**
+- Each worker has a **double-ended queue (deque)**
+- Workers execute tasks from the **bottom** of their own deque (LIFO for cache locality)
+- Idle workers **steal** tasks from the **top** of other workers' deques (FIFO to avoid conflicts)
+
+**Benefits:**
+- **Automatic load balancing** - busy workers offload to idle workers
+- **Cache locality** - workers prefer their own tasks (LIFO from bottom)
+- **Low contention** - stealing uses locks, but owner operations are lock-free
+- **Scalability** - works efficiently with varying task durations
+
+**Implementation Details:**
+- **Lock-free owner operations** - push/pop from bottom without locks
+- **Locked stealing** - thieves use mutex to steal from top
+- **Random victim selection** - idle workers randomly pick victims to steal from
+- **Quick checks** - workers check victim queue size before attempting steal
+- **Exponential backoff** - workers try local queue multiple times before stealing
 
 ## Implementation Details
 
@@ -384,7 +406,7 @@ main :: (fn() -> unit) {
 
 | Language | Model | Spawning | Memory/Task | Max Concurrency | Work Stealing |
 |----------|-------|----------|-------------|-----------------|---------------|
-| **Yo** | Stackless state machines | **Eager** | ~200 bytes | Millions | 🚧 Possible (not yet implemented) |
+| **Yo** | Stackless state machines | **Eager** | ~200 bytes | Millions | ✅ **Yes** (implemented) |
 | **Rust** | Stackless futures | Lazy | ~100 bytes | Millions | Depends on executor |
 | **JavaScript** | Stackless promises | **Eager** | ~100 bytes | Millions | N/A (single-threaded) |
 | **Python (asyncio)** | Stackless coroutines | **Eager** | ~200 bytes | Millions | N/A (single-threaded) |
@@ -400,7 +422,7 @@ Yo's async/await provides:
 
 1. ✅ **Familiar async/await syntax** - like Rust, JavaScript, C#, Python
 2. ✅ **State machine transformation** - zero-cost abstraction at compile time
-3. ✅ **Task migration support** - tasks can move between workers (enabled by tracing GC)
+3. ✅ **Work-stealing scheduler** - automatic load balancing across workers
 4. ✅ **Memory efficiency** - millions of concurrent tasks (~200 bytes each)
 5. ✅ **Worker thread pool** - efficient parallel execution (hardware threads - 1 for async, 1 for GC)
 6. ✅ **Simple to learn** - just `async` block and `await` future

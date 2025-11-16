@@ -91,21 +91,38 @@ void __yo_future_drop(void* ptr) {
 typedef struct yo_continuation_t {
   void (*resume_fn)(void* state_machine);  // Function to call to resume
   void* state_machine;                      // State machine to resume
-  struct yo_continuation_t* next;           // Next in linked list
+  struct yo_continuation_t* next;           // Next in linked list (for queue or free list)
 } yo_continuation_t;
 
-// Worker thread structure with per-thread task queue for async/await
+// Work-stealing deque - lock-free for owner, locked for thieves
+// Each worker has a deque that allows:
+// - Push/pop from bottom (owner thread, lock-free)
+// - Steal from top (other threads, uses lock)
+typedef struct yo_work_deque {
+  _Atomic(yo_continuation_t*) top;       // Top pointer (thieves steal from here)
+  _Atomic(yo_continuation_t*) bottom;    // Bottom pointer (owner pushes/pops here)
+  yo_continuation_t** buffer;            // Circular buffer
+  size_t buffer_size;                    // Power of 2 size
+  size_t mask;                           // buffer_size - 1 (for fast modulo)
+  yo_mutex_t steal_mutex;                // Lock for stealing (protects top pointer)
+  _Atomic size_t count;                  // Approximate task count (for load balancing)
+} yo_work_deque_t;
+
+// Worker thread structure with work-stealing deque
 typedef struct yo_worker_thread {
   yo_thread_handle_t handle;
   yo_thread_id_t id;
   bool active;
   size_t core_id;                        // CPU core this worker is pinned to
+  size_t worker_index;                   // Index in worker array
   
-  // Task queue for async state machines (no coroutines!)
-  yo_continuation_t* task_queue_head;    // Head of task queue
-  yo_continuation_t* task_queue_tail;    // Tail of task queue
-  size_t task_queue_count;               // Number of pending tasks
-  yo_mutex_t queue_mutex;                // Protects this worker's queue
+  // Work-stealing deque for tasks
+  yo_work_deque_t deque;
+  
+  // Statistics for debugging
+  _Atomic size_t tasks_executed;
+  _Atomic size_t tasks_stolen;
+  _Atomic size_t steal_attempts;
 } yo_worker_thread_t;
 
 // Global async/await thread pool state (NO coroutines!)
@@ -124,6 +141,160 @@ static _Atomic size_t yo_active_task_count = 0;
 static void __yo_async_scheduler_init(void);
 static void __yo_concurrency_set_maximum_threads(size_t num);
 static void __yo_set_thread_affinity(size_t core_id);
+static void __yo_deque_init(yo_work_deque_t* deque, size_t initial_size);
+static void __yo_deque_destroy(yo_work_deque_t* deque);
+static void __yo_deque_push_bottom(yo_work_deque_t* deque, yo_continuation_t* task);
+static yo_continuation_t* __yo_deque_pop_bottom(yo_work_deque_t* deque);
+static yo_continuation_t* __yo_deque_steal(yo_work_deque_t* deque);
+static yo_continuation_t* __yo_try_steal_from_random_worker(size_t current_worker_index);
+
+// Initialize work-stealing deque
+static void __yo_deque_init(yo_work_deque_t* deque, size_t initial_size) {
+  // Round up to next power of 2
+  size_t size = 1;
+  while (size < initial_size) size *= 2;
+  
+  deque->buffer_size = size;
+  deque->mask = size - 1;
+  deque->buffer = (yo_continuation_t**)__yo_calloc(size, sizeof(yo_continuation_t*));
+  atomic_store_explicit(&deque->top, (yo_continuation_t*)0, memory_order_relaxed);
+  atomic_store_explicit(&deque->bottom, (yo_continuation_t*)0, memory_order_relaxed);
+  atomic_store_explicit(&deque->count, 0, memory_order_relaxed);
+  YO_MUTEX_INIT(&deque->steal_mutex);
+}
+
+// Destroy work-stealing deque
+static void __yo_deque_destroy(yo_work_deque_t* deque) {
+  if (deque->buffer) {
+    __yo_free(deque->buffer);
+    deque->buffer = NULL;
+  }
+  YO_MUTEX_DESTROY(&deque->steal_mutex);
+}
+
+// Push task to bottom of deque (owner thread only, lock-free)
+static void __yo_deque_push_bottom(yo_work_deque_t* deque, yo_continuation_t* task) {
+  size_t bottom = (size_t)atomic_load_explicit(&deque->bottom, memory_order_relaxed);
+  size_t index = bottom & deque->mask;
+  
+  deque->buffer[index] = task;
+  
+  // Memory fence to ensure task is written before incrementing bottom
+  atomic_thread_fence(memory_order_release);
+  atomic_store_explicit(&deque->bottom, (yo_continuation_t*)(bottom + 1), memory_order_relaxed);
+  atomic_fetch_add_explicit(&deque->count, 1, memory_order_relaxed);
+}
+
+// Pop task from bottom of deque (owner thread only, lock-free)
+static yo_continuation_t* __yo_deque_pop_bottom(yo_work_deque_t* deque) {
+  size_t bottom = (size_t)atomic_load_explicit(&deque->bottom, memory_order_relaxed);
+  if (bottom == 0) return NULL;
+  
+  bottom--;
+  atomic_store_explicit(&deque->bottom, (yo_continuation_t*)bottom, memory_order_relaxed);
+  
+  // Memory fence to ensure bottom is decremented before reading top
+  atomic_thread_fence(memory_order_seq_cst);
+  
+  size_t top = (size_t)atomic_load_explicit(&deque->top, memory_order_relaxed);
+  
+  if (bottom < top) {
+    // Deque is empty, restore bottom
+    atomic_store_explicit(&deque->bottom, (yo_continuation_t*)(bottom + 1), memory_order_relaxed);
+    return NULL;
+  }
+  
+  size_t index = bottom & deque->mask;
+  yo_continuation_t* task = deque->buffer[index];
+  
+  if (bottom == top) {
+    // Last element - need to compete with thieves
+    if (!atomic_compare_exchange_strong_explicit(
+          &deque->top,
+          (yo_continuation_t**)&top,
+          (yo_continuation_t*)(top + 1),
+          memory_order_seq_cst,
+          memory_order_relaxed)) {
+      // Lost race to thief, restore bottom and return NULL
+      atomic_store_explicit(&deque->bottom, (yo_continuation_t*)(bottom + 1), memory_order_relaxed);
+      return NULL;
+    }
+    // Won race, reset deque to empty
+    atomic_store_explicit(&deque->bottom, (yo_continuation_t*)(top + 1), memory_order_relaxed);
+  }
+  
+  if (task) {
+    atomic_fetch_sub_explicit(&deque->count, 1, memory_order_relaxed);
+  }
+  return task;
+}
+
+// Steal task from top of deque (thief threads, uses lock)
+static yo_continuation_t* __yo_deque_steal(yo_work_deque_t* deque) {
+  YO_MUTEX_LOCK(&deque->steal_mutex);
+  
+  size_t top = (size_t)atomic_load_explicit(&deque->top, memory_order_acquire);
+  size_t bottom = (size_t)atomic_load_explicit(&deque->bottom, memory_order_acquire);
+  
+  if (top >= bottom) {
+    // Deque is empty
+    YO_MUTEX_UNLOCK(&deque->steal_mutex);
+    return NULL;
+  }
+  
+  size_t index = top & deque->mask;
+  yo_continuation_t* task = deque->buffer[index];
+  
+  if (!atomic_compare_exchange_strong_explicit(
+        &deque->top,
+        (yo_continuation_t**)&top,
+        (yo_continuation_t*)(top + 1),
+        memory_order_seq_cst,
+        memory_order_relaxed)) {
+    // Lost race, another thief got it
+    YO_MUTEX_UNLOCK(&deque->steal_mutex);
+    return NULL;
+  }
+  
+  YO_MUTEX_UNLOCK(&deque->steal_mutex);
+  
+  if (task) {
+    atomic_fetch_sub_explicit(&deque->count, 1, memory_order_relaxed);
+  }
+  return task;
+}
+
+// Try to steal a task from a random worker (except current worker)
+static yo_continuation_t* __yo_try_steal_from_random_worker(size_t current_worker_index) {
+  if (yo_worker_thread_count <= 1) return NULL;
+  
+  // Use thread ID as random seed for victim selection
+  size_t random_start = (size_t)YO_THREAD_ID();
+  
+  // Try to steal from multiple workers (up to N-1 attempts where N = worker count)
+  size_t max_attempts = yo_worker_thread_count - 1;
+  for (size_t attempt = 0; attempt < max_attempts; attempt++) {
+    size_t victim_index = (random_start + attempt) % yo_worker_thread_count;
+    
+    // Don't steal from ourselves
+    if (victim_index == current_worker_index) continue;
+    
+    yo_worker_thread_t* victim = &yo_worker_threads[victim_index];
+    
+    // Quick check: is victim's queue worth stealing from?
+    size_t victim_count = atomic_load_explicit(&victim->deque.count, memory_order_relaxed);
+    if (victim_count == 0) continue;
+    
+    // Try to steal a task
+    yo_continuation_t* stolen_task = __yo_deque_steal(&victim->deque);
+    if (stolen_task) {
+      ASYNC_DEBUG("Worker %zu stole task from worker %zu\\n", current_worker_index, victim_index);
+      return stolen_task;
+    }
+  }
+  
+  return NULL;
+}
 
 // Initialize async scheduler
 static void __yo_async_scheduler_init(void) {
@@ -158,26 +329,17 @@ void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
     task->state_machine = state_machine;
     task->next = NULL;
     
-    YO_MUTEX_LOCK(&worker->queue_mutex);
+    // Push to bottom of worker's deque (lock-free for owner)
+    __yo_deque_push_bottom(&worker->deque, task);
     
-    if (worker->task_queue_tail) {
-      worker->task_queue_tail->next = task;
-      worker->task_queue_tail = task;
-    } else {
-      worker->task_queue_head = task;
-      worker->task_queue_tail = task;
-    }
-    worker->task_queue_count++;
-    
-    YO_MUTEX_UNLOCK(&worker->queue_mutex);
-    
-    ASYNC_DEBUG("Enqueued task to worker %zu (queue size: %zu)\\n", worker_idx, worker->task_queue_count);
+    ASYNC_DEBUG("Enqueued task to worker %zu (queue size: %zu)\\n", 
+                worker_idx, atomic_load(&worker->deque.count));
   } else {
     CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
   }
 }
 
-// Worker thread function
+// Worker thread function with work-stealing
 #ifdef _WIN32
 static unsigned __stdcall __yo_worker_thread_func(void* arg) {
 #else
@@ -185,51 +347,93 @@ static void* __yo_worker_thread_func(void* arg) {
 #endif
   yo_worker_thread_t* worker = (yo_worker_thread_t*)arg;
   yo_thread_id_t thread_id = YO_THREAD_ID();
+  size_t worker_idx = worker->worker_index;
   
   // Pin this worker thread to its assigned CPU core for optimal cache locality
   __yo_set_thread_affinity(worker->core_id);
   
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
+  CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%zu)\\n", 
+                    (unsigned long)thread_id, worker->core_id, worker_idx);
+  
+  size_t idle_iterations = 0;
+  const size_t MAX_IDLE_BEFORE_STEAL = 3;  // Try local queue 3 times before stealing
   
   while (!atomic_load(&yo_worker_shutdown)) {
-    YO_MUTEX_LOCK(&worker->queue_mutex);
+    yo_continuation_t* task = NULL;
     
-    yo_continuation_t* task = worker->task_queue_head;
+    // Try to pop from our own deque first (lock-free, LIFO for cache locality)
+    task = __yo_deque_pop_bottom(&worker->deque);
+    
     if (task) {
-      worker->task_queue_head = task->next;
-      if (!worker->task_queue_head) {
-        worker->task_queue_tail = NULL;
+      // Found task in our own queue
+      idle_iterations = 0;
+      
+      CONCURRENCY_DEBUG("[WORKER %zu] Executing own task=%p (state_machine=%p, resume_fn=%p)\\n", 
+                        worker_idx, task, task->state_machine, task->resume_fn);
+      
+      if (task->resume_fn && task->state_machine) {
+        task->resume_fn(task->state_machine);
       }
-      worker->task_queue_count--;
+      
+      __yo_free(task);
+      atomic_fetch_add(&worker->tasks_executed, 1);
+      atomic_fetch_sub(&yo_active_task_count, 1);
+      
+    } else {
+      // No local task - try work-stealing after a few idle iterations
+      idle_iterations++;
+      
+      if (idle_iterations >= MAX_IDLE_BEFORE_STEAL) {
+        atomic_fetch_add(&worker->steal_attempts, 1);
+        task = __yo_try_steal_from_random_worker(worker_idx);
+        
+        if (task) {
+          // Successfully stole a task
+          idle_iterations = 0;
+          
+          CONCURRENCY_DEBUG("[WORKER %zu] Executing stolen task=%p (state_machine=%p, resume_fn=%p)\\n", 
+                            worker_idx, task, task->state_machine, task->resume_fn);
+          
+          if (task->resume_fn && task->state_machine) {
+            task->resume_fn(task->state_machine);
+          }
+          
+          __yo_free(task);
+          atomic_fetch_add(&worker->tasks_executed, 1);
+          atomic_fetch_add(&worker->tasks_stolen, 1);
+          atomic_fetch_sub(&yo_active_task_count, 1);
+          
+        } else {
+          // No tasks available anywhere - sleep briefly
+          #ifdef _WIN32
+          Sleep(1);
+          #else
+          usleep(1000);  // 1ms
+          #endif
+          idle_iterations = 0;  // Reset after sleep
+        }
+      } else {
+        // Quick yield before trying again
+        #ifdef _WIN32
+        Sleep(0);  // Yield
+        #else
+        sched_yield();
+        #endif
+      }
     }
     
-    YO_MUTEX_UNLOCK(&worker->queue_mutex);
-    
-    if (!task) {
-      #ifdef _WIN32
-      Sleep(1);
-      #else
-      usleep(1000);
-      #endif
-      continue;
-    }
-    
-    CONCURRENCY_DEBUG("[WORKER] Thread %lu executing task=%p (state_machine=%p, resume_fn=%p)\\n", 
-                      (unsigned long)thread_id, task, task->state_machine, task->resume_fn);
-    
-    if (task->resume_fn && task->state_machine) {
-      task->resume_fn(task->state_machine);
-    }
-    
-    __yo_free(task);
-    
-    atomic_fetch_sub(&yo_active_task_count, 1);
-    
-    CONCURRENCY_DEBUG("[WORKER] Thread %lu completed task, remaining tasks=%zu\\n", 
-                      (unsigned long)thread_id, atomic_load(&yo_active_task_count));
+    CONCURRENCY_DEBUG("[WORKER %zu] Stats: executed=%zu, stolen=%zu, steal_attempts=%zu, active_tasks=%zu\\n",
+                      worker_idx,
+                      atomic_load(&worker->tasks_executed),
+                      atomic_load(&worker->tasks_stolen),
+                      atomic_load(&worker->steal_attempts),
+                      atomic_load(&yo_active_task_count));
   }
   
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
+  CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting (executed=%zu, stolen=%zu)\\n", 
+                    (unsigned long)thread_id,
+                    atomic_load(&worker->tasks_executed),
+                    atomic_load(&worker->tasks_stolen));
   
   // Note: Thread-local GC state cleaned up automatically by GC runtime
   
@@ -300,26 +504,34 @@ static void __yo_set_thread_affinity(size_t core_id) {
   #endif
 }
 
-// Initialize thread pool
+// Initialize thread pool with work-stealing deques
 static void __yo_thread_pool_init(size_t num_threads) {
   if (num_threads < 1 || yo_worker_thread_count > 0) {
     return;
   }
   
-  CONCURRENCY_DEBUG("[POOL] Initializing %zu worker threads\\n", num_threads);
+  CONCURRENCY_DEBUG("[POOL] Initializing %zu worker threads with work-stealing\\n", num_threads);
   
   yo_worker_threads = (yo_worker_thread_t*)__yo_malloc(sizeof(yo_worker_thread_t) * num_threads);
   yo_worker_thread_count = num_threads;
   atomic_store(&yo_worker_shutdown, false);
   atomic_store(&yo_next_worker_index, 0);
   
+  // Initial deque size (power of 2)
+  const size_t INITIAL_DEQUE_SIZE = 256;
+  
   for (size_t i = 0; i < num_threads; i++) {
     yo_worker_threads[i].active = true;
     yo_worker_threads[i].core_id = i;
-    yo_worker_threads[i].task_queue_head = NULL;
-    yo_worker_threads[i].task_queue_tail = NULL;
-    yo_worker_threads[i].task_queue_count = 0;
-    YO_MUTEX_INIT(&yo_worker_threads[i].queue_mutex);
+    yo_worker_threads[i].worker_index = i;
+    
+    // Initialize work-stealing deque
+    __yo_deque_init(&yo_worker_threads[i].deque, INITIAL_DEQUE_SIZE);
+    
+    // Initialize statistics
+    atomic_store(&yo_worker_threads[i].tasks_executed, 0);
+    atomic_store(&yo_worker_threads[i].tasks_stolen, 0);
+    atomic_store(&yo_worker_threads[i].steal_attempts, 0);
     
     #ifdef _WIN32
     yo_worker_threads[i].handle = (HANDLE)_beginthreadex(
@@ -393,7 +605,15 @@ void __yo_async_wait_all(void) {
         #else
         pthread_join(yo_worker_threads[i].handle, NULL);
         #endif
-        YO_MUTEX_DESTROY(&yo_worker_threads[i].queue_mutex);
+        
+        // Clean up work-stealing deque
+        __yo_deque_destroy(&yo_worker_threads[i].deque);
+        
+        CONCURRENCY_DEBUG("[WAIT_ALL] Worker %zu stats: executed=%zu, stolen=%zu, steal_attempts=%zu\\n",
+                          i,
+                          atomic_load(&yo_worker_threads[i].tasks_executed),
+                          atomic_load(&yo_worker_threads[i].tasks_stolen),
+                          atomic_load(&yo_worker_threads[i].steal_attempts));
       }
     }
     
