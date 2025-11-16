@@ -1,34 +1,32 @@
-Concurrency :: import "std/concurrency";
 open import "std/libc/stdio.yo";
+Gc :: import "std/gc";
 
-task1 :: (fn() -> Future(i32)) async {
-  printf("running task1 on thread %zu\n", Concurrency.get_thread_id());
-  return 1;
-};
+MyBox :: object
+  (*) : i32,
 
-task2 :: (fn() -> Future(i32)) async {
-  printf("running task2 on thread %zu\n", Concurrency.get_thread_id());
-  return 2;
-};
+  dispose :: (fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value %d\n", self.(*));
+  }
+;
 
 main :: (fn() -> unit) {
   async {
-    printf("Hello, async world on thread %zu!\n", Concurrency.get_thread_id());
-    
-    task1_future := task1(); // async fn call
-    printf("after calling task1\n");
+    box1 := MyBox(666);
+    printf("Created MyBox with value %d\n", box1.(*));
 
-    task2_future := task2(); // another async call
-    printf("after calling task2\n");
+    future1 := async {
+      st := { box : box1 }; // Create an anonymous struct capturing `box1`;
+      box2 := MyBox(777);
+      printf("In future1, box1 value is %d\n", st.box.(*));
+      printf("In future1, box2 value is %d\n", box2.(*));
+    };
+    printf("Created future1\n");
 
-    a := await task1_future;
-    printf("awaited task1, result: %d\n", a);
-    
-    b := await task2_future;
-    printf("awaited task2, result: %d\n", b);
+    await future1;
 
-    result := (a + b);
-    printf("Final result: %d\n", result);
+    printf("After await future1\n");
+
+    Gc.collect();
   };
 };
 

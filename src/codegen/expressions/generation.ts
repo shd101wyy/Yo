@@ -596,13 +596,30 @@ function generateFuncCall(
         return `// Error: return expression missing temporary variable name`;
       }
 
-      const argCode = generateExpr(arg, indent, context);
+      // Special handling for async functions: we need to get the raw value code
+      // without temp variable indirection to properly declare the temp variable
+      const functionContext = context as FunctionGenerationContext;
+      let argCode: string;
+      let needsTempVarDeclaration = false;
+
+      if (functionContext.inStateMachine && arg.$?.variableName) {
+        // In async context: generate raw value code by temporarily clearing variableName
+        const savedVariableName = arg.$.variableName;
+        arg.$.variableName = undefined;
+        argCode = generateExpr(arg, indent, context);
+        arg.$.variableName = savedVariableName;
+        needsTempVarDeclaration = true;
+      } else {
+        argCode = generateExpr(arg, indent, context);
+      }
+
       const returnType = getTypeString(expr.$.type!, context);
 
+      // Declare temp variable if needed
       if (
         !isUnitType(expr.$.type) &&
         expr.$.variableName &&
-        expr.$.variableName !== argCode // Prevent something like: int32_t _yof4ca7ba3_temp_2071 = _yof4ca7ba3_temp_2071;
+        (needsTempVarDeclaration || expr.$.variableName !== argCode) // Prevent something like: int32_t _yof4ca7ba3_temp_2071 = _yof4ca7ba3_temp_2071;
       ) {
         context.emitter.emitLine(
           `${indent}${returnType} ${expr.$.variableName} = ${argCode};`
@@ -619,7 +636,6 @@ function generateFuncCall(
       }
 
       // Check if we're in a state machine - if so, complete the Future instead of returning
-      const functionContext = context as FunctionGenerationContext;
       if (functionContext.inStateMachine) {
         // State machine return - complete the Future and clean up
         const futureType = functionContext.inStateMachine.futureType;
@@ -643,11 +659,16 @@ function generateFuncCall(
 
         // Store the result if not unit
         if (!isUnitResult) {
+          // Use argCode directly if we didn't need a temp variable, otherwise use the temp variable
+          const resultValue =
+            expr.$.variableName && needsTempVarDeclaration
+              ? expr.$.variableName
+              : expr.$.variableName || argCode;
           context.emitter.emitLine(
-            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting result = %d\\n", (int)${expr.$.variableName});`
+            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting result = %d\\n", (int)${resultValue});`
           );
           context.emitter.emitLine(
-            `${indent}sm->result->result = ${expr.$.variableName};`
+            `${indent}sm->result->result = ${resultValue};`
           );
         }
 
