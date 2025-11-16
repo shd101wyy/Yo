@@ -21,6 +21,10 @@ export function generateGCRuntimeDeclarations(emitter: Emitter): void {
   emitter.emitDeclarationLine(`void __yo_gc_collect(void);`);
   emitter.emitDeclarationLine(`void __yo_gc_print_stats(void);`);
   emitter.emitDeclarationLine(``);
+  emitter.emitDeclarationLine(`/// Sync Primitives`);
+  emitter.emitDeclarationLine(`YO_THREAD_SYNC_TYPE yo_mutex_create(void);`);
+  emitter.emitDeclarationLine(`YO_COND_TYPE yo_cond_create(void);`);
+  emitter.emitDeclarationLine(``);
 }
 
 /**
@@ -1461,6 +1465,30 @@ void __yo_gc_print_stats(void) {
   printf("\\n");
   printf("=============================================================================\\n");
   printf("\\n");
+}
+
+// =============================================================================
+// Sync Primitives - Cross-platform Mutex and Condition Variables
+// =============================================================================
+
+/**
+ * Create and initialize a mutex (stack-allocated value)
+ * Returns an initialized mutex that can be used with yo_mutex_lock/unlock
+ */
+YO_THREAD_SYNC_TYPE yo_mutex_create(void) {
+  YO_THREAD_SYNC_TYPE mutex;
+  yo_mutex_init(&mutex);
+  return mutex;
+}
+
+/**
+ * Create and initialize a condition variable (stack-allocated value)
+ * Returns an initialized condition variable that can be used with yo_cond_wait/signal/broadcast
+ */
+YO_COND_TYPE yo_cond_create(void) {
+  YO_COND_TYPE cond;
+  yo_cond_init(&cond);
+  return cond;
 }
 `);
 }

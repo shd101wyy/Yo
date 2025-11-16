@@ -952,6 +952,10 @@ export function createSomeType(
     parentType: type,
     size: undefined,
     module,
+
+    // Necessary to inherit, like extern types from extern "yo"
+    isExtern: type.isExtern,
+    externName: type.externName,
   };
   module.receiverType = someType;
 
