@@ -39,7 +39,6 @@ import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
-  consumeCapturedVariables,
   createCaptureTypeAndValue,
   enrichCapturedVariables,
 } from "../utils/closure";
@@ -215,7 +214,6 @@ Got:      "${paramName}"`,
         value: createUnknownValue(expectedParam.type, expectedParam.label),
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
-        consumedAtToken: undefined,
       },
       skipCheckingFunctionOverloading: true,
     });
@@ -268,7 +266,6 @@ Got:      "${paramName}"`,
           : undefined,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,
-        consumedAtToken: undefined,
       },
       skipCheckingFunctionOverloading: true,
     });
@@ -319,7 +316,6 @@ Got:      "${paramName}"`,
         value: createUnknownValue(expectedParam.type, expectedParam.label),
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
-        consumedAtToken: undefined,
       },
       skipCheckingFunctionOverloading: true,
     });
@@ -439,15 +435,6 @@ Got:      "${paramName}"`,
   }
   // Restore the env frame
   env = popEnvFrame(env, true);
-
-  // For closures, consume the captured variables from outer scopes
-  if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
-    env = consumeCapturedVariables({
-      capturedVariables,
-      env,
-      closureToken: expr.token,
-    });
-  }
 
   // For closures, prepare captured variables with values and types for the function value
   let capturedVariablesWithValues:

@@ -145,7 +145,6 @@ export function synthesizeTypes(
             isCompileTimeOnly: true,
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
-            consumedAtToken: undefined,
           },
         });
         given.env = nextEnv;
@@ -173,7 +172,6 @@ export function synthesizeTypes(
             isCompileTimeOnly: true,
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
-            consumedAtToken: undefined,
           },
         });
         expected.env = nextEnv;
@@ -211,7 +209,6 @@ export function synthesizeTypes(
               isCompileTimeOnly: true,
               token: PlaceholderToken,
               initializedAtToken: PlaceholderToken,
-              consumedAtToken: undefined,
             },
           });
           expected.env = nextEnv;
@@ -240,7 +237,6 @@ export function synthesizeTypes(
               isCompileTimeOnly: true,
               token: PlaceholderToken,
               initializedAtToken: PlaceholderToken,
-              consumedAtToken: undefined,
             },
           });
           given.env = nextEnv;
@@ -286,7 +282,6 @@ export function synthesizeTypes(
             isCompileTimeOnly: true,
             token: PlaceholderToken, // FIXME: What should be `token` here?
             initializedAtToken: PlaceholderToken, // Set as initialized
-            consumedAtToken: undefined, // Not consumed yet
           },
         });
         expected.env = nextEnv;
@@ -345,7 +340,6 @@ export function synthesizeTypes(
             isCompileTimeOnly: true,
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
-            consumedAtToken: undefined,
           },
         });
         given.env = nextEnv;
@@ -538,7 +532,6 @@ export function synthesizeTypes(
             isCompileTimeOnly: true,
             token: PlaceholderToken, // FIXME: What should be `token` here?
             initializedAtToken: PlaceholderToken, // Set as initialized
-            consumedAtToken: undefined, // Not consumed yet
           },
         });
         expected.env = nextEnv;

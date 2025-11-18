@@ -115,7 +115,6 @@ export default class Evaluator {
               isCompileTimeOnly: true,
               initializedAtToken:
                 field.exprs.labelExpr?.token ?? field.exprs.expr.token,
-              consumedAtToken: undefined,
               token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
             },
           });

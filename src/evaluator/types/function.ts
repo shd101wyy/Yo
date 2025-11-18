@@ -388,8 +388,6 @@ use_id :: (fn(forall(T : Type),
           : undefined,
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
-      consumedAtToken: undefined, // Not consumed yet
-      isReassignable: false, // Mark as not reassigable
     },
     skipCheckingFunctionOverloading: true,
   });
@@ -699,8 +697,6 @@ Expected order: forall(...), regular parameters, using(...)`,
               : undefined,
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized
-            consumedAtToken: undefined, // Not consumed yet
-            isReassignable: false, // Mark as not reassigable
           },
         });
         env = nextEnv;

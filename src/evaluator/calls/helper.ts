@@ -280,7 +280,6 @@ export function checkIfFunctionParameterMatchesArgument({
       value: argValue,
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
-      consumedAtToken: undefined,
     },
   });
   calleeEnv = nextEnv;
@@ -460,7 +459,6 @@ export function tryToCallFunctionWithArguments({
         type: typeValue.type,
         isCompileTimeOnly: true,
         initializedAtToken: PlaceholderToken, // Set as initialized
-        consumedAtToken: undefined,
         value: typeValue,
       },
     });
@@ -487,7 +485,6 @@ export function tryToCallFunctionWithArguments({
           ),
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
-          consumedAtToken: undefined,
         },
       });
       calleeEnv = nextEnv;
@@ -668,7 +665,6 @@ Got:   ${typeToString(typeValue.type)}`,
               value: typeValue,
               token: token,
               initializedAtToken: token, // Set as initialized
-              consumedAtToken: undefined,
             },
           });
           calleeEnv = nextEnv;
@@ -837,7 +833,6 @@ Got:   ${argExprs.length} arguments`,
           value: unknownValue,
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
-          consumedAtToken: undefined,
         },
       });
       calleeEnv = nextEnv;
@@ -923,7 +918,6 @@ Got:   ${argExprs.length} arguments`,
             value: argValue,
             token: implicitArgExpr.token,
             initializedAtToken: implicitArgExpr.token, // Set as initialized
-            consumedAtToken: undefined, // Not consumed yet
           },
         });
         calleeEnv = nextEnv;
@@ -985,7 +979,6 @@ Got:   ${typeToString(argType)}`,
         value: resolvedValue,
         token: functionCalleeExpr?.token ?? PlaceholderToken,
         initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken,
-        consumedAtToken: undefined,
       },
       skipCheckingFunctionOverloading: true,
     });
@@ -1066,7 +1059,6 @@ Got:   ${typeToString(argType)}`,
           value: exprListValue,
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
-          consumedAtToken: undefined,
         },
       });
       calleeEnv = nextEnv;

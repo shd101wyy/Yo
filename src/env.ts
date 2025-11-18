@@ -61,22 +61,10 @@ export interface Variable {
   isCompileTimeOnly: boolean;
 
   /**
-   * Whether this variable is isReassignable or not.
-   * For example, the function parameter is not reassignable.
-   */
-  isReassignable?: boolean;
-
-  /**
    * Then token at which the variable is initialized.
    * If such token exists, then it means the variable is initialized at that point.
    */
   initializedAtToken: Token | undefined;
-
-  /**
-   * Check linear type consumption.
-   * The token at which the variable is consumed.
-   */
-  consumedAtToken: Token | undefined;
 
   /* This is only used for temp variable, check the
    * tempVariableName of the ReferenceExpr of AstType.Reference
@@ -419,8 +407,6 @@ export function printEnvVarNames(env: Environment) {
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isUndefined: !variable.initializedAtToken,
-        isReassignable: !!variable.isReassignable,
-        isConsumed: !!variable.consumedAtToken,
       }));
     })
   );
@@ -436,8 +422,6 @@ export function printEnvFrame(frame: Frame) {
       value: valueToString(variable.value),
       isCompileTimeOnly: variable.isCompileTimeOnly,
       isUndefined: !variable.initializedAtToken,
-      isReassignable: !!variable.isReassignable,
-      isConsumed: !!variable.consumedAtToken,
     }))
   );
 }

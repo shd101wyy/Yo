@@ -17,10 +17,7 @@ import {
   FunctionEvaluationContext,
 } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import {
-  buildPathCollectionFromCapturedVariables,
-  consumeCapturedVariables,
-} from "../utils/closure";
+import { buildPathCollectionFromCapturedVariables } from "../utils/closure";
 
 /**
  * Creates a fresh evaluation context for function body evaluation
@@ -167,19 +164,8 @@ export function tryToImplementFunctionByFunctionType({
   //       The check should be handled when evaluating the begin expression.
   env = popEnvFrame(env, true);
 
-  // For closures, consume the captured variables from outer scopes
-  let finalCallerEnv = callerEnv;
-  if (
-    functionType.isClosure &&
-    capturedVariables &&
-    capturedVariables.size > 0
-  ) {
-    finalCallerEnv = consumeCapturedVariables({
-      capturedVariables,
-      env: callerEnv,
-      closureToken: expr.token,
-    });
-  }
+  // ~~For closures, consume the captured variables from outer scopes~~
+  const finalCallerEnv = callerEnv;
 
   // Reset the cache
   // functionValue.calledComptFunctionCaches = [];

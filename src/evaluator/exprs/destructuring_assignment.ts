@@ -168,9 +168,7 @@ export function handleMemberDestructuring({
             isCompileTimeOnly,
             token: lhsField.token,
             initializedAtToken: lhsField.token,
-            consumedAtToken: undefined,
             isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
-            isReassignable: false, // NOTE: Destructuring only borrows but not owns, so we disable reassignment here.
           },
         });
         env = nextEnv;
@@ -350,9 +348,7 @@ export function handleMemberDestructuring({
           value: fieldValue,
           token: variableToken,
           initializedAtToken: variableToken,
-          consumedAtToken: undefined, // Not consumed yet
           isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
-          isReassignable: false, // NOTE: Destructuring only borrows but not owns, so we disable reassignment here.
         },
       });
 

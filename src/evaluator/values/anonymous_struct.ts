@@ -270,7 +270,6 @@ export function evaluateAnonymousStructValue({
       initializedAtToken: expr.token,
       token: expr.token,
       isCompileTimeOnly: true,
-      consumedAtToken: undefined,
     },
   });
   env = nextEnv;

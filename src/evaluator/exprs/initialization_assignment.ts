@@ -265,8 +265,6 @@ ${exprToString(rhs)}`,
         value: lhs.$.value,
         token: lhs.token,
         initializedAtToken: lhs.token,
-        consumedAtToken: undefined, // Not consumed yet
-        isReassignable: true, // This is not a function parameter
       },
     });
     env = nextEnv;

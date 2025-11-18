@@ -20,7 +20,6 @@ import {
   exprToString,
   FuncCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
 import { areTypesCompatible, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -422,10 +421,6 @@ export function evaluateBeginExpression({
     }
   }
   */
-
-  // Set the last expression as the return value
-  // and mark it as consumed.
-  env = setExprAsConsumed(lastExpr, env);
 
   // Save the current frame before popping (for shadow stack GC local collection)
   const currentFrame = env.frames[env.frames.length - 1];

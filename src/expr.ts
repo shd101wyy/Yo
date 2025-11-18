@@ -17,7 +17,7 @@ import {
   typeToString,
 } from "./types";
 import { generateNewTempVariableName } from "./utils";
-import { isTypeValue, ModuleValue, Value } from "./value";
+import { ModuleValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
 /**
@@ -1220,7 +1220,6 @@ ${exprToString(expr)}`);
       value: _containsGcType ? undefined : value,
       isCompileTimeOnly: _containsGcType ? false : Boolean(value),
       initializedAtToken: expr.token,
-      consumedAtToken: undefined,
       token: expr.token,
     },
   });
@@ -1287,18 +1286,16 @@ export function mergeAndCheckEnvs(
     const frame = env.frames[i]!;
     const frameVariables = [...frame.variables];
 
-    // Build the consumedAtToken matrix
+    // Build the initializedAtToken matrix
     // that has 1 + caseEnvs.length rows
     // and frameVariables.length columns
-    // each cell is consumedAtToken of the value
+    // each cell is initializedAtToken of the value
     const matrix: {
-      consumedAtToken: Token | undefined;
       initializedAtToken: Token | undefined;
       type: Type;
     }[][] = [[]];
     frameVariables.forEach((variable) => {
       matrix[0]!.push({
-        consumedAtToken: variable.consumedAtToken,
         initializedAtToken: variable.initializedAtToken,
         type: variable.type,
       });
@@ -1337,12 +1334,9 @@ export function mergeAndCheckEnvs(
       }
 
       // TODO: Check type, but I think it's unnecessary here.
-
-      // Check the consumedAtToken
       matrix.push([]);
       caseEnvFrameVariables.forEach((variable) => {
         matrix[matrix.length - 1]!.push({
-          consumedAtToken: variable.consumedAtToken,
           initializedAtToken: variable.initializedAtToken,
           type: variable.type,
         });
@@ -1536,120 +1530,4 @@ export function replaceExprWithAtomExpr(
     // Replace function call with atom - use the dedicated function
     replaceFuncCallExprWithAtomExpr(expr, newAtomExpr);
   }
-}
-
-export function setExprAsConsumed(
-  expr: Expr,
-  env: Environment,
-  allowConsumeAgain: boolean = false
-): Environment {
-  // Check if it's dereferencing a pointer/reference to linear type value.
-  // if (expr.$?.isAccessingProperty && isType0(typeOfType(expr.$.type))) {
-  //   throw formatErrorMessages([
-  //     {
-  //       token: expr.token,
-  //       errorMessage: `Cannot consume a property which is "Linear" value.`,
-  //     },
-  //   ]);
-  // }
-
-  // Don't consume type values - they should be reusable
-  if (expr.$?.value && isTypeValue(expr.$?.value)) {
-    return env;
-  }
-
-  const nameOfVariableToConsume = expr.$?.variableName;
-  if (!nameOfVariableToConsume) {
-    return env;
-    /*
-    throw formatErrorMessages({
-      modulePath: env.modulePath,
-      inputString: env.inputString,
-      tokenAndErrorList: [
-        {
-          token: expr.token,
-          errorMessage: `Failed to consume the expression as it is not a variable or does not have a temporary variable name.`,
-        },
-      ],
-    });
-    */
-  }
-
-  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
-  if (variables.length === 0) {
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
-      },
-    ]);
-  }
-
-  const variableToConsume = variables[variables.length - 1]!;
-  // Check if the variable is already consumed
-  if (variableToConsume.consumedAtToken && !allowConsumeAgain) {
-    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (1).`;
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage: errorMessage,
-      },
-      {
-        token: variableToConsume.consumedAtToken,
-        errorMessage: `Previously consumed here:`,
-      },
-    ]);
-  } else {
-    // Set the variable as consumed
-    env = updateExistingVariable(env, variableToConsume, {
-      ...variableToConsume,
-      consumedAtToken: expr.token,
-    });
-  }
-
-  return env;
-}
-
-/**
- *
- * Require the given "expr" is not consumed,
- * if it is consumed, then throw an error.
- */
-export function requireExprNotConsumed(expr: Expr, env: Environment): void {
-  const nameOfVariableToConsume = expr.$?.variableName;
-  if (!nameOfVariableToConsume) {
-    return;
-  }
-
-  const variables = getVariablesFromEnv(env, nameOfVariableToConsume);
-  if (variables.length === 0) {
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage: `Variable "${nameOfVariableToConsume}" is not defined.`,
-      },
-    ]);
-  }
-
-  const variableToConsume = variables[variables.length - 1]!;
-  // NOTE: We also allow Free value to be consumed now.
-  // if (isLinearOrType0Type(typeOfType(variableToConsume.type))) {
-  // Check if the variable is already consumed
-  if (
-    // isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
-    variableToConsume.consumedAtToken
-  ) {
-    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (2).`;
-    throw formatErrorMessages([
-      {
-        token: expr.token,
-        errorMessage,
-      },
-      {
-        token: variableToConsume.consumedAtToken,
-        errorMessage: `Previously consumed here:`,
-      },
-    ]);
-  }
-  // }
 }

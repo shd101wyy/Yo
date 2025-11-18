@@ -10,7 +10,6 @@ import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
-  consumeCapturedVariables,
   createCaptureTypeAndValue,
   enrichCapturedVariables,
 } from "../utils/closure";
@@ -119,15 +118,8 @@ export function tryToImplementClosureByClosureType({
   //       The check should be handled when evaluating the begin expression.
   env = popEnvFrame(env, true);
 
-  // For closures, consume the captured variables from outer scopes
-  let finalCallerEnv = callerEnv;
-  if (capturedVariables && capturedVariables.size > 0) {
-    finalCallerEnv = consumeCapturedVariables({
-      capturedVariables,
-      env: callerEnv,
-      closureToken: expr.token,
-    });
-  }
+  // ~~For closures, consume the captured variables from outer scopes~~
+  const finalCallerEnv = callerEnv;
 
   // Update the function value with captured variables (if any)
   const capturedVariablesWithValues =

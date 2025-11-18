@@ -90,7 +90,6 @@ If you are creating an array value with 1 element, please consider adding a "," 
         isCompileTimeOnly: true,
         token: lengthExpr.token,
         initializedAtToken: lengthExpr.token,
-        consumedAtToken: undefined,
       },
     });
 

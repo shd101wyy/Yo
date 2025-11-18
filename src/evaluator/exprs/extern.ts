@@ -123,7 +123,6 @@ export function evaluateExtern({
         isCompileTimeOnly: field.isCompileTimeOnly,
         token: field.exprs.expr.token,
         initializedAtToken: field.exprs.expr.token,
-        consumedAtToken: undefined, // Not consumed yet
       },
     });
     env = nextNextEnv;
