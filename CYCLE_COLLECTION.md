@@ -1,6 +1,6 @@
 # Cycle Collection
 
-Yo uses **non-atomic reference counting** with **stop-the-world (STW) cycle collection** to reclaim cyclic structures. The cycle collector uses a **trial deletion** algorithm inspired by QuickJS, adapted for Yo's thread-per-core model with full work-stealing.
+Yo uses **non-atomic reference counting** with **thread-local cycle collection** to reclaim cyclic structures. The cycle collector uses **QuickJS's trial deletion algorithm**, which is simpler than [Nim's ORC coloring approach](https://nim-works.github.io/nimskull/gc.html) while providing similar performance. The implementation is adapted for Yo's thread-per-core model with selective work-stealing.
 
 ## Why Cycle Collection?
 
@@ -21,7 +21,7 @@ node_b = .None;  // RC of B: 2 → 1 (A still holds reference)
 
 ## QuickJS-Inspired Algorithm
 
-QuickJS uses a **trial deletion** approach that works perfectly with non-atomic reference counting:
+QuickJS uses a **trial deletion** approach that works perfectly with non-atomic reference counting. This is simpler than [Nim's ORC coloring algorithm](https://nim-works.github.io/nimskull/gc.html) (which uses black/gray/white marking) but achieves similar O(N) performance with less complexity.
 
 ### Phase 1: Mark Potential Garbage
 
@@ -173,96 +173,142 @@ void yo_gc_restore_visitor(yo_object* referenced) {
 }
 ```
 
-### How STW Works with Work Stealing
+### Selective Work-Stealing (Nim's Approach)
 
-**All async tasks can be stolen** because STW GC handles cross-thread references correctly:
+**Only tasks without cycle-forming captures can be stolen:**
 
 ```yo
-// Thread 1 creates object
+// ✅ STEALABLE - only primitives and acyclic types
 async {
-  node := object(value: 1, next: .None);
-  await(io_operation());  // Task yields
-  // <-- Task stolen to Thread 2
-  node.next = create_cycle(node);  // Accessed on Thread 2
-  // STW GC will collect this correctly!
+  x := box(42);           // Box(i32) - no internal refs
+  y := [1, 2, 3];         // Array(i32) - no internal refs
+  result := await(compute(x, y));
+  return result;
+}
+
+// ❌ NOT STEALABLE - captures cycle-forming type
+async {
+  node := Node(1, .None);    // Node has Option(Node) field
+  await(io_operation());     // Task yields
+  // Task CANNOT be stolen - must stay on Thread 1
+  node.next = .Some(node);   // Creates cycle
 }
 ```
 
-**Why STW is necessary:**
-1. Objects created on one thread can be used on another after task migration
-2. Per-thread GC can't track cross-thread object movement
-3. STW pauses all threads, allowing global object traversal
+**Why thread-local GC requires this:**
+1. Objects are tracked by the thread that created them
+2. If a task migrates, the GC on the original thread might collect objects still in use
+3. Solution: Tasks capturing cycle-forming types cannot migrate (thread affinity)
+
+**Compiler Analysis:**
+
+The compiler analyzes captured variables at async function creation:
+
+```yo
+async {
+  x := box(42);           // Type: Box(i32)
+  node := Node(1, .None); // Type: Node (has Option(Node))
+  
+  // Analysis:
+  // - Box(i32): no internal refs → stealable ✅
+  // - Node: has Option(Node) → can form cycles ❌
+  // Result: Task is NOT stealable (thread affinity)
+}
+```
+
+**Type Analysis Rules:**
+
+| Type | Can Form Cycles? | Stealable? |
+|------|------------------|------------|
+| Primitives (`i32`, `boolean`, etc.) | No | ✅ Yes |
+| Value types (`struct(...)`) | No | ✅ Yes |
+| `Box(T)` where T is value type | No | ✅ Yes |
+| `Array(T)` where T is value type | No | ✅ Yes |
+| `object(...)` with ref fields | Yes | ❌ No |
+| `Node(value, next: Option(Node))` | Yes | ❌ No |
+| Closures capturing Rc types | Yes | ❌ No |
+
+**Runtime Behavior:**
+
+```c
+// Each task has a stealability flag
+typedef struct {
+    void (*resume_fn)(void*);
+    void* state_machine;
+    bool is_stealable;  // Set by compiler at creation
+} yo_continuation_t;
+
+// Work stealing checks flag
+yo_continuation_t* yo_try_steal_task(yo_worker_t* victim) {
+    yo_continuation_t* task = victim->queue_head;
+    if (task && task->is_stealable) {
+        // Remove from victim's queue and return
+        return task;
+    }
+    return NULL;  // Task is non-stealable, skip
+}
+```
 
 **GC Collection Process:**
 
 ```c
-void yo_gc_collect() {
-    // 1. Stop all worker threads at safepoints (between task polls)
-    yo_stop_all_threads();
+void yo_gc_collect_thread_local() {
+    // No synchronization needed - thread-local only
+    yo_gc_state_t* gc = &yo_gc_state;
     
-    // 2. Run trial deletion on global tracked objects
-    yo_gc_mark_phase(&yo_gc_global_state);
-    yo_gc_sweep_phase(&yo_gc_global_state);
+    // Run trial deletion on this thread's tracked objects
+    yo_gc_mark_phase(gc);
+    yo_gc_sweep_phase(gc);
     
-    // 3. Resume all threads
-    yo_resume_all_threads();
-}
-
-// Called by each worker thread between task executions
-void yo_check_safepoint() {
-    if (yo_gc_stop_requested.load()) {
-        yo_thread_wait_at_safepoint();  // Blocks until GC completes
-    }
+    // Other threads continue running in parallel
 }
 ```
 
-**Safepoint mechanism:**
-- Workers check for GC requests between polling tasks
-- When GC starts, all threads suspend at safepoints
-- GC thread performs collection on global tracked list
-- Workers resume after collection completes
-
 **Trade-offs:**
-- ✅ Handles all cross-thread references correctly
-- ✅ Simple implementation (no complex tracking)
-- ✅ Predictable pause times (1-10ms typical)
-- ⚠️ All threads pause during collection
-- ⚠️ Pause time proportional to total object count
+- ✅ No stop-the-world pauses (each thread collects independently)
+- ✅ Predictable per-thread pause times (O(thread's objects))
+- ✅ Perfect scaling (threads don't interfere)
+- ✅ Most tasks are stealable (primitives and value types common)
+- ⚠️ Tasks capturing cycle-forming types have thread affinity
+- ⚠️ Requires compiler analysis for stealability
 
 ## Performance Characteristics
 
-### STW Collection
+### Thread-Local Collection
 
 **Strengths:**
 - ✅ Non-atomic RC in hot path (zero synchronization overhead)
-- ✅ Predictable pause times (1-10ms typical)
-- ✅ Handles all cross-thread references correctly
-- ✅ Full work stealing enabled (maximum load balancing)
-- ✅ Simple implementation (no complex tracking)
+- ✅ No stop-the-world pauses (each thread collects independently)
+- ✅ Predictable per-thread pause times (O(thread's objects))
+- ✅ Perfect scaling (N threads = N independent collectors)
+- ✅ Most tasks are stealable (good load balancing)
+- ✅ Real-time friendly (no global synchronization)
 
 **Weaknesses:**
-- ⚠️ All threads pause during collection
-- ⚠️ Pause time grows with total object count (not per-thread)
+- ⚠️ Tasks capturing cycle-forming types have thread affinity
+- ⚠️ Requires compiler analysis for stealability
+- ⚠️ Slightly more complex than full STW
 
 **Why this is better than Go's GC:**
-- Yo's pauses: 1-10ms (only cycle collection, most objects freed by RC)
-- Go's pauses: 10-100ms+ (all objects traced)
-- Yo has fewer objects to trace because RC frees most objects immediately
+- Yo's pauses: 0.5-5ms per thread (only that thread's cycles)
+- Go's pauses: 10-100ms+ globally (all threads stop)
+- Yo has no global synchronization (true parallelism)
 
 ### Pause Time Analysis
 
 ```
-Objects tracked globally: N
-Pause time: O(N) for mark + O(N) for sweep = O(N) total
-Typical: 1-10ms for 10K-100K objects on modern CPU
+Objects tracked per thread: N/threads
+Pause time per thread: O(N/threads) for mark + sweep
+Typical: 0.5-5ms for 1K-10K objects per thread on modern CPU
 Scaling: ~0.1-1μs per object (including traversal)
+Global impact: Zero (other threads continue running)
 ```
 
 **Optimization strategies:**
 1. **Conservative tracking**: Only track objects with reference-type fields
 2. **Generational**: Track young vs old objects, collect young more frequently
-3. **Threshold tuning**: Adjust collection frequency based on allocation rate
-4. **Fast safepoints**: Workers check at task boundaries (already yielding)
+3. **Threshold tuning**: Per-thread collection frequency based on allocation rate
+4. **Stealability inference**: Compiler automatically determines task stealability
 
 ## API
 
@@ -308,27 +354,51 @@ void Node_traverse(void* obj, void (*visit)(void*)) {
 }
 ```
 
-### Object Registration
+### Object Registration and Stealability
 
-Compiler generates code to register/unregister objects with global GC:
+Compiler generates code to register objects with thread-local GC and mark task stealability:
 
 ```c
-// Generated code
+// Generated code for object allocation
 Node* node = yo_alloc_object(sizeof(Node));
 node->value = 42;
 node->next = OPTION_NONE;
 
-// Register with global GC (protected by mutex)
-pthread_mutex_lock(&yo_gc_global_state.lock);
-yo_gc_track(&yo_gc_global_state, (yo_object*)node);
-pthread_mutex_unlock(&yo_gc_global_state.lock);
+// Register with thread-local GC (no synchronization needed)
+yo_gc_track(&yo_gc_state, (yo_object*)node);
 
 // Increment thread-local allocation counter
-yo_gc_alloc_count++;
-if (yo_gc_alloc_count >= YO_GC_THRESHOLD) {
-    yo_gc_request_collection();  // Request STW GC
-    yo_gc_alloc_count = 0;
+yo_gc_state.alloc_count++;
+if (yo_gc_state.alloc_count >= YO_GC_THRESHOLD) {
+    yo_gc_collect_thread_local();  // Collect this thread only
+    yo_gc_state.alloc_count = 0;
 }
+```
+
+```c
+// Generated code for async task creation
+typedef struct {
+    int value;
+    Node* node;  // Captures Node (can form cycles)
+} MyAsyncState;
+
+yo_continuation_t* task = yo_create_continuation(
+    my_async_resume,
+    state_machine,
+    false  // is_stealable = false (captures Node)
+);
+
+// Alternative: task capturing only primitives
+typedef struct {
+    int x;
+    int y;
+} SimpleAsyncState;
+
+yo_continuation_t* task2 = yo_create_continuation(
+    simple_async_resume,
+    state_machine2,
+    true  // is_stealable = true (only primitives)
+);
 ```
 
 ## Comparison with Other Approaches
@@ -336,21 +406,29 @@ if (yo_gc_alloc_count >= YO_GC_THRESHOLD) {
 | Approach | Pause Time | Cross-Thread | Complexity | Performance |
 |----------|------------|--------------|------------|-------------|
 | **QuickJS trial deletion** | O(N) | No (single-threaded) | Low | Good |
+| **Nim ORC (coloring)** | O(N/threads) | No (thread affinity) | Medium-High | Excellent |
 | **Python (cycle detector)** | O(N) | Yes (GIL serializes) | Medium | Good with GIL |
 | **Swift (weak references)** | O(1) | Yes | Low | Excellent |
 | **Java (tracing GC)** | O(heap) | Yes | High | Variable |
-| **Go (mark-sweep)** | O(heap) | Yes | High | 10-100ms pauses |
-| **Yo (STW trial deletion)** | O(tracked) | Yes | Low | 1-10ms pauses |
+| **Go (mark-sweep)** | O(heap) | Yes | High | 10-100ms STW |
+| **Yo (QuickJS-style trial deletion)** | O(N/threads) | Selective | Low-Medium | 0.5-5ms per thread |
 
 ## Summary
 
 Yo's cycle collection design:
 
 1. ✅ **Non-atomic RC** - zero synchronization overhead in hot path
-2. ✅ **STW cycle collection** - simple and correct for work stealing
-3. ✅ **Trial deletion algorithm** - QuickJS-inspired, proven approach
-4. ✅ **Full work stealing** - all async tasks can migrate between threads
-5. ✅ **Short pauses** - 1-10ms typical (only cycles need GC, RC frees most objects)
-6. ✅ **Compiler-driven** - automatic tracking and registration
+2. ✅ **Thread-local cycle collection** - no stop-the-world pauses
+3. ✅ **QuickJS trial deletion** - simple, proven algorithm (simpler than [Nim's coloring approach](https://nim-works.github.io/nimskull/gc.html))
+4. ✅ **Selective work stealing** - stealable tasks migrate, others have thread affinity
+5. ✅ **Short per-thread pauses** - 0.5-5ms typical per thread (only that thread's cycles)
+6. ✅ **Compiler-driven** - automatic stealability analysis and tracking
+7. ✅ **Real-time friendly** - predictable latency, no global synchronization
 
-The key insight is that **reference counting frees most objects immediately**, so STW GC only needs to handle the small percentage of objects in cycles. This gives short, predictable pause times (much better than Go's 10-100ms) while enabling full work stealing.
+The key insights are:
+- **Reference counting frees most objects immediately** - GC only handles cycles
+- **Thread-local collection scales perfectly** - N threads = N independent collectors
+- **Most tasks are stealable** - primitives and value types common in practice
+- **No global pauses** - each thread collects independently while others continue
+
+This design gives **excellent performance** (better than Go's 10-100ms STW pauses) and **predictable latency** for real-time applications, while maintaining good work-stealing for load balancing.

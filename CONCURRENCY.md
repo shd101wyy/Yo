@@ -1,32 +1,32 @@
 # Concurrency Model
 
-Yo implements a **thread-per-core model** with async/await using stackless state machines. All async tasks can be work-stolen for optimal load balancing. Non-atomic reference counting is used for maximum performance, with stop-the-world cycle collection to handle cross-thread object references.
+Yo implements a **thread-per-core model** with async/await using stackless state machines. Tasks can be selectively work-stolen based on capture analysis, enabling efficient load balancing while maintaining thread-local cycle collection with zero stop-the-world pauses.
 
 ## Threading Model
 
-Yo uses a **1:1 threading model** with full work-stealing:
+Yo uses a **1:1 threading model** with selective work-stealing:
 - Each worker thread is a real OS thread (1:1 mapping)
-- **Full work stealing** - all async tasks can migrate between threads
+- **Selective work stealing** - tasks without cycle-forming captures can migrate
 - Thread-per-core pinning for optimal cache locality
 - Tasks distributed round-robin at spawn time
 - **No channels or select** - use Future-based async/await instead
 
 This differs from M:N models because:
 - Still 1:1 thread mapping (one OS thread per worker)
-- Tasks can migrate, but threads are pinned to cores
-- Work stealing is simpler than M:N scheduling
+- Tasks maintain thread affinity if they capture cycle-forming types
+- Work stealing only for acyclic captures (like Nim's ORC)
 
 ## Technology Stack
 
 - **Async Model**: Stackless state machines (compile-time transformation)
-- **Threading Model**: 1:1 (thread-per-core with full work-stealing)
+- **Threading Model**: 1:1 (thread-per-core with selective work-stealing)
 - **Threading**: OS threads (pthread/Windows threads)
-- **Memory Management**: Non-atomic RC with stop-the-world cycle collection
+- **Memory Management**: Non-atomic RC with thread-local cycle collection
 - **Memory Allocator**: mimalloc
 - **Synchronization**: Per-thread task queues with mutexes
 - **Scheduling**: Cooperative polling within each worker thread
 - **Task Distribution**: Round-robin assignment at spawn time
-- **Work Stealing**: Full - all async tasks can be stolen
+- **Work Stealing**: Selective - only tasks without cycle-forming captures
 
 ## Architecture Overview
 
@@ -77,15 +77,15 @@ This differs from M:N models because:
 - Tasks are distributed round-robin to worker threads
 - Run cooperatively - poll repeatedly until complete
 - Tasks voluntarily yield at `await` points
-- **All tasks are stealable** - can migrate between threads
+- **Stealability determined by compiler** - based on captured types
 
-### 3. **Work Stealing**
+### 3. **Selective Work Stealing**
 - Idle threads can steal tasks from busy threads
-- **All async tasks can be stolen** - no restrictions
-- **Why this works**: Non-atomic RC is safe (only one thread accesses at a time)
-- **Task migration**: Objects created on Thread A can be accessed on Thread B after stealing
-- **GC requirement**: Stop-the-world collection needed to handle cross-thread references
-- **Benefits**: Maximum load balancing, simple design
+- **Stealability check**: Compiler analyzes captured values
+  - ✅ **Stealable**: Primitives, value types, acyclic Rc (Box, Array of values)
+  - ❌ **Non-stealable**: Objects/closures with reference-type fields (can form cycles)
+- **Why this works**: Non-cycle-forming types don't need thread-local GC tracking
+- **Benefits**: Good load balancing + zero GC pauses (thread-local collection)
 
 ## API
 
@@ -116,13 +116,14 @@ data := await future;
 ### Task Lifecycle
 
 1. **Spawn**: Async function called → state machine allocated → assigned to worker (round-robin)
-2. **Enqueue**: State machine wrapped in continuation, enqueued to worker's task queue
-3. **Execute**: Worker dequeues continuation, calls resume function
-4. **Poll**: Resume function advances state machine through states
-5. **Await**: If Future not ready, register continuation and return (yield)
-6. **Steal**: Idle worker may steal task from busy worker's queue
-7. **Wake**: When Future completes, continuation re-enqueued to current worker
-8. **Complete**: State machine reaches final state, frees itself, wakes awaiter
+2. **Analyze**: Compiler determines if task is stealable (no cycle-forming Rc captures)
+3. **Enqueue**: State machine wrapped in continuation, enqueued to worker's task queue
+4. **Execute**: Worker dequeues continuation, calls resume function
+5. **Poll**: Resume function advances state machine through states
+6. **Await**: If Future not ready, register continuation and return (yield)
+7. **Steal** (optional): If task is stealable, idle worker may steal it
+8. **Wake**: When Future completes, continuation re-enqueued to current worker
+9. **Complete**: State machine reaches final state, frees itself, wakes awaiter
 
 ### Cooperative Scheduling
 
@@ -176,71 +177,71 @@ When a Future completes:
 
 ## Memory Management & Cycle Collection
 
-### Non-Atomic RC with Full Work Stealing
+### Non-Atomic RC with Thread-Local GC (Nim's Approach)
 
-Yo uses **non-atomic reference counting** for maximum performance:
+Yo uses **non-atomic reference counting** with **thread-local cycle collection**:
 - Each object's RC is non-atomic (no atomic operations!)
-- Only one thread accesses an object at any given time
-- Tasks can migrate between threads, taking their objects with them
+- Each thread has its own cycle collector (no global coordination)
+- Objects that can form cycles must stay on their thread for GC correctness
 
-**Why non-atomic RC is safe with work stealing:**
-```yo
-// Thread 1 creates object
-async {
-  node := Node(1, .None);     // Created on Thread 1, RC = 1
-  await(io_operation());      // Task yields
-  // <-- Task stolen to Thread 2
-  node.next = .Some(node);    // Now accessed on Thread 2
-  // Still safe! Only Thread 2 accesses it now
-}
-```
+**Why selective work stealing?**
 
-**Key insight:** Although tasks migrate, objects are only accessed by one thread at a time. Non-atomic RC operations are safe because there's no concurrent access.
+Thread-local GC requires that **objects stay on the thread that tracks them**:
 
-### Stop-The-World Cycle Collection (Required)
-
-Work stealing requires **stop-the-world (STW) GC**:
-
-**Why STW is necessary:**
 ```yo
 // Thread 1
 async {
   node := Node(1, .None);     // Created on Thread 1
-                              // Tracked by Thread 1's GC root
+                              // Tracked by Thread 1's GC
   await(io_operation());
-  // <-- Task stolen to Thread 2
-  node.next = .Some(node);    // Object now on Thread 2
+  // If stolen to Thread 2:
+  // - Thread 1's GC still tracks 'node'
+  // - But Thread 2 is using 'node'
+  // - Thread 1's GC might collect it!
+  // - MEMORY CORRUPTION!
 }
-
-// Problem: Object created on Thread 1, used on Thread 2
-// Thread 1's GC root still tracks it, but Thread 2 is using it
-// Per-thread GC would break - need global coordination!
 ```
 
-**STW GC algorithm:**
-1. **Stop all threads** at safepoints (between tasks)
-2. **Mark phase**: Traverse all objects from all thread roots globally
-3. **Sweep phase**: Collect unreachable objects
-4. **Resume threads**: Continue execution
+**Solution:** Tasks capturing cycle-forming types cannot be stolen (thread affinity).
 
-**STW characteristics:**
-- Pause time: O(total objects across all threads)
-- Frequency: Periodic (e.g., every 100ms) or on memory pressure
-- Typical pause: 1-10ms for reasonable object counts
-- Deterministic: Predictable pause times
+### Compiler Analysis for Stealability
 
-### Why This Design Works
+The compiler determines stealability at async function creation:
 
-**Benefits:**
-1. ✅ **Non-atomic RC in hot path** - zero synchronization overhead
-2. ✅ **Full work stealing** - maximum load balancing
-3. ✅ **Simple implementation** - no complex tracking
-4. ✅ **Correct by construction** - STW prevents races
-5. ✅ **Predictable pauses** - STW is well-understood
+```yo
+// ✅ Stealable: Only captures primitives and acyclic types
+async {
+  x := box(42);           // Box(i32) - acyclic, stealable ✅
+  y := [1, 2, 3];         // Array(i32) - acyclic, stealable ✅
+  result := await(compute(x, y));
+  return result;
+}
 
-**Trade-offs:**
-- ⚠️ Periodic GC pauses (but short and predictable)
-- ⚠️ All threads must reach safepoints
+// ❌ Non-stealable: Captures cycle-forming type
+async {
+  node := Node(1, .None);  // Node can form cycles ❌
+  cycle := await(process(node));
+  // Must stay on thread for GC
+}
+```
+
+**Type analysis**:
+- `Box(T)`, `Array(T)` where T is value type → Stealable
+- `object(...)` with reference-type fields → Non-stealable
+- `closure` capturing Rc types → Non-stealable
+- Primitives (`i32`, `boolean`, etc.) → Always stealable
+
+### Thread-Local Collection Benefits
+
+**No stop-the-world pauses:**
+- Each thread collects independently
+- Other threads continue running during collection
+- Pause time: 0.5-5ms per thread (only that thread's objects)
+
+**Perfect scaling:**
+- N threads = N independent collectors
+- No global synchronization
+- True parallelism
 
 See `CYCLE_COLLECTION.md` for detailed GC implementation.
 
@@ -255,15 +256,15 @@ See `CYCLE_COLLECTION.md` for detailed GC implementation.
 ✅ **Millions of tasks** - can handle massive concurrency  
 ✅ **CPU affinity** - thread-per-core model maximizes cache locality  
 ✅ **Zero-cost abstraction** - compiled to efficient C code  
-✅ **Full work stealing** - maximum load balancing  
+✅ **Good work stealing** - most tasks are stealable  
 ✅ **Non-atomic RC** - zero synchronization overhead in hot path  
-✅ **Predictable GC pauses** - STW but short (1-10ms)
+✅ **Zero GC pauses** - thread-local collection, no stop-the-world
 
 ### Weaknesses
 ⚠️ **Async coloring** - async functions can only await other async functions  
 ⚠️ **Cannot suspend in C calls** - must wrap blocking C functions  
 ⚠️ **Explicit await points** - cannot suspend arbitrarily like stackful coroutines  
-⚠️ **GC pauses** - periodic stop-the-world collection (typically 1-10ms)
+⚠️ **Thread affinity** - tasks capturing cycle-forming types cannot migrate
 
 ### Trade-offs
 
@@ -325,7 +326,7 @@ All tasks completed: 10, 20, 30, 40
 | Threading Model | Thread-per-core | M:N with work stealing | Executor-dependent |
 | Coroutine Type | Stackless (state machines) | Stackful (growable stacks) | Stackless (state machines) |
 | Task Scheduling | Cooperative | Preemptive | Cooperative |
-| Work Stealing | ✅ Full (all tasks) | ✅ Yes | Depends on executor |
+| Work Stealing | ✅ Selective (acyclic captures) | ✅ Yes | Depends on executor |
 | Memory/Task | ~200 bytes | 2KB+ (growable) | ~100-500 bytes |
 | Stack Growth | N/A (no stacks) | Dynamic 2KB→1GB | N/A (no stacks) |
 | Max Concurrent | Millions | 100K-1M | Millions |
@@ -335,17 +336,17 @@ All tasks completed: 10, 20, 30, 40
 | Runtime Overhead | Near-zero | Context switching | Near-zero |
 | CPU Affinity | ✅ Thread-per-core pinning | ⚠️ GOMAXPROCS only | Depends on executor |
 | Memory Model | Non-atomic RC + cycle GC | Mark-sweep GC | Manual (Arc/Rc) |
-| GC Coordination | Stop-the-world (1-10ms) | Stop-the-world (10-100ms+) | N/A (no GC) |
+| GC Coordination | Thread-local (0.5-5ms/thread) | Stop-the-world (10-100ms+) | N/A (no GC) |
 | Channels/Select | ❌ No (use Future) | ✅ Native | ⚠️ Crate-dependent |
 
 ## Key Advantages
 
 **Vs Go**:
 - ✅ Non-atomic RC faster than Go's GC in hot path (zero synchronization)
-- ✅ Shorter GC pauses - Yo's STW typically 1-10ms vs Go's 10-100ms+
+- ✅ Zero GC pauses - thread-local collection while others continue
 - ✅ Lower memory per task (~200 bytes vs 2KB+)
 - ✅ Thread-per-core affinity for better cache locality
-- ✅ Full work stealing like Go, but with non-atomic RC performance
+- ✅ Selective work stealing for good load balancing
 
 **Vs Rust**:
 - ✅ Automatic memory management (no manual Arc/Rc juggling)
@@ -354,9 +355,9 @@ All tasks completed: 10, 20, 30, 40
 - ⚠️ Less control over memory layout
 
 **Unique Features**:
-- Non-atomic RC with work stealing (rare combination!)
-- Short, predictable STW GC pauses
-- Thread-per-core + full work stealing
+- Non-atomic RC with thread-local GC (zero global pauses)
+- Selective work stealing based on compiler analysis
+- Thread-per-core + optional work stealing
 - Zero synchronization overhead in RC operations
 
 ## Future Enhancements
