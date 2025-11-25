@@ -199,29 +199,50 @@ static inline size_t __yo_get_thread_id(void) {
 // Thread synchronization for stop-the-world GC
 #ifndef YO_THREAD_SYNC_TYPE
 #if defined(_WIN32)
-  // Windows: Use C11 threads.h for better compatibility
-  #include <threads.h>
-  #define YO_THREAD_SYNC_TYPE mtx_t
-  #define YO_THREAD_SYNC_LOCK(m) mtx_lock(m)
-  #define YO_THREAD_SYNC_UNLOCK(m) mtx_unlock(m)
-  #define YO_COND_TYPE cnd_t
-  #define yo_mutex_lock(m) mtx_lock(m)
-  #define yo_mutex_unlock(m) mtx_unlock(m)
-  #define yo_cond_wait(c, m) cnd_wait(c, m)
-  #define yo_cond_broadcast(c) cnd_broadcast(c)
+  // Windows: Use native Windows APIs for better compatibility
+  #include <windows.h>
+  #include <process.h>
+  typedef CRITICAL_SECTION YO_THREAD_SYNC_TYPE;
+  typedef CONDITION_VARIABLE YO_COND_TYPE;
+  typedef HANDLE YO_THREAD_TYPE;
+  #define YO_THREAD_SYNC_INIT {0}
+  #define YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
+  #define YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
+  #define YO_COND_INIT CONDITION_VARIABLE_INIT
+  #define yo_mutex_init(m) InitializeCriticalSection(m)
+  #define yo_mutex_destroy(m) DeleteCriticalSection(m)
+  #define yo_mutex_lock(m) EnterCriticalSection(m)
+  #define yo_mutex_unlock(m) LeaveCriticalSection(m)
+  #define yo_cond_init(c) InitializeConditionVariable(c)
+  #define yo_cond_destroy(c) ((void)0)
+  #define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
+  #define yo_cond_signal(c) WakeConditionVariable(c)
+  #define yo_cond_broadcast(c) WakeAllConditionVariable(c)
+  #define yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, (unsigned (__stdcall*)(void*))func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+  #define yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
+  #define yo_thread_self() ((uintptr_t)GetCurrentThreadId())
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
   // Unix-like systems: Use pthreads (more reliable, especially on macOS)
   #include <pthread.h>
-  #define YO_THREAD_SYNC_TYPE pthread_mutex_t
+  typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;
+  typedef pthread_cond_t YO_COND_TYPE;
+  typedef pthread_t YO_THREAD_TYPE;
   #define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
   #define YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
   #define YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
-  #define YO_COND_TYPE pthread_cond_t
   #define YO_COND_INIT PTHREAD_COND_INITIALIZER
+  #define yo_mutex_init(m) pthread_mutex_init(m, NULL)
+  #define yo_mutex_destroy(m) pthread_mutex_destroy(m)
   #define yo_mutex_lock(m) pthread_mutex_lock(m)
   #define yo_mutex_unlock(m) pthread_mutex_unlock(m)
+  #define yo_cond_init(c) pthread_cond_init(c, NULL)
+  #define yo_cond_destroy(c) pthread_cond_destroy(c)
   #define yo_cond_wait(c, m) pthread_cond_wait(c, m)
+  #define yo_cond_signal(c) pthread_cond_signal(c)
   #define yo_cond_broadcast(c) pthread_cond_broadcast(c)
+  #define yo_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
+  #define yo_thread_join(t) pthread_join(t, NULL)
+  #define yo_thread_self() ((uintptr_t)pthread_self())
 #else
   #error "Unsupported platform for threading"
 #endif

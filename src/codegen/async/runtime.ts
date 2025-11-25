@@ -72,37 +72,6 @@ void __yo_future_drop(void* ptr) {
   ASYNC_DEBUG("__yo_future_drop: Returned from __yo_decr_rc\\n");
 }
 
-// Thread support
-#ifdef _WIN32
-  #include <windows.h>
-  #include <process.h>
-  typedef HANDLE yo_thread_handle_t;
-  typedef DWORD yo_thread_id_t;
-  typedef CRITICAL_SECTION yo_mutex_t;
-  #define YO_MUTEX_INIT(m) InitializeCriticalSection(m)
-  #define YO_MUTEX_DESTROY(m) DeleteCriticalSection(m)
-  #define YO_MUTEX_LOCK(m) EnterCriticalSection(m)
-  #define YO_MUTEX_UNLOCK(m) LeaveCriticalSection(m)
-  #define YO_THREAD_ID() ((yo_thread_id_t)GetCurrentThreadId())
-#else
-  #include <pthread.h>
-  #include <unistd.h>
-  #ifdef __linux__
-    #include <sys/syscall.h>  // For syscall() and SYS_* constants
-  #elif defined(__APPLE__)
-    #include <mach/thread_policy.h>
-    #include <mach/thread_act.h>
-  #endif
-  typedef pthread_t yo_thread_handle_t;
-  typedef pthread_t yo_thread_id_t;
-  typedef pthread_mutex_t yo_mutex_t;
-  #define YO_MUTEX_INIT(m) pthread_mutex_init(m, NULL)
-  #define YO_MUTEX_DESTROY(m) pthread_mutex_destroy(m)
-  #define YO_MUTEX_LOCK(m) pthread_mutex_lock(m)
-  #define YO_MUTEX_UNLOCK(m) pthread_mutex_unlock(m)
-  #define YO_THREAD_ID() ((yo_thread_id_t)pthread_self())
-#endif
-
 // Forward declarations for state machine resume functions
 // These will be generated for each async function
 
@@ -115,8 +84,7 @@ typedef struct yo_continuation_t {
 
 // Worker thread structure with per-thread task queue for async/await
 typedef struct yo_worker_thread {
-  yo_thread_handle_t handle;
-  yo_thread_id_t id;
+  YO_THREAD_TYPE id;
   bool active;
   size_t core_id;                        // CPU core this worker is pinned to
   
@@ -124,7 +92,7 @@ typedef struct yo_worker_thread {
   yo_continuation_t* task_queue_head;    // Head of task queue
   yo_continuation_t* task_queue_tail;    // Tail of task queue
   size_t task_queue_count;               // Number of pending tasks
-  yo_mutex_t queue_mutex;                // Protects this worker's queue
+  YO_THREAD_SYNC_TYPE queue_mutex;                // Protects this worker's queue
 } yo_worker_thread_t;
 
 // Global async/await thread pool state (NO coroutines!)
@@ -177,7 +145,7 @@ void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
     task->state_machine = state_machine;
     task->next = NULL;
     
-    YO_MUTEX_LOCK(&worker->queue_mutex);
+    yo_mutex_lock(&worker->queue_mutex);
     
     if (worker->task_queue_tail) {
       worker->task_queue_tail->next = task;
@@ -188,7 +156,7 @@ void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
     }
     worker->task_queue_count++;
     
-    YO_MUTEX_UNLOCK(&worker->queue_mutex);
+    yo_mutex_unlock(&worker->queue_mutex);
     
     ASYNC_DEBUG("Enqueued task to worker %zu (queue size: %zu)\\n", worker_idx, worker->task_queue_count);
   } else {
@@ -203,14 +171,14 @@ static unsigned __stdcall __yo_worker_thread_func(void* arg) {
 static void* __yo_worker_thread_func(void* arg) {
 #endif
   yo_worker_thread_t* worker = (yo_worker_thread_t*)arg;
-  yo_thread_id_t thread_id = YO_THREAD_ID();
+  YO_THREAD_TYPE thread_id = yo_thread_self();
   
   __yo_set_thread_affinity(worker->core_id);
   
   CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
   
   while (!atomic_load(&yo_worker_shutdown)) {
-    YO_MUTEX_LOCK(&worker->queue_mutex);
+    yo_mutex_lock(&worker->queue_mutex);
     
     yo_continuation_t* task = worker->task_queue_head;
     if (task) {
@@ -221,7 +189,7 @@ static void* __yo_worker_thread_func(void* arg) {
       worker->task_queue_count--;
     }
     
-    YO_MUTEX_UNLOCK(&worker->queue_mutex);
+    yo_mutex_unlock(&worker->queue_mutex);
     
     if (!task) {
       #ifdef _WIN32
@@ -339,7 +307,7 @@ static void __yo_thread_pool_init(size_t num_threads) {
     yo_worker_threads[i].task_queue_head = NULL;
     yo_worker_threads[i].task_queue_tail = NULL;
     yo_worker_threads[i].task_queue_count = 0;
-    YO_MUTEX_INIT(&yo_worker_threads[i].queue_mutex);
+    yo_mutex_init(&yo_worker_threads[i].queue_mutex);
     
     #ifdef _WIN32
     yo_worker_threads[i].handle = (HANDLE)_beginthreadex(
@@ -409,7 +377,7 @@ void __yo_async_wait_all(void) {
         #else
         pthread_join(yo_worker_threads[i].handle, NULL);
         #endif
-        YO_MUTEX_DESTROY(&yo_worker_threads[i].queue_mutex);
+        yo_mutex_destroy(&yo_worker_threads[i].queue_mutex);
       }
     }
     
