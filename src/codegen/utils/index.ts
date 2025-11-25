@@ -152,6 +152,10 @@ export function getTypeString(
 ): string {
   if (!type) return "int32_t"; // fallback
 
+  if (type.isExtern && type.externName) {
+    return type.externName;
+  }
+
   switch (type.tag) {
     case TypeTag.Unit:
       return "void";
