@@ -9,6 +9,7 @@ import {
   BuiltinFunctions,
   Expr,
   ExprTag,
+  FuncCallExpr,
   exprIsFunctionCallOf,
 } from "../../expr";
 import { generateExpr } from "../expressions";
@@ -49,8 +50,9 @@ export function splitIntoStateSegments(
   // A begin block with sequential expressions containing await calls
 
   if (body.tag !== ExprTag.FuncCall || !exprIsFunctionCallOf(body, "begin")) {
-    // Not a begin block - treat the whole body as one segment
+    // Not a begin block - check if we need to transform it
     if (awaitPoints.length === 0) {
+      // No awaits - single segment
       return [
         {
           stateNumber: 0,
@@ -60,7 +62,8 @@ export function splitIntoStateSegments(
       ];
     }
 
-    // Single expression with awaits - for now, assume it's a single await
+    // Body is a single expression with await(s) - treat as single segment
+    // The await handling will be done in generateAwaitExpression
     return [
       {
         stateNumber: 0,
@@ -166,12 +169,14 @@ function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
 export function generateStateSegmentCode(
   segment: StateSegment,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  captureLastExprResult: boolean = false
 ): void {
   const emitter = context.emitter;
 
   for (let i = 0; i < segment.expressions.length; i++) {
     const expr = segment.expressions[i]!;
+    const isLastExpr = i === segment.expressions.length - 1;
 
     // Check if this expression contains the await for this segment
     const isAwaitExpr =
@@ -186,6 +191,13 @@ export function generateStateSegmentCode(
         indent,
         context
       );
+    } else if (isLastExpr && captureLastExprResult) {
+      // Last expression in final segment - capture its value in sm->result->result
+      const code = generateExpr(expr, indent, context);
+      if (code) {
+        emitter.emitLine(`${indent}// Store final expression result`);
+        emitter.emitLine(`${indent}sm->result->result = ${code};`);
+      }
     } else {
       // Regular expression - generate normally
       const code = generateExpr(expr, indent, context);
@@ -287,10 +299,224 @@ function generateAwaitExpression(
     }
   }
 
-  // Handle other patterns - for now, just generate a comment
-  emitter.emitLine(`${indent}// TODO: Generate code for await expression`);
-  const code = generateExpr(expr, indent, context);
-  if (code) {
-    emitter.emitLine(`${indent}${code};`);
+  // Handle cond expression with await in branches
+  if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, "cond")) {
+    emitter.emitLine(
+      `${indent}// ERROR: cond expressions with await in branches are not yet fully supported`
+    );
+    emitter.emitLine(
+      `${indent}// Workaround: Extract the cond logic before the await:`
+    );
+    emitter.emitLine(
+      `${indent}//   future := cond(condition => task_a(), true => task_b());`
+    );
+    emitter.emitLine(`${indent}//   result := await future;`);
+    generateCondWithAwait(expr, awaitPoint, indent, context);
+    return;
+  }
+
+  // Handle match expression with await in branches
+  if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, "match")) {
+    emitter.emitLine(
+      `${indent}// TODO: Generate async-aware code for match expression with await`
+    );
+    emitter.emitLine(
+      `${indent}// match expressions with await not yet supported`
+    );
+    return;
+  }
+
+  // Handle other patterns - error, not supported
+  emitter.emitLine(
+    `${indent}// ERROR: Unsupported pattern for await expression`
+  );
+  emitter.emitLine(
+    `${indent}// Expression type: ${expr.tag}, function: ${expr.tag === ExprTag.FuncCall ? (expr.func.tag === ExprTag.Atom ? expr.func.token?.value : expr.func.tag) : "N/A"}`
+  );
+}
+
+/**
+ * Generates async-aware code for a cond expression containing await in branches.
+ * Strategy:
+ * 1. Evaluate conditions and determine which branch to take
+ * 2. Store which branch was chosen in state machine (for continuation in next state)
+ * 3. Spawn the Future from that branch
+ * 4. In next state, extract result and execute remaining code from chosen branch
+ */
+function generateCondWithAwait(
+  condExpr: Expr,
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // cond is represented as: cond(cond1 => value1, cond2 => value2, ...)
+  // Each arg is a pair created with =>
+  const args = (condExpr as FuncCallExpr).args;
+  if (args.length === 0) {
+    emitter.emitLine(`${indent}// Error: cond must have at least one branch`);
+    return;
+  }
+
+  // We need a field in the state machine to remember which branch was taken
+  // For now, we'll use a simple approach: just spawn the future and don't try to
+  // execute the remaining code in the branch. The user should write the code differently.
+  emitter.emitLine(
+    `${indent}// WARNING: cond with await in branches - only the await is handled, remaining code in branch is skipped`
+  );
+
+  // Generate if-else chain
+  for (let i = 0; i < args.length; i++) {
+    const pairExpr = args[i]!;
+
+    // Each branch is a => expression: condition => value
+    if (
+      pairExpr.tag !== ExprTag.FuncCall ||
+      !exprIsFunctionCallOf(pairExpr, "=>")
+    ) {
+      emitter.emitLine(`${indent}// Error: Expected => pair in cond`);
+      continue;
+    }
+
+    const condition = pairExpr.args[0];
+    const value = pairExpr.args[1];
+
+    if (!condition || !value) {
+      emitter.emitLine(`${indent}// Error: Invalid pair in cond`);
+      continue;
+    }
+
+    const condCode =
+      i === args.length - 1 &&
+      condition.tag === ExprTag.Atom &&
+      condition.token?.value === "true"
+        ? null // Last condition is 'true' - no need to check
+        : generateExpr(condition, indent, context);
+
+    if (condCode) {
+      emitter.emitLine(
+        `${indent}${i === 0 ? "if" : "else if"} (${condCode}) {`
+      );
+    } else {
+      emitter.emitLine(`${indent}${i === 0 ? "{" : "else {"}`);
+    }
+
+    // Check if this branch contains an await
+    const branchContainsAwait = branchHasAwait(value);
+
+    if (branchContainsAwait) {
+      // This branch contains an await - generate code to spawn and store Future
+      generateCondBranchWithAwait(value, awaitPoint, `${indent}  `, context);
+    } else {
+      // This branch doesn't contain await - just generate normal code
+      const code = generateExpr(value, `${indent}  `, context);
+      if (code) {
+        emitter.emitLine(`${indent}  ${code};`);
+      }
+    }
+
+    emitter.emitLine(`${indent}}`);
+  }
+}
+
+/**
+ * Checks if a branch value contains any await expression
+ */
+function branchHasAwait(expr: Expr): boolean {
+  if (
+    expr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+  ) {
+    return true;
+  }
+
+  if (expr.tag === ExprTag.FuncCall) {
+    for (const arg of expr.args) {
+      if (branchHasAwait(arg)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Generates code for a cond branch that contains an await.
+ * The branch value should be a begin block with await inside.
+ */
+function generateCondBranchWithAwait(
+  branchValue: Expr,
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // The branch value should be a begin block: { value := await future; printf(...); }
+  if (
+    branchValue.tag !== ExprTag.FuncCall ||
+    !exprIsFunctionCallOf(branchValue, "begin")
+  ) {
+    emitter.emitLine(
+      `${indent}// Error: Expected begin block in cond branch with await`
+    );
+    return;
+  }
+
+  const expressions = branchValue.args;
+
+  // Process expressions in the begin block
+  // Look for ANY await expression (not just the specific awaitPoint.expr)
+  for (const expr of expressions) {
+    // Check if this expression contains ANY await
+    if (branchHasAwait(expr)) {
+      // This expression contains an await
+      // Handle assignment: varName := await(futureExpr)
+      if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, ":=")) {
+        // const varNameExpr = expr.args[0];
+        const valueExpr = expr.args[1];
+
+        if (
+          valueExpr &&
+          valueExpr.tag === ExprTag.FuncCall &&
+          exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+        ) {
+          const futureExpr = valueExpr.args[0];
+          if (futureExpr) {
+            // Generate: sm->await_future_X = <futureExpr>;
+            const futureCode = generateExpr(futureExpr, indent, context);
+            emitter.emitLine(
+              `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`
+            );
+            emitter.emitLine(
+              `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+            );
+          }
+        }
+      } else if (
+        expr.tag === ExprTag.FuncCall &&
+        exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+      ) {
+        // Standalone await
+        const futureExpr = expr.args[0];
+        if (futureExpr) {
+          const futureCode = generateExpr(futureExpr, indent, context);
+          emitter.emitLine(
+            `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`
+          );
+          emitter.emitLine(
+            `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+          );
+        }
+      }
+    } else {
+      // Expression doesn't contain await
+      // Skip it - remaining code after await in branches is not yet supported
+      emitter.emitLine(
+        `${indent}// TODO: Execute remaining code after await in branch (not yet supported)`
+      );
+    }
   }
 }

@@ -210,7 +210,15 @@ export function generateAsyncBlockResumeFunction(
     context.stateMachineVariables = combinedVariables;
 
     // Generate the code for this segment
-    generateStateSegmentCode(segment, "      ", context);
+    // For the last segment, we need to capture the final expression's value
+    const isLastSegmentWithResult =
+      isLastSegment && !isUnitResult && segment.expressions.length > 0;
+    generateStateSegmentCode(
+      segment,
+      "      ",
+      context,
+      isLastSegmentWithResult
+    );
 
     emitter.emitLine(``);
 
@@ -264,10 +272,6 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(
           `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
         );
-
-        if (!isUnitResult) {
-          emitter.emitLine(`      // TODO: Set result value`);
-        }
 
         emitter.emitLine(``);
         emitter.emitLine(`      // Check if there's a continuation to invoke`);
