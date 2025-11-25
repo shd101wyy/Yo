@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import path from "path";
 import { Environment } from "../../env";
-import { formatErrorMessage } from "../../error";
+import { formatErrorMessage, YoError } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
@@ -139,7 +139,14 @@ ${modulePathToImport}`,
     // Failed to load the module
     throw formatErrorMessage({
       token: moduleArg.token,
-      errorMessage: `Failed to import module "${modulePathToImport}":\n${error instanceof Error ? error.message : String(error)}`,
+      errorMessage: `Failed to import module "${modulePathToImport}":
+${
+  error instanceof Error
+    ? error.message
+    : error instanceof YoError
+      ? error.toString()
+      : String(error)
+}`,
     });
   }
 }

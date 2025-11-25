@@ -29,6 +29,16 @@ export class YoError {
     this.tokenAndErrorList = tokenAndErrorList;
     this.isAssertionError = isAssertionError || false;
   }
+
+  public toString(): string {
+    const errorMessages = this.tokenAndErrorList
+      .map(({ token, errorMessage }) => {
+        return `Error: ${errorMessage}
+${getLineAtToken({ token })}`;
+      })
+      .join("\n\n");
+    return errorMessages;
+  }
 }
 
 export function getLineAtToken({ token }: { token: Token }): string {
@@ -119,15 +129,5 @@ ${getLineAtToken({ token })}`;
 }
 
 export function printYoError(error: YoError | Error) {
-  if (error instanceof YoError) {
-    const errorMessages = error.tokenAndErrorList
-      .map(({ token, errorMessage }) => {
-        return `Error: ${errorMessage}
-${getLineAtToken({ token })}`;
-      })
-      .join("\n\n");
-    console.error(errorMessages);
-  } else {
-    console.error(`Error: ${error.message}`);
-  }
+  console.error(error.toString());
 }
