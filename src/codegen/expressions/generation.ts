@@ -3135,10 +3135,8 @@ function generateDynCall(
 function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   const functionContext = context as FunctionGenerationContext;
 
-  // If this atom is a unit type value, don't generate any code
-  if (expr.$?.type && isUnitType(expr.$.type)) {
-    return "";
-  }
+  // Handle control flow atoms first (before checking unit type or other values)
+  // These need to return the keyword string even though they have unit type
 
   // Handle control flow atoms first (before checking computed values or variable names)
   if (expr.token.value === "continue") {
@@ -3151,6 +3149,11 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
 
   if (expr.token.value === "return") {
     return "return";
+  }
+
+  // For unit-typed expressions (excluding control flow which was handled above), return empty string
+  if (expr.$?.type && isUnitType(expr.$.type)) {
+    return "";
   }
 
   // Check if we're in a closure function and this variable is captured
@@ -3908,7 +3911,7 @@ function generateCondExpression(
             }
 
             // Generate the final expression and assign it to temp variable
-            if (beginArgs.length > 0 && tempVar) {
+            if (beginArgs.length > 0) {
               const finalExpr = beginArgs[beginArgs.length - 1]!;
               const finalExprCode = generateExpr(
                 finalExpr,
@@ -3917,7 +3920,17 @@ function generateCondExpression(
               );
 
               if (finalExprCode) {
-                if (!isUnit) {
+                // Check if this is a control flow statement
+                if (
+                  finalExprCode === "continue" ||
+                  finalExprCode === "break" ||
+                  (exprIsFunctionCall(finalExpr) &&
+                    exprIsFunctionCallOf(finalExpr, BuiltinKeywords.return)) ||
+                  finalExprCode.includes("return")
+                ) {
+                  // For control flow statements, emit them directly without assignment
+                  context.emitter.emitLine(`${valueIndent}${finalExprCode};`);
+                } else if (tempVar && !isUnit) {
                   context.emitter.emitLine(
                     `${valueIndent}${tempVar} = ${finalExprCode};`
                   );

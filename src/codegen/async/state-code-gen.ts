@@ -11,13 +11,20 @@ import {
   BuiltinKeywords,
   Expr,
   ExprTag,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
 import { TokenType } from "../../token";
+import { EnumType, isEnumType } from "../../types";
 import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
+import {
+  canOptimizeAsNullablePointer,
+  getTypeString,
+  sanitizeForCIdentifier,
+} from "../utils";
 import { AwaitPoint } from "./await-analysis";
 
 /**
@@ -349,17 +356,7 @@ function generateAwaitExpression(
     expr.tag === ExprTag.FuncCall &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
   ) {
-    emitter.emitLine(
-      `${indent}// ERROR: cond expressions with await in branches are not yet fully supported`
-    );
-    emitter.emitLine(
-      `${indent}// Workaround: Extract the cond logic before the await:`
-    );
-    emitter.emitLine(
-      `${indent}//   future := cond(condition => task_a(), true => task_b());`
-    );
-    emitter.emitLine(`${indent}//   result := await future;`);
-    generateCondWithAwait(expr, awaitPoint, indent, context, undefined);
+    generateCondWithAwait(expr, awaitPoint, indent, context);
     return;
   }
 
@@ -368,12 +365,7 @@ function generateAwaitExpression(
     expr.tag === ExprTag.FuncCall &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.match)
   ) {
-    emitter.emitLine(
-      `${indent}// TODO: Generate async-aware code for match expression with await`
-    );
-    emitter.emitLine(
-      `${indent}// match expressions with await not yet supported`
-    );
+    generateMatchWithAwait(expr, awaitPoint, indent, context);
     return;
   }
 
@@ -497,13 +489,64 @@ function generateCondWithAwait(
       });
     } else {
       // This branch doesn't contain await - just generate normal code
-      const code = generateExpr(value, `${indent}  `, context);
+      // Handle begin blocks specially to avoid unnecessary block wrappers
       if (
-        code &&
-        value.$ &&
-        !isTempVariableName(value.$.env.modulePath, code)
+        exprIsFunctionCall(value) &&
+        exprIsFunctionCallOf(value, BuiltinKeywords.begin)
       ) {
-        emitter.emitLine(`${indent}  ${code};`);
+        // For begin blocks, generate statements inline
+        const beginArgs = value.args;
+        for (let j = 0; j < beginArgs.length; j++) {
+          const arg = beginArgs[j]!;
+          const argCode = generateExpr(arg, `${indent}  `, context);
+          // Check if this is a break statement in an async while loop
+          if (argCode === "break" && awaitPoint.isInsideWhile) {
+            // In async while loops, break needs to set the active flag and jump to end
+            emitter.emitLine(
+              `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+            );
+            emitter.emitLine(
+              `${indent}  goto while_loop_${awaitPoint.index}_end;`
+            );
+          } else {
+            // Emit control flow statements always
+            const isControlFlow =
+              argCode === "break" ||
+              argCode === "continue" ||
+              argCode?.includes("return");
+            if (
+              argCode &&
+              (isControlFlow ||
+                (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
+            ) {
+              emitter.emitLine(`${indent}  ${argCode};`);
+            }
+          }
+        }
+      } else {
+        // Not a begin block - generate normal code
+        const code = generateExpr(value, `${indent}  `, context);
+        // Check if this is a break statement in an async while loop
+        if (code === "break" && awaitPoint.isInsideWhile) {
+          // In async while loops, break needs to set the active flag and jump to end
+          emitter.emitLine(
+            `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+          );
+          emitter.emitLine(
+            `${indent}  goto while_loop_${awaitPoint.index}_end;`
+          );
+        } else {
+          // Emit control flow statements (break, continue, return) always
+          const isControlFlow =
+            code === "break" || code === "continue" || code?.includes("return");
+          if (
+            code &&
+            (isControlFlow ||
+              (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
+          ) {
+            emitter.emitLine(`${indent}  ${code};`);
+          }
+        }
       }
       // Store branch info without remaining expressions
       branchesWithAwait.push({
@@ -546,6 +589,391 @@ function branchHasAwait(expr: Expr): boolean {
   }
 
   return false;
+}
+
+/**
+ * Generates async-aware code for a match expression containing await in branches.
+ * Similar to generateCondWithAwait but handles match pattern matching.
+ * Strategy:
+ * 1. Evaluate the matched value and bind pattern variables
+ * 2. Determine which match case to execute
+ * 3. Store which case was chosen in state machine
+ * 4. Execute code up to await and spawn the Future
+ * 5. In next state, extract result and execute remaining code from chosen case
+ */
+function generateMatchWithAwait(
+  matchExpr: Expr,
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  if (
+    matchExpr.tag !== ExprTag.FuncCall ||
+    !exprIsFunctionCallOf(matchExpr, BuiltinKeywords.match)
+  ) {
+    emitter.emitLine(`${indent}// Error: Expected match expression`);
+    return;
+  }
+
+  // match is: match(value, .Pattern1(x) => body1, .Pattern2 => body2, ...)
+  const matchedValueExpr = matchExpr.args[0];
+  const cases = matchExpr.args.slice(1);
+
+  if (!matchedValueExpr || cases.length === 0) {
+    emitter.emitLine(
+      `${indent}// Error: match must have a value and at least one case`
+    );
+    return;
+  }
+
+  // Generate the matched value
+  const matchedValueCode = generateExpr(matchedValueExpr, indent, context);
+  const matchValueType = matchedValueExpr.$?.type;
+
+  if (!matchValueType || !isEnumType(matchValueType)) {
+    emitter.emitLine(`${indent}// Error: match requires an enum type`);
+    return;
+  }
+
+  const enumType = matchValueType as EnumType;
+  const enumCName = context.types[enumType.id]?.cName;
+
+  if (!enumCName) {
+    emitter.emitLine(`${indent}// Error: enum type has no C name`);
+    return;
+  }
+
+  // Check if this is an Option-like enum optimized as nullable pointer
+  const nullablePointerType = canOptimizeAsNullablePointer(enumType);
+
+  if (nullablePointerType) {
+    // Nullable pointer optimization: match on NULL vs non-NULL
+    // Find null case and pointer case
+    let nullCaseIndex = -1;
+    let pointerCaseIndex = -1;
+    let pointerVarName: string | undefined;
+
+    for (let i = 0; i < cases.length; i++) {
+      const caseExpr = cases[i]!;
+      if (
+        exprIsFunctionCall(caseExpr) &&
+        exprIsFunctionCallOf(caseExpr, "=>", 2)
+      ) {
+        const pattern = caseExpr.args[0];
+        if (
+          pattern &&
+          exprIsFunctionCall(pattern) &&
+          exprIsFunctionCallOf(pattern, ".")
+        ) {
+          // Simple pattern like .None
+          nullCaseIndex = i;
+        } else if (pattern && exprIsFunctionCall(pattern)) {
+          // Destructuring pattern like .Some(x)
+          const patternFunc = pattern.func;
+          if (
+            patternFunc &&
+            exprIsFunctionCall(patternFunc) &&
+            exprIsFunctionCallOf(patternFunc, ".")
+          ) {
+            pointerCaseIndex = i;
+            // Extract bound variable name
+            if (pattern.args.length > 0 && exprIsAtom(pattern.args[0]!)) {
+              pointerVarName = pattern.args[0]!.token.value;
+            }
+          }
+        }
+      }
+    }
+
+    // Generate NULL check
+    emitter.emitLine(`${indent}if (${matchedValueCode} != NULL) {`);
+
+    if (pointerCaseIndex >= 0) {
+      const caseExpr = cases[pointerCaseIndex]!;
+      if (!exprIsFunctionCall(caseExpr)) {
+        emitter.emitLine(`${indent}  // Error: Expected => in case`);
+      } else {
+        const caseBody = caseExpr.args[1]!;
+
+        // Bind the destructured variable
+        if (pointerVarName) {
+          // Check if this variable is captured in the state machine
+          const functionContext = context as FunctionGenerationContext;
+          let isStateMachineVar = false;
+          let varId: string | undefined;
+
+          // Look through captured variables to find if this variable crosses await boundary
+          if (functionContext.stateMachineVariables) {
+            for (const [id, varInfo] of functionContext.stateMachineVariables) {
+              if (varInfo.name === pointerVarName) {
+                isStateMachineVar = true;
+                varId = id;
+                break;
+              }
+            }
+          }
+
+          if (isStateMachineVar && varId) {
+            // Store directly in state machine variable
+            emitter.emitLine(
+              `${indent}  sm->var_${varId} = ${matchedValueCode};`
+            );
+          } else {
+            // Local variable not crossing await - declare locally
+            emitter.emitLine(
+              `${indent}  ${getTypeString(nullablePointerType, context)} ${pointerVarName} = ${matchedValueCode};`
+            );
+          }
+        }
+
+        emitter.emitLine(
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${pointerCaseIndex};`
+        ); // Process the case body looking for await
+        const remainingExprs = generateCondBranchWithAwait(
+          caseBody,
+          awaitPoint,
+          indent + "  ",
+          context
+        );
+
+        // Store remaining expressions for resume state
+        if (remainingExprs.length > 0) {
+          // Store in context for state machine generation
+          const functionContext = context as FunctionGenerationContext;
+          if (!functionContext.condBranchInfo) {
+            functionContext.condBranchInfo = new Map();
+          }
+
+          const branchData = functionContext.condBranchInfo.get(
+            awaitPoint.index
+          ) || { branches: [] };
+
+          branchData.branches.push({
+            index: pointerCaseIndex,
+            value: caseBody,
+            hasAwait: true,
+            remainingExprs,
+          });
+
+          functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+        }
+      }
+    }
+
+    emitter.emitLine(`${indent}} else {`);
+
+    if (nullCaseIndex >= 0) {
+      const caseExpr = cases[nullCaseIndex]!;
+      if (!exprIsFunctionCall(caseExpr)) {
+        emitter.emitLine(`${indent}  // Error: Expected => in case`);
+      } else {
+        const caseBody = caseExpr.args[1]!;
+
+        emitter.emitLine(
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${nullCaseIndex};`
+        );
+
+        // Check if null case also has await
+        if (branchHasAwait(caseBody)) {
+          const remainingExprs = generateCondBranchWithAwait(
+            caseBody,
+            awaitPoint,
+            indent + "  ",
+            context
+          );
+
+          if (remainingExprs.length > 0) {
+            const functionContext = context as FunctionGenerationContext;
+            if (!functionContext.condBranchInfo) {
+              functionContext.condBranchInfo = new Map();
+            }
+
+            const branchData = functionContext.condBranchInfo.get(
+              awaitPoint.index
+            ) || { branches: [] };
+
+            branchData.branches.push({
+              index: nullCaseIndex,
+              value: caseBody,
+              hasAwait: true,
+              remainingExprs,
+            });
+
+            functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+          }
+        } else {
+          // No await in null case - generate normally
+          const code = generateExpr(caseBody, indent + "  ", context);
+          if (
+            code &&
+            caseBody.$ &&
+            !isTempVariableName(caseBody.$.env.modulePath, code)
+          ) {
+            emitter.emitLine(`${indent}  ${code};`);
+          }
+        }
+      }
+    }
+
+    emitter.emitLine(`${indent}}`);
+  } else {
+    // Regular enum with switch/case
+    emitter.emitLine(`${indent}switch (${matchedValueCode}.tag) {`);
+
+    for (let i = 0; i < cases.length; i++) {
+      const caseExpr = cases[i]!;
+      if (
+        !exprIsFunctionCall(caseExpr) ||
+        !exprIsFunctionCallOf(caseExpr, "=>", 2)
+      ) {
+        continue;
+      }
+
+      const pattern = caseExpr.args[0]!;
+      const caseBody = caseExpr.args[1]!;
+
+      // Extract variant name from pattern
+      let variantName: string | undefined;
+      if (
+        exprIsFunctionCall(pattern) &&
+        exprIsFunctionCallOf(pattern, ".", 1)
+      ) {
+        // Simple pattern like .Some
+        variantName = pattern.args[0]!.token.value;
+      } else if (exprIsFunctionCall(pattern)) {
+        // Destructuring pattern like .Some(x)
+        const patternFunc = pattern.func;
+        if (
+          patternFunc &&
+          exprIsFunctionCall(patternFunc) &&
+          exprIsFunctionCallOf(patternFunc, ".", 1)
+        ) {
+          variantName = patternFunc.args[0]!.token.value;
+        }
+      }
+
+      if (!variantName) {
+        emitter.emitLine(`${indent}  // Error: Could not extract variant name`);
+        continue;
+      }
+
+      const variantTag = `${enumCName.toUpperCase()}_${variantName.toUpperCase()}`;
+      emitter.emitLine(`${indent}  case ${variantTag}: {`);
+      emitter.emitLine(
+        `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
+      );
+
+      // Handle destructuring patterns like .Some(task)
+      if (exprIsFunctionCall(pattern) && pattern.args.length >= 1) {
+        // Check if pattern is .VariantName(bindings...)
+        const patternFunc = pattern.func;
+        if (
+          patternFunc &&
+          exprIsFunctionCall(patternFunc) &&
+          exprIsFunctionCallOf(patternFunc, ".")
+        ) {
+          // This is a destructuring pattern
+          const variant = enumType.variants.find((v) => v.name === variantName);
+          if (variant && variant.fields) {
+            for (
+              let fieldIndex = 0;
+              fieldIndex < Math.min(pattern.args.length, variant.fields.length);
+              fieldIndex++
+            ) {
+              const destructuredVar = pattern.args[fieldIndex]!;
+              const variantField = variant.fields[fieldIndex];
+
+              if (exprIsAtom(destructuredVar) && variantField) {
+                const varName = destructuredVar.token.value;
+
+                // Check if this variable is captured in the state machine
+                const functionContext = context as FunctionGenerationContext;
+                let isStateMachineVar = false;
+                let varId: string | undefined;
+
+                if (functionContext.stateMachineVariables) {
+                  for (const [
+                    id,
+                    varInfo,
+                  ] of functionContext.stateMachineVariables) {
+                    if (varInfo.name === varName) {
+                      isStateMachineVar = true;
+                      varId = id;
+                      break;
+                    }
+                  }
+                }
+
+                const fieldLabel = sanitizeForCIdentifier(variantField.label);
+                const accessExpr = `${matchedValueCode}.data.${variantName}.${fieldLabel}`;
+
+                if (isStateMachineVar && varId) {
+                  // Store in state machine variable
+                  emitter.emitLine(
+                    `${indent}    sm->var_${varId} = ${accessExpr};`
+                  );
+                } else {
+                  // Local variable - declare it
+                  const fieldType = getTypeString(variantField.type, context);
+                  emitter.emitLine(
+                    `${indent}    ${fieldType} ${varName} = ${accessExpr};`
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Check if this case has await
+      if (branchHasAwait(caseBody)) {
+        const remainingExprs = generateCondBranchWithAwait(
+          caseBody,
+          awaitPoint,
+          indent + "    ",
+          context
+        );
+
+        if (remainingExprs.length > 0) {
+          const functionContext = context as FunctionGenerationContext;
+          if (!functionContext.condBranchInfo) {
+            functionContext.condBranchInfo = new Map();
+          }
+
+          const branchData = functionContext.condBranchInfo.get(
+            awaitPoint.index
+          ) || { branches: [] };
+
+          branchData.branches.push({
+            index: i,
+            value: caseBody,
+            hasAwait: true,
+            remainingExprs,
+          });
+
+          functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+        }
+      } else {
+        // No await - generate normally
+        const code = generateExpr(caseBody, indent + "    ", context);
+        if (
+          code &&
+          caseBody.$ &&
+          !isTempVariableName(caseBody.$.env.modulePath, code)
+        ) {
+          emitter.emitLine(`${indent}    ${code};`);
+        }
+      }
+
+      emitter.emitLine(`${indent}    break;`);
+      emitter.emitLine(`${indent}  }`);
+    }
+
+    emitter.emitLine(`${indent}  default: break;`);
+    emitter.emitLine(`${indent}}`);
+  }
 }
 
 /**
@@ -619,14 +1047,28 @@ function generateCondBranchWithAwait(
         // Standalone await
         const futureExpr = expr.args[0];
         if (futureExpr) {
-          const futureCode = generateExpr(futureExpr, indent, context);
-          emitter.emitLine(
-            `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`
-          );
-          emitter.emitLine(
-            `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
-          );
+          // Only store the Future if it's not already captured in a state machine variable
+          if (awaitPoint.futureVariableId === undefined) {
+            const futureCode = generateExpr(futureExpr, indent, context);
+            emitter.emitLine(
+              `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`
+            );
+            emitter.emitLine(
+              `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+            );
+          } else {
+            // The future is already stored in a state machine variable
+            emitter.emitLine(
+              `${indent}// Await will use Future from sm->var_${awaitPoint.futureVariableId}`
+            );
+          }
         }
+      } else if (
+        expr.tag === ExprTag.FuncCall &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+      ) {
+        // Match expression with await in one of its branches
+        generateMatchWithAwait(expr, awaitPoint, indent, context);
       }
     } else {
       // Expression doesn't contain await - generate normally
@@ -811,6 +1253,15 @@ function generateWhileBodyWithAwait(
     // Cond expression with await in one of its branches
     generateCondWithAwait(awaitExpr, awaitPoint, indent, context, undefined);
     // The cond branch remainingExprs are already stored in context.condBranchInfo
+    // Don't collect anything here - they'll be handled in the resume state
+    return remainingExprs;
+  } else if (
+    exprIsFunctionCall(awaitExpr) &&
+    exprIsFunctionCallOf(awaitExpr, BuiltinKeywords.match)
+  ) {
+    // Match expression with await in one of its branches
+    generateMatchWithAwait(awaitExpr, awaitPoint, indent, context);
+    // The match branch remainingExprs are already stored in context.condBranchInfo
     // Don't collect anything here - they'll be handled in the resume state
     return remainingExprs;
   }

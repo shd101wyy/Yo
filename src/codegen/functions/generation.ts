@@ -436,8 +436,13 @@ export function generateFunctionBody(
           BuiltinFunctions.async
         );
 
-        if (isAsyncBlock) {
-          // Last expression is an async block - return it directly
+        // Check if the last expression already returns a Future type
+        // If so, return it directly without wrapping (e.g., from Option.unwrap())
+        const lastExprType = lastExpr.$?.type;
+        const isAlreadyFuture = lastExprType && isFutureType(lastExprType);
+
+        if (isAsyncBlock || isAlreadyFuture) {
+          // Last expression is an async block or already returns a Future - return it directly
           const resultCode = generateExpr(lastExpr, indent, context);
           emitter.emitLine(`${indent}return ${resultCode};`);
         } else {

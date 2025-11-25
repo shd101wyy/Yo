@@ -273,6 +273,44 @@ function walkExprForAwaits(
         break;
       }
 
+      // Check if this is a match expression - handle specially
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
+        // For match expressions, all awaits in branches are mutually exclusive
+        // They should share the same await index
+        const initialAwaitCount = awaitPoints.length;
+
+        // Walk through all branches
+        walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+        for (const arg of expr.args) {
+          walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+        }
+
+        // If multiple await points were added, merge them to use the same index
+        // and mark them as inside match
+        const newAwaitCount = awaitPoints.length;
+        if (newAwaitCount > initialAwaitCount) {
+          // Mark all awaits found in this match as isInsideMatch
+          for (let i = initialAwaitCount; i < newAwaitCount; i++) {
+            // Use isInsideCond since match branches work similarly to cond branches
+            awaitPoints[i]!.isInsideCond = true;
+          }
+
+          if (newAwaitCount > initialAwaitCount + 1) {
+            // Multiple awaits were found in branches - make them share the same index
+            const firstAwaitIndex = initialAwaitCount;
+            for (let i = initialAwaitCount + 1; i < newAwaitCount; i++) {
+              awaitPoints[i]!.index = firstAwaitIndex;
+            }
+            // Remove duplicate entries, keeping only the first one
+            awaitPoints.splice(
+              initialAwaitCount + 1,
+              newAwaitCount - initialAwaitCount - 1
+            );
+          }
+        }
+        break;
+      }
+
       // Check if this is an await call
       if (isAwaitCall(expr)) {
         // This is an await expression
