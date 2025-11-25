@@ -175,6 +175,80 @@ export function generateAsyncBlockResumeFunction(
 
         emitter.emitLine(``);
       }
+
+      // Check if this await was part of a cond expression
+      // If so, we need to execute the remaining code from the chosen branch
+      const functionContext = context as FunctionGenerationContext;
+      if (prevAwait) {
+        const condBranchInfo = functionContext.condBranchInfo?.get(
+          prevAwait.index
+        );
+        if (condBranchInfo && condBranchInfo.some((b) => b.hasAwait)) {
+          emitter.emitLine(
+            `      // Execute remaining code from chosen cond branch`
+          );
+          emitter.emitLine(
+            `      switch (sm->cond_branch_${prevAwait.index}) {`
+          );
+
+          for (const branch of condBranchInfo) {
+            if (
+              branch.hasAwait &&
+              branch.remainingExprs &&
+              branch.remainingExprs.length > 0
+            ) {
+              emitter.emitLine(`        case ${branch.index}: {`);
+              emitter.emitLine(
+                `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
+              );
+
+              // Set up state machine context for code generation
+              const previousInStateMachineForBranch = context.inStateMachine;
+              const previousStateMachineVariablesForBranch =
+                context.stateMachineVariables;
+
+              context.inStateMachine = { futureType };
+
+              // Combine outer captured variables and local variables
+              const combinedVariables = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                combinedVariables.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  combinedVariables.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameARCValueAs: undefined, // TODO: FIXME
+                  });
+                }
+              }
+              context.stateMachineVariables = combinedVariables;
+
+              // Generate the remaining expressions
+              for (const expr of branch.remainingExprs) {
+                const code = generateExpr(expr, "          ", context);
+                if (code) {
+                  emitter.emitLine(`          ${code};`);
+                }
+              }
+
+              // Restore context
+              context.inStateMachine = previousInStateMachineForBranch;
+              context.stateMachineVariables =
+                previousStateMachineVariablesForBranch;
+
+              emitter.emitLine(`          break;`);
+              emitter.emitLine(`        }`);
+            }
+          }
+
+          emitter.emitLine(`      }`);
+          emitter.emitLine(``);
+        }
+      }
     }
 
     // Set up state machine context

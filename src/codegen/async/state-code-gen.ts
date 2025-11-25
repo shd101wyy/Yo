@@ -7,9 +7,9 @@
 
 import {
   BuiltinFunctions,
+  BuiltinKeywords,
   Expr,
   ExprTag,
-  FuncCallExpr,
   exprIsFunctionCallOf,
 } from "../../expr";
 import { generateExpr } from "../expressions";
@@ -297,10 +297,24 @@ function generateAwaitExpression(
 
       return;
     }
+
+    // Check if the value is a cond with await in branches
+    if (
+      valueExpr.tag === ExprTag.FuncCall &&
+      exprIsFunctionCallOf(valueExpr, BuiltinKeywords.cond)
+    ) {
+      // This is: varName := cond(... await ...)
+      // First generate the cond (which will store future in await_future_X)
+      generateCondWithAwait(valueExpr, awaitPoint, indent, context);
+      return;
+    }
   }
 
   // Handle cond expression with await in branches
-  if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, "cond")) {
+  if (
+    expr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
+  ) {
     emitter.emitLine(
       `${indent}// ERROR: cond expressions with await in branches are not yet fully supported`
     );
@@ -351,20 +365,30 @@ function generateCondWithAwait(
 ): void {
   const emitter = context.emitter;
 
+  // Type guard - condExpr should be a FuncCall
+  if (
+    condExpr.tag !== ExprTag.FuncCall ||
+    !exprIsFunctionCallOf(condExpr, BuiltinKeywords.cond)
+  ) {
+    emitter.emitLine(`${indent}// Error: Expected cond expression`);
+    return;
+  }
+
   // cond is represented as: cond(cond1 => value1, cond2 => value2, ...)
   // Each arg is a pair created with =>
-  const args = (condExpr as FuncCallExpr).args;
+  const args = condExpr.args;
   if (args.length === 0) {
     emitter.emitLine(`${indent}// Error: cond must have at least one branch`);
     return;
   }
 
-  // We need a field in the state machine to remember which branch was taken
-  // For now, we'll use a simple approach: just spawn the future and don't try to
-  // execute the remaining code in the branch. The user should write the code differently.
-  emitter.emitLine(
-    `${indent}// WARNING: cond with await in branches - only the await is handled, remaining code in branch is skipped`
-  );
+  // Store branch info for later generation
+  const branchesWithAwait: Array<{
+    index: number;
+    value: Expr;
+    hasAwait: boolean;
+    remainingExprs?: Expr[]; // Expressions after the await in this branch
+  }> = [];
 
   // Generate if-else chain
   for (let i = 0; i < args.length; i++) {
@@ -406,18 +430,46 @@ function generateCondWithAwait(
     const branchContainsAwait = branchHasAwait(value);
 
     if (branchContainsAwait) {
+      // Store which branch was taken
+      emitter.emitLine(
+        `${indent}  sm->cond_branch_${awaitPoint.index} = ${i};`
+      );
       // This branch contains an await - generate code to spawn and store Future
-      generateCondBranchWithAwait(value, awaitPoint, `${indent}  `, context);
+      const remainingExprs = generateCondBranchWithAwait(
+        value,
+        awaitPoint,
+        `${indent}  `,
+        context
+      );
+      // Store branch info with remaining expressions
+      branchesWithAwait.push({
+        index: i,
+        value,
+        hasAwait: true,
+        remainingExprs,
+      });
     } else {
       // This branch doesn't contain await - just generate normal code
       const code = generateExpr(value, `${indent}  `, context);
       if (code) {
         emitter.emitLine(`${indent}  ${code};`);
       }
+      // Store branch info without remaining expressions
+      branchesWithAwait.push({
+        index: i,
+        value,
+        hasAwait: false,
+      });
     }
 
     emitter.emitLine(`${indent}}`);
   }
+
+  // Store branch information in context for resume state generation
+  if (!context.condBranchInfo) {
+    context.condBranchInfo = new Map();
+  }
+  context.condBranchInfo.set(awaitPoint.index, branchesWithAwait);
 }
 
 /**
@@ -445,14 +497,16 @@ function branchHasAwait(expr: Expr): boolean {
 /**
  * Generates code for a cond branch that contains an await.
  * The branch value should be a begin block with await inside.
+ * Returns the expressions that come AFTER the await, to be executed in the resume state.
  */
 function generateCondBranchWithAwait(
   branchValue: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
   context: FunctionGenerationContext
-): void {
+): Expr[] {
   const emitter = context.emitter;
+  const remainingExprs: Expr[] = [];
 
   // The branch value should be a begin block: { value := await future; printf(...); }
   if (
@@ -462,16 +516,25 @@ function generateCondBranchWithAwait(
     emitter.emitLine(
       `${indent}// Error: Expected begin block in cond branch with await`
     );
-    return;
+    return remainingExprs;
   }
 
   const expressions = branchValue.args;
+  let foundAwait = false;
 
   // Process expressions in the begin block
   // Look for ANY await expression (not just the specific awaitPoint.expr)
   for (const expr of expressions) {
+    if (foundAwait) {
+      // This expression comes AFTER the await - save it for resume state
+      remainingExprs.push(expr);
+      continue;
+    }
+
     // Check if this expression contains ANY await
     if (branchHasAwait(expr)) {
+      foundAwait = true;
+
       // This expression contains an await
       // Handle assignment: varName := await(futureExpr)
       if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, ":=")) {
@@ -512,11 +575,13 @@ function generateCondBranchWithAwait(
         }
       }
     } else {
-      // Expression doesn't contain await
-      // Skip it - remaining code after await in branches is not yet supported
-      emitter.emitLine(
-        `${indent}// TODO: Execute remaining code after await in branch (not yet supported)`
-      );
+      // Expression doesn't contain await - generate normally
+      const code = generateExpr(expr, indent, context);
+      if (code) {
+        emitter.emitLine(`${indent}${code};`);
+      }
     }
   }
+
+  return remainingExprs;
 }

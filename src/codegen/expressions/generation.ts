@@ -2694,6 +2694,21 @@ function generateAsyncBlock(
     }
   }
 
+  // Add cond_branch_X fields for cond expressions with await
+  // These track which branch was taken at each cond expression
+  const condAwaitPoints = analysis.awaitPoints.filter((ap) => ap.isInsideCond);
+  if (condAwaitPoints.length > 0) {
+    emitter.emitDeclarationLine(
+      `  // Branch tracking for cond expressions with await`
+    );
+    for (const awaitPoint of condAwaitPoints) {
+      emitter.emitDeclarationLine(
+        `  int cond_branch_${awaitPoint.index};  // Which branch was taken in cond with await ${awaitPoint.index}`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
   emitter.emitDeclarationLine(`} ${structName};`);
   emitter.emitDeclarationLine(``);
 

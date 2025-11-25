@@ -38,4 +38,14 @@ export interface FunctionGenerationContext extends CodeGenContext {
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
   }>;
+  // Branch tracking for cond expressions with await
+  condBranchInfo?: Map<
+    number,
+    Array<{
+      index: number;
+      value: Expr;
+      hasAwait: boolean;
+      remainingExprs?: Expr[]; // Expressions after the await in this branch
+    }>
+  >;
 }
