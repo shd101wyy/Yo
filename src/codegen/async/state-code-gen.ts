@@ -351,13 +351,25 @@ function generateAwaitExpression(
   }
 
   // Handle match expression with await in branches
-  if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, "match")) {
+  if (
+    expr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+  ) {
     emitter.emitLine(
       `${indent}// TODO: Generate async-aware code for match expression with await`
     );
     emitter.emitLine(
       `${indent}// match expressions with await not yet supported`
     );
+    return;
+  }
+
+  // Handle while loop with await in body
+  if (
+    expr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.while)
+  ) {
+    generateWhileWithAwait(expr, awaitPoint, indent, context);
     return;
   }
 
@@ -609,4 +621,206 @@ function generateCondBranchWithAwait(
   }
 
   return remainingExprs;
+}
+
+/**
+ * Generates async-aware code for a while loop containing await in the body.
+ * Strategy:
+ * 1. Set loop active flag to true
+ * 2. Evaluate condition - if false, set active=false and skip body
+ * 3. Execute body up to await point
+ * 4. Store Future and set up continuation
+ * 5. In next state, execute remaining body expressions, then jump back to re-evaluate condition
+ */
+function generateWhileWithAwait(
+  whileExpr: Expr,
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Type guard - whileExpr should be a FuncCall to while
+  if (
+    whileExpr.tag !== ExprTag.FuncCall ||
+    !exprIsFunctionCallOf(whileExpr, "while")
+  ) {
+    emitter.emitLine(`${indent}// Error: Expected while expression`);
+    return;
+  }
+
+  // while is represented as: while(condition, body)
+  const args = whileExpr.args;
+  if (args.length !== 2) {
+    emitter.emitLine(
+      `${indent}// Error: while must have exactly 2 arguments (condition, body)`
+    );
+    return;
+  }
+
+  const conditionExpr = args[0]!;
+  const bodyExpr = args[1]!;
+
+  // Initialize loop as active
+  emitter.emitLine(
+    `${indent}sm->while_loop_${awaitPoint.index}_active = true;`
+  );
+
+  // Generate label for loop start (so we can jump back after await)
+  emitter.emitLine(`${indent}while_loop_${awaitPoint.index}_start:`);
+
+  // Evaluate condition
+  const condCode = generateExpr(conditionExpr, indent, context);
+  emitter.emitLine(`${indent}if (!(${condCode})) {`);
+  emitter.emitLine(
+    `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+  );
+  emitter.emitLine(`${indent}  goto while_loop_${awaitPoint.index}_end;`);
+  emitter.emitLine(`${indent}}`);
+
+  // Generate body up to await
+  const bodyExprsAfterAwait = generateWhileBodyWithAwait(
+    bodyExpr,
+    awaitPoint,
+    indent,
+    context
+  );
+
+  // Generate label for loop end
+  emitter.emitLine(`${indent}while_loop_${awaitPoint.index}_end:`);
+
+  // Store loop information in context for resume state generation
+  if (!context.whileLoopInfo) {
+    context.whileLoopInfo = new Map();
+  }
+  context.whileLoopInfo.set(awaitPoint.index, {
+    conditionExpr,
+    bodyExpr,
+    bodyExprsAfterAwait,
+  });
+}
+
+/**
+ * Generates code for a while loop body that contains an await.
+ * Returns the expressions that come AFTER the await, to be executed in the resume state.
+ */
+function generateWhileBodyWithAwait(
+  bodyExpr: Expr,
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext
+): Expr[] {
+  const emitter = context.emitter;
+  const remainingExprs: Expr[] = [];
+
+  // If body is a begin block, extract expressions
+  let bodyExprs: Expr[] = [];
+  if (
+    bodyExpr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(bodyExpr, "begin")
+  ) {
+    bodyExprs = bodyExpr.args;
+  } else {
+    bodyExprs = [bodyExpr];
+  }
+
+  // Find the first await expression
+  let awaitFoundIndex = -1;
+  for (let i = 0; i < bodyExprs.length; i++) {
+    const expr = bodyExprs[i]!;
+    if (exprContainsAwait(expr)) {
+      awaitFoundIndex = i;
+      break;
+    }
+  }
+
+  if (awaitFoundIndex === -1) {
+    // No await in body - this shouldn't happen
+    emitter.emitLine(
+      `${indent}// Error: Expected await in while loop body but none found`
+    );
+    return remainingExprs;
+  }
+
+  // Generate expressions before the await
+  for (let i = 0; i < awaitFoundIndex; i++) {
+    const expr = bodyExprs[i]!;
+    const code = generateExpr(expr, indent, context);
+    if (code) {
+      emitter.emitLine(`${indent}${code};`);
+    }
+  }
+
+  // Generate code to store the Future at the await point
+  const awaitExpr = bodyExprs[awaitFoundIndex]!;
+  if (
+    awaitExpr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(awaitExpr, ":=")
+  ) {
+    // This is an assignment with await: varName := await(futureExpr)
+    const valueExpr = awaitExpr.args[1];
+    if (
+      valueExpr &&
+      valueExpr.tag === ExprTag.FuncCall &&
+      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+    ) {
+      const futureExpr = valueExpr.args[0];
+      if (futureExpr) {
+        const futureCode = generateExpr(futureExpr, indent, context);
+        emitter.emitLine(
+          `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
+        );
+        emitter.emitLine(
+          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+        );
+      }
+    }
+  } else if (
+    awaitExpr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(awaitExpr, BuiltinFunctions.await)
+  ) {
+    // Standalone await
+    const futureExpr = awaitExpr.args[0];
+    if (futureExpr) {
+      const futureCode = generateExpr(futureExpr, indent, context);
+      emitter.emitLine(
+        `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
+      );
+      emitter.emitLine(
+        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+      );
+    }
+  }
+
+  // Collect remaining expressions after the await
+  for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+    remainingExprs.push(bodyExprs[i]!);
+  }
+
+  return remainingExprs;
+}
+
+/**
+ * Checks if an expression contains any await
+ */
+function exprContainsAwait(expr: Expr): boolean {
+  if (
+    expr.tag === ExprTag.FuncCall &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+  ) {
+    return true;
+  }
+
+  if (expr.tag === ExprTag.FuncCall) {
+    if (exprContainsAwait(expr.func)) {
+      return true;
+    }
+    for (const arg of expr.args) {
+      if (exprContainsAwait(arg)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }

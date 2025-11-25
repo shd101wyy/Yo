@@ -134,10 +134,8 @@ export function generateAsyncBlockResumeFunction(
     const isLastSegment = segmentIndex === segments.length - 1;
 
     // State case label
-    if (stateNumber > 0) {
-      emitter.emitLine(`
+    emitter.emitLine(`
     state_${stateNumber}:`);
-    }
 
     emitter.emitLine(`    case ${stateNumber}: { // State ${stateNumber}`);
     emitter.emitLine(
@@ -257,6 +255,130 @@ export function generateAsyncBlockResumeFunction(
               `      sm->${fieldName} = sm->await_result_${prevAwait.index};`
             );
           }
+
+          emitter.emitLine(``);
+        }
+
+        // Check if this await was part of a while loop
+        // If so, we need to execute remaining body expressions, then re-evaluate the loop condition
+        const whileLoopData = functionContext.whileLoopInfo?.get(
+          prevAwait.index
+        );
+        if (whileLoopData) {
+          emitter.emitLine(
+            `      // Execute remaining code from while loop body and continue loop`
+          );
+          emitter.emitLine(
+            `      if (sm->while_loop_${prevAwait.index}_active) {`
+          );
+
+          // If there are remaining expressions after the await, generate them
+          if (
+            whileLoopData.bodyExprsAfterAwait &&
+            whileLoopData.bodyExprsAfterAwait.length > 0
+          ) {
+            // Set up state machine context for code generation
+            const previousInStateMachineForLoop = context.inStateMachine;
+            const previousStateMachineVariablesForLoop =
+              context.stateMachineVariables;
+
+            context.inStateMachine = { futureType };
+
+            // Combine outer captured variables and local variables
+            const combinedVariables = new Map<string, CapturedVariable>();
+            for (const v of analysis.capturedVariables) {
+              combinedVariables.set(v.id, v);
+            }
+            if (captureType) {
+              for (const field of captureType.fields) {
+                combinedVariables.set(field.label, {
+                  id: field.label,
+                  name: field.label,
+                  type: field.type,
+                  kind: "outer",
+                  isOwningTheSameARCValueAs: undefined, // FIXME
+                });
+              }
+            }
+            context.stateMachineVariables = combinedVariables;
+
+            // Generate the remaining expressions
+            for (const expr of whileLoopData.bodyExprsAfterAwait) {
+              const code = generateExpr(expr, "        ", context);
+              // Skip empty code and standalone identifiers (unused temp variables)
+              if (code && !code.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) {
+                emitter.emitLine(`        ${code};`);
+              }
+            }
+
+            // Restore context
+            context.inStateMachine = previousInStateMachineForLoop;
+            context.stateMachineVariables =
+              previousStateMachineVariablesForLoop;
+          }
+
+          // Re-evaluate the loop condition
+          emitter.emitLine(
+            `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
+          );
+
+          // Set up state machine context for condition evaluation
+          const previousInStateMachineForCond = context.inStateMachine;
+          const previousStateMachineVariablesForCond =
+            context.stateMachineVariables;
+
+          context.inStateMachine = { futureType };
+
+          // Combine outer captured variables and local variables
+          const combinedVariablesForCond = new Map<string, CapturedVariable>();
+          for (const v of analysis.capturedVariables) {
+            combinedVariablesForCond.set(v.id, v);
+          }
+          if (captureType) {
+            for (const field of captureType.fields) {
+              combinedVariablesForCond.set(field.label, {
+                id: field.label,
+                name: field.label,
+                type: field.type,
+                kind: "outer",
+                isOwningTheSameARCValueAs: undefined, // FIXME
+              });
+            }
+          }
+          context.stateMachineVariables = combinedVariablesForCond;
+
+          // Generate condition check
+          const condCode = generateExpr(
+            whileLoopData.conditionExpr,
+            "        ",
+            context
+          );
+
+          // Restore context
+          context.inStateMachine = previousInStateMachineForCond;
+          context.stateMachineVariables = previousStateMachineVariablesForCond;
+
+          emitter.emitLine(`        if (!(${condCode})) {`);
+          emitter.emitLine(
+            `          sm->while_loop_${prevAwait.index}_active = false;`
+          );
+          emitter.emitLine(
+            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
+          );
+          emitter.emitLine(`        } else {`);
+          emitter.emitLine(
+            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
+          );
+
+          // Jump back to the while loop start label (in the previous state)
+          // This re-evaluates the condition and continues the loop
+          emitter.emitLine(`          // Loop back to re-evaluate condition`);
+          emitter.emitLine(
+            `          goto while_loop_${prevAwait.index}_start;`
+          );
+
+          emitter.emitLine(`        }`);
+          emitter.emitLine(`      }`);
 
           emitter.emitLine(``);
         }
