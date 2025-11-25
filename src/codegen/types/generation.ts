@@ -286,7 +286,12 @@ typedef struct {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
-    if (isStructType(type)) {
+    if (isFutureType(type)) {
+      // Forward declaration for Future types (they don't use _struct pattern)
+      context.emitter.emitDeclarationLine(
+        `typedef struct ${cName}_struct ${cName}; // Forward declaration`
+      );
+    } else if (isStructType(type)) {
       // Skip forward declaration for newtypes since they're just typedefs
       if (type.isNewtype && type.fields.length === 1) {
         continue;
@@ -957,7 +962,7 @@ export function generateFutureDeclaration(
   const isUnit = isUnitType(futureType.childType);
 
   emitter.emitDeclarationLine(
-    `typedef struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (reference counted)`
+    `struct ${cName}_struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (GC managed)`
   );
   emitter.emitDeclarationLine(
     `  yo_ref_header_t header; // Reference count header`
@@ -1003,6 +1008,7 @@ export function generateFutureDeclaration(
     );
   }
 
-  emitter.emitDeclarationLine(`} ${cName};`);
+  emitter.emitDeclarationLine(`};`);
+  emitter.emitDeclarationLine(`typedef struct ${cName}_struct ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }

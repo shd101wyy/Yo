@@ -225,11 +225,22 @@ function generateAwaitExpression(
       return;
     }
 
-    // The future should already be stored in a state machine variable field
-    // We don't need to generate any code here - the await logic is in the resume function
-    emitter.emitLine(
-      `${indent}// Prepare for await (future already stored in state machine and already spawned)`
-    );
+    // If this await doesn't have a futureVariableId (e.g., pattern-matched variable),
+    // we need to store the Future value into await_future_X field
+    if (awaitPoint.futureVariableId === undefined) {
+      const futureCode = generateExpr(futureExpr, indent, context);
+      emitter.emitLine(
+        `${indent}// Store pattern-matched Future for await ${awaitPoint.index}`
+      );
+      emitter.emitLine(
+        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+      );
+    } else {
+      // The future is already stored in a state machine variable field
+      emitter.emitLine(
+        `${indent}// Prepare for await (future already stored in state machine variable)`
+      );
+    }
 
     return;
   }
