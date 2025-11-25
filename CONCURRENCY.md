@@ -9,7 +9,7 @@ Yo uses a **1:1 threading model** with selective work-stealing:
 - **Selective work stealing** - tasks without cycle-forming captures can migrate
 - Thread-per-core pinning for optimal cache locality
 - Tasks distributed round-robin at spawn time
-- **No channels or select** - use Future-based async/await instead
+- Use Future-based async/await
 
 This differs from M:N models because:
 - Still 1:1 thread mapping (one OS thread per worker)
@@ -211,25 +211,71 @@ The compiler determines stealability at async function creation:
 ```yo
 // ✅ Stealable: Only captures primitives and acyclic types
 async {
-  x := box(42);           // Box(i32) - acyclic, stealable ✅
-  y := [1, 2, 3];         // Array(i32) - acyclic, stealable ✅
+  x := box(42);           // Box(i32) - acyclic, Sendable ✅
+  y := [1, 2, 3];         // Array(i32) - acyclic, Sendable ✅
   result := await(compute(x, y));
   return result;
 }
 
 // ❌ Non-stealable: Captures cycle-forming type
 async {
-  node := Node(1, .None);  // Node can form cycles ❌
+  node := Node(1, .None);  // Node can form cycles, NOT Sendable ❌
   cycle := await(process(node));
   // Must stay on thread for GC
 }
 ```
 
-**Type analysis**:
-- `Box(T)`, `Array(T)` where T is value type → Stealable
-- `object(...)` with reference-type fields → Non-stealable
-- `closure` capturing Rc types → Non-stealable
-- Primitives (`i32`, `boolean`, etc.) → Always stealable
+**Send Trait Rules**:
+
+| Type | Sendable? | Reason |
+|------|-----------|--------|
+| Primitives (`i32`, `boolean`, etc.) | ✅ Auto | No thread safety issues |
+| Value types (`struct(...)`) | ✅ Auto | No internal references |
+| `Box(T)` where T is value | ✅ Auto | Acyclic, no internal refs |
+| `Array(T)` where T is value | ✅ Auto | Acyclic, no internal refs |
+| `*T` (pointers) | ❌ Never | Borrows not thread-safe |
+| **`object(...)` without cycle-forming fields** | ⚠️ **If no ref fields** | **Sendable if acyclic** |
+| **`object(...)` with ref fields** | ❌ **Not by default** | **Can form cycles** |
+| **`Fn(...)` capturing only values** | ✅ **Via `Impl(Fn, Send)`** | **Compiler verifies captures** |
+| **`Fn(...)` capturing cycle-forming** | ❌ **Cannot be `Send`** | **Captures cycle-forming types** |
+| **`Dyn(Trait)`** | ⚠️ **Via `Dyn(Trait, Send)`** | **Trait object must be Send** |
+| **`Future(T)`** | ⚠️ **Via `Impl(Future(T), Send)`** | **State machine must be Send** |
+
+**Key Design Decision:** Cycle-forming Rc types are **never Sendable**. This ensures:
+- Each thread's GC only tracks objects created on that thread
+- No cross-thread GC coordination needed
+- Simple, safe thread-local cycle collection
+
+**To make closures/futures Sendable**, explicitly mark with `Send` trait:
+```yo
+// Not Sendable by default (might capture cycle-forming types)
+f : impl(Fn(i32) -> i32)
+
+// Sendable version (compiler verifies no cycle-forming captures)
+f : Impl(Fn(i32) -> i32, Send)  // ✅ OK if captures only primitives
+
+// Example: Sendable closure capturing only values
+x := 42;
+y := 100;
+(f_send : Impl(Fn() -> i32, Send)) = (() => (x + y));  // ✅ OK
+
+// Example: Cannot be Send - captures cycle-forming type
+node := Node(1, .None);
+(f_bad : Impl(Fn() -> i32, Send)) = (() => node.value);  // ❌ ERROR!
+// Error: Cannot implement Send - captures 'node' which can form cycles
+
+// Example: Sendable trait object
+processor : Dyn(Processor, Send)  // ✅ OK if Processor is Send
+
+// Example: Sendable future
+fut : Impl(Future(i32), Send) = async {  // ✅ OK if captures only Send types
+  compute(42)
+};
+```
+
+**Type analysis for stealability**:
+- Task captures only `Send` types → Stealable
+- Task captures non-`Send` types → Non-stealable (thread affinity)
 
 ### Thread-Local Collection Benefits
 

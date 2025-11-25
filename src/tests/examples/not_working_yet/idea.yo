@@ -18,7 +18,7 @@ flag := (x `is` .Some);
 ---
 
 // New idea about Rc, Copy & Send.
-forall(T <: (Copy, Send)) // T is Type that implements Copy and Send modules.
+forall(T : Impl(Copy, Send)) // T is Type that implements Copy and Send modules.
 
 MyStruct :: struct(
   field1 : i32,
@@ -45,12 +45,13 @@ q := ^(p);   // ^ operator takes a pointer value and returns an Option value.
 x2 := q.unwrap(); // x2 : Box(i32) if RC is 1, otherwise panic.
 
 // Change to closure & dyn & future types
-forall(T <: (Fn(i32) -> i32, Send))
+forall(T : Impl(Fn(i32) -> i32, Send)) // T is SomeType that implements Fn(i32) -> i32 and Send modules.
 f1 : Impl(Fn(i32) -> i32, Send)       // Fn by default is Copyable and can be called multiple times.
 f2 : Impl(FnOnce(i32) -> i32, Send)   // FnOnce is Move-only and can be called only once.
 o : Dyn(Bark, Send)
 async_fn : (fn() -> Impl(Future(i32)));
 // So now Fn, FnOnce, Future are also Modules that can be used as bounds.  
 
-// Steal, Means the type cannot contain Rc type that might form cycles.
-f1 : Impl(Fn(i32) -> i32, Send, Steal)
+
+// IDEA: Cyclic Rc types are not Sendable across threads.
+// IDEA: Thread-local first!

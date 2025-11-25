@@ -218,15 +218,62 @@ async {
 
 **Type Analysis Rules:**
 
-| Type | Can Form Cycles? | Stealable? |
-|------|------------------|------------|
-| Primitives (`i32`, `boolean`, etc.) | No | ✅ Yes |
-| Value types (`struct(...)`) | No | ✅ Yes |
-| `Box(T)` where T is value type | No | ✅ Yes |
-| `Array(T)` where T is value type | No | ✅ Yes |
-| `object(...)` with ref fields | Yes | ❌ No |
-| `Node(value, next: Option(Node))` | Yes | ❌ No |
-| Closures capturing Rc types | Yes | ❌ No |
+| Type | Can Form Cycles? | Sendable? | Stealable? |
+|------|------------------|-----------|------------|
+| Primitives (`i32`, `boolean`, etc.) | No | ✅ Yes | ✅ Yes |
+| Value types (`struct(...)`) | No | ✅ Yes | ✅ Yes |
+| `Box(T)` where T is value type | No | ✅ Yes | ✅ Yes |
+| `Array(T)` where T is value type | No | ✅ Yes | ✅ Yes |
+| `*T` (pointers) | No | ❌ No | ❌ No |
+| **`object(...)` without ref fields** | **No** | ✅ **Yes** | ✅ **Yes** |
+| **`object(...)` with ref fields** | **Yes** | ❌ **No (default)** | ❌ **No** |
+| **`Node(value, next: Option(Node))`** | **Yes** | ❌ **No** | ❌ **No** |
+| **`Impl(Fn(...), Send)` capturing values** | **No** | ✅ **Yes** | ✅ **Yes** |
+| **`Fn(...)` capturing cycle-forming** | **Yes** | ❌ **No** | ❌ **No** |
+| **`Dyn(Trait, Send)`** | **No** | ✅ **Yes** | ✅ **Yes** |
+| **`Impl(Future(T), Send)` with Send captures** | **No** | ✅ **Yes** | ✅ **Yes** |
+
+**Critical Design Rule:** Types that can form cycles **cannot be Send by default**, but can be made Send if they don't actually form cycles:
+
+- ✅ `object(...)` without ref fields → automatically Sendable
+- ❌ `object(...)` with ref fields → NOT Sendable (can form cycles)
+- ✅ `Impl(Fn(...), Send)` → Sendable if compiler verifies no cycle-forming captures
+- ✅ `Dyn(Trait, Send)` → Sendable if trait object doesn't contain cycles
+- ✅ `Impl(Future(T), Send)` → Sendable if state machine captures only Send types
+- ✅ Each thread's GC only tracks objects created on that thread
+- ✅ No cross-thread GC coordination needed
+
+**Why this restriction?**
+
+When an object is created on Thread 1, it's tracked by Thread 1's GC. If we allowed moving it to Thread 2:
+1. Thread 1's GC still tracks the object (in its roots list)
+2. Thread 2 is now using the object
+3. Thread 1's GC might collect it while Thread 2 uses it → **memory corruption!**
+
+**Solution:** Don't allow moving cycle-forming types between threads. Keep them thread-local.
+
+**Common patterns that still work:**
+```yo
+// ✅ Message passing with value types
+channel.send(Message(id: 42, data: [1, 2, 3]));
+
+// ✅ Actor pattern - each thread owns its complex data
+Actor :: object(
+  tree: ComplexTree,           // Thread-local, has cycles
+  inbox: Channel(Command),     // Receives value-type messages
+);
+
+// ✅ Async tasks with acyclic captures
+async {
+  data := [1, 2, 3];           // Array is Sendable
+  result := await(process(data));
+  return result;
+}
+
+// ❌ Cannot do this (but rarely needed)
+tree := BinaryTree(root);      // Has cycles
+spawn_on_other_thread(tree);   // Compile error: not Sendable
+```
 
 **Runtime Behavior:**
 
