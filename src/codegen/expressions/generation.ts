@@ -22,6 +22,7 @@ import {
   isEnumType,
   isFunctionType,
   isFutureType,
+  isNewtypeType,
   isObjectType,
   isPtrType,
   isSliceType,
@@ -3591,11 +3592,7 @@ function generateFieldAccess(
     }
 
     // Handle newtype field access - just return the object itself (zero-cost abstraction)
-    if (
-      isStructType(objectType) &&
-      objectType.isNewtype &&
-      objectType.fields.length === 1
-    ) {
+    if (isNewtypeType(objectType) && objectType.fields.length === 1) {
       // For newtype, accessing the single field just returns the value itself
       // since newtype is typedef'd to the underlying type
       const singleField = objectType.fields[0];
@@ -3666,6 +3663,21 @@ function generateFieldAccess(
           dereferenceLevel++;
           currentType = currentType.childType;
         }
+
+        // Check if the dereferenced type is a newtype accessing its single field
+        if (isNewtypeType(currentType) && currentType.fields.length === 1) {
+          const singleField = currentType.fields[0];
+          if (singleField && singleField.label === fieldName) {
+            // For newtype, accessing the single field through a pointer just dereferences the pointer
+            // since newtype is typedef'd to the underlying type
+            if (dereferenceLevel === 1) {
+              return `(*${objectCode})`;
+            } else {
+              return `${"*".repeat(dereferenceLevel)}(${objectCode})`;
+            }
+          }
+        }
+
         if (dereferenceLevel > 0) {
           // For pointer types, use arrow notation for field access
           if (dereferenceLevel === 1) {
