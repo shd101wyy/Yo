@@ -639,6 +639,27 @@ export function getMethodsByNameFromEnv(
         }
         const methodFirstParamType = method.type.parameters[0]!.type;
 
+        // CRITICAL: Check pointer conversion BEFORE checking SomeType
+        // Because Self types are represented as SomeType, and *(Self) would contain SomeType,
+        // we need to handle pointer conversion first
+        if (!isInfixOperatorCall && isPtrType(methodFirstParamType)) {
+          const methodPtrChildType = methodFirstParamType.childType;
+          const receiverCompatibleWithPtrChild = areTypesCompatible(
+            {
+              type: methodPtrChildType,
+              env: method.type.env,
+            },
+            { type: receiverType, env },
+            true // isMethodReceiver
+          );
+
+          if (receiverCompatibleWithPtrChild) {
+            // Mark this method as needing pointer conversion
+            method.needsPointerConversion = true;
+            return true;
+          }
+        }
+
         if (typeContainsSomeType(methodFirstParamType)) {
           // Leave it to the later function call checker.
           return true;
@@ -672,26 +693,6 @@ export function getMethodsByNameFromEnv(
 
         if (isCompatible) {
           return true;
-        }
-
-        // If not an infix operator call, check if we can convert receiver to pointer type
-        // This allows Rust-style method calls like `x.self()` where `self` parameter is `*(Self)`
-        if (!isInfixOperatorCall && isPtrType(methodFirstParamType)) {
-          const methodPtrChildType = methodFirstParamType.childType;
-          const receiverCompatibleWithPtrChild = areTypesCompatible(
-            {
-              type: methodPtrChildType,
-              env: method.type.env,
-            },
-            { type: receiverType, env },
-            true // isMethodReceiver
-          );
-
-          if (receiverCompatibleWithPtrChild) {
-            // Mark this method as needing pointer conversion
-            method.needsPointerConversion = true;
-            return true;
-          }
         }
 
         return false;
