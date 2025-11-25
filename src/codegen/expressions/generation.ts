@@ -37,6 +37,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
+import { isTempVariableName } from "../../utils";
 import {
   isArrayValue,
   isBooleanValue,
@@ -1270,7 +1271,11 @@ function generateFuncCall(
         // But skip emitting the last expression if it's being used as the return value
         const isLastExpr = idx === expr.args.length - 1;
         if (result && !(isLastExpr && isReturningValue)) {
-          context.emitter.emitLine(`${indent}  ${result};`);
+          if (arg.$ && isTempVariableName(arg.$.env.modulePath, result)) {
+            // Skip
+          } else {
+            context.emitter.emitLine(`${indent}  ${result};`);
+          }
         }
       }
       if (isReturningValue) {
@@ -3892,7 +3897,12 @@ function generateCondExpression(
             for (let j = 0; j < beginArgs.length - 1; j++) {
               const arg = beginArgs[j]!;
               const argCode = generateExpr(arg, valueIndent, context);
-              if (argCode) {
+              // Skip temp variable references
+              if (
+                argCode &&
+                arg.$ &&
+                !isTempVariableName(arg.$.env.modulePath, argCode)
+              ) {
                 context.emitter.emitLine(`${valueIndent}${argCode};`);
               }
             }

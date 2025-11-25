@@ -11,9 +11,11 @@ import {
   BuiltinKeywords,
   Expr,
   ExprTag,
+  exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
 import { TokenType } from "../../token";
+import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { AwaitPoint } from "./await-analysis";
@@ -184,7 +186,15 @@ export function generateStateSegmentCode(
     const isAwaitExpr =
       segment.awaitPoint && containsAwaitExpr(expr, segment.awaitPoint.expr);
 
-    if (isAwaitExpr && segment.awaitPoint) {
+    // Also check if this is a while/cond that contains await (even if it's not THE await expr)
+    const isWhileOrCondWithAwait =
+      segment.awaitPoint &&
+      expr.tag === ExprTag.FuncCall &&
+      (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) &&
+      exprContainsAwait(expr);
+
+    if ((isAwaitExpr || isWhileOrCondWithAwait) && segment.awaitPoint) {
       // This expression contains an await - handle specially
       generateAwaitExpression(
         expr,
@@ -203,7 +213,10 @@ export function generateStateSegmentCode(
     } else {
       // Regular expression - generate normally
       const code = generateExpr(expr, indent, context);
-      if (code) {
+      // Skip empty code, expressions without metadata, and temp variable references
+      if (!code || !expr.$ || isTempVariableName(expr.$.env.modulePath, code)) {
+        // Skip
+      } else {
         emitter.emitLine(`${indent}${code};`);
       }
     }
@@ -485,7 +498,11 @@ function generateCondWithAwait(
     } else {
       // This branch doesn't contain await - just generate normal code
       const code = generateExpr(value, `${indent}  `, context);
-      if (code) {
+      if (
+        code &&
+        value.$ &&
+        !isTempVariableName(value.$.env.modulePath, code)
+      ) {
         emitter.emitLine(`${indent}  ${code};`);
       }
       // Store branch info without remaining expressions
@@ -614,7 +631,7 @@ function generateCondBranchWithAwait(
     } else {
       // Expression doesn't contain await - generate normally
       const code = generateExpr(expr, indent, context);
-      if (code) {
+      if (code && expr.$ && !isTempVariableName(expr.$.env.modulePath, code)) {
         emitter.emitLine(`${indent}${code};`);
       }
     }
@@ -746,17 +763,14 @@ function generateWhileBodyWithAwait(
   for (let i = 0; i < awaitFoundIndex; i++) {
     const expr = bodyExprs[i]!;
     const code = generateExpr(expr, indent, context);
-    if (code) {
+    if (code && expr.$ && !isTempVariableName(expr.$.env.modulePath, code)) {
       emitter.emitLine(`${indent}${code};`);
     }
   }
 
   // Generate code to store the Future at the await point
   const awaitExpr = bodyExprs[awaitFoundIndex]!;
-  if (
-    awaitExpr.tag === ExprTag.FuncCall &&
-    exprIsFunctionCallOf(awaitExpr, ":=")
-  ) {
+  if (exprIsFunctionCall(awaitExpr) && exprIsFunctionCallOf(awaitExpr, ":=")) {
     // This is an assignment with await: varName := await(futureExpr)
     const valueExpr = awaitExpr.args[1];
     if (
@@ -790,6 +804,15 @@ function generateWhileBodyWithAwait(
         `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
       );
     }
+  } else if (
+    exprIsFunctionCall(awaitExpr) &&
+    exprIsFunctionCallOf(awaitExpr, BuiltinKeywords.cond)
+  ) {
+    // Cond expression with await in one of its branches
+    generateCondWithAwait(awaitExpr, awaitPoint, indent, context, undefined);
+    // The cond branch remainingExprs are already stored in context.condBranchInfo
+    // Don't collect anything here - they'll be handled in the resume state
+    return remainingExprs;
   }
 
   // Collect remaining expressions after the await
