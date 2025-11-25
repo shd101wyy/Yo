@@ -5,6 +5,7 @@
  * Splits the function body at await points and generates C code for each segment.
  */
 
+import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -12,6 +13,7 @@ import {
   ExprTag,
   exprIsFunctionCallOf,
 } from "../../expr";
+import { TokenType } from "../../token";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { AwaitPoint } from "./await-analysis";
@@ -304,8 +306,27 @@ function generateAwaitExpression(
       exprIsFunctionCallOf(valueExpr, BuiltinKeywords.cond)
     ) {
       // This is: varName := cond(... await ...)
+      // Get the variable ID for the target variable
+      let targetVarId: string | undefined;
+      if (
+        varNameExpr.tag === ExprTag.Atom &&
+        varNameExpr.token.type === TokenType.Identifier &&
+        varNameExpr.$
+      ) {
+        const varName = varNameExpr.token.value;
+        const variables = getVariablesFromEnv(varNameExpr.$.env, varName);
+        if (variables.length > 0) {
+          targetVarId = variables[variables.length - 1]!.id;
+        }
+      }
       // First generate the cond (which will store future in await_future_X)
-      generateCondWithAwait(valueExpr, awaitPoint, indent, context);
+      generateCondWithAwait(
+        valueExpr,
+        awaitPoint,
+        indent,
+        context,
+        targetVarId
+      );
       return;
     }
   }
@@ -325,7 +346,7 @@ function generateAwaitExpression(
       `${indent}//   future := cond(condition => task_a(), true => task_b());`
     );
     emitter.emitLine(`${indent}//   result := await future;`);
-    generateCondWithAwait(expr, awaitPoint, indent, context);
+    generateCondWithAwait(expr, awaitPoint, indent, context, undefined);
     return;
   }
 
@@ -361,7 +382,8 @@ function generateCondWithAwait(
   condExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  targetVariableId?: string // Variable that receives the cond result
 ): void {
   const emitter = context.emitter;
 
@@ -469,7 +491,10 @@ function generateCondWithAwait(
   if (!context.condBranchInfo) {
     context.condBranchInfo = new Map();
   }
-  context.condBranchInfo.set(awaitPoint.index, branchesWithAwait);
+  context.condBranchInfo.set(awaitPoint.index, {
+    branches: branchesWithAwait,
+    targetVariableId,
+  });
 }
 
 /**
