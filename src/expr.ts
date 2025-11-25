@@ -2,6 +2,7 @@
 import {
   addVariableToEnv,
   Environment,
+  Frame,
   getVariablesFromEnv,
   updateExistingVariable,
   Variable,
@@ -249,6 +250,15 @@ export interface EvaluatedExprData {
    * evaluated cond(...) expression.
    */
   macroExpansion?: Expr;
+
+  /**
+   * For begin blocks, this contains the environment frame that was popped
+   * after evaluating the block.
+   *
+   * Example: For `begin(x := MyBox(42); printf("%d", x.(*)))`, this contains
+   * the frame with the variable `x` before it was popped.
+   */
+  poppedEnvFrame?: Frame;
 }
 
 export type AtomExpr = {

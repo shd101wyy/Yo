@@ -838,6 +838,9 @@ export function evaluateBeginExpression({
     // ^ This line will cause C codegen problem.
   }
 
+  // Save the current frame before popping
+  const currentFrame = env.frames[env.frames.length - 1];
+
   // Now pop the environment frame
   env = popEnvFrame(env);
 
@@ -848,6 +851,7 @@ export function evaluateBeginExpression({
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
     deferredDropExpressions,
+    poppedEnvFrame: currentFrame,
   };
 
   attachTempVariableToExpr(expr, true);
