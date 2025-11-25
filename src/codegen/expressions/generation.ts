@@ -4225,8 +4225,48 @@ function generateMatchExpression(
                 const accessPrefix =
                   ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
                 context.emitter.emitLine(
+                  `${indent}  /* MARKER: Generating destructured variable ${varName} */`
+                );
+                context.emitter.emitLine(
                   `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                 );
+                // Check if this variable needs to be stored in the state machine
+                // For async contexts, pattern-matched variables that are used across await points
+                // need to be stored in the state machine structure
+                const functionContext = context as FunctionGenerationContext;
+                if (
+                  functionContext?.inStateMachine &&
+                  functionContext.stateMachineVariables
+                ) {
+                  // Find the variable ID by searching through state machine variables
+                  // The state machine tracks variables by their ID
+                  let varId: string | undefined;
+
+                  // Try to get ID from expr metadata if available
+                  // if (destructuredVar.$?.id) {
+                  //   varId = destructuredVar.$.id;
+                  // } else
+                  if (destructuredVar.$?.env) {
+                    // Try to look up in environment
+                    const vars = getVariablesFromEnv(
+                      destructuredVar.$.env,
+                      varName
+                    );
+                    if (vars.length > 0) {
+                      varId = vars[vars.length - 1]!.id;
+                    }
+                  }
+
+                  if (
+                    varId &&
+                    functionContext.stateMachineVariables.has(varId)
+                  ) {
+                    // This variable crosses an await boundary, store it in state machine
+                    context.emitter.emitLine(
+                      `${indent}  sm->var_${varId} = ${varName};`
+                    );
+                  }
+                }
               }
             }
           }
@@ -4325,6 +4365,38 @@ function generateMatchExpression(
                   context.emitter.emitLine(
                     `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                   );
+
+                  // Check if this variable needs to be stored in the state machine
+                  const functionContext = context as FunctionGenerationContext;
+                  if (
+                    functionContext?.inStateMachine &&
+                    functionContext.stateMachineVariables
+                  ) {
+                    let varId: string | undefined;
+
+                    // if (destructuredVar.$?.id) {
+                    //   varId = destructuredVar.$.id;
+                    // } else
+                    if (destructuredVar.$?.env) {
+                      const vars = getVariablesFromEnv(
+                        destructuredVar.$.env,
+                        varName
+                      );
+                      if (vars.length > 0) {
+                        varId = vars[vars.length - 1]!.id;
+                      }
+                    }
+
+                    if (
+                      varId &&
+                      functionContext.stateMachineVariables.has(varId)
+                    ) {
+                      // This variable crosses an await boundary, store it in state machine
+                      context.emitter.emitLine(
+                        `${indent}  sm->var_${varId} = ${varName};`
+                      );
+                    }
+                  }
                 }
               }
             }
