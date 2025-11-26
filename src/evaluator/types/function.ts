@@ -273,6 +273,14 @@ export function evaluateFunctionParameter({
       parameterType = createType0();
       // Store the assigned TypeValue separately from defaultValue
       assignedValue = assignedValue_;
+
+      // Validate that assignedValue is only used with compile-time parameters
+      if (!isCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Assigned value (:= or =) is only allowed for compile-time parameters. Use "compt(${label})" or put this in "forall(...)".`,
+        });
+      }
     }
 
     // Evaluate the typeExpr if exists
