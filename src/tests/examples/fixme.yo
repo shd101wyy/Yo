@@ -2,17 +2,13 @@ Id :: module(
   id : (fn(self : Self) -> Self)
 );
 
-ImplId :: Impl(Id);
-
-// Test with custom label
-ImplIdLabeled :: Impl(MyId : Id);
-
-test :: (fn(x : ImplId) -> ImplId) {
+test :: (fn(forall(T := Impl(Id)), x : T) -> T) {
   y := typeof(x).Id.id(x);
   return y.id();
 };
 
-test2 :: (fn(x : ImplIdLabeled) -> ImplIdLabeled) {
-  y := typeof(x).MyId.id(x);
+test2 :: (fn(forall((T : Type) = Impl(SomeId : Id)), x : T) -> T) {
+  y := typeof(x).SomeId.id(x);
   return y.id();
 };
+

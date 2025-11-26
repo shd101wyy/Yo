@@ -238,6 +238,7 @@ export type FunctionParameterExprs = {
   labelExpr?: Expr;
   typeExpr?: Expr;
   defaultValueExpr?: Expr;
+  assignedValueExpr?: Expr;
 };
 
 export interface FunctionParameter {
@@ -268,6 +269,12 @@ export interface FunctionParameter {
    * The expression information of the parameter.
    */
   exprs: FunctionParameterExprs;
+  /**
+   * The assigned value for := syntax (e.g., T := Impl(Id))
+   * This is the constraint/value bound to the type parameter.
+   * Only used for forall parameters.
+   */
+  assignedValue?: Value;
 }
 
 export type FunctionForallParameter = FunctionParameter & {

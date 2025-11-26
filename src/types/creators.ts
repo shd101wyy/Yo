@@ -1029,20 +1029,22 @@ export function getFunctionParameterExprs({
   labelExpr,
   typeExpr,
   defaultValueExpr,
+  assignedValueExpr,
 }: {
   expr: Expr;
   labelExpr: Expr | undefined;
   typeExpr: Expr | undefined;
   defaultValueExpr: Expr | undefined;
+  assignedValueExpr: Expr | undefined;
 }): FunctionParameterExprs {
-  if (!labelExpr && !typeExpr && !defaultValueExpr) {
+  if (!labelExpr && !typeExpr && !defaultValueExpr && !assignedValueExpr) {
     throw new Error(
-      `At least one of labelExpr, typeExpr or defaultValueExpr must be defined`
+      `At least one of labelExpr, typeExpr, defaultValueExpr or assignedValueExpr must be defined`
     );
   }
-  if (!typeExpr && !defaultValueExpr) {
+  if (!typeExpr && !defaultValueExpr && !assignedValueExpr) {
     throw new Error(
-      `Expected either typeExpr or defaultValueExpr to be defined`
+      `Expected either typeExpr, defaultValueExpr or assignedValueExpr to be defined`
     );
   }
   return {
@@ -1050,6 +1052,7 @@ export function getFunctionParameterExprs({
     labelExpr,
     typeExpr,
     defaultValueExpr,
+    assignedValueExpr,
   } as FunctionParameterExprs;
 }
 

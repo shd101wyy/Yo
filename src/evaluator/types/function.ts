@@ -23,6 +23,7 @@ import {
   createClosureType,
   createExprListType,
   createFunctionType,
+  createType0,
   FunctionForallParameter,
   FunctionImplicitParameter,
   FunctionParameter,
@@ -82,17 +83,42 @@ export function evaluateFunctionParameter({
 
   let parameterType: Type | undefined = undefined;
   let defaultValue: Value | undefined = undefined;
+  let assignedValue: Value | undefined = undefined;
 
   let expr_: Expr = expr;
   let typeExpr: Expr | undefined = undefined;
   let labelExpr: Expr | undefined = undefined;
   let defaultValueExpr: Expr | undefined = undefined;
+  let assignedValueExpr: Expr | undefined = undefined;
 
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "=")) {
-    throw formatErrorMessage({
-      token: expr_.func.token,
-      errorMessage: `Please use "?=" for default parameter value, not "=".`,
-    });
+    // Check if this is `(T : Type) = Impl(Id)` syntax for assigned value with explicit type
+    // The LHS should have a type annotation (`:`)
+    const lhs = expr_.args[0];
+    if (lhs && exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
+      // This is the explicit type form: (T : Type) = Impl(Id)
+      lhsExpr = lhs;
+      rhsExpr = expr_.args[1]!;
+      assignedValueExpr = rhsExpr;
+      expr_ = lhsExpr; // Continue parsing the lhs for label and type
+    } else {
+      throw formatErrorMessage({
+        token: expr_.func.token,
+        errorMessage: `Please use "?=" for default parameter value, not "=".`,
+      });
+    }
+  }
+
+  // Check if it's an assignment binding (`:=`)
+  // eg:
+  //   forall(T := Impl(Id))
+  // Here T is the label, Impl(Id) is the assigned value (constraint)
+  // The type is implicitly Type (for forall parameters)
+  if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":=", 2)) {
+    lhsExpr = expr_.args[0]!;
+    rhsExpr = expr_.args[1]!;
+    assignedValueExpr = rhsExpr;
+    expr_ = lhsExpr; // Continue parsing the lhs for the label
   }
 
   // Check if there is defaultValue
@@ -113,7 +139,8 @@ export function evaluateFunctionParameter({
     rhsExpr = expr_.args[1]!;
     lhsExpr = expr_.args[0]!;
     typeExpr = rhsExpr;
-  } else {
+  } else if (!assignedValueExpr) {
+    // Only set typeExpr if it wasn't already set by `:=` handling
     // eg:
     //   (i32)
     if (!defaultValueExpr) {
@@ -125,6 +152,9 @@ export function evaluateFunctionParameter({
       typeExpr = undefined;
       lhsExpr = expr_;
     }
+  } else {
+    // assignedValueExpr was set by `:=`, expr_ is the label
+    lhsExpr = expr_;
   }
 
   if (lhsExpr) {
@@ -213,6 +243,38 @@ export function evaluateFunctionParameter({
   }
 
   {
+    // Evaluate the assignedValueExpr if exists (for `:=` syntax)
+    // eg: forall(T := Impl(Id))
+    // The assigned value becomes the value of the parameter, and the type is Type
+    if (assignedValueExpr) {
+      const evaluatedAssignedValue = evaluateExpression({
+        expr: assignedValueExpr,
+        env,
+        context: { ...context },
+      });
+      if (!evaluatedAssignedValue.$) {
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Failed to evaluate assigned value expression: ${exprToString(assignedValueExpr)}`,
+        });
+      }
+      env = evaluatedAssignedValue.$.env;
+
+      // The assigned value should be a TypeValue (e.g., Impl(Id) returns a TypeValue)
+      const assignedValue_ = evaluatedAssignedValue.$.value;
+      if (!isTypeValue(assignedValue_)) {
+        throw formatErrorMessage({
+          token: assignedValueExpr.token,
+          errorMessage: `Expected type value for := assignment, got ${valueToString(assignedValue_)}`,
+        });
+      }
+
+      // The parameter type is Type (the type of types)
+      parameterType = createType0();
+      // Store the assigned TypeValue separately from defaultValue
+      assignedValue = assignedValue_;
+    }
+
     // Evaluate the typeExpr if exists
     if (typeExpr) {
       // Parse the rhs expr which should be a type
@@ -395,10 +457,12 @@ use_id :: (fn(forall(T : Type),
       type: parameterType,
       isCompileTimeOnly: isCompileTimeOnly,
       value:
-        // defaultValue ?? // NOTE: No need to use the default value here.
-        isCompileTimeOnly
+        // If there's an assignedValue (from := syntax), use it
+        // Otherwise use a generic unknown value for compile-time params
+        assignedValue ??
+        (isCompileTimeOnly
           ? createUnknownValue(parameterType, label)
-          : undefined,
+          : undefined),
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
@@ -443,10 +507,12 @@ use_id :: (fn(forall(T : Type),
         labelExpr,
         typeExpr,
         defaultValueExpr,
+        assignedValueExpr,
       }),
       isCompileTimeOnly,
       isQuote,
       isOwningTheARCValue,
+      assignedValue,
     },
     env,
   };

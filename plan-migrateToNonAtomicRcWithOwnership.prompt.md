@@ -19,10 +19,10 @@
    - ✅ Add type compatibility: concrete type satisfies `SomeType` if it implements all listed modules
    - ✅ Support labeled syntax: `Impl(Id)` uses `Id` as label, `Impl(MyId : Id)` uses custom label
 
-2. **Support `Impl(...)` in `forall` parameters**
-   - Parse `forall(T := Impl(Copy, Send))` - T bound to `SomeType` constraint
-   - Parse `forall((T : Type) = Impl(Copy, Send))` - same with explicit annotation
-   - On instantiation: check concrete type satisfies all modules in `SomeType`
+2. ✅ **Support `Impl(...)` in `forall` parameters**
+   - ✅ Parse `forall(T := Impl(Copy, Send))` - T bound to `SomeType` constraint
+   - ✅ Parse `forall((T : Type) = Impl(Copy, Send))` - same with explicit annotation
+   - ✅ On instantiation: check concrete type satisfies all modules in `SomeType`
 
 3. **Support `Impl(...)` in `compt` parameters**
    - Parse `compt(T) := Impl(Copy, Send)` in regular function parameters
