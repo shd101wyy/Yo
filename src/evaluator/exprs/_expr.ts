@@ -58,6 +58,7 @@ import {
 } from "../builtins/future_fns";
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
+import { evaluateImplConstraint } from "../builtins/impl_constraint";
 import { evaluateMacroExpand } from "../builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "../builtins/numeric_fns";
 import { evaluatePanic } from "../builtins/panic";
@@ -317,6 +318,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
       // module type
       return evaluateModuleType({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Impl)) {
+      // Impl constraint type
+      return evaluateImplConstraint({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.impl)) {
       // module value implementation
       return evaluateModuleValue({ expr, env, context: { ...context } });

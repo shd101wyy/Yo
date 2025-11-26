@@ -12,11 +12,12 @@
 
 ### Steps
 
-1. **Implement `Impl(module1, module2, ...)` syntax** in evaluator
-   - Recognize `Impl` as special built-in that creates `SomeType`
-   - `Impl(Copy, Send)` → `SomeType` with module containing `Copy` and `Send` constraints
-   - Validate all arguments are `ModuleType`
-   - Add type compatibility: concrete type satisfies `SomeType` if it implements all listed modules
+1. ✅ **Implement `Impl(module1, module2, ...)` syntax** in evaluator
+   - ✅ Recognize `Impl` as special built-in that creates `SomeType`
+   - ✅ `Impl(Copy, Send)` → `SomeType` with module containing `Copy` and `Send` constraints
+   - ✅ Validate all arguments are `ModuleType`
+   - ✅ Add type compatibility: concrete type satisfies `SomeType` if it implements all listed modules
+   - ✅ Support labeled syntax: `Impl(Id)` uses `Id` as label, `Impl(MyId : Id)` uses custom label
 
 2. **Support `Impl(...)` in `forall` parameters**
    - Parse `forall(T := Impl(Copy, Send))` - T bound to `SomeType` constraint

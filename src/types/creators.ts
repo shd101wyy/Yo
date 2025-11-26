@@ -7,7 +7,7 @@ import {
 } from "../env";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
-import { isNumberValue, Value, valueToString } from "../value";
+import { createTypeValue, isNumberValue, Value, valueToString } from "../value";
 import {
   ArrayType,
   ClosureType,
@@ -21,6 +21,7 @@ import {
   FunctionReturn,
   FunctionType,
   FutureType,
+  ModuleField,
   ModuleType,
   PtrType,
   SliceType,
@@ -935,7 +936,8 @@ export function createPtrType(childType: Type): PtrType {
 export function createSomeType(
   type: TypeHierarchyType,
   variableName: string,
-  id?: string
+  id?: string,
+  requiredModules?: { label: string; moduleType: ModuleType }[]
 ): SomeType {
   if (type.level !== 0) {
     console.trace();
@@ -945,6 +947,7 @@ export function createSomeType(
   }
 
   const module: ModuleType = createModuleType(createEmptyEnv());
+
   const someType: SomeType = {
     id: id ?? `sometype_${randomId()}`,
     tag: TypeTag.SomeType,
@@ -957,6 +960,27 @@ export function createSomeType(
     externName: type.externName,
   };
   module.receiverType = someType;
+
+  // Add required modules as fields in the module, with receiverType set to someType
+  if (requiredModules && requiredModules.length > 0) {
+    for (const { label, moduleType: requiredModule } of requiredModules) {
+      // Create a copy of the module with receiverType set to the someType
+      const moduleWithReceiver: ModuleType = {
+        ...requiredModule,
+        receiverType: someType,
+      };
+      const field: ModuleField = {
+        label,
+        type: createTypeHierarchy(1), // Module type
+        isCompileTimeOnly: true,
+        assignedValue: createTypeValue(moduleWithReceiver),
+        exprs: {
+          expr: undefined as unknown as Expr, // No expr for synthetic fields
+        },
+      };
+      module.fields.push(field);
+    }
+  }
 
   return someType;
 }

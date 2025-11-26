@@ -6,6 +6,7 @@ import {
   isFunctionType,
   isModuleType,
   isPtrType,
+  isSomeType,
   ModuleType,
   Type,
   typeContainsARCType,
@@ -17,6 +18,7 @@ import {
   createUnknownValue,
   isModuleValue,
   isTupleValue,
+  isTypeValue,
   isUnknownValue,
   ModuleValue,
   Value,
@@ -774,6 +776,30 @@ export function getMethodsByNameFromEnv(
     } else {
       // If no direct method found, recursively check nested modules
       checkModuleForMethod(dereferencedReceiverType.module, methodName);
+    }
+  }
+
+  // Check if the dereferencedReceiverType is a SomeType with required modules
+  if (isSomeType(dereferencedReceiverType)) {
+    // Look for methods in the required modules stored in the SomeType's module
+    for (const field of dereferencedReceiverType.module.fields) {
+      // Required modules are stored as TypeValue containing ModuleType
+      if (
+        field.assignedValue &&
+        isTypeValue(field.assignedValue) &&
+        isModuleType(field.assignedValue.value)
+      ) {
+        const requiredModuleType = field.assignedValue.value;
+        // Search for the method in the required module
+        const method = requiredModuleType.fields.find(
+          (f) => f.label === methodName && isFunctionType(f.type)
+        );
+        if (method && isFunctionType(method.type)) {
+          // Create an unknown value since the actual implementation is not known
+          const value = createUnknownValue(method.type, method.label);
+          methods.push({ type: method.type, value });
+        }
+      }
     }
   }
 
