@@ -6,6 +6,8 @@ Yo uses **async/await with state machine transformation** for efficient concurre
 
 **Spawning Model**: Yo uses **eager spawning** (JavaScript/Python-style) rather than lazy spawning (Rust-style). When you create an async block, the task starts executing immediately on a worker thread. This makes the behavior more intuitive and matches what most developers expect from async/await.
 
+**Concurrency Model**: Yo uses **selective work-stealing** with **thread-local cycle collection**. Tasks that capture only `Send` types (primitives, value types, acyclic Rc) can be work-stolen between threads. Tasks that capture cycle-forming types maintain thread affinity for safe garbage collection.
+
 ```rust
 // Task starts immediately when async block is created
 task := async { expensive_computation() };  // Already running!
@@ -21,19 +23,21 @@ result := await task;  // Just waits for it to finish
 3. **Zero-Cost Abstraction**: State machine transformation at compile time, no runtime overhead
 4. **Familiar Syntax**: `async`/`await` is proven across many modern languages
 5. **Better for CPU-bound tasks**: Futures can be polled without context switching
+6. **Non-atomic RC**: Reference counting without atomic operations (zero synchronization overhead)
+7. **Thread-local GC**: Each thread collects cycles independently (no stop-the-world pauses)
 
 ## Language Syntax
 
 ```rust
-// Async function - MUST return Future(T) type
-fetch_data :: (fn(url: String) -> Future(Data)) async {
+// Async function - MUST return Impl(Future(T)) type
+fetch_data :: (fn(url: String) -> Impl(Future(Data))) async {
   response := await http_get(url);
   data := await response.read();
   return data;
 };
 
 // Calling async from another async function
-process :: (fn() -> Future(unit)) async {
+process :: (fn() -> Impl(Future(unit))) async {
   data := await fetch_data("http://example.com");
   println(data);
 };
@@ -50,7 +54,7 @@ main :: (fn() -> unit) {
 
 // Async blocks - spawn inline async tasks
 compute :: (fn() -> unit) {
-  // Async block returns Future(T)
+  // Async block returns Impl(Future(T))
   future := async {
     x := await fetch_data("http://example.com");
     y := await process_data(x);
@@ -70,8 +74,8 @@ await            // Suspend until Future ready (only in async functions and bloc
 ```
 
 **Important Rules**:
-1. Async functions **must** explicitly return `Future(T)` type
-2. Async blocks `async { ... }` return `Future(T)` where T is the block's result type
+1. Async functions **must** explicitly return `Impl(Future(T))` type
+2. Async blocks `async { ... }` return `Impl(Future(T))` where T is the block's result type
 3. `await` can **only** be used inside `async { ... }` blocks (async coloring)
 4. Async functions and blocks start executing **immediately** when created (eager spawning - JavaScript-style)
 5. `await` suspends the current async function/block until the Future completes
@@ -88,8 +92,8 @@ Async blocks allow you to create inline async tasks:
 
 ```rust
 // Async block example
-compute :: (fn() -> Future(i32)) {
-  // Async block spawns immediately and returns Future
+compute :: (fn() -> Impl(Future(i32))) {
+  // Async block spawns immediately and returns Impl(Future(T))
   return async {
     x := await get_value();
     y := await process(x);
@@ -98,7 +102,7 @@ compute :: (fn() -> Future(i32)) {
 };
 
 // Can be awaited in async context
-process :: (fn() -> Future(unit)) async {
+process :: (fn() -> Impl(Future(unit))) async {
   result := await compute();  // Await the Future from async block
   println(result);
 };
@@ -109,17 +113,21 @@ process :: (fn() -> Future(unit)) async {
 ### Future Type
 
 ```rust
-// Built-in Future type (compiler-generated struct with reference counting)
-// Future(T) has these fields:
-// - header: yo_ref_header_t (for reference counting with BRC)
+// Built-in Future module (compiler-generated struct with reference counting)
+// Impl(Future(T)) has these fields:
+// - header: yo_ref_header_t (for non-atomic reference counting)
 // - state: atomic enum { YO_FUTURE_RUNNING, YO_FUTURE_COMPLETED }
 // - state_machine: pointer to state machine
 // - continuation_fn: atomic function pointer (resume function for awaiter)
 // - continuation_sm: atomic pointer (state machine of awaiter)
 // - result: T (the result value when completed)
+// - is_stealable: bool (whether task can be work-stolen)
 
-// Async function signature - return Future(T)
-fetch :: (fn(url: String) -> Future(String));
+// Async function signature - return Impl(Future(T))
+fetch :: (fn(url: String) -> Impl(Future(String)));
+
+// Sendable Future - can be work-stolen between threads
+fetch_send :: (fn(url: String) -> Impl(Future(String), Send));
 ```
 
 ## State Machine Transformation
@@ -130,7 +138,7 @@ The compiler transforms async functions into state machines at each `await` poin
 
 **Input Yo code:**
 ```rust
-fetch_data :: (fn(url: String) -> Future(Data)) async {
+fetch_data :: (fn(url: String) -> Impl(Future(Data))) async {
   response := await http_get(url);
   data := await response.read();
   return data;
@@ -170,8 +178,9 @@ fetch_data :: (fn(url: String) -> Future(Data)) async {
 
 Each worker thread:
 - Is a real OS thread (1:1 mapping)
-- Is pinned to a dedicated CPU core
+- Is pinned to a dedicated CPU core (thread-per-core model)
 - Has its own task queue (no contention)
+- Has its own cycle collector (thread-local GC)
 - Executes state machine continuations
 
 ### Continuation
@@ -180,21 +189,44 @@ A continuation represents a state machine waiting to be resumed:
 - Resume function pointer
 - State machine pointer
 - Linked list pointers for queue
+- **Stealability flag** (whether task can be work-stolen)
 
 ### Worker Loop
 
 Each worker continuously:
 1. Dequeues a continuation from its queue (with mutex)
-2. If no tasks, sleeps briefly (1ms)
-3. Executes the continuation's resume function
-4. Frees the continuation
+2. If no tasks, tries to **steal from other workers** (if stealable)
+3. If still no tasks, sleeps briefly (1ms)
+4. Executes the continuation's resume function
+5. Frees the continuation
 
-### Thread Affinity
+### Selective Work Stealing
 
-- Async tasks are assigned to workers round-robin when spawned
-- Tasks stay on their assigned worker (no work stealing)
-- This is essential for **Biased Reference Counting** (BRC)
-- BRC assumes objects stay on the thread that created them
+Yo uses **selective work-stealing** based on captured types:
+
+```rust
+// ✅ Stealable: Only captures Send types (primitives, values, acyclic Rc)
+async {
+  x := 42;
+  y := box(100);  // Box(i32) is Send
+  result := await compute(x, y);
+  return result;
+};
+// This task CAN be stolen by idle workers
+
+// ❌ Non-stealable: Captures cycle-forming types
+async {
+  node := Node(1, .None);  // Node can form cycles, not Send
+  await process(node);
+};
+// This task stays on its original thread (thread affinity)
+```
+
+**Why selective work-stealing?**
+- Tasks capturing `Send` types can migrate between threads safely
+- Tasks capturing cycle-forming types must stay on their thread for GC correctness
+- Each thread's cycle collector only tracks objects created on that thread
+- This enables **zero stop-the-world pauses** (thread-local collection)
 
 ## Implementation Details
 
@@ -240,13 +272,21 @@ At each await point:
 
 ## Memory Management
 
+### Non-Atomic Reference Counting
+
+Yo uses **non-atomic reference counting** with **thread-local cycle collection**:
+- RC operations are simple increment/decrement (no atomics in hot path)
+- Each thread has its own cycle collector
+- No stop-the-world pauses (other threads continue during collection)
+
 ### State Machine Lifecycle
 
 ```c
 // 1. Creation - allocate Future with state machine
 FunctionName_Future* future = __yo_malloc(sizeof(FunctionName_Future));
-future->header = (yo_ref_header_t){.strong = 1, .weak = 1};  // Initial reference
+future->header = (yo_ref_header_t){.ref_count = 1};  // Non-atomic RC
 future->state = YO_FUTURE_RUNNING;
+future->is_stealable = /* determined by compiler based on captures */;
 // Initialize state machine fields...
 
 // 2. Execution - resume repeatedly until complete
@@ -258,10 +298,8 @@ future->result = final_value;
 // Wake awaiter if any
 
 // 4. Cleanup - Future and state machine freed when reference count reaches 0
-// This happens automatically via BRC when:
-// - Future is completed (state = YO_FUTURE_COMPLETED)
-// - Combined reference counter reaches 0 (strong + weak = 0)
-// The finalizer calls __yo_free(future) which frees both Future and embedded state machine
+// For cycle-forming types: freed by thread-local cycle collector
+// For acyclic types: freed immediately when RC = 0
 ```
 
 ### State Machine Memory
@@ -316,8 +354,8 @@ Concurrency.set_maximum_threads(n: usize) -> unit
 ```rust
 
 
-// Async worker function - MUST return Future(T)
-worker :: (fn(id: i32) -> Future(i32)) async {
+// Async worker function - MUST return Impl(Future(T))
+worker :: (fn(id: i32) -> Impl(Future(i32))) async {
   printf("Worker %d starting\n", id);
   // Simulate some async work
   i := 0;
@@ -329,7 +367,7 @@ worker :: (fn(id: i32) -> Future(i32)) async {
 };
 
 // Fetch multiple results concurrently
-fetch_many :: (fn(count: i32) -> Future(unit)) async {
+fetch_many :: (fn(count: i32) -> Impl(Future(unit))) async {
   // Spawn all tasks
   i := 0;
   futures := [];
@@ -348,7 +386,7 @@ fetch_many :: (fn(count: i32) -> Future(unit)) async {
 };
 
 // Using async blocks
-compute_with_block :: fn() -> Future(i32) {
+compute_with_block :: fn() -> Impl(Future(i32)) {
   // Async block spawns inline
   return async {
     x := await worker(1);
@@ -377,17 +415,20 @@ main :: (fn() -> unit) {
 
 ## Comparison with Other Languages
 
-| Language | Model | Spawning | Memory/Task | Max Concurrency | Work Stealing |
-|----------|-------|----------|-------------|-----------------|---------------|
-| **Yo** | Stackless state machines | **Eager** | ~200 bytes | Millions | ❌ No (thread affinity) |
-| **Rust** | Stackless futures | Lazy | ~100 bytes | Millions | Depends on executor |
-| **JavaScript** | Stackless promises | **Eager** | ~100 bytes | Millions | N/A (single-threaded) |
-| **Python (asyncio)** | Stackless coroutines | **Eager** | ~200 bytes | Millions | N/A (single-threaded) |
-| **C#** | Stackless state machines | **Eager** | ~200 bytes | Millions | ✅ Yes |
-| **Go** | Stackful goroutines | **Eager** | 2KB+ (growable) | 100K-1M | ✅ Yes |
-| **Java Virtual Threads** | Stackful | **Eager** | 1MB | ~10K | ✅ Yes |
+| Language | Model | Spawning | Memory/Task | Max Concurrency | Work Stealing | GC Pauses |
+|----------|-------|----------|-------------|-----------------|---------------|------------|
+| **Yo** | Stackless state machines | **Eager** | ~200 bytes | Millions | ✅ **Selective** (Send types) | **Zero** (thread-local) |
+| **Rust** | Stackless futures | Lazy | ~100 bytes | Millions | Depends on executor | N/A (no GC) |
+| **JavaScript** | Stackless promises | **Eager** | ~100 bytes | Millions | N/A (single-threaded) | ~1-10ms |
+| **Python (asyncio)** | Stackless coroutines | **Eager** | ~200 bytes | Millions | N/A (single-threaded) | ~10-50ms |
+| **C#** | Stackless state machines | **Eager** | ~200 bytes | Millions | ✅ Yes | ~10-50ms |
+| **Go** | Stackful goroutines | **Eager** | 2KB+ (growable) | 100K-1M | ✅ Yes | 10-100ms+ |
+| **Java Virtual Threads** | Stackful | **Eager** | 1MB | ~10K | ✅ Yes | Variable |
 
-**Note**: Yo's eager spawning matches JavaScript, Python, C#, and Go, making it more familiar to developers from those backgrounds. Unlike Rust's lazy Futures, Yo's async blocks start running immediately when created.
+**Note**: Yo's selective work-stealing gives you the best of both worlds:
+- ✅ **Load balancing** for tasks with `Send` captures (most common)
+- ✅ **Zero GC pauses** via thread-local collection
+- ✅ **No atomic RC overhead** (non-atomic reference counting)
 
 ## Summary
 
@@ -395,17 +436,34 @@ Yo's async/await provides:
 
 1. ✅ **Familiar async/await syntax** - like Rust, JavaScript, C#, Python
 2. ✅ **State machine transformation** - zero-cost abstraction at compile time
-3. ✅ **Thread affinity** - tasks never migrate between workers (no work stealing)
-4. ✅ **Memory efficiency** - millions of concurrent tasks (~200 bytes each)
-5. ✅ **Worker thread pool** - efficient parallel execution on OS threads
-6. ✅ **Simple to learn** - just `async` block and `await` future
-7. ✅ **BRC compatible** - respects biased reference counting thread affinity
+3. ✅ **Selective work-stealing** - tasks with `Send` captures can be stolen for load balancing
+4. ✅ **Thread-local GC** - tasks with cycle-forming captures stay on their thread (no STW pauses)
+5. ✅ **Non-atomic RC** - zero synchronization overhead in hot path
+6. ✅ **Memory efficiency** - millions of concurrent tasks (~200 bytes each)
+7. ✅ **Worker thread pool** - efficient parallel execution on OS threads
+8. ✅ **Simple to learn** - just `async` block and `await` future
+
+### Send Trait for Futures
+
+```rust
+// Default: Future may capture cycle-forming types (not stealable)
+fetch :: (fn(url: String) -> Impl(Future(Data))) async {
+  node := Node(1, .None);  // Captures cycle-forming type
+  // ...
+};
+
+// Sendable: Future only captures Send types (stealable)
+compute :: (fn(x: i32, y: i32) -> Impl(Future(i32), Send)) async {
+  // Only captures primitives - can be work-stolen!
+  return x + y;
+};
+```
 
 ### Quick Reference
 
 ```rust
-// Define async function - MUST return Future(T)
-fetch :: (fn(url: String) -> Future(Data)) async {
+// Define async function - MUST return Impl(Future(T))
+fetch :: (fn(url: String) -> Impl(Future(Data))) async {
   response := await http_get(url);
   data := await response.read();
   return data;
@@ -426,7 +484,7 @@ result1 := await task1;  // Wait for completion
 result2 := await task2;  // Wait for completion
 
 // Async blocks
-compute :: (fn() -> Future(i32)) {
+compute :: (fn() -> Impl(Future(i32))) {
   return async {
     x := await get_value();
     y := await process(x);
@@ -437,9 +495,11 @@ compute :: (fn() -> Future(i32)) {
 
 ### Key Principles
 
-1. **`async { ... }` blocks** - create inline async tasks that return Future(T)
+1. **`async { ... }` blocks** - create inline async tasks that return Impl(Future(T))
 2. **Eager execution** - tasks start running immediately when created (JavaScript-style)
 3. **`await` waits for result** - suspends until Future ready (only in async contexts)
 4. **State machines** - compiler transforms each `await` into state transition
-5. **Thread affinity** - async tasks stay on assigned worker thread (no migration)
-6. **Zero-cost** - no runtime overhead, compiled to efficient C code
+5. **Selective work-stealing** - tasks with `Send` captures can migrate; others have thread affinity
+6. **Non-atomic RC** - reference counting without atomic operations (zero overhead)
+7. **Thread-local GC** - each thread collects cycles independently (no STW pauses)
+8. **Zero-cost** - no runtime overhead, compiled to efficient C code
