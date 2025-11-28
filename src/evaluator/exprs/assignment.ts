@@ -388,7 +388,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
     let isMutatingDefinedVariable = false;
     const oldVariableIsOwningTheSameARCValueAs =
-      variable.isOwningTheSameRcValueAs;
+      variable.isHoldingTheSameRcValueAs;
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
@@ -459,7 +459,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         value: valueToStore,
         type: variableType,
         isHoldingTheRcValue: typeContainsRcType(variableType),
-        isOwningTheSameRcValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isHoldingTheSameRcValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
     } else {
       // For closures, track variable writes to outer scope
@@ -530,7 +530,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         value: valueToStore,
         type: variableType,
         isHoldingTheRcValue: typeContainsRcType(variableType),
-        isOwningTheSameRcValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isHoldingTheSameRcValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
       isMutatingDefinedVariable = true;
     }

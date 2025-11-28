@@ -17,6 +17,7 @@ import {
   StructType,
   Type,
   typeContainsRcType,
+  typeImplementsCopy,
   typeToString,
 } from "./types";
 import {
@@ -1230,7 +1231,7 @@ function exprToPrettyString(
 export function attachTempVariableToExpr(
   expr: Expr,
   isHoldingTheRcValue: boolean,
-  isOwningTheSameRcValueAs?: Variable
+  isHoldingTheSameRcValueAs?: Variable
 ): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
@@ -1256,7 +1257,7 @@ ${exprToString(expr)}`);
         value: _isOwningTheARCValue ? undefined : value,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
         isHoldingTheRcValue: _isOwningTheARCValue,
-        isOwningTheSameRcValueAs,
+        isHoldingTheSameRcValueAs,
       };
       expr.$.env = updateExistingVariable(
         env,
@@ -1285,7 +1286,7 @@ ${exprToString(expr)}`);
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
       isHoldingTheRcValue: _isOwningTheARCValue,
-      isOwningTheSameRcValueAs,
+      isHoldingTheSameRcValueAs,
       consumedAtToken: undefined,
       token: expr.token,
     },
@@ -1580,7 +1581,7 @@ export function mergeAndCheckEnvs(
         const newVariable: Variable = {
           ...frameVariables[i]!,
           isHoldingTheRcValue: true,
-          isOwningTheSameRcValueAs: undefined,
+          isHoldingTheSameRcValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
@@ -1641,7 +1642,7 @@ export function mergeAndCheckEnvs(
           ...frameVariables[i]!,
           id: newVariableId,
           // Clear ownership tracking since the value may come from different sources
-          isOwningTheSameRcValueAs: undefined,
+          isHoldingTheSameRcValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
@@ -1788,6 +1789,11 @@ export function setExprAsConsumed(
 }
 
 /**
+ * Handle ownership transfer or duplication when an expression is used as a value.
+ *
+ * For Copy types: call dup to increment reference count (shared ownership)
+ * For non-Copy types: consume (move) the source variable (exclusive ownership transfer)
+ *
  * @param expr
  * @param context
  * @returns
@@ -1807,11 +1813,6 @@ export function setExprAsNeedsToCallDup(
   }
 
   if (typeContainsRcType(expr.$.type)) {
-    // replace this expr with ___dup(...)
-    const dupCallExpr = generateExprFromCode(
-      `${BuiltinFunctions.___dup[0]!}(${expr.$.variableName})`
-    );
-
     const variableName = expr.$.variableName;
 
     // Check if the expr.variableName is holding the Rc value
@@ -1831,6 +1832,8 @@ export function setExprAsNeedsToCallDup(
               expr.$.env = updateExistingVariable(expr.$.env, variable, {
                 ...variable,
                 consumedAtToken: expr.token,
+                isHoldingTheRcValue: false,
+                isHoldingTheSameRcValueAs: undefined,
               });
             }
 
@@ -1839,6 +1842,33 @@ export function setExprAsNeedsToCallDup(
         }
       }
     }
+
+    // Check if the type implements Copy
+    // If not, this is a move - consume the source variable without calling dup
+    if (!typeImplementsCopy(expr.$.type)) {
+      // Move semantics: consume the source variable, transfer ownership
+      const variables = getVariablesFromEnv(expr.$.env, variableName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (!variable.consumedAtToken) {
+          expr.$.env = updateExistingVariable(expr.$.env, variable, {
+            ...variable,
+            consumedAtToken: expr.token,
+            // Clear ownership - the value has been moved out
+            isHoldingTheRcValue: false,
+            isHoldingTheSameRcValueAs: undefined,
+          });
+        }
+      }
+      // No dup call needed for move - ownership is transferred
+      return;
+    }
+
+    // Copy semantics: call dup to share ownership
+    // replace this expr with ___dup(...)
+    const dupCallExpr = generateExprFromCode(
+      `${BuiltinFunctions.___dup[0]!}(${variableName})`
+    );
 
     // console.trace(exprToString(dupCallExpr), expr.$.env.frames.length);
     // printEnvFrame(expr.$.env.frames[expr.$.env.frames.length - 1]!);

@@ -674,7 +674,7 @@ node2 := &(node);  // Borrow, no dup!
 **Remove:**
 - `___dup` codegen on assignment
 - `___drop` codegen at scope exit
-- `isOwningTheSameRcValueAs` tracking
+- `isHoldingTheSameRcValueAs` tracking
 - Biased RC infrastructure
 
 **Add:**

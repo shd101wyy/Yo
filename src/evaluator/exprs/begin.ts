@@ -129,9 +129,9 @@ function searchRecursively(
       // Track dup calls for optimization:
       // 1. If the variable owns the same ARC value as another variable (optimization tracking)
       // 2. If the variable itself is owning (new pattern with assignments always own)
-      if (variable.isOwningTheSameRcValueAs) {
+      if (variable.isHoldingTheSameRcValueAs) {
         // Store the dup call mapped to the shared variable ID
-        const sharedVariableId = variable.isOwningTheSameRcValueAs.id;
+        const sharedVariableId = variable.isHoldingTheSameRcValueAs.id;
         if (!dupCalls.has(sharedVariableId)) {
           dupCalls.set(sharedVariableId, []);
         }
@@ -249,13 +249,13 @@ function isUnitValueExpression(expr: Expr): boolean {
 }
 
 /**
- * Helper to get the base variable ID by following the isOwningTheSameRcValueAs chain.
+ * Helper to get the base variable ID by following the isHoldingTheSameRcValueAs chain.
  * This is used for dup/drop optimization to identify which variables share the same ARC value.
  */
 function getBaseVariableId(variable: Variable): string {
   let current = variable;
-  while (current.isOwningTheSameRcValueAs) {
-    current = current.isOwningTheSameRcValueAs;
+  while (current.isHoldingTheSameRcValueAs) {
+    current = current.isHoldingTheSameRcValueAs;
   }
   return current.id;
 }
@@ -704,8 +704,8 @@ export function evaluateBeginExpression({
   // Mark the owning variable as consumed so it will not receive an auto ___drop,
   // and skip adding a ___dup for the returned expression later.
   // Likewise, if directly returning an owning variable from this frame, mark it consumed.
-  if (returnVariable?.isOwningTheSameRcValueAs && returnValueExpr) {
-    const ownerVariable = returnVariable.isOwningTheSameRcValueAs;
+  if (returnVariable?.isHoldingTheSameRcValueAs && returnValueExpr) {
+    const ownerVariable = returnVariable.isHoldingTheSameRcValueAs;
     if (
       ownerVariable.isHoldingTheRcValue &&
       ownerVariable.frameLevel === env.frames.length - 1 &&

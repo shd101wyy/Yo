@@ -48,14 +48,16 @@
    - ✅ Add helper `typeImplementsCopy(type)` and `typeImplementsSend(type)` to check trait implementation
    - ✅ Add `Type.impls(type, marker)` builtin to check if a type implements a marker module
 
-6. **Implement move semantics for Rc types**
+6. **Implement move semantics for Rc types** (IN PROGRESS)
 
-   - Add `isConsumed: boolean` and `consumedAt?: SourceLocation` to `Variable` interface
-   - On assignment: if source type lacks `Copy`, mark source variable as consumed
+   - ✅ Use existing `consumedAtToken` field on `Variable` to track when variable is moved
+   - ✅ On assignment: if source type lacks `Copy`, mark source variable as consumed and clear `isHoldingTheRcValue`
+   - ✅ On variable access: error "use of moved value" if variable is consumed (except during drop)
+   - ✅ Don't set `isHoldingTheSameRcValueAs` for move semantics (only for Copy types with `&` operator)
    - On function call: mark argument variables as consumed if parameter type lacks `Copy`
-   - on value construction: mark field variables as consumed if field type lacks `Copy`
-   - On variable access: error "use of moved value" if variable is consumed
+   - On value construction: mark field variables as consumed if field type lacks `Copy`
    - Rc types (`object`, `Dyn`) are move-only by default
+   - Prevent moving a non-`Copy` value from a data structure that still holds it (e.g., moving field from struct without consuming struct)
 
 7. **Update `&` operator for new RC semantics**
 
@@ -63,7 +65,6 @@
    - `&(x)` does NOT increment RC - just creates a temporary pointer
    - RC increments only when assigning pointer to variable: `p := &(x)` increments RC
    - RC increments when storing pointer in value constructor
-   - Result `*T` always implements `Copy`, never implements `Send`
 
 8. **Implement `^` (unborrow) operator**
 

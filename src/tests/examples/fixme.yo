@@ -1,78 +1,9 @@
-// Test Type.impls for Copy marker module
-
-// Primitive types should implement Copy
-compt_assert(Type.impls(i32, Copy), "i32 should implement Copy");
-compt_assert(Type.impls(i64, Copy), "i64 should implement Copy");
-compt_assert(Type.impls(u32, Copy), "u32 should implement Copy");
-compt_assert(Type.impls(u64, Copy), "u64 should implement Copy");
-compt_assert(Type.impls(f32, Copy), "f32 should implement Copy");
-compt_assert(Type.impls(f64, Copy), "f64 should implement Copy");
-compt_assert(Type.impls(boolean, Copy), "boolean should implement Copy");
-compt_assert(Type.impls(char, Copy), "char should implement Copy");
-
-
-// Pointer types should implement Copy
-compt_assert(Type.impls(*(i32), Copy), "*(i32) should implement Copy");
-
-// Struct with only Copy fields should implement Copy
-CopyStruct :: struct(x: i32, y: i32);
-compt_assert(Type.impls(CopyStruct, Copy), "CopyStruct should implement Copy");
-
-Box :: object(x : i32);
-compt_assert(Type.impls(Box, Copy) == false, "Box should NOT implement Copy");
-
-// Box with non-Copy fields should NOT implement Copy
-NonCopyStruct :: struct(name: Box);
-compt_assert(Type.impls(NonCopyStruct, Copy) == false, "NonCopyStruct should NOT implement Copy");
-
-// Test Send marker module
-compt_assert(Type.impls(i32, Send), "i32 should implement Send");
-compt_assert(Type.impls(*(i32), Send), "ptr(i32) should implement Send");
-
-// Rc types should NOT implement Send
-compt_assert(Type.impls(Box, Send), "Box should implement Send");
-
-// ptr to Rc should NOT implement Send
-compt_assert(Type.impls(*(Box), Send) == false, "*(Box) should NOT implement Send");
-
-// Enum with only Copy variants should implement Copy
-CopyEnum :: enum(A, B(x: i32), C(x: i32, y: i32));
-compt_assert(Type.impls(CopyEnum, Copy), "CopyEnum should implement Copy");
-
-// Enum with non-Copy variant should NOT implement Copy
-NonCopyEnum :: enum(A, B(x: Box));
-compt_assert(Type.impls(NonCopyEnum, Copy) == false, "NonCopyEnum should NOT implement Copy");
-
-// Union with only Copy variants should implement Copy
-CopyUnion :: union(a: i32, b: f32);
-compt_assert(Type.impls(CopyUnion, Copy), "CopyUnion should implement Copy");
-
-// Union with non-Copy variant should NOT implement Copy
-NonCopyUnion :: union(a: i32, b: Box);
-compt_assert(Type.impls(NonCopyUnion, Copy) == false, "NonCopyUnion should NOT implement Copy");
-
-// Nested struct - all fields Copy
-NestedCopy :: struct(inner: CopyStruct, value: i32);
-compt_assert(Type.impls(NestedCopy, Copy), "NestedCopy should implement Copy");
-
-// Nested struct - contains non-Copy
-NestedNonCopy :: struct(inner: CopyStruct, boxed: Box);
-compt_assert(Type.impls(NestedNonCopy, Copy) == false, "NestedNonCopy should NOT implement Copy");
-
-// Object implements Send only if all fields implement Send
-compt_assert(Type.impls(Box, Send), "Box (object with i32 field) should implement Send");
-
-// Struct containing object should NOT be Copy but should be Send
-StructWithBox :: struct(b: Box);
-compt_assert(Type.impls(StructWithBox, Copy) == false, "StructWithBox should NOT implement Copy");
-compt_assert(Type.impls(StructWithBox, Send), "StructWithBox should implement Send");
-
-// Object with non-Send field should NOT implement Send
-BoxWithPtr :: object(p: *(Box));
-compt_assert(Type.impls(BoxWithPtr, Send) == false, "BoxWithPtr should NOT implement Send");
+Box :: object(v : i32);
 
 main :: (fn() -> unit) {
-  return ();
+  x := Box(12);
+  y := x;
+  compt_expect_error(z := x, "use of moved value x");
 };
 
 export main;

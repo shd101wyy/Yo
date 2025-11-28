@@ -475,7 +475,7 @@ use_id :: (fn(forall(T : Type),
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
       isHoldingTheRcValue: isHoldingTheRcValue,
-      isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
+      isHoldingTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
       isReassignable: false, // Mark as not reassigable
     },
     skipCheckingFunctionOverloading: true,
@@ -792,7 +792,7 @@ Expected order: forall(...), regular parameters, using(...)`,
             initializedAtToken: labelExpr.token, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
             isHoldingTheRcValue: variadicParameter.isHoldingTheRcValue,
-            isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
+            isHoldingTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
           },
         });

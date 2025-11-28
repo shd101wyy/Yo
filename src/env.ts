@@ -64,7 +64,7 @@ export interface Variable {
   isCompileTimeOnly: boolean;
 
   /**
-   * Whether the variable is owning the Rc value or borrowing the Rc value.
+   * Whether the variable is holding the Rc value or borrowing the Rc value.
    * This is only relevant for types that are managed by Rc.
    *
    * Under the new simplified ownership model:
@@ -80,20 +80,20 @@ export interface Variable {
    * This is used for dup/drop optimization across variable reassignments.
    *
    * When a temp variable is created to hold the old value during reassignment:
-   * - The temp variable's `isOwningTheSameRcValueAs` points to the original variable
+   * - The temp variable's `isHoldingTheSameRcValueAs` points to the original variable
    * - This allows us to optimize away `dup(original) + drop(temp)` pairs
    *
    * Example:
    * ```yo
-   * x := MyBox(42);
-   * y := x;              // y dups x, both own shares of MyBox(42)
+   * x := &(MyBox(42));
+   * y := x;              // y dups x, both hold shares of MyBox(42)
    * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
    * ```
    *
-   * Here, `temp` would have `isOwningTheSameRcValueAs = y` because both own
+   * Here, `temp` would have `isHoldingTheSameRcValueAs = y` because both own
    * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
    */
-  isOwningTheSameRcValueAs?: Variable;
+  isHoldingTheSameRcValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -467,7 +467,7 @@ export function printEnvVarNames(env: Environment) {
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isUndefined: !variable.initializedAtToken,
         isHoldingTheRcValue: !!variable.isHoldingTheRcValue,
-        isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
+        isHoldingTheSameRcValueAs: variable.isHoldingTheSameRcValueAs?.name,
         isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
@@ -486,7 +486,7 @@ export function printEnvFrame(frame: Frame) {
       isCompileTimeOnly: variable.isCompileTimeOnly,
       isUndefined: !variable.initializedAtToken,
       isHoldingTheRcValue: !!variable.isHoldingTheRcValue,
-      isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
+      isHoldingTheSameRcValueAs: variable.isHoldingTheSameRcValueAs?.name,
       isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))

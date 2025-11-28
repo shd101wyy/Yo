@@ -231,18 +231,32 @@ export function evaluateDrop({
         `(${exprToString(evaluatedArgExpr)}).___drop()`
       ) as FuncCallExpr;
 
-      // Set the expression as consumed
-      env = setExprAsConsumed(evaluatedArgExpr, env, true);
-
       // Convert this ___drop(x) to x.___drop() and evaluate the function call
+      // NOTE: We consume AFTER the method call to avoid "use of moved value" errors
+      // when the method call needs to access the variable
       const evaluatedDropMethodCallExpr = evaluateFunctionCall({
         env,
         context: { ...context },
         expr: dropMethodCallExpr,
       });
 
+      // Set the expression as consumed AFTER the drop method call succeeds
+      if (evaluatedDropMethodCallExpr.$?.env) {
+        env = setExprAsConsumed(
+          evaluatedArgExpr,
+          evaluatedDropMethodCallExpr.$.env,
+          true
+        );
+      } else {
+        env = setExprAsConsumed(evaluatedArgExpr, env, true);
+      }
+
       // Replace the original expr with the evaluated drop method call
       if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
+        // Update the env in the result
+        if (evaluatedDropMethodCallExpr.$) {
+          evaluatedDropMethodCallExpr.$.env = env;
+        }
         replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDropMethodCallExpr);
         return expr;
       } else {

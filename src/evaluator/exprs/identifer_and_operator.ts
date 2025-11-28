@@ -1,5 +1,5 @@
 import { Environment, getVariablesFromEnv } from "../../env";
-import { formatErrorMessage } from "../../error";
+import { formatErrorMessage, formatErrorMessages } from "../../error";
 import { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
 import {
@@ -35,6 +35,7 @@ import {
   createUsizeType,
   createVoidType,
   isFunctionType,
+  typeImplementsCopy,
   TypeTag,
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
@@ -462,6 +463,21 @@ export function evaluateIdentifierAndOperator({
           });
         }
         // We support FunctionType and TypeValue for mutual recursion
+      }
+
+      // Check if the variable has been consumed (moved) and the type doesn't implement Copy
+      // For non-Copy types, once a variable is consumed, it cannot be used again
+      if (variable.consumedAtToken && !typeImplementsCopy(variable.type)) {
+        throw formatErrorMessages([
+          {
+            token: expr.token,
+            errorMessage: `use of moved value ${identifier}`,
+          },
+          {
+            token: variable.consumedAtToken,
+            errorMessage: `value moved here`,
+          },
+        ]);
       }
 
       expr.$ = {
