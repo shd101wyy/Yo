@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import { Environment, isEvaluatingPreludeModule } from "../../env";
 import {
   BuiltinFunctions,
   Expr,
@@ -884,4 +884,289 @@ function generateDupFunctionCodeForFutureType(futureType: FutureType): string {
     ${BuiltinFunctions.__yo_future_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
+}
+
+/**
+ * Auto-derive Copy and Send marker modules for a struct type.
+ *
+ * For struct (value semantics):
+ * - Auto-derive Copy if all fields implement Copy
+ * - Auto-derive Send if all fields implement Send
+ *
+ * For object (reference semantics):
+ * - Never auto-derive Copy (Rc types are move-only)
+ * - Auto-derive Send if all fields implement Send
+ */
+export function autoDeriveCopySendForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Skip auto-derive during prelude evaluation (Copy/Send not yet defined)
+  if (isEvaluatingPreludeModule()) {
+    return env;
+  }
+
+  const { typeImplementsCopy, typeImplementsSend } = require("../../types");
+
+  // Check if Copy/Send are already explicitly defined
+  const hasCopy = structType.module.fields.some(
+    (field) => field.label === "Copy"
+  );
+  const hasSend = structType.module.fields.some(
+    (field) => field.label === "Send"
+  );
+
+  // For object (reference semantics), never auto-derive Copy
+  const canDeriveCopy = !structType.isReferenceSemantics && !hasCopy;
+  const canDeriveSend = !hasSend;
+
+  // Check if all fields implement Copy
+  if (canDeriveCopy) {
+    const allFieldsImplementCopy = structType.fields
+      .filter((field) => !field.isCompileTimeOnly)
+      .every((field) => typeImplementsCopy(field.type));
+
+    if (allFieldsImplementCopy) {
+      // Use a locally defined Copy module that structurally matches the prelude one
+      env = addModuleFieldByCode({
+        label: "Copy",
+        code: `{
+          Copy :: module(id := "Copy");
+          impl(Self, Copy())
+        }`,
+        SelfType: structType,
+        env,
+        context,
+      });
+    }
+  }
+
+  // Check if all fields implement Send
+  if (canDeriveSend) {
+    const allFieldsImplementSend = structType.fields
+      .filter((field) => !field.isCompileTimeOnly)
+      .every((field) => typeImplementsSend(field.type));
+
+    if (allFieldsImplementSend) {
+      // Use a locally defined Send module that structurally matches the prelude one
+      env = addModuleFieldByCode({
+        label: "Send",
+        code: `{
+          Send :: module(id := "Send");
+          impl(Self, Send())
+        }`,
+        SelfType: structType,
+        env,
+        context,
+      });
+    }
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Copy and Send marker modules for an enum type.
+ *
+ * - Auto-derive Copy if all variant fields implement Copy
+ * - Auto-derive Send if all variant fields implement Send
+ */
+export function autoDeriveCopySendForEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Skip auto-derive during prelude evaluation (Copy/Send not yet defined)
+  if (isEvaluatingPreludeModule()) {
+    return env;
+  }
+
+  const { typeImplementsCopy, typeImplementsSend } = require("../../types");
+
+  // Check if Copy/Send are already explicitly defined
+  const hasCopy = enumType.module.fields.some(
+    (field) => field.label === "Copy"
+  );
+  const hasSend = enumType.module.fields.some(
+    (field) => field.label === "Send"
+  );
+
+  // Check if all variant fields implement Copy
+  if (!hasCopy) {
+    const allFieldsImplementCopy = enumType.variants.every((variant) => {
+      if (!variant.fields || variant.fields.length === 0) {
+        return true; // Variants without fields are trivially Copy
+      }
+      return variant.fields.every((field) => typeImplementsCopy(field.type));
+    });
+
+    if (allFieldsImplementCopy) {
+      // Use a locally defined Copy module that structurally matches the prelude one
+      env = addModuleFieldByCode({
+        label: "Copy",
+        code: `{
+          Copy :: module(id := "Copy");
+          impl(Self, Copy())
+        }`,
+        SelfType: enumType,
+        env,
+        context,
+      });
+    }
+  }
+
+  // Check if all variant fields implement Send
+  if (!hasSend) {
+    const allFieldsImplementSend = enumType.variants.every((variant) => {
+      if (!variant.fields || variant.fields.length === 0) {
+        return true; // Variants without fields are trivially Send
+      }
+      return variant.fields.every((field) => typeImplementsSend(field.type));
+    });
+
+    if (allFieldsImplementSend) {
+      // Use a locally defined Send module that structurally matches the prelude one
+      env = addModuleFieldByCode({
+        label: "Send",
+        code: `{
+          Send :: module(id := "Send");
+          impl(Self, Send())
+        }`,
+        SelfType: enumType,
+        env,
+        context,
+      });
+    }
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Copy and Send marker modules for a union type.
+ *
+ * - Auto-derive Copy if all fields implement Copy
+ * - Auto-derive Send if all fields implement Send
+ */
+export function autoDeriveCopySendForUnionType({
+  unionType,
+  env,
+  context,
+}: {
+  unionType: import("../../types").UnionType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Skip auto-derive during prelude evaluation (Copy/Send not yet defined)
+  if (isEvaluatingPreludeModule()) {
+    return env;
+  }
+
+  const { typeImplementsCopy, typeImplementsSend } = require("../../types");
+
+  // Check if Copy/Send are already explicitly defined
+  const hasCopy = unionType.module.fields.some(
+    (field) => field.label === "Copy"
+  );
+  const hasSend = unionType.module.fields.some(
+    (field) => field.label === "Send"
+  );
+
+  // Check if all fields implement Copy
+  if (!hasCopy) {
+    const allFieldsImplementCopy = unionType.fields
+      .filter((field) => !field.isCompileTimeOnly)
+      .every((field) => typeImplementsCopy(field.type));
+
+    if (allFieldsImplementCopy) {
+      // Use a locally defined Copy module that structurally matches the prelude one
+      env = addModuleFieldByCode({
+        label: "Copy",
+        code: `{
+          Copy :: module(id := "Copy");
+          impl(Self, Copy())
+        }`,
+        SelfType: unionType,
+        env,
+        context,
+      });
+    }
+  }
+
+  // Check if all fields implement Send
+  if (!hasSend) {
+    const allFieldsImplementSend = unionType.fields
+      .filter((field) => !field.isCompileTimeOnly)
+      .every((field) => typeImplementsSend(field.type));
+
+    if (allFieldsImplementSend) {
+      // Use a locally defined Send module that structurally matches the prelude one
+      env = addModuleFieldByCode({
+        label: "Send",
+        code: `{
+          Send :: module(id := "Send");
+          impl(Self, Send())
+        }`,
+        SelfType: unionType,
+        env,
+        context,
+      });
+    }
+  }
+
+  return env;
+}
+
+/**
+ * Helper function to add a module field by evaluating code
+ */
+function addModuleFieldByCode({
+  label,
+  code,
+  SelfType,
+  env,
+  context,
+}: {
+  label: string;
+  code: string;
+  SelfType: StructType | EnumType | import("../../types").UnionType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  const { expr: fieldExpr, env: nextEnv } = parseAndEvaluateExprCode(
+    code,
+    SelfType as StructType | EnumType,
+    env,
+    context
+  );
+
+  if (fieldExpr.$ && fieldExpr.$.value) {
+    const moduleField: ModuleField = {
+      label,
+      type: fieldExpr.$.type,
+      assignedValue: fieldExpr.$.value,
+      isCompileTimeOnly: true,
+      exprs: {
+        expr: fieldExpr,
+        labelExpr: undefined,
+        typeExpr: undefined,
+        defaultValueExpr: undefined,
+        assignedValueExpr: fieldExpr,
+      },
+    };
+
+    // Add to module fields
+    SelfType.module.fields.push(moduleField);
+  }
+
+  return nextEnv;
 }

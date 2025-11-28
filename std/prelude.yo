@@ -2796,6 +2796,8 @@ export longdouble : _longdouble;
 
 /// compt_int
 __yo_type_set_module(compt_int,
+  Copy :: impl(Self, Copy()),
+
   Add :: impl(Self, ComptAdd(Self)(
     (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
       __yo_compt_int_add(lhs, rhs)
@@ -2869,6 +2871,8 @@ export compt_int : _compt_int;
 
 /// compt_float
 __yo_type_set_module(compt_float,
+  Copy :: impl(Self, Copy()),
+
   Add :: impl(Self, ComptAdd(Self)(
     (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
       __yo_compt_float_add(lhs, rhs)
@@ -2936,6 +2940,8 @@ export compt_float : _compt_float;
 
 /// compt_string
 __yo_type_set_module(compt_string,
+  Copy :: impl(Self, Copy()),
+
   Add :: impl(Self, ComptAdd(Self)(
     (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
       __yo_compt_string_concat(lhs, rhs)
@@ -2990,6 +2996,8 @@ ExprList :: ComptList(Expr);
 export ExprList;
 
 __yo_type_set_module(Expr,
+  Copy :: impl(Self, Copy()),
+
   Eq :: impl(Self, ComptEq(Self)(
     (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
       __yo_expr_eq(lhs, rhs)
@@ -3025,6 +3033,8 @@ export Expr : _Expr;
 
 // Type
 __yo_type_set_module(Type,
+  Copy :: impl(Self, Copy()),
+
   to_string :: ((fn(compt(self): Self) -> compt(compt_string)) {
      return __yo_type_to_string(self);
   }),
@@ -3033,6 +3043,9 @@ __yo_type_set_module(Type,
   }),
   contains_arc_type :: ((fn(compt(self): Self) -> compt(boolean)) {
     return __yo_type_contains_arc_type(self);
+  }),
+  impls :: ((fn(compt(self): Self, compt(marker): Module) -> compt(boolean)) {
+    return __yo_type_impls(self, marker);
   })
 );
 _Type :: Type;

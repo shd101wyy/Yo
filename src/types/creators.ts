@@ -34,8 +34,10 @@ import {
   UnionType,
   VoidType,
 } from "./definitions";
+import { isRcType } from "./guards";
 import { addModuleFieldsByCode } from "./module_field";
 import { TypeTag } from "./tags";
+import { typeImplementsSend } from "./utils";
 
 let cachedComptIntType: Type | null = null;
 export function createComptIntType(): Type {
@@ -137,6 +139,10 @@ export function createComptListType(childType: Type): ComptListType {
   cachedComptListTypeMap.set(childType, type);
 
   addModuleFieldsByCode(module, {
+    Copy: `{
+      Copy :: module(id := "Copy");
+      impl(Self, Copy())
+    }`,
     type_info: `impl(Self, {
       id :: "${typeId}";
       export id;
@@ -864,8 +870,11 @@ export function createPtrType(childType: Type): PtrType {
     // NOTE: This has to be set before adding module elements to avoid infinite recursion
     ptrCache.set(childType, ptrType);
 
-    // Add
     addModuleFieldsByCode(module, {
+      Copy: `{
+        Copy :: module(id := "Copy");
+        impl(Self, Copy())
+      }`,
       Add: `{
       extern "Yo", __yo_ptr_add : (fn(forall(T: Type), ptr : T, offset : usize) -> T);
       impl(Self, Add(usize, Self)(
@@ -927,6 +936,17 @@ export function createPtrType(childType: Type): PtrType {
         })
       }`,
     });
+
+    // Add Send trait conditionally:
+    // Pointer implements Send if the pointee is not Rc type and implements Send
+    if (!isRcType(childType) && typeImplementsSend(childType)) {
+      addModuleFieldsByCode(module, {
+        Send: `{
+          Send :: module(id := "Send");
+          impl(Self, Send())
+        }`,
+      });
+    }
   }
 
   return ptrType;

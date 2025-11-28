@@ -13,6 +13,7 @@
 ### Steps
 
 1. ✅ **Implement `Impl(module1, module2, ...)` syntax** in evaluator
+
    - ✅ Recognize `Impl` as special built-in that creates `SomeType`
    - ✅ `Impl(Copy, Send)` → `SomeType` with module containing `Copy` and `Send` constraints
    - ✅ Validate all arguments are `ModuleType`
@@ -20,36 +21,44 @@
    - ✅ Support labeled syntax: `Impl(Id)` uses `Id` as label, `Impl(MyId : Id)` uses custom label
 
 2. ✅ **Support `Impl(...)` in `forall` parameters**
+
    - ✅ Parse `forall(T := Impl(Copy, Send))` - T bound to `SomeType` constraint
    - ✅ Parse `forall((T : Type) = Impl(Copy, Send))` - same with explicit annotation
    - ✅ On instantiation: check concrete type satisfies all modules in `SomeType`
 
 3. ✅ **Support `Impl(...)` in `compt` parameters**
+
    - ✅ Parse `compt(T) := Impl(Copy, Send)` in regular function parameters
    - ✅ Parse `(compt(T) : Type) = Impl(Copy, Send)` with explicit annotation
    - ✅ Same constraint checking as `forall`
 
 4. ✅ **Add `Copy` and `Send` marker modules** in `std/prelude.yo`
-   - ✅ Define `Copy :: module` and `Send :: module` as empty marker modules
+   - ✅ Define `Copy :: module(id := "Copy")` and `Send :: module(id := "Send")` as marker modules
    - ✅ Primitives (`i32`, `boolean`, `char`, etc.) implement both `Copy` and `Send`
-   - Pointer types (`*T`):
-     - Always implement `Copy` (pointers are trivially copyable)
-     - Implement `Send` if `T` is a value type with no borrowed references
-     - **NOT `Send`** if `T` is an Rc type (borrowed reference) or contains borrowed references
+   - ✅ Pointer types (`*T`):
+     - ✅ Always implement `Copy` (pointers are trivially copyable)
+     - ✅ Implement `Send` if `T` is not Rc type (i.e., `object` or `Dyn`) and `T` implements `Send`
 
-5. **Add auto-derive logic for `Copy`/`Send`**
-   - `struct`: auto-derive `Copy` and `Send` if all fields implement respective trait
-   - `object`: never auto-derive `Copy` (Rc types are move-only); auto-derive `Send` if all fields are `Send` and type cannot form cycles
-   - Add helper `typeImplements(type, traitModule)` to check trait implementation
+5. ✅ **Add auto-derive logic for `Copy`/`Send`**
+
+   - ✅ `struct`: auto-derive `Copy` and `Send` if all fields implement respective trait
+   - ✅ `object`: never auto-derive `Copy` (Rc types are move-only); auto-derive `Send` if all fields are `Send`
+   - ✅ `enum`: auto-derive `Copy` and `Send` if all variants implement respective trait
+   - ✅ `union`: auto-derive `Copy` and `Send` if all variants implement respective trait
+   - ✅ Add helper `typeImplementsCopy(type)` and `typeImplementsSend(type)` to check trait implementation
+   - ✅ Add `Type.impls(type, marker)` builtin to check if a type implements a marker module
 
 6. **Implement move semantics for Rc types**
+
    - Add `isConsumed: boolean` and `consumedAt?: SourceLocation` to `Variable` interface
    - On assignment: if source type lacks `Copy`, mark source variable as consumed
+   - On function call: mark argument variables as consumed if parameter type lacks `Copy`
+   - on value construction: mark field variables as consumed if field type lacks `Copy`
    - On variable access: error "use of moved value" if variable is consumed
    - Rc types (`object`, `Dyn`) are move-only by default
-   - Value types containing Rc fields are also move-only unless they implement `Copy`
 
 7. **Update `&` operator for new RC semantics**
+
    - `&(x)` always consumes `x` (for non-`Copy` types)
    - `&(x)` does NOT increment RC - just creates a temporary pointer
    - RC increments only when assigning pointer to variable: `p := &(x)` increments RC
@@ -57,14 +66,16 @@
    - Result `*T` always implements `Copy`, never implements `Send`
 
 8. **Implement `^` (unborrow) operator**
+
    - Add `^` as unary prefix operator token in lexer
    - `^(ptr)` returns `Option(T)` - `.Some(val)` if RC == 1, `.None` otherwise
    - Consumes the pointer variable
 
 9. **Update `Fn`/`FnOnce` closure syntax** (after steps 1-8)
-    - Parse `Impl(Fn(i32) -> i32)` and `Impl(FnOnce(i32) -> i32)` as closure types
-    - `Fn` module implies `Copy`; `FnOnce` does not
-    - `FnOnce` consumed on call
+
+   - Parse `Impl(Fn(i32) -> i32)` and `Impl(FnOnce(i32) -> i32)` as closure types
+   - `Fn` module implies `Copy`; `FnOnce` does not
+   - `FnOnce` consumed on call
 
 10. **Update `Future` syntax** (after steps 1-8)
     - Parse `Impl(Future(T))` as future type

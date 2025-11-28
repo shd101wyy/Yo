@@ -75,6 +75,119 @@ import {
 import { TypeTag } from "./tags";
 
 /**
+ * Check if a module is a marker module with a specific id.
+ * Marker modules have exactly one field `id` with a compt_string value.
+ *
+ * For example, the Copy marker module is:
+ *   Copy :: module(id := "Copy")
+ *
+ * This is checked structurally, so any module with this structure is considered a marker.
+ */
+export function isMarkerModule(
+  moduleType: ModuleType,
+  markerId: string
+): boolean {
+  // A marker module has exactly one field named "id" with a compt_string value
+  if (moduleType.fields.length !== 1) {
+    return false;
+  }
+
+  const idField = moduleType.fields[0];
+  if (!idField || idField.label !== "id") {
+    return false;
+  }
+
+  // Check if the assigned value is a compt_string with the expected marker id
+  if (!idField.assignedValue) {
+    return false;
+  }
+
+  if (idField.assignedValue.tag !== ValueTag.ComptString) {
+    return false;
+  }
+
+  return (idField.assignedValue as { value: string }).value === markerId;
+}
+
+/**
+ * Check if a module is the Copy marker module.
+ */
+export function isCopyMarkerModule(moduleType: ModuleType): boolean {
+  return isMarkerModule(moduleType, "Copy");
+}
+
+/**
+ * Check if a module is the Send marker module.
+ */
+export function isSendMarkerModule(moduleType: ModuleType): boolean {
+  return isMarkerModule(moduleType, "Send");
+}
+
+/**
+ * Check if a type implements a specific marker module (Copy or Send).
+ *
+ * A type implements a marker module if:
+ * 1. It has a field in its module with a label matching the marker (e.g., "Copy")
+ * 2. That field's assignedValue is a ModuleValue
+ * 3. That ModuleValue's type is the marker module (has `id := "Copy"` or `id := "Send"`)
+ */
+export function typeImplementsMarker(
+  type: Type | undefined,
+  markerId: string
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  // Get the module from the type
+  const module = type.module;
+  if (!module) {
+    return false;
+  }
+
+  // Find a field with the marker label (e.g., "Copy" or "Send")
+  const markerField = module.fields.find((field) => field.label === markerId);
+  if (!markerField) {
+    return false;
+  }
+
+  // Check if the assigned value is a module value
+  if (!markerField.assignedValue) {
+    return false;
+  }
+
+  if (markerField.assignedValue.tag !== ValueTag.Module) {
+    return false;
+  }
+
+  // Check if the module value's type is the marker module
+  const moduleValue = markerField.assignedValue as { type: ModuleType };
+  return isMarkerModule(moduleValue.type, markerId);
+}
+
+/**
+ * Check if a type implements the Copy trait.
+ *
+ * Copy types can be implicitly duplicated without consuming the original.
+ * Primitives (i32, boolean, etc.), pointers (*T), and structs where all fields are Copy
+ * implement Copy.
+ */
+export function typeImplementsCopy(type: Type | undefined): boolean {
+  return typeImplementsMarker(type, "Copy");
+}
+
+/**
+ * Check if a type implements the Send trait.
+ *
+ * Send types can be safely transferred between threads.
+ * Primitives, Send pointers (where T is not Rc and T implements Send),
+ * and structs where all fields are Send implement Send.
+ */
+export function typeImplementsSend(type: Type | undefined): boolean {
+  return typeImplementsMarker(type, "Send");
+}
+
+/**
  * Check if the type of the value requires to use the compt modifier.
  * For example:
  *   compt(x): Type
