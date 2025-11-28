@@ -24,14 +24,14 @@
    - ✅ Parse `forall((T : Type) = Impl(Copy, Send))` - same with explicit annotation
    - ✅ On instantiation: check concrete type satisfies all modules in `SomeType`
 
-3. **Support `Impl(...)` in `compt` parameters**
-   - Parse `compt(T) := Impl(Copy, Send)` in regular function parameters
-   - Parse `(compt(T) : Type) = Impl(Copy, Send)` with explicit annotation
-   - Same constraint checking as `forall`
+3. ✅ **Support `Impl(...)` in `compt` parameters**
+   - ✅ Parse `compt(T) := Impl(Copy, Send)` in regular function parameters
+   - ✅ Parse `(compt(T) : Type) = Impl(Copy, Send)` with explicit annotation
+   - ✅ Same constraint checking as `forall`
 
-4. **Add `Copy` and `Send` marker modules** in `std/prelude.yo`
-   - Define `Copy :: module` and `Send :: module` as empty marker modules
-   - Primitives (`i32`, `boolean`, `char`, etc.) implement both `Copy` and `Send`
+4. ✅ **Add `Copy` and `Send` marker modules** in `std/prelude.yo`
+   - ✅ Define `Copy :: module` and `Send :: module` as empty marker modules
+   - ✅ Primitives (`i32`, `boolean`, `char`, etc.) implement both `Copy` and `Send`
    - Pointer types (`*T`):
      - Always implement `Copy` (pointers are trivially copyable)
      - Implement `Send` if `T` is a value type with no borrowed references
@@ -46,7 +46,8 @@
    - Add `isConsumed: boolean` and `consumedAt?: SourceLocation` to `Variable` interface
    - On assignment: if source type lacks `Copy`, mark source variable as consumed
    - On variable access: error "use of moved value" if variable is consumed
-   - Rc types (`object`, `Dyn`, current closures) are move-only by default
+   - Rc types (`object`, `Dyn`) are move-only by default
+   - Value types containing Rc fields are also move-only unless they implement `Copy`
 
 7. **Update `&` operator for new RC semantics**
    - `&(x)` always consumes `x` (for non-`Copy` types)
