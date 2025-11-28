@@ -9,7 +9,7 @@ import {
   isSomeType,
   ModuleType,
   Type,
-  typeContainsARCType,
+  typeContainsRcType,
   typeContainsSomeType,
   typeToString,
 } from "./types";
@@ -64,23 +64,23 @@ export interface Variable {
   isCompileTimeOnly: boolean;
 
   /**
-   * Whether the variable is owning the ARC value or borrowing the ARC value.
-   * This is only relevant for types that are managed by ARC.
+   * Whether the variable is owning the Rc value or borrowing the Rc value.
+   * This is only relevant for types that are managed by Rc.
    *
    * Under the new simplified ownership model:
-   * - Variables created by := or = always own (isOwningTheARCValue: true)
-   * - Function parameters borrow by default (isOwningTheARCValue: false)
-   * - Function parameters with own() explicitly own (isOwningTheARCValue: true)
-   * - For non-ARC types, this is always false (no ownership tracking needed)
+   * - Variables created by := or = always own (isHoldingTheRcValue: true)
+   * - Function parameters borrow by default (isHoldingTheRcValue: false)
+   * - Function parameters with own() explicitly own (isHoldingTheRcValue: true)
+   * - For non-Rc types, this is always false (no ownership tracking needed)
    */
-  isOwningTheARCValue?: boolean;
+  isHoldingTheRcValue?: boolean;
 
   /**
-   * Tracks when this variable owns a share of the same ARC object as another variable.
+   * Tracks when this variable owns a share of the same Rc object as another variable.
    * This is used for dup/drop optimization across variable reassignments.
    *
    * When a temp variable is created to hold the old value during reassignment:
-   * - The temp variable's `isOwningTheSameARCValueAs` points to the original variable
+   * - The temp variable's `isOwningTheSameRcValueAs` points to the original variable
    * - This allows us to optimize away `dup(original) + drop(temp)` pairs
    *
    * Example:
@@ -90,10 +90,10 @@ export interface Variable {
    * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
    * ```
    *
-   * Here, `temp` would have `isOwningTheSameARCValueAs = y` because both own
+   * Here, `temp` would have `isOwningTheSameRcValueAs = y` because both own
    * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
    */
-  isOwningTheSameARCValueAs?: Variable;
+  isOwningTheSameRcValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -466,8 +466,8 @@ export function printEnvVarNames(env: Environment) {
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isUndefined: !variable.initializedAtToken,
-        isOwningTheARCValue: !!variable.isOwningTheARCValue,
-        isOwningTheSameARCValueAs: variable.isOwningTheSameARCValueAs?.name,
+        isHoldingTheRcValue: !!variable.isHoldingTheRcValue,
+        isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
         isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
@@ -485,8 +485,8 @@ export function printEnvFrame(frame: Frame) {
       value: valueToString(variable.value),
       isCompileTimeOnly: variable.isCompileTimeOnly,
       isUndefined: !variable.initializedAtToken,
-      isOwningTheARCValue: !!variable.isOwningTheARCValue,
-      isOwningTheSameARCValueAs: variable.isOwningTheSameARCValueAs?.name,
+      isHoldingTheRcValue: !!variable.isHoldingTheRcValue,
+      isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
       isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))
@@ -805,7 +805,7 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
-    // First, check the dyn object's own module for its ARC methods (___drop, ___dup, ___dispose)
+    // First, check the dyn object's own module for its Rc methods (___drop, ___dup, ___dispose)
     const dynMethod = dereferencedReceiverType.module.fields.find(
       (field) =>
         field.label === methodName &&
@@ -960,8 +960,8 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     (variable) =>
       !variable.consumedAtToken &&
       // !variable.isCompileTimeOnly &&
-      variable.isOwningTheARCValue &&
-      typeContainsARCType(variable.type)
+      variable.isHoldingTheRcValue &&
+      typeContainsRcType(variable.type)
   );
 
   // Return in reverse order (end to start) for proper drop order

@@ -170,7 +170,7 @@ export interface FunctionCallResult {
   specializedFunctionValue?: FunctionValue;
   /**
    * Drop expressions that need to be executed to clean up temporary variables
-   * created during the function call (e.g., for function arguments that own ARC values).
+   * created during the function call (e.g., for function arguments that own Rc values).
    */
   deferredDropExpressions?: Expr[];
 }

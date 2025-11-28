@@ -280,7 +280,7 @@ export function checkIfFunctionParameterMatchesArgument({
       }
 
       // If parameter takes ownership, call ___dup on borrowed ARC values
-      if (parameter.isOwningTheARCValue && !parameter.isCompileTimeOnly) {
+      if (parameter.isHoldingTheRcValue && !parameter.isCompileTimeOnly) {
         setExprAsNeedsToCallDup(evaluatedArgExpr, context);
         if (evaluatedArgExpr.$?.env) {
           callerEnv = evaluatedArgExpr.$?.env;
@@ -349,7 +349,7 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
-      isOwningTheARCValue: parameter.isOwningTheARCValue,
+      isHoldingTheRcValue: parameter.isHoldingTheRcValue,
     },
   });
   calleeEnv = nextEnv;

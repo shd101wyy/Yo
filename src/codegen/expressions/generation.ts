@@ -34,7 +34,7 @@ import {
   SliceType,
   StructType,
   Type,
-  typeContainsARCType,
+  typeContainsRcType,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -189,7 +189,7 @@ function generateFuncCall(
       // Get captured variable values
       // Dup expressions are created at evaluation time and don't have correct context for code generation
       // When in a closure or state machine, always use generateAtom for proper context-aware access
-      // Otherwise, use dup expressions if available (they handle proper ARC semantics)
+      // Otherwise, use dup expressions if available (they handle proper Rc semantics)
       const functionContext = context as FunctionGenerationContext;
       const inSpecialContext =
         functionContext.currentClosureCaptures !== undefined ||
@@ -197,7 +197,7 @@ function generateFuncCall(
 
       const captureArgs = captureType.fields.map((field) => {
         // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for ARC types,
+        // deferredDupExpressions only contains dup expressions for Rc types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
         if (!inSpecialContext && expr.$?.deferredDupExpressions) {
@@ -821,8 +821,8 @@ function generateFuncCall(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isOwningTheSameARCValueAs
-            ? variable.isOwningTheSameARCValueAs.id
+          const idToCheck = variable.isOwningTheSameRcValueAs
+            ? variable.isOwningTheSameRcValueAs.id
             : variable.id;
 
           if (functionContext.stateMachineVariables.has(idToCheck)) {
@@ -857,7 +857,7 @@ function generateFuncCall(
           }
         } else {
           // Copying from another array - use direct struct assignment
-          // Handle temp variable assignment for ARC values
+          // Handle temp variable assignment for Rc values
           let rhsCode: string;
           if (rhs.$?.variableName) {
             const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
@@ -901,7 +901,7 @@ function generateFuncCall(
         // Non-array initialization - use existing logic
         let rhsCode: string;
 
-        // If RHS has a temp variable name (e.g., for ARC values), we need to:
+        // If RHS has a temp variable name (e.g., for Rc values), we need to:
         // 1. First generate the RHS expression and assign it to the temp variable
         // 2. Then use the temp variable for the assignment
         // BUT: don't create temp variables for captured variables
@@ -2795,7 +2795,7 @@ function generateAsyncBlock(
     // Build the capture struct literal
     // Dup expressions are created at evaluation time and don't have correct context for code generation
     // When in a closure or state machine, always use generateAtom for proper context-aware access
-    // Otherwise, use dup expressions if available (they handle proper ARC semantics)
+    // Otherwise, use dup expressions if available (they handle proper Rc semantics)
     const functionContext = context as FunctionGenerationContext;
     const inSpecialContext =
       functionContext.currentClosureCaptures !== undefined ||
@@ -2804,7 +2804,7 @@ function generateAsyncBlock(
     const captureFields = captureType.fields
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for ARC types,
+        // deferredDupExpressions only contains dup expressions for Rc types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
         if (!inSpecialContext && expr.$?.deferredDupExpressions) {
@@ -2907,7 +2907,7 @@ function generateAsyncBlockStateDisposeFunction(
   emitter.emitLine(``);
 
   // Drop capture struct (like closures do)
-  if (captureType && typeContainsARCType(captureType)) {
+  if (captureType && typeContainsRcType(captureType)) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
     );
@@ -3182,8 +3182,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       // e.g., _temp_123 owns the value, future1 borrows from _temp_123
       // In deferred drops, we drop _temp_123, but in state machine it's stored as sm->var_future1
       if (
-        capturedVar.isOwningTheSameARCValueAs &&
-        capturedVar.isOwningTheSameARCValueAs.name === varName
+        capturedVar.isOwningTheSameRcValueAs &&
+        capturedVar.isOwningTheSameRcValueAs.name === varName
       ) {
         const fieldName =
           capturedVar.kind === "outer"
@@ -3199,10 +3199,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheSameARCValueAs) {
+        if (variable.isOwningTheSameRcValueAs) {
           // This variable is borrowing - try to find the owner in state machine
-          const ownerName = variable.isOwningTheSameARCValueAs.name;
-          const ownerId = variable.isOwningTheSameARCValueAs.id;
+          const ownerName = variable.isOwningTheSameRcValueAs.name;
+          const ownerId = variable.isOwningTheSameRcValueAs.id;
 
           for (const [
             varId,
@@ -3227,7 +3227,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  // If this atom has a temp variable name (e.g., for ARC values), use that instead of regenerating code
+  // If this atom has a temp variable name (e.g., for Rc values), use that instead of regenerating code
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
   // ALSO: if this is a compile-time only variable with a value, inline it instead
@@ -3548,7 +3548,7 @@ function generateFieldAccess(
       return cFunctionName;
     }
 
-    // Fallback: Check if this is an ARC method call (___drop, ___dup, ___dispose)
+    // Fallback: Check if this is an Rc method call (___drop, ___dup, ___dispose)
     // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
     // So they are using the `undefined` function value, before we actually update its module fields.
     if (
@@ -3558,7 +3558,7 @@ function generateFieldAccess(
         BuiltinFunctions.___dup.includes(fieldName)) &&
       objectType
     ) {
-      // For ARC methods, we need to look up the function from the type's module
+      // For Rc methods, we need to look up the function from the type's module
       // and return the function name directly instead of treating it as field access
       let typeModule: ModuleType | null = null;
 
@@ -3584,10 +3584,10 @@ function generateFieldAccess(
             functionValue.funcId;
           return cFunctionName;
         } else {
-          return `/* ERROR: ARC method ${fieldName} not found in type module */`;
+          return `/* ERROR: Rc method ${fieldName} not found in type module */`;
         }
       } else {
-        return `/* ERROR: No module found for ARC method ${fieldName} */`;
+        return `/* ERROR: No module found for Rc method ${fieldName} */`;
       }
     }
 

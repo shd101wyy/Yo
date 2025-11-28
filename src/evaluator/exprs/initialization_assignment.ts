@@ -12,7 +12,7 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   prohibitVoidType,
-  typeContainsARCType,
+  typeContainsRcType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -284,8 +284,8 @@ ${exprToString(rhs)}`,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheARCValue: typeContainsARCType(lhs.$.type),
-        isOwningTheSameARCValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isHoldingTheRcValue: typeContainsRcType(lhs.$.type),
+        isOwningTheSameRcValueAs: rhsOwningVariable, // Track shared ownership for optimization
         isReassignable: true, // This is not a function parameter
       },
     });

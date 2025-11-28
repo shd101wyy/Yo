@@ -32,7 +32,6 @@ import {
   UnionType,
 } from "./definitions";
 import {
-  isARCType,
   isArrayType,
   isBooleanType,
   isCCompatibleType,
@@ -58,6 +57,7 @@ import {
   isModuleType,
   isObjectType,
   isPtrType,
+  isRcType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -97,10 +97,10 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
 }
 
 /**
- * Check if the type contains `object`
+ * Check if the type contains `object` or `Dyn`
  * @param type
  */
-export function typeContainsARCType(
+export function typeContainsRcType(
   type?: Type,
   checkedTypes: Type[] = []
 ): boolean {
@@ -114,35 +114,35 @@ export function typeContainsARCType(
     checkedTypes.push(type);
   }
 
-  if (isARCType(type)) {
+  if (isRcType(type)) {
     return true;
   }
 
   // Recursively check in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsARCType((type as ArrayType).childType, checkedTypes);
+      return typeContainsRcType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes)
       );
     case TypeTag.Union:
       return (type as UnionType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.fields?.some((param) =>
-          typeContainsARCType(param.type, checkedTypes)
+          typeContainsRcType(param.type, checkedTypes)
         )
       );
     case TypeTag.Module:
       return (type as ModuleType).fields.some((field) =>
-        typeContainsARCType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes)
       );
     case TypeTag.Function: {
       return !!(type as FunctionType).isClosure;
@@ -1446,10 +1446,13 @@ function typeCanReferenceCyclicRefStruct(
     return true;
   }
 
-  // Ptr and MutRef are raw pointers/references - they don't participate in ARC
-  // so they don't form reference counting cycles.
+  // Check through pointer types
   if (isPtrType(type)) {
-    return false;
+    return typeCanReferenceCyclicRefStruct(
+      type.childType,
+      originalRefStruct,
+      visitedTypes
+    );
   }
 
   // Other types (primitives, functions, etc.) cannot form cycles

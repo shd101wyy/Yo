@@ -247,12 +247,11 @@ export function isDynType(type?: Type): type is DynType {
  * @param type
  * @returns
  */
-export function isARCType(type?: Type): boolean {
+export function isRcType(type?: Type): boolean {
   return (
-    isObjectType(type) ||
-    isDynType(type) || // All Dyn types are reference semantics
-    isClosureType(type) || // All closures are reference semantics
-    isFutureType(type) // All futures are reference semantics
+    isObjectType(type) || isDynType(type) // All Dyn types are reference semantics
+    // isClosureType(type) || // All closures are reference semantics
+    // isFutureType(type) // All futures are reference semantics
   );
 }
 
