@@ -5,6 +5,8 @@ import {
   areTypesCompatible,
   isFunctionType,
   isModuleType,
+  ModuleField,
+  ModuleType,
   Type,
   typeToString,
 } from "../../types";
@@ -12,6 +14,7 @@ import {
   isFunctionValue,
   isModuleValue,
   isTypeValue,
+  ModuleValue,
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -23,6 +26,56 @@ export interface ImplicitResolutionResult {
   type: Type;
   calleeEnv: Environment;
   callerEnv: Environment;
+}
+
+/**
+ * Recursively search through module fields to find a module value that matches the expected type.
+ * This searches both direct fields and nested modules (e.g., Compt sub-modules).
+ */
+function findMatchingModuleFieldRecursively(
+  fields: ModuleField[],
+  expectedType: ModuleType,
+  callerEnv: Environment,
+  calleeEnv: Environment
+): ModuleValue | undefined {
+  // First, search direct fields (in reverse order to get most recent)
+  for (let i = fields.length - 1; i >= 0; i--) {
+    const field = fields[i]!;
+    if (!isModuleValue(field.assignedValue)) {
+      continue;
+    }
+    const moduleValue = field.assignedValue;
+    if (
+      areTypesCompatible(
+        { type: moduleValue.type, env: callerEnv },
+        { type: expectedType, env: calleeEnv }
+      )
+    ) {
+      return moduleValue;
+    }
+  }
+
+  // Then, recursively search inside nested modules
+  for (let i = fields.length - 1; i >= 0; i--) {
+    const field = fields[i]!;
+    if (!isModuleValue(field.assignedValue)) {
+      continue;
+    }
+    const nestedModuleValue = field.assignedValue;
+    // Search inside this nested module's type fields
+    const nestedFields = nestedModuleValue.type.fields;
+    const found = findMatchingModuleFieldRecursively(
+      nestedFields,
+      expectedType,
+      callerEnv,
+      calleeEnv
+    );
+    if (found) {
+      return found;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -64,22 +117,18 @@ export function resolveImplicitValue({
     const receiverType = expectedType.receiverType;
     if (receiverType.module) {
       const receiverModule = receiverType.module;
-      // Find a module field that matches the expected type
-      const matchingField = receiverModule.fields.findLast((field) => {
-        if (!isModuleValue(field.assignedValue)) {
-          return false;
-        }
-        const moduleValue = field.assignedValue;
-        return areTypesCompatible(
-          { type: moduleValue.type, env: callerEnv },
-          { type: expectedType, env: calleeEnv }
-        );
-      });
+      // Recursively find a module field that matches the expected type
+      const matchingModuleValue = findMatchingModuleFieldRecursively(
+        receiverModule.fields,
+        expectedType,
+        callerEnv,
+        calleeEnv
+      );
 
-      if (matchingField && isModuleValue(matchingField.assignedValue)) {
+      if (matchingModuleValue) {
         return {
-          value: matchingField.assignedValue,
-          type: matchingField.assignedValue.type,
+          value: matchingModuleValue,
+          type: matchingModuleValue.type,
           calleeEnv,
           callerEnv,
         };
@@ -92,22 +141,18 @@ export function resolveImplicitValue({
   if (context.SelfType && isModuleType(expectedType)) {
     const selfTypeModule = context.SelfType.module;
     if (selfTypeModule) {
-      // Use findLast to get the most recently added field (with assignedValue)
-      const matchingField = selfTypeModule.fields.findLast((field) => {
-        if (!isModuleValue(field.assignedValue)) {
-          return false;
-        }
-        const moduleValue = field.assignedValue;
-        return areTypesCompatible(
-          { type: moduleValue.type, env: callerEnv },
-          { type: expectedType, env: calleeEnv }
-        );
-      });
+      // Recursively find a module field that matches the expected type
+      const matchingModuleValue = findMatchingModuleFieldRecursively(
+        selfTypeModule.fields,
+        expectedType,
+        callerEnv,
+        calleeEnv
+      );
 
-      if (matchingField && isModuleValue(matchingField.assignedValue)) {
+      if (matchingModuleValue) {
         return {
-          value: matchingField.assignedValue,
-          type: matchingField.assignedValue.type,
+          value: matchingModuleValue,
+          type: matchingModuleValue.type,
           calleeEnv,
           callerEnv,
         };
@@ -220,27 +265,21 @@ export function resolveImplicitValue({
         if (isModuleType(expectedType) && isTypeValue(variable.value)) {
           const type = variable.value.value;
           if (type.module) {
-            const module = type.module;
-            for (let i = 0; i < module.fields.length; i++) {
-              const moduleField = module.fields[i]!;
-              if (isModuleValue(moduleField.assignedValue)) {
-                const moduleValue = moduleField.assignedValue;
-                if (
-                  areTypesCompatible(
-                    { type: moduleValue.type, env: callerEnv },
-                    { type: expectedType, env: calleeEnv }
-                  )
-                ) {
-                  implicitFunctionCalls.push({
-                    returnType: moduleValue.type,
-                    returnValue: moduleValue,
-                    calleeEnv,
-                    callerEnv,
-                    variable,
-                  });
-                  return true;
-                }
-              }
+            const matchingModuleValue = findMatchingModuleFieldRecursively(
+              type.module.fields,
+              expectedType,
+              callerEnv,
+              calleeEnv
+            );
+            if (matchingModuleValue) {
+              implicitFunctionCalls.push({
+                returnType: matchingModuleValue.type,
+                returnValue: matchingModuleValue,
+                calleeEnv,
+                callerEnv,
+                variable,
+              });
+              return true;
             }
           }
         }
