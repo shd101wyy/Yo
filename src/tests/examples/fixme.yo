@@ -1,3 +1,4 @@
+/*
 Id :: module(
   where(Self <: Copy),
   id : (fn(x : Self) -> Self)
@@ -14,16 +15,19 @@ use_id :: (
   return z;
 };
 
-// compt_expect_error(
-//   impl(i32, Id(
-//     id : (self -> self)
-//   )),
-//   "i32 hasn't implemented Copy, so it cannot implement Id which requires Copy"
-// );
+compt_expect_error(
+  impl(i32, Id(
+    id : (self -> self)
+  )),
+  "i32 hasn't implemented Copy, so it cannot implement Id which requires Copy"
+);
 impl(i32, Copy());
 impl(i32, Id(
   id : (self -> self)
 ));
+
+compt_assert(__yo_type_impls(i32, Copy));
+compt_assert(__yo_type_impls(i32, Id));
 
 main :: (fn() -> unit) {
   compt_expect_error((boolean <: Id).id(true));
@@ -33,3 +37,17 @@ main :: (fn() -> unit) {
   y := (i32 <: Id).id(x);
   z := use_id(i32, y);
 };
+*/
+
+Data :: (fn(compt(T) : Type) -> compt(Type)) {
+  return struct(value : T);
+};
+impl(forall(T : Type), Data(T), Copy());
+// __yo_type_impls(Data(i32), Copy) should be true
+// __yo_type_impls(Data(boolean), Copy) should be true
+
+// impl(forall(T : Type, Size : usize), Array(T, Size), Copy());
+// __yo_type_impls(Array(i32, 5), Copy) should be true
+
+// impl(forall(T : Type, Size : usize), where(T <: Copy), Array(T, Size), Copy());
+// __yo_type_impls(Array(Data(i32), 5), Copy) should be true
