@@ -323,7 +323,6 @@ export function checkIfFunctionParameterMatchesArgument({
       expectedType: parameterType,
       expr: evaluatedArgExpr,
       env: evaluatedArgExpr.$.env,
-      context: { ...context },
     });
 
     if (typeRequiresComptModifier(argType)) {

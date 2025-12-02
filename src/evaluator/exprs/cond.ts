@@ -329,7 +329,6 @@ export function evaluateCond({
                     expectedType: undefined,
                     expr: undefined,
                     env: valueType.env,
-                    context: { ...context },
                   }),
                   env: valueType.env,
                 },

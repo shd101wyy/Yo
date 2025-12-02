@@ -2,6 +2,10 @@ import { formatErrorMessages } from "./error";
 import { Token } from "./token";
 import {
   areTypesCompatible,
+  convertComptTypeToRuntimeType,
+  isComptFloatType,
+  isComptIntType,
+  isComptStringType,
   isDynType,
   isFunctionType,
   isModuleType,
@@ -16,6 +20,7 @@ import {
 import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,
+  isFunctionValue,
   isModuleValue,
   isTupleValue,
   isTypeValue,
@@ -683,6 +688,29 @@ export function getMethodsByNameFromEnv(
           return false;
         }
 
+        // Special case: compt types (compt_int, compt_float, compt_string) can call
+        // methods from their runtime type equivalents (i32, f64, [u8])
+        if (
+          isComptIntType(receiverType) ||
+          isComptFloatType(receiverType) ||
+          isComptStringType(receiverType)
+        ) {
+          const runtimeReceiverType = convertComptTypeToRuntimeType({
+            type: receiverType,
+            expectedType: undefined,
+            expr: undefined,
+            env,
+          });
+          const isRuntimeCompatible = areTypesCompatible(
+            { type: methodFirstParamType, env: method.type.env },
+            { type: runtimeReceiverType, env },
+            true // isMethodReceiver
+          );
+          if (isRuntimeCompatible) {
+            return true;
+          }
+        }
+
         // Check normal compatibility
         const isCompatible = areTypesCompatible(
           {
@@ -693,11 +721,7 @@ export function getMethodsByNameFromEnv(
           true // isMethodReceiver
         );
 
-        if (isCompatible) {
-          return true;
-        }
-
-        return false;
+        return isCompatible;
       }
       return true; // QUESTION: How to handle non-function types?
     });
@@ -776,6 +800,81 @@ export function getMethodsByNameFromEnv(
     } else {
       // If no direct method found, recursively check nested modules
       checkModuleForMethod(dereferencedReceiverType.module, methodName);
+    }
+
+    // If no methods found yet, check for impl'd modules (stored with empty label as ModuleValue)
+    // Type methods have higher priority than impl'd module methods
+    if (methods.length === 0) {
+      for (const field of dereferencedReceiverType.module.fields) {
+        if (
+          field.label === "" &&
+          field.assignedValue &&
+          isModuleValue(field.assignedValue)
+        ) {
+          const implModuleValue = field.assignedValue;
+          const implModuleType = implModuleValue.type;
+          // Search for the method in the impl'd module
+          const methodIndex = implModuleType.fields.findIndex(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (methodIndex >= 0) {
+            const method = implModuleType.fields[methodIndex]!;
+            if (isFunctionType(method.type)) {
+              // Get the actual function value from the module value
+              const value = implModuleValue.fields[methodIndex];
+              // Use the function value's specialized type if available,
+              // as it has Self replaced with the concrete receiver type
+              let methodType = method.type;
+              if (isFunctionValue(value) && value.specializedType) {
+                methodType = value.specializedType;
+              }
+              methods.push({ type: methodType, value });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // If no methods found and receiver is a compt type, also check the runtime type's module
+  // because compt literals should be able to call methods from their runtime equivalents
+  if (
+    methods.length === 0 &&
+    (isComptIntType(dereferencedReceiverType) ||
+      isComptFloatType(dereferencedReceiverType) ||
+      isComptStringType(dereferencedReceiverType))
+  ) {
+    const runtimeType = convertComptTypeToRuntimeType({
+      type: dereferencedReceiverType,
+      expectedType: undefined,
+      expr: undefined,
+      env,
+    });
+    if (runtimeType.module) {
+      for (const field of runtimeType.module.fields) {
+        if (
+          field.label === "" &&
+          field.assignedValue &&
+          isModuleValue(field.assignedValue)
+        ) {
+          const implModuleValue = field.assignedValue;
+          const implModuleType = implModuleValue.type;
+          const methodIndex = implModuleType.fields.findIndex(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (methodIndex >= 0) {
+            const method = implModuleType.fields[methodIndex]!;
+            if (isFunctionType(method.type)) {
+              const value = implModuleValue.fields[methodIndex];
+              let methodType = method.type;
+              if (isFunctionValue(value) && value.specializedType) {
+                methodType = value.specializedType;
+              }
+              methods.push({ type: methodType, value });
+            }
+          }
+        }
+      }
     }
   }
 

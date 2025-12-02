@@ -378,7 +378,6 @@ Given type: ${typeToString(defaultValueType)}`,
     //   expectedType: undefined,
     //   expr: undefined,
     //   env,
-    //   context: { ...context },
     // });
     // if (typeRequiresComptModifier(fieldType)) {
     throw formatErrorMessage({

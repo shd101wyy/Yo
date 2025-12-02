@@ -2,15 +2,46 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { isModuleValue, isTypeValue } from "../../value";
+import { createTypeHierarchy, ModuleField } from "../../types";
+import { isModuleValue, isTypeValue, ModuleValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
+
+/**
+ * Attach a module value to a receiver type's module with an empty label.
+ * This allows method calls on values of the receiver type to find methods
+ * from the implemented module, while preventing direct access by name.
+ */
+function attachModuleToReceiverType(
+  moduleValue: ModuleValue,
+  expr: Expr
+): void {
+  const receiverType = moduleValue.type.receiverType;
+  if (!receiverType || !receiverType.module) {
+    return;
+  }
+
+  // Create a field with empty label to attach the module
+  const field: ModuleField = {
+    label: "", // Empty label prevents direct access, only method calls work
+    type: createTypeHierarchy(1), // Module type
+    isCompileTimeOnly: true,
+    assignedValue: moduleValue,
+    exprs: {
+      expr,
+    },
+  };
+
+  // Add the field to the receiver type's module
+  receiverType.module.fields.push(field);
+}
 
 export function evaluateModuleValue({
   expr,
@@ -110,6 +141,9 @@ export function evaluateModuleValue({
       });
       env = nextEnv;
 
+      // Attach the module to the receiver type for method lookup
+      attachModuleToReceiverType(moduleValue, expr);
+
       // Set the module value to the expr
       expr.$ = {
         env,
@@ -142,6 +176,9 @@ export function evaluateModuleValue({
       }
       env = evaluatedModuleCallArg.$.env;
       const moduleValue = evaluatedModuleCallArg.$.value;
+
+      // Attach the module to the receiver type for method lookup
+      attachModuleToReceiverType(moduleValue, expr);
 
       // Set the module value to the expr
       expr.$ = {

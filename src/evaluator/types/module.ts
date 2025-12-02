@@ -674,7 +674,7 @@ export function evaluateModuleType({
             isInsideWhereClause: true,
           },
         });
-        if (evaluated.$.env) {
+        if (evaluated.$?.env) {
           env = evaluated.$.env;
         }
       }

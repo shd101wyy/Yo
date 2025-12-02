@@ -126,7 +126,6 @@ ${typeToString(expectedTupleType)}`,
     expectedType: undefined,
     expr: undefined,
     env,
-    context: { ...context },
   });
 
   // Add to runtimeArgExprsInOrder

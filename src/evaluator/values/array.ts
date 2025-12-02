@@ -101,7 +101,6 @@ export function evaluateArrayValue({
                 expectedType: undefined,
                 expr: undefined,
                 env,
-                context: { ...context },
               }),
               env,
             },

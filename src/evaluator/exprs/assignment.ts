@@ -268,7 +268,6 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         expectedType: variable.type,
         expr: rhs,
         env,
-        context: { ...context },
       });
     }
 

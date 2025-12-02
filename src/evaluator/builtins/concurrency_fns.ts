@@ -117,7 +117,6 @@ export function evaluateAsync({
     expectedType: undefined,
     expr: evaluatedBody,
     env,
-    context: { ...context },
   });
 
   // Create Future(returnType)

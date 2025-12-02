@@ -1,6 +1,5 @@
 import { Environment, getVariablesFromEnv } from "../env";
 import { formatErrorMessages } from "../error";
-import { EvaluatorContext } from "../evaluator/context";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
@@ -527,13 +526,11 @@ export function convertComptTypeToRuntimeType({
   expectedType,
   expr,
   env,
-  context,
 }: {
   type: Type;
   expectedType?: Type;
   expr?: Expr;
   env: Environment;
-  context: EvaluatorContext;
 }): Type {
   let convertedType: Type | undefined;
 
@@ -547,7 +544,6 @@ export function convertComptTypeToRuntimeType({
       expectedType: undefined,
       expr: undefined,
       env,
-      context,
     });
     return type;
   } else if (isTupleType(type)) {
@@ -559,7 +555,6 @@ export function convertComptTypeToRuntimeType({
           expectedType: undefined,
           expr: undefined,
           env,
-          context,
         }),
       };
     });
@@ -578,7 +573,6 @@ export function convertComptTypeToRuntimeType({
           expectedType: undefined,
           expr: undefined,
           env,
-          context,
         }),
       };
     });
@@ -594,7 +588,6 @@ export function convertComptTypeToRuntimeType({
               expectedType: undefined,
               expr: undefined,
               env,
-              context,
             }),
           };
         });

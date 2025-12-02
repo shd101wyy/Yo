@@ -143,7 +143,6 @@ export function evaluateInitializationAssignment({
           expectedType: undefined,
           expr: rhs,
           env,
-          context: { ...context },
         });
       }
 

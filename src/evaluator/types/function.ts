@@ -380,7 +380,6 @@ export function evaluateFunctionParameter({
         expectedType: undefined,
         expr: undefined,
         env,
-        context: { ...context },
       });
 
       // If it still requires compt modifier,
@@ -1161,7 +1160,6 @@ export function evaluateFunctionType({
       expectedType: undefined,
       expr: undefined,
       env,
-      context: { ...context },
     });
     // If it still requires compt modifier,
     // then throw an error
