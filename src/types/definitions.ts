@@ -396,6 +396,20 @@ export interface ModuleType extends Type {
    *
    */
   receiverType?: Type;
+
+  /**
+   * The constraints on Self from where clauses.
+   * These are ModuleTypes that Self must implement.
+   * eg:
+   *
+   *   Id :: module(
+   *     where(Self <: Copy),
+   *     id : (fn(x : Self) -> Self)
+   *   );
+   *
+   * selfConstraints would contain [CopyModuleType]
+   */
+  selfConstraints?: ModuleType[];
 }
 
 export interface EnumVariant {

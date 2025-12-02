@@ -12,6 +12,7 @@ import { createTypeHierarchy, ModuleField } from "../../types";
 import { isModuleValue, isTypeValue, ModuleValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { checkTypeImplementsSelfConstraints } from "../exprs/subtype_of";
 import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
 
 /**
@@ -141,6 +142,14 @@ export function evaluateModuleValue({
       });
       env = nextEnv;
 
+      // Check that the receiver type implements all selfConstraints from the module's where clause
+      checkTypeImplementsSelfConstraints({
+        targetType: receiverType,
+        moduleType: moduleValue.type,
+        env,
+        errorToken: expr.token,
+      });
+
       // Attach the module to the receiver type for method lookup
       attachModuleToReceiverType(moduleValue, expr);
 
@@ -176,6 +185,14 @@ export function evaluateModuleValue({
       }
       env = evaluatedModuleCallArg.$.env;
       const moduleValue = evaluatedModuleCallArg.$.value;
+
+      // Check that the receiver type implements all selfConstraints from the module's where clause
+      checkTypeImplementsSelfConstraints({
+        targetType: receiverType,
+        moduleType: moduleValue.type,
+        env,
+        errorToken: expr.token,
+      });
 
       // Attach the module to the receiver type for method lookup
       attachModuleToReceiverType(moduleValue, expr);

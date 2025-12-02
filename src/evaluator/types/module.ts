@@ -642,6 +642,11 @@ export function evaluateModuleType({
         });
       }
 
+      // Initialize selfConstraints array if not already
+      if (!moduleType.selfConstraints) {
+        moduleType.selfConstraints = [];
+      }
+
       for (const constraintExpr of constraintExprs) {
         // Each constraint must be of the form: Self <: Module or Self <: (Module1, Module2)
         if (
@@ -661,6 +666,38 @@ export function evaluateModuleType({
             token: lhsExpr.token,
             errorMessage: `In a module's where clause, the left-hand side of <: must be "Self", got: ${exprToString(lhsExpr)}`,
           });
+        }
+
+        // Extract module types from RHS before evaluating the constraint
+        // Support both single module and tuple of modules
+        const rhsExpr = constraintExpr.args[1]!;
+        const moduleExprs: Expr[] = [];
+        if (exprIsFunctionCall(rhsExpr) && exprIsFunctionCallOf(rhsExpr, ",")) {
+          moduleExprs.push(...rhsExpr.args);
+        } else {
+          moduleExprs.push(rhsExpr);
+        }
+
+        // Evaluate each module expression to get the ModuleType
+        for (const moduleExpr of moduleExprs) {
+          const evaluatedModule = evaluateExpression({
+            expr: moduleExpr,
+            env,
+            context: {
+              ...context,
+              SelfType: selfType,
+            },
+          });
+          if (evaluatedModule.$?.env) {
+            env = evaluatedModule.$.env;
+          }
+          if (
+            evaluatedModule.$?.value &&
+            isTypeValue(evaluatedModule.$.value) &&
+            isModuleType(evaluatedModule.$.value.value)
+          ) {
+            moduleType.selfConstraints.push(evaluatedModule.$.value.value);
+          }
         }
 
         // Evaluate with isInsideWhereClause context

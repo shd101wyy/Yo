@@ -14,6 +14,12 @@ use_id :: (
   return z;
 };
 
+// compt_expect_error(
+//   impl(i32, Id(
+//     id : (self -> self)
+//   )),
+//   "i32 hasn't implemented Copy, so it cannot implement Id which requires Copy"
+// );
 impl(i32, Copy());
 impl(i32, Id(
   id : (self -> self)
@@ -21,6 +27,9 @@ impl(i32, Id(
 
 main :: (fn() -> unit) {
   compt_expect_error((boolean <: Id).id(true));
+  compt_expect_error(a := use_id(boolean, true));
+  
   x := 12.id();
   y := (i32 <: Id).id(x);
+  z := use_id(i32, y);
 };

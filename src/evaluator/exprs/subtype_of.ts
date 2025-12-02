@@ -7,6 +7,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { Token } from "../../token";
 import {
   areTypesCompatible,
   createTypeHierarchy,
@@ -14,11 +15,87 @@ import {
   isSomeType,
   ModuleField,
   ModuleType,
+  Type,
   typeToString,
 } from "../../types";
 import { createTypeValue, isModuleValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+
+/**
+ * Check if a type implements a specific module.
+ * @returns true if the type implements the module, false otherwise
+ */
+export function typeImplementsModule({
+  targetType,
+  moduleType,
+  env,
+}: {
+  targetType: Type;
+  moduleType: ModuleType;
+  env: Environment;
+}): boolean {
+  const expectedModuleWithReceiver: ModuleType = {
+    ...moduleType,
+    receiverType: targetType,
+  };
+
+  const targetModule = targetType.module;
+  if (!targetModule) {
+    return false;
+  }
+
+  for (const field of targetModule.fields) {
+    if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
+      continue;
+    }
+
+    const fieldModuleValue = field.assignedValue;
+    const fieldModuleType = fieldModuleValue.type;
+
+    if (
+      areTypesCompatible(
+        { type: expectedModuleWithReceiver, env },
+        { type: fieldModuleType, env }
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if a type implements all the selfConstraints of a module type.
+ * Throws an error if any constraint is not satisfied.
+ */
+export function checkTypeImplementsSelfConstraints({
+  targetType,
+  moduleType,
+  env,
+  errorToken,
+}: {
+  targetType: Type;
+  moduleType: ModuleType;
+  env: Environment;
+  errorToken: Token;
+}): void {
+  if (!moduleType.selfConstraints || moduleType.selfConstraints.length === 0) {
+    return;
+  }
+
+  for (const constraintModule of moduleType.selfConstraints) {
+    if (
+      !typeImplementsModule({ targetType, moduleType: constraintModule, env })
+    ) {
+      throw formatErrorMessage({
+        token: errorToken,
+        errorMessage: `Type "${typeToString(targetType)}" does not implement required constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" from module "${moduleType.typeName ?? typeToString(moduleType)}"'s where clause.`,
+      });
+    }
+  }
+}
 
 /*
 
@@ -174,39 +251,7 @@ export function evaluateSubtypeOf({
   // Verify that the LHS type actually implements the RHS module
   // Skip this check for SomeType (type parameters) as they are checked at instantiation time
   if (!isSomeType(targetType)) {
-    // Create a version of the expected module with targetType as the receiver
-    const expectedModuleWithReceiver: ModuleType = {
-      ...moduleType,
-      receiverType: targetType,
-    };
-
-    // Check if the target type's module has a field that implements the expected module
-    let impls = false;
-    const targetModule = targetType.module;
-    if (targetModule) {
-      for (const field of targetModule.fields) {
-        if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
-          continue;
-        }
-
-        const fieldModuleValue = field.assignedValue;
-        const fieldModuleType = fieldModuleValue.type;
-
-        // Check if this field's module type is compatible with the expected module
-        // The field module should have the target type as its receiver
-        if (
-          areTypesCompatible(
-            { type: expectedModuleWithReceiver, env },
-            { type: fieldModuleType, env }
-          )
-        ) {
-          impls = true;
-          break;
-        }
-      }
-    }
-
-    if (!impls) {
+    if (!typeImplementsModule({ targetType, moduleType, env })) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Type "${typeToString(targetType)}" does not implement module "${moduleType.typeName ?? typeToString(moduleType)}".`,
