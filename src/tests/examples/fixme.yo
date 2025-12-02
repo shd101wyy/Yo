@@ -1,9 +1,19 @@
-main :: (fn() -> unit) {
-  x := true;
-  y := !(x);
+Id :: module(
+  where(Self <: Copy),
+  id : (fn(x : Self) -> Self)
+);
 
-  xc :: true;
-  yc :: !(xc);
+use_id :: (
+  fn(
+    compt(T) : Type, 
+    x : T, 
+    where(T <: Id)
+  ) -> T) {
+  y := x.id();
+  z := (T <: Id).id(x);
+  return z;
 };
 
-export main;
+main :: (fn() -> unit) {
+  compt_expect_error((i32 <: Id).id(5));
+};

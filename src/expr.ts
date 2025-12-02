@@ -459,8 +459,8 @@ export const BuiltinKeywords = {
   using: ["using"],
 
   forall: ["forall", "∀"],
+  where: ["where"],
   // Exists: ["exists", "∃"],
-  // Where: ["where", "∋"],
   // In: ["in", "∈"],
 
   quote: ["quote", ":"],

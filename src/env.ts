@@ -782,9 +782,12 @@ export function getMethodsByNameFromEnv(
   // Check if the dereferencedReceiverType is a SomeType with required modules
   if (isSomeType(dereferencedReceiverType)) {
     // Look for methods in the required modules stored in the SomeType's module
+    // Only consider modules with empty label "" (from where clauses)
     for (const field of dereferencedReceiverType.module.fields) {
       // Required modules are stored as TypeValue containing ModuleType
+      // Only allow modules with empty label (where clause constraints)
       if (
+        field.label === "" &&
         field.assignedValue &&
         isTypeValue(field.assignedValue) &&
         isModuleType(field.assignedValue.value)

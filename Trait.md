@@ -107,3 +107,20 @@ AdvancedDisplay :: (fn(compt(T) : Type,
 ```
 
 We can remove the use of `using` once we support `where` clauses.  
+
+---
+
+`undo_impl` to remove an implementation from a type:
+
+```rust
+I32Add :: impl(i32, Add(
+  add : (((self, other) -> {
+    return self + other;
+  })
+)))
+x := 12;
+12.add(3); // 15
+
+undo_impl(I32Add);
+12.add(3); // Compile error: no implementation for i32:Add
+```

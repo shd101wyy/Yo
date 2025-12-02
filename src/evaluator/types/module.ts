@@ -620,6 +620,65 @@ export function evaluateModuleType({
         });
       }
     }
+    // where clause for adding constraints to Self
+    else if (
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.where)
+    ) {
+      // where clause must be the first argument in a module
+      if (i !== 0) {
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `The where clause must be the first argument in a module definition.`,
+        });
+      }
+
+      // Process each constraint in the where clause
+      const constraintExprs = arg.args;
+      if (constraintExprs.length === 0) {
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `The where clause must have at least one constraint.`,
+        });
+      }
+
+      for (const constraintExpr of constraintExprs) {
+        // Each constraint must be of the form: Self <: Module or Self <: (Module1, Module2)
+        if (
+          !exprIsFunctionCall(constraintExpr) ||
+          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+        ) {
+          throw formatErrorMessage({
+            token: constraintExpr.token,
+            errorMessage: `Expected constraint in the form "Self <: Module" or "Self <: (Module1, Module2)", got: ${exprToString(constraintExpr)}`,
+          });
+        }
+
+        // Check that LHS is "Self"
+        const lhsExpr = constraintExpr.args[0]!;
+        if (!exprIsAtom(lhsExpr) || lhsExpr.token.value !== "Self") {
+          throw formatErrorMessage({
+            token: lhsExpr.token,
+            errorMessage: `In a module's where clause, the left-hand side of <: must be "Self", got: ${exprToString(lhsExpr)}`,
+          });
+        }
+
+        // Evaluate with isInsideWhereClause context
+        // The SelfType is already set to selfType which is a SomeType
+        const evaluated = evaluateExpression({
+          expr: constraintExpr,
+          env,
+          context: {
+            ...context,
+            SelfType: selfType,
+            isInsideWhereClause: true,
+          },
+        });
+        if (evaluated.$.env) {
+          env = evaluated.$.env;
+        }
+      }
+    }
     // module field
     else {
       const { field: field, env: nextEnv } = evaluateModuleField({

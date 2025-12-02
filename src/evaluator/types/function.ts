@@ -674,6 +674,55 @@ Expected order: forall(...), regular parameters, using(...)`,
       implicitParameters.push(parameter);
       env = nextEnv;
     }
+    // Check if it's a where clause: where(T <: Module1, U <: Module2, ...)
+    else if (
+      exprIsFunctionCall(parameterExpr) &&
+      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
+    ) {
+      // where clause must be the last parameter
+      if (i !== parameterExprs.length - 1) {
+        throw formatErrorMessage({
+          token: parameterExpr.token,
+          errorMessage: `The where clause must be the last parameter in the function signature.`,
+        });
+      }
+
+      // Process each constraint in the where clause
+      const constraintExprs = parameterExpr.args;
+      if (constraintExprs.length === 0) {
+        throw formatErrorMessage({
+          token: parameterExpr.token,
+          errorMessage: `The where clause must have at least one constraint.`,
+        });
+      }
+
+      for (const constraintExpr of constraintExprs) {
+        // Each constraint must be of the form: T <: Module or T <: (Module1, Module2)
+        if (
+          !exprIsFunctionCall(constraintExpr) ||
+          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+        ) {
+          throw formatErrorMessage({
+            token: constraintExpr.token,
+            errorMessage: `Expected constraint in the form "T <: Module" or "T <: (Module1, Module2)", got: ${exprToString(constraintExpr)}`,
+          });
+        }
+
+        // Evaluate with isInsideWhereClause context
+        // subtype_of.ts handles both single module and tuple of modules
+        const evaluated = evaluateExpression({
+          expr: constraintExpr,
+          env,
+          context: {
+            ...context,
+            isInsideWhereClause: true,
+          },
+        });
+        if (evaluated.$?.env) {
+          env = evaluated.$.env;
+        }
+      }
+    }
     // Check if it's the variadic parameter
     else if (
       (exprIsAtom(parameterExpr) && exprIsAtomOf(parameterExpr, "...")) ||

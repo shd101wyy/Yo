@@ -135,6 +135,13 @@ export interface EvaluatorContext {
    * Whether the function type being evaluated is marked as unsafe.
    */
   isUnsafeFunctionType?: boolean;
+
+  /**
+   * Whether we are currently evaluating a where clause constraint.
+   * When true, the LHS of `<:` must be a SomeType, and the constraint
+   * will be added to the SomeType's module rather than creating a new module type.
+   */
+  isInsideWhereClause?: boolean;
 }
 
 /**

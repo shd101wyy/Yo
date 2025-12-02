@@ -97,6 +97,7 @@ Send :: module(
 );
 export Send;
 
+/*
 /// === Arithmetic ===
 Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
   module
@@ -294,16 +295,16 @@ export ComptBitXor;
 (!) :: impl {
   (not) :: (fn(forall(_Self : Type),
             self : _Self,
-            using(LogicalNotMethod) : (_Self <: LogicalNot)
+            where(_Self <: LogicalNot)
           ) -> boolean)
-    LogicalNotMethod.(!)(self)
+    self.(!)()
   ;
 
   (compt_not) :: (fn(forall(_Self : Type), 
           compt(self) : _Self,
-          using(LogicalNotMethod) : (_Self <: ComptLogicalNot)
+          where(_Self <: ComptLogicalNot)
         ) -> compt(boolean))
-    LogicalNotMethod.(!)(self)
+    self.(!)()
   ;
 
   Call :: (not, compt_not);
@@ -372,7 +373,7 @@ Ord :: (
     compt(Rhs) : Type
   ) -> compt(Module))
   module
-    using(Eq) : (Self <: Eq(Rhs)),
+    where(Self <: Eq(Rhs)),
 
     (<) :
       fn(lhs: Self, rhs: Rhs) -> boolean,
@@ -390,7 +391,7 @@ ComptOrd :: (
     compt(Rhs) : Type
   ) -> compt(Module))
   module
-    using(ComptEq) : (Self <: ComptEq(Rhs)),
+    where(Self <: ComptEq(Rhs)),
 
     (<) :
       fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
@@ -3159,7 +3160,7 @@ export Iterator;
 IntoIterator :: (fn(
   compt(Item) : Type,
   compt(IntoIter) : Type,
-  using(IntoIterIter) : (IntoIter <: Iterator(Item))) -> compt(Module)) {
+  where(IntoIter <: Iterator(Item))) -> compt(Module)) {
   return module(
     Item := Item,
     IntoIter := IntoIter,
@@ -3279,3 +3280,4 @@ for :: (fn(
     });
 };
 export for;
+*/
