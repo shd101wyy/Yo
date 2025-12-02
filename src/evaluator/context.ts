@@ -132,6 +132,12 @@ export interface EvaluatorContext {
   stdPath: string;
 
   /**
+   * The path of the module currently being evaluated.
+   * Used to track which module added impl fields for cleanup on re-evaluation.
+   */
+  currentModulePath?: string;
+
+  /**
    * Whether the function type being evaluated is marked as unsafe.
    */
   isUnsafeFunctionType?: boolean;

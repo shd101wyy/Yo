@@ -8,7 +8,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createTypeHierarchy, ModuleField } from "../../types";
+import { createTypeHierarchy, ModuleField, ModuleType } from "../../types";
 import { isModuleValue, isTypeValue, ModuleValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -16,17 +16,63 @@ import { checkTypeImplementsSelfConstraints } from "../exprs/subtype_of";
 import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
 
 /**
+ * Registry of types that have impl fields from a specific module path.
+ * This allows cleanup when a module is re-evaluated or deleted.
+ */
+const implRegistry: Map<string, Set<ModuleType>> = new Map();
+
+/**
+ * Clear all impl fields from types that were added by the specified module.
+ * Call this before re-evaluating a module to prevent duplicate impls.
+ */
+export function clearImplsFromModule(modulePath: string): void {
+  const typesWithImpls = implRegistry.get(modulePath);
+  if (!typesWithImpls) {
+    return;
+  }
+
+  for (const moduleType of typesWithImpls) {
+    moduleType.fields = moduleType.fields.filter(
+      (field) => field.sourceModulePath !== modulePath
+    );
+  }
+
+  implRegistry.delete(modulePath);
+}
+
+/**
+ * Register that a type has an impl field from the specified module.
+ */
+function registerImpl(modulePath: string, moduleType: ModuleType): void {
+  let types = implRegistry.get(modulePath);
+  if (!types) {
+    types = new Set();
+    implRegistry.set(modulePath, types);
+  }
+  types.add(moduleType);
+}
+
+/**
  * Attach a module value to a receiver type's module with an empty label.
  * This allows method calls on values of the receiver type to find methods
  * from the implemented module, while preventing direct access by name.
+ *
+ * Note: clearImplsFromModule should be called before re-evaluating a module
+ * to remove old impls. This function just adds the new impl.
  */
 function attachModuleToReceiverType(
   moduleValue: ModuleValue,
-  expr: Expr
+  expr: Expr,
+  sourceModulePath?: string
 ): void {
   const receiverType = moduleValue.type.receiverType;
   if (!receiverType || !receiverType.module) {
     return;
+  }
+
+  // Register this impl for cleanup on re-evaluation
+  if (sourceModulePath) {
+    registerImpl(sourceModulePath, receiverType.module);
   }
 
   // Create a field with empty label to attach the module
@@ -35,6 +81,7 @@ function attachModuleToReceiverType(
     type: createTypeHierarchy(1), // Module type
     isCompileTimeOnly: true,
     assignedValue: moduleValue,
+    sourceModulePath,
     exprs: {
       expr,
     },
@@ -151,7 +198,7 @@ export function evaluateModuleValue({
       });
 
       // Attach the module to the receiver type for method lookup
-      attachModuleToReceiverType(moduleValue, expr);
+      attachModuleToReceiverType(moduleValue, expr, context.currentModulePath);
 
       // Set the module value to the expr
       expr.$ = {
@@ -195,7 +242,7 @@ export function evaluateModuleValue({
       });
 
       // Attach the module to the receiver type for method lookup
-      attachModuleToReceiverType(moduleValue, expr);
+      attachModuleToReceiverType(moduleValue, expr, context.currentModulePath);
 
       // Set the module value to the expr
       expr.$ = {

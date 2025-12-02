@@ -347,6 +347,13 @@ export interface ModuleField {
    */
   isImplicit?: boolean;
 
+  /**
+   * The module path that added this field via `impl`.
+   * Used to clean up impls when re-evaluating a module.
+   * Only set for fields with empty label (impl'd modules).
+   */
+  sourceModulePath?: string;
+
   // The default value and assigned value are compile-time known.
   defaultValue?: Value;
   assignedValue?: Value;

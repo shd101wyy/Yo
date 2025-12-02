@@ -16,6 +16,10 @@ import { ModuleValue } from "../value";
 import { YoError } from "../error";
 import { LoadModuleFn } from "./context";
 import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous_module";
+import { clearImplsFromModule } from "./values/module";
+
+// Re-export clearImplsFromModule for use by module manager
+export { clearImplsFromModule };
 
 /**
  * This class is responsible for:
@@ -139,6 +143,7 @@ export default class Evaluator {
         SelfType: undefined,
         loadModule: loadModule.bind(this),
         stdPath,
+        currentModulePath: this.modulePath,
       },
       allowPartialModule: true,
     });
