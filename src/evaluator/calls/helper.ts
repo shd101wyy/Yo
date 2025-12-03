@@ -453,7 +453,9 @@ export function tryToCallFunctionWithArguments({
   isMethodCall: boolean;
 }): FunctionCallResult {
   if (functionValue) {
-    functionType = functionValue.type; // Use the type from the function value
+    // Use the specializedType if available (e.g., from generic impls)
+    // Otherwise fall back to the function value's type
+    functionType = functionValue.specializedType ?? functionValue.type;
     // Because it might be an anonymous function
     // the parameter names are different from the function type that it's implementing
   }

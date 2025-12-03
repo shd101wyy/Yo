@@ -14,14 +14,26 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, Token } from "../../token";
 import { TypeValue } from "../../type-value";
 import {
   createType0,
   createTypeHierarchy,
+  FunctionParameter,
+  FunctionType,
+  isArrayType,
+  isEnumType,
+  isFunctionType,
+  isFutureType,
   isModuleType,
+  isPtrType,
+  isSliceType,
   isSomeType,
+  isStructType,
+  isTupleType,
   isType0,
+  isUnionType,
   ModuleField,
   ModuleType,
   SomeType,
@@ -31,10 +43,12 @@ import {
 import {
   createTypeValue,
   createUnknownValue,
+  isFunctionValue,
   isModuleValue,
   isTypeValue,
   ModuleValue,
   UnknownValue,
+  Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -144,7 +158,7 @@ export function findMatchingGenericImpl({
       impl,
       env,
     });
-    if (match) {
+    if (match.matched) {
       return impl;
     }
   }
@@ -153,8 +167,271 @@ export function findMatchingGenericImpl({
 }
 
 /**
+ * Find methods from generic impls for a concrete type.
+ * Searches all generic impls to find ones that match the type and have the method.
+ * Returns an array of matching methods' type and value.
+ */
+export function findMethodsFromGenericImpls({
+  concreteType,
+  methodName,
+  env,
+}: {
+  concreteType: Type;
+  methodName: string;
+  env: Environment;
+}): { type: FunctionType; value: Value | undefined }[] {
+  const methods: { type: FunctionType; value: Value | undefined }[] = [];
+
+  // Search through all module types in the registry
+  for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
+    for (const impl of impls) {
+      // Check if this impl matches the concrete type
+      const match = tryMatchGenericImpl({
+        concreteType,
+        impl,
+        env,
+      });
+      if (!match.matched) {
+        continue;
+      }
+
+      // Found a matching impl - look for the method
+      const moduleType = impl.moduleType;
+      const moduleValue = impl.moduleValue;
+
+      const methodIndex = moduleType.fields.findIndex(
+        (f) => f.label === methodName && isFunctionType(f.type)
+      );
+
+      if (methodIndex >= 0) {
+        const method = moduleType.fields[methodIndex]!;
+        if (isFunctionType(method.type)) {
+          // Get the actual function value from the module value
+          const originalValue = moduleValue.fields[methodIndex];
+          // Substitute Self and type parameters with concrete types
+          const specializedType = substituteInFunctionType(
+            method.type,
+            match.substitutions
+          );
+
+          // If it's a function value, create a copy with specializedType set
+          // This ensures tryToCallFunctionWithArguments uses the correct type
+          let value: Value | undefined = originalValue;
+          if (isFunctionValue(originalValue)) {
+            const specializedFunctionValue: FunctionValue = {
+              ...originalValue,
+              specializedType: specializedType,
+            };
+            value = specializedFunctionValue;
+          }
+
+          methods.push({ type: specializedType, value });
+        }
+      }
+    }
+  }
+
+  return methods;
+}
+
+/** Result from tryMatchGenericImpl */
+interface GenericImplMatchResult {
+  matched: boolean;
+  /** Map from SomeType name to the concrete type it was bound to */
+  substitutions: Map<string, Type>;
+}
+
+/**
+ * Apply type substitutions to a Type recursively.
+ * Substitutes SomeTypes whose name matches a key in the substitutions map.
+ */
+function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
+  if (isSomeType(type)) {
+    const substitute = substitutions.get(type.name);
+    if (substitute) {
+      return substitute;
+    }
+    return type;
+  }
+
+  if (isPtrType(type)) {
+    const newChildType = substituteInType(type.childType, substitutions);
+    if (newChildType === type.childType) {
+      return type;
+    }
+    return { ...type, childType: newChildType } as Type;
+  }
+
+  if (isArrayType(type)) {
+    const newChildType = substituteInType(type.childType, substitutions);
+    if (newChildType === type.childType) {
+      return type;
+    }
+    return { ...type, childType: newChildType } as Type;
+  }
+
+  if (isSliceType(type)) {
+    const newChildType = substituteInType(type.childType, substitutions);
+    if (newChildType === type.childType) {
+      return type;
+    }
+    return { ...type, childType: newChildType } as Type;
+  }
+
+  if (isTupleType(type)) {
+    let changed = false;
+    const newFields = type.fields.map((f) => {
+      const newType = substituteInType(f.type, substitutions);
+      if (newType !== f.type) {
+        changed = true;
+        return { ...f, type: newType };
+      }
+      return f;
+    });
+    if (!changed) {
+      return type;
+    }
+    return { ...type, fields: newFields } as Type;
+  }
+
+  if (isStructType(type)) {
+    let changed = false;
+    const newFields = type.fields.map((f) => {
+      const newType = substituteInType(f.type, substitutions);
+      if (newType !== f.type) {
+        changed = true;
+        return { ...f, type: newType };
+      }
+      return f;
+    });
+    if (!changed) {
+      return type;
+    }
+    return { ...type, fields: newFields } as Type;
+  }
+
+  if (isEnumType(type)) {
+    let changed = false;
+    const newVariants = type.variants.map((v) => {
+      if (!v.fields) {
+        return v;
+      }
+      const newFields = v.fields.map((f) => {
+        const newType = substituteInType(f.type, substitutions);
+        if (newType !== f.type) {
+          changed = true;
+          return { ...f, type: newType };
+        }
+        return f;
+      });
+      if (newFields !== v.fields) {
+        return { ...v, fields: newFields };
+      }
+      return v;
+    });
+    if (!changed) {
+      return type;
+    }
+    return { ...type, variants: newVariants } as Type;
+  }
+
+  if (isUnionType(type)) {
+    let changed = false;
+    const newFields = type.fields.map((f) => {
+      const newType = substituteInType(f.type, substitutions);
+      if (newType !== f.type) {
+        changed = true;
+        return { ...f, type: newType };
+      }
+      return f;
+    });
+    if (!changed) {
+      return type;
+    }
+    return { ...type, fields: newFields } as Type;
+  }
+
+  if (isFutureType(type)) {
+    const newChildType = substituteInType(type.childType, substitutions);
+    if (newChildType === type.childType) {
+      return type;
+    }
+    return { ...type, childType: newChildType } as Type;
+  }
+
+  if (isFunctionType(type)) {
+    return substituteInFunctionType(type, substitutions);
+  }
+
+  return type;
+}
+
+/**
+ * Apply type substitutions to a FunctionType.
+ * This substitutes SomeTypes in parameters and return type.
+ */
+function substituteInFunctionType(
+  functionType: FunctionType,
+  substitutions: Map<string, Type>
+): FunctionType {
+  let changed = false;
+
+  // Substitute in parameters
+  const newParameters: FunctionParameter[] = functionType.parameters.map(
+    (p) => {
+      const newType = substituteInType(p.type, substitutions);
+      if (newType !== p.type) {
+        changed = true;
+        return { ...p, type: newType };
+      }
+      return p;
+    }
+  );
+
+  // Substitute in implicit parameters
+  const newImplicitParameters = functionType.implicitParameters.map((p) => {
+    const newType = substituteInType(p.type, substitutions);
+    if (newType !== p.type) {
+      changed = true;
+      return { ...p, type: newType };
+    }
+    return p;
+  });
+
+  // Substitute in return type
+  const newReturnType = substituteInType(
+    functionType.return.type,
+    substitutions
+  );
+  const returnChanged = newReturnType !== functionType.return.type;
+
+  // Substitute in SelfType if present
+  let newSelfType = functionType.SelfType;
+  if (functionType.SelfType) {
+    newSelfType = substituteInType(functionType.SelfType, substitutions);
+    if (newSelfType !== functionType.SelfType) {
+      changed = true;
+    }
+  }
+
+  if (!changed && !returnChanged) {
+    return functionType;
+  }
+
+  return {
+    ...functionType,
+    parameters: newParameters,
+    implicitParameters: newImplicitParameters,
+    return: returnChanged
+      ? { ...functionType.return, type: newReturnType }
+      : functionType.return,
+    SelfType: newSelfType,
+  };
+}
+
+/**
  * Try to match a concrete type against a generic impl's receiver type pattern.
- * Returns true if the concrete type matches the pattern and satisfies all where constraints.
+ * Returns match result with substitutions if matched, or matched=false otherwise.
  */
 function tryMatchGenericImpl({
   concreteType,
@@ -164,7 +441,12 @@ function tryMatchGenericImpl({
   concreteType: Type;
   impl: GenericImpl;
   env: Environment;
-}): boolean {
+}): GenericImplMatchResult {
+  const noMatch: GenericImplMatchResult = {
+    matched: false,
+    substitutions: new Map(),
+  };
+
   // Create a fresh env with the forall parameters in scope for unification
   let unifyEnv = pushEnvFrame(env);
 
@@ -220,13 +502,13 @@ function tryMatchGenericImpl({
         someType
       );
       if (!boundType) {
-        return false;
+        return noMatch;
       }
 
       // If bound to a SomeType, check if it has the required constraint attached
       if (isSomeType(boundType)) {
         if (!someTypeHasModuleConstraint(boundType, constraintModule)) {
-          return false;
+          return noMatch;
         }
         continue;
       }
@@ -239,14 +521,31 @@ function tryMatchGenericImpl({
           env,
         })
       ) {
-        return false;
+        return noMatch;
       }
     }
 
-    return true;
+    // Extract substitutions from the unified environment
+    const substitutions = new Map<string, Type>();
+    for (const param of impl.forallParameters) {
+      if (param.kind === "type") {
+        const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
+          expectedEnv,
+          param.someType
+        );
+        if (boundType && !isSomeType(boundType)) {
+          substitutions.set(param.name, boundType);
+        }
+      }
+    }
+
+    // Also add Self -> concreteType substitution
+    substitutions.set("Self", concreteType);
+
+    return { matched: true, substitutions };
   } catch {
     // Unification failed
-    return false;
+    return noMatch;
   }
 }
 

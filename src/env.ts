@@ -1,4 +1,5 @@
 import { formatErrorMessages } from "./error";
+import { findMethodsFromGenericImpls } from "./evaluator/values/module";
 import { Token } from "./token";
 import {
   areTypesCompatible,
@@ -833,6 +834,16 @@ export function getMethodsByNameFromEnv(
           }
         }
       }
+    }
+
+    // If still no methods found, check generic impl registry
+    if (methods.length === 0) {
+      const genericMethods = findMethodsFromGenericImpls({
+        concreteType: dereferencedReceiverType,
+        methodName,
+        env,
+      });
+      methods.push(...genericMethods);
     }
   }
 

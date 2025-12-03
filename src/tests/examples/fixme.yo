@@ -58,16 +58,40 @@ Id :: module(
   where(Self <: Copy),
   id : (fn(x : Self) -> Self)
 );
-// compt_expect_error(
-//   impl(forall(X : Type), Data(X), Id(
-//     id : ((x) -> x)
-//   )),
-//   "X is missing the Copy constraint required by Id"
-// );
+impl(i32, Id(
+  id : ((x) -> x)
+));
+impl(boolean, Id(
+  id : ((x) -> x)
+));
+compt_expect_error(
+  impl(i64, Id(
+    id : ((x) -> x)
+  )),
+  "i64 hasn't implemented Copy, so it cannot implement Id which requires Copy"
+);
+compt_expect_error(
+  impl(forall(X : Type), Data(X), Id(
+    id : ((x) -> x)
+  )),
+  "X is missing the Copy constraint required by Id"
+);
 impl(forall(X : Type), where(X <: Copy), Data(X), Id(
   id : ((x) -> x)
 ));
 
 test :: (fn() -> unit) {
+  {
+    x := 12;
+    y := x.id();
+    z := (i32 <: Id).id(y);
+  };
+
+  {
+    x := Data(i32)(0);
+    y := x.id();
+    z := (Data(i32) <: Id).id(y);
+  };
+
   return ();
 };
