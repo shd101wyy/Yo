@@ -14,7 +14,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { PlaceholderToken } from "../../token";
+import { PlaceholderToken, Token } from "../../token";
 import { TypeValue } from "../../type-value";
 import {
   createType0,
@@ -26,6 +26,7 @@ import {
   ModuleType,
   SomeType,
   Type,
+  typeToString,
 } from "../../types";
 import {
   createTypeValue,
@@ -218,9 +219,16 @@ function tryMatchGenericImpl({
         expectedEnv,
         someType
       );
-      if (!boundType || isSomeType(boundType)) {
-        // SomeType is not bound to a concrete type
+      if (!boundType) {
         return false;
+      }
+
+      // If bound to a SomeType, check if it has the required constraint attached
+      if (isSomeType(boundType)) {
+        if (!someTypeHasModuleConstraint(boundType, constraintModule)) {
+          return false;
+        }
+        continue;
       }
 
       // Check if the bound type implements the required module
@@ -239,6 +247,98 @@ function tryMatchGenericImpl({
   } catch {
     // Unification failed
     return false;
+  }
+}
+
+/**
+ * Check if a SomeType has a specific module constraint attached.
+ * Used when checking where constraints during generic impl matching.
+ */
+function someTypeHasModuleConstraint(
+  someType: SomeType,
+  requiredModule: ModuleType
+): boolean {
+  const moduleName = requiredModule.typeName;
+  if (!moduleName) {
+    return false;
+  }
+
+  for (const field of someType.module.fields) {
+    if (
+      field.assignedValue &&
+      isTypeValue(field.assignedValue) &&
+      isModuleType(field.assignedValue.value)
+    ) {
+      const constraintModule = field.assignedValue.value;
+      if (constraintModule.typeName === moduleName) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check that a generic impl's receiver type pattern satisfies the module's self-constraints.
+ * For example, if module Id has `where(Self <: Copy)`, then any impl of Id must ensure
+ * the receiver type implements Copy.
+ *
+ * For `impl(forall(T : Type), Data(T), Id(...))`, this would fail because Data(T) doesn't
+ * necessarily implement Copy (T is unconstrained).
+ *
+ * For `impl(forall(T : Type), where(T <: Copy), Data(T), Id(...))`, this would succeed
+ * because the where clause provides the necessary constraint.
+ */
+function checkGenericImplSelfConstraints({
+  receiverTypePattern,
+  moduleType,
+  whereConstraints,
+  env,
+  errorToken,
+}: {
+  receiverTypePattern: Type;
+  moduleType: ModuleType;
+  whereConstraints: { someType: SomeType; moduleType: ModuleType }[];
+  env: Environment;
+  errorToken: Token;
+}): void {
+  if (!moduleType.selfConstraints || moduleType.selfConstraints.length === 0) {
+    return;
+  }
+
+  for (const constraintModule of moduleType.selfConstraints) {
+    // Check if the receiver type pattern implements the constraint
+    // This uses typeImplementsModule which will check generic impls
+    if (
+      typeImplementsModule({
+        targetType: receiverTypePattern,
+        moduleType: constraintModule,
+        env,
+      })
+    ) {
+      continue;
+    }
+
+    // If direct check failed, collect all SomeTypes from the forall that have
+    // the required constraint in whereConstraints and check if the receiver
+    // pattern contains those SomeTypes with proper constraints
+    const someTypesWithConstraint = new Set<string>();
+    for (const wc of whereConstraints) {
+      if (wc.moduleType.typeName === constraintModule.typeName) {
+        someTypesWithConstraint.add(wc.someType.name);
+      }
+    }
+
+    // Check if receiver type pattern relies on SomeTypes that have the required constraint
+    // For now, we just fail - the typeImplementsModule check should handle this
+    // via findMatchingGenericImpl which checks someTypeHasModuleConstraint
+
+    throw formatErrorMessage({
+      token: errorToken,
+      errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" does not satisfy constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" required by module "${moduleType.typeName ?? typeToString(moduleType)}".
+Consider adding "where(T <: ${constraintModule.typeName ?? typeToString(constraintModule)})" to the impl.`,
+    });
   }
 }
 
@@ -747,6 +847,17 @@ export function evaluateModuleValue({
     env = evaluatedModuleCallArg.$.env;
     const moduleValue = evaluatedModuleCallArg.$.value;
     const moduleType = moduleValue.type;
+
+    // Check that the receiver type pattern satisfies the module's self-constraints
+    // For generic impls, we need to verify that the where constraints are sufficient
+    // to satisfy the module's requirements
+    checkGenericImplSelfConstraints({
+      receiverTypePattern,
+      moduleType,
+      whereConstraints,
+      env,
+      errorToken: expr.token,
+    });
 
     // Pop the forall env frame
     env = popEnvFrame(env);

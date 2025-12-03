@@ -679,6 +679,15 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
+  } else {
+    // If we reach here, the types are fundamentally incompatible
+    // (different type constructors with no SomeType to unify)
+    // Check if they have the same tag as a basic compatibility check
+    if (expected.type.tag !== given.type.tag) {
+      throw new Error(
+        `Cannot unify incompatible types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`
+      );
+    }
   }
   return { expectedEnv: expected.env, givenEnv: given.env };
 }

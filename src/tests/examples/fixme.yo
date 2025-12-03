@@ -34,31 +34,39 @@ main :: (fn() -> unit) {
 };
 */
 
-Id :: module(
-  where(Self <: Copy),
-  id : (fn(x : Self) -> Self)
-);
-
-Data :: (fn(compt(T) : Type) -> compt(Type)) {
-  return struct(value : T);
+Data :: (fn(compt(D) : Type) -> compt(Type)) {
+  return struct(value : D);
 };
 impl(i32, Copy());
 impl(boolean, Copy());
 
-
-impl(forall(T : Type), where(T <: Copy), Data(T), Copy());
+impl(forall(A : Type), where(A <: Copy), Data(A), Copy());
 compt_assert(__yo_type_impls(Data(i32), Copy));
 compt_assert(__yo_type_impls(Data(boolean), Copy));
 
-impl(forall(T : Type), where(T <: Copy), *(T), Copy());
+impl(forall(B : Type), where(B <: Copy), *(B), Copy());
 compt_assert(__yo_type_impls(*(i32), Copy));
 compt_assert(__yo_type_impls(*(boolean), Copy));
 
-impl(forall(T : Type, Size : usize), where(T <: Copy), Array(T, Size), Copy());
+impl(forall(C : Type, Size : usize), where(C <: Copy), Array(C, Size), Copy());
 compt_assert(__yo_type_impls(Array(i32, 1), Copy));
 compt_assert(__yo_type_impls(Array(boolean, 2), Copy));
 compt_assert(__yo_type_impls(Array(Data(i32), 5), Copy));
 compt_assert(__yo_type_impls(Array(*(boolean), 10), Copy));
+
+Id :: module(
+  where(Self <: Copy),
+  id : (fn(x : Self) -> Self)
+);
+// compt_expect_error(
+//   impl(forall(X : Type), Data(X), Id(
+//     id : ((x) -> x)
+//   )),
+//   "X is missing the Copy constraint required by Id"
+// );
+impl(forall(X : Type), where(X <: Copy), Data(X), Id(
+  id : ((x) -> x)
+));
 
 test :: (fn() -> unit) {
   return ();
