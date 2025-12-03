@@ -42,7 +42,7 @@ test1 :: (fn( resume : K(i32)) -> unit) {
 test2 :: (fn(resume: K(i32)) -> unit) {
   arr := [(do yield(1)), (do yield(2)), (do yield(3))];
   result := 0;
-  i := 0.as(usize);
+  i := usize(0);
   while (i < arr.length), {
     result = (result + arr(i));
     // result = (result + (do yield(i)));
@@ -168,10 +168,10 @@ test9 :: (fn(resume : K(i32)) -> unit) {
 test10 :: (fn(resume : K(i32)) -> unit) {
   arr := [10, 20, 30, 40, 50];
   index := do(yield(2));
-  value := arr(index.as(usize));
+  value := arr(usize(index));
   second_index := do(yield(1));
   result := 
-    value + arr(second_index.as(usize));
+    value + arr(usize(second_index));
   printf("Array access result: %d\n", result);
   resume(result);
 };

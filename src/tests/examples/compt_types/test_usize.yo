@@ -6,10 +6,10 @@ open import "std";
  */
 main :: (fn() -> unit) {
   // Basic usize values
-  a :: 100000.as(usize);
-  b :: 25000.as(usize);
-  c :: 100000.as(usize);
-  zero :: 0.as(usize);
+  a :: usize(100000);
+  b :: usize(25000);
+  c :: usize(100000);
+  zero :: usize(0);
   
   // Arithmetic operations
   sum :: (a + b);        // 125000usize
@@ -33,19 +33,19 @@ main :: (fn() -> unit) {
   gte_equal :: (a >= c); // true (100000usize >= 100000usize)
   
   // Type conversion operations
-  usize_to_u64 :: a.as(u64);      // 100000u64
-  usize_to_i64 :: a.as(i64);      // 100000i64
-  usize_to_f32 :: a.as(f32);      // 100000.0f32
-  usize_to_f64 :: a.as(f64);      // 100000.0f64
+  usize_to_u64 :: u64(a);      // 100000u64
+  usize_to_i64 :: i64(a);      // 100000i64
+  usize_to_f32 :: f32(a);      // 100000.0f32
+  usize_to_f64 :: f64(a);      // 100000.0f64
   usize_to_string :: a.to_string(); // "100000"
   
   // Test with compile-time assertions
   // Arithmetic
-  compt_assert(sum == (125000.as(usize)));
-  compt_assert(diff == (75000.as(usize)));
-  compt_assert(prod == (2500000000.as(usize)));
-  compt_assert(quot == (4.as(usize)));
-  compt_assert(remainder == (0.as(usize)));
+  compt_assert(sum == usize(125000));
+  compt_assert(diff == usize(75000));
+  compt_assert(prod == usize(2500000000));
+  compt_assert(quot == (usize(4)));
+  compt_assert(remainder == (usize(0)));
   
   // Comparisons
   compt_assert(eq_test == true);
@@ -62,10 +62,10 @@ main :: (fn() -> unit) {
   compt_assert(gte_equal == true);
   
   // Type conversions
-  compt_assert(usize_to_u64 == (100000.as(u64)));
-  compt_assert(usize_to_i64 == (100000.as(i64)));
-  compt_assert(usize_to_f32 == (100000.0.as(f32)));
-  compt_assert(usize_to_f64 == (100000.0.as(f64)));
+  compt_assert(usize_to_u64 == u64(100000));
+  compt_assert(usize_to_i64 == i64(100000));
+  compt_assert(usize_to_f32 == f32(100000.0));
+  compt_assert(usize_to_f64 == f64(100000.0));
   compt_assert(usize_to_string == "100000");
   
   // Test zero operations
@@ -75,109 +75,109 @@ main :: (fn() -> unit) {
     zero_diff2 :: (zero - a);    // underflow behavior (wraps around)
     zero_prod :: (zero * a);     // 0usize
     
-    compt_assert(zero_sum == (100000.as(usize)));
-    compt_assert(zero_diff1 == (100000.as(usize)));
-    compt_assert(zero_prod == (0.as(usize)));
+    compt_assert(zero_sum == usize(100000));
+    compt_assert(zero_diff1 == usize(100000));
+    compt_assert(zero_prod == usize(0));
     
     // Identity operations
     identity_sum :: (a + zero);  // 100000usize
-    identity_prod :: (a * 1.as(usize));  // 100000usize
+    identity_prod :: (a * usize(1));  // 100000usize
     
-    compt_assert(identity_sum == (100000.as(usize)));
-    compt_assert(identity_prod == (100000.as(usize)));
+    compt_assert(identity_sum == usize(100000));
+    compt_assert(identity_prod == usize(100000));
     
     // Self operations
     self_sub :: (a - a);         // 0usize
     self_div :: (a / a);         // 1usize
     self_mod :: (a % a);         // 0usize
     
-    compt_assert(self_sub == (0.as(usize)));
-    compt_assert(self_div == (1.as(usize)));
-    compt_assert(self_mod == (0.as(usize)));
+    compt_assert(self_sub == (usize(0)));
+    compt_assert(self_div == (usize(1)));
+    compt_assert(self_mod == (usize(0)));
   };
   
   // Test larger values (safe on all platforms)
   {
-    large1 :: 1000000.as(usize);
-    large2 :: 500000.as(usize);
+    large1 :: usize(1000000);
+    large2 :: usize(500000);
     
     large_sum :: (large1 + large2);     // 1500000usize
     large_diff :: (large1 - large2);    // 500000usize
-    large_div :: (large1 / 1000.as(usize)); // 1000usize
-    large_mod :: (large1 % 7.as(usize));  // 6usize (1000000 % 7 = 1)
+    large_div :: (large1 / usize(1000)); // 1000usize
+    large_mod :: (large1 % usize(7));  // 6usize (1000000 % 7 = 1)
     
-    compt_assert(large_sum == (1500000.as(usize)));
-    compt_assert(large_diff == (500000.as(usize)));
-    compt_assert(large_div == (1000.as(usize)));
-    compt_assert(large_mod == (1.as(usize)));
+    compt_assert(large_sum == usize(1500000));
+    compt_assert(large_diff == usize(500000));
+    compt_assert(large_div == usize(1000));
+    compt_assert(large_mod == (usize(1)));
   };
   
   // Test various divisions
   {
-    div1 :: (200000.as(usize) / 8.as(usize));       // 25000usize
-    div2 :: (200001.as(usize) / 8.as(usize));       // 25000usize (integer division)
-    div3 :: (7.as(usize) / 1000.as(usize));         // 0usize
+    div1 :: (usize(200000) / usize(8));       // 25000usize
+    div2 :: (usize(200001) / usize(8));       // 25000usize (integer division)
+    div3 :: (usize(7) / usize(1000));         // 0usize
     
-    compt_assert(div1 == (25000.as(usize)));
-    compt_assert(div2 == (25000.as(usize)));
-    compt_assert(div3 == (0.as(usize)));
+    compt_assert(div1 == usize(25000));
+    compt_assert(div2 == usize(25000));
+    compt_assert(div3 == (usize(0)));
   };
   
   // Test modulo operations
   {
-    mod1 :: (17.as(usize) % 5.as(usize));        // 2usize
-    mod2 :: (20.as(usize) % 4.as(usize));        // 0usize
-    mod3 :: (7.as(usize) % 10.as(usize));        // 7usize
-    mod4 :: (1000000.as(usize) % 997.as(usize)); // 9usize (1000000 % 997 = 9)
+    mod1 :: (usize(17) % usize(5));        // 2usize
+    mod2 :: (usize(20) % usize(4));        // 0usize
+    mod3 :: (usize(7) % usize(10));        // 7usize
+    mod4 :: (usize(1000000) % usize(997)); // 9usize (1000000 % 997 = 9)
     
-    compt_assert(mod1 == (2.as(usize)));
-    compt_assert(mod2 == (0.as(usize)));
-    compt_assert(mod3 == (7.as(usize)));
-    compt_assert(mod4 == (9.as(usize)));
+    compt_assert(mod1 == (usize(2)));
+    compt_assert(mod2 == (usize(0)));
+    compt_assert(mod3 == (usize(7)));
+    compt_assert(mod4 == (usize(9)));
   };
   
   // Test chained operations
   {
-    chain1 :: ((a + b) / 5.as(usize));    // (100000usize + 25000usize) / 5usize = 25000usize
-    chain2 :: (a + (b * 2.as(usize)));    // 100000usize + (25000usize * 2usize) = 150000usize
-    chain3 :: ((a / b) + 1.as(usize));    // (100000usize / 25000usize) + 1usize = 5usize
+    chain1 :: ((a + b) / usize(5));    // (100000usize + 25000usize) / 5usize = 25000usize
+    chain2 :: (a + (b * usize(2)));    // 100000usize + (25000usize * 2usize) = 150000usize
+    chain3 :: ((a / b) + usize(1));    // (100000usize / 25000usize) + 1usize = 5usize
     
-    compt_assert(chain1 == (25000.as(usize)));
-    compt_assert(chain2 == (150000.as(usize)));
-    compt_assert(chain3 == (5.as(usize)));
+    compt_assert(chain1 == usize(25000));
+    compt_assert(chain2 == usize(150000));
+    compt_assert(chain3 == (usize(5)));
   };
   
   // Test powers of 2 (common for array indexing)
   {
-    pow2_10 :: 1024.as(usize);           // 2^10
-    pow2_16 :: 65536.as(usize);          // 2^16
+    pow2_10 :: usize(1024);           // 2^10
+    pow2_16 :: usize(65536);          // 2^16
     
     div_pow2 :: (pow2_16 / pow2_10);     // 64usize (2^6)
-    mod_pow2 :: (1025.as(usize) % pow2_10); // 1usize
+    mod_pow2 :: (usize(1025) % pow2_10); // 1usize
     
-    compt_assert(div_pow2 == (64.as(usize)));
-    compt_assert(mod_pow2 == (1.as(usize)));
+    compt_assert(div_pow2 == usize(64));
+    compt_assert(mod_pow2 == (usize(1)));
   };
   
   // Test memory-related sizes (typical use case for usize)
   {
-    byte_size :: 1.as(usize);
-    kb_size :: 1024.as(usize);
-    mb_size :: 1048576.as(usize);   // 1024 * 1024
+    byte_size :: usize(1);
+    kb_size :: usize(1024);
+    mb_size :: usize(1048576);   // 1024 * 1024
     
     kb_in_bytes :: (kb_size / byte_size);    // 1024usize
     mb_in_kb :: (mb_size / kb_size);         // 1024usize
-    partial_mb :: (1500000.as(usize) / mb_size); // 1usize (integer division)
+    partial_mb :: (usize(1500000) / mb_size); // 1usize (integer division)
     
-    compt_assert(kb_in_bytes == (1024.as(usize)));
-    compt_assert(mb_in_kb == (1024.as(usize)));
-    compt_assert(partial_mb == (1.as(usize)));
+    compt_assert(kb_in_bytes == usize(1024));
+    compt_assert(mb_in_kb == usize(1024));
+    compt_assert(partial_mb == (usize(1)));
   };
   
   // Test string conversions
   {
     zero_str :: zero.to_string();
-    large_str :: (123456.as(usize)).to_string();
+    large_str :: usize(123456).to_string();
     
     compt_assert(zero_str == "0");
     compt_assert(large_str == "123456");
@@ -186,22 +186,22 @@ main :: (fn() -> unit) {
   // Test array indexing scenarios (common usize usage)
   {
     // Simulate array bounds calculations
-    array_len :: 100.as(usize);
-    index1 :: 50.as(usize);
-    index2 :: 99.as(usize);
+    array_len :: usize(100);
+    index1 :: usize(50);
+    index2 :: usize(99);
     
     within_bounds1 :: (index1 < array_len);  // true
     within_bounds2 :: (index2 < array_len);  // true
     out_of_bounds :: (array_len < array_len); // false
     
-    last_index :: (array_len - 1.as(usize)); // 99usize
-    mid_index :: (array_len / 2.as(usize));  // 50usize
+    last_index :: (array_len - usize(1)); // 99usize
+    mid_index :: (array_len / usize(2));  // 50usize
     
     compt_assert(within_bounds1 == true);
     compt_assert(within_bounds2 == true);
     compt_assert(out_of_bounds == false);
-    compt_assert(last_index == (99.as(usize)));
-    compt_assert(mid_index == (50.as(usize)));
+    compt_assert(last_index == usize(99));
+    compt_assert(mid_index == usize(50));
   };
   
   ()

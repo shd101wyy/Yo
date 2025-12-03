@@ -48,7 +48,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
       Self(
         head: .None,
         tail: .None,
-        length: (0).as(usize)
+        length: usize(0)
       )
     ),
 
@@ -63,7 +63,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      * Check if the list is empty
      */
     is_empty :: ((fn(self: Self) -> boolean)
-      (self.length == (0).as(usize))
+      (self.length == usize(0))
     ),
 
     /**
@@ -88,7 +88,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         );
         
         self.head = .Some(new_node);
-        self.length = (self.length + (1).as(usize));
+        self.length = (self.length + usize(1));
       }
     ),
 
@@ -114,7 +114,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         );
         
         self.tail = .Some(new_node);
-        self.length = (self.length + (1).as(usize));
+        self.length = (self.length + usize(1));
       }
     ),
 
@@ -140,7 +140,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
             }
           );
           
-          self.length = (self.length - (1).as(usize));
+          self.length = (self.length - usize(1));
           .Some(value)
         }
       )
@@ -168,7 +168,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
             }
           );
           
-          self.length = (self.length - (1).as(usize));
+          self.length = (self.length - usize(1));
           .Some(value)
         }
       )
@@ -203,9 +203,9 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         (index >= self.length) => .None,
         true => {
           current_opt := self.head;
-          i := (0).as(usize);
+          i := usize(0);
           
-          while(i < index, i = (i + (1).as(usize)), {
+          while(i < index, i = (i + usize(1)), {
             match(current_opt,
               .None => {
                 return .None;
@@ -232,7 +232,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     insert :: ((fn(self: Self, index: usize, value: T) -> Result(unit, LinkedListError))
       cond(
         (index > self.length) => .Error(.IndexOutOfBounds(index: index, length: self.length)),
-        (index == (0).as(usize)) => {
+        (index == usize(0)) => {
           self.push_front(value);
           .Ok(())
         },
@@ -242,9 +242,9 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         },
         true => {
           current_opt := self.head;
-          i := (0).as(usize);
+          i := usize(0);
           
-          while(i < index, i = (i + (1).as(usize)), {
+          while(i < index, i = (i + usize(1)), {
             match(current_opt,
               .None => {
                 return .Error(.IndexOutOfBounds(index: index, length: self.length));
@@ -277,7 +277,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
                 }
               );
               
-              self.length = (self.length + (1).as(usize));
+              self.length = (self.length + usize(1));
               .Ok(())
             }
           )
@@ -292,21 +292,21 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     remove :: ((fn(self: Self, index: usize) -> Result(T, LinkedListError))
       cond(
         (index >= self.length) => .Error(.IndexOutOfBounds(index: index, length: self.length)),
-        (index == (0).as(usize)) =>
+        (index == usize(0)) =>
           match(self.pop_front(),
             .Some(value) => .Ok(value),
             .None => .Error(.EmptyList)
           ),
-        (index == (self.length - (1).as(usize))) =>
+        (index == (self.length - usize(1))) =>
           match(self.pop_back(),
             .Some(value) => .Ok(value),
             .None => .Error(.EmptyList)
           ),
         true => {
           current_opt := self.head;
-          i := (0).as(usize);
+          i := usize(0);
           
-          while(i < index, i = (i + (1).as(usize)), {
+          while(i < index, i = (i + usize(1)), {
             match(current_opt,
               .None => {
                 return .Error(.IndexOutOfBounds(index: index, length: self.length));
@@ -342,7 +342,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
                 }
               );
               
-              self.length = (self.length - (1).as(usize));
+              self.length = (self.length - usize(1));
               .Ok(value)
             }
           )
@@ -355,7 +355,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     clear :: ((fn(self: Self) -> unit)
       {
-        while((self.length > (0).as(usize)), {
+        while((self.length > usize(0)), {
           _ := self.pop_front();
         });
       }
@@ -372,9 +372,9 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     ) -> boolean)
       {
         current_opt := self.head;
-        i := (0).as(usize);
+        i := usize(0);
         
-        while(i < self.length, i = (i + (1).as(usize)), {
+        while(i < self.length, i = (i + usize(1)), {
           match(current_opt,
             .None => {
               return false;
@@ -403,9 +403,9 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
     reverse :: ((fn(self: Self) -> unit)
       {
         current_opt := self.head;
-        i := (0).as(usize);
+        i := usize(0);
         
-        while(i < self.length, i = (i + (1).as(usize)), {
+        while(i < self.length, i = (i + usize(1)), {
           match(current_opt,
             .None => {
               return;

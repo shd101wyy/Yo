@@ -36,20 +36,20 @@ HashMapError :: enum(
 /**
  * Control byte constants for SwissTable
  */
-CTRL_EMPTY :: (255).as(u8);
-CTRL_DELETED :: (254).as(u8);
+CTRL_EMPTY :: u8(255);
+CTRL_DELETED :: u8(254);
 
 /**
  * Default initial capacity (must be power of 2)
  */
-DEFAULT_CAPACITY :: (16).as(usize);
+DEFAULT_CAPACITY :: usize(16);
 
 /**
  * Maximum load factor: 7/8 = 0.875
  * We resize when: size > capacity * 7 / 8
  */
-MAX_LOAD_FACTOR_NUMERATOR :: (7).as(usize);
-MAX_LOAD_FACTOR_DENOMINATOR :: (8).as(usize);
+MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
+MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 
 /**
  * Bucket - Internal structure to store key-value pairs
@@ -65,14 +65,14 @@ Bucket :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
  * Extract H2 hash (lower 7 bits) from full hash
  */
 h2_hash :: (fn(hash: u64) -> u8)
-  ((hash & (127).as(u64)).as(u8))
+  u8(hash & u64(127))
 ;
 
 /**
  * Extract H1 hash (upper bits) for bucket index
  */
 h1_hash :: (fn(hash: u64, capacity: usize) -> usize)
-  (((hash >> (7).as(u64)).as(usize) % capacity))
+  (usize((hash >> u64(7))) % capacity)
 ;
 
 /**
@@ -121,8 +121,8 @@ HashMap :: (fn(
               .Some(data_void_ptr) => {
                 data_ptr := data_void_ptr.cast(*(Bucket(K, V)));
                 
-                i := (0).as(usize);
-                while(i < capacity, i = (i + (1).as(usize)), {
+                i := usize(0);
+                while(i < capacity, i = (i + usize(1)), {
                   (ctrl_ptr + i).* = CTRL_EMPTY;
                 });
                 
@@ -130,7 +130,7 @@ HashMap :: (fn(
                   ctrl: .Some(ctrl_ptr),
                   data: .Some(data_ptr),
                   capacity: capacity,
-                  size: (0).as(usize)
+                  size: usize(0)
                 ))
               }
             )
@@ -162,13 +162,13 @@ HashMap :: (fn(
           (requested_capacity < DEFAULT_CAPACITY) => DEFAULT_CAPACITY,
           true => {
             c := requested_capacity;
-            c = (c - (1).as(usize));
-            c = (c | (c >> (1).as(usize)));
-            c = (c | (c >> (2).as(usize)));
-            c = (c | (c >> (4).as(usize)));
-            c = (c | (c >> (8).as(usize)));
-            c = (c | (c >> (16).as(usize)));
-            (c + (1).as(usize))
+            c = (c - usize(1));
+            c = (c | (c >> usize(1)));
+            c = (c | (c >> usize(2)));
+            c = (c | (c >> usize(4)));
+            c = (c | (c >> usize(8)));
+            c = (c | (c >> usize(16)));
+            (c + usize(1))
           }
         );
         
@@ -208,11 +208,11 @@ HashMap :: (fn(
       {
         h2 := h2_hash(hash);
         index := h1_hash(hash, self.capacity);
-        probe := (0).as(usize);
+        probe := usize(0);
         ctrl_ptr := self._ctrl_ptr();
         data_ptr := self._data_ptr();
         
-        while(probe < self.capacity, probe = (probe + (1).as(usize)), {
+        while(probe < self.capacity, probe = (probe + usize(1)), {
           probe_index := ((index + probe) % self.capacity);
           ctrl_byte := (ctrl_ptr + probe_index).*;
           
@@ -244,10 +244,10 @@ HashMap :: (fn(
     _find_insert_bucket :: ((fn(self: Self, hash: u64) -> usize)
       {
         index := h1_hash(hash, self.capacity);
-        probe := (0).as(usize);
+        probe := usize(0);
         ctrl_ptr := self._ctrl_ptr();
         
-        while(probe < self.capacity, probe = (probe + (1).as(usize)), {
+        while(probe < self.capacity, probe = (probe + usize(1)), {
           probe_index := ((index + probe) % self.capacity);
           ctrl_byte := (ctrl_ptr + probe_index).*;
           
@@ -282,10 +282,10 @@ HashMap :: (fn(
         match(result,
           .Error(err) => .Error(err),
           .Ok(new_map) => {
-            i := (0).as(usize);
+            i := usize(0);
             ctrl_ptr := self._ctrl_ptr();
             data_ptr := self._data_ptr();
-            while(i < self.capacity, i = (i + (1).as(usize)), {
+            while(i < self.capacity, i = (i + usize(1)), {
               ctrl_byte := (ctrl_ptr + i).*;
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
@@ -298,7 +298,7 @@ HashMap :: (fn(
                   new_data_ptr := new_map._data_ptr();
                   (new_ctrl_ptr + new_index).* = h2;
                   (new_data_ptr + new_index).* = bucket;
-                  new_map.size = (new_map.size + (1).as(usize));
+                  new_map.size = (new_map.size + usize(1));
                 },
                 true => ()
               );
@@ -344,7 +344,7 @@ HashMap :: (fn(
           .None => {
             resize_check := cond(
               (self._needs_resize()) => {
-                new_capacity := (self.capacity * (2).as(usize));
+                new_capacity := (self.capacity * usize(2));
                 self._resize(new_capacity)
               },
               true => (Result(unit, HashMapError).Ok(()))
@@ -361,7 +361,7 @@ HashMap :: (fn(
                 (ctrl_ptr + index).* = h2;
                 new_bucket := Bucket(K, V)(key: key, value: value);
                 (data_ptr + index).* = new_bucket;
-                self.size = (self.size + (1).as(usize));
+                self.size = (self.size + usize(1));
                 
                 .Ok(.None)
               }
@@ -420,7 +420,7 @@ HashMap :: (fn(
             value := bucket.value;
             
             (ctrl_ptr + index).* = CTRL_DELETED;
-            self.size = (self.size - (1).as(usize));
+            self.size = (self.size - usize(1));
             
             .Some(value)
           },
@@ -440,7 +440,7 @@ HashMap :: (fn(
      * Check if the map is empty
      */
     is_empty :: ((fn(self: Self) -> boolean)
-      (self.size == (0).as(usize))
+      (self.size == usize(0))
     ),
 
     /**
@@ -450,11 +450,11 @@ HashMap :: (fn(
     clear :: ((fn(self: Self) -> unit)
       {
         ctrl_ptr := self._ctrl_ptr();
-        i := (0).as(usize);
-        while(i < self.capacity, i = (i + (1).as(usize)), {
+        i := usize(0);
+        while(i < self.capacity, i = (i + usize(1)), {
           (ctrl_ptr + i).* = CTRL_EMPTY;
         });
-        self.size = (0).as(usize);
+        self.size = usize(0);
       }
     ),
 

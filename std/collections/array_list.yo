@@ -48,8 +48,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     new :: ((fn() -> Self)
       Self(
         ptr: .None,
-        _length: (0).as(usize),
-        _capacity: (0).as(usize)
+        _length: usize(0),
+        _capacity: usize(0)
       )),
 
     /**
@@ -57,7 +57,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     with_capacity :: ((fn(capacity: usize) -> Self)
       cond(
-        (capacity == (0).as(usize)) => 
+        (capacity == usize(0)) => 
           Self.new(),
         true => {
           ptr_result := malloc(sizeof(T) * capacity);
@@ -65,7 +65,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .Some(ptr) =>
               Self(
                 ptr: .Some(ptr.cast(*(T))),
-                _length: (0).as(usize),
+                _length: usize(0),
                 _capacity: capacity
               ),
             .None => panic("malloc returned None")
@@ -83,8 +83,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
         (self._length >= self._capacity) => {
           // Need to grow - calculate new capacity
           new_capacity := cond
-            (self._capacity == (0).as(usize)) => (4).as(usize),
-            true => (self._capacity * (2).as(usize));
+            (self._capacity == usize(0)) => usize(4),
+            true => (self._capacity * usize(2));
           
           // Allocate or reallocate
           new_some_ptr := match self.ptr,
@@ -102,7 +102,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
               // Now add the element at position length
               target_ptr := (typed_ptr + self._length);
               target_ptr.* = value;
-              self._length = (self._length + (1).as(usize));
+              self._length = (self._length + usize(1));
               .Ok(())
             },
             .None => .Error(.AllocError(.OutOfMemory))
@@ -114,7 +114,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .Some(ptr) => {
               target_ptr := (ptr + self._length);
               target_ptr.* = value;
-              self._length = (self._length + (1).as(usize));
+              self._length = (self._length + usize(1));
               .Ok(())
             },
             .None => panic("ArrayList has capacity but no ptr")
@@ -127,9 +127,9 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     pop :: ((fn(self: Self) -> Option(T))
       cond(
-        (self._length == (0).as(usize)) => .None,
+        (self._length == usize(0)) => .None,
         true => {
-          self._length = (self._length - (1).as(usize));
+          self._length = (self._length - usize(1));
           match self.ptr,
             .None => .None,
             .Some(ptr) => {
@@ -181,16 +181,16 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     shrink_to_fit :: ((fn(self: Self) -> Result(unit, ArrayListError))
       // If length equals capacity or both are zero, nothing to do
       cond(
-        ((self._length == self._capacity) || (self._capacity == (0).as(usize))) => .Ok(()),
+        ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
         true =>
           // If length is zero, free the buffer
           cond(
-            (self._length == (0).as(usize)) => {
+            (self._length == usize(0)) => {
               match(self.ptr,
                 .Some(ptr) => {
                   GlobalAllocator.free(.Some(ptr.cast(*(void))));
                   self.ptr = .None;
-                  self._capacity = (0).as(usize);
+                  self._capacity = usize(0);
                 },
                 .None => ());
               .Ok(())
@@ -221,9 +221,9 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     _free_elements :: ((fn(self : Self) -> unit)
       cond(
         Type.contains_arc_type(T) => {
-          i := (0).as(usize);
+          i := usize(0);
           base_ptr := self.ptr.unwrap();
-          while(i < self._length, i = (i + (1).as(usize)), {
+          while(i < self._length, i = (i + usize(1)), {
             element_ptr := (base_ptr + i);
             element := element_ptr.*;
             // element will be automatically dropped here
@@ -253,7 +253,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           
           // If removing 0 elements, just return success
           cond(
-            (actual_count == (0).as(usize)) => .Ok((0).as(usize)),
+            (actual_count == usize(0)) => .Ok(usize(0)),
             true =>
               match(self.ptr,
                 .None => panic("ArrayList has length but no ptr"),
@@ -261,8 +261,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                   // Free elements that will be removed if they contain ARC types
                   cond(
                     Type.contains_arc_type(T) => {
-                      i := (0).as(usize);
-                      while(i < actual_count, i = (i + (1).as(usize)), {
+                      i := usize(0);
+                      while(i < actual_count, i = (i + usize(1)), {
                         element_ptr := (ptr + (start + i));
                         element := element_ptr.*;
                         // element will be automatically dropped here
@@ -275,12 +275,12 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                   // We need to move elements from [start + actual_count, length) to [start, ...)
                   elements_after := ((self._length - start) - actual_count);
                   cond(
-                    (elements_after > (0).as(usize)) => {
+                    (elements_after > usize(0)) => {
                       src_ptr := (ptr + (start + actual_count));
                       dst_ptr := (ptr + start);
                       // Move memory
-                      i := (0).as(usize);
-                      while(i < elements_after, i = (i + (1).as(usize)), {
+                      i := usize(0);
+                      while(i < elements_after, i = (i + usize(1)), {
                         src := (src_ptr + i);
                         dst := (dst_ptr + i);
                         dst.* = src.*;
@@ -318,7 +318,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           
           // If slice is empty, return empty ArrayList
           cond(
-            (slice_length == (0).as(usize)) =>
+            (slice_length == usize(0)) =>
               .Ok(Self.new()),
             true =>
               match(self.ptr,
@@ -331,8 +331,8 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                     .None => .Error(.AllocError(.OutOfMemory)),
                     .Some(dst_ptr) => {
                       // Copy elements
-                      i := (0).as(usize);
-                      while(i < slice_length, i = (i + (1).as(usize)), {
+                      i := usize(0);
+                      while(i < slice_length, i = (i + usize(1)), {
                         src := (src_ptr + (start + i));
                         dst := (dst_ptr + i);
                         dst.* = src.*;
@@ -355,7 +355,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      */
     clear :: ((fn(self: Self) -> unit) {
       self._free_elements();
-      self._length = (0).as(usize);
+      self._length = usize(0);
     }),
 
     /**
@@ -366,7 +366,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
       match(self.ptr,
         .Some(ptr) => {
           self._free_elements();
-          self._length = (0).as(usize);
+          self._length = usize(0);
           GlobalAllocator.free(.Some(ptr.cast(*(void))));
           self.ptr = .None;
         },

@@ -10,7 +10,7 @@ CAllocator :: struct(
         return .Error(.InvalidSize);
       };
       
-      size := (count * sizeof(T).as(usize));
+      size := (usize(count * sizeof(T)));
       some_ptr := malloc(size);
       match some_ptr,
         .Some(ptr) => {
@@ -27,7 +27,7 @@ CAllocator :: struct(
         return .Error(.InvalidSize);
       };
       
-      some_ptr := calloc(count, sizeof(T).as(usize));
+      some_ptr := calloc(count, usize(sizeof(T)));
       match some_ptr,
         .Some(ptr) => {
           typed_ptr := ptr.cast(*(T));
@@ -44,8 +44,8 @@ CAllocator :: struct(
       
       // Check if alignment is valid (power of 2)
       if (
-          (alignment == (0).as(usize)) ||
-          ((alignment & (alignment - (1).as(usize))) != (0).as(usize))
+          (alignment == usize(0)) ||
+          ((alignment & (alignment - usize(1))) != usize(0))
       ), {
         return .Error(.InvalidAlignment);
       };
@@ -57,7 +57,7 @@ CAllocator :: struct(
       };
       
       // For now, fall back to regular malloc (would need aligned_alloc in real implementation)
-      size := (count * sizeof(T).as(usize));
+      size := (usize(count * sizeof(T)));
       some_ptr := malloc(size);
       match some_ptr,
         .Some(ptr) => {
@@ -77,7 +77,7 @@ CAllocator :: struct(
       match some_old_ptr,
         .None => {
           // Realloc with null pointer behaves like malloc
-          size := (new_count * sizeof(T).as(usize));
+          size := (new_usize(count * sizeof(T)));
           some_ptr := malloc(size);
           match some_ptr,
             .Some(ptr) => {
@@ -90,12 +90,12 @@ CAllocator :: struct(
           raw_old := old_ptr.cast(*(void));
 
           // Handle zero size case
-          if (new_count == (0).as(usize)), {
+          if (new_count == usize(0)), {
             free(.Some(raw_old));
             return .Ok(.None);
           };
           
-          new_size := (new_count * sizeof(T).as(usize));
+          new_size := (new_usize(count * sizeof(T)));
           some_new_ptr := realloc(.Some(raw_old), new_size);
           match some_new_ptr,
             .Some(new_ptr) => {

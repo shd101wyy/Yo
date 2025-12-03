@@ -258,13 +258,13 @@ compt_expect_error(
 compt_expect_error(
   test11 :: (fn() -> unit) {
     (values) := [0, 0, 0];
-    (index) := 0.as(usize);
+    (index) := usize(0);
     
     // This should fail - FnMut closures contain references and cannot be assigned to variables
     store_fn : (Closure(FnMut(elem : i32) -> i32, _));
     store_fn = (fn(elem) =>> {
       values(index) = elem;
-      index = (index + 1.as(usize));
+      index = (index + usize(1));
       return elem;
     });
   }

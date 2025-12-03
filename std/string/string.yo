@@ -41,9 +41,9 @@ String :: object(
     // Create a new ArrayList and copy bytes from the slice
     bytes := ArrayList(u8).with_capacity(slice.length);
     
-    i := (0).as(usize);
+    i := usize(0);
     while ((i < slice.length)),
-          (i = (i + (1).as(usize))),
+          (i = (i + usize(1))),
     {
       byte := slice(i);
       bytes.push(byte);
@@ -65,17 +65,17 @@ String :: object(
     bytes := ArrayList(u8).new();
     
     // Iterate through the C string until we find the null terminator
-    i := (0).as(usize);
+    i := usize(0);
     // FIXME: This is causing infinite loop during compile-time evaluation.
     //        We need to check if the loop body has runtime expr, then we shouldn't consider it as infinite loop.
-    while {f := true; f}, (i = (i + (1).as(usize))), {
+    while {f := true; f}, (i = (i + usize(1))), {
       // Access byte at index i using pointer arithmetic/
       byte_ptr := (cstr + i);
       byte := byte_ptr.*;
       
       // Stop when we find the null terminator
       cond(
-        (byte == (0).as(u8)) => break,
+        (byte == u8(0)) => break,
         true => bytes.push(byte)
       );
     };
@@ -89,12 +89,12 @@ String :: object(
    * For "你好世界", this returns 4
    */
   length :: ((fn(self: Self) -> usize) {
-    count := (0).as(usize);
-    byte_index := (0).as(usize);
+    count := usize(0);
+    byte_index := usize(0);
     total_bytes := self._bytes.length();
     
     while ((byte_index < total_bytes)),
-          (byte_index = (byte_index + (1).as(usize))),
+          (byte_index = (byte_index + usize(1))),
     {
       byte_opt := self._bytes.get(byte_index);
       match(byte_opt,
@@ -102,8 +102,8 @@ String :: object(
           // Count UTF-8 character start bytes (not continuation bytes)
           // Continuation bytes have pattern 10xxxxxx (0x80-0xBF)
           cond(
-            ((byte < (0x80).as(u8)) || (byte >= (0xC0).as(u8))) => {
-              count = (count + (1).as(usize));
+            ((byte < u8(0x80)) || (byte >= u8(0xC0))) => {
+              count = (count + usize(1));
             },
             true => ()
           );
@@ -119,7 +119,7 @@ String :: object(
    * Check if the string is empty
    */
   is_empty :: ((fn(self: Self) -> boolean)
-    (self._bytes.length() == (0).as(usize))
+    (self._bytes.length() == usize(0))
   ),
 
   /**
@@ -140,30 +140,30 @@ String :: object(
         // Determine how many bytes this UTF-8 character uses
         (res : Option(rune)) = cond(
           // 1-byte character: 0xxxxxxx (ASCII)
-          (first_byte < (0x80).as(u8)) => {
-            codepoint := first_byte.as(u32);
+          (first_byte < u8(0x80)) => {
+            codepoint := u32(first_byte);
             rune.from_u32(codepoint)
           },
           // 2-byte character: 110xxxxx 10xxxxxx
-          ((first_byte >= (0xC0).as(u8)) && (first_byte < (0xE0).as(u8))) => {
-            second_opt := self._bytes.get((byte_index + (1).as(usize)));
+          ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => {
+            second_opt := self._bytes.get((byte_index + usize(1)));
             match(second_opt,
               .Some(second) => {
-                codepoint := (((first_byte.as(u32) & (0x1F).as(u32)) << (6).as(u32)) | (second.as(u32) & (0x3F).as(u32)));
+                codepoint := (((u32(first_byte) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
                 rune.from_u32(codepoint)
               },
               .None => .None
             )
           },
           // 3-byte character: 1110xxxx 10xxxxxx 10xxxxxx
-          ((first_byte >= (0xE0).as(u8)) && (first_byte < (0xF0).as(u8))) => {
-            second_opt := self._bytes.get((byte_index + (1).as(usize)));
-            third_opt := self._bytes.get((byte_index + (2).as(usize)));
+          ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => {
+            second_opt := self._bytes.get((byte_index + usize(1)));
+            third_opt := self._bytes.get((byte_index + usize(2)));
             match(second_opt,
               .Some(second) =>
                 match(third_opt,
                   .Some(third) => {
-                    codepoint := ((((first_byte.as(u32) & (0x0F).as(u32)) << (12).as(u32)) | ((second.as(u32) & (0x3F).as(u32)) << (6).as(u32))) | (third.as(u32) & (0x3F).as(u32)));
+                    codepoint := ((((u32(first_byte) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
                     rune.from_u32(codepoint)
                   },
                   .None => .None
@@ -172,17 +172,17 @@ String :: object(
             )
           },
           // 4-byte character: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-          ((first_byte >= (0xF0).as(u8)) && (first_byte < (0xF8).as(u8))) => {
-            second_opt := self._bytes.get((byte_index + (1).as(usize)));
-            third_opt := self._bytes.get((byte_index + (2).as(usize)));
-            fourth_opt := self._bytes.get((byte_index + (3).as(usize)));
+          ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => {
+            second_opt := self._bytes.get((byte_index + usize(1)));
+            third_opt := self._bytes.get((byte_index + usize(2)));
+            fourth_opt := self._bytes.get((byte_index + usize(3)));
             match(second_opt,
               .Some(second) =>
                 match(third_opt,
                   .Some(third) =>
                     match(fourth_opt,
                       .Some(fourth) => {
-                        codepoint := (((((first_byte.as(u32) & (0x07).as(u32)) << (18).as(u32)) | ((second.as(u32) & (0x3F).as(u32)) << (12).as(u32))) | ((third.as(u32) & (0x3F).as(u32)) << (6).as(u32))) | (fourth.as(u32) & (0x3F).as(u32)));
+                        codepoint := (((((u32(first_byte) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
                         rune.from_u32(codepoint)
                       },
                       .None => .None
@@ -207,19 +207,19 @@ String :: object(
    * For "你好世界", at(0) returns '你', at(1) returns '好', etc.
    */
   at :: ((fn(self: Self, index: usize) -> Option(rune)) {
-    char_count := (0).as(usize);
-    byte_index := (0).as(usize);
+    char_count := usize(0);
+    byte_index := usize(0);
     total_bytes := self._bytes.length();
     
     // Find the byte position of the character at the given index
     while ((byte_index < total_bytes)),
-          (byte_index = (byte_index + (1).as(usize))),
+          (byte_index = (byte_index + usize(1))),
     {
       byte_opt := self._bytes.get(byte_index);
       match(byte_opt,
         .Some(byte) => {
           // Check if this is a UTF-8 character start byte
-          is_start := ((byte < (0x80).as(u8)) || (byte >= (0xC0).as(u8)));
+          is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
           cond(
             is_start => {
               // Found a character start byte
@@ -230,7 +230,7 @@ String :: object(
                 },
                 true => {
                   // Not the right character yet, keep counting
-                  char_count = (char_count + (1).as(usize));
+                  char_count = (char_count + usize(1));
                 }
               );
             },
@@ -252,9 +252,9 @@ String :: object(
     new_bytes := ArrayList(u8).with_capacity((self.as_bytes().length() + other.as_bytes().length()));
     
     // Copy bytes from self
-    i := (0).as(usize);
+    i := usize(0);
     while ((i < self.as_bytes().length())),
-          (i = (i + (1).as(usize))),
+          (i = (i + usize(1))),
     {
       byte_opt := self._bytes.get(i);
       match(byte_opt,
@@ -264,9 +264,9 @@ String :: object(
     };
     
     // Copy bytes from other
-    j := (0).as(usize);
+    j := usize(0);
     while ((j < other.as_bytes().length())),
-          (j = (j + (1).as(usize))),
+          (j = (j + usize(1))),
     {
       byte_opt := other._bytes.get(j);
       match(byte_opt,

@@ -6,13 +6,13 @@ open import "std";
  */
 main :: (fn() -> unit) {
   // Basic i8 values
-  a :: 50.as(i8);
-  b :: 25.as(i8);
-  c :: 50.as(i8);
-  zero :: 0.as(i8);
-  neg_val :: (30).neg().as(i8);
-  max_val :: 127.as(i8);
-  min_val :: (128).neg().as(i8);
+  a :: i8(50);
+  b :: i8(25);
+  c :: i8(50);
+  zero :: i8(0);
+  neg_val :: i8((30).neg());
+  max_val :: i8(127);
+  min_val :: i8((128).neg());
   
   // Arithmetic operations
   sum :: (a + b);        // 75i8
@@ -40,21 +40,21 @@ main :: (fn() -> unit) {
   gte_equal :: (a >= c); // true (50i8 >= 50i8)
   
   // Type conversion operations
-  i8_to_i16 :: a.as(i16);      // 50i16
-  i8_to_u16 :: a.as(u16);      // 50u16
-  i8_to_f32 :: a.as(f32);      // 50.0f32
+  i8_to_i16 :: i16(a);      // 50i16
+  i8_to_u16 :: u16(a);      // 50u16
+  i8_to_f32 :: f32(a);      // 50.0f32
   i8_to_string :: a.to_string(); // "50"
   
   // Test with compile-time assertions
   // Arithmetic
-  compt_assert(sum == (75.as(i8)));
-  compt_assert(diff == (25.as(i8)));
-  compt_assert(quot == (2.as(i8)));
-  compt_assert(remainder == (0.as(i8)));
+  compt_assert(sum == i8(75));
+  compt_assert(diff == i8(25));
+  compt_assert(quot == i8(2));
+  compt_assert(remainder == i8(0));
   
   // Unary operations
-  compt_assert(neg_a == (50).neg().as(i8));
-  compt_assert(neg_zero == (0.as(i8)));
+  compt_assert(neg_a == i8((50).neg()));
+  compt_assert(neg_zero == i8(0));
   
   // Comparisons
   compt_assert(eq_test == true);
@@ -71,26 +71,26 @@ main :: (fn() -> unit) {
   compt_assert(gte_equal == true);
   
   // Type conversions
-  compt_assert(i8_to_i16 == (50.as(i16)));
-  compt_assert(i8_to_u16 == (50.as(u16)));
-  compt_assert(i8_to_f32 == (50.0.as(f32)));
+  compt_assert(i8_to_i16 == i16(50));
+  compt_assert(i8_to_u16 == u16(50));
+  compt_assert(i8_to_f32 == f32(50.0));
   compt_assert(i8_to_string == "50");
   
   // Test with negative numbers
   {
     neg_sum :: (neg_val + a);     // -30 + 50 = 20i8
     neg_diff :: (neg_val - a);    // -30 - 50 = -80i8
-    neg_prod :: (neg_val * 2.as(i8)); // -30 * 2 = -60i8
-    neg_quot :: (neg_val / 5.as(i8)); // -30 / 5 = -6i8
+    neg_prod :: (neg_val * i8(2)); // -30 * 2 = -60i8
+    neg_quot :: (neg_val / i8(5)); // -30 / 5 = -6i8
     
     // Comparisons with negatives
     neg_lt :: (neg_val < a);      // true (-30 < 50)
     neg_gt :: (a > neg_val);      // true (50 > -30)
     
-    compt_assert(neg_sum == (20.as(i8)));
-    compt_assert(neg_diff == (80).neg().as(i8));
-    compt_assert(neg_prod == (60).neg().as(i8));
-    compt_assert(neg_quot == (6).neg().as(i8));
+    compt_assert(neg_sum == i8(20));
+    compt_assert(neg_diff == i8((80).neg()));
+    compt_assert(neg_prod == i8((60).neg()));
+    compt_assert(neg_quot == i8((6).neg()));
     compt_assert(neg_lt == true);
     compt_assert(neg_gt == true);
   };
@@ -98,18 +98,18 @@ main :: (fn() -> unit) {
   // Test boundary values
   {
     // Operations with min value
-    min_sum :: (min_val + 1.as(i8));     // -127i8
-    min_sub :: (min_val - 1.as(i8));     // overflow behavior
+    min_sum :: (min_val + i8(1));     // -127i8
+    min_sub :: (min_val - i8(1));     // overflow behavior
     min_neg :: -(min_val);               // overflow: -(-128) should be handled
     
     // Operations with max value
-    max_sum :: (max_val + 1.as(i8));     // overflow
-    max_sub :: (max_val - 1.as(i8));     // 126i8
+    max_sum :: (max_val + i8(1));     // overflow
+    max_sub :: (max_val - i8(1));     // 126i8
     max_neg :: -(max_val);               // -127i8
     
-    compt_assert(min_sum == (127).neg().as(i8));
-    compt_assert(max_sub == (126.as(i8)));
-    compt_assert(max_neg == (127).neg().as(i8));
+    compt_assert(min_sum == i8((127).neg()));
+    compt_assert(max_sub == i8(126));
+    compt_assert(max_neg == i8((127).neg()));
     
     // Boundary comparisons
     compt_assert(min_val < max_val);
@@ -125,70 +125,70 @@ main :: (fn() -> unit) {
     zero_diff2 :: (zero - a);    // -50i8
     zero_prod :: (zero * a);     // 0i8
     
-    compt_assert(zero_sum == (50.as(i8)));
-    compt_assert(zero_diff1 == (50.as(i8)));
-    compt_assert(zero_diff2 == (50).neg().as(i8));
-    compt_assert(zero_prod == (0.as(i8)));
+    compt_assert(zero_sum == i8(50));
+    compt_assert(zero_diff1 == i8(50));
+    compt_assert(zero_diff2 == i8((50).neg()));
+    compt_assert(zero_prod == i8(0));
     
     // Identity operations
     identity_sum :: (a + zero);  // 50i8
-    identity_prod :: (a * 1.as(i8));  // 50i8
+    identity_prod :: (a * i8(1));  // 50i8
     
-    compt_assert(identity_sum == (50.as(i8)));
-    compt_assert(identity_prod == (50.as(i8)));
+    compt_assert(identity_sum == i8(50));
+    compt_assert(identity_prod == i8(50));
     
     // Self operations
     self_sub :: (a - a);         // 0i8
     self_div :: (a / a);         // 1i8
     self_mod :: (a % a);         // 0i8
     
-    compt_assert(self_sub == (0.as(i8)));
-    compt_assert(self_div == (1.as(i8)));
-    compt_assert(self_mod == (0.as(i8)));
+    compt_assert(self_sub == i8(0));
+    compt_assert(self_div == i8(1));
+    compt_assert(self_mod == i8(0));
   };
   
   // Test various divisions
   {
-    div1 :: (60.as(i8) / 5.as(i8));       // 12i8
-    div2 :: (61.as(i8) / 5.as(i8));       // 12i8 (integer division)
-    div3 :: (3.as(i8) / 10.as(i8));       // 0i8
+    div1 :: (i8(60) / i8(5));       // 12i8
+    div2 :: (i8(61) / i8(5));       // 12i8 (integer division)
+    div3 :: (i8(3) / i8(10));       // 0i8
     
     // Negative divisions
-    div4 :: ((60).neg().as(i8) / 5.as(i8));    // -12i8
-    div5 :: (60.as(i8) / (5).neg().as(i8));    // -12i8
-    div6 :: ((60).neg().as(i8) / (5).neg().as(i8)); // 12i8
+    div4 :: (i8((60).neg()) / i8(5));    // -12i8
+    div5 :: (i8(60) / i8((5).neg()));    // -12i8
+    div6 :: (i8((60).neg()) / i8((5).neg())); // 12i8
     
-    compt_assert(div1 == (12.as(i8)));
-    compt_assert(div2 == (12.as(i8)));
-    compt_assert(div3 == (0.as(i8)));
-    compt_assert(div4 == (12).neg().as(i8));
-    compt_assert(div5 == (12).neg().as(i8));
-    compt_assert(div6 == (12.as(i8)));
+    compt_assert(div1 == i8(12));
+    compt_assert(div2 == i8(12));
+    compt_assert(div3 == i8(0));
+    compt_assert(div4 == i8((12).neg()));
+    compt_assert(div5 == i8((12).neg()));
+    compt_assert(div6 == i8(12));
   };
   
   // Test modulo operations
   {
-    mod1 :: (17.as(i8) % 5.as(i8));        // 2i8
-    mod2 :: (20.as(i8) % 4.as(i8));        // 0i8
-    mod3 :: (7.as(i8) % 10.as(i8));        // 7i8
+    mod1 :: (i8(17) % i8(5));        // 2i8
+    mod2 :: (i8(20) % i8(4));        // 0i8
+    mod3 :: (i8(7) % i8(10));        // 7i8
     
     // Negative modulo
-    mod4 :: ((17).neg().as(i8) % 5.as(i8));     // behavior depends on implementation
-    mod5 :: (17.as(i8) % (5).neg().as(i8));     // behavior depends on implementation
+    mod4 :: (i8((17).neg()) % i8(5));     // behavior depends on implementation
+    mod5 :: (i8(17) % i8((5).neg()));     // behavior depends on implementation
     
-    compt_assert(mod1 == (2.as(i8)));
-    compt_assert(mod2 == (0.as(i8)));
-    compt_assert(mod3 == (7.as(i8)));
+    compt_assert(mod1 == i8(2));
+    compt_assert(mod2 == i8(0));
+    compt_assert(mod3 == i8(7));
   };
   
   // Test chained operations
   {
-    chain1 :: ((a + b) * 2.as(i8));   // (50i8 + 25i8) * 2i8 = 150i8 (may overflow)
-    chain2 :: (a + (b * 2.as(i8)));   // 50i8 + (25i8 * 2i8) = 100i8
-    chain3 :: ((a / b) + 1.as(i8));   // (50i8 / 25i8) + 1i8 = 3i8
+    chain1 :: ((a + b) * i8(2));   // (50i8 + 25i8) * 2i8 = 150i8 (may overflow)
+    chain2 :: (a + (b * i8(2)));   // 50i8 + (25i8 * 2i8) = 100i8
+    chain3 :: ((a / b) + i8(1));   // (50i8 / 25i8) + 1i8 = 3i8
     
-    compt_assert(chain2 == (100.as(i8)));
-    compt_assert(chain3 == (3.as(i8)));
+    compt_assert(chain2 == i8(100));
+    compt_assert(chain3 == i8(3));
   };
   
   // Test string conversions

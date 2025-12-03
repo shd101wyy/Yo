@@ -6,13 +6,13 @@ open import "std";
  */
 main :: (fn() -> unit) {
   // Basic i16 values
-  a :: 1000.as(i16);
-  b :: 250.as(i16);
-  c :: 1000.as(i16);
-  zero :: 0.as(i16);
-  neg_val :: -(500).as(i16);
-  max_val :: 32767.as(i16);
-  min_val :: -(32768).as(i16);
+  a :: i16(1000);
+  b :: i16(250);
+  c :: i16(1000);
+  zero :: i16(0);
+  neg_val :: i16(-500);
+  max_val :: i16(32767);
+  min_val :: i16(-32768);
   
   // Arithmetic operations
   sum :: (a + b);        // 1250i16
@@ -40,23 +40,23 @@ main :: (fn() -> unit) {
   gte_equal :: (a >= c); // true (1000i16 >= 1000i16)
   
   // Type conversion operations
-  i16_to_i32 :: a.as(i32);      // 1000i32
-  i16_to_u32 :: a.as(u32);      // 1000u32
-  i16_to_f32 :: a.as(f32);      // 1000.0f32
+  i16_to_i32 :: i32(a);      // 1000i32
+  i16_to_u32 :: u32(a);      // 1000u32
+  i16_to_f32 :: f32(a);      // 1000.0f32
   i16_to_string :: a.to_string(); // "1000"
   
   // Test with compile-time assertions
   // Arithmetic
-  compt_assert(sum == (1250.as(i16)));
-  compt_assert(diff == (750.as(i16)));
-  compt_assert(quot == (4.as(i16)));
-  compt_assert(remainder == (0.as(i16)));
+  compt_assert(sum == i16(1250));
+  compt_assert(diff == i16(750));
+  compt_assert(quot == i16(4));
+  compt_assert(remainder == i16(0));
   
   // Unary operations
   n :: (-1000);
-  x :: n.as(i16);
-  compt_assert(neg_a == (-1000).as(i16));
-  compt_assert(neg_zero == (0.as(i16)));
+  x :: i16(n);
+  compt_assert(neg_a == i16(-1000));
+  compt_assert(neg_zero == i16(0));
   
   // Comparisons
   compt_assert(eq_test == true);
@@ -73,26 +73,26 @@ main :: (fn() -> unit) {
   compt_assert(gte_equal == true);
   
   // Type conversions
-  compt_assert(i16_to_i32 == (1000.as(i32)));
-  compt_assert(i16_to_u32 == (1000.as(u32)));
-  compt_assert(i16_to_f32 == (1000.0.as(f32)));
+  compt_assert(i16_to_i32 == i32(1000));
+  compt_assert(i16_to_u32 == u32(1000));
+  compt_assert(i16_to_f32 == (f32(1000.0)));
   compt_assert(i16_to_string == "1000");
   
   // Test with negative numbers
   {
     neg_sum :: (neg_val + a);     // -500 + 1000 = 500i16
     neg_diff :: (neg_val - a);    // -500 - 1000 = -1500i16
-    neg_prod :: (neg_val * 2.as(i16)); // -500 * 2 = -1000i16
-    neg_quot :: (neg_val / 5.as(i16)); // -500 / 5 = -100i16
+    neg_prod :: (neg_val * i16(2)); // -500 * 2 = -1000i16
+    neg_quot :: (neg_val / i16(5)); // -500 / 5 = -100i16
     
     // Comparisons with negatives
     neg_lt :: (neg_val < a);      // true (-500 < 1000)
     neg_gt :: (a > neg_val);      // true (1000 > -500)
     
-    compt_assert(neg_sum == (500.as(i16)));
-    compt_assert(neg_diff == (-(1500).as(i16)));
-    compt_assert(neg_prod == (-(1000).as(i16)));
-    compt_assert(neg_quot == (-(100).as(i16)));
+    compt_assert(neg_sum == i16(500));
+    compt_assert(neg_diff == i16(-1500));
+    compt_assert(neg_prod == i16(-1000));
+    compt_assert(neg_quot == i16(-100));
     compt_assert(neg_lt == true);
     compt_assert(neg_gt == true);
   };
@@ -100,18 +100,18 @@ main :: (fn() -> unit) {
   // Test boundary values
   {
     // Operations with min value
-    min_sum :: (min_val + 1.as(i16));     // -32767i16
-    min_sub :: (min_val - 1.as(i16));     // overflow behavior
+    min_sum :: (min_val + i16(1));     // -32767i16
+    min_sub :: (min_val - i16(1));     // overflow behavior
     min_neg :: -(min_val);               // overflow: -(-32768) should be handled
     
     // Operations with max value
-    max_sum :: (max_val + 1.as(i16));     // overflow
-    max_sub :: (max_val - 1.as(i16));     // 32766i16
+    max_sum :: (max_val + i16(1));     // overflow
+    max_sub :: (max_val - i16(1));     // 32766i16
     max_neg :: -(max_val);               // -32767i16
     
-    compt_assert(min_sum == (-(32767).as(i16)));
-    compt_assert(max_sub == (32766.as(i16)));
-    compt_assert(max_neg == (-(32767).as(i16)));
+    compt_assert(min_sum == i16(-32767));
+    compt_assert(max_sub == i16(32766));
+    compt_assert(max_neg == i16(-32767));
     
     // Boundary comparisons
     compt_assert(min_val < max_val);
@@ -127,87 +127,87 @@ main :: (fn() -> unit) {
     zero_diff2 :: (zero - a);    // -1000i16
     zero_prod :: (zero * a);     // 0i16
     
-    compt_assert(zero_sum == (1000.as(i16)));
-    compt_assert(zero_diff1 == (1000.as(i16)));
-    compt_assert(zero_diff2 == (-(1000).as(i16)));
-    compt_assert(zero_prod == (0.as(i16)));
+    compt_assert(zero_sum == i16(1000));
+    compt_assert(zero_diff1 == i16(1000));
+    compt_assert(zero_diff2 == i16(-1000));
+    compt_assert(zero_prod == i16(0));
     
     // Identity operations
     identity_sum :: (a + zero);  // 1000i16
-    identity_prod :: (a * 1.as(i16));  // 1000i16
+    identity_prod :: (a * i16(1));  // 1000i16
     
-    compt_assert(identity_sum == (1000.as(i16)));
-    compt_assert(identity_prod == (1000.as(i16)));
+    compt_assert(identity_sum == i16(1000));
+    compt_assert(identity_prod == i16(1000));
     
     // Self operations
     self_sub :: (a - a);         // 0i16
     self_div :: (a / a);         // 1i16
     self_mod :: (a % a);         // 0i16
     
-    compt_assert(self_sub == (0.as(i16)));
-    compt_assert(self_div == (1.as(i16)));
-    compt_assert(self_mod == (0.as(i16)));
+    compt_assert(self_sub == i16(0));
+    compt_assert(self_div == i16(1));
+    compt_assert(self_mod == i16(0));
   };
   
   // Test large values
   {
-    large1 :: 20000.as(i16);
-    large2 :: 12000.as(i16);
+    large1 :: i16(20000);
+    large2 :: i16(12000);
     
     large_sum :: (large1 + large2);     // 32000i16
     large_diff :: (large1 - large2);    // 8000i16
-    large_div :: (large1 / 10.as(i16)); // 2000i16
-    large_mod :: (large1 % 7.as(i16));  // 6i16 (20000 % 7 = 1)
+    large_div :: (large1 / i16(10)); // 2000i16
+    large_mod :: (large1 % i16(7));  // 6i16 (20000 % 7 = 1)
     
-    compt_assert(large_sum == (32000.as(i16)));
-    compt_assert(large_diff == (8000.as(i16)));
-    compt_assert(large_div == (2000.as(i16)));
-    compt_assert(large_mod == (1.as(i16)));
+    compt_assert(large_sum == i16(32000));
+    compt_assert(large_diff == i16(8000));
+    compt_assert(large_div == i16(2000));
+    compt_assert(large_mod == i16(1));
   };
   
   // Test various divisions
   {
-    div1 :: (2000.as(i16) / 8.as(i16));       // 250i16
-    div2 :: (2001.as(i16) / 8.as(i16));       // 250i16 (integer division)
-    div3 :: (7.as(i16) / 100.as(i16));        // 0i16
+    div1 :: (i16(2000) / i16(8));       // 250i16
+    div2 :: (i16(2001) / i16(8));       // 250i16 (integer division)
+    div3 :: (i16(7) / i16(100));        // 0i16
     
     // Negative divisions
-    div4 :: (-(2000).as(i16) / 8.as(i16));    // -250i16
-    div5 :: (2000.as(i16) / -(8).as(i16));    // -250i16
-    div6 :: (-(2000).as(i16) / -(8).as(i16)); // 250i16
+    div4 :: (i16(-2000) / i16(8));    // -250i16
+    div5 :: (i16(2000) / i16(-8));    // -250i16
+    div6 :: (i16(-2000) / i16(-8)); // 250i16
     
-    compt_assert(div1 == (250.as(i16)));
-    compt_assert(div2 == (250.as(i16)));
-    compt_assert(div3 == (0.as(i16)));
-    compt_assert(div4 == (-(250).as(i16)));
-    compt_assert(div5 == (-(250).as(i16)));
-    compt_assert(div6 == (250.as(i16)));
+    compt_assert(div1 == i16(250));
+    compt_assert(div2 == i16(250));
+    compt_assert(div3 == i16(0));
+    compt_assert(div4 == i16(-250));
+    compt_assert(div5 == i16(-250));
+    compt_assert(div6 == i16(250));
   };
   
   // Test modulo operations
   {
-    mod1 :: (17.as(i16) % 5.as(i16));        // 2i16
-    mod2 :: (20.as(i16) % 4.as(i16));        // 0i16
-    mod3 :: (7.as(i16) % 10.as(i16));        // 7i16
+    mod1 :: (i16(17) % i16(5));        // 2i16
+    mod2 :: (i16(20) % i16(4));        // 0i16
+    mod3 :: (i16(7) % i16(10));        // 7i16
     
     // Negative modulo
-    mod4 :: (-(17).as(i16) % 5.as(i16));     // behavior depends on implementation
-    mod5 :: (17.as(i16) % -(5).as(i16));     // behavior depends on implementation
+    mod4 :: (i16(-17) % i16(5));     // behavior depends on implementation
+    mod5 :: (i16(17) % i16(-5));     // behavior depends on implementation
     
-    compt_assert(mod1 == (2.as(i16)));
-    compt_assert(mod2 == (0.as(i16)));
-    compt_assert(mod3 == (7.as(i16)));
+    compt_assert(mod1 == i16(2));
+    compt_assert(mod2 == i16(0));
+    compt_assert(mod3 == i16(7));
   };
   
   // Test chained operations
   {
-    chain1 :: ((a + b) / 2.as(i16));   // (1000i16 + 250i16) / 2i16 = 625i16
-    chain2 :: (a + (b * 2.as(i16)));   // 1000i16 + (250i16 * 2i16) = 1500i16
-    chain3 :: ((a / b) + 1.as(i16));   // (1000i16 / 250i16) + 1i16 = 5i16
+    chain1 :: ((a + b) / i16(2));   // (1000i16 + 250i16) / 2i16 = 625i16
+    chain2 :: (a + (b * i16(2)));   // 1000i16 + (250i16 * 2i16) = 1500i16
+    chain3 :: ((a / b) + i16(1));   // (1000i16 / 250i16) + 1i16 = 5i16
     
-    compt_assert(chain1 == (625.as(i16)));
-    compt_assert(chain2 == (1500.as(i16)));
-    compt_assert(chain3 == (5.as(i16)));
+    compt_assert(chain1 == i16(625));
+    compt_assert(chain2 == i16(1500));
+    compt_assert(chain3 == i16(5));
   };
   
   // Test string conversions

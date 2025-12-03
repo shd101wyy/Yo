@@ -1,11 +1,9 @@
-open import "../modules";
-
 rune :: newtype(
   c : u32,
 
   from_u32 :: ((fn(value: u32) -> Option(Self))
     cond(
-      ((value <= 0x10FFFF.as(u32)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
+      ((value <= u32(0x10FFFF)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
       true => .None
     )
   ),

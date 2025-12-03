@@ -1,78 +1,23 @@
-main :: (fn() -> unit) {
-  // Test 1: compt_int -> fixed-size integer types (compile-time)
-  {
-    x :: 300;
-    y :: i32(x);
-    z :: compt_int(y);
-    compt_assert((z == 300), "compt_int -> i32 -> compt_int roundtrip");
+(-) :: impl {
+  (neg) :: (fn(forall(_Self : Type),
+            self : _Self,
+            where(_Self <: Negate(_Self))
+          ) -> _Self) {
+    return self.neg();
   };
 
-  // Test 2: compt_int -> u8 boundary checking (should succeed within range)
-  {
-    a :: 0;
-    b :: u8(a);
-    c :: 255;
-    d :: u8(c);
-    compt_assert(((compt_int(b) == 0) && (compt_int(d) == 255)), "u8 boundary values");
+  (compt_neg) :: (fn(forall(_Self : Type), 
+          compt(self) : _Self,
+          where(_Self : ComptNegate(_Self))
+        ) -> compt(_Self)) {
+    return self.neg();
   };
 
-  // Test 3: compt_int -> i8 boundary checking (should succeed within range)
-  {
-    a :: (0 - 128);
-    b :: i8(a);
-    c :: 127;
-    d :: i8(c);
-    compt_assert(((compt_int(b) == (0 - 128)) && (compt_int(d) == 127)), "i8 boundary values");
-  };
+  Call :: (neg, compt_neg);
 
-  // Test 4: Boundary overflow errors
-  compt_expect_error(u8(256), "out of range");
-  compt_expect_error(u8((0 - 1)), "out of range");
-  compt_expect_error(i8(128), "out of range");
-  compt_expect_error(i8((0 - 129)), "out of range");
-  compt_expect_error(u16(65536), "out of range");
-  compt_expect_error(i16(32768), "out of range");
-
-  // Test 5: compt_float -> f32/f64
-  {
-    x :: 3.14;
-    y :: f64(x);
-    z :: f32(x);
-    compt_assert((compt_float(y) == 3.14), "compt_float -> f64 -> compt_float");
-  };
-
-  // Test 6: runtime -> runtime conversion
-  {
-    x := 12;       // runtime i32
-    y := u8(x);    // runtime u8
-    z := i64(y);   // runtime i64
-    w := f64(z);   // runtime f64
-  };
-
-  // Test 7: compt -> runtime (compile-time value used in runtime context)
-  {
-    x :: 42;
-    y := i32(x);   // compt_int -> runtime i32
-    z := u8(x);    // compt_int -> runtime u8
-  };
-
-  // Test 8: Different integer sizes
-  {
-    a :: 1000;
-    b :: i16(a);
-    c :: i32(b);
-    d :: i64(c);
-    e :: compt_int(d);
-    compt_assert((e == 1000), "i16 -> i32 -> i64 chain");
-  };
-
-  // Test 9: Unsigned integer conversions
-  {
-    a :: 50000;
-    b :: u16(a);
-    c :: u32(b);
-    d :: u64(c);
-    e :: compt_int(d);
-    compt_assert((e == 50000), "u16 -> u32 -> u64 chain");
-  };
+  export
+    Call,
+    neg,
+    compt_neg
+  ;
 };

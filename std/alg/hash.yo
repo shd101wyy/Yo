@@ -6,8 +6,8 @@
  * - FNV_OFFSET_BASIS: 14695981039346656037 (0xcbf29ce484222325)
  * - FNV_PRIME: 1099511628211 (0x100000001b3)
  */
-FNV_OFFSET_BASIS :: 14695981039346656037.as(u64);
-FNV_PRIME :: 1099511628211.as(u64);
+FNV_OFFSET_BASIS :: u64(14695981039346656037);
+FNV_PRIME :: u64(1099511628211);
 
 /**
  * Hash a sequence of bytes using FNV-1a
@@ -16,10 +16,10 @@ FNV_PRIME :: 1099511628211.as(u64);
 fnv1a_hash_bytes :: (fn(bytes: *(u8), length: usize) -> u64)
   {
     hash := FNV_OFFSET_BASIS;
-    i := (0).as(usize);
-    while(i < length, i = (i + (1).as(usize)), {
+    i := usize(0);
+    while(i < length, i = (i + usize(1)), {
       byte := (bytes + i).*;
-      xor := ((hash ^ byte.as(u64)));
+      xor := (hash ^ u64(byte));
       hash = (xor * FNV_PRIME);
     });
     return hash;
@@ -39,7 +39,7 @@ fnv1a_hash_bytes :: (fn(bytes: *(u8), length: usize) -> u64)
  * - It's been proven effective in Java's hashCode()
  */
 hash_combine :: (fn(hash: u64, other: u64) -> u64)
-  (((hash * (31).as(u64)) + other))
+  ((hash * u64(31)) + other)
 ;
 
 export

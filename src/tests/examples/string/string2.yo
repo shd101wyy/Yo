@@ -7,7 +7,7 @@ main :: (fn() -> unit) {
   printf("=== Test 1: Unicode Rune Creation ===\n");
   
   // Chinese characters
-  shi_opt := rune.from_u32((0x4E16).as(u32)); // '世'
+  shi_opt := rune.from_u32(u32(0x4E16)); // '世'
   match(shi_opt,
     .Some(shi) => {
       printf("Created rune '世' (Chinese)\n");
@@ -18,7 +18,7 @@ main :: (fn() -> unit) {
     }
   );
 
-  jie_opt := rune.from_u32((0x754C).as(u32)); // '界'
+  jie_opt := rune.from_u32(u32(0x754C)); // '界'
   match(jie_opt,
     .Some(jie) => {
       printf("Created rune '界' (Chinese)\n");
@@ -30,7 +30,7 @@ main :: (fn() -> unit) {
   );
 
   // Emoji
-  emoji_opt := rune.from_u32((0x1F600).as(u32)); // 😀
+  emoji_opt := rune.from_u32(u32(0x1F600)); // 😀
   match(emoji_opt,
     .Some(emoji) => {
       printf("Created rune 😀 (emoji)\n");
@@ -46,21 +46,21 @@ main :: (fn() -> unit) {
   
   chinese_bytes := ArrayList(u8).new();
   // '你' (U+4F60) = E4 BD A0 in UTF-8
-  chinese_bytes.push((0xE4).as(u8));
-  chinese_bytes.push((0xBD).as(u8));
-  chinese_bytes.push((0xA0).as(u8));
+  chinese_bytes.push(u8(0xE4));
+  chinese_bytes.push(u8(0xBD));
+  chinese_bytes.push(u8(0xA0));
   // '好' (U+597D) = E5 A5 BD in UTF-8
-  chinese_bytes.push((0xE5).as(u8));
-  chinese_bytes.push((0xA5).as(u8));
-  chinese_bytes.push((0xBD).as(u8));
+  chinese_bytes.push(u8(0xE5));
+  chinese_bytes.push(u8(0xA5));
+  chinese_bytes.push(u8(0xBD));
   // '世' (U+4E16) = E4 B8 96 in UTF-8
-  chinese_bytes.push((0xE4).as(u8));
-  chinese_bytes.push((0xB8).as(u8));
-  chinese_bytes.push((0x96).as(u8));
+  chinese_bytes.push(u8(0xE4));
+  chinese_bytes.push(u8(0xB8));
+  chinese_bytes.push(u8(0x96));
   // '界' (U+754C) = E7 95 8C in UTF-8
-  chinese_bytes.push((0xE7).as(u8));
-  chinese_bytes.push((0x95).as(u8));
-  chinese_bytes.push((0x8C).as(u8));
+  chinese_bytes.push(u8(0xE7));
+  chinese_bytes.push(u8(0x95));
+  chinese_bytes.push(u8(0x8C));
 
   chinese_result := String.from_utf8(chinese_bytes);
   match(chinese_result,
@@ -75,32 +75,32 @@ main :: (fn() -> unit) {
       // Test character access by index
       printf("\n  Character access:\n");
       
-      char0_opt := chinese_str.at((0).as(usize));
+      char0_opt := chinese_str.at(usize(0));
       match(char0_opt,
         .Some(char0) => printf("    [0] = '你' (U+%X)\n", char0.to_u32()),
         .None => printf("    [0] = Error\n")
       );
       
-      char1_opt := chinese_str.at((1).as(usize));
+      char1_opt := chinese_str.at(usize(1));
       match(char1_opt,
         .Some(char1) => printf("    [1] = '好' (U+%X)\n", char1.to_u32()),
         .None => printf("    [1] = Error\n")
       );
       
-      char2_opt := chinese_str.at((2).as(usize));
+      char2_opt := chinese_str.at(usize(2));
       match(char2_opt,
         .Some(char2) => printf("    [2] = '世' (U+%X)\n", char2.to_u32()),
         .None => printf("    [2] = Error\n")
       );
       
-      char3_opt := chinese_str.at((3).as(usize));
+      char3_opt := chinese_str.at(usize(3));
       match(char3_opt,
         .Some(char3) => printf("    [3] = '界' (U+%X)\n", char3.to_u32()),
         .None => printf("    [3] = Error\n")
       );
       
       // Out of bounds
-      char4_opt := chinese_str.at((4).as(usize));
+      char4_opt := chinese_str.at(usize(4));
       match(char4_opt,
         .Some(_) => printf("    [4] = Should be None!\n"),
         .None => printf("    [4] = None (out of bounds, correct)\n")
@@ -114,19 +114,19 @@ main :: (fn() -> unit) {
   
   mixed_bytes := ArrayList(u8).new();
   // "Hello世界"
-  mixed_bytes.push((0x48).as(u8)); // 'H'
-  mixed_bytes.push((0x65).as(u8)); // 'e'
-  mixed_bytes.push((0x6C).as(u8)); // 'l'
-  mixed_bytes.push((0x6C).as(u8)); // 'l'
-  mixed_bytes.push((0x6F).as(u8)); // 'o'
+  mixed_bytes.push(u8(0x48)); // 'H'
+  mixed_bytes.push(u8(0x65)); // 'e'
+  mixed_bytes.push(u8(0x6C)); // 'l'
+  mixed_bytes.push(u8(0x6C)); // 'l'
+  mixed_bytes.push(u8(0x6F)); // 'o'
   // '世' (U+4E16) = E4 B8 96
-  mixed_bytes.push((0xE4).as(u8));
-  mixed_bytes.push((0xB8).as(u8));
-  mixed_bytes.push((0x96).as(u8));
+  mixed_bytes.push(u8(0xE4));
+  mixed_bytes.push(u8(0xB8));
+  mixed_bytes.push(u8(0x96));
   // '界' (U+754C) = E7 95 8C
-  mixed_bytes.push((0xE7).as(u8));
-  mixed_bytes.push((0x95).as(u8));
-  mixed_bytes.push((0x8C).as(u8));
+  mixed_bytes.push(u8(0xE7));
+  mixed_bytes.push(u8(0x95));
+  mixed_bytes.push(u8(0x8C));
 
   mixed_result := String.from_utf8(mixed_bytes);
   match(mixed_result,
@@ -136,14 +136,14 @@ main :: (fn() -> unit) {
       printf("  Character length: %zu (expected: 7)\n", mixed_str.length());
       
       // Access ASCII character
-      char0_opt := mixed_str.at((0).as(usize));
+      char0_opt := mixed_str.at(usize(0));
       match(char0_opt,
         .Some(char0) => printf("  [0] = 'H' (U+%X)\n", char0.to_u32()),
         .None => printf("  [0] = Error\n")
       );
       
       // Access Unicode character
-      char5_opt := mixed_str.at((5).as(usize));
+      char5_opt := mixed_str.at(usize(5));
       match(char5_opt,
         .Some(char5) => printf("  [5] = '世' (U+%X)\n", char5.to_u32()),
         .None => printf("  [5] = Error\n")
@@ -157,15 +157,15 @@ main :: (fn() -> unit) {
   
   emoji_bytes := ArrayList(u8).new();
   // 😀 (U+1F600) = F0 9F 98 80 in UTF-8
-  emoji_bytes.push((0xF0).as(u8));
-  emoji_bytes.push((0x9F).as(u8));
-  emoji_bytes.push((0x98).as(u8));
-  emoji_bytes.push((0x80).as(u8));
+  emoji_bytes.push(u8(0xF0));
+  emoji_bytes.push(u8(0x9F));
+  emoji_bytes.push(u8(0x98));
+  emoji_bytes.push(u8(0x80));
   // 🌍 (U+1F30D) = F0 9F 8C 8D in UTF-8
-  emoji_bytes.push((0xF0).as(u8));
-  emoji_bytes.push((0x9F).as(u8));
-  emoji_bytes.push((0x8C).as(u8));
-  emoji_bytes.push((0x8D).as(u8));
+  emoji_bytes.push(u8(0xF0));
+  emoji_bytes.push(u8(0x9F));
+  emoji_bytes.push(u8(0x8C));
+  emoji_bytes.push(u8(0x8D));
 
   emoji_str_result := String.from_utf8(emoji_bytes);
   match(emoji_str_result,
@@ -174,13 +174,13 @@ main :: (fn() -> unit) {
       printf("  Byte length: %zu (expected: 8)\n", emoji_str.as_bytes().length());
       printf("  Character length: %zu (expected: 2)\n", emoji_str.length());
       
-      char0_opt := emoji_str.at((0).as(usize));
+      char0_opt := emoji_str.at(usize(0));
       match(char0_opt,
         .Some(char0) => printf("  [0] = 😀 (U+%X)\n", char0.to_u32()),
         .None => printf("  [0] = Error\n")
       );
       
-      char1_opt := emoji_str.at((1).as(usize));
+      char1_opt := emoji_str.at(usize(1));
       match(char1_opt,
         .Some(char1) => printf("  [1] = 🌍 (U+%X)\n", char1.to_u32()),
         .None => printf("  [1] = Error\n")

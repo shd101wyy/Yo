@@ -6,7 +6,7 @@ test_basic_insert_and_get :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  result := map.set(1.as(i32), 100.as(i32));
+  result := map.set(i32(1), i32(100));
   match(result,
     .Ok(opt) => match(opt,
       .None => { printf("✓ Inserted new key: 1 -> 100\n"); },
@@ -15,10 +15,10 @@ test_basic_insert_and_get :: (fn() -> unit) {
     .Error(_) => panic("Insert failed")
   );
   
-  value_opt := map.get(1.as(i32));
+  value_opt := map.get(i32(1));
   match(value_opt,
     .Some(v) => cond(
-      (v == 100.as(i32)) => {
+      (v == i32(100)) => {
         printf("✓ Retrieved value: 100\n");
       },
       true => {
@@ -36,13 +36,13 @@ test_update_existing_key :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.set(42.as(i32), 1.as(i32));
+  map.set(i32(42), i32(1));
   
-  result := map.set(42.as(i32), 2.as(i32));
+  result := map.set(i32(42), i32(2));
   match(result,
     .Ok(opt) => match(opt,
       .Some(old_val) => cond(
-        (old_val == 1.as(i32)) => {
+        (old_val == i32(1)) => {
           printf("✓ Got old value: 1\n");
         },
         true => {
@@ -54,10 +54,10 @@ test_update_existing_key :: (fn() -> unit) {
     .Error(_) => panic("Update failed")
   );
   
-  value_opt := map.get(42.as(i32));
+  value_opt := map.get(i32(42));
   match(value_opt,
     .Some(v) => cond(
-      (v == 2.as(i32)) => {
+      (v == i32(2)) => {
         printf("✓ Updated value: 2\n");
       },
       true => {
@@ -75,13 +75,13 @@ test_remove :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.set(10.as(i32), 20.as(i32));
-  map.set(30.as(i32), 40.as(i32));
+  map.set(i32(10), i32(20));
+  map.set(i32(30), i32(40));
   
-  removed := map.remove(10.as(i32));
+  removed := map.remove(i32(10));
   match(removed,
     .Some(v) => cond(
-      (v == 20.as(i32)) => {
+      (v == i32(20)) => {
         printf("✓ Removed value: 20\n");
       },
       true => panic("Wrong removed value")
@@ -89,7 +89,7 @@ test_remove :: (fn() -> unit) {
     .None => panic("Expected Some value")
   );
   
-  check := map.get(10.as(i32));
+  check := map.get(i32(10));
   match(check,
     .None => { 
       printf("✓ Key no longer exists\n");
@@ -97,10 +97,10 @@ test_remove :: (fn() -> unit) {
     .Some(_) => panic("Key should be removed")
   );
   
-  still_exists := map.get(30.as(i32));
+  still_exists := map.get(i32(30));
   match(still_exists,
     .Some(v) => cond(
-      (v == 40.as(i32)) => {
+      (v == i32(40)) => {
         printf("✓ Other key still exists\n");
       },
       true => panic("Wrong value")
@@ -116,17 +116,17 @@ test_contains_key :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.set(5.as(i32), 10.as(i32));
+  map.set(i32(5), i32(10));
   
   cond(
-    (map.has(5.as(i32))) => {
+    (map.has(i32(5))) => {
       printf("✓ Contains key 5\n");
     },
     true => panic("Should contain key 5")
   );
   
   cond(
-    (map.has(99.as(i32))) => panic("Should not contain key 99"),
+    (map.has(i32(99))) => panic("Should not contain key 99"),
     true => {
       printf("✓ Does not contain key 99\n");
     }
@@ -140,26 +140,26 @@ test_resize :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  i := (0).as(i32);
-  while(i < (20).as(i32), i = (i + (1).as(i32)), {
-    map.set(i, (i * (2).as(i32)));
+  i := i32(0);
+  while(i < i32(20), i = (i + i32(1)), {
+    map.set(i, (i * i32(2)));
   });
   
   printf("✓ Inserted 20 elements (triggers resize)\n");
   
   cond(
-    (map.length() == (20).as(usize)) => {
+    (map.length() == usize(20)) => {
       printf("✓ Length is 20\n");
     },
     true => panic("Wrong length")
   );
   
-  j := (0).as(i32);
-  while(j < (20).as(i32), j = (j + (1).as(i32)), {
+  j := i32(0);
+  while(j < i32(20), j = (j + i32(1)), {
     value_opt := map.get(j);
     match(value_opt,
       .Some(v) => cond(
-        (v == (j * (2).as(i32))) => (),
+        (v == (j * i32(2))) => (),
         true => panic("Wrong value after resize")
       ),
       .None => panic("Key not found after resize")
@@ -174,14 +174,14 @@ test_multiple_insertions :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.set(1.as(i32), 10.as(i32));
-  map.set(2.as(i32), 20.as(i32));
-  map.set(3.as(i32), 30.as(i32));
-  map.set(4.as(i32), 40.as(i32));
-  map.set(5.as(i32), 50.as(i32));
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  map.set(i32(3), i32(30));
+  map.set(i32(4), i32(40));
+  map.set(i32(5), i32(50));
   
   cond(
-    (map.length() == (5).as(usize)) => {
+    (map.length() == usize(5)) => {
       printf("✓ Length is 5\n");
     },
     true => panic("Wrong length")
@@ -197,7 +197,7 @@ test_multiple_insertions :: (fn() -> unit) {
   map.clear();
   
   cond(
-    (map.length() == (0).as(usize)) => {
+    (map.length() == usize(0)) => {
       printf("✓ Length is 0 after clear\n");
     },
     true => panic("Wrong length after clear")
@@ -218,17 +218,17 @@ test_collision_handling :: (fn() -> unit) {
   
   map := HashMap(i32, i32, i32.Eq, i32.Hash).new();
   
-  map.set(16.as(i32), 1.as(i32));
-  map.set(32.as(i32), 2.as(i32));
-  map.set(48.as(i32), 3.as(i32));
+  map.set(i32(16), i32(1));
+  map.set(i32(32), i32(2));
+  map.set(i32(48), i32(3));
   
-  v1 := map.get(16.as(i32));
-  v2 := map.get(32.as(i32));
-  v3 := map.get(48.as(i32));
+  v1 := map.get(i32(16));
+  v2 := map.get(i32(32));
+  v3 := map.get(i32(48));
   
   match(v1,
     .Some(v) => cond(
-      (v == 1.as(i32)) => {
+      (v == i32(1)) => {
         printf("✓ Key 16 has value 1\n");
       },
       true => panic("Wrong value for key 16")
@@ -238,7 +238,7 @@ test_collision_handling :: (fn() -> unit) {
   
   match(v2,
     .Some(v) => cond(
-      (v == 2.as(i32)) => {
+      (v == i32(2)) => {
         printf("✓ Key 32 has value 2\n");
       },
       true => panic("Wrong value for key 32")
@@ -248,7 +248,7 @@ test_collision_handling :: (fn() -> unit) {
   
   match(v3,
     .Some(v) => cond(
-      (v == 3.as(i32)) => {
+      (v == i32(3)) => {
         printf("✓ Key 48 has value 3\n");
       },
       true => panic("Wrong value for key 48")

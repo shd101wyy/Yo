@@ -7,7 +7,7 @@ test_new_empty_list :: (fn() -> unit) {
   list := LinkedList(i32).new();
   
   assert(list.is_empty(), "New list should be empty");
-  assert((list.len() == (0).as(usize)), "New list length should be 0");
+  assert((list.len() == usize(0)), "New list length should be 0");
   
   match(list.front(),
     .None => { printf("✓ Empty list has no front\n"); },
@@ -27,20 +27,20 @@ test_push_front :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_front(1.as(i32));
-  list.push_front(2.as(i32));
-  list.push_front(3.as(i32));
+  list.push_front(i32(1));
+  list.push_front(i32(2));
+  list.push_front(i32(3));
   
-  assert((list.len() == (3).as(usize)), "Length should be 3");
+  assert((list.len() == usize(3)), "Length should be 3");
   assert((list.is_empty() == false), "List should not be empty");
   
   match(list.front(),
-    .Some(v) => assert((v == 3.as(i32)), "Front should be 3"),
+    .Some(v) => assert((v == i32(3)), "Front should be 3"),
     .None => panic("Front should exist")
   );
   
   match(list.back(),
-    .Some(v) => assert((v == 1.as(i32)), "Back should be 1"),
+    .Some(v) => assert((v == i32(1)), "Back should be 1"),
     .None => panic("Back should exist")
   );
   
@@ -52,19 +52,19 @@ test_push_back :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(1.as(i32));
-  list.push_back(2.as(i32));
-  list.push_back(3.as(i32));
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
   
-  assert((list.len() == (3).as(usize)), "Length should be 3");
+  assert((list.len() == usize(3)), "Length should be 3");
   
   match(list.front(),
-    .Some(v) => assert((v == 1.as(i32)), "Front should be 1"),
+    .Some(v) => assert((v == i32(1)), "Front should be 1"),
     .None => panic("Front should exist")
   );
   
   match(list.back(),
-    .Some(v) => assert((v == 3.as(i32)), "Back should be 3"),
+    .Some(v) => assert((v == i32(3)), "Back should be 3"),
     .None => panic("Back should exist")
   );
   
@@ -76,36 +76,36 @@ test_pop_front :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(1.as(i32));
-  list.push_back(2.as(i32));
-  list.push_back(3.as(i32));
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
   
   match(list.pop_front(),
     .Some(v) => {
-      assert((v == 1.as(i32)), "Popped value should be 1");
+      assert((v == i32(1)), "Popped value should be 1");
       printf("✓ Popped front: 1\n");
     },
     .None => panic("Should pop a value")
   );
   
-  assert((list.len() == (2).as(usize)), "Length should be 2 after pop");
+  assert((list.len() == usize(2)), "Length should be 2 after pop");
   
   match(list.front(),
-    .Some(v) => assert((v == 2.as(i32)), "New front should be 2"),
+    .Some(v) => assert((v == i32(2)), "New front should be 2"),
     .None => panic("Front should exist")
   );
   
   match(list.pop_front(),
-    .Some(v) => assert((v == 2.as(i32)), "Popped value should be 2"),
+    .Some(v) => assert((v == i32(2)), "Popped value should be 2"),
     .None => panic("Should pop a value")
   );
   
   match(list.pop_front(),
-    .Some(v) => assert((v == 3.as(i32)), "Popped value should be 3"),
+    .Some(v) => assert((v == i32(3)), "Popped value should be 3"),
     .None => panic("Should pop a value")
   );
   
-  assert((list.len() == (0).as(usize)), "List should be empty");
+  assert((list.len() == usize(0)), "List should be empty");
   assert(list.is_empty(), "List should be empty");
   
   match(list.pop_front(),
@@ -121,22 +121,22 @@ test_pop_back :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(1.as(i32));
-  list.push_back(2.as(i32));
-  list.push_back(3.as(i32));
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
   
   match(list.pop_back(),
     .Some(v) => {
-      assert((v == 3.as(i32)), "Popped value should be 3");
+      assert((v == i32(3)), "Popped value should be 3");
       printf("✓ Popped back: 3\n");
     },
     .None => panic("Should pop a value")
   );
   
-  assert((list.len() == (2).as(usize)), "Length should be 2 after pop");
+  assert((list.len() == usize(2)), "Length should be 2 after pop");
   
   match(list.back(),
-    .Some(v) => assert((v == 2.as(i32)), "New back should be 2"),
+    .Some(v) => assert((v == i32(2)), "New back should be 2"),
     .None => panic("Back should exist")
   );
   
@@ -148,28 +148,28 @@ test_get :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(10.as(i32));
-  list.push_back(20.as(i32));
-  list.push_back(30.as(i32));
-  list.push_back(40.as(i32));
-  list.push_back(50.as(i32));
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  list.push_back(i32(40));
+  list.push_back(i32(50));
   
-  match(list.get((0).as(usize)),
-    .Some(v) => assert((v == 10.as(i32)), "Index 0 should be 10"),
+  match(list.get(usize(0)),
+    .Some(v) => assert((v == i32(10)), "Index 0 should be 10"),
     .None => panic("Index 0 should exist")
   );
   
-  match(list.get((2).as(usize)),
-    .Some(v) => assert((v == 30.as(i32)), "Index 2 should be 30"),
+  match(list.get(usize(2)),
+    .Some(v) => assert((v == i32(30)), "Index 2 should be 30"),
     .None => panic("Index 2 should exist")
   );
   
-  match(list.get((4).as(usize)),
-    .Some(v) => assert((v == 50.as(i32)), "Index 4 should be 50"),
+  match(list.get(usize(4)),
+    .Some(v) => assert((v == i32(50)), "Index 4 should be 50"),
     .None => panic("Index 4 should exist")
   );
   
-  match(list.get((10).as(usize)),
+  match(list.get(usize(10)),
     .None => { printf("✓ Out of bounds index returns None\n"); },
     .Some(_) => panic("Out of bounds should return None")
   );
@@ -182,52 +182,52 @@ test_insert :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(10.as(i32));
-  list.push_back(30.as(i32));
+  list.push_back(i32(10));
+  list.push_back(i32(30));
   
-  match(list.insert((1).as(usize), 20.as(i32)),
+  match(list.insert(usize(1), i32(20)),
     .Ok(_) => { printf("✓ Inserted 20 at index 1\n"); },
     .Error(_) => panic("Insert should succeed")
   );
   
-  assert((list.len() == (3).as(usize)), "Length should be 3");
+  assert((list.len() == usize(3)), "Length should be 3");
   
-  match(list.get((0).as(usize)),
-    .Some(v) => assert((v == 10.as(i32)), "Index 0 should be 10"),
+  match(list.get(usize(0)),
+    .Some(v) => assert((v == i32(10)), "Index 0 should be 10"),
     .None => panic("Index 0 should exist")
   );
   
-  match(list.get((1).as(usize)),
-    .Some(v) => assert((v == 20.as(i32)), "Index 1 should be 20"),
+  match(list.get(usize(1)),
+    .Some(v) => assert((v == i32(20)), "Index 1 should be 20"),
     .None => panic("Index 1 should exist")
   );
   
-  match(list.get((2).as(usize)),
-    .Some(v) => assert((v == 30.as(i32)), "Index 2 should be 30"),
+  match(list.get(usize(2)),
+    .Some(v) => assert((v == i32(30)), "Index 2 should be 30"),
     .None => panic("Index 2 should exist")
   );
   
-  match(list.insert((0).as(usize), 5.as(i32)),
+  match(list.insert(usize(0), i32(5)),
     .Ok(_) => { printf("✓ Inserted 5 at index 0\n"); },
     .Error(_) => panic("Insert at front should succeed")
   );
   
   match(list.front(),
-    .Some(v) => assert((v == 5.as(i32)), "Front should be 5"),
+    .Some(v) => assert((v == i32(5)), "Front should be 5"),
     .None => panic("Front should exist")
   );
   
-  match(list.insert((4).as(usize), 40.as(i32)),
+  match(list.insert(usize(4), i32(40)),
     .Ok(_) => { printf("✓ Inserted 40 at end\n"); },
     .Error(_) => panic("Insert at end should succeed")
   );
   
   match(list.back(),
-    .Some(v) => assert((v == 40.as(i32)), "Back should be 40"),
+    .Some(v) => assert((v == i32(40)), "Back should be 40"),
     .None => panic("Back should exist")
   );
   
-  match(list.insert((100).as(usize), 999.as(i32)),
+  match(list.insert(usize(100), i32(999)),
     .Error(err) => match(err,
       .IndexOutOfBounds(index, length) => {
         printf("✓ Insert out of bounds returns error\n");
@@ -245,38 +245,38 @@ test_remove :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(10.as(i32));
-  list.push_back(20.as(i32));
-  list.push_back(30.as(i32));
-  list.push_back(40.as(i32));
-  list.push_back(50.as(i32));
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  list.push_back(i32(40));
+  list.push_back(i32(50));
   
-  match(list.remove((2).as(usize)),
+  match(list.remove(usize(2)),
     .Ok(v) => {
-      assert((v == 30.as(i32)), "Removed value should be 30");
+      assert((v == i32(30)), "Removed value should be 30");
       printf("✓ Removed value at index 2: 30\n");
     },
     .Error(_) => panic("Remove should succeed")
   );
   
-  assert((list.len() == (4).as(usize)), "Length should be 4");
+  assert((list.len() == usize(4)), "Length should be 4");
   
-  match(list.get((2).as(usize)),
-    .Some(v) => assert((v == 40.as(i32)), "New value at index 2 should be 40"),
+  match(list.get(usize(2)),
+    .Some(v) => assert((v == i32(40)), "New value at index 2 should be 40"),
     .None => panic("Index 2 should exist")
   );
   
-  match(list.remove((0).as(usize)),
-    .Ok(v) => assert((v == 10.as(i32)), "Removed front should be 10"),
+  match(list.remove(usize(0)),
+    .Ok(v) => assert((v == i32(10)), "Removed front should be 10"),
     .Error(_) => panic("Remove front should succeed")
   );
   
-  match(list.remove((2).as(usize)),
-    .Ok(v) => assert((v == 50.as(i32)), "Removed back should be 50"),
+  match(list.remove(usize(2)),
+    .Ok(v) => assert((v == i32(50)), "Removed back should be 50"),
     .Error(_) => panic("Remove back should succeed")
   );
   
-  match(list.remove((10).as(usize)),
+  match(list.remove(usize(10)),
     .Error(err) => match(err,
       .IndexOutOfBounds(index, length) => {
         printf("✓ Remove out of bounds returns error\n");
@@ -294,17 +294,17 @@ test_clear :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(1.as(i32));
-  list.push_back(2.as(i32));
-  list.push_back(3.as(i32));
-  list.push_back(4.as(i32));
-  list.push_back(5.as(i32));
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  list.push_back(i32(4));
+  list.push_back(i32(5));
   
-  assert((list.len() == (5).as(usize)), "Length should be 5");
+  assert((list.len() == usize(5)), "Length should be 5");
   
   list.clear();
   
-  assert((list.len() == (0).as(usize)), "Length should be 0 after clear");
+  assert((list.len() == usize(0)), "Length should be 0 after clear");
   assert(list.is_empty(), "List should be empty after clear");
   
   match(list.front(),
@@ -325,20 +325,20 @@ test_contains :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(10.as(i32));
-  list.push_back(20.as(i32));
-  list.push_back(30.as(i32));
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
   
-  assert(list.has(20.as(i32), i32.Eq), "List should contain 20");
+  assert(list.has(i32(20), i32.Eq), "List should contain 20");
   printf("✓ List contains 20\n");
   
-  assert(list.has(10.as(i32), i32.Eq), "List should contain 10");
+  assert(list.has(i32(10), i32.Eq), "List should contain 10");
   printf("✓ List contains 10\n");
   
-  assert(list.has(30.as(i32), i32.Eq), "List should contain 30");
+  assert(list.has(i32(30), i32.Eq), "List should contain 30");
   printf("✓ List contains 30\n");
   
-  assert((list.has(99.as(i32), i32.Eq) == false), "List should not contain 99");
+  assert((list.has(i32(99), i32.Eq) == false), "List should not contain 99");
   printf("✓ List does not contain 99\n");
   
   printf("✓ Contains works\n");
@@ -349,46 +349,46 @@ test_reverse :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_back(1.as(i32));
-  list.push_back(2.as(i32));
-  list.push_back(3.as(i32));
-  list.push_back(4.as(i32));
-  list.push_back(5.as(i32));
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  list.push_back(i32(4));
+  list.push_back(i32(5));
   
   list.reverse();
   
-  match(list.get((0).as(usize)),
-    .Some(v) => assert((v == 5.as(i32)), "Index 0 should be 5 after reverse"),
+  match(list.get(usize(0)),
+    .Some(v) => assert((v == i32(5)), "Index 0 should be 5 after reverse"),
     .None => panic("Index 0 should exist")
   );
   
-  match(list.get((1).as(usize)),
-    .Some(v) => assert((v == 4.as(i32)), "Index 1 should be 4 after reverse"),
+  match(list.get(usize(1)),
+    .Some(v) => assert((v == i32(4)), "Index 1 should be 4 after reverse"),
     .None => panic("Index 1 should exist")
   );
   
-  match(list.get((2).as(usize)),
-    .Some(v) => assert((v == 3.as(i32)), "Index 2 should be 3 after reverse"),
+  match(list.get(usize(2)),
+    .Some(v) => assert((v == i32(3)), "Index 2 should be 3 after reverse"),
     .None => panic("Index 2 should exist")
   );
   
-  match(list.get((3).as(usize)),
-    .Some(v) => assert((v == 2.as(i32)), "Index 3 should be 2 after reverse"),
+  match(list.get(usize(3)),
+    .Some(v) => assert((v == i32(2)), "Index 3 should be 2 after reverse"),
     .None => panic("Index 3 should exist")
   );
   
-  match(list.get((4).as(usize)),
-    .Some(v) => assert((v == 1.as(i32)), "Index 4 should be 1 after reverse"),
+  match(list.get(usize(4)),
+    .Some(v) => assert((v == i32(1)), "Index 4 should be 1 after reverse"),
     .None => panic("Index 4 should exist")
   );
   
   match(list.front(),
-    .Some(v) => assert((v == 5.as(i32)), "Front should be 5 after reverse"),
+    .Some(v) => assert((v == i32(5)), "Front should be 5 after reverse"),
     .None => panic("Front should exist")
   );
   
   match(list.back(),
-    .Some(v) => assert((v == 1.as(i32)), "Back should be 1 after reverse"),
+    .Some(v) => assert((v == i32(1)), "Back should be 1 after reverse"),
     .None => panic("Back should exist")
   );
   
@@ -400,21 +400,21 @@ test_mixed_operations :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_front(3.as(i32));
-  list.push_back(4.as(i32));
-  list.push_front(2.as(i32));
-  list.push_back(5.as(i32));
-  list.push_front(1.as(i32));
+  list.push_front(i32(3));
+  list.push_back(i32(4));
+  list.push_front(i32(2));
+  list.push_back(i32(5));
+  list.push_front(i32(1));
   
-  assert((list.len() == (5).as(usize)), "Length should be 5");
+  assert((list.len() == usize(5)), "Length should be 5");
   
-  match(list.get((0).as(usize)),
-    .Some(v) => assert((v == 1.as(i32)), "Element 0 should be 1"),
+  match(list.get(usize(0)),
+    .Some(v) => assert((v == i32(1)), "Element 0 should be 1"),
     .None => panic("Index 0 should exist")
   );
   
-  match(list.get((4).as(usize)),
-    .Some(v) => assert((v == 5.as(i32)), "Element 4 should be 5"),
+  match(list.get(usize(4)),
+    .Some(v) => assert((v == i32(5)), "Element 4 should be 5"),
     .None => panic("Index 4 should exist")
   );
   
@@ -425,15 +425,15 @@ test_mixed_operations :: (fn() -> unit) {
     _ := list.pop_back();
   };
   
-  assert((list.len() == (3).as(usize)), "Length should be 3");
+  assert((list.len() == usize(3)), "Length should be 3");
   
   match(list.front(),
-    .Some(v) => assert((v == 2.as(i32)), "Front should be 2"),
+    .Some(v) => assert((v == i32(2)), "Front should be 2"),
     .None => panic("Front should exist")
   );
   
   match(list.back(),
-    .Some(v) => assert((v == 4.as(i32)), "Back should be 4"),
+    .Some(v) => assert((v == i32(4)), "Back should be 4"),
     .None => panic("Back should exist")
   );
   
@@ -445,22 +445,22 @@ test_single_element :: (fn() -> unit) {
   
   list := LinkedList(i32).new();
   
-  list.push_front(42.as(i32));
+  list.push_front(i32(42));
   
-  assert((list.len() == (1).as(usize)), "Length should be 1");
+  assert((list.len() == usize(1)), "Length should be 1");
   
   match(list.front(),
-    .Some(v) => assert((v == 42.as(i32)), "Front should be 42"),
+    .Some(v) => assert((v == i32(42)), "Front should be 42"),
     .None => panic("Front should exist")
   );
   
   match(list.back(),
-    .Some(v) => assert((v == 42.as(i32)), "Back should be 42"),
+    .Some(v) => assert((v == i32(42)), "Back should be 42"),
     .None => panic("Back should exist")
   );
   
   match(list.pop_front(),
-    .Some(v) => assert((v == 42.as(i32)), "Popped value should be 42"),
+    .Some(v) => assert((v == i32(42)), "Popped value should be 42"),
     .None => panic("Should pop value")
   );
   

@@ -6,11 +6,11 @@ open import "std";
  */
 main :: (fn() -> unit) {
   // Basic u32 values
-  a :: 100000.as(u32);
-  b :: 25000.as(u32);
-  c :: 100000.as(u32);
-  zero :: 0.as(u32);
-  max_val :: 4294967295.as(u32);
+  a :: u32(100000);
+  b :: u32(25000);
+  c :: u32(100000);
+  zero :: u32(0);
+  max_val :: u32(4294967295);
   
   // Arithmetic operations
   sum :: (a + b);        // 125000u32
@@ -34,19 +34,19 @@ main :: (fn() -> unit) {
   gte_equal :: (a >= c); // true (100000u32 >= 100000u32)
   
   // Type conversion operations
-  u32_to_u64 :: a.as(u64);      // 100000u64
-  u32_to_i64 :: a.as(i64);      // 100000i64
-  u32_to_f32 :: a.as(f32);      // 100000.0f32
-  u32_to_f64 :: a.as(f64);      // 100000.0f64
+  u32_to_u64 :: u64(a);      // 100000u64
+  u32_to_i64 :: i64(a);      // 100000i64
+  u32_to_f32 :: f32(a);      // 100000.0f32
+  u32_to_f64 :: f64(a);      // 100000.0f64
   u32_to_string :: a.to_string(); // "100000"
   
   // Test with compile-time assertions
   // Arithmetic
-  compt_assert(sum == (125000.as(u32)));
-  compt_assert(diff == (75000.as(u32)));
-  compt_assert(prod == (2500000000.as(u32)));
-  compt_assert(quot == (4.as(u32)));
-  compt_assert(remainder == (0.as(u32)));
+  compt_assert(sum == u32(125000));
+  compt_assert(diff == u32(75000));
+  compt_assert(prod == u32(2500000000));
+  compt_assert(quot == u32(4));
+  compt_assert(remainder == u32(0));
   
   // Comparisons
   compt_assert(eq_test == true);
@@ -63,32 +63,32 @@ main :: (fn() -> unit) {
   compt_assert(gte_equal == true);
   
   // Type conversions
-  compt_assert(u32_to_u64 == (100000.as(u64)));
-  compt_assert(u32_to_i64 == (100000.as(i64)));
-  compt_assert(u32_to_f32 == (100000.0.as(f32)));
-  compt_assert(u32_to_f64 == (100000.0.as(f64)));
+  compt_assert(u32_to_u64 == u64(100000));
+  compt_assert(u32_to_i64 == i64(100000));
+  compt_assert(u32_to_f32 == f32(100000.0));
+  compt_assert(u32_to_f64 == f64(100000.0));
   compt_assert(u32_to_string == "100000");
   
   // Test boundary values
   {
-    min_val :: 0.as(u32);
+    min_val :: u32(0);
     
     // Operations with min value
-    min_sum :: (min_val + 1.as(u32));     // 1u32
-    min_sub :: (min_val - 1.as(u32));     // underflow wraps to max
-    min_mult :: (min_val * 500000.as(u32));  // 0u32
+    min_sum :: (min_val + u32(1));     // 1u32
+    min_sub :: (min_val - u32(1));     // underflow wraps to max
+    min_mult :: (min_val * u32(500000));  // 0u32
     
     // Operations with max value
-    max_sum :: (max_val + 1.as(u32));     // 0u32 (overflow wraps)
-    max_sub :: (max_val - 1.as(u32));     // 4294967294u32
-    max_div :: (max_val / 100.as(u32));   // 42949672u32
-    max_mod :: (max_val % 1000.as(u32));  // 295u32
+    max_sum :: (max_val + u32(1));     // 0u32 (overflow wraps)
+    max_sub :: (max_val - u32(1));     // 4294967294u32
+    max_div :: (max_val / u32(100));   // 42949672u32
+    max_mod :: (max_val % u32(1000));  // 295u32
     
-    compt_assert(min_sum == (1.as(u32)));
-    compt_assert(min_mult == (0.as(u32)));
-    compt_assert(max_sub == (4294967294.as(u32)));
-    compt_assert(max_div == (42949672.as(u32)));
-    compt_assert(max_mod == (295.as(u32)));
+    compt_assert(min_sum == u32(1));
+    compt_assert(min_mult == u32(0));
+    compt_assert(max_sub == u32(4294967294));
+    compt_assert(max_div == u32(42949672));
+    compt_assert(max_mod == u32(295));
     
     // Boundary comparisons
     compt_assert(min_val < max_val);
@@ -104,95 +104,95 @@ main :: (fn() -> unit) {
     zero_diff2 :: (zero - a);    // underflow behavior
     zero_prod :: (zero * a);     // 0u32
     
-    compt_assert(zero_sum == (100000.as(u32)));
-    compt_assert(zero_diff1 == (100000.as(u32)));
-    compt_assert(zero_prod == (0.as(u32)));
+    compt_assert(zero_sum == u32(100000));
+    compt_assert(zero_diff1 == u32(100000));
+    compt_assert(zero_prod == u32(0));
     
     // Identity operations
     identity_sum :: (a + zero);  // 100000u32
-    identity_prod :: (a * 1.as(u32));  // 100000u32
+    identity_prod :: (a * u32(1));  // 100000u32
     
-    compt_assert(identity_sum == (100000.as(u32)));
-    compt_assert(identity_prod == (100000.as(u32)));
+    compt_assert(identity_sum == u32(100000));
+    compt_assert(identity_prod == u32(100000));
     
     // Self operations
     self_sub :: (a - a);         // 0u32
     self_div :: (a / a);         // 1u32
     self_mod :: (a % a);         // 0u32
     
-    compt_assert(self_sub == (0.as(u32)));
-    compt_assert(self_div == (1.as(u32)));
-    compt_assert(self_mod == (0.as(u32)));
+    compt_assert(self_sub == u32(0));
+    compt_assert(self_div == u32(1));
+    compt_assert(self_mod == u32(0));
   };
   
   // Test large values
   {
-    large1 :: 2000000000.as(u32);
-    large2 :: 1500000000.as(u32);
+    large1 :: u32(2000000000);
+    large2 :: u32(1500000000);
     
     large_sum :: (large1 + large2);     // 3500000000u32
     large_diff :: (large1 - large2);    // 500000000u32
-    large_div :: (large1 / 1000.as(u32)); // 2000000u32
-    large_mod :: (large1 % 7.as(u32));  // 2u32 (2000000000 % 7 = 5)
+    large_div :: (large1 / u32(1000)); // 2000000u32
+    large_mod :: (large1 % u32(7));  // 2u32 (2000000000 % 7 = 5)
     
-    compt_assert(large_sum == (3500000000.as(u32)));
-    compt_assert(large_diff == (500000000.as(u32)));
-    compt_assert(large_div == (2000000.as(u32)));
-    compt_assert(large_mod == (5.as(u32)));
+    compt_assert(large_sum == u32(3500000000));
+    compt_assert(large_diff == u32(500000000));
+    compt_assert(large_div == u32(2000000));
+    compt_assert(large_mod == u32(5));
   };
   
   // Test various divisions
   {
-    div1 :: (200000.as(u32) / 8.as(u32));       // 25000u32
-    div2 :: (200001.as(u32) / 8.as(u32));       // 25000u32 (integer division)
-    div3 :: (7.as(u32) / 1000.as(u32));         // 0u32
+    div1 :: (u32(200000) / u32(8));       // 25000u32
+    div2 :: (u32(200001) / u32(8));       // 25000u32 (integer division)
+    div3 :: (u32(7) / u32(1000));         // 0u32
     
-    compt_assert(div1 == (25000.as(u32)));
-    compt_assert(div2 == (25000.as(u32)));
-    compt_assert(div3 == (0.as(u32)));
+    compt_assert(div1 == u32(25000));
+    compt_assert(div2 == u32(25000));
+    compt_assert(div3 == u32(0));
   };
   
   // Test modulo operations
   {
-    mod1 :: (17.as(u32) % 5.as(u32));        // 2u32
-    mod2 :: (20.as(u32) % 4.as(u32));        // 0u32
-    mod3 :: (7.as(u32) % 10.as(u32));        // 7u32
-    mod4 :: (1000000.as(u32) % 997.as(u32)); // 9u32 (1000000 % 997 = 9)
+    mod1 :: (u32(17) % u32(5));        // 2u32
+    mod2 :: (u32(20) % u32(4));        // 0u32
+    mod3 :: (u32(7) % u32(10));        // 7u32
+    mod4 :: (u32(1000000) % u32(997)); // 9u32 (1000000 % 997 = 9)
     
-    compt_assert(mod1 == (2.as(u32)));
-    compt_assert(mod2 == (0.as(u32)));
-    compt_assert(mod3 == (7.as(u32)));
-    compt_assert(mod4 == (9.as(u32)));
+    compt_assert(mod1 == u32(2));
+    compt_assert(mod2 == u32(0));
+    compt_assert(mod3 == u32(7));
+    compt_assert(mod4 == u32(9));
   };
   
   // Test chained operations
   {
-    chain1 :: ((a + b) / 5.as(u32));    // (100000u32 + 25000u32) / 5u32 = 25000u32
-    chain2 :: (a + (b * 2.as(u32)));    // 100000u32 + (25000u32 * 2u32) = 150000u32
-    chain3 :: ((a / b) + 1.as(u32));    // (100000u32 / 25000u32) + 1u32 = 5u32
+    chain1 :: ((a + b) / u32(5));    // (100000u32 + 25000u32) / 5u32 = 25000u32
+    chain2 :: (a + (b * u32(2)));    // 100000u32 + (25000u32 * 2u32) = 150000u32
+    chain3 :: ((a / b) + u32(1));    // (100000u32 / 25000u32) + 1u32 = 5u32
     
-    compt_assert(chain1 == (25000.as(u32)));
-    compt_assert(chain2 == (150000.as(u32)));
-    compt_assert(chain3 == (5.as(u32)));
+    compt_assert(chain1 == u32(25000));
+    compt_assert(chain2 == u32(150000));
+    compt_assert(chain3 == u32(5));
   };
   
   // Test powers of 2 (common in systems programming)
   {
-    pow2_10 :: 1024.as(u32);           // 2^10
-    pow2_20 :: 1048576.as(u32);        // 2^20
+    pow2_10 :: u32(1024);           // 2^10
+    pow2_20 :: u32(1048576);        // 2^20
     
     div_pow2 :: (pow2_20 / pow2_10);   // 1024u32
-    mod_pow2 :: (1025.as(u32) % pow2_10); // 1u32
+    mod_pow2 :: (u32(1025) % pow2_10); // 1u32
     
-    compt_assert(div_pow2 == (1024.as(u32)));
-    compt_assert(mod_pow2 == (1.as(u32)));
+    compt_assert(div_pow2 == u32(1024));
+    compt_assert(mod_pow2 == u32(1));
   };
   
   // Test string conversions
   {
     zero_str :: zero.to_string();
     max_str :: max_val.to_string();
-    large_str :: (123456789.as(u32)).to_string();
+    large_str :: u32(123456789).to_string();
     
     compt_assert(zero_str == "0");
     compt_assert(max_str == "4294967295");
