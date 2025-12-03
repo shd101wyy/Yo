@@ -72,7 +72,6 @@ import {
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
-import { evaluateYoSetTypeModule } from "../builtins/type_module";
 import { evaluateVaStart } from "../builtins/va_start";
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateRawPointerCall } from "../calls/pointer";
@@ -761,11 +760,6 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.va_start)) {
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_set_module)
-    ) {
-      // __yo_type_set_module
-      return evaluateYoSetTypeModule({ expr, env, context: { ...context } });
     } else {
       /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {

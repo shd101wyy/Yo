@@ -97,7 +97,6 @@ Send :: module(
 );
 export Send;
 
-/*
 /// === Arithmetic ===
 Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
   module
@@ -434,2565 +433,2293 @@ Clone :: (fn(compt(Output) : Type) -> compt(Module))
       fn(self: Self) -> Output
 ;
 
+/*
 // === Builtin types ===
 /// boolean
-__yo_type_set_module(boolean,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Eq :: impl(Self, Eq(Self)
-    (==): ((a, b) ->
-      __yo_op_eq(a, b)
-    )
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) ->
-      __yo_return_self(self)
-    )
-  ),
-
-  LogicalNot :: impl(Self, LogicalNot
+impl(boolean, Copy());
+impl(boolean, Send());
+impl(boolean, Eq(boolean)(
+  (==): ((a, b) ->
+    __yo_op_eq(a, b)
+  )
+));
+impl(boolean, Clone(boolean)(
+  clone: ((self) ->
+    __yo_return_self(self)
+  )
+));
+impl(boolean, LogicalNot(
     (!): ((a) -> __yo_op_not(a))
-  ),
-
-  // === Compt modules ===
-  Compt :: impl(Self, {
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_compt_boolean_eq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    LogicalNot :: impl(Self, ComptLogicalNot(
-      (!) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_compt_boolean_not(self)
-      )
-    ));
-    export LogicalNot;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_compt_boolean_to_string(self)
-    ;
-    export to_string;
-  })
-);
+));
+impl(boolean, ComptEq(boolean)(
+  (==) : ((fn(compt(lhs): boolean, compt(rhs): boolean) -> compt(boolean))
+    __yo_compt_boolean_eq(lhs, rhs)
+  )
+));
+impl(boolean, ComptLogicalNot(
+  (!) : ((fn(compt(self): boolean) -> compt(boolean))
+    __yo_compt_boolean_not(self)
+  )
+));
+impl(boolean, {
+  (to_string) :: (fn(compt(self): boolean) -> compt(compt_string))
+    __yo_compt_boolean_to_string(self)
+  ;
+  export to_string;
+});
 _boolean :: boolean;
 export boolean : _boolean;
 
 /// i8
-__yo_type_set_module(i8,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(i8, Copy());
+impl(i8, Send());
+impl(i8, Add(i8)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(i8, Sub(i8)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(i8, Mul(i8)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(i8, Div(i8)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(i8, Mod(i8)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(i8, Negate(i8)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(i8, BitLeftShift(i8)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(i8, BitRightShift(i8)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(i8, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(i8, BitNot(i8)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(i8, BitAnd(i8)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(i8, BitOr(i8)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(i8, BitXor(i8)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(i8, Eq(i8)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(i8, Ord(i8)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(i8, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(i8, Clone(i8)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(i8, {
+  as :: ((fn(self: i8, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(i8, ComptAdd(i8)(
+  (+) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))
+    __yo_i8_add(lhs, rhs)
+  )
+));
+impl(i8, ComptSub(i8)(
+  (-) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))
+    __yo_i8_sub(lhs, rhs)
+  )
+));
+impl(i8, ComptMul(i8)(
+  (*) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))
+    __yo_i8_mul(lhs, rhs)
+  )
+));
+impl(i8, ComptDiv(i8)(
+  (/) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))
+    __yo_i8_div(lhs, rhs)
+  )
+));
+impl(i8, ComptMod(i8)(
+  (%) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))
+    __yo_i8_mod(lhs, rhs)
+  )
+));
+impl(i8, ComptNegate(i8)(
+  (neg) : ((fn(compt(self): i8) -> compt(i8))
+    __yo_i8_neg(self)
+  )
+));
+impl(i8, ComptEq(i8)(
+  (==) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+    __yo_i8_eq(lhs, rhs)
   ),
+  (!=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+    __yo_i8_neq(lhs, rhs)
+  )
+));
+impl(i8, ComptOrd(i8)(
+  (<) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+    __yo_i8_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+    __yo_i8_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+    __yo_i8_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+    __yo_i8_gte(lhs, rhs)
+  )
+));
+impl(i8, {
+  (compt_as) :: (fn(compt(self): i8, compt(Target): Type) -> compt(Target))
+    __yo_i8_as(self, Target)
+  ;
+  export compt_as;
 
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i8_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i8_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
-
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i8_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i8_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i8_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Neg :: impl(Self, ComptNegate(Self)(
-      (neg) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_i8_neg(self)
-      )
-    ));
-    export Neg;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i8_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i8_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i8_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i8_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i8_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i8_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_i8_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_i8_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): i8) -> compt(compt_string))
+    __yo_i8_to_string(self)
+  ;
+  export to_string;
+});
 _i8 :: i8;
 export i8 : _i8;
 
 /// i16
-__yo_type_set_module(i16,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(i16, Copy());
+impl(i16, Send());
+impl(i16, Add(i16)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(i16, Sub(i16)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(i16, Mul(i16)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(i16, Div(i16)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(i16, Mod(i16)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(i16, Negate(i16)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(i16, BitLeftShift(i16)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(i16, BitRightShift(i16)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(i16, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(i16, BitNot(i16)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(i16, BitAnd(i16)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(i16, BitOr(i16)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(i16, BitXor(i16)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(i16, Eq(i16)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(i16, Ord(i16)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(i16, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(i16, Clone(i16)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(i16, {
+  as :: ((fn(self: i16, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(i16, ComptAdd(i16)(
+  (+) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))
+    __yo_i16_add(lhs, rhs)
+  )
+));
+impl(i16, ComptSub(i16)(
+  (-) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))
+    __yo_i16_sub(lhs, rhs)
+  )
+));
+impl(i16, ComptMul(i16)(
+  (*) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))
+    __yo_i16_mul(lhs, rhs)
+  )
+));
+impl(i16, ComptDiv(i16)(
+  (/) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))
+    __yo_i16_div(lhs, rhs)
+  )
+));
+impl(i16, ComptMod(i16)(
+  (%) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))
+    __yo_i16_mod(lhs, rhs)
+  )
+));
+impl(i16, ComptNegate(i16)(
+  (neg) : ((fn(compt(self): i16) -> compt(i16))
+    __yo_i16_neg(self)
+  )
+));
+impl(i16, ComptEq(i16)(
+  (==) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+    __yo_i16_eq(lhs, rhs)
   ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i16_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i16_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
+  (!=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+    __yo_i16_neq(lhs, rhs)
+  )
+));
+impl(i16, ComptOrd(i16)(
+  (<) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+    __yo_i16_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+    __yo_i16_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+    __yo_i16_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+    __yo_i16_gte(lhs, rhs)
+  )
+));
+impl(i16, {
+  (compt_as) :: (fn(compt(self): i16, compt(Target): Type) -> compt(Target))
+    __yo_i16_as(self, Target)
+  ;
+  export compt_as;
 
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i16_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i16_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i16_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Neg :: impl(Self, ComptNegate(Self)(
-      (neg) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_i16_neg(self)
-      )
-    ));
-    export Neg;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i16_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i16_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i16_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i16_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i16_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i16_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_i16_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_i16_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): i16) -> compt(compt_string))
+    __yo_i16_to_string(self)
+  ;
+  export to_string;
+});
 _i16 :: i16;
 export i16 : _i16;
 
 /// i32
-__yo_type_set_module(i32,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  // === Arithmetic impls ===
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-
-  // === Logic impls ===
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-
-  // === Eq impls ===
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-
-  // === Ord impls ===
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-
-  // === Hash impls ===
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-
-  // === Clone impls ===
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) ->
-      __yo_return_self(self)
-    )
-  ),
-
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(i32, Copy());
+impl(i32, Send());
+impl(i32, Add(i32)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(i32, Sub(i32)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(i32, Mul(i32)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(i32, Div(i32)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(i32, Mod(i32)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(i32, Negate(i32)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(i32, BitLeftShift(i32)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(i32, BitRightShift(i32)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(i32, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(i32, BitNot(i32)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(i32, BitAnd(i32)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(i32, BitOr(i32)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(i32, BitXor(i32)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(i32, Eq(i32)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(i32, Ord(i32)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(i32, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(i32, Clone(i32)(
+  clone: ((self) ->
+    __yo_return_self(self)
+  )
+));
+impl(i32, {
+  as :: ((fn(self: i32, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(i32, ComptAdd(i32)(
+  (+) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))
+    __yo_i32_add(lhs, rhs)
+  )
+));
+impl(i32, ComptSub(i32)(
+  (-) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))
+    __yo_i32_sub(lhs, rhs)
+  )
+));
+impl(i32, ComptMul(i32)(
+  (*) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))
+    __yo_i32_mul(lhs, rhs)
+  )
+));
+impl(i32, ComptDiv(i32)(
+  (/) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))
+    __yo_i32_div(lhs, rhs)
+  )
+));
+impl(i32, ComptMod(i32)(
+  (%) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))
+    __yo_i32_mod(lhs, rhs)
+  )
+));
+impl(i32, ComptNegate(i32)(
+  (neg) : ((fn(compt(self): i32) -> compt(i32))
+    __yo_i32_neg(self)
+  )
+));
+impl(i32, ComptEq(i32)(
+  (==) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+    __yo_i32_eq(lhs, rhs)
   ),
+  (!=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+    __yo_i32_neq(lhs, rhs)
+  )
+));
+impl(i32, ComptOrd(i32)(
+  (<) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+    __yo_i32_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+    __yo_i32_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+    __yo_i32_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+    __yo_i32_gte(lhs, rhs)
+  )
+));
+impl(i32, {
+  (compt_as) :: (fn(compt(self): i32, compt(Target): Type) -> compt(Target))
+    __yo_i32_as(self, Target)
+  ;
+  export compt_as;
 
-  // === Compt modules ===
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i32_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i32_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
-
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i32_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i32_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i32_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Neg :: impl(Self, ComptNegate(Self)(
-      (neg) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_i32_neg(self)
-      )
-    ));
-    export Neg;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i32_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i32_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i32_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i32_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i32_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i32_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_i32_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_i32_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): i32) -> compt(compt_string))
+    __yo_i32_to_string(self)
+  ;
+  export to_string;
+});
 _i32 :: i32;
 export i32 : _i32;
 
 /// i64
-__yo_type_set_module(i64,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(i64, Copy());
+impl(i64, Send());
+impl(i64, Add(i64)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(i64, Sub(i64)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(i64, Mul(i64)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(i64, Div(i64)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(i64, Mod(i64)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(i64, Negate(i64)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(i64, BitLeftShift(i64)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(i64, BitRightShift(i64)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(i64, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(i64, BitNot(i64)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(i64, BitAnd(i64)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(i64, BitOr(i64)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(i64, BitXor(i64)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(i64, Eq(i64)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(i64, Ord(i64)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(i64, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(i64, Clone(i64)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(i64, {
+  as :: ((fn(self: i64, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(i64, ComptAdd(i64)(
+  (+) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))
+    __yo_i64_add(lhs, rhs)
+  )
+));
+impl(i64, ComptSub(i64)(
+  (-) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))
+    __yo_i64_sub(lhs, rhs)
+  )
+));
+impl(i64, ComptMul(i64)(
+  (*) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))
+    __yo_i64_mul(lhs, rhs)
+  )
+));
+impl(i64, ComptDiv(i64)(
+  (/) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))
+    __yo_i64_div(lhs, rhs)
+  )
+));
+impl(i64, ComptMod(i64)(
+  (%) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))
+    __yo_i64_mod(lhs, rhs)
+  )
+));
+impl(i64, ComptNegate(i64)(
+  (neg) : ((fn(compt(self): i64) -> compt(i64))
+    __yo_i64_neg(self)
+  )
+));
+impl(i64, ComptEq(i64)(
+  (==) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+    __yo_i64_eq(lhs, rhs)
   ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i64_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i64_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
+  (!=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+    __yo_i64_neq(lhs, rhs)
+  )
+));
+impl(i64, ComptOrd(i64)(
+  (<) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+    __yo_i64_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+    __yo_i64_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+    __yo_i64_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+    __yo_i64_gte(lhs, rhs)
+  )
+));
+impl(i64, {
+  (compt_as) :: (fn(compt(self): i64, compt(Target): Type) -> compt(Target))
+    __yo_i64_as(self, Target)
+  ;
+  export compt_as;
 
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i64_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i64_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_i64_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Neg :: impl(Self, ComptNegate(Self)(
-      (neg) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_i64_neg(self)
-      )
-    ));
-    export Neg;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i64_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i64_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i64_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i64_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i64_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_i64_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_i64_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_i64_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): i64) -> compt(compt_string))
+    __yo_i64_to_string(self)
+  ;
+  export to_string;
+});
 _i64 :: i64;
 export i64 : _i64;
 
 /// u8
-__yo_type_set_module(u8,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(u8, Copy());
+impl(u8, Send());
+impl(u8, Add(u8)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(u8, Sub(u8)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(u8, Mul(u8)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(u8, Div(u8)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(u8, Mod(u8)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(u8, Negate(u8)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(u8, BitLeftShift(u8)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(u8, BitRightShift(u8)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(u8, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(u8, BitNot(u8)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(u8, BitAnd(u8)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(u8, BitOr(u8)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(u8, BitXor(u8)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(u8, Eq(u8)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(u8, Ord(u8)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(u8, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(u8, Clone(u8)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(u8, {
+  as :: ((fn(self: u8, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(u8, ComptAdd(u8)(
+  (+) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))
+    __yo_u8_add(lhs, rhs)
+  )
+));
+impl(u8, ComptSub(u8)(
+  (-) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))
+    __yo_u8_sub(lhs, rhs)
+  )
+));
+impl(u8, ComptMul(u8)(
+  (*) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))
+    __yo_u8_mul(lhs, rhs)
+  )
+));
+impl(u8, ComptDiv(u8)(
+  (/) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))
+    __yo_u8_div(lhs, rhs)
+  )
+));
+impl(u8, ComptMod(u8)(
+  (%) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))
+    __yo_u8_mod(lhs, rhs)
+  )
+));
+impl(u8, ComptEq(u8)(
+  (==) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+    __yo_u8_eq(lhs, rhs)
   ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u8_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u8_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
+  (!=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+    __yo_u8_neq(lhs, rhs)
+  )
+));
+impl(u8, ComptOrd(u8)(
+  (<) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+    __yo_u8_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+    __yo_u8_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+    __yo_u8_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+    __yo_u8_gte(lhs, rhs)
+  )
+));
+impl(u8, {
+  (compt_as) :: (fn(compt(self): u8, compt(Target): Type) -> compt(Target))
+    __yo_u8_as(self, Target)
+  ;
+  export compt_as;
 
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u8_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u8_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u8_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u8_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u8_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u8_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u8_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u8_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u8_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_u8_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_u8_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): u8) -> compt(compt_string))
+    __yo_u8_to_string(self)
+  ;
+  export to_string;
+});
 _u8 :: u8;
 export u8 : _u8;
 
 /// u16
-__yo_type_set_module(u16,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(u16, Copy());
+impl(u16, Send());
+impl(u16, Add(u16)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(u16, Sub(u16)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(u16, Mul(u16)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(u16, Div(u16)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(u16, Mod(u16)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(u16, Negate(u16)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(u16, BitLeftShift(u16)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(u16, BitRightShift(u16)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(u16, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(u16, BitNot(u16)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(u16, BitAnd(u16)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(u16, BitOr(u16)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(u16, BitXor(u16)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(u16, Eq(u16)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(u16, Ord(u16)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(u16, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(u16, Clone(u16)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(u16, {
+  as :: ((fn(self: u16, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(u16, ComptAdd(u16)(
+  (+) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))
+    __yo_u16_add(lhs, rhs)
+  )
+));
+impl(u16, ComptSub(u16)(
+  (-) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))
+    __yo_u16_sub(lhs, rhs)
+  )
+));
+impl(u16, ComptMul(u16)(
+  (*) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))
+    __yo_u16_mul(lhs, rhs)
+  )
+));
+impl(u16, ComptDiv(u16)(
+  (/) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))
+    __yo_u16_div(lhs, rhs)
+  )
+));
+impl(u16, ComptMod(u16)(
+  (%) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))
+    __yo_u16_mod(lhs, rhs)
+  )
+));
+impl(u16, ComptEq(u16)(
+  (==) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+    __yo_u16_eq(lhs, rhs)
   ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u16_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u16_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
+  (!=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+    __yo_u16_neq(lhs, rhs)
+  )
+));
+impl(u16, ComptOrd(u16)(
+  (<) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+    __yo_u16_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+    __yo_u16_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+    __yo_u16_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+    __yo_u16_gte(lhs, rhs)
+  )
+));
+impl(u16, {
+  (compt_as) :: (fn(compt(self): u16, compt(Target): Type) -> compt(Target))
+    __yo_u16_as(self, Target)
+  ;
+  export compt_as;
 
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u16_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u16_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u16_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u16_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u16_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u16_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u16_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u16_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u16_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_u16_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_u16_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): u16) -> compt(compt_string))
+    __yo_u16_to_string(self)
+  ;
+  export to_string;
+});
 _u16 :: u16;
 export u16 : _u16;
 
 /// u32
-__yo_type_set_module(u32,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(u32, Copy());
+impl(u32, Send());
+impl(u32, Add(u32)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(u32, Sub(u32)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(u32, Mul(u32)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(u32, Div(u32)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(u32, Mod(u32)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(u32, Negate(u32)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(u32, BitLeftShift(u32)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(u32, BitRightShift(u32)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(u32, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(u32, BitNot(u32)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(u32, BitAnd(u32)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(u32, BitOr(u32)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(u32, BitXor(u32)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(u32, Eq(u32)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(u32, Ord(u32)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(u32, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(u32, Clone(u32)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(u32, {
+  as :: ((fn(self: u32, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(u32, ComptAdd(u32)(
+  (+) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))
+    __yo_u32_add(lhs, rhs)
+  )
+));
+impl(u32, ComptSub(u32)(
+  (-) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))
+    __yo_u32_sub(lhs, rhs)
+  )
+));
+impl(u32, ComptMul(u32)(
+  (*) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))
+    __yo_u32_mul(lhs, rhs)
+  )
+));
+impl(u32, ComptDiv(u32)(
+  (/) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))
+    __yo_u32_div(lhs, rhs)
+  )
+));
+impl(u32, ComptMod(u32)(
+  (%) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))
+    __yo_u32_mod(lhs, rhs)
+  )
+));
+impl(u32, ComptEq(u32)(
+  (==) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+    __yo_u32_eq(lhs, rhs)
   ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u32_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u32_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
+  (!=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+    __yo_u32_neq(lhs, rhs)
+  )
+));
+impl(u32, ComptOrd(u32)(
+  (<) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+    __yo_u32_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+    __yo_u32_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+    __yo_u32_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+    __yo_u32_gte(lhs, rhs)
+  )
+));
+impl(u32, {
+  (compt_as) :: (fn(compt(self): u32, compt(Target): Type) -> compt(Target))
+    __yo_u32_as(self, Target)
+  ;
+  export compt_as;
 
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u32_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u32_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u32_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u32_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u32_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u32_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u32_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u32_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u32_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_u32_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_u32_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): u32) -> compt(compt_string))
+    __yo_u32_to_string(self)
+  ;
+  export to_string;
+});
 _u32 :: u32;
 export u32 : _u32;
 
 /// u64
-__yo_type_set_module(u64,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> value)
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(u64, Copy());
+impl(u64, Send());
+impl(u64, Add(u64)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(u64, Sub(u64)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(u64, Mul(u64)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(u64, Div(u64)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(u64, Mod(u64)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(u64, Negate(u64)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(u64, BitLeftShift(u64)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(u64, BitRightShift(u64)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(u64, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(u64, BitNot(u64)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(u64, BitAnd(u64)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(u64, BitOr(u64)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(u64, BitXor(u64)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(u64, Eq(u64)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(u64, Ord(u64)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(u64, Hash(
+  (hash): ((value) -> value)
+));
+impl(u64, Clone(u64)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(u64, {
+  as :: ((fn(self: u64, compt(Target): Type) -> Target)
     __yo_as(self, Target)
+  );
+  export as;
+});
+impl(u64, ComptAdd(u64)(
+  (+) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))
+    __yo_u64_add(lhs, rhs)
+  )
+));
+impl(u64, ComptSub(u64)(
+  (-) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))
+    __yo_u64_sub(lhs, rhs)
+  )
+));
+impl(u64, ComptMul(u64)(
+  (*) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))
+    __yo_u64_mul(lhs, rhs)
+  )
+));
+impl(u64, ComptDiv(u64)(
+  (/) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))
+    __yo_u64_div(lhs, rhs)
+  )
+));
+impl(u64, ComptMod(u64)(
+  (%) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))
+    __yo_u64_mod(lhs, rhs)
+  )
+));
+impl(u64, ComptEq(u64)(
+  (==) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+    __yo_u64_eq(lhs, rhs)
   ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u64_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u64_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
+  (!=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+    __yo_u64_neq(lhs, rhs)
+  )
+));
+impl(u64, ComptOrd(u64)(
+  (<) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+    __yo_u64_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+    __yo_u64_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+    __yo_u64_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+    __yo_u64_gte(lhs, rhs)
+  )
+));
+impl(u64, {
+  (compt_as) :: (fn(compt(self): u64, compt(Target): Type) -> compt(Target))
+    __yo_u64_as(self, Target)
+  ;
+  export compt_as;
 
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u64_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u64_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_u64_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u64_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u64_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u64_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u64_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u64_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_u64_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_u64_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_u64_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (to_string) :: (fn(compt(self): u64) -> compt(compt_string))
+    __yo_u64_to_string(self)
+  ;
+  export to_string;
+});
 _u64 :: u64;
 export u64 : _u64;
 
 /// f32
-__yo_type_set_module(f32,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
+impl(f32, Copy());
+impl(f32, Send());
+impl(f32, Add(f32)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(f32, Sub(f32)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(f32, Mul(f32)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(f32, Div(f32)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(f32, Mod(f32)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(f32, Negate(f32)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(f32, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(f32, BitNot(f32)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(f32, BitAnd(f32)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(f32, BitOr(f32)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(f32, BitXor(f32)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(f32, Eq(f32)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(f32, Ord(f32)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(f32, Hash(
+  (hash): ((value) -> __yo_as(__yo_as(value, i32), u64))
+));
+impl(f32, Clone(f32)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(f32, { as :: ((fn(self: f32, compt(Target): Type) -> Target) __yo_as(self, Target)); export as; });
+impl(f32, ComptAdd(f32)(
+  (+) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))
+    __yo_f32_add(lhs, rhs)
+  )
+));
+impl(f32, ComptSub(f32)(
+  (-) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))
+    __yo_f32_sub(lhs, rhs)
+  )
+));
+impl(f32, ComptMul(f32)(
+  (*) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))
+    __yo_f32_mul(lhs, rhs)
+  )
+));
+impl(f32, ComptDiv(f32)(
+  (/) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))
+    __yo_f32_div(lhs, rhs)
+  )
+));
+impl(f32, ComptNegate(f32)(
+  (neg) : ((fn(compt(self): f32) -> compt(f32))
+    __yo_f32_neg(self)
+  )
+));
+impl(f32, ComptEq(f32)(
+  (==) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+    __yo_f32_eq(lhs, rhs)
   ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
+  (!=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+    __yo_f32_neq(lhs, rhs)
+  )
+));
+impl(f32, ComptOrd(f32)(
+  (<) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+    __yo_f32_lt(lhs, rhs)
   ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
+  (<=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+    __yo_f32_lte(lhs, rhs)
   ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
+  (>) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+    __yo_f32_gt(lhs, rhs)
   ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(__yo_as(value, i32), u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
-    __yo_as(self, Target)
-  ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f32_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f32_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
-
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f32_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f32_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Neg :: impl(Self, ComptNegate(Self)(
-      (neg) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_f32_neg(self)
-      )
-    ));
-    export Neg;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f32_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f32_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f32_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f32_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f32_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f32_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_f32_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_f32_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (>=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+    __yo_f32_gte(lhs, rhs)
+  )
+));
+impl(f32, { as :: (fn(compt(self): f32, compt(Target): Type) -> compt(Target)) __yo_f32_as(self, Target); export as; });
+impl(f32, { (to_string) :: (fn(compt(self): f32) -> compt(compt_string)) __yo_f32_to_string(self); export to_string; });
 _f32 :: f32;
 export f32 : _f32;
 
 /// f64
-__yo_type_set_module(f64,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
+impl(f64, Copy());
+impl(f64, Send());
+impl(f64, Add(f64)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(f64, Sub(f64)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(f64, Mul(f64)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(f64, Div(f64)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(f64, Mod(f64)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(f64, Negate(f64)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(f64, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(f64, BitNot(f64)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(f64, BitAnd(f64)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(f64, BitOr(f64)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(f64, BitXor(f64)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(f64, Eq(f64)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(f64, Ord(f64)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(f64, Hash(
+  (hash): ((value) -> __yo_as(__yo_as(value, i64), u64))
+));
+impl(f64, Clone(f64)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(f64, { as :: ((fn(self: f64, compt(Target): Type) -> Target) __yo_as(self, Target)); export as; });
+impl(f64, ComptAdd(f64)(
+  (+) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))
+    __yo_f64_add(lhs, rhs)
+  )
+));
+impl(f64, ComptSub(f64)(
+  (-) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))
+    __yo_f64_sub(lhs, rhs)
+  )
+));
+impl(f64, ComptMul(f64)(
+  (*) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))
+    __yo_f64_mul(lhs, rhs)
+  )
+));
+impl(f64, ComptDiv(f64)(
+  (/) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))
+    __yo_f64_div(lhs, rhs)
+  )
+));
+impl(f64, ComptNegate(f64)(
+  (neg) : ((fn(compt(self): f64) -> compt(f64))
+    __yo_f64_neg(self)
+  )
+));
+impl(f64, ComptEq(f64)(
+  (==) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+    __yo_f64_eq(lhs, rhs)
   ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
+  (!=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+    __yo_f64_neq(lhs, rhs)
+  )
+));
+impl(f64, ComptOrd(f64)(
+  (<) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+    __yo_f64_lt(lhs, rhs)
   ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
+  (<=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+    __yo_f64_lte(lhs, rhs)
   ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
+  (>) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+    __yo_f64_gt(lhs, rhs)
   ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(__yo_as(value, i64), u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
-    __yo_as(self, Target)
-  ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f64_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f64_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
-
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f64_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_f64_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Neg :: impl(Self, ComptNegate(Self)(
-      (neg) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_f64_neg(self)
-      )
-    ));
-    export Neg;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f64_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f64_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f64_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f64_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f64_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_f64_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_f64_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_f64_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (>=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+    __yo_f64_gte(lhs, rhs)
+  )
+));
+impl(f64, { as :: (fn(compt(self): f64, compt(Target): Type) -> compt(Target)) __yo_f64_as(self, Target); export as; });
+impl(f64, { (to_string) :: (fn(compt(self): f64) -> compt(compt_string)) __yo_f64_to_string(self); export to_string; });
 _f64 :: f64;
 export f64 : _f64;
 
 /// isize
-__yo_type_set_module(isize,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
+impl(isize, Copy());
+impl(isize, Send());
+impl(isize, Add(isize)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(isize, Sub(isize)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(isize, Mul(isize)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(isize, Div(isize)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(isize, Mod(isize)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(isize, Negate(isize)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(isize, BitLeftShift(isize)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(isize, BitRightShift(isize)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(isize, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(isize, BitNot(isize)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(isize, BitAnd(isize)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(isize, BitOr(isize)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(isize, BitXor(isize)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(isize, Eq(isize)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(isize, Ord(isize)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(isize, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(isize, Clone(isize)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(isize, { as :: ((fn(self: isize, compt(Target): Type) -> Target) __yo_as(self, Target)); export as; });
+impl(isize, ComptAdd(isize)(
+  (+) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))
+    __yo_isize_add(lhs, rhs)
+  )
+));
+impl(isize, ComptSub(isize)(
+  (-) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))
+    __yo_isize_sub(lhs, rhs)
+  )
+));
+impl(isize, ComptMul(isize)(
+  (*) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))
+    __yo_isize_mul(lhs, rhs)
+  )
+));
+impl(isize, ComptDiv(isize)(
+  (/) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))
+    __yo_isize_div(lhs, rhs)
+  )
+));
+impl(isize, ComptMod(isize)(
+  (%) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))
+    __yo_isize_mod(lhs, rhs)
+  )
+));
+impl(isize, ComptNegate(isize)(
+  (neg) : ((fn(compt(self): isize) -> compt(isize))
+    __yo_isize_neg(self)
+  )
+));
+impl(isize, ComptEq(isize)(
+  (==) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+    __yo_isize_eq(lhs, rhs)
   ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
+  (!=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+    __yo_isize_neq(lhs, rhs)
+  )
+));
+impl(isize, ComptOrd(isize)(
+  (<) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+    __yo_isize_lt(lhs, rhs)
   ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
+  (<=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+    __yo_isize_lte(lhs, rhs)
   ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
+  (>) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+    __yo_isize_gt(lhs, rhs)
   ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
-    __yo_as(self, Target)
-  ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_isize_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_isize_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
-
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_isize_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_isize_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_isize_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Neg :: impl(Self, ComptNegate(Self)(
-      (neg) : ((fn(compt(self): Self) -> compt(Self))
-        __yo_isize_neg(self)
-      )
-    ));
-    export Neg;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_isize_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_isize_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_isize_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_isize_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_isize_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_isize_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_isize_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_isize_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (>=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+    __yo_isize_gte(lhs, rhs)
+  )
+));
+impl(isize, { as :: (fn(compt(self): isize, compt(Target): Type) -> compt(Target)) __yo_isize_as(self, Target); export as; });
+impl(isize, { (to_string) :: (fn(compt(self): isize) -> compt(compt_string)) __yo_isize_to_string(self); export to_string; });
 _isize :: isize;
 export isize : _isize;
 
 /// usize
-__yo_type_set_module(usize,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
+impl(usize, Copy());
+impl(usize, Send());
+impl(usize, Add(usize)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(usize, Sub(usize)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(usize, Mul(usize)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(usize, Div(usize)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(usize, Mod(usize)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(usize, Negate(usize)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(usize, BitLeftShift(usize)(
+  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+));
+impl(usize, BitRightShift(usize)(
+  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+));
+impl(usize, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(usize, BitNot(usize)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(usize, BitAnd(usize)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(usize, BitOr(usize)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(usize, BitXor(usize)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(usize, Eq(usize)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(usize, Ord(usize)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(usize, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(usize, Clone(usize)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(usize, { as :: ((fn(self: usize, compt(Target): Type) -> Target) __yo_as(self, Target)); export as; });
+impl(usize, ComptAdd(usize)(
+  (+) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))
+    __yo_usize_add(lhs, rhs)
+  )
+));
+impl(usize, ComptSub(usize)(
+  (-) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))
+    __yo_usize_sub(lhs, rhs)
+  )
+));
+impl(usize, ComptMul(usize)(
+  (*) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))
+    __yo_usize_mul(lhs, rhs)
+  )
+));
+impl(usize, ComptDiv(usize)(
+  (/) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))
+    __yo_usize_div(lhs, rhs)
+  )
+));
+impl(usize, ComptMod(usize)(
+  (%) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))
+    __yo_usize_mod(lhs, rhs)
+  )
+));
+impl(usize, ComptEq(usize)(
+  (==) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+    __yo_usize_eq(lhs, rhs)
   ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
+  (!=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+    __yo_usize_neq(lhs, rhs)
+  )
+));
+impl(usize, ComptOrd(usize)(
+  (<) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+    __yo_usize_lt(lhs, rhs)
   ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
+  (<=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+    __yo_usize_lte(lhs, rhs)
   ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
+  (>) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+    __yo_usize_gt(lhs, rhs)
   ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  BitLeftShift :: impl(Self, BitLeftShift(Self)
-    (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
-  ),
-  BitRightShift :: impl(Self, BitRightShift(Self)
-    (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
-    __yo_as(self, Target)
-  ),
-  Compt :: impl(Self, {
-    Add :: impl(Self, ComptAdd(Self)(
-      (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_usize_add(lhs, rhs)
-      )
-    ));
-    export Add;
-    
-    Sub :: impl(Self, ComptSub(Self)(
-      (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_usize_sub(lhs, rhs)
-      )
-    ));
-    export Sub;
-
-    Mul :: impl(Self, ComptMul(Self)(
-      (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_usize_mul(lhs, rhs)
-      )
-    ));
-    export Mul;
-
-    Div :: impl(Self, ComptDiv(Self)(
-      (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_usize_div(lhs, rhs)
-      )
-    ));
-    export Div;
-
-    Mod :: impl(Self, ComptMod(Self)(
-      (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-        __yo_usize_mod(lhs, rhs)
-      )
-    ));
-    export Mod;
-
-    Eq :: impl(Self, ComptEq(Self)(
-      (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_usize_eq(lhs, rhs)
-      ),
-      (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_usize_neq(lhs, rhs)
-      )
-    ));
-    export Eq;
-
-    Ord :: impl(Self, ComptOrd(Self)(
-      (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_usize_lt(lhs, rhs)
-      ),
-      (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_usize_lte(lhs, rhs)
-      ),
-      (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_usize_gt(lhs, rhs)
-      ),
-      (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-        __yo_usize_gte(lhs, rhs)
-      )
-    ));
-    export Ord;
-
-    as :: (fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-      __yo_usize_as(self, Target)
-    ;
-    export as;
-
-    (to_string) :: (fn(compt(self): Self) -> compt(compt_string))
-      __yo_usize_to_string(self)
-    ;
-    export to_string;
-  })
-);
+  (>=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+    __yo_usize_gte(lhs, rhs)
+  )
+));
+impl(usize, { as :: (fn(compt(self): usize, compt(Target): Type) -> compt(Target)) __yo_usize_as(self, Target); export as; });
+impl(usize, { (to_string) :: (fn(compt(self): usize) -> compt(compt_string)) __yo_usize_to_string(self); export to_string; });
 _usize :: usize;
 export usize : _usize;
 
 /// char
-__yo_type_set_module(char,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(char, Copy());
+impl(char, Send());
+impl(char, Add(char)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(char, Sub(char)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(char, Mul(char)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(char, Div(char)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(char, Mod(char)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(char, Negate(char)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(char, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(char, BitNot(char)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(char, BitAnd(char)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(char, BitOr(char)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(char, BitXor(char)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(char, Eq(char)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(char, Ord(char)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(char, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(char, Clone(char)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(char, {
+  as :: ((fn(self: char, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _char :: char;
 export char : _char;
 
 /// int
-__yo_type_set_module(int,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(int, Copy());
+impl(int, Send());
+impl(int, Add(int)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(int, Sub(int)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(int, Mul(int)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(int, Div(int)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(int, Mod(int)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(int, Negate(int)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(int, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(int, BitNot(int)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(int, BitAnd(int)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(int, BitOr(int)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(int, BitXor(int)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(int, Eq(int)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(int, Ord(int)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(int, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(int, Clone(int)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(int, {
+  as :: ((fn(self: int, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _int :: int;
 export int : _int;
 
 /// uint
-__yo_type_set_module(uint,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(uint, Copy());
+impl(uint, Send());
+impl(uint, Add(uint)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(uint, Sub(uint)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(uint, Mul(uint)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(uint, Div(uint)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(uint, Mod(uint)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(uint, Negate(uint)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(uint, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(uint, BitNot(uint)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(uint, BitAnd(uint)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(uint, BitOr(uint)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(uint, BitXor(uint)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(uint, Eq(uint)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(uint, Ord(uint)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(uint, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(uint, Clone(uint)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(uint, {
+  as :: ((fn(self: uint, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _uint :: uint;
 export uint : _uint;
 
 /// short
-__yo_type_set_module(short,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(short, Copy());
+impl(short, Send());
+impl(short, Add(short)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(short, Sub(short)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(short, Mul(short)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(short, Div(short)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(short, Mod(short)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(short, Negate(short)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(short, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(short, BitNot(short)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(short, BitAnd(short)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(short, BitOr(short)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(short, BitXor(short)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(short, Eq(short)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(short, Ord(short)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(short, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(short, Clone(short)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(short, {
+  as :: ((fn(self: short, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _short :: short;
 export short : _short;
 
 /// ushort
-__yo_type_set_module(ushort,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(ushort, Copy());
+impl(ushort, Send());
+impl(ushort, Add(ushort)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(ushort, Sub(ushort)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(ushort, Mul(ushort)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(ushort, Div(ushort)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(ushort, Mod(ushort)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(ushort, Negate(ushort)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(ushort, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(ushort, BitNot(ushort)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(ushort, BitAnd(ushort)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(ushort, BitOr(ushort)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(ushort, BitXor(ushort)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(ushort, Eq(ushort)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(ushort, Ord(ushort)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(ushort, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(ushort, Clone(ushort)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(ushort, {
+  as :: ((fn(self: ushort, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _ushort :: ushort;
 export ushort : _ushort;
 
 /// long
-__yo_type_set_module(long,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(long, Copy());
+impl(long, Send());
+impl(long, Add(long)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(long, Sub(long)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(long, Mul(long)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(long, Div(long)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(long, Mod(long)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(long, Negate(long)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(long, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(long, BitNot(long)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(long, BitAnd(long)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(long, BitOr(long)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(long, BitXor(long)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(long, Eq(long)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(long, Ord(long)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(long, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(long, Clone(long)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(long, {
+  as :: ((fn(self: long, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _long :: long;
 export long : _long;
 
 /// ulong
-__yo_type_set_module(ulong,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(ulong, Copy());
+impl(ulong, Send());
+impl(ulong, Add(ulong)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(ulong, Sub(ulong)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(ulong, Mul(ulong)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(ulong, Div(ulong)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(ulong, Mod(ulong)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(ulong, Negate(ulong)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(ulong, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(ulong, BitNot(ulong)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(ulong, BitAnd(ulong)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(ulong, BitOr(ulong)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(ulong, BitXor(ulong)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(ulong, Eq(ulong)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(ulong, Ord(ulong)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(ulong, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(ulong, Clone(ulong)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(ulong, {
+  as :: ((fn(self: ulong, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _ulong :: ulong;
 export ulong : _ulong;
 
 /// longlong
-__yo_type_set_module(longlong,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(longlong, Copy());
+impl(longlong, Send());
+impl(longlong, Add(longlong)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(longlong, Sub(longlong)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(longlong, Mul(longlong)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(longlong, Div(longlong)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(longlong, Mod(longlong)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(longlong, Negate(longlong)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(longlong, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(longlong, BitNot(longlong)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(longlong, BitAnd(longlong)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(longlong, BitOr(longlong)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(longlong, BitXor(longlong)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(longlong, Eq(longlong)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(longlong, Ord(longlong)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(longlong, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(longlong, Clone(longlong)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(longlong, {
+  as :: ((fn(self: longlong, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _longlong :: longlong;
 export longlong : _longlong;
 
 /// ulonglong
-__yo_type_set_module(ulonglong,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(value, u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(ulonglong, Copy());
+impl(ulonglong, Send());
+impl(ulonglong, Add(ulonglong)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(ulonglong, Sub(ulonglong)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(ulonglong, Mul(ulonglong)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(ulonglong, Div(ulonglong)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(ulonglong, Mod(ulonglong)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(ulonglong, Negate(ulonglong)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(ulonglong, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(ulonglong, BitNot(ulonglong)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(ulonglong, BitAnd(ulonglong)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(ulonglong, BitOr(ulonglong)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(ulonglong, BitXor(ulonglong)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(ulonglong, Eq(ulonglong)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(ulonglong, Ord(ulonglong)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(ulonglong, Hash(
+  (hash): ((value) -> __yo_as(value, u64))
+));
+impl(ulonglong, Clone(ulonglong)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(ulonglong, {
+  as :: ((fn(self: ulonglong, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _ulonglong :: ulonglong;
 export ulonglong : _ulonglong;
 
 /// longdouble
-__yo_type_set_module(longdouble,
-  Copy :: impl(Self, Copy()),
-  Send :: impl(Self, Send()),
-
-  Add :: impl(Self, Add(Self)
-    (+): ((a, b) -> __yo_op_add(a, b))
-  ),
-  Sub :: impl(Self, Sub(Self)
-    (-): ((a, b) -> __yo_op_sub(a, b))
-  ),
-  Mul :: impl(Self, Mul(Self)
-    (*): ((a, b) -> __yo_op_mul(a, b))
-  ),
-  Div :: impl(Self, Div(Self)
-    (/): ((a, b) -> __yo_op_div(a, b))
-  ),
-  Mod :: impl(Self, Mod(Self)
-    (%): ((a, b) -> __yo_op_mod(a, b))
-  ),
-  Negate :: impl(Self, Negate(Self)
-    (neg): ((a) -> __yo_op_neg(a))
-  ),
-  LogicalNot :: impl(Self, LogicalNot
-    (!): ((a) -> __yo_op_not(a))
-  ),
-  BitNot :: impl(Self, BitNot(Self)
-    (~): ((a) -> __yo_op_bit_complement(a))
-  ),
-  BitAnd :: impl(Self, BitAnd(Self)
-    (&): ((a, b) -> __yo_op_bit_and(a, b))
-  ),
-  BitOr :: impl(Self, BitOr(Self)
-    (|): ((a, b) -> __yo_op_bit_or(a, b))
-  ),
-  BitXor :: impl(Self, BitXor(Self)
-    (^): ((a, b) -> __yo_op_bit_xor(a, b))
-  ),
-  Eq :: impl(Self, Eq(Self)
-    (==) : ((a, b) -> __yo_op_eq(a, b)),
-    (!=) : ((a, b) -> __yo_op_neq(a, b))
-  ),
-  Ord :: impl(Self, Ord(Self)
-    (<) : ((a, b) -> __yo_op_lt(a, b)),
-    (<=) : ((a, b) -> __yo_op_lte(a, b)),
-    (>) : ((a, b) -> __yo_op_gt(a, b)),
-    (>=) : ((a, b) -> __yo_op_gte(a, b))
-  ),
-  Hash :: impl(Self, Hash
-    (hash): ((value) -> __yo_as(__yo_as(value, i64), u64))
-  ),
-  Clone :: impl(Self, Clone(Self)
-    clone: ((self) -> __yo_return_self(self))
-  ),
-  as :: ((fn(self: Self, compt(Target): Type) -> Target)
+impl(longdouble, Copy());
+impl(longdouble, Send());
+impl(longdouble, Add(longdouble)(
+  (+): ((a, b) -> __yo_op_add(a, b))
+));
+impl(longdouble, Sub(longdouble)(
+  (-): ((a, b) -> __yo_op_sub(a, b))
+));
+impl(longdouble, Mul(longdouble)(
+  (*): ((a, b) -> __yo_op_mul(a, b))
+));
+impl(longdouble, Div(longdouble)(
+  (/): ((a, b) -> __yo_op_div(a, b))
+));
+impl(longdouble, Mod(longdouble)(
+  (%): ((a, b) -> __yo_op_mod(a, b))
+));
+impl(longdouble, Negate(longdouble)(
+  (neg): ((a) -> __yo_op_neg(a))
+));
+impl(longdouble, LogicalNot(
+  (!): ((a) -> __yo_op_not(a))
+));
+impl(longdouble, BitNot(longdouble)(
+  (~): ((a) -> __yo_op_bit_complement(a))
+));
+impl(longdouble, BitAnd(longdouble)(
+  (&): ((a, b) -> __yo_op_bit_and(a, b))
+));
+impl(longdouble, BitOr(longdouble)(
+  (|): ((a, b) -> __yo_op_bit_or(a, b))
+));
+impl(longdouble, BitXor(longdouble)(
+  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+));
+impl(longdouble, Eq(longdouble)(
+  (==) : ((a, b) -> __yo_op_eq(a, b)),
+  (!=) : ((a, b) -> __yo_op_neq(a, b))
+));
+impl(longdouble, Ord(longdouble)(
+  (<) : ((a, b) -> __yo_op_lt(a, b)),
+  (<=) : ((a, b) -> __yo_op_lte(a, b)),
+  (>) : ((a, b) -> __yo_op_gt(a, b)),
+  (>=) : ((a, b) -> __yo_op_gte(a, b))
+));
+impl(longdouble, Hash(
+  (hash): ((value) -> __yo_as(__yo_as(value, i64), u64))
+));
+impl(longdouble, Clone(longdouble)(
+  clone: ((self) -> __yo_return_self(self))
+));
+impl(longdouble, {
+  as :: ((fn(self: longdouble, compt(Target): Type) -> Target)
     __yo_as(self, Target)
-  )
-);
+  );
+  export as;
+});
 _longdouble :: longdouble;
 export longdouble : _longdouble;
 
 /// compt_int
-__yo_type_set_module(compt_int,
-  Copy :: impl(Self, Copy()),
-
-  Add :: impl(Self, ComptAdd(Self)(
-    (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_int_add(lhs, rhs)
-    )
-  )),
-  
-  Sub :: impl(Self, ComptSub(Self)(
-    (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_int_sub(lhs, rhs)
-    )
-  )),
-
-  Mul :: impl(Self, ComptMul(Self)(
-    (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_int_mul(lhs, rhs)
-    )
-  )),
-
-  Div :: impl(Self, ComptDiv(Self)(
-    (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_int_div(lhs, rhs)
-    )
-  )),
-
-  Mod :: impl(Self, ComptMod(Self)(
-    (%) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_int_mod(lhs, rhs)
-    )
-  )),
-
-  Negate :: impl(Self, ComptNegate(Self)(
-    (neg) : ((fn(compt(self): Self) -> compt(Self))
-      __yo_compt_int_neg(self)
-    )
-  )),
-
-  Eq :: impl(Self, ComptEq(Self)(
-    (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_int_eq(lhs, rhs)
-    ),
-    (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_int_neq(lhs, rhs)
-    )
-  )),
-
-  Ord :: impl(Self, ComptOrd(Self)(
-    (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_int_lt(lhs, rhs)
-    ),
-    (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_int_lte(lhs, rhs)
-    ),
-    (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_int_gt(lhs, rhs)
-    ),
-    (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_int_gte(lhs, rhs)
-    )
-  )),
-
-  (as) :: ((fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-    __yo_compt_int_as(self, Target)
-  ),
-
-  (to_string) :: ((fn(compt(self): Self) -> compt(compt_string))
-    __yo_compt_int_to_string(self)
+impl(compt_int, Copy());
+impl(compt_int, ComptAdd(compt_int)(
+  (+) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))
+    __yo_compt_int_add(lhs, rhs)
   )
-);
+));
+impl(compt_int, ComptSub(compt_int)(
+  (-) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))
+    __yo_compt_int_sub(lhs, rhs)
+  )
+));
+impl(compt_int, ComptMul(compt_int)(
+  (*) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))
+    __yo_compt_int_mul(lhs, rhs)
+  )
+));
+impl(compt_int, ComptDiv(compt_int)(
+  (/) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))
+    __yo_compt_int_div(lhs, rhs)
+  )
+));
+impl(compt_int, ComptMod(compt_int)(
+  (%) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))
+    __yo_compt_int_mod(lhs, rhs)
+  )
+));
+impl(compt_int, ComptNegate(compt_int)(
+  (neg) : ((fn(compt(self): compt_int) -> compt(compt_int))
+    __yo_compt_int_neg(self)
+  )
+));
+impl(compt_int, ComptEq(compt_int)(
+  (==) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+    __yo_compt_int_eq(lhs, rhs)
+  ),
+  (!=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+    __yo_compt_int_neq(lhs, rhs)
+  )
+));
+impl(compt_int, ComptOrd(compt_int)(
+  (<) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+    __yo_compt_int_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+    __yo_compt_int_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+    __yo_compt_int_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+    __yo_compt_int_gte(lhs, rhs)
+  )
+));
+impl(compt_int, {
+  (as) :: ((fn(compt(self): compt_int, compt(Target): Type) -> compt(Target))
+    __yo_compt_int_as(self, Target)
+  );
+  export as;
+
+  (to_string) :: ((fn(compt(self): compt_int) -> compt(compt_string))
+    __yo_compt_int_to_string(self)
+  );
+  export to_string;
+});
 _compt_int :: compt_int;
 export compt_int : _compt_int;
 
 /// compt_float
-__yo_type_set_module(compt_float,
-  Copy :: impl(Self, Copy()),
-
-  Add :: impl(Self, ComptAdd(Self)(
-    (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_float_add(lhs, rhs)
-    )
-  )),
-  
-  Sub :: impl(Self, ComptSub(Self)(
-    (-) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_float_sub(lhs, rhs)
-    )
-  )),
-
-  Mul :: impl(Self, ComptMul(Self)(
-    (*) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_float_mul(lhs, rhs)
-    )
-  )),
-
-  Div :: impl(Self, ComptDiv(Self)(
-    (/) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_float_div(lhs, rhs)
-    )
-  )),
-
-  Negate :: impl(Self, ComptNegate(Self)(
-    (neg) : ((fn(compt(self): Self) -> compt(Self))
-      __yo_compt_float_neg(self)
-    )
-  )),
-
-  Eq :: impl(Self, ComptEq(Self)(
-    (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_float_eq(lhs, rhs)
-    ),
-    (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_float_neq(lhs, rhs)
-    )
-  )),
-
-  Ord :: impl(Self, ComptOrd(Self)(
-    (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_float_lt(lhs, rhs)
-    ),
-    (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_float_lte(lhs, rhs)
-    ),
-    (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_float_gt(lhs, rhs)
-    ),
-    (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_float_gte(lhs, rhs)
-    )
-  )),
-
-  (as) :: ((fn(compt(self): Self, compt(Target): Type) -> compt(Target))
-    __yo_compt_float_as(self, Target)
-  ),
-
-  (to_string) :: ((fn(compt(self): Self) -> compt(compt_string))
-    __yo_compt_float_to_string(self)
+impl(compt_float, Copy());
+impl(compt_float, ComptAdd(compt_float)(
+  (+) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))
+    __yo_compt_float_add(lhs, rhs)
   )
-);
+));
+impl(compt_float, ComptSub(compt_float)(
+  (-) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))
+    __yo_compt_float_sub(lhs, rhs)
+  )
+));
+impl(compt_float, ComptMul(compt_float)(
+  (*) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))
+    __yo_compt_float_mul(lhs, rhs)
+  )
+));
+impl(compt_float, ComptDiv(compt_float)(
+  (/) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))
+    __yo_compt_float_div(lhs, rhs)
+  )
+));
+impl(compt_float, ComptNegate(compt_float)(
+  (neg) : ((fn(compt(self): compt_float) -> compt(compt_float))
+    __yo_compt_float_neg(self)
+  )
+));
+impl(compt_float, ComptEq(compt_float)(
+  (==) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+    __yo_compt_float_eq(lhs, rhs)
+  ),
+  (!=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+    __yo_compt_float_neq(lhs, rhs)
+  )
+));
+impl(compt_float, ComptOrd(compt_float)(
+  (<) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+    __yo_compt_float_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+    __yo_compt_float_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+    __yo_compt_float_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+    __yo_compt_float_gte(lhs, rhs)
+  )
+));
+impl(compt_float, {
+  (as) :: ((fn(compt(self): compt_float, compt(Target): Type) -> compt(Target))
+    __yo_compt_float_as(self, Target)
+  );
+  export as;
+
+  (to_string) :: ((fn(compt(self): compt_float) -> compt(compt_string))
+    __yo_compt_float_to_string(self)
+  );
+  export to_string;
+});
 _compt_float :: compt_float;
 export compt_float : _compt_float;
 
 /// compt_string
-__yo_type_set_module(compt_string,
-  Copy :: impl(Self, Copy()),
-
-  Add :: impl(Self, ComptAdd(Self)(
-    (+) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(Self))
-      __yo_compt_string_concat(lhs, rhs)
-    )
-  )),
-
-  Eq :: impl(Self, ComptEq(Self)(
-    (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_string_eq(lhs, rhs)
-    ),
-    (!=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_string_neq(lhs, rhs)
-    )
-  )),
-
-  Ord :: impl(Self, ComptOrd(Self)(
-    (<) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_string_lt(lhs, rhs)
-    ),
-    (<=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_string_lte(lhs, rhs)
-    ),
-    (>) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_string_gt(lhs, rhs)
-    ),
-    (>=) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_compt_string_gte(lhs, rhs)
-    )
-  )),
-
-  length :: ((fn(compt(self): Self) -> compt(compt_int))
-    __yo_compt_string_length(self)
-  ),
-
-  (to_upper) :: ((fn(compt(self): Self) -> compt(Self))
-    __yo_compt_string_to_upper(self)
-  ),
-
-  (to_lower) :: ((fn(compt(self): Self) -> compt(Self))
-    __yo_compt_string_to_lower(self)
-  ),
-
-  slice :: ((fn(compt(self): Self, compt(start): compt_int, compt(end): compt_int) -> compt(Self))
-    __yo_compt_string_slice(self, start, end)
+impl(compt_string, Copy());
+impl(compt_string, ComptAdd(compt_string)(
+  (+) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(compt_string))
+    __yo_compt_string_concat(lhs, rhs)
   )
-);
+));
+impl(compt_string, ComptEq(compt_string)(
+  (==) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+    __yo_compt_string_eq(lhs, rhs)
+  ),
+  (!=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+    __yo_compt_string_neq(lhs, rhs)
+  )
+));
+impl(compt_string, ComptOrd(compt_string)(
+  (<) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+    __yo_compt_string_lt(lhs, rhs)
+  ),
+  (<=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+    __yo_compt_string_lte(lhs, rhs)
+  ),
+  (>) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+    __yo_compt_string_gt(lhs, rhs)
+  ),
+  (>=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+    __yo_compt_string_gte(lhs, rhs)
+  )
+));
+impl(compt_string, {
+  length :: ((fn(compt(self): compt_string) -> compt(compt_int))
+    __yo_compt_string_length(self)
+  );
+  export length;
+
+  (to_upper) :: ((fn(compt(self): compt_string) -> compt(compt_string))
+    __yo_compt_string_to_upper(self)
+  );
+  export to_upper;
+
+  (to_lower) :: ((fn(compt(self): compt_string) -> compt(compt_string))
+    __yo_compt_string_to_lower(self)
+  );
+  export to_lower;
+
+  slice :: ((fn(compt(self): compt_string, compt(start): compt_int, compt(end): compt_int) -> compt(compt_string))
+    __yo_compt_string_slice(self, start, end)
+  );
+  export slice;
+});
 _compt_string :: compt_string;
 export compt_string : _compt_string;
 
@@ -3000,59 +2727,69 @@ export compt_string : _compt_string;
 ExprList :: ComptList(Expr);
 export ExprList;
 
-__yo_type_set_module(Expr,
-  Copy :: impl(Self, Copy()),
-
-  Eq :: impl(Self, ComptEq(Self)(
-    (==) : ((fn(compt(lhs): Self, compt(rhs): Self) -> compt(boolean))
-      __yo_expr_eq(lhs, rhs)
-    )
-  )),
-
-  is_atom :: ((fn(compt(self): Self) -> compt(boolean))
-    __yo_expr_is_atom(self)
-  ),
-
-  is_fn_call :: ((fn(compt(self): Self) -> compt(boolean))
-    __yo_expr_is_fn_call(self)
-  ),
-
-  get_callee :: ((fn(compt(self): Self) -> compt(Self))
-    __yo_expr_get_callee(self)
-  ),
-
-  get_args :: ((fn(compt(self): Self) -> compt(ExprList))
-    __yo_expr_get_args(self)
-  ),
-
-  cons :: ((fn(compt(self): Self, compt(rest): ExprList) -> compt(ExprList))
-    __yo_compt_list_cons(self, rest)
-  ),
-
-  (to_string) :: ((fn(compt(self): Self) -> compt(compt_string))
-    __yo_expr_to_string(self)
+impl(Expr, Copy());
+impl(Expr, ComptEq(Expr)(
+  (==) : ((fn(compt(lhs): Expr, compt(rhs): Expr) -> compt(boolean))
+    __yo_expr_eq(lhs, rhs)
   )
-);
+));
+impl(Expr, {
+  is_atom :: ((fn(compt(self): Expr) -> compt(boolean))
+    __yo_expr_is_atom(self)
+  );
+  export is_atom;
+
+  is_fn_call :: ((fn(compt(self): Expr) -> compt(boolean))
+    __yo_expr_is_fn_call(self)
+  );
+  export is_fn_call;
+
+  get_callee :: ((fn(compt(self): Expr) -> compt(Expr))
+    __yo_expr_get_callee(self)
+  );
+  export get_callee;
+
+  get_args :: ((fn(compt(self): Expr) -> compt(ExprList))
+    __yo_expr_get_args(self)
+  );
+  export get_args;
+
+  cons :: ((fn(compt(self): Expr, compt(rest): ExprList) -> compt(ExprList))
+    __yo_compt_list_cons(self, rest)
+  );
+  export cons;
+
+  (to_string) :: ((fn(compt(self): Expr) -> compt(compt_string))
+    __yo_expr_to_string(self)
+  );
+  export to_string;
+});
 _Expr :: Expr;
 export Expr : _Expr;
 
 // Type
-__yo_type_set_module(Type,
-  Copy :: impl(Self, Copy()),
-
-  to_string :: ((fn(compt(self): Self) -> compt(compt_string)) {
+impl(Type, Copy());
+impl(Type, {
+  to_string :: ((fn(compt(self): Type) -> compt(compt_string)) {
      return __yo_type_to_string(self);
-  }),
-  is_compatible_with :: ((fn(compt(self): Self, compt(expected_type): Type) -> compt(boolean)) {
+  });
+  export to_string;
+
+  is_compatible_with :: ((fn(compt(self): Type, compt(expected_type): Type) -> compt(boolean)) {
      return __yo_are_types_compatible(expected_type, self);
-  }),
-  contains_arc_type :: ((fn(compt(self): Self) -> compt(boolean)) {
+  });
+  export is_compatible_with;
+
+  contains_arc_type :: ((fn(compt(self): Type) -> compt(boolean)) {
     return __yo_type_contains_arc_type(self);
-  }),
-  impls :: ((fn(compt(self): Self, compt(marker): Module) -> compt(boolean)) {
+  });
+  export contains_arc_type;
+
+  impls :: ((fn(compt(self): Type, compt(marker): Module) -> compt(boolean)) {
     return __yo_type_impls(self, marker);
-  })
-);
+  });
+  export impls;
+});
 _Type :: Type;
 export Type : _Type;
 
