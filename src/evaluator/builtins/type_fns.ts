@@ -25,6 +25,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { findMatchingGenericImpl } from "../values/module";
 
 export function evaluateYoTypeToString({
   expr,
@@ -354,6 +355,18 @@ export function evaluateYoTypeImpls({
         impls = true;
         break;
       }
+    }
+  }
+
+  // If no direct impl found, check for generic impls
+  if (!impls) {
+    const matchingGenericImpl = findMatchingGenericImpl({
+      concreteType: targetType,
+      moduleType: expectedModuleType,
+      env,
+    });
+    if (matchingGenericImpl) {
+      impls = true;
     }
   }
 

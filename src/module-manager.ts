@@ -2,7 +2,10 @@ import path from "node:path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
 import { _evaluateExpression } from "./evaluator/exprs/_expr";
 import { setEvaluateExpressionFn } from "./evaluator/exprs/expr";
-import Evaluator, { clearImplsFromModule } from "./evaluator/index";
+import Evaluator, {
+  clearGenericImplsFromModule,
+  clearImplsFromModule,
+} from "./evaluator/index";
 import { ModuleValue } from "./value";
 
 export class ModuleManager {
@@ -69,6 +72,7 @@ export class ModuleManager {
 
     // Clear any impls that were added by this module before deleting it
     clearImplsFromModule(modulePath);
+    clearGenericImplsFromModule(modulePath);
     this.modules.delete(modulePath);
   }
 

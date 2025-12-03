@@ -1,18 +1,44 @@
-import { Environment } from "../../env";
+import {
+  addVariableToEnv,
+  Environment,
+  popEnvFrame,
+  pushEnvFrame,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createTypeHierarchy, ModuleField, ModuleType } from "../../types";
-import { isModuleValue, isTypeValue, ModuleValue } from "../../value";
+import { PlaceholderToken } from "../../token";
+import {
+  createSomeType,
+  createType0,
+  createTypeHierarchy,
+  isModuleType,
+  isSomeType,
+  ModuleField,
+  ModuleType,
+  SomeType,
+  Type,
+} from "../../types";
+import {
+  createTypeValue,
+  isModuleValue,
+  isTypeValue,
+  ModuleValue,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { checkTypeImplementsSelfConstraints } from "../exprs/subtype_of";
+import {
+  checkTypeImplementsSelfConstraints,
+  typeImplementsModule,
+} from "../exprs/subtype_of";
+import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
 
 /**
@@ -20,6 +46,198 @@ import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
  * This allows cleanup when a module is re-evaluated or deleted.
  */
 const implRegistry: Map<string, Set<ModuleType>> = new Map();
+
+/**
+ * Generic impl that uses forall type parameters.
+ * For example: impl(forall(T : Type), Data(T), Copy())
+ */
+export interface GenericImpl {
+  /** The type parameters (e.g., T, Size) */
+  forallParameters: { name: string; someType: SomeType }[];
+  /** The constraints from where clause (e.g., T <: Copy) */
+  whereConstraints: { someType: SomeType; moduleType: ModuleType }[];
+  /** The receiver type pattern containing SomeTypes (e.g., Data(T)) */
+  receiverTypePattern: Type;
+  /** The module type being implemented (e.g., Copy) */
+  moduleType: ModuleType;
+  /** The module value */
+  moduleValue: ModuleValue;
+  /** The expr that created this impl */
+  expr: Expr;
+  /** The source module path for cleanup on re-evaluation */
+  sourceModulePath?: string;
+}
+
+/**
+ * Registry of generic impls keyed by module type name.
+ * This allows lookup when checking if a concrete type implements a module.
+ */
+const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
+
+/**
+ * Clear all generic impls from the registry that were added by the specified module.
+ * Call this before re-evaluating a module to prevent duplicate impls.
+ */
+export function clearGenericImplsFromModule(modulePath: string): void {
+  for (const [moduleTypeName, impls] of genericImplRegistry.entries()) {
+    const filteredImpls = impls.filter(
+      (impl) => impl.sourceModulePath !== modulePath
+    );
+    if (filteredImpls.length === 0) {
+      genericImplRegistry.delete(moduleTypeName);
+    } else {
+      genericImplRegistry.set(moduleTypeName, filteredImpls);
+    }
+  }
+}
+
+/**
+ * Register a generic impl in the registry.
+ */
+function registerGenericImpl(
+  moduleTypeName: string,
+  genericImpl: GenericImpl
+): void {
+  let impls = genericImplRegistry.get(moduleTypeName);
+  if (!impls) {
+    impls = [];
+    genericImplRegistry.set(moduleTypeName, impls);
+  }
+  impls.push(genericImpl);
+}
+
+/**
+ * Find a matching generic impl for a concrete type and module type.
+ * Returns the matched impl if found, or undefined if no match.
+ */
+export function findMatchingGenericImpl({
+  concreteType,
+  moduleType,
+  env,
+}: {
+  concreteType: Type;
+  moduleType: ModuleType;
+  env: Environment;
+}): GenericImpl | undefined {
+  const moduleTypeName = moduleType.typeName;
+  if (!moduleTypeName) {
+    return undefined;
+  }
+
+  const impls = genericImplRegistry.get(moduleTypeName);
+  if (!impls || impls.length === 0) {
+    return undefined;
+  }
+
+  for (const impl of impls) {
+    const match = tryMatchGenericImpl({
+      concreteType,
+      impl,
+      env,
+    });
+    if (match) {
+      return impl;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Try to match a concrete type against a generic impl's receiver type pattern.
+ * Returns true if the concrete type matches the pattern and satisfies all where constraints.
+ */
+function tryMatchGenericImpl({
+  concreteType,
+  impl,
+  env,
+}: {
+  concreteType: Type;
+  impl: GenericImpl;
+  env: Environment;
+}): boolean {
+  // Create a fresh env with the forall parameters in scope for unification
+  let unifyEnv = pushEnvFrame(env);
+
+  // Add the SomeTypes from forall parameters to the environment
+  for (const { name, someType } of impl.forallParameters) {
+    const { env: nextEnv } = addVariableToEnv({
+      env: unifyEnv,
+      variable: {
+        name,
+        type: createType0(),
+        isCompileTimeOnly: true,
+        value: createTypeValue(someType),
+        token: PlaceholderToken,
+        initializedAtToken: PlaceholderToken,
+        consumedAtToken: undefined,
+      },
+    });
+    unifyEnv = nextEnv;
+  }
+
+  // Try to unify the concrete type with the receiver type pattern
+  try {
+    const { expectedEnv } = synthesizeTypes(
+      { type: impl.receiverTypePattern, env: unifyEnv },
+      { type: concreteType, env }
+    );
+
+    // Check if all where constraints are satisfied
+    for (const {
+      someType,
+      moduleType: constraintModule,
+    } of impl.whereConstraints) {
+      // Get the bound type for this SomeType from the unified environment
+      const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
+        expectedEnv,
+        someType
+      );
+      if (!boundType || isSomeType(boundType)) {
+        // SomeType is not bound to a concrete type
+        return false;
+      }
+
+      // Check if the bound type implements the required module
+      if (
+        !typeImplementsModule({
+          targetType: boundType,
+          moduleType: constraintModule,
+          env,
+        })
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    // Unification failed
+    return false;
+  }
+}
+
+/**
+ * Get the bound value of a SomeType from the environment.
+ * Returns the SomeType itself if not bound.
+ */
+function getValueOfSomeTypeFromEnvForGenericImpl(
+  env: Environment,
+  someType: SomeType
+): Type {
+  // Search from the most recent frame to the oldest
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i]!;
+    for (const variable of frame.variables) {
+      if (variable.name === someType.name && variable.value) {
+        if (isTypeValue(variable.value)) {
+          return variable.value.value;
+        }
+      }
+    }
+  }
+  return someType;
+}
 
 /**
  * Clear all impl fields from types that were added by the specified module.
@@ -254,6 +472,268 @@ export function evaluateModuleValue({
 
       return expr;
     }
+  }
+  // Generic impl with forall: impl(forall(...), ReceiverTypePattern, Module(...))
+  // or with where: impl(forall(...), where(...), ReceiverTypePattern, Module(...))
+  else if (expr.args.length === 3 || expr.args.length === 4) {
+    const firstArg = expr.args[0]!;
+
+    // First argument must be forall(...)
+    if (
+      !exprIsFunctionCall(firstArg) ||
+      !exprIsFunctionCallOf(firstArg, BuiltinKeywords.forall)
+    ) {
+      throw formatErrorMessage({
+        token: firstArg.token,
+        errorMessage: `Expected forall(...) as first argument in generic impl, got: ${exprToString(firstArg)}`,
+      });
+    }
+
+    // Determine if we have a where clause
+    let hasWhere = false;
+    let whereArg: FuncCallExpr | undefined;
+    let receiverTypeArg: Expr;
+    let moduleCallArg: Expr;
+
+    if (expr.args.length === 4) {
+      const secondArg = expr.args[1]!;
+      if (
+        !exprIsFunctionCall(secondArg) ||
+        !exprIsFunctionCallOf(secondArg, BuiltinKeywords.where)
+      ) {
+        throw formatErrorMessage({
+          token: secondArg.token,
+          errorMessage: `Expected where(...) as second argument in 4-argument generic impl, got: ${exprToString(secondArg)}`,
+        });
+      }
+      hasWhere = true;
+      whereArg = secondArg;
+      receiverTypeArg = expr.args[2]!;
+      moduleCallArg = expr.args[3]!;
+    } else {
+      // 3-argument case: check if second arg is where
+      const secondArg = expr.args[1]!;
+      if (
+        exprIsFunctionCall(secondArg) &&
+        exprIsFunctionCallOf(secondArg, BuiltinKeywords.where)
+      ) {
+        throw formatErrorMessage({
+          token: secondArg.token,
+          errorMessage: `impl with where clause requires 4 arguments: impl(forall(...), where(...), ReceiverType, Module(...))`,
+        });
+      }
+      receiverTypeArg = secondArg;
+      moduleCallArg = expr.args[2]!;
+    }
+
+    // Parse forall parameters and create SomeTypes
+    const forallParamExprs = firstArg.args;
+    const forallParameters: { name: string; someType: SomeType }[] = [];
+
+    // Create a new env frame for forall parameters
+    env = pushEnvFrame(env);
+
+    for (const paramExpr of forallParamExprs) {
+      // Parse parameter expression: T : Type or just T
+      let paramName: string;
+      let paramTypeExpr: Expr | undefined;
+
+      if (
+        exprIsFunctionCall(paramExpr) &&
+        exprIsFunctionCallOf(paramExpr, ":", 2)
+      ) {
+        // T : Type form
+        const nameExpr = paramExpr.args[0]!;
+        if (!exprIsAtom(nameExpr)) {
+          throw formatErrorMessage({
+            token: nameExpr.token,
+            errorMessage: `Expected identifier for forall parameter name, got: ${exprToString(nameExpr)}`,
+          });
+        }
+        paramName = nameExpr.token.value;
+        paramTypeExpr = paramExpr.args[1]!;
+      } else if (exprIsAtom(paramExpr)) {
+        // Just T form
+        paramName = paramExpr.token.value;
+      } else {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Expected parameter name or "name : Type" for forall parameter, got: ${exprToString(paramExpr)}`,
+        });
+      }
+
+      // Evaluate the type expression if present
+      if (paramTypeExpr) {
+        const evaluatedType = evaluateExpression({
+          expr: paramTypeExpr,
+          env,
+          context: { ...context },
+        });
+        if (evaluatedType.$?.env) {
+          env = evaluatedType.$.env;
+        }
+        // Verify it's a type (should be Type)
+        if (
+          !evaluatedType.$ ||
+          !evaluatedType.$.value ||
+          !isTypeValue(evaluatedType.$.value)
+        ) {
+          throw formatErrorMessage({
+            token: paramTypeExpr.token,
+            errorMessage: `Expected type for forall parameter type, got: ${exprToString(paramTypeExpr)}`,
+          });
+        }
+      }
+
+      // Create a SomeType for this parameter
+      const someType = createSomeType(createType0(), paramName);
+
+      // Add to environment
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: paramName,
+          type: createType0(),
+          isCompileTimeOnly: true,
+          value: createTypeValue(someType),
+          token: paramExpr.token,
+          initializedAtToken: paramExpr.token,
+          consumedAtToken: undefined,
+        },
+      });
+      env = nextEnv;
+
+      forallParameters.push({ name: paramName, someType });
+    }
+
+    // Parse where constraints if present
+    // The <: operator with isInsideWhereClause will attach constraints to SomeType's module
+
+    if (hasWhere && whereArg) {
+      for (const constraintExpr of whereArg.args) {
+        // Each constraint must be of the form: T <: Module
+        if (
+          !exprIsFunctionCall(constraintExpr) ||
+          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+        ) {
+          throw formatErrorMessage({
+            token: constraintExpr.token,
+            errorMessage: `Expected constraint in the form "T <: Module", got: ${exprToString(constraintExpr)}`,
+          });
+        }
+
+        // Evaluate with isInsideWhereClause context
+        // This will attach the module constraint to the SomeType's module fields
+        const evaluated = evaluateExpression({
+          expr: constraintExpr,
+          env,
+          context: {
+            ...context,
+            isInsideWhereClause: true,
+          },
+        });
+        if (evaluated.$?.env) {
+          env = evaluated.$.env;
+        }
+      }
+    }
+
+    // Collect where constraints from the SomeTypes' module fields
+    const whereConstraints: { someType: SomeType; moduleType: ModuleType }[] =
+      [];
+    for (const { someType } of forallParameters) {
+      for (const field of someType.module.fields) {
+        if (
+          field.assignedValue &&
+          isTypeValue(field.assignedValue) &&
+          isModuleType(field.assignedValue.value)
+        ) {
+          whereConstraints.push({
+            someType,
+            moduleType: field.assignedValue.value,
+          });
+        }
+      }
+    }
+
+    // Evaluate the receiver type pattern with SomeTypes in scope
+    const evaluatedReceiverTypeArg = evaluateExpression({
+      expr: receiverTypeArg,
+      env,
+      context: { ...context },
+    });
+
+    if (
+      !evaluatedReceiverTypeArg.$ ||
+      !evaluatedReceiverTypeArg.$.value ||
+      !isTypeValue(evaluatedReceiverTypeArg.$.value)
+    ) {
+      throw formatErrorMessage({
+        token: receiverTypeArg.token,
+        errorMessage: `Expected type for receiver type pattern.`,
+      });
+    }
+    env = evaluatedReceiverTypeArg.$.env;
+    const receiverTypePattern = evaluatedReceiverTypeArg.$.value.value;
+
+    // Evaluate the module call
+    const evaluatedModuleCallArg = evaluateExpression({
+      expr: moduleCallArg,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+        ReceiverType: receiverTypePattern,
+      },
+    });
+
+    if (
+      !evaluatedModuleCallArg.$ ||
+      !isModuleValue(evaluatedModuleCallArg.$.value)
+    ) {
+      throw formatErrorMessage({
+        token: moduleCallArg.token,
+        errorMessage: `Expected module value for module call argument.`,
+      });
+    }
+    env = evaluatedModuleCallArg.$.env;
+    const moduleValue = evaluatedModuleCallArg.$.value;
+    const moduleType = moduleValue.type;
+
+    // Pop the forall env frame
+    env = popEnvFrame(env);
+
+    // Get the module type name for registry key
+    const moduleTypeName = moduleType.typeName;
+    if (!moduleTypeName) {
+      throw formatErrorMessage({
+        token: moduleCallArg.token,
+        errorMessage: `Module type must have a type name for generic impl.`,
+      });
+    }
+
+    // Register the generic impl
+    const genericImpl: GenericImpl = {
+      forallParameters,
+      whereConstraints,
+      receiverTypePattern,
+      moduleType,
+      moduleValue,
+      expr,
+      sourceModulePath: context.currentModulePath,
+    };
+
+    registerGenericImpl(moduleTypeName, genericImpl);
+
+    // Set the module value to the expr
+    expr.$ = {
+      env,
+      type: evaluatedModuleCallArg.$.type,
+      value: moduleValue,
+      pathCollection: [],
+    };
+
+    return expr;
   } else {
     throw formatErrorMessage({
       token: expr.token,

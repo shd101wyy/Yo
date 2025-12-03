@@ -21,6 +21,7 @@ import {
 import { createTypeValue, isModuleValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { findMatchingGenericImpl } from "../values/module";
 
 /**
  * Check if a type implements a specific module.
@@ -41,26 +42,35 @@ export function typeImplementsModule({
   };
 
   const targetModule = targetType.module;
-  if (!targetModule) {
-    return false;
+  if (targetModule) {
+    for (const field of targetModule.fields) {
+      if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
+        continue;
+      }
+
+      const fieldModuleValue = field.assignedValue;
+      const fieldModuleType = fieldModuleValue.type;
+
+      if (
+        areTypesCompatible(
+          { type: expectedModuleWithReceiver, env },
+          { type: fieldModuleType, env }
+        )
+      ) {
+        return true;
+      }
+    }
   }
 
-  for (const field of targetModule.fields) {
-    if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
-      continue;
-    }
+  // Check generic impl registry for matching patterns
+  const matchingGenericImpl = findMatchingGenericImpl({
+    concreteType: targetType,
+    moduleType,
+    env,
+  });
 
-    const fieldModuleValue = field.assignedValue;
-    const fieldModuleType = fieldModuleValue.type;
-
-    if (
-      areTypesCompatible(
-        { type: expectedModuleWithReceiver, env },
-        { type: fieldModuleType, env }
-      )
-    ) {
-      return true;
-    }
+  if (matchingGenericImpl) {
+    return true;
   }
 
   return false;

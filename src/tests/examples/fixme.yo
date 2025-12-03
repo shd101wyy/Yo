@@ -42,9 +42,11 @@ main :: (fn() -> unit) {
 Data :: (fn(compt(T) : Type) -> compt(Type)) {
   return struct(value : T);
 };
-impl(forall(T : Type), Data(T), Copy());
-// __yo_type_impls(Data(i32), Copy) should be true
-// __yo_type_impls(Data(boolean), Copy) should be true
+impl(i32, Copy());
+impl(boolean, Copy());
+impl(forall(T : Type), where(T <: Copy), Data(T), Copy());
+compt_assert(__yo_type_impls(Data(i32), Copy));
+compt_assert(__yo_type_impls(Data(boolean), Copy));
 
 // impl(forall(T : Type, Size : usize), Array(T, Size), Copy());
 // __yo_type_impls(Array(i32, 5), Copy) should be true
