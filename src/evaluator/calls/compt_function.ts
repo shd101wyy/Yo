@@ -78,6 +78,12 @@ export function evaluateComptFunctionCall({
               return false;
             }
           }
+          // For caching purposes, type values must have exactly the same type tag.
+          // This prevents compt_int from matching i8, u8, etc. due to implicit conversions
+          // in areTypesCompatible.
+          if (argValue.value.tag !== givenArgValue.value.tag) {
+            return false;
+          }
         }
 
         return areValuesEqual(

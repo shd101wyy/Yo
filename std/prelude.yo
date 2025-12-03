@@ -97,6 +97,11 @@ Send :: module(
 );
 export Send;
 
+Rc :: module(
+  id := "Rc"
+);
+export Rc;
+
 /// === Arithmetic ===
 Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
   module
@@ -164,7 +169,7 @@ export Mod;
 ComptMod :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
   module
     Output := Output,
-    (%)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> Output)
+    (%)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
 ;
 export ComptMod;
 
@@ -192,7 +197,7 @@ export BitRightShift;
 ComptBitRightShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
   module
     Output := Output,
-    (>>)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> Output)
+    (>>)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
 ;
 export ComptBitRightShift;
 
@@ -321,41 +326,40 @@ export not, (!);
  * logic for boolean
  * No need to export them. For internal use only
  */
-BooleanLogicalNot :: impl boolean, LogicalNot(
+impl(boolean, LogicalNot(
   (!): ((a) ->
     __yo_op_not(a)
   )
-);
-ComptBooleanLogicalNot :: impl boolean, ComptLogicalNot(
-  (!): ((self) ->
-    cond
-      self => false,
-      true => true
+));
+impl(boolean, ComptLogicalNot(
+  (!) : ((fn(compt(self): boolean) -> compt(boolean))
+    __yo_compt_boolean_not(self)
   )
-);
+));
 
 /// === Eq ===
 Eq ::
   (fn(compt(Rhs) : Type) -> compt(Module))
-  module
+  module(
     (==) : (fn(lhs: Self, rhs: Rhs) -> boolean),
 
     ((!=) : (fn(lhs: Self, rhs: Rhs) -> boolean)) ?= 
       ((lhs, rhs) ->
-        not(Self.(==)(lhs, rhs), BooleanLogicalNot)
+        not(Self.(==)(lhs, rhs))
       )
-;
+  );
 export Eq;
 
 ComptEq ::
   (fn(compt(Rhs) : Type) -> compt(Module))
-  module
+  module(
     (==) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean)),
 
     ((!=) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean))) ?= 
       ((lhs, rhs) ->
-        not(Self.(==)(lhs, rhs), ComptBooleanLogicalNot)
+        not(Self.(==)(lhs, rhs))
       )
+  )
 ;
 export ComptEq;
 
@@ -371,7 +375,7 @@ Ord :: (
   fn(
     compt(Rhs) : Type
   ) -> compt(Module))
-  module
+  module(
     where(Self <: Eq(Rhs)),
 
     (<) :
@@ -382,6 +386,7 @@ Ord :: (
       fn(lhs: Self, rhs: Rhs) -> boolean,
     (>=) :
       fn(lhs: Self, rhs: Rhs) -> boolean
+  )
 ;
 export Ord;
 
@@ -389,7 +394,7 @@ ComptOrd :: (
   fn(
     compt(Rhs) : Type
   ) -> compt(Module))
-  module
+  module(
     where(Self <: ComptEq(Rhs)),
 
     (<) :
@@ -400,6 +405,7 @@ ComptOrd :: (
       fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
     (>=) :
       fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean)
+  )
 ;
 
 /**
@@ -415,25 +421,25 @@ ComptOrd :: (
  * Note: Unlike Rust which uses a Hasher trait for incremental hashing,
  * we use a simpler approach where each type directly produces a u64 hash.
  */
-Hash :: module
+Hash :: module(
   /**
     * Compute the hash of a value
     * Returns a u64 hash value
     */
   (hash): (fn(value: Self) -> u64)
-;
+);
 export
   Hash
 ;
 
 // === Clone ===
 Clone :: (fn(compt(Output) : Type) -> compt(Module))
-  module
+  module(
     clone : 
       fn(self: Self) -> Output
+  )
 ;
 
-/*
 // === Builtin types ===
 /// boolean
 impl(boolean, Copy());
@@ -448,17 +454,9 @@ impl(boolean, Clone(boolean)(
     __yo_return_self(self)
   )
 ));
-impl(boolean, LogicalNot(
-    (!): ((a) -> __yo_op_not(a))
-));
 impl(boolean, ComptEq(boolean)(
   (==) : ((fn(compt(lhs): boolean, compt(rhs): boolean) -> compt(boolean))
     __yo_compt_boolean_eq(lhs, rhs)
-  )
-));
-impl(boolean, ComptLogicalNot(
-  (!) : ((fn(compt(self): boolean) -> compt(boolean))
-    __yo_compt_boolean_not(self)
   )
 ));
 impl(boolean, {
@@ -2295,6 +2293,7 @@ impl(long, {
 _long :: long;
 export long : _long;
 
+
 /// ulong
 impl(ulong, Copy());
 impl(ulong, Send());
@@ -2539,6 +2538,7 @@ impl(longdouble, {
 _longdouble :: longdouble;
 export longdouble : _longdouble;
 
+
 /// compt_int
 impl(compt_int, Copy());
 impl(compt_int, ComptAdd(compt_int)(
@@ -2723,10 +2723,61 @@ impl(compt_string, {
 _compt_string :: compt_string;
 export compt_string : _compt_string;
 
-/// Expr
+/// Ptr
+impl(forall(T : Type), *(T), Copy());
+impl(forall(T : Type), *(T), Add(usize, *(T))(
+  (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
+));
+impl(forall(T : Type), *(T), Sub(usize, *(T))(
+  (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
+));
+impl(forall(T : Type), *(T), Eq(*(T))(
+  (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs, rhs))
+));
+impl(forall(T : Type), *(T), Ord(*(T))(
+  (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
+));
+impl(forall(T : Type), *(T), {
+  diff :: (fn(lhs : Self, rhs : Self) -> isize) {
+    return __yo_ptr_diff(lhs, rhs);
+  };
+  cast :: (fn(self : Self, compt(Target) : Type) -> Target) {
+    return __yo_ptr_cast(self, Target);
+  };
+  export diff, cast;
+});
+// TODO:
+// impl(forall(T : Type), where(T <: !(Rc)), *(T), Send());
+
+/// ComptList
+impl(forall(T : Type), ComptList(T), Copy());
+impl(forall(T : Type), ComptList(T), {
+  car :: ((fn(compt(self): Self) -> compt(__yo_compt_list_element_type(Self)))
+    __yo_compt_list_car(self)
+  );
+  cdr :: ((fn(compt(self): Self) -> compt(Self))
+    __yo_compt_list_cdr(self)
+  );
+  first :: car;
+  rest :: cdr;
+  append :: ((fn(compt(self): Self, compt(another): Self) -> compt(Self))
+    __yo_compt_list_append(self, another)
+  );
+  length :: ((fn(compt(self): Self) -> compt(usize))
+    __yo_compt_list_length(self)
+  );
+  export car, cdr, first, rest, append, length;
+});
+
+/// ExprList
 ExprList :: ComptList(Expr);
 export ExprList;
 
+/// Expr
 impl(Expr, Copy());
 impl(Expr, ComptEq(Expr)(
   (==) : ((fn(compt(lhs): Expr, compt(rhs): Expr) -> compt(boolean))
@@ -3017,4 +3068,3 @@ for :: (fn(
     });
 };
 export for;
-*/

@@ -599,18 +599,23 @@ export function areFunctionTypesCompatible(
   }
 
   // Synthesize the types
-  const { expectedEnv, givenEnv } = synthesizeTypes(
-    {
-      type: expected.type,
-      env: expected.env,
-    },
-    {
-      type: given.type,
-      env: given.env,
-    }
-  );
-  expected.env = expectedEnv;
-  given.env = givenEnv;
+  try {
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expected.type,
+        env: expected.env,
+      },
+      {
+        type: given.type,
+        env: given.env,
+      }
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
+  } catch {
+    // Synthesis failed, types are incompatible
+    return false;
+  }
 
   // Check type parameters for compatibility
   for (let i = 0; i < expected.type.forallParameters.length; i++) {

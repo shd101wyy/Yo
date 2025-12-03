@@ -9,6 +9,7 @@ import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
   isClosureType,
+  isComptListType,
   isEnumType,
   isFunctionType,
   isFutureType,
@@ -65,7 +66,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
     return type.fields.some((el) => occursCheck(someTypeId, el.type));
   }
 
-  if (isArrayType(type) || isSliceType(type)) {
+  if (isArrayType(type) || isSliceType(type) || isComptListType(type)) {
     return occursCheck(someTypeId, type.childType);
   }
 
@@ -565,6 +566,21 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
+  } else if (isComptListType(expected.type) && isComptListType(given.type)) {
+    // Synthesize the element types of the ComptLists
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expected.type.childType,
+        env: expected.env,
+      },
+      {
+        type: given.type.childType,
+        env: given.env,
+      },
+      checkedTypePairs
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
   } else if (isFutureType(expected.type) && isFutureType(given.type)) {
     // Synthesize the element types of the Futures
     const { expectedEnv, givenEnv } = synthesizeTypes(
@@ -660,6 +676,13 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
+  } else if (
+    isTypeHierarchyType(expected.type) &&
+    !isTypeHierarchyType(given.type)
+  ) {
+    // When expected is Type (type hierarchy) and given is a concrete type (struct, enum, etc.),
+    // this is valid - a concrete type can be assigned to Type.
+    // No synthesis needed, just accept the assignment.
   } else {
     // If we reach here, the types are fundamentally incompatible
     // (different type constructors with no SomeType to unify)

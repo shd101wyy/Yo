@@ -114,4 +114,4 @@ then it means the `main` function is not exported. Please add `export main;` at 
 
 When debugging the C codegen, if the bug is very hard to debug directly from the TypeScript code, then let's modify the generated C code directly to make it work, then document the bugs we found from fixing the C code. After that, we can go back to fix the TypeScript codegen later.
 
-When debugging the evaluator, use `typeToString`, `exprToString`, and `valueToString` functions to print out useful debug information about types, expressions, and values.
+When debugging the evaluator, use `typeToString`, `exprToString`, and `valueToString` functions to print out useful debug information about types, expressions, and values. Also the functions `areTypesCompatible`, `areTypesCompatible` could be helpful.

@@ -23,6 +23,7 @@ import {
   FunctionParameter,
   FunctionType,
   isArrayType,
+  isComptListType,
   isEnumType,
   isFunctionType,
   isFutureType,
@@ -142,12 +143,10 @@ export function findMatchingGenericImpl({
   moduleType: ModuleType;
   env: Environment;
 }): GenericImpl | undefined {
-  const moduleTypeName = moduleType.typeName;
-  if (!moduleTypeName) {
-    return undefined;
-  }
+  // Use typeName if available, otherwise fall back to id for anonymous modules
+  const moduleTypeKey = moduleType.typeName || moduleType.id;
 
-  const impls = genericImplRegistry.get(moduleTypeName);
+  const impls = genericImplRegistry.get(moduleTypeKey);
   if (!impls || impls.length === 0) {
     return undefined;
   }
@@ -271,6 +270,14 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   }
 
   if (isSliceType(type)) {
+    const newChildType = substituteInType(type.childType, substitutions);
+    if (newChildType === type.childType) {
+      return type;
+    }
+    return { ...type, childType: newChildType } as Type;
+  }
+
+  if (isComptListType(type)) {
     const newChildType = substituteInType(type.childType, substitutions);
     if (newChildType === type.childType) {
       return type;
@@ -1112,29 +1119,54 @@ export function evaluateModuleValue({
     env = evaluatedReceiverTypeArg.$.env;
     const receiverTypePattern = evaluatedReceiverTypeArg.$.value.value;
 
-    // Evaluate the module call
-    const evaluatedModuleCallArg = evaluateExpression({
-      expr: moduleCallArg,
-      env,
-      context: {
-        ...context,
-        expectedType: undefined,
-        ReceiverType: receiverTypePattern,
-      },
-    });
+    // Handle anonymous module value (begin block) or module call
+    let moduleValue: ModuleValue;
+    let moduleType: ModuleType;
 
     if (
-      !evaluatedModuleCallArg.$ ||
-      !isModuleValue(evaluatedModuleCallArg.$.value)
+      exprIsFunctionCall(moduleCallArg) &&
+      exprIsFunctionCallOf(moduleCallArg, BuiltinKeywords.begin)
     ) {
-      throw formatErrorMessage({
-        token: moduleCallArg.token,
-        errorMessage: `Expected module value for module call argument.`,
+      // Anonymous module value
+      const beginExprs = moduleCallArg.args;
+      const result = evaluateAnonymousModuleBeginExprs({
+        beginExprs,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+          SelfType: undefined,
+        },
+        receiverType: receiverTypePattern,
       });
+      env = result.env;
+      moduleType = result.moduleType;
+      moduleValue = result.moduleValue;
+    } else {
+      // Evaluate the module call
+      const evaluatedModuleCallArg = evaluateExpression({
+        expr: moduleCallArg,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+          ReceiverType: receiverTypePattern,
+        },
+      });
+
+      if (
+        !evaluatedModuleCallArg.$ ||
+        !isModuleValue(evaluatedModuleCallArg.$.value)
+      ) {
+        throw formatErrorMessage({
+          token: moduleCallArg.token,
+          errorMessage: `Expected module value for module call argument.`,
+        });
+      }
+      env = evaluatedModuleCallArg.$.env;
+      moduleValue = evaluatedModuleCallArg.$.value;
+      moduleType = moduleValue.type;
     }
-    env = evaluatedModuleCallArg.$.env;
-    const moduleValue = evaluatedModuleCallArg.$.value;
-    const moduleType = moduleValue.type;
 
     // Check that the receiver type pattern satisfies the module's self-constraints
     // For generic impls, we need to verify that the where constraints are sufficient
@@ -1150,14 +1182,8 @@ export function evaluateModuleValue({
     // Pop the forall env frame
     env = popEnvFrame(env);
 
-    // Get the module type name for registry key
-    const moduleTypeName = moduleType.typeName;
-    if (!moduleTypeName) {
-      throw formatErrorMessage({
-        token: moduleCallArg.token,
-        errorMessage: `Module type must have a type name for generic impl.`,
-      });
-    }
+    // Get the module type key for registry (use typeName if available, otherwise id)
+    const moduleTypeKey = moduleType.typeName || moduleType.id;
 
     // Register the generic impl
     const genericImpl: GenericImpl = {
@@ -1170,12 +1196,12 @@ export function evaluateModuleValue({
       sourceModulePath: context.currentModulePath,
     };
 
-    registerGenericImpl(moduleTypeName, genericImpl);
+    registerGenericImpl(moduleTypeKey, genericImpl);
 
     // Set the module value to the expr
     expr.$ = {
       env,
-      type: evaluatedModuleCallArg.$.type,
+      type: moduleType,
       value: moduleValue,
       pathCollection: [],
     };
