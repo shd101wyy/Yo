@@ -785,6 +785,17 @@ export function getMethodsByNameFromEnv(
     }
   }
 
+  // Check generic impl registry for the original receiver type (e.g., *(i32))
+  // This is needed for impls like `impl(forall(T : Type), *(T), Add(...))`
+  if (methods.length === 0 && receiverType !== dereferencedReceiverType) {
+    const genericMethods = findMethodsFromGenericImpls({
+      concreteType: receiverType,
+      methodName,
+      env,
+    });
+    methods.push(...genericMethods);
+  }
+
   // Check if the dereferencedReceiverType itself has method that can be called
   if (dereferencedReceiverType.module) {
     // First check direct methods

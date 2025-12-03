@@ -420,7 +420,7 @@ function substituteInFunctionType(
     ...functionType,
     parameters: newParameters,
     return: returnChanged
-      ? { ...functionType.return, type: newReturnType }
+      ? { ...functionType.return, type: newReturnType, expr: undefined }
       : functionType.return,
     SelfType: newSelfType,
   };
