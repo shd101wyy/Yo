@@ -15,12 +15,13 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
+import { TypeValue } from "../../type-value";
 import {
-  createSomeType,
   createType0,
   createTypeHierarchy,
   isModuleType,
   isSomeType,
+  isType0,
   ModuleField,
   ModuleType,
   SomeType,
@@ -28,9 +29,11 @@ import {
 } from "../../types";
 import {
   createTypeValue,
+  createUnknownValue,
   isModuleValue,
   isTypeValue,
   ModuleValue,
+  UnknownValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -51,9 +54,14 @@ const implRegistry: Map<string, Set<ModuleType>> = new Map();
  * Generic impl that uses forall type parameters.
  * For example: impl(forall(T : Type), Data(T), Copy())
  */
+/** A forall parameter can be either a type parameter (SomeType) or a value parameter (unknown value) */
+export type ForallParameter =
+  | { kind: "type"; name: string; someType: SomeType }
+  | { kind: "value"; name: string; type: Type; unknownValue: UnknownValue };
+
 export interface GenericImpl {
   /** The type parameters (e.g., T, Size) */
-  forallParameters: { name: string; someType: SomeType }[];
+  forallParameters: ForallParameter[];
   /** The constraints from where clause (e.g., T <: Copy) */
   whereConstraints: { someType: SomeType; moduleType: ModuleType }[];
   /** The receiver type pattern containing SomeTypes (e.g., Data(T)) */
@@ -159,21 +167,38 @@ function tryMatchGenericImpl({
   // Create a fresh env with the forall parameters in scope for unification
   let unifyEnv = pushEnvFrame(env);
 
-  // Add the SomeTypes from forall parameters to the environment
-  for (const { name, someType } of impl.forallParameters) {
-    const { env: nextEnv } = addVariableToEnv({
-      env: unifyEnv,
-      variable: {
-        name,
-        type: createType0(),
-        isCompileTimeOnly: true,
-        value: createTypeValue(someType),
-        token: PlaceholderToken,
-        initializedAtToken: PlaceholderToken,
-        consumedAtToken: undefined,
-      },
-    });
-    unifyEnv = nextEnv;
+  // Add the parameters from forall to the environment
+  for (const param of impl.forallParameters) {
+    if (param.kind === "type") {
+      const { env: nextEnv } = addVariableToEnv({
+        env: unifyEnv,
+        variable: {
+          name: param.name,
+          type: createType0(),
+          isCompileTimeOnly: true,
+          value: createTypeValue(param.someType),
+          token: PlaceholderToken,
+          initializedAtToken: PlaceholderToken,
+          consumedAtToken: undefined,
+        },
+      });
+      unifyEnv = nextEnv;
+    } else {
+      // Value parameter: add the unknown value to the environment
+      const { env: nextEnv } = addVariableToEnv({
+        env: unifyEnv,
+        variable: {
+          name: param.name,
+          type: param.type,
+          isCompileTimeOnly: true,
+          value: param.unknownValue,
+          token: PlaceholderToken,
+          initializedAtToken: PlaceholderToken,
+          consumedAtToken: undefined,
+        },
+      });
+      unifyEnv = nextEnv;
+    }
   }
 
   // Try to unify the concrete type with the receiver type pattern
@@ -526,9 +551,9 @@ export function evaluateModuleValue({
       moduleCallArg = expr.args[2]!;
     }
 
-    // Parse forall parameters and create SomeTypes
+    // Parse forall parameters and create SomeTypes or unknown values
     const forallParamExprs = firstArg.args;
-    const forallParameters: { name: string; someType: SomeType }[] = [];
+    const forallParameters: ForallParameter[] = [];
 
     // Create a new env frame for forall parameters
     env = pushEnvFrame(env);
@@ -563,6 +588,7 @@ export function evaluateModuleValue({
       }
 
       // Evaluate the type expression if present
+      let paramType: Type | undefined;
       if (paramTypeExpr) {
         const evaluatedType = evaluateExpression({
           expr: paramTypeExpr,
@@ -572,7 +598,7 @@ export function evaluateModuleValue({
         if (evaluatedType.$?.env) {
           env = evaluatedType.$.env;
         }
-        // Verify it's a type (should be Type)
+        // Verify it's a type
         if (
           !evaluatedType.$ ||
           !evaluatedType.$.value ||
@@ -583,19 +609,26 @@ export function evaluateModuleValue({
             errorMessage: `Expected type for forall parameter type, got: ${exprToString(paramTypeExpr)}`,
           });
         }
+        paramType = evaluatedType.$.value.value;
       }
 
-      // Create a SomeType for this parameter
-      const someType = createSomeType(createType0(), paramName);
+      // Check if this is a Type parameter or a value parameter
+      const isTypeParam = !paramType || isType0(paramType);
+      const effectiveType = paramType || createType0();
+
+      // createUnknownValue handles both cases:
+      // - For Type0: creates SomeType wrapped in TypeValue
+      // - For other types: creates UnknownValue
+      const unknownOrTypeValue = createUnknownValue(effectiveType, paramName);
 
       // Add to environment
       const { env: nextEnv } = addVariableToEnv({
         env,
         variable: {
           name: paramName,
-          type: createType0(),
+          type: effectiveType,
           isCompileTimeOnly: true,
-          value: createTypeValue(someType),
+          value: unknownOrTypeValue,
           token: paramExpr.token,
           initializedAtToken: paramExpr.token,
           consumedAtToken: undefined,
@@ -603,7 +636,19 @@ export function evaluateModuleValue({
       });
       env = nextEnv;
 
-      forallParameters.push({ name: paramName, someType });
+      if (isTypeParam) {
+        // Type parameter: extract the SomeType from the TypeValue
+        const someType = (unknownOrTypeValue as TypeValue).value as SomeType;
+        forallParameters.push({ kind: "type", name: paramName, someType });
+      } else {
+        // Value parameter
+        forallParameters.push({
+          kind: "value",
+          name: paramName,
+          type: effectiveType,
+          unknownValue: unknownOrTypeValue as UnknownValue,
+        });
+      }
     }
 
     // Parse where constraints if present
@@ -641,7 +686,10 @@ export function evaluateModuleValue({
     // Collect where constraints from the SomeTypes' module fields
     const whereConstraints: { someType: SomeType; moduleType: ModuleType }[] =
       [];
-    for (const { someType } of forallParameters) {
+    for (const param of forallParameters) {
+      // Only type parameters have SomeTypes with constraints
+      if (param.kind !== "type") continue;
+      const { someType } = param;
       for (const field of someType.module.fields) {
         if (
           field.assignedValue &&

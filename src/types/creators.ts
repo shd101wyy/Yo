@@ -1,13 +1,7 @@
-import {
-  createEmptyEnv,
-  createEnvContainingPrelude,
-  Environment,
-  Frame,
-  isEvaluatingPreludeModule,
-} from "../env";
+import { createEmptyEnv, Environment, Frame } from "../env";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
-import { createTypeValue, isNumberValue, Value, valueToString } from "../value";
+import { createTypeValue, Value, valueToString } from "../value";
 import {
   ArrayType,
   ClosureType,
@@ -34,10 +28,7 @@ import {
   UnionType,
   VoidType,
 } from "./definitions";
-import { isRcType } from "./guards";
-import { addModuleFieldsByCode } from "./module_field";
 import { TypeTag } from "./tags";
-import { typeImplementsSend } from "./utils";
 
 let cachedComptIntType: Type | null = null;
 export function createComptIntType(): Type {
@@ -137,37 +128,6 @@ export function createComptListType(childType: Type): ComptListType {
   module.receiverType = type;
 
   cachedComptListTypeMap.set(childType, type);
-
-  addModuleFieldsByCode(module, {
-    Copy: `{
-      Copy :: module(id := "Copy");
-      impl(Self, Copy())
-    }`,
-    type_info: `impl(Self, {
-      id :: "${typeId}";
-      export id;
-
-      tag :: "${TypeTag.ComptList}";
-      export tag;
-
-      element_type :: __yo_compt_list_element_type(Self);
-      export element_type;
-    })`,
-    car: `((fn(compt(self): Self) -> compt(__yo_compt_list_element_type(Self)))
-    __yo_compt_list_car(self)
-  )`,
-    cdr: `((fn(compt(self): Self) -> compt(Self))
-    __yo_compt_list_cdr(self)
-  )`,
-    first: `Self.car`,
-    rest: `Self.cdr`,
-    append: `((fn(compt(self): Self, compt(another): Self) -> compt(Self))
-    __yo_compt_list_append(self, another)
-  )`,
-    length: `((fn(compt(self): Self) -> compt(usize))
-    __yo_compt_list_length(self)
-  )`,
-  });
 
   return type;
 }
@@ -673,12 +633,6 @@ export function createArrayType(childType: Type, length: Value): ArrayType {
 
   module.receiverType = arrayType;
 
-  addModuleFieldsByCode(module, {
-    length: isNumberValue(length)
-      ? `__yo_compt_int_as(${length.value.toString()}, usize)`
-      : "__yo_compt_int_as(0, usize)",
-  });
-
   return arrayType;
 }
 
@@ -851,13 +805,12 @@ export function createFunctionType({
 const ptrCache: Map<Type, PtrType> = new Map();
 export function createPtrType(childType: Type): PtrType {
   // Check cache
-  if (!isEvaluatingPreludeModule() && ptrCache.has(childType)) {
+  if (ptrCache.has(childType)) {
     return ptrCache.get(childType)!;
   }
-  const env = isEvaluatingPreludeModule()
-    ? createEmptyEnv()
-    : createEnvContainingPrelude();
-  const module = createModuleType(env);
+
+  const emptyEnv = createEmptyEnv();
+  const module = createModuleType(emptyEnv);
   const ptrType: PtrType = {
     id: `ptr_${childType.id}`,
     tag: TypeTag.Ptr,
@@ -866,88 +819,7 @@ export function createPtrType(childType: Type): PtrType {
   };
   module.receiverType = ptrType;
 
-  if (!isEvaluatingPreludeModule()) {
-    // NOTE: This has to be set before adding module elements to avoid infinite recursion
-    ptrCache.set(childType, ptrType);
-
-    addModuleFieldsByCode(module, {
-      Copy: `{
-        Copy :: module(id := "Copy");
-        impl(Self, Copy())
-      }`,
-      Add: `{
-      extern "Yo", __yo_ptr_add : (fn(forall(T: Type), ptr : T, offset : usize) -> T);
-      impl(Self, Add(usize, Self)(
-        (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
-      ))
-    }`,
-      Sub: `{
-      extern "Yo", __yo_ptr_sub : (fn(forall(T: Type), ptr : T, offset : usize) -> T);
-      impl(Self, Sub(usize, Self)(
-        (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
-      ))
-    }`,
-      Eq: `{
-      extern "Yo",
-        __yo_ptr_eq :
-          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
-        __yo_ptr_neq :
-          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean
-      ;
-      impl(Self, Eq(Self)(
-        (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs, rhs)),
-        (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs, rhs))
-      ))
-    }`,
-      Ord: `{
-      extern "Yo",
-        __yo_ptr_lt :
-          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
-        __yo_ptr_lte :
-          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
-        __yo_ptr_gt :
-          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
-        __yo_ptr_gte :
-          fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean
-      ;
-      impl(Self, Ord(Self)(
-        (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs, rhs)),
-        (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs, rhs)),
-        (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs, rhs)),
-        (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
-      ))
-    }`,
-      diff: `{
-        extern "Yo",
-          __yo_ptr_diff :
-            fn(forall(T: Type), ptr1 : T, ptr2 : T) -> isize
-        ;
-        ((fn(lhs : Self, rhs : Self) -> isize) {
-          return __yo_ptr_diff(lhs, rhs);
-        })
-      }`,
-      cast: `{
-        extern "Yo",
-          __yo_ptr_cast :
-            fn(forall(Source: Type), source : Source, compt(Target) : Type) -> Target
-        ;
-        ((fn(self : Self, compt(Target) : Type) -> Target) {
-          return __yo_ptr_cast(self, Target);
-        })
-      }`,
-    });
-
-    // Add Send trait conditionally:
-    // Pointer implements Send if the pointee is not Rc type and implements Send
-    if (!isRcType(childType) && typeImplementsSend(childType)) {
-      addModuleFieldsByCode(module, {
-        Send: `{
-          Send :: module(id := "Send");
-          impl(Self, Send())
-        }`,
-      });
-    }
-  }
+  ptrCache.set(childType, ptrType);
 
   return ptrType;
 }
