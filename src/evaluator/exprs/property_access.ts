@@ -39,6 +39,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
+import { findMethodsFromGenericImpls } from "../values/module";
 
 export function evaluatePropertyAccess({
   expr,
@@ -293,7 +294,26 @@ export function evaluatePropertyAccess({
         return expr;
       } else {
         // Property not found in type's own module
-        // Return expr with expr.$ = undefined to allow function.ts
+        // Check if there's a generic impl for this type (e.g., impl(forall(T), *(T), {...}))
+        const genericMethods = findMethodsFromGenericImpls({
+          concreteType: typeValue.value,
+          methodName: propertyName,
+          env,
+        });
+        if (genericMethods.length > 0) {
+          const method = genericMethods[0]!;
+          expr.$ = {
+            env,
+            type: method.type,
+            value: method.value,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+          propertyExpr.$ = expr.$;
+          return expr;
+        }
+
+        // Still not found - return undefined to allow function.ts
         // to handle this as a uniform function call (method call)
         // function.ts will call getMethodsByNameFromEnv to find the method
         // in implicit given implementations (like TypeMethods)

@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   Environment,
+  isEvaluatingPreludeModule,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -691,9 +692,9 @@ function registerImpl(modulePath: string, moduleType: ModuleType): void {
 }
 
 /**
- * Attach a module value to a receiver type's module with an empty label.
- * This allows method calls on values of the receiver type to find methods
- * from the implemented module, while preventing direct access by name.
+ * Attach a module value to a receiver type's module.
+ * For anonymous modules (begin blocks), flatten the fields directly.
+ * For named modules, attach with an empty label for method lookup.
  *
  * Note: clearImplsFromModule should be called before re-evaluating a module
  * to remove old impls. This function just adds the new impl.
@@ -713,20 +714,42 @@ function attachModuleToReceiverType(
     registerImpl(sourceModulePath, receiverType.module);
   }
 
-  // Create a field with empty label to attach the module
-  const field: ModuleField = {
-    label: "", // Empty label prevents direct access, only method calls work
-    type: createTypeHierarchy(1), // Module type
-    isCompileTimeOnly: true,
-    assignedValue: moduleValue,
-    sourceModulePath,
-    exprs: {
-      expr,
-    },
-  };
+  // Check if this is an anonymous module (no typeName) - flatten its fields
+  if (!moduleValue.type.typeName) {
+    // Flatten the module's fields directly onto the receiver type's module
+    for (let i = 0; i < moduleValue.type.fields.length; i++) {
+      const field = moduleValue.type.fields[i]!;
+      const value = moduleValue.fields[i];
 
-  // Add the field to the receiver type's module
-  receiverType.module.fields.push(field);
+      const newField: ModuleField = {
+        label: field.label,
+        type: field.type,
+        isCompileTimeOnly: field.isCompileTimeOnly,
+        assignedValue: value,
+        sourceModulePath,
+        exprs: {
+          expr,
+        },
+      };
+
+      receiverType.module.fields.push(newField);
+    }
+  } else {
+    // Named module - attach with empty label for method lookup
+    const field: ModuleField = {
+      label: "", // Empty label prevents direct access, only method calls work
+      type: createTypeHierarchy(1), // Module type
+      isCompileTimeOnly: true,
+      assignedValue: moduleValue,
+      sourceModulePath,
+      exprs: {
+        expr,
+      },
+    };
+
+    // Add the field to the receiver type's module
+    receiverType.module.fields.push(field);
+  }
 }
 
 export function evaluateModuleValue({
@@ -810,6 +833,14 @@ export function evaluateModuleValue({
       exprIsFunctionCall(expr.args[1]) &&
       exprIsFunctionCallOf(expr.args[1], BuiltinKeywords.begin)
     ) {
+      // Restrict anonymous module impl to prelude.yo only
+      if (!isEvaluatingPreludeModule()) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,
+        });
+      }
+
       const beginExprs = expr.args[1]!.args;
       const {
         moduleType,
@@ -1127,6 +1158,14 @@ export function evaluateModuleValue({
       exprIsFunctionCall(moduleCallArg) &&
       exprIsFunctionCallOf(moduleCallArg, BuiltinKeywords.begin)
     ) {
+      // Restrict anonymous module impl to prelude.yo only
+      if (!isEvaluatingPreludeModule()) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,
+        });
+      }
+
       // Anonymous module value
       const beginExprs = moduleCallArg.args;
       const result = evaluateAnonymousModuleBeginExprs({

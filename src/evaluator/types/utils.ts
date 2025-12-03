@@ -16,6 +16,8 @@ import {
   ModuleField,
   StructType,
   typeContainsRcType,
+  typeImplementsCopy,
+  typeImplementsSend,
   typeOfType,
   typeToString,
 } from "../../types";
@@ -911,8 +913,6 @@ export function autoDeriveCopySendForStructType({
     return env;
   }
 
-  const { typeImplementsCopy, typeImplementsSend } = require("../../types");
-
   // Check if Copy/Send are already explicitly defined
   const hasCopy = structType.module.fields.some(
     (field) => field.label === "Copy"
@@ -989,8 +989,6 @@ export function autoDeriveCopySendForEnumType({
   if (isEvaluatingPreludeModule()) {
     return env;
   }
-
-  const { typeImplementsCopy, typeImplementsSend } = require("../../types");
 
   // Check if Copy/Send are already explicitly defined
   const hasCopy = enumType.module.fields.some(
@@ -1070,8 +1068,6 @@ export function autoDeriveCopySendForUnionType({
   if (isEvaluatingPreludeModule()) {
     return env;
   }
-
-  const { typeImplementsCopy, typeImplementsSend } = require("../../types");
 
   // Check if Copy/Send are already explicitly defined
   const hasCopy = unionType.module.fields.some(
