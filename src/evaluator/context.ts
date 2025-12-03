@@ -228,6 +228,11 @@ export interface MacroFunctionCallResult {
   returnExpr: Expr;
 }
 
+export interface NumericTypeCallResult {
+  expr: Expr;
+  env: Environment;
+}
+
 export interface FunctionToCall {
   type: Type;
   value?: Value;
@@ -291,6 +296,15 @@ export interface FunctionToCall {
          */
         kind: "array";
         result: ArrayCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   tryToConvertToNumericType
+         */
+        kind: "numeric-type";
+        result: NumericTypeCallResult;
       }
     | {
         kind: "error";

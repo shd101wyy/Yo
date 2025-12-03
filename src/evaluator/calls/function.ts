@@ -65,6 +65,10 @@ import { tryToImplementComptListByComptListType } from "./compt_list_type";
 import { tryToImplementFunctionByFunctionType } from "./function_type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module_type";
+import {
+  isConvertibleNumericType,
+  tryToConvertToNumericType,
+} from "./numeric_type";
 import { tryToCallTypeWithArguments } from "./type";
 
 export function evaluateFunctionCall({
@@ -736,6 +740,60 @@ export function evaluateFunctionCall({
             },
           };
         }
+      }
+      // numeric type conversion (i32, u8, f64, etc.)
+      else if (isTypeValue(value) && isConvertibleNumericType(value.value)) {
+        const targetType = value.value;
+        // Numeric types expect exactly one argument
+        if (argsToUse.length !== 1) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: formatErrorMessage({
+                token: func.token,
+                errorMessage: `Numeric type conversion expects exactly 1 argument, got ${argsToUse.length}`,
+              }),
+            },
+          };
+        }
+        try {
+          const result = tryToConvertToNumericType({
+            targetType,
+            argExpr: argsToUse[0]!,
+            expr,
+            callerEnv: env,
+            context: { ...context },
+          });
+          if (result) {
+            return {
+              ...functionToCall,
+              result: {
+                kind: "numeric-type",
+                result,
+              },
+            };
+          } else {
+            return {
+              ...functionToCall,
+              result: {
+                kind: "error",
+                error: formatErrorMessage({
+                  token: func.token,
+                  errorMessage: `Failed to convert to numeric type ${typeToString(targetType)}`,
+                }),
+              },
+            };
+          }
+        } catch (error) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: error,
+            },
+          };
+        }
       } else {
         return {
           ...functionToCall,
@@ -1243,6 +1301,12 @@ ${functionsWithMatchingTypes
     // closure type
     else if (isTypeValue(value) && isClosureType(value.value)) {
       // This should already be evaluated by tryToImplementClosureByClosureType
+      return expr;
+    }
+    // numeric type conversion (i32, u8, f64, etc.)
+    else if (isTypeValue(value) && isConvertibleNumericType(value.value)) {
+      // This should already be evaluated by tryToConvertToNumericType
+      // The expr has been transformed to __yo_as call if needed
       return expr;
     }
     // array & slice
