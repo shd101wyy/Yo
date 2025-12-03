@@ -25,7 +25,6 @@ import {
   createFunctionType,
   createType0,
   FunctionForallParameter,
-  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
   getFunctionParameterExprs,
@@ -539,7 +538,6 @@ export function evaluateFunctionParameters({
 }): {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
-  implicitParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
   env: Environment;
 } {
@@ -547,7 +545,6 @@ export function evaluateFunctionParameters({
 
   const parameters: FunctionParameter[] = [];
   const forallParameters: FunctionParameter[] = [];
-  const implicitParameters: FunctionParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
 
   let findVariadicParameter = false;
@@ -593,85 +590,6 @@ export function evaluateFunctionParameters({
         forallParameters.push(parameter);
         env = nextEnv;
       }
-    }
-    // Check if it's an implicit parameter with new syntax: using(name) : Type
-    else if (
-      exprIsFunctionCall(parameterExpr) &&
-      exprIsFunctionCallOf(parameterExpr, ":", 2) &&
-      exprIsFunctionCall(parameterExpr.args[0]!) &&
-      exprIsFunctionCallOf(parameterExpr.args[0]!, BuiltinKeywords.using, 1)
-    ) {
-      // Enforce ordering: using(...) parameters must come after all regular parameters
-      if (parameters.length === 0 && i > 0) {
-        // We have implicit params but haven't seen any regular params yet
-        // This is only okay if we're right after forall
-        const hasForallBefore = forallParameters.length > 0;
-        if (!hasForallBefore && i > 0) {
-          throw formatErrorMessage({
-            token: parameterExpr.token,
-            errorMessage: `Implicit parameters using(...) must come after regular parameters.
-Expected order: forall(...), regular parameters, using(...)`,
-          });
-        }
-      }
-
-      // New syntax: using(name) : Type
-      const usingCall = parameterExpr.args[0]! as FuncCallExpr;
-      const nameExpr = usingCall.args[0]!;
-      const typeExpr = parameterExpr.args[1]!;
-
-      // Reconstruct as (name : Type) for evaluateFunctionParameter
-      const reconstructedExpr: FuncCallExpr = {
-        ...parameterExpr,
-        args: [nameExpr, typeExpr],
-      };
-
-      const { parameter, env: nextEnv } = evaluateFunctionParameter({
-        expr: reconstructedExpr,
-        env,
-        context: {
-          ...context,
-        },
-        isParameterComptByDefault: true,
-      });
-
-      // Implicit parameter cannot have default value
-      if (parameter.exprs.defaultValueExpr) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `Implicit parameter cannot have default value, got ${exprToString(
-            parameterExpr
-          )}`,
-        });
-      }
-
-      // Check if there is duplicate labels
-      const duplicateLabel = implicitParameters.find(
-        (element) => element.label === parameter.label
-      );
-      if (duplicateLabel) {
-        throw formatErrorMessage({
-          token: nameExpr.token,
-          errorMessage: `Duplicate label "${parameter.label}" in implicit parameter`,
-        });
-      }
-
-      // If parameter is compile-time only, then
-      // require there is no runtime implicitParameters before it
-      if (parameter.isCompileTimeOnly) {
-        const runtimeImplicitParameters = implicitParameters.filter(
-          (p) => !p.isCompileTimeOnly
-        );
-        if (runtimeImplicitParameters.length > 0) {
-          throw formatErrorMessage({
-            token: nameExpr.token,
-            errorMessage: `Compile-time parameters must appear first in the implicit parameter list.`,
-          });
-        }
-      }
-
-      implicitParameters.push(parameter);
-      env = nextEnv;
     }
     // Check if it's a where clause: where(T <: Module1, U <: Module2, ...)
     else if (
@@ -859,15 +777,6 @@ Expected order: forall(...), regular parameters, using(...)`,
     }
     // Normal function parameters
     else {
-      // Enforce ordering: cannot have regular parameters after using(...) parameters
-      if (implicitParameters.length > 0) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `Regular parameters must come before implicit parameters using(...).
-Expected order: forall(...), regular parameters, using(...)`,
-        });
-      }
-
       if (findVariadicParameter) {
         throw formatErrorMessage({
           token: parameterExpr.token,
@@ -934,7 +843,6 @@ Expected order: forall(...), regular parameters, using(...)`,
   return {
     parameters,
     forallParameters,
-    implicitParameters,
     variadicParameter,
     env,
   };
@@ -990,7 +898,6 @@ export function evaluateFunctionType({
   const {
     parameters,
     forallParameters,
-    implicitParameters,
     variadicParameter,
     env: nextEnv,
   } = evaluateFunctionParameters({
@@ -1200,16 +1107,6 @@ ${typeToString(returnType)}`,
         });
       }
     }
-
-    // Check if all implicitParameters are compile time only
-    for (const parameter of implicitParameters) {
-      if (!parameter.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: getFunctionParameterToken(parameter),
-          errorMessage: `Expected all implicit parameters to be compile time only given the return type is compile time only.`,
-        });
-      }
-    }
   }
 
   // If the returnType is unquote, then
@@ -1227,7 +1124,6 @@ ${typeToString(returnType)}`,
   const functionType = createFunctionType({
     parameters,
     forallParameters: forallParameters as FunctionForallParameter[],
-    implicitParameters: implicitParameters as FunctionImplicitParameter[],
     variadicParameter,
     return_: {
       type: returnType,

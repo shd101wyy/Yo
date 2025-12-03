@@ -45,7 +45,6 @@ export function evaluateComptFunctionCall({
   const unfilteredArgValues: (Value | undefined)[] = [
     ...argValues_.forallArgs.map((v) => v.value),
     ...argValues_.args.map((v) => v.value),
-    ...argValues_.implicitArgs.map((v) => v.value),
   ];
   if (unfilteredArgValues.some((val) => !val)) {
     throw formatErrorMessage({

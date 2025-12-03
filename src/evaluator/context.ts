@@ -156,11 +156,6 @@ export interface EvaluatorContext {
 export interface ArgValues {
   forallArgs: { value: Value; parameterType: Type; argType: Type }[];
   args: { value: Value | undefined; parameterType: Type; argType: Type }[];
-  implicitArgs: {
-    value: Value | undefined;
-    parameterType: Type;
-    argType: Type;
-  }[];
   variadicArgs: {
     value: Value | undefined;
     argType: Type;

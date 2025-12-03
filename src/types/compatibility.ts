@@ -598,14 +598,6 @@ export function areFunctionTypesCompatible(
     return false;
   }
 
-  // Check if the implicit parameters have the same count
-  if (
-    expected.type.implicitParameters.length !==
-    given.type.implicitParameters.length
-  ) {
-    return false;
-  }
-
   // Synthesize the types
   const { expectedEnv, givenEnv } = synthesizeTypes(
     {
@@ -661,29 +653,6 @@ export function areFunctionTypesCompatible(
           type: givenParam.type,
           env: given.env,
         },
-        isMethodReceiver
-      )
-    ) {
-      return false;
-    }
-  }
-
-  // Check implicit parameters for compatibility
-  for (let i = 0; i < expected.type.implicitParameters.length; i++) {
-    const expectedImplicitParam = expected.type.implicitParameters[i]!;
-    const givenImplicitParam = given.type.implicitParameters[i]!;
-
-    if (
-      expectedImplicitParam.isCompileTimeOnly !==
-      givenImplicitParam.isCompileTimeOnly
-    ) {
-      return false;
-    }
-
-    if (
-      !areTypesCompatible(
-        { type: expectedImplicitParam.type, env: expected.env },
-        { type: givenImplicitParam.type, env: given.env },
         isMethodReceiver
       )
     ) {

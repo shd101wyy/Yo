@@ -388,16 +388,6 @@ function substituteInFunctionType(
     }
   );
 
-  // Substitute in implicit parameters
-  const newImplicitParameters = functionType.implicitParameters.map((p) => {
-    const newType = substituteInType(p.type, substitutions);
-    if (newType !== p.type) {
-      changed = true;
-      return { ...p, type: newType };
-    }
-    return p;
-  });
-
   // Substitute in return type
   const newReturnType = substituteInType(
     functionType.return.type,
@@ -421,7 +411,6 @@ function substituteInFunctionType(
   return {
     ...functionType,
     parameters: newParameters,
-    implicitParameters: newImplicitParameters,
     return: returnChanged
       ? { ...functionType.return, type: newReturnType }
       : functionType.return,

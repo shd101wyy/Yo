@@ -804,17 +804,6 @@ function functionTypeToString(
           .join(", ")})`
       : "";
 
-  // For implicit parameters, use the new syntax: using(name) : Type
-  const implicitParams =
-    func.implicitParameters.length > 0
-      ? func.implicitParameters
-          .map((param) => {
-            const typeStr = typeToString(param.type, visited);
-            return `using(${param.label}) : ${typeStr}`;
-          })
-          .join(", ")
-      : "";
-
   let variadicParam = "";
   if (func.variadicParameter) {
     if (func.variadicParameter.label === "...") {
@@ -844,7 +833,7 @@ function functionTypeToString(
     }
   }
 
-  const paramsString = [typeParams, params, variadicParam, implicitParams]
+  const paramsString = [typeParams, params, variadicParam]
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName;

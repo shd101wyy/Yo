@@ -72,7 +72,6 @@ import {
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptFunctionCall } from "./compt_function";
-import { resolveImplicitValue } from "./implicit_resolver";
 
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.
@@ -472,11 +471,6 @@ export function tryToCallFunctionWithArguments({
     parameterType: Type;
     argType: Type;
   }[] = [];
-  const implicitArgValues: {
-    value: Value | undefined;
-    parameterType: Type;
-    argType: Type;
-  }[] = [];
 
   const runtimeArgExprsInOrder: Expr[] = [];
 
@@ -495,18 +489,13 @@ export function tryToCallFunctionWithArguments({
   // Split arguments into regular and implicit
   // Regular parameters come first, implicit parameters come after
   const regularArgCount = functionType.parameters.length;
-  const implicitArgCount = functionType.implicitParameters.length;
 
   const regularArgExprs = argExprs.slice(
     regularArgStartIndex,
     regularArgStartIndex + regularArgCount
   );
-  const implicitArgExprs = argExprs.slice(
-    regularArgStartIndex + regularArgCount,
-    regularArgStartIndex + regularArgCount + implicitArgCount
-  );
   const variadicArgExprs = argExprs.slice(
-    regularArgStartIndex + regularArgCount + implicitArgCount
+    regularArgStartIndex + regularArgCount
   );
 
   // Replace argExprs with just regular args for the rest of the function
@@ -869,206 +858,6 @@ Got:   ${argExprs.length} arguments`,
     }
   }
 
-  // Check if the implicit parameters are provided
-  for (let i = 0; i < functionType.implicitParameters.length; i++) {
-    const implicitParameter = functionType.implicitParameters[i]!;
-
-    // Evaluate its type again
-    const {
-      parameterType: newImplicitParameterType,
-      calleeEnv: nextCalleeEnv,
-    } = evaluateFunctionParameterTypeAgain({
-      functionType,
-      parameter: implicitParameter,
-      calleeEnv,
-      context: {
-        ...context,
-        isEvaluatingFunctionType: true,
-      },
-    });
-    calleeEnv = nextCalleeEnv;
-    const implicitParameterType = newImplicitParameterType;
-
-    // When evaluating function types, assume implicit parameters will be satisfied
-    if (context.isEvaluatingFunctionType) {
-      // Create an unknown value for the implicit parameter
-      const unknownValue = createUnknownValue(
-        implicitParameterType,
-        implicitParameter.label
-      );
-
-      // Add the parameter to the calleeEnv
-      const { env: nextEnv } = addVariableToEnv({
-        env: calleeEnv,
-        variable: {
-          name: implicitParameter.label,
-          type: implicitParameterType,
-          isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-          value: unknownValue,
-          token: PlaceholderToken,
-          initializedAtToken: PlaceholderToken,
-          consumedAtToken: undefined,
-        },
-      });
-      calleeEnv = nextEnv;
-
-      implicitArgValues.push({
-        value: unknownValue,
-        parameterType: implicitParameterType,
-        argType: implicitParameter.type,
-      });
-
-      continue; // Skip the actual dependency resolution
-    }
-
-    // Check if it's provided in implicitArgsExpr
-    let implicitArgExpr: Expr | undefined = implicitArgExprs[i];
-    let labelExpr: Expr | undefined = undefined;
-
-    // Check if it's calling the named argument
-    if (
-      exprIsFunctionCall(implicitArgExpr) &&
-      exprIsFunctionCallOf(implicitArgExpr, ":", 2)
-    ) {
-      labelExpr = implicitArgExpr.args[0]!;
-      implicitArgExpr = implicitArgExpr.args[1]!;
-
-      // Check if the label is valid
-      if (!exprIsAtom(labelExpr)) {
-        throw formatErrorMessage({
-          token: labelExpr.token,
-          errorMessage: `Expected identifier for type parameter label, got:\n${exprToString(labelExpr)}`,
-        });
-      }
-
-      // Check if the label matches the type parameter label
-      if (implicitParameter.label !== labelExpr.token.value) {
-        throw formatErrorMessage({
-          token: labelExpr.token,
-          errorMessage: `Expected type parameter label "${implicitParameter.label}", got "${labelExpr.token.value}".`,
-        });
-      }
-    }
-
-    // Check if it's '_'
-    if (
-      !implicitArgExpr ||
-      (exprIsAtom(implicitArgExpr) && implicitArgExpr.token.value === "_")
-    ) {
-      // _ is a special case, it means to use the inferred value.
-      // So we don't need to check the type
-    }
-    // NOTE: Default value is not supported for implicit parameters
-    else {
-      // Evaluate the given implicit argument
-      const evaluatedImplicitArg = evaluateExpression({
-        expr: implicitArgExpr,
-        env: callerEnv,
-        context: {
-          ...context,
-          expectedType: { type: implicitParameterType, env: calleeEnv },
-        },
-      });
-      if (evaluatedImplicitArg.$?.env) {
-        callerEnv = evaluatedImplicitArg.$.env;
-      }
-      const argType = evaluatedImplicitArg.$?.type;
-      if (!argType) {
-        throw formatErrorMessage({
-          token: implicitArgExpr.token,
-          errorMessage: `Failed to evaluate implicit argument expression:\n${exprToString(implicitArgExpr)}`,
-        });
-      }
-
-      // Add the arg to the environment
-      if (implicitParameter.label) {
-        const argValue = evaluatedImplicitArg.$?.value;
-        // console.log("(14) addVariableToEnv");
-        const { env: nextEnv } = addVariableToEnv({
-          env: calleeEnv,
-          variable: {
-            name: implicitParameter.label,
-            type: argType,
-            isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-            value: argValue,
-            token: implicitArgExpr.token,
-            initializedAtToken: implicitArgExpr.token, // Set as initialized
-            consumedAtToken: undefined, // Not consumed yet
-          },
-        });
-        calleeEnv = nextEnv;
-      }
-
-      // Synthesize the types
-      const { expectedEnv, givenEnv } = synthesizeTypes(
-        { type: implicitParameterType, env: calleeEnv },
-        { type: argType, env: callerEnv }
-      );
-      calleeEnv = expectedEnv;
-      callerEnv = givenEnv;
-
-      // Compare the types
-      if (
-        !areTypesCompatible(
-          { type: implicitParameterType, env: calleeEnv },
-          { type: argType, env: callerEnv }
-        )
-      ) {
-        throw formatErrorMessage({
-          token: implicitArgExpr.token,
-          errorMessage: `Type mismatch for implicit parameter "${implicitParameter.label}":
-Expected: ${typeToString(implicitParameterType)}
-Got:   ${typeToString(argType)}`,
-        });
-      }
-
-      // Add the explicitly provided implicit argument to implicitArgValues
-      const argValue = evaluatedImplicitArg.$?.value;
-      implicitArgValues.push({
-        value: argValue,
-        argType: argType,
-        parameterType: implicitParameterType,
-      });
-
-      continue; // Found the correct implicit argument
-    }
-
-    // Use the common implicit resolver
-    const { value: resolvedValue, type: resolvedType } = resolveImplicitValue({
-      expectedType: implicitParameterType,
-      label: implicitParameter.label,
-      isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-      calleeEnv,
-      callerEnv,
-      context,
-      errorToken: functionCalleeExpr?.token ?? PlaceholderToken,
-      preventCircularCall: functionValue,
-    });
-
-    // Add the resolved implicit variable to the function env
-    const { env: nextEnv } = addVariableToEnv({
-      env: calleeEnv,
-      variable: {
-        name: implicitParameter.label,
-        type: resolvedType,
-        isCompileTimeOnly: implicitParameter.isCompileTimeOnly,
-        value: resolvedValue,
-        token: functionCalleeExpr?.token ?? PlaceholderToken,
-        initializedAtToken: functionCalleeExpr?.token ?? PlaceholderToken,
-        consumedAtToken: undefined,
-      },
-      skipCheckingFunctionOverloading: true,
-    });
-    calleeEnv = nextEnv;
-
-    // Add the implicit variable value to the implicitArgValues
-    implicitArgValues.push({
-      value: resolvedValue,
-      argType: resolvedType,
-      parameterType: implicitParameterType,
-    });
-  }
-
   // Check the variadic parameters
   const variadicArgs: { value: Value | undefined; argType: Type }[] = [];
   if (functionType.variadicParameter) {
@@ -1164,7 +953,6 @@ Got:   ${typeToString(argType)}`,
   const argValues_: ArgValues = {
     args: argValues,
     forallArgs: forallArgValues,
-    implicitArgs: implicitArgValues,
     variadicArgs,
   };
 
@@ -1336,24 +1124,6 @@ function createSpecializedFunctionInline({
     }
   });
 
-  // Add compile-time implicit parameters to the cache key
-  // Different implicit values should create different specialized functions
-  if (argValues.implicitArgs) {
-    functionType.implicitParameters.forEach((param, index) => {
-      const implicitArg = argValues.implicitArgs![index]!;
-      if (param.isCompileTimeOnly) {
-        if (implicitArg?.value) {
-          compileTimeArgValues.push(implicitArg.value);
-        }
-      } else {
-        runtimeParameters.push({
-          ...param,
-          type: implicitArg.parameterType,
-        });
-      }
-    });
-  }
-
   // Check if we already have a specialized version in cache
   const existingCache = originalFunction.specializedFunctionCaches.find(
     (cache) =>
@@ -1467,29 +1237,11 @@ function createSpecializedFunctionInline({
     }
   });
 
-  // Include compile-time implicit parameters
-  // Different implicit values should create different specialized function signatures
-  if (argValues.implicitArgs) {
-    functionType.implicitParameters.forEach((param, index) => {
-      if (param.isCompileTimeOnly && index < argValues.implicitArgs!.length) {
-        const arg = argValues.implicitArgs![index];
-        if (arg) {
-          compileTimeSignatureParts.push(
-            sanitizeForCIdentifier(valueToString(arg.value))
-          );
-        } else {
-          compileTimeSignatureParts.push("unknown");
-        }
-      }
-    });
-  }
-
   const compileTimeSignature = compileTimeSignatureParts.join("_");
 
   const specializedFunctionType = createFunctionType({
     forallParameters: [],
     parameters: runtimeParameters,
-    implicitParameters: [],
     variadicParameter: undefined, // QUESTION: Is this right?
     return_: {
       ...functionType.return,

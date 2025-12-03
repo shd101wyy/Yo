@@ -9,7 +9,6 @@ import {
   DynType,
   EnumType,
   FunctionForallParameter,
-  FunctionImplicitParameter,
   FunctionParameter,
   FunctionParameterExprs,
   FunctionReturn,
@@ -762,7 +761,6 @@ export function createUnionType(env: Environment): UnionType {
 export function createFunctionType({
   parameters,
   forallParameters,
-  implicitParameters,
   variadicParameter,
   return_,
   env,
@@ -772,7 +770,6 @@ export function createFunctionType({
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
-  implicitParameters: FunctionImplicitParameter[];
   variadicParameter: FunctionParameter | undefined;
   return_: FunctionReturn;
   env: Environment;
@@ -788,7 +785,6 @@ export function createFunctionType({
     tag: TypeTag.Function,
     parameters: parameters, // Wrap params in a TupleType
     forallParameters,
-    implicitParameters,
     variadicParameter,
     return: return_,
     env,

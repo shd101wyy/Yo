@@ -18,8 +18,7 @@ export function validateDisposeFunction(
     const funcType = moduleElement.type;
     if (
       funcType.parameters.length !== 1 ||
-      funcType.forallParameters.length !== 0 ||
-      funcType.implicitParameters.length !== 0
+      funcType.forallParameters.length !== 0
     ) {
       throw formatErrorMessage({
         token,

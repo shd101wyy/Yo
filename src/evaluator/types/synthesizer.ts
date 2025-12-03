@@ -604,9 +604,7 @@ export function synthesizeTypes(
     isFunctionType(given.type) &&
     expected.type.forallParameters.length ===
       given.type.forallParameters.length &&
-    expected.type.parameters.length === given.type.parameters.length &&
-    expected.type.implicitParameters.length ===
-      given.type.implicitParameters.length
+    expected.type.parameters.length === given.type.parameters.length
   ) {
     // Synthesize function types - match parameter types and return types
     const expectedFunction = expected.type;
@@ -640,23 +638,6 @@ export function synthesizeTypes(
         },
         {
           type: givenFunction.parameters[i]!.type,
-          env: given.env,
-        },
-        checkedTypePairs
-      );
-      expected.env = expectedEnv;
-      given.env = givenEnv;
-    }
-
-    // Synthesize the implicit parameter types
-    for (let i = 0; i < expectedFunction.implicitParameters.length; i++) {
-      const { expectedEnv, givenEnv } = synthesizeTypes(
-        {
-          type: expectedFunction.implicitParameters[i]!.type,
-          env: expected.env,
-        },
-        {
-          type: givenFunction.implicitParameters[i]!.type,
           env: given.env,
         },
         checkedTypePairs

@@ -23,7 +23,6 @@ import {
 } from "../../value";
 import { EvaluatorContext, ModuleTypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { resolveImplicitValue } from "./implicit_resolver";
 
 export function tryToImplementModuleWithArgumentsByModuleType({
   moduleExpr,
@@ -276,59 +275,6 @@ Got:   ${typeToString(argType)}`,
     if (!foundArgExpr) {
       const defaultValue = moduleField.defaultValue;
       const assignedValue = moduleField.assignedValue;
-
-      // Check if it's an implicit parameter that needs to be resolved
-      if (!defaultValue && !assignedValue && moduleField.isImplicit) {
-        try {
-          // Re-evaluate the implicit constraint type in the context of the receiver type
-          // This ensures that Self references resolve to the receiver type
-          let implicitConstraintType = moduleField.type;
-          const typeExpr = moduleField.exprs.typeExpr;
-          if (typeExpr) {
-            const evaluatedTypeExpr = evaluateExpression({
-              expr: cloneExpr(typeExpr),
-              env: pushEnvFrame(
-                moduleType.env,
-                callerEnv.frames[callerEnv.frames.length - 1]
-              ),
-              context: {
-                ...context,
-                expectedType: undefined,
-                ReceiverType: undefined,
-                SelfType: selfType,
-              },
-            });
-            const typeValue = evaluatedTypeExpr.$?.value;
-            if (isTypeValue(typeValue)) {
-              implicitConstraintType = typeValue.value;
-            }
-          }
-
-          // Try to resolve the implicit value from the environment
-          const { value: resolvedValue } = resolveImplicitValue({
-            expectedType: implicitConstraintType,
-            label: moduleField.label,
-            isCompileTimeOnly: true, // Module fields are always compile-time
-            calleeEnv: callerEnv,
-            callerEnv,
-            context: {
-              ...context,
-              ReceiverType: undefined,
-              SelfType: selfType,
-            },
-            errorToken: moduleExpr.token,
-          });
-
-          fields[i] = resolvedValue;
-
-          // Update the working module type
-          workingModuleType.fields[i]!.assignedValue = resolvedValue;
-
-          continue; // Successfully resolved implicit parameter
-        } catch (error) {
-          // If implicit resolution fails, fall through to the error below
-        }
-      }
 
       // Re-evaluate default value in the current context if it exists
       let resolvedValue: Value | undefined = assignedValue;

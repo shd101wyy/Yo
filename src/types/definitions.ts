@@ -281,10 +281,6 @@ export type FunctionForallParameter = FunctionParameter & {
   isCompileTimeOnly: true;
 };
 
-export type FunctionImplicitParameter = FunctionParameter & {
-  isCompileTimeOnly: true;
-};
-
 export interface StructType extends Type {
   tag: TypeTag.Struct;
 
@@ -339,13 +335,6 @@ export interface ModuleField {
    * In theory, all module elements are compile-time only.
    */
   isCompileTimeOnly: true;
-
-  /**
-   * Whether this element is an implicit constraint (using syntax).
-   * For example: using(EqSelf) : (Self <: Eq(Rhs))
-   * Implicit elements are constraints that must be satisfied but are not directly accessible members.
-   */
-  isImplicit?: boolean;
 
   /**
    * The module path that added this field via `impl`.
@@ -530,19 +519,6 @@ export interface FunctionType extends Type {
    *   (forall(T: Type), x: T)-> T;
    */
   forallParameters: FunctionForallParameter[];
-
-  /**
-   * The implicit parameters (aka contextual parameters).
-   * These must appear after all regular parameters in the function signature.
-   *
-   * Syntax: using(name) : Type
-   *
-   * Example:
-   *   fn(forall(T : Type), val : T, using(ShowT) : (T <: Show)) -> String
-   *
-   * Expected order: forall(...), regular parameters, using(...)
-   */
-  implicitParameters: FunctionImplicitParameter[];
 
   /**
    * Variadic parameters are parameters that can take a variable number of arguments.

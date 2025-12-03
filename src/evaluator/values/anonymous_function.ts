@@ -118,7 +118,6 @@ export function evaluateAnonymousFunctionImplementation({
 
   // Parse parameter expressions to separate forall, using, and regular parameters
   let forallParamExprs: Expr[] = [];
-  let implicitParamExprs: Expr[] = [];
   const regularParamExprs: Expr[] = [];
 
   for (let i = 0; i < parameterExprs.length; i++) {
@@ -135,17 +134,6 @@ export function evaluateAnonymousFunctionImplementation({
         });
       }
       forallParamExprs = paramExpr.args;
-    } else if (
-      exprIsFunctionCall(paramExpr) &&
-      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
-    ) {
-      if (i !== parameterExprs.length - 1) {
-        throw formatErrorMessage({
-          token: paramExpr.token,
-          errorMessage: `using(...) must be the last parameter expression`,
-        });
-      }
-      implicitParamExprs = paramExpr.args;
     } else {
       regularParamExprs.push(paramExpr);
     }
@@ -157,15 +145,6 @@ export function evaluateAnonymousFunctionImplementation({
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected ${functionType.forallParameters.length} forall parameters, got ${forallParamExprs.length}`,
-    });
-  }
-  */
-
-  /*
-  if (implicitParamExprs.length !== functionType.implicitParameters.length) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected ${functionType.implicitParameters.length} implicit parameters, got ${implicitParamExprs.length}`,
     });
   }
   */
@@ -286,65 +265,13 @@ Got:      "${paramName}"`,
     };
   }
 
-  // Check implicit parameters (always compt)
-  for (let i = 0; i < implicitParamExprs.length; i++) {
-    const paramExpr = implicitParamExprs[i]!;
-    const expectedParam = functionType.implicitParameters[i]!;
-
-    if (!exprIsAtom(paramExpr)) {
-      throw formatErrorMessage({
-        token: paramExpr.token,
-        errorMessage: `Expected parameter name for implicit parameter, got ${exprToString(paramExpr)}`,
-      });
-    }
-
-    const paramName = paramExpr.token.value;
-    if (paramName !== expectedParam.label) {
-      throw formatErrorMessage({
-        token: paramExpr.token,
-        errorMessage: `Implicit parameter name must match expected name.
-Expected: "${expectedParam.label}"
-Got:      "${paramName}"`,
-      });
-    }
-  }
-  for (let i = 0; i < functionType.implicitParameters.length; i++) {
-    const paramExpr = implicitParamExprs[i];
-    const expectedParam = functionType.implicitParameters[i]!;
-    // Add implicit parameter to environment
-    const { env: nextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: expectedParam.label,
-        type: expectedParam.type,
-        isCompileTimeOnly: expectedParam.isCompileTimeOnly,
-        value: createUnknownValue(expectedParam.type, expectedParam.label),
-        token: paramExpr?.token ?? PlaceholderToken,
-        initializedAtToken: paramExpr?.token ?? PlaceholderToken,
-        consumedAtToken: undefined,
-      },
-      skipCheckingFunctionOverloading: true,
-    });
-    env = nextEnv;
-
-    if (paramExpr) {
-      paramExpr.$ = {
-        env: env,
-        type: expectedParam.type,
-        value: createUnknownValue(expectedParam.type, expectedParam.label),
-        pathCollection: [],
-      };
-    }
-  }
-
   const parametersFrame = env.frames[env.frames.length - 1]!;
 
   // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
     ...functionType,
-    // forall and implicit parameters must use expected names/types entirely (they're always compt)
+    // forall parameters must use expected names/types entirely (they're always compt)
     forallParameters: functionType.forallParameters,
-    implicitParameters: functionType.implicitParameters,
     // For regular parameters: use expected types but allow anonymous names for non-compt parameters
     parameters: functionType.parameters.map((expectedParam, index) => {
       if (expectedParam.isCompileTimeOnly) {

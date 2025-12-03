@@ -71,42 +71,8 @@ export function evaluateModuleField({
 
   let fieldType: Type | undefined = undefined;
 
-  // Check if it's an implicit constraint with new syntax: using(name) : Type
-  let isImplicit = false;
-  if (
-    exprIsFunctionCall(expr) &&
-    exprIsFunctionCallOf(expr, ":", 2) &&
-    exprIsFunctionCall(expr.args[0]!) &&
-    exprIsFunctionCallOf(expr.args[0]!, BuiltinKeywords.using, 1)
-  ) {
-    // New syntax: using(name) : Type
-    isImplicit = true;
-    const usingCall = expr.args[0]! as FuncCallExpr;
-    const nameExpr = usingCall.args[0]!;
-    typeExpr = expr.args[1]!;
-
-    if (!exprIsAtom(nameExpr) || !isValidVariableName(nameExpr)) {
-      throw formatErrorMessage({
-        token: nameExpr.token,
-        errorMessage: `Expected identifier for implicit constraint name, got ${exprToString(
-          nameExpr
-        )}`,
-      });
-    }
-
-    label = nameExpr.token.value;
-    labelExpr = nameExpr;
-    expr_ = expr; // Keep the full expression for later processing
-  }
-
   // Check the default value
   if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "?=", 2)) {
-    if (isImplicit) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Implicit constraints (using syntax) cannot have default values`,
-      });
-    }
     defaultValueExpr = expr.args[1]!;
     expr_ = expr.args[0]!;
   }
@@ -118,12 +84,6 @@ export function evaluateModuleField({
       exprIsFunctionCallOf(expr_, "::", 2) ||
       exprIsFunctionCallOf(expr_, ":=", 2))
   ) {
-    if (isImplicit) {
-      throw formatErrorMessage({
-        token: expr_.token,
-        errorMessage: `Implicit constraints (using syntax) cannot have assigned values`,
-      });
-    }
     if (exprIsFunctionCallOf(expr_, "::", 2)) {
       throw formatErrorMessage({
         token: expr_.token,
@@ -145,11 +105,7 @@ All module fields are compile-time only by default.`,
   }
 
   // Parse the lhs expr (skip if we already got label from using(name) syntax)
-  if (
-    !isImplicit &&
-    exprIsFunctionCall(expr_) &&
-    exprIsFunctionCallOf(expr_, ":", 2)
-  ) {
+  if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":", 2)) {
     labelExpr = expr_.args[0]!;
     typeExpr = expr_.args[1]!;
 
@@ -174,7 +130,6 @@ All module fields are compile-time only by default.`,
     }
     label = labelExpr.token.value;
   } else if (
-    !isImplicit &&
     exprIsFunctionCall(expr_) &&
     exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
   ) {
@@ -182,12 +137,12 @@ All module fields are compile-time only by default.`,
       token: expr_.token,
       errorMessage: `No need to use "compt"  modifier. All module fields are compile-time only by default.`,
     });
-  } else if (!isImplicit && !defaultValueExpr && !assignedValueExpr) {
+  } else if (!defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected label for module field, got ${exprToString(expr_)}`,
     });
-  } else if (!isImplicit) {
+  } else {
     //  eg:
     //    Output ?= Self
     labelExpr = expr_;
@@ -440,7 +395,6 @@ To avoid circular dependency issues, please explicitly provide the value for thi
         assignedValueExpr,
       },
       isCompileTimeOnly: true,
-      isImplicit,
       defaultValue,
       assignedValue,
     },

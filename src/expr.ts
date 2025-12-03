@@ -455,9 +455,6 @@ export const BuiltinKeywords = {
   compt: ["compt" /*"@"*/],
   ref: ["ref"], // Reference semantics for struct/enum
 
-  // implicit: ["implicit" /*"?"*/], // deprecated in favor of `using` and `given` like scala
-  using: ["using"],
-
   forall: ["forall", "∀"],
   where: ["where"],
   // Exists: ["exists", "∃"],
