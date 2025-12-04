@@ -1,52 +1,42 @@
 // Reference type
-// A type that does NOT implement Copy - should be allowed to implement Gc
+// A type that does NOT implement Copy
 RefType :: object(value: i32); // does NOT derive Copy
 compt_assert(Type.impls(RefType, Copy) == false);
 compt_assert(Type.impls(RefType, Send) == true);
-compt_assert(Type.impls(RefType, Gc) == true);
 
 // Value type
-// A type that DOES implement Copy - should NOT be allowed to implement Gc
+// A type that DOES implement Copy
 ValueType :: struct(value: i32); // auto-derive Copy
 compt_assert(Type.impls(ValueType, Copy) == true);
 compt_assert(Type.impls(ValueType, Send) == true); 
-compt_assert(Type.impls(ValueType, Gc) == false);
 
 // Compound type that contains a RefType
 Compound :: struct(value : RefType);
 compt_assert(Type.impls(Compound, Copy) == false);
 compt_assert(Type.impls(Compound, Send) == true);
-compt_assert(Type.impls(Compound, Gc) == true);
 
 // Pointer types
 /// Reference type
 compt_assert(Type.impls(*(RefType), Copy) == true);
 compt_assert(Type.impls(*(RefType), Send) == false);
-compt_assert(Type.impls(*(RefType), Gc)   == false);
 
 compt_assert(Type.impls(*(*(RefType)), Copy) == true);
 compt_assert(Type.impls(*(*(RefType)), Send) == false);
-compt_assert(Type.impls(*(*(RefType)), Gc)   == false);
 
 /// Value type
 compt_assert(Type.impls(*(ValueType), Copy) == true);
 compt_assert(Type.impls(*(ValueType), Send) == true);
-compt_assert(Type.impls(*(ValueType), Gc)   == false);
 
 /// Compound type
 compt_assert(Type.impls(*(Compound), Copy) == true);
 compt_assert(Type.impls(*(Compound), Send) == false);
-compt_assert(Type.impls(*(Compound), Gc)   == false);
 
 // Array types
 compt_assert(Type.impls(Array(RefType, 4), Copy) == false);
 compt_assert(Type.impls(Array(RefType, 4), Send) == true);
-compt_assert(Type.impls(Array(RefType, 4), Gc)   == true);
 
 compt_assert(Type.impls(Array(ValueType, 4), Copy) == true);
 compt_assert(Type.impls(Array(ValueType, 4), Send) == true);
-compt_assert(Type.impls(Array(ValueType, 4), Gc)   == false);
 
 compt_assert(Type.impls(Array(Compound, 4), Copy) == false);
 compt_assert(Type.impls(Array(Compound, 4), Send) == true);
-compt_assert(Type.impls(Array(Compound, 4), Gc)   == true);

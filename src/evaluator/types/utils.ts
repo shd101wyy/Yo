@@ -1,4 +1,4 @@
-import { Environment, isEvaluatingPreludeModule } from "../../env";
+import { Environment } from "../../env";
 import {
   BuiltinFunctions,
   Expr,
@@ -18,7 +18,6 @@ import {
   StructType,
   typeContainsRcType,
   typeImplementsCopy,
-  typeImplementsGc,
   typeImplementsSend,
   typeOfType,
   typeToString,
@@ -945,17 +944,15 @@ function attachModuleToReceiverType(
 }
 
 /**
- * Auto-derive Copy, Send, and Gc marker modules for a struct type.
+ * Auto-derive Copy, Send marker modules for a struct type.
  *
  * For struct (value semantics):
  * - Auto-derive Copy if all fields implement Copy
  * - Auto-derive Send if all fields implement Send
- * - Auto-derive Gc if any field implements Gc
  *
  * For object (reference semantics):
  * - Never auto-derive Copy (Rc types are move-only)
  * - Auto-derive Send if all fields implement Send
- * - Always auto-derive Gc (object types are always GC-managed)
  */
 export function autoDeriveCopySendForStructType({
   structType,
@@ -966,11 +963,6 @@ export function autoDeriveCopySendForStructType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
-  // Skip auto-derive during prelude evaluation (Copy/Send/Gc not yet defined)
-  if (isEvaluatingPreludeModule()) {
-    return env;
-  }
-
   // For object (reference semantics), never auto-derive Copy
   const canDeriveCopy = !structType.isReferenceSemantics;
 
@@ -994,32 +986,14 @@ export function autoDeriveCopySendForStructType({
     env = attachModuleToReceiverType("Send", structType, env, context);
   }
 
-  // Auto-derive Gc:
-  // - For object (reference semantics): always derive Gc
-  // - For struct (value semantics): derive Gc if any field implements Gc
-  if (structType.isReferenceSemantics) {
-    // object types always implement Gc
-    env = attachModuleToReceiverType("Gc", structType, env, context);
-  } else {
-    // struct types implement Gc if any field implements Gc
-    const anyFieldImplementsGc = structType.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .some((field) => typeImplementsGc(field.type, env));
-
-    if (anyFieldImplementsGc) {
-      env = attachModuleToReceiverType("Gc", structType, env, context);
-    }
-  }
-
   return env;
 }
 
 /**
- * Auto-derive Copy, Send, and Gc marker modules for an enum type.
+ * Auto-derive Copy, Send marker modules for an enum type.
  *
  * - Auto-derive Copy if all variant fields implement Copy
  * - Auto-derive Send if all variant fields implement Send
- * - Auto-derive Gc if any variant field implements Gc
  */
 export function autoDeriveCopySendForEnumType({
   enumType,
@@ -1030,11 +1004,6 @@ export function autoDeriveCopySendForEnumType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
-  // Skip auto-derive during prelude evaluation (Copy/Send/Gc not yet defined)
-  if (isEvaluatingPreludeModule()) {
-    return env;
-  }
-
   // Check if all variant fields implement Copy
   const allFieldsImplementCopy = enumType.variants.every((variant) => {
     if (!variant.fields || variant.fields.length === 0) {
@@ -1059,27 +1028,14 @@ export function autoDeriveCopySendForEnumType({
     env = attachModuleToReceiverType("Send", enumType, env, context);
   }
 
-  // Check if any variant field implements Gc
-  const anyFieldImplementsGc = enumType.variants.some((variant) => {
-    if (!variant.fields || variant.fields.length === 0) {
-      return false; // Variants without fields don't contribute to Gc
-    }
-    return variant.fields.some((field) => typeImplementsGc(field.type, env));
-  });
-
-  if (anyFieldImplementsGc) {
-    env = attachModuleToReceiverType("Gc", enumType, env, context);
-  }
-
   return env;
 }
 
 /**
- * Auto-derive Copy, Send, and Gc marker modules for a union type.
+ * Auto-derive Copy, Send marker modules for a union type.
  *
  * - Auto-derive Copy if all fields implement Copy
  * - Auto-derive Send if all fields implement Send
- * - Auto-derive Gc if any field implements Gc
  */
 export function autoDeriveCopySendForUnionType({
   unionType,
@@ -1090,11 +1046,6 @@ export function autoDeriveCopySendForUnionType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
-  // Skip auto-derive during prelude evaluation (Copy/Send/Gc not yet defined)
-  if (isEvaluatingPreludeModule()) {
-    return env;
-  }
-
   // Check if all fields implement Copy
   const allFieldsImplementCopy = unionType.fields
     .filter((field) => !field.isCompileTimeOnly)
@@ -1111,15 +1062,6 @@ export function autoDeriveCopySendForUnionType({
 
   if (allFieldsImplementSend) {
     env = attachModuleToReceiverType("Send", unionType, env, context);
-  }
-
-  // Check if any field implements Gc
-  const anyFieldImplementsGc = unionType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .some((field) => typeImplementsGc(field.type, env));
-
-  if (anyFieldImplementsGc) {
-    env = attachModuleToReceiverType("Gc", unionType, env, context);
   }
 
   return env;
