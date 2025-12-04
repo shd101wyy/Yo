@@ -518,12 +518,10 @@ export function getMethodsByNameFromEnv(
 ): {
   type: Type;
   value: Value | undefined;
-  needsPointerConversion?: boolean;
 }[] {
   const methods: {
     type: Type;
     value: Value | undefined;
-    needsPointerConversion?: boolean;
   }[] = [];
 
   // Automatically dereference if it's pointer/reference type
@@ -633,12 +631,10 @@ export function getMethodsByNameFromEnv(
     methods: {
       type: Type;
       value: Value | undefined;
-      needsPointerConversion?: boolean;
     }[]
   ): {
     type: Type;
     value: Value | undefined;
-    needsPointerConversion?: boolean;
   }[] {
     const filtered = methods.filter((method) => {
       if (isFunctionType(method.type)) {
@@ -662,9 +658,7 @@ export function getMethodsByNameFromEnv(
           );
 
           if (receiverCompatibleWithPtrChild) {
-            // Mark this method as needing pointer conversion
-            method.needsPointerConversion = true;
-            return true;
+            return false; // We disallow automatic pointer conversion for method calls
           }
         }
 

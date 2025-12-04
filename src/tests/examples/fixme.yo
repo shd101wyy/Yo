@@ -24,6 +24,10 @@ compt_assert(Type.impls(*(RefType), Copy) == true);
 compt_assert(Type.impls(*(RefType), Send) == false);
 compt_assert(Type.impls(*(RefType), Gc)   == false);
 
+compt_assert(Type.impls(*(*(RefType)), Copy) == true);
+compt_assert(Type.impls(*(*(RefType)), Send) == false);
+compt_assert(Type.impls(*(*(RefType)), Gc)   == false);
+
 /// Value type
 compt_assert(Type.impls(*(ValueType), Copy) == true);
 compt_assert(Type.impls(*(ValueType), Send) == true);
@@ -34,7 +38,7 @@ compt_assert(Type.impls(*(Compound), Copy) == true);
 compt_assert(Type.impls(*(Compound), Send) == false);
 compt_assert(Type.impls(*(Compound), Gc)   == false);
 
-// Array type
+// Array types
 compt_assert(Type.impls(Array(RefType, 4), Copy) == false);
 compt_assert(Type.impls(Array(RefType, 4), Send) == true);
 compt_assert(Type.impls(Array(RefType, 4), Gc)   == true);
