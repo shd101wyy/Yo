@@ -22,6 +22,7 @@ import {
   isUnionType,
   ModuleField,
   TypeField,
+  typeImplementsCopy,
   typeToString,
 } from "../../types";
 import {
@@ -165,6 +166,16 @@ export function evaluatePropertyAccess({
     if (isPtrType(objectExpr.$?.type)) {
       const pointerType = objectExpr.$.type;
       const baseType = pointerType.childType;
+
+      // Prevent dereference the pointer whose childType is not copyable
+      if (!typeImplementsCopy(baseType, env)) {
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage: `Cannot dereference pointer to non-copyable type:\n${typeToString(
+            baseType
+          )}`,
+        });
+      }
 
       expr.$ = {
         env,

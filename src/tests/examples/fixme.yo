@@ -3,8 +3,17 @@ Data :: object(
 );
 
 main :: (fn() -> unit) {
-  x := Data(1);
-  y := &(x);
-  compt_expect_error(z := x);
-  compt_expect_error(y.*);
+  {
+    x := Data(1);
+    y := &(x);
+    compt_expect_error(z := x, "use of moved value x");
+    compt_expect_error(y.*, "cannot dereference pointer to non-copyable type Data");
+  };
+
+  {
+    x := 12;
+    y := &(x);
+    z := x;
+    y.*;
+  };
 };
