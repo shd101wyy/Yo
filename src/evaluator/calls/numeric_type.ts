@@ -221,10 +221,12 @@ export function tryToConvertToNumericType({
   }
 
   // Evaluate the argument
+  // Clear expectedType to allow the argument to be evaluated with its natural type
+  // The type conversion will happen after evaluation, not during
   const evaluatedArg = evaluateExpression({
     expr: argExpr,
     env: callerEnv,
-    context: { ...context },
+    context: { ...context, expectedType: undefined },
   });
 
   if (!evaluatedArg.$) {
