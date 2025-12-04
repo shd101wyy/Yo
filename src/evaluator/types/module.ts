@@ -624,16 +624,45 @@ export function evaluateModuleType({
 
         // Extract module types from RHS before evaluating the constraint
         // Support both single module and tuple of modules
+        // Also handle negated modules: !(Module)
         const rhsExpr = constraintExpr.args[1]!;
-        const moduleExprs: Expr[] = [];
-        if (exprIsFunctionCall(rhsExpr) && exprIsFunctionCallOf(rhsExpr, ",")) {
-          moduleExprs.push(...rhsExpr.args);
+        const moduleExprs: { expr: Expr; isNegated: boolean }[] = [];
+        if (
+          exprIsFunctionCall(rhsExpr) &&
+          exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+        ) {
+          for (const moduleExpr of rhsExpr.args) {
+            // Check if this is a negated module: !(Module)
+            if (
+              exprIsFunctionCall(moduleExpr) &&
+              exprIsFunctionCallOf(moduleExpr, "!") &&
+              moduleExpr.args.length === 1
+            ) {
+              moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
+            } else {
+              moduleExprs.push({ expr: moduleExpr, isNegated: false });
+            }
+          }
         } else {
-          moduleExprs.push(rhsExpr);
+          // Check if this is a negated module: !(Module)
+          if (
+            exprIsFunctionCall(rhsExpr) &&
+            exprIsFunctionCallOf(rhsExpr, "!") &&
+            rhsExpr.args.length === 1
+          ) {
+            moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+          } else {
+            moduleExprs.push({ expr: rhsExpr, isNegated: false });
+          }
+        }
+
+        // Initialize negativeSelfConstraints array if not already
+        if (!moduleType.negativeSelfConstraints) {
+          moduleType.negativeSelfConstraints = [];
         }
 
         // Evaluate each module expression to get the ModuleType
-        for (const moduleExpr of moduleExprs) {
+        for (const { expr: moduleExpr, isNegated } of moduleExprs) {
           const evaluatedModule = evaluateExpression({
             expr: moduleExpr,
             env,
@@ -650,7 +679,13 @@ export function evaluateModuleType({
             isTypeValue(evaluatedModule.$.value) &&
             isModuleType(evaluatedModule.$.value.value)
           ) {
-            moduleType.selfConstraints.push(evaluatedModule.$.value.value);
+            if (isNegated) {
+              moduleType.negativeSelfConstraints.push(
+                evaluatedModule.$.value.value
+              );
+            } else {
+              moduleType.selfConstraints.push(evaluatedModule.$.value.value);
+            }
           }
         }
 

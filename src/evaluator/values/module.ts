@@ -502,6 +502,31 @@ function tryMatchGenericImpl({
         return noMatch;
       }
 
+      // Handle negated constraints: the bound type must NOT implement the module
+      if (constraintModule.isNegatedConstraint) {
+        // If bound to a SomeType, check if it has the negated constraint attached
+        if (isSomeType(boundType)) {
+          if (
+            !someTypeHasNegatedModuleConstraint(boundType, constraintModule)
+          ) {
+            return noMatch;
+          }
+          continue;
+        }
+
+        // For concrete types, verify they do NOT implement the module
+        if (
+          typeImplementsModule({
+            targetType: boundType,
+            moduleType: constraintModule,
+            env,
+          })
+        ) {
+          return noMatch;
+        }
+        continue;
+      }
+
       // If bound to a SomeType, check if it has the required constraint attached
       if (isSomeType(boundType)) {
         if (!someTypeHasModuleConstraint(boundType, constraintModule)) {
@@ -566,7 +591,44 @@ function someTypeHasModuleConstraint(
       isModuleType(field.assignedValue.value)
     ) {
       const constraintModule = field.assignedValue.value;
-      if (constraintModule.typeName === moduleName) {
+      // Only match non-negated constraints
+      if (
+        constraintModule.typeName === moduleName &&
+        !constraintModule.isNegatedConstraint
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if a SomeType has a specific negated module constraint attached.
+ * Used when checking where constraints like `where(T <: !(Copy))`.
+ */
+function someTypeHasNegatedModuleConstraint(
+  someType: SomeType,
+  requiredNegatedModule: ModuleType
+): boolean {
+  const moduleName = requiredNegatedModule.typeName;
+  if (!moduleName) {
+    return false;
+  }
+
+  for (const field of someType.module.fields) {
+    if (
+      field.assignedValue &&
+      isTypeValue(field.assignedValue) &&
+      isModuleType(field.assignedValue.value)
+    ) {
+      const constraintModule = field.assignedValue.value;
+      // Only match negated constraints
+      if (
+        constraintModule.typeName === moduleName &&
+        constraintModule.isNegatedConstraint
+      ) {
         return true;
       }
     }
@@ -599,42 +661,71 @@ function checkGenericImplSelfConstraints({
   env: Environment;
   errorToken: Token;
 }): void {
-  if (!moduleType.selfConstraints || moduleType.selfConstraints.length === 0) {
-    return;
+  // Check positive constraints (must implement)
+  if (moduleType.selfConstraints && moduleType.selfConstraints.length > 0) {
+    for (const constraintModule of moduleType.selfConstraints) {
+      // Check if the receiver type pattern implements the constraint
+      // This uses typeImplementsModule which will check generic impls
+      if (
+        typeImplementsModule({
+          targetType: receiverTypePattern,
+          moduleType: constraintModule,
+          env,
+        })
+      ) {
+        continue;
+      }
+
+      // If direct check failed, collect all SomeTypes from the forall that have
+      // the required constraint in whereConstraints and check if the receiver
+      // pattern contains those SomeTypes with proper constraints
+      const someTypesWithConstraint = new Set<string>();
+      for (const wc of whereConstraints) {
+        if (
+          wc.moduleType.typeName === constraintModule.typeName &&
+          !wc.moduleType.isNegatedConstraint
+        ) {
+          someTypesWithConstraint.add(wc.someType.name);
+        }
+      }
+
+      // Check if receiver type pattern relies on SomeTypes that have the required constraint
+      // For now, we just fail - the typeImplementsModule check should handle this
+      // via findMatchingGenericImpl which checks someTypeHasModuleConstraint
+
+      throw formatErrorMessage({
+        token: errorToken,
+        errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" does not satisfy constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" required by module "${moduleType.typeName ?? typeToString(moduleType)}".
+Consider adding "where(T <: ${constraintModule.typeName ?? typeToString(constraintModule)})" to the impl.`,
+      });
+    }
   }
 
-  for (const constraintModule of moduleType.selfConstraints) {
-    // Check if the receiver type pattern implements the constraint
-    // This uses typeImplementsModule which will check generic impls
-    if (
-      typeImplementsModule({
-        targetType: receiverTypePattern,
-        moduleType: constraintModule,
-        env,
-      })
-    ) {
-      continue;
-    }
-
-    // If direct check failed, collect all SomeTypes from the forall that have
-    // the required constraint in whereConstraints and check if the receiver
-    // pattern contains those SomeTypes with proper constraints
-    const someTypesWithConstraint = new Set<string>();
-    for (const wc of whereConstraints) {
-      if (wc.moduleType.typeName === constraintModule.typeName) {
-        someTypesWithConstraint.add(wc.someType.name);
+  // Check negative constraints (must NOT implement)
+  if (
+    moduleType.negativeSelfConstraints &&
+    moduleType.negativeSelfConstraints.length > 0
+  ) {
+    for (const constraintModule of moduleType.negativeSelfConstraints) {
+      // If the receiver type pattern directly implements the forbidden module, it's an error
+      if (
+        typeImplementsModule({
+          targetType: receiverTypePattern,
+          moduleType: constraintModule,
+          env,
+        })
+      ) {
+        throw formatErrorMessage({
+          token: errorToken,
+          errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" implements "${constraintModule.typeName ?? typeToString(constraintModule)}" but module "${moduleType.typeName ?? typeToString(moduleType)}" requires it to NOT implement this module.
+Consider adding "where(T <: !(${constraintModule.typeName ?? typeToString(constraintModule)}))" to the impl.`,
+        });
       }
+
+      // If the receiver type pattern contains SomeTypes, check if they have the negated constraint
+      // If they don't have the negated constraint in whereConstraints, we can't guarantee they won't implement it
+      // For now, we allow this and rely on runtime checks when concrete types are substituted
     }
-
-    // Check if receiver type pattern relies on SomeTypes that have the required constraint
-    // For now, we just fail - the typeImplementsModule check should handle this
-    // via findMatchingGenericImpl which checks someTypeHasModuleConstraint
-
-    throw formatErrorMessage({
-      token: errorToken,
-      errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" does not satisfy constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" required by module "${moduleType.typeName ?? typeToString(moduleType)}".
-Consider adding "where(T <: ${constraintModule.typeName ?? typeToString(constraintModule)})" to the impl.`,
-    });
   }
 }
 

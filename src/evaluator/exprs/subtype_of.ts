@@ -1,6 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -78,6 +79,7 @@ export function typeImplementsModule({
 
 /**
  * Check if a type implements all the selfConstraints of a module type.
+ * Also checks that the type does NOT implement any negativeSelfConstraints.
  * Throws an error if any constraint is not satisfied.
  */
 export function checkTypeImplementsSelfConstraints({
@@ -91,18 +93,34 @@ export function checkTypeImplementsSelfConstraints({
   env: Environment;
   errorToken: Token;
 }): void {
-  if (!moduleType.selfConstraints || moduleType.selfConstraints.length === 0) {
-    return;
+  // Check positive constraints (must implement)
+  if (moduleType.selfConstraints && moduleType.selfConstraints.length > 0) {
+    for (const constraintModule of moduleType.selfConstraints) {
+      if (
+        !typeImplementsModule({ targetType, moduleType: constraintModule, env })
+      ) {
+        throw formatErrorMessage({
+          token: errorToken,
+          errorMessage: `Type "${typeToString(targetType)}" does not implement required constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" from module "${moduleType.typeName ?? typeToString(moduleType)}"'s where clause.`,
+        });
+      }
+    }
   }
 
-  for (const constraintModule of moduleType.selfConstraints) {
-    if (
-      !typeImplementsModule({ targetType, moduleType: constraintModule, env })
-    ) {
-      throw formatErrorMessage({
-        token: errorToken,
-        errorMessage: `Type "${typeToString(targetType)}" does not implement required constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" from module "${moduleType.typeName ?? typeToString(moduleType)}"'s where clause.`,
-      });
+  // Check negative constraints (must NOT implement)
+  if (
+    moduleType.negativeSelfConstraints &&
+    moduleType.negativeSelfConstraints.length > 0
+  ) {
+    for (const constraintModule of moduleType.negativeSelfConstraints) {
+      if (
+        typeImplementsModule({ targetType, moduleType: constraintModule, env })
+      ) {
+        throw formatErrorMessage({
+          token: errorToken,
+          errorMessage: `Type "${typeToString(targetType)}" implements "${constraintModule.typeName ?? typeToString(constraintModule)}" but the module "${moduleType.typeName ?? typeToString(moduleType)}"'s where clause requires it to NOT implement this module.`,
+        });
+      }
     }
   }
 }
@@ -166,20 +184,45 @@ export function evaluateSubtypeOf({
 
   // Collect module expressions to process
   // Support both single module and tuple of modules: T <: Module or T <: (Module1, Module2)
-  const moduleExprs: { expr: typeof rhsExpr }[] = [];
-  if (exprIsFunctionCall(rhsExpr) && exprIsFunctionCallOf(rhsExpr, ",")) {
+  // Also support negated modules: T <: !(Module) meaning T must NOT implement Module
+  const moduleExprs: { expr: typeof rhsExpr; isNegated: boolean }[] = [];
+  if (
+    exprIsFunctionCall(rhsExpr) &&
+    exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+  ) {
     // Tuple form: (Module1, Module2, ...)
     for (const moduleExpr of rhsExpr.args) {
-      moduleExprs.push({ expr: moduleExpr });
+      // Check if this is a negated module: !(Module)
+      if (
+        exprIsFunctionCall(moduleExpr) &&
+        exprIsFunctionCallOf(moduleExpr, "!") &&
+        moduleExpr.args.length === 1
+      ) {
+        moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
+      } else {
+        moduleExprs.push({ expr: moduleExpr, isNegated: false });
+      }
     }
   } else {
-    // Single module form
-    moduleExprs.push({ expr: rhsExpr });
+    // Single module form - check if negated
+    if (
+      exprIsFunctionCall(rhsExpr) &&
+      exprIsFunctionCallOf(rhsExpr, "!") &&
+      rhsExpr.args.length === 1
+    ) {
+      moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+    } else {
+      moduleExprs.push({ expr: rhsExpr, isNegated: false });
+    }
   }
 
   // Process each module
-  const moduleTypes: { moduleType: ModuleType; expr: typeof rhsExpr }[] = [];
-  for (const { expr: moduleExpr } of moduleExprs) {
+  const moduleTypes: {
+    moduleType: ModuleType;
+    expr: typeof rhsExpr;
+    isNegated: boolean;
+  }[] = [];
+  for (const { expr: moduleExpr, isNegated } of moduleExprs) {
     const evaluatedRhs = evaluateExpression({
       expr: moduleExpr,
       env,
@@ -210,31 +253,60 @@ export function evaluateSubtypeOf({
       });
     }
 
-    moduleTypes.push({ moduleType, expr: moduleExpr });
+    // Negated constraints are only allowed in where clauses
+    if (isNegated && !context.isInsideWhereClause) {
+      throw formatErrorMessage({
+        token: moduleExpr.token,
+        errorMessage: `Negated module constraints !(Module) are only allowed in where clauses.`,
+      });
+    }
+
+    moduleTypes.push({ moduleType, expr: moduleExpr, isNegated });
   }
 
   // In a where clause, add the module constraints to the SomeType's module
   if (context.isInsideWhereClause && isSomeType(typeValue.value)) {
     const someType = typeValue.value;
 
-    for (const { moduleType, expr: moduleExpr } of moduleTypes) {
+    for (const { moduleType, expr: moduleExpr, isNegated } of moduleTypes) {
       // Create a copy of the module with receiverType set to the someType
       const moduleWithReceiver: ModuleType = {
         ...moduleType,
         receiverType: someType,
       };
-      // Use empty label to prevent direct access - only method calls are allowed
-      const label = "";
-      const field: ModuleField = {
-        label,
-        type: createTypeHierarchy(1), // Module type
-        isCompileTimeOnly: true,
-        assignedValue: createTypeValue(moduleWithReceiver),
-        exprs: {
-          expr: moduleExpr,
-        },
-      };
-      someType.module.fields.push(field);
+
+      if (isNegated) {
+        // For negated constraints, mark the module as a negative constraint
+        const negatedModuleWithReceiver: ModuleType = {
+          ...moduleWithReceiver,
+          isNegatedConstraint: true,
+        };
+        // Use empty label to prevent direct access - only method calls are allowed
+        const label = "";
+        const field: ModuleField = {
+          label,
+          type: createTypeHierarchy(1), // Module type
+          isCompileTimeOnly: true,
+          assignedValue: createTypeValue(negatedModuleWithReceiver),
+          exprs: {
+            expr: moduleExpr,
+          },
+        };
+        someType.module.fields.push(field);
+      } else {
+        // Use empty label to prevent direct access - only method calls are allowed
+        const label = "";
+        const field: ModuleField = {
+          label,
+          type: createTypeHierarchy(1), // Module type
+          isCompileTimeOnly: true,
+          assignedValue: createTypeValue(moduleWithReceiver),
+          exprs: {
+            expr: moduleExpr,
+          },
+        };
+        someType.module.fields.push(field);
+      }
     }
 
     // Return the original typeValue (the SomeType itself)

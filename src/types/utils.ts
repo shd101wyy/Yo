@@ -200,6 +200,33 @@ export function typeImplementsSend(
 }
 
 /**
+ * Check if a type implements the Gc trait.
+ *
+ * Gc types are garbage-collected reference types.
+ * - object types always implement Gc
+ * - struct/enum/union types implement Gc if any field implements Gc
+ */
+export function typeImplementsGc(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const gcModuleType = getModuleTypeFromEnv(env, "Gc");
+  if (!gcModuleType) {
+    return false;
+  }
+
+  return typeImplementsModuleInternal({
+    targetType: type,
+    moduleType: gcModuleType,
+    env,
+  });
+}
+
+/**
  * Check if the type of the value requires to use the compt modifier.
  * For example:
  *   compt(x): Type

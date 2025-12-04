@@ -97,10 +97,11 @@ Send :: module(
 );
 export Send;
 
-Rc :: module(
-  id := "Rc"
+Gc :: module(
+  where(Self <: !(Copy)),
+  id := "Gc"
 );
-export Rc;
+export Gc;
 
 /// === Arithmetic ===
 Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Module))
@@ -2629,8 +2630,7 @@ impl(forall(T : Type), *(T), {
   };
   export diff, cast;
 });
-// TODO:
-// impl(forall(T : Type), where(T <: !(Rc)), *(T), Send());
+impl(forall(T : Type), where(T <: (Send, !(Gc))), *(T), Send());
 
 /// ComptList
 impl(forall(T : Type), ComptList(T), Copy());

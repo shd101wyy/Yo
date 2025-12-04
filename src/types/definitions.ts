@@ -394,6 +394,12 @@ export interface ModuleType extends Type {
   receiverType?: Type;
 
   /**
+   * If true, this module constraint is negated (the receiver must NOT implement this module).
+   * This is used for where clauses like: where(Self <: !(Copy))
+   */
+  isNegatedConstraint?: boolean;
+
+  /**
    * The constraints on Self from where clauses.
    * These are ModuleTypes that Self must implement.
    * eg:
@@ -406,6 +412,20 @@ export interface ModuleType extends Type {
    * selfConstraints would contain [CopyModuleType]
    */
   selfConstraints?: ModuleType[];
+
+  /**
+   * The negative constraints on Self from where clauses.
+   * These are ModuleTypes that Self must NOT implement.
+   * eg:
+   *
+   *   Gc :: module(
+   *     where(Self <: !(Copy)),
+   *     ...
+   *   );
+   *
+   * negativeSelfConstraints would contain [CopyModuleType]
+   */
+  negativeSelfConstraints?: ModuleType[];
 }
 
 export interface EnumVariant {

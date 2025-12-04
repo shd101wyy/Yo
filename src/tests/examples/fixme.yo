@@ -1,20 +1,22 @@
-compt_assert(Type.impls(i32, Copy));
-compt_assert(Type.impls(i32, Send));
+// A type that does NOT implement Copy - should be allowed to implement Gc
+NonCopyType :: object(value: i32); // does NOT derive Copy
+compt_assert(Type.impls(NonCopyType, Copy) == false);
+compt_assert(Type.impls(NonCopyType, Send) == true);
+compt_assert(Type.impls(NonCopyType, Gc) == true);
 
-Point :: struct(x : i32, y : i32);
-compt_assert(Type.impls(Point, Copy) == true);
-compt_assert(Type.impls(Point, Send) == true);
+// A type that DOES implement Copy - should NOT be allowed to implement Gc
+CopyableType :: struct(value: i32); // auto-derive Copy
+compt_assert(Type.impls(CopyableType, Copy) == true);
+compt_assert(Type.impls(CopyableType, Send) == true); 
+compt_assert(Type.impls(CopyableType, Gc) == false);
 
-MyBox :: object(v : i32);
-compt_assert(Type.impls(MyBox, Copy) == false);
-compt_assert(Type.impls(MyBox, Send) == true);
+// This SHOULD fail because CopyableType implements Copy
+compt_expect_error(
+  impl(CopyableType, Gc())
+);
 
-GenericPoint :: (fn(compt(T) : Type) -> compt(Type))
-  struct(x : T, y : T)
-;
 
-compt_assert(Type.impls(GenericPoint(i32), Copy) == true);
-compt_assert(Type.impls(GenericPoint(i32), Send) == true);
-
-compt_assert(Type.impls(GenericPoint(MyBox), Copy) == false);
-compt_assert(Type.impls(GenericPoint(MyBox), Send) == true);
+Compound :: struct(value : NonCopyType);
+compt_assert(Type.impls(Compound, Copy) == false);
+compt_assert(Type.impls(Compound, Send) == true);
+compt_assert(Type.impls(Compound, Gc) == true);
