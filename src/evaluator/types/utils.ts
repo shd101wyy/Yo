@@ -8,6 +8,7 @@ import {
 import { generateExprFromCode } from "../../parser";
 import {
   ClosureType,
+  createTypeHierarchy,
   DynType,
   EnumType,
   FutureType,
@@ -20,8 +21,9 @@ import {
   typeImplementsSend,
   typeOfType,
   typeToString,
+  UnionType,
 } from "../../types";
-import { isFunctionValue, isTypeValue } from "../../value";
+import { isFunctionValue, isModuleValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -889,6 +891,59 @@ function generateDupFunctionCodeForFutureType(futureType: FutureType): string {
 }
 
 /**
+ * Helper function to attach a module to a receiver type.
+ * This follows the same pattern as evaluateModuleValue for impl(type, Module()).
+ */
+function attachModuleToReceiverType(
+  moduleName: string,
+  receiverType: StructType | EnumType | UnionType,
+  env: Environment,
+  context: EvaluatorContext
+): Environment {
+  // Evaluate the module call (e.g., Copy() or Send())
+  const moduleCallCode = `${moduleName}()`;
+  const moduleCallExpr = generateExprFromCode(moduleCallCode);
+
+  const evaluatedModuleCall = evaluateExpression({
+    expr: moduleCallExpr,
+    env,
+    context: {
+      ...context,
+      expectedType: undefined,
+      ReceiverType: receiverType,
+    },
+  });
+
+  if (!evaluatedModuleCall.$ || !isModuleValue(evaluatedModuleCall.$.value)) {
+    return env;
+  }
+
+  env = evaluatedModuleCall.$.env;
+  const moduleValue = evaluatedModuleCall.$.value;
+
+  // Set the receiver type on the module value's type
+  moduleValue.type.receiverType = receiverType;
+
+  // Attach the module to the receiver type's module (same as attachModuleToReceiverType in module.ts)
+  // Named module - attach with empty label for method lookup
+  const field: ModuleField = {
+    label: "", // Empty label prevents direct access, only method calls work
+    type: createTypeHierarchy(1), // Module type
+    isCompileTimeOnly: true,
+    assignedValue: moduleValue,
+    sourceModulePath: context.currentModulePath,
+    exprs: {
+      expr: moduleCallExpr,
+    },
+  };
+
+  // Add the field to the receiver type's module
+  receiverType.module.fields.push(field);
+
+  return env;
+}
+
+/**
  * Auto-derive Copy and Send marker modules for a struct type.
  *
  * For struct (value semantics):
@@ -913,58 +968,27 @@ export function autoDeriveCopySendForStructType({
     return env;
   }
 
-  // Check if Copy/Send are already explicitly defined
-  const hasCopy = structType.module.fields.some(
-    (field) => field.label === "Copy"
-  );
-  const hasSend = structType.module.fields.some(
-    (field) => field.label === "Send"
-  );
-
   // For object (reference semantics), never auto-derive Copy
-  const canDeriveCopy = !structType.isReferenceSemantics && !hasCopy;
-  const canDeriveSend = !hasSend;
+  const canDeriveCopy = !structType.isReferenceSemantics;
 
   // Check if all fields implement Copy
   if (canDeriveCopy) {
     const allFieldsImplementCopy = structType.fields
       .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsCopy(field.type));
+      .every((field) => typeImplementsCopy(field.type, env));
 
     if (allFieldsImplementCopy) {
-      // Use a locally defined Copy module that structurally matches the prelude one
-      env = addModuleFieldByCode({
-        label: "Copy",
-        code: `{
-          Copy :: module(id := "Copy");
-          impl(Self, Copy())
-        }`,
-        SelfType: structType,
-        env,
-        context,
-      });
+      env = attachModuleToReceiverType("Copy", structType, env, context);
     }
   }
 
   // Check if all fields implement Send
-  if (canDeriveSend) {
-    const allFieldsImplementSend = structType.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsSend(field.type));
+  const allFieldsImplementSend = structType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsSend(field.type, env));
 
-    if (allFieldsImplementSend) {
-      // Use a locally defined Send module that structurally matches the prelude one
-      env = addModuleFieldByCode({
-        label: "Send",
-        code: `{
-          Send :: module(id := "Send");
-          impl(Self, Send())
-        }`,
-        SelfType: structType,
-        env,
-        context,
-      });
-    }
+  if (allFieldsImplementSend) {
+    env = attachModuleToReceiverType("Send", structType, env, context);
   }
 
   return env;
@@ -990,60 +1014,28 @@ export function autoDeriveCopySendForEnumType({
     return env;
   }
 
-  // Check if Copy/Send are already explicitly defined
-  const hasCopy = enumType.module.fields.some(
-    (field) => field.label === "Copy"
-  );
-  const hasSend = enumType.module.fields.some(
-    (field) => field.label === "Send"
-  );
-
   // Check if all variant fields implement Copy
-  if (!hasCopy) {
-    const allFieldsImplementCopy = enumType.variants.every((variant) => {
-      if (!variant.fields || variant.fields.length === 0) {
-        return true; // Variants without fields are trivially Copy
-      }
-      return variant.fields.every((field) => typeImplementsCopy(field.type));
-    });
-
-    if (allFieldsImplementCopy) {
-      // Use a locally defined Copy module that structurally matches the prelude one
-      env = addModuleFieldByCode({
-        label: "Copy",
-        code: `{
-          Copy :: module(id := "Copy");
-          impl(Self, Copy())
-        }`,
-        SelfType: enumType,
-        env,
-        context,
-      });
+  const allFieldsImplementCopy = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Copy
     }
+    return variant.fields.every((field) => typeImplementsCopy(field.type, env));
+  });
+
+  if (allFieldsImplementCopy) {
+    env = attachModuleToReceiverType("Copy", enumType, env, context);
   }
 
   // Check if all variant fields implement Send
-  if (!hasSend) {
-    const allFieldsImplementSend = enumType.variants.every((variant) => {
-      if (!variant.fields || variant.fields.length === 0) {
-        return true; // Variants without fields are trivially Send
-      }
-      return variant.fields.every((field) => typeImplementsSend(field.type));
-    });
-
-    if (allFieldsImplementSend) {
-      // Use a locally defined Send module that structurally matches the prelude one
-      env = addModuleFieldByCode({
-        label: "Send",
-        code: `{
-          Send :: module(id := "Send");
-          impl(Self, Send())
-        }`,
-        SelfType: enumType,
-        env,
-        context,
-      });
+  const allFieldsImplementSend = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Send
     }
+    return variant.fields.every((field) => typeImplementsSend(field.type, env));
+  });
+
+  if (allFieldsImplementSend) {
+    env = attachModuleToReceiverType("Send", enumType, env, context);
   }
 
   return env;
@@ -1060,7 +1052,7 @@ export function autoDeriveCopySendForUnionType({
   env,
   context,
 }: {
-  unionType: import("../../types").UnionType;
+  unionType: UnionType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -1069,100 +1061,23 @@ export function autoDeriveCopySendForUnionType({
     return env;
   }
 
-  // Check if Copy/Send are already explicitly defined
-  const hasCopy = unionType.module.fields.some(
-    (field) => field.label === "Copy"
-  );
-  const hasSend = unionType.module.fields.some(
-    (field) => field.label === "Send"
-  );
-
   // Check if all fields implement Copy
-  if (!hasCopy) {
-    const allFieldsImplementCopy = unionType.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsCopy(field.type));
+  const allFieldsImplementCopy = unionType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsCopy(field.type, env));
 
-    if (allFieldsImplementCopy) {
-      // Use a locally defined Copy module that structurally matches the prelude one
-      env = addModuleFieldByCode({
-        label: "Copy",
-        code: `{
-          Copy :: module(id := "Copy");
-          impl(Self, Copy())
-        }`,
-        SelfType: unionType,
-        env,
-        context,
-      });
-    }
+  if (allFieldsImplementCopy) {
+    env = attachModuleToReceiverType("Copy", unionType, env, context);
   }
 
   // Check if all fields implement Send
-  if (!hasSend) {
-    const allFieldsImplementSend = unionType.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsSend(field.type));
+  const allFieldsImplementSend = unionType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsSend(field.type, env));
 
-    if (allFieldsImplementSend) {
-      // Use a locally defined Send module that structurally matches the prelude one
-      env = addModuleFieldByCode({
-        label: "Send",
-        code: `{
-          Send :: module(id := "Send");
-          impl(Self, Send())
-        }`,
-        SelfType: unionType,
-        env,
-        context,
-      });
-    }
+  if (allFieldsImplementSend) {
+    env = attachModuleToReceiverType("Send", unionType, env, context);
   }
 
   return env;
-}
-
-/**
- * Helper function to add a module field by evaluating code
- */
-function addModuleFieldByCode({
-  label,
-  code,
-  SelfType,
-  env,
-  context,
-}: {
-  label: string;
-  code: string;
-  SelfType: StructType | EnumType | import("../../types").UnionType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  const { expr: fieldExpr, env: nextEnv } = parseAndEvaluateExprCode(
-    code,
-    SelfType as StructType | EnumType,
-    env,
-    context
-  );
-
-  if (fieldExpr.$ && fieldExpr.$.value) {
-    const moduleField: ModuleField = {
-      label,
-      type: fieldExpr.$.type,
-      assignedValue: fieldExpr.$.value,
-      isCompileTimeOnly: true,
-      exprs: {
-        expr: fieldExpr,
-        labelExpr: undefined,
-        typeExpr: undefined,
-        defaultValueExpr: undefined,
-        assignedValueExpr: fieldExpr,
-      },
-    };
-
-    // Add to module fields
-    SelfType.module.fields.push(moduleField);
-  }
-
-  return nextEnv;
 }

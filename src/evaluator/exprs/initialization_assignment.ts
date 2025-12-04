@@ -267,7 +267,7 @@ ${exprToString(rhs)}`,
 
     // Only track shared ownership for Copy types (like pointers from &)
     // For non-Copy types, this is a move - no shared ownership
-    const isCopyType = typeImplementsCopy(lhs.$.type);
+    const isCopyType = typeImplementsCopy(lhs.$.type, env);
     const rhsOwningVariable = isCopyType
       ? findARCValueOwnerRelationship(rhs, env, env.modulePath)
       : undefined;

@@ -467,7 +467,7 @@ export function evaluateIdentifierAndOperator({
 
       // Check if the variable has been consumed (moved) and the type doesn't implement Copy
       // For non-Copy types, once a variable is consumed, it cannot be used again
-      if (variable.consumedAtToken && !typeImplementsCopy(variable.type)) {
+      if (variable.consumedAtToken && !typeImplementsCopy(variable.type, env)) {
         throw formatErrorMessages([
           {
             token: expr.token,

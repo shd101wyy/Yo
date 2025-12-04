@@ -1841,7 +1841,7 @@ export function setExprAsNeedsToCallDup(
 
     // Check if the type implements Copy
     // If not, this is a move - consume the source variable without calling dup
-    if (!typeImplementsCopy(expr.$.type)) {
+    if (!typeImplementsCopy(expr.$.type, expr.$.env)) {
       // Move semantics: consume the source variable, transfer ownership
       const variables = getVariablesFromEnv(expr.$.env, variableName);
       if (variables.length > 0) {

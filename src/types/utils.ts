@@ -3,8 +3,16 @@ import { formatErrorMessages } from "../error";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
-import { isNumberValue, isUnknownValue, valueToString } from "../value";
+import {
+  isModuleValue,
+  isNumberValue,
+  isTypeValue,
+  isUnknownValue,
+  ModuleValue,
+  valueToString,
+} from "../value";
 import { ValueTag } from "../value-tag";
+import { areTypesCompatible } from "./compatibility";
 import {
   createF64Type,
   createI32Type,
@@ -74,94 +82,67 @@ import {
 import { TypeTag } from "./tags";
 
 /**
- * Check if a module is a marker module with a specific id.
- * Marker modules have exactly one field `id` with a compt_string value.
- *
- * For example, the Copy marker module is:
- *   Copy :: module(id := "Copy")
- *
- * This is checked structurally, so any module with this structure is considered a marker.
+ * Get a module type from the environment by name (e.g., "Copy", "Send").
+ * Returns undefined if not found.
  */
-export function isMarkerModule(
-  moduleType: ModuleType,
-  markerId: string
-): boolean {
-  // A marker module has exactly one field named "id" with a compt_string value
-  if (moduleType.fields.length !== 1) {
-    return false;
+export function getModuleTypeFromEnv(
+  env: Environment,
+  moduleName: string
+): ModuleType | undefined {
+  const variables = getVariablesFromEnv(env, moduleName);
+  if (variables.length === 0) {
+    return undefined;
   }
-
-  const idField = moduleType.fields[0];
-  if (!idField || idField.label !== "id") {
-    return false;
+  const variable = variables[variables.length - 1]!;
+  if (variable.value && isTypeValue(variable.value)) {
+    const typeValue = variable.value as TypeValue;
+    if (isModuleType(typeValue.value)) {
+      return typeValue.value;
+    }
   }
-
-  // Check if the assigned value is a compt_string with the expected marker id
-  if (!idField.assignedValue) {
-    return false;
-  }
-
-  if (idField.assignedValue.tag !== ValueTag.ComptString) {
-    return false;
-  }
-
-  return (idField.assignedValue as { value: string }).value === markerId;
+  return undefined;
 }
 
 /**
- * Check if a module is the Copy marker module.
+ * Check if a type implements a specific module.
+ * This is the core implementation used by typeImplementsCopy and typeImplementsSend.
  */
-export function isCopyMarkerModule(moduleType: ModuleType): boolean {
-  return isMarkerModule(moduleType, "Copy");
-}
+function typeImplementsModuleInternal({
+  targetType,
+  moduleType,
+  env,
+}: {
+  targetType: Type;
+  moduleType: ModuleType;
+  env: Environment;
+}): boolean {
+  const expectedModuleWithReceiver: ModuleType = {
+    ...moduleType,
+    receiverType: targetType,
+  };
 
-/**
- * Check if a module is the Send marker module.
- */
-export function isSendMarkerModule(moduleType: ModuleType): boolean {
-  return isMarkerModule(moduleType, "Send");
-}
+  const targetModule = targetType.module;
+  if (targetModule) {
+    for (const field of targetModule.fields) {
+      if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
+        continue;
+      }
 
-/**
- * Check if a type implements a specific marker module (Copy or Send).
- *
- * A type implements a marker module if:
- * 1. It has a field in its module with a label matching the marker (e.g., "Copy")
- * 2. That field's assignedValue is a ModuleValue
- * 3. That ModuleValue's type is the marker module (has `id := "Copy"` or `id := "Send"`)
- */
-export function typeImplementsMarker(
-  type: Type | undefined,
-  markerId: string
-): boolean {
-  if (!type) {
-    return false;
+      const fieldModuleValue = field.assignedValue as ModuleValue;
+      const fieldModuleType = fieldModuleValue.type;
+
+      if (
+        areTypesCompatible(
+          { type: expectedModuleWithReceiver, env },
+          { type: fieldModuleType, env }
+        )
+      ) {
+        return true;
+      }
+    }
   }
 
-  // Get the module from the type
-  const module = type.module;
-  if (!module) {
-    return false;
-  }
-
-  // Find a field with the marker label (e.g., "Copy" or "Send")
-  const markerField = module.fields.find((field) => field.label === markerId);
-  if (!markerField) {
-    return false;
-  }
-
-  // Check if the assigned value is a module value
-  if (!markerField.assignedValue) {
-    return false;
-  }
-
-  if (markerField.assignedValue.tag !== ValueTag.Module) {
-    return false;
-  }
-
-  // Check if the module value's type is the marker module
-  const moduleValue = markerField.assignedValue as { type: ModuleType };
-  return isMarkerModule(moduleValue.type, markerId);
+  return false;
 }
 
 /**
@@ -171,8 +152,24 @@ export function typeImplementsMarker(
  * Primitives (i32, boolean, etc.), pointers (*T), and structs where all fields are Copy
  * implement Copy.
  */
-export function typeImplementsCopy(type: Type | undefined): boolean {
-  return typeImplementsMarker(type, "Copy");
+export function typeImplementsCopy(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const copyModuleType = getModuleTypeFromEnv(env, "Copy");
+  if (!copyModuleType) {
+    return false;
+  }
+
+  return typeImplementsModuleInternal({
+    targetType: type,
+    moduleType: copyModuleType,
+    env,
+  });
 }
 
 /**
@@ -182,8 +179,24 @@ export function typeImplementsCopy(type: Type | undefined): boolean {
  * Primitives, Send pointers (where T is not Rc and T implements Send),
  * and structs where all fields are Send implement Send.
  */
-export function typeImplementsSend(type: Type | undefined): boolean {
-  return typeImplementsMarker(type, "Send");
+export function typeImplementsSend(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const sendModuleType = getModuleTypeFromEnv(env, "Send");
+  if (!sendModuleType) {
+    return false;
+  }
+
+  return typeImplementsModuleInternal({
+    targetType: type,
+    moduleType: sendModuleType,
+    env,
+  });
 }
 
 /**
