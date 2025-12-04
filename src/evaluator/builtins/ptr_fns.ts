@@ -6,8 +6,9 @@ import {
   expectExprToBeFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  setExprAsConsumed,
 } from "../../expr";
-import { createPtrType, isPtrType } from "../../types";
+import { createPtrType, isPtrType, typeImplementsCopy } from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -74,6 +75,12 @@ export function evaluateAddressCall({
   else {
     const argType = evaluatedArgExpr.$.type;
     const pointerType = createPtrType(argType);
+
+    // Check if argType implements Copy module, if not then we consume
+    // the value
+    if (!typeImplementsCopy(argType, env)) {
+      env = setExprAsConsumed(evaluatedArgExpr, env);
+    }
 
     expr.$ = {
       env,
