@@ -481,6 +481,15 @@ export function evaluatePropertyAccess({
 
         attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
 
+        if (!typeImplementsCopy(expr.$.type, env)) {
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Cannot move out field ${propertyExpr.token.value}.${
+              propertyExpr.token.value
+            } which is not copyable`,
+          });
+        }
+
         return expr;
       } else if (isValidVariableName(propertyExpr)) {
         const label = propertyExpr.token.value;
@@ -545,6 +554,15 @@ export function evaluatePropertyAccess({
           }
 
           attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
+
+          if (!typeImplementsCopy(expr.$.type, env)) {
+            throw formatErrorMessage({
+              token: propertyExpr.token,
+              errorMessage: `Cannot move out field ${propertyExpr.token.value}.${
+                propertyExpr.token.value
+              } which is not copyable`,
+            });
+          }
 
           return expr;
         }

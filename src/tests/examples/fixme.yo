@@ -5,7 +5,7 @@ Data :: object(
 main :: (fn() -> unit) {
   {
     x := Data(1);
-    y := &(x);
+    y := &(x); // & should consume `x` as it is non-copyable
     compt_expect_error(z := x, "use of moved value x");
     compt_expect_error(y.*, "cannot dereference pointer to non-copyable type Data");
   };
@@ -15,5 +15,21 @@ main :: (fn() -> unit) {
     y := &(x);
     z := x;
     y.*;
+  };
+
+  // tuple
+  {
+    x := Data(1);
+    y := (x,);
+    compt_expect_error(z := y.0, "cannot move out of tuple field y.0 which is not copyable");
+    compt_expect_error(w := x, "use of moved value x");
+  };
+
+  // array
+  {
+    x := Data(1);
+    y := [x,];
+    //FIXME: // compt_expect_error(z := y(0), "cannot move out of array element y(0) which is not copyable");
+    compt_expect_error(w := x, "use of moved value x");
   };
 };
