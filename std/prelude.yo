@@ -2632,6 +2632,11 @@ impl(forall(T : Type), *(T), {
 });
 impl(forall(T : Type), where(T <: (Send, !(Gc))), *(T), Send());
 
+/// Array
+impl(forall(T : Type, U : usize), where(T <: Copy), Array(T, U), Copy());
+impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
+impl(forall(T : Type, U : usize), where(T <: Gc), Array(T, U), Gc());
+
 /// ComptList
 impl(forall(T : Type), ComptList(T), Copy());
 impl(forall(T : Type), ComptList(T), {
