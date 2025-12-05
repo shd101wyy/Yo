@@ -1,3 +1,5 @@
+// Reference type
+// Move semantics non-copyable
 Data :: object(
   v : i32
 );
@@ -6,8 +8,11 @@ main :: (fn() -> unit) {
   {
     x := Data(1);
     y := &(x); // & should consume `x` as it is non-copyable
+
     compt_expect_error(z := x, "use of moved value x");
     compt_expect_error(y.*, "cannot dereference pointer to non-copyable type Data");
+    compt_expect_error(p := y.*, "cannot dereference pointer to non-copyable type Data");
+    compt_expect_error(y.* = Data(2), "cannot dereference pointer to non-copyable type Data");
   };
 
   {
@@ -21,15 +26,35 @@ main :: (fn() -> unit) {
   {
     x := Data(1);
     y := (x,);
-    compt_expect_error(z := y.0, "cannot move out of tuple field y.0 which is not copyable");
+
     compt_expect_error(w := x, "use of moved value x");
+    compt_expect_error(y.0, "cannot move out of field y.0 because type Data does not implement Copy");
+    compt_expect_error(z := y.0, "cannot move out of field y.0 because type Data does not implement Copy");
+
+    y.0 = Data(2); // LHS assignment should be allowed
   };
 
   // array
   {
     x := Data(1);
     y := [x,];
-    //FIXME: // compt_expect_error(z := y(0), "cannot move out of array element y(0) which is not copyable");
+
     compt_expect_error(w := x, "use of moved value x");
+    compt_expect_error(y(0), "cannot move out of array element y(0) because type Data does not implement Copy");
+    compt_expect_error(z := y(0), "cannot move out of array element y(0) because type Data does not implement Copy");
+
+    y(0) = Data(2); // LHS assignment should be allowed
+  };
+
+  // struct
+  {
+    x := Data(1);
+    y := { x }; // anonymous struct
+
+    compt_expect_error(w := x, "use of moved value x");
+    compt_expect_error(y.x, "cannot move out of field y.x because type Data does not implement Copy");
+    compt_expect_error(z := y.x, "cannot move out of field y.x because type Data does not implement Copy");
+
+    y.x = Data(2); // LHS assignment should be allowed
   };
 };

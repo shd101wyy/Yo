@@ -584,6 +584,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       context: {
         ...context,
         expectedType: undefined,
+        isLhsOfAssignment: true, // Signal that we're assigning into, not moving out
       },
     });
     if (!evaluatedLhs.$) {

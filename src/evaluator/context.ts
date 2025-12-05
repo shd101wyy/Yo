@@ -148,6 +148,13 @@ export interface EvaluatorContext {
    * will be added to the SomeType's module rather than creating a new module type.
    */
   isInsideWhereClause?: boolean;
+
+  /**
+   * Whether we are currently evaluating the LHS of an assignment.
+   * When true, accessing non-copyable fields is allowed because we're assigning into them,
+   * not moving out of them.
+   */
+  isLhsOfAssignment?: boolean;
 }
 
 /**

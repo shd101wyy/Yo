@@ -481,12 +481,17 @@ export function evaluatePropertyAccess({
 
         attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
 
-        if (!typeImplementsCopy(expr.$.type, env)) {
+        // Only check for non-copyable when we're on RHS (moving out)
+        // On LHS of assignment, we're assigning into the field, not moving out
+        if (
+          !context.isLhsOfAssignment &&
+          !typeImplementsCopy(expr.$.type, env)
+        ) {
           throw formatErrorMessage({
             token: propertyExpr.token,
-            errorMessage: `Cannot move out field ${propertyExpr.token.value}.${
+            errorMessage: `Cannot move out of field ${objectExpr.$.variableName ?? "?"}.${
               propertyExpr.token.value
-            } which is not copyable`,
+            } because type ${typeToString(expr.$.type)} does not implement Copy`,
           });
         }
 
@@ -555,12 +560,17 @@ export function evaluatePropertyAccess({
 
           attachTempVariableToExpr(expr, false); // NOTE: This should not take the ownership of the value
 
-          if (!typeImplementsCopy(expr.$.type, env)) {
+          // Only check for non-copyable when we're on RHS (moving out)
+          // On LHS of assignment, we're assigning into the field, not moving out
+          if (
+            !context.isLhsOfAssignment &&
+            !typeImplementsCopy(expr.$.type, env)
+          ) {
             throw formatErrorMessage({
               token: propertyExpr.token,
-              errorMessage: `Cannot move out field ${propertyExpr.token.value}.${
+              errorMessage: `Cannot move out of field ${objectExpr.$!.variableName ?? "?"}.${
                 propertyExpr.token.value
-              } which is not copyable`,
+              } because type ${typeToString(expr.$.type)} does not implement Copy`,
             });
           }
 
@@ -696,6 +706,21 @@ export function evaluatePropertyAccess({
         }
 
         propertyExpr.$ = expr.$;
+
+        // Only check for non-copyable when we're on RHS (moving out)
+        // On LHS of assignment, we're assigning into the field, not moving out
+        if (
+          !context.isLhsOfAssignment &&
+          !typeImplementsCopy(expr.$.type, env)
+        ) {
+          throw formatErrorMessage({
+            token: propertyExpr.token,
+            errorMessage: `Cannot move out of field ${objectExpr.$!.variableName ?? "?"}.${
+              propertyExpr.token.value
+            } because type ${typeToString(expr.$.type)} does not implement Copy`,
+          });
+        }
+
         return expr;
       } else {
         // It could be enum method call, so we ignore here.
