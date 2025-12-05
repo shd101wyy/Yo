@@ -4,6 +4,11 @@ Data :: object(
   v : i32
 );
 
+// Function that takes ownership of Data
+use_data :: (fn(d : Data) -> unit) {
+  return ();
+};
+
 main :: (fn() -> unit) {
   {
     x := Data(1);
@@ -56,5 +61,13 @@ main :: (fn() -> unit) {
     compt_expect_error(z := y.x, "cannot move out of field y.x because type Data does not implement Copy");
 
     y.x = Data(2); // LHS assignment should be allowed
+  };
+
+  // use_data
+  {
+    x := Data(1);
+    use_data(x); // should move `x`
+
+    compt_expect_error(y := x, "use of moved value x");
   };
 };
