@@ -9,6 +9,12 @@ use_data :: (fn(d : Data) -> unit) {
   return ();
 };
 
+// Now defined in prelude.yo
+/// extern "Yo",
+///   (^) :
+///     fn(forall(T : Type), move(ptr) : *(T)) -> Option(T)
+/// ;
+
 main :: (fn() -> unit) {
   {
     x := Data(1);
@@ -69,5 +75,19 @@ main :: (fn() -> unit) {
     use_data(x); // should move `x`
 
     compt_expect_error(y := x, "use of moved value x");
+  };
+
+  // ^
+  {
+    x := Data(1);
+    p1 := &(x);
+
+    compt_expect_error(y := x, "use of moved value x");
+
+    // restore `x`
+    x_org := ^(p1).unwrap();
+
+    // p1 should be consumed after ^(p1)
+    compt_expect_error(p2 := p1, "use of moved value p1");
   };
 };

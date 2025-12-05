@@ -266,6 +266,12 @@ export interface FunctionParameter {
    */
   isHoldingTheRcValue: boolean;
   /**
+   * Whether this parameter moves the argument.
+   * When true, the argument is always moved regardless of whether it implements Copy.
+   * This is useful for functions like `^` (move pointer) that need to take ownership.
+   */
+  isMoved: boolean;
+  /**
    * The expression information of the parameter.
    */
   exprs: FunctionParameterExprs;

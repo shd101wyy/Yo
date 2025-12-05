@@ -288,12 +288,14 @@ export function checkIfFunctionParameterMatchesArgument({
         }
       }
 
-      // If the argument type doesn't implement Copy, consume the original variable
-      // This implements move semantics for non-copyable types
+      // Move the argument if:
+      // 1. The parameter is marked with move(...) modifier, OR
+      // 2. The argument type doesn't implement Copy (move semantics)
       if (
         !parameter.isCompileTimeOnly &&
         evaluatedArgExpr.$ &&
-        !typeImplementsCopy(evaluatedArgExpr.$.type, callerEnv)
+        (parameter.isMoved ||
+          !typeImplementsCopy(evaluatedArgExpr.$.type, callerEnv))
       ) {
         callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
       }
