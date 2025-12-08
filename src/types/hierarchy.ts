@@ -20,6 +20,7 @@ import {
   isFunctionType,
   isFutureType,
   isModuleType,
+  isObjectType,
   isPrimitiveType,
   isPtrType,
   isSliceType,
@@ -47,10 +48,10 @@ function determineTypeUniverse(
    *     next : Self
    *   ;
    *
-   *   It should be wrapped in a pointer to break the cycle
+   * But `ref` is allowed.
    *
-   *   Recursive :: struct
-   *     next : *(Self)
+   *   Recursive :: object
+   *     next : Self
    *   ;
    */
   checkedTupleElements: TypeField[]
@@ -68,6 +69,10 @@ function determineTypeUniverse(
         errorMessage: `Recursive type has infinite size in field "${checkedTupleElements[checkedTupleElements.length - 1]!.label}"
 Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycle.`,
       });
+    }
+
+    if (isObjectType(type)) {
+      continue;
     }
 
     // For non-universe types, recursively check their type
