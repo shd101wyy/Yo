@@ -13,10 +13,10 @@ import {
   EnumType,
   FutureType,
   isFunctionType,
-  isRcType,
+  isRefType,
   ModuleField,
   StructType,
-  typeContainsRcType,
+  typeContainsRefType,
   typeOfType,
   typeToString,
   UnionType,
@@ -195,13 +195,13 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   code: string;
 } {
   const signature = DisposeFnSignature;
-  if (!isRcType(structType)) {
+  if (!isRefType(structType)) {
     // return null; // no need to generate ___dispose function
     return { signature, code: `(${signature} ())` };
   }
   const destructurings = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRefType(field.type)
     )
     .map((field) => field.label);
 
@@ -241,16 +241,16 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   const signature = DropFnSignature;
   const destructurings = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRefType(field.type)
     )
     .map((field) => field.label);
 
-  const decrRcExpr = isRcType(structType)
+  const decrRcExpr = isRefType(structType)
     ? `
   ${BuiltinFunctions.__yo_decr_rc[0]!}(self);`
     : "";
 
-  const dropDestructuringsExpr = isRcType(structType)
+  const dropDestructuringsExpr = isRefType(structType)
     ? ""
     : destructurings.length
       ? `
@@ -279,16 +279,16 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   const signature = DupFnSignature;
   const destructurings = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRefType(field.type)
     )
     .map((field) => field.label);
 
-  const incrRcExpr = isRcType(structType)
+  const incrRcExpr = isRefType(structType)
     ? `
   ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
     : "";
 
-  const dupDestructuringsExpr = isRcType(structType)
+  const dupDestructuringsExpr = isRefType(structType)
     ? ""
     : destructurings.length
       ? `
@@ -413,7 +413,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   code: string;
 } {
   const signature = DisposeFnSignature;
-  if (!isRcType(enumType)) {
+  if (!isRefType(enumType)) {
     return { signature, code: `(${signature} ())` };
   }
 
@@ -424,7 +424,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   const variantsWithARCTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsRcType(field.type))
+      variant.fields.some((field) => typeContainsRefType(field.type))
   );
 
   if (!variantsWithARCTypes.length && !hasDisposeFunction) {
@@ -436,7 +436,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
       const destructurings = variant
         .fields!.filter(
           (field) =>
-            !field.isCompileTimeOnly && typeContainsRcType(field.type)
+            !field.isCompileTimeOnly && typeContainsRefType(field.type)
         )
         .map((field) => field.label);
 
@@ -483,15 +483,15 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
   const variantsWithARCTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsRcType(field.type))
+      variant.fields.some((field) => typeContainsRefType(field.type))
   );
 
-  const decrRcExpr = isRcType(enumType)
+  const decrRcExpr = isRefType(enumType)
     ? `
   ${BuiltinFunctions.__yo_decr_rc[0]!}(self);`
     : "";
 
-  const dropVariantsExpr = isRcType(enumType)
+  const dropVariantsExpr = isRefType(enumType)
     ? ""
     : variantsWithARCTypes.length
       ? `
@@ -501,7 +501,7 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
         const destructurings = variant
           .fields!.filter(
             (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
+              !field.isCompileTimeOnly && typeContainsRefType(field.type)
           )
           .map((field) => field.label);
 
@@ -546,15 +546,15 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
   const variantsWithARCTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsRcType(field.type))
+      variant.fields.some((field) => typeContainsRefType(field.type))
   );
 
-  const incrRcExpr = isRcType(enumType)
+  const incrRcExpr = isRefType(enumType)
     ? `
   ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
     : "";
 
-  const dupVariantsExpr = isRcType(enumType)
+  const dupVariantsExpr = isRefType(enumType)
     ? ""
     : variantsWithARCTypes.length
       ? `
@@ -564,7 +564,7 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
         const destructurings = variant
           .fields!.filter(
             (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
+              !field.isCompileTimeOnly && typeContainsRefType(field.type)
           )
           .map((field) => field.label);
 

@@ -12,7 +12,7 @@ import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
   prohibitVoidType,
-  typeContainsRcType,
+  typeContainsRefType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -282,9 +282,9 @@ ${exprToString(rhs)}`,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheRcValue: typeContainsRcType(lhs.$.type),
+        isOwningTheRefValue: typeContainsRefType(lhs.$.type),
         // Only set shared ownership for Copy types (shared references)
-        isOwningTheSameRcValueAs: rhsOwningVariable,
+        isOwningTheSameRefValueAs: rhsOwningVariable,
         isReassignable: true, // This is not a function parameter
       },
     });

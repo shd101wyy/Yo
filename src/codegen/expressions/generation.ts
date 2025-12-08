@@ -34,7 +34,7 @@ import {
   SliceType,
   StructType,
   Type,
-  typeContainsRcType,
+  typeContainsRefType,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -821,8 +821,8 @@ function generateFuncCall(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isOwningTheSameRcValueAs
-            ? variable.isOwningTheSameRcValueAs.id
+          const idToCheck = variable.isOwningTheSameRefValueAs
+            ? variable.isOwningTheSameRefValueAs.id
             : variable.id;
 
           if (functionContext.stateMachineVariables.has(idToCheck)) {
@@ -2907,7 +2907,7 @@ function generateAsyncBlockStateDisposeFunction(
   emitter.emitLine(``);
 
   // Drop capture struct (like closures do)
-  if (captureType && typeContainsRcType(captureType)) {
+  if (captureType && typeContainsRefType(captureType)) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
     );
@@ -3182,8 +3182,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       // e.g., _temp_123 owns the value, future1 borrows from _temp_123
       // In deferred drops, we drop _temp_123, but in state machine it's stored as sm->var_future1
       if (
-        capturedVar.isOwningTheSameRcValueAs &&
-        capturedVar.isOwningTheSameRcValueAs.name === varName
+        capturedVar.isOwningTheSameRefValueAs &&
+        capturedVar.isOwningTheSameRefValueAs.name === varName
       ) {
         const fieldName =
           capturedVar.kind === "outer"
@@ -3199,10 +3199,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheSameRcValueAs) {
+        if (variable.isOwningTheSameRefValueAs) {
           // This variable is borrowing - try to find the owner in state machine
-          const ownerName = variable.isOwningTheSameRcValueAs.name;
-          const ownerId = variable.isOwningTheSameRcValueAs.id;
+          const ownerName = variable.isOwningTheSameRefValueAs.name;
+          const ownerId = variable.isOwningTheSameRefValueAs.id;
 
           for (const [
             varId,

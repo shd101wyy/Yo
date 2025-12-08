@@ -16,7 +16,7 @@ import {
   areTypesCompatible,
   StructType,
   Type,
-  typeContainsRcType,
+  typeContainsRefType,
   typeToString,
 } from "./types";
 import {
@@ -895,7 +895,7 @@ export const BuiltinFunctions = {
   is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
-  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheRcValue to be true. This is useful for implementing ___dup function.
+  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheRefValue to be true. This is useful for implementing ___dup function.
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
@@ -1225,8 +1225,8 @@ function exprToPrettyString(
 
 export function attachTempVariableToExpr(
   expr: Expr,
-  isOwningTheRcValue: boolean,
-  isOwningTheSameRcValueAs?: Variable
+  isOwningTheRefValue: boolean,
+  isOwningTheSameRefValueAs?: Variable
 ): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
@@ -1235,10 +1235,10 @@ ${exprToString(expr)}`);
   const { env, type, value, originType } = expr.$;
   const modulePath = env.modulePath;
 
-  // NOTE: For now let's make all the isOwningTheRcValue variable runtime-only
+  // NOTE: For now let's make all the isOwningTheRefValue variable runtime-only
   // so the `object` value can only be used in runtime.
   // Actually, all C pointer related should be runtime-only.
-  const _isOwningTheARCValue = isOwningTheRcValue && typeContainsRcType(type);
+  const _isOwningTheARCValue = isOwningTheRefValue && typeContainsRefType(type);
 
   // Check if a temp variable already exists
   if (expr.$.variableName) {
@@ -1251,8 +1251,8 @@ ${exprToString(expr)}`);
         type,
         value: _isOwningTheARCValue ? undefined : value,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
-        isOwningTheRcValue: _isOwningTheARCValue,
-        isOwningTheSameRcValueAs,
+        isOwningTheRefValue: _isOwningTheARCValue,
+        isOwningTheSameRefValueAs,
       };
       expr.$.env = updateExistingVariable(
         env,
@@ -1280,8 +1280,8 @@ ${exprToString(expr)}`);
       value: _isOwningTheARCValue ? undefined : value,
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
-      isOwningTheRcValue: _isOwningTheARCValue,
-      isOwningTheSameRcValueAs,
+      isOwningTheRefValue: _isOwningTheARCValue,
+      isOwningTheSameRefValueAs,
       consumedAtToken: undefined,
       token: expr.token,
     },
@@ -1358,14 +1358,14 @@ export function mergeAndCheckEnvs(
       consumedAtToken: Token | undefined;
       initializedAtToken: Token | undefined;
       type: Type;
-      isOwningTheRcValue: boolean;
+      isOwningTheRefValue: boolean;
     }[][] = [[]];
     frameVariables.forEach((variable) => {
       matrix[0]!.push({
         consumedAtToken: variable.consumedAtToken,
         initializedAtToken: variable.initializedAtToken,
         type: variable.type,
-        isOwningTheRcValue: variable.isOwningTheRcValue ?? false,
+        isOwningTheRefValue: variable.isOwningTheRefValue ?? false,
       });
     });
 
@@ -1410,7 +1410,7 @@ export function mergeAndCheckEnvs(
           consumedAtToken: variable.consumedAtToken,
           initializedAtToken: variable.initializedAtToken,
           type: variable.type,
-          isOwningTheRcValue: variable.isOwningTheRcValue ?? false,
+          isOwningTheRefValue: variable.isOwningTheRefValue ?? false,
         });
       });
     }
@@ -1432,7 +1432,7 @@ export function mergeAndCheckEnvs(
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
         isHoldingTheRcValueAtTokens.push(
-          matrix[j]![i]!.isOwningTheRcValue
+          matrix[j]![i]!.isOwningTheRefValue
             ? caseEnvFrameVariables[i]!.token
             : undefined
         );
@@ -1550,7 +1550,7 @@ export function mergeAndCheckEnvs(
       /*
       if (isHoldingTheRcValueAtTokens.length === 1) {
         if (
-          !frameVariables[i]!.isOwningTheRcValue &&
+          !frameVariables[i]!.isOwningTheRefValue &&
           isHoldingTheRcValueAtTokens[0]
         ) {
           throw formatErrorMessages([
@@ -1570,27 +1570,27 @@ export function mergeAndCheckEnvs(
       else 
       */
       if (
-        !frameVariables[i]!.isOwningTheRcValue &&
+        !frameVariables[i]!.isOwningTheRefValue &&
         isHoldingTheRcValueAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
           ...frameVariables[i]!,
-          isOwningTheRcValue: true,
-          isOwningTheSameRcValueAs: undefined,
+          isOwningTheRefValue: true,
+          isOwningTheSameRefValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
       }
       // case 3
       else {
-        const isOwningTheRcValue = isHoldingTheRcValueAtTokens.filter(
+        const isOwningTheRefValue = isHoldingTheRcValueAtTokens.filter(
           (u) => !!u
         );
         const isNotHoldingTheRcValue = isHoldingTheRcValueAtTokens.filter(
           (u) => !u
         );
         if (
-          isOwningTheRcValue.length > 0 &&
+          isOwningTheRefValue.length > 0 &&
           isNotHoldingTheRcValue.length > 0
         ) {
           throw formatErrorMessages(
@@ -1637,7 +1637,7 @@ export function mergeAndCheckEnvs(
           ...frameVariables[i]!,
           id: newVariableId,
           // Clear ownership tracking since the value may come from different sources
-          isOwningTheSameRcValueAs: undefined,
+          isOwningTheSameRefValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
@@ -1802,7 +1802,7 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
-  if (typeContainsRcType(expr.$.type)) {
+  if (typeContainsRefType(expr.$.type)) {
     const variableName = expr.$.variableName;
 
     // Check if the expr.variableName is holding the Rc value
@@ -1816,7 +1816,7 @@ export function setExprAsNeedsToCallDup(
         const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
-          if (variable.isOwningTheRcValue) {
+          if (variable.isOwningTheRefValue) {
             // Set the variable as consumed so we won't need to drop it later
             if (!variable.consumedAtToken) {
               expr.$.env = updateExistingVariable(expr.$.env, variable, {

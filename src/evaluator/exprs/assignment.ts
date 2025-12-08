@@ -30,7 +30,7 @@ import {
   StructType,
   TupleType,
   Type,
-  typeContainsRcType,
+  typeContainsRefType,
   typeRequiresInference,
   typeToString,
 } from "../../types";
@@ -387,7 +387,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
     let isMutatingDefinedVariable = false;
     const oldVariableIsOwningTheSameARCValueAs =
-      variable.isOwningTheSameRcValueAs;
+      variable.isOwningTheSameRefValueAs;
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
@@ -457,8 +457,8 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         initializedAtToken: lhs.token,
         value: valueToStore,
         type: variableType,
-        isOwningTheRcValue: typeContainsRcType(variableType),
-        isOwningTheSameRcValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isOwningTheRefValue: typeContainsRefType(variableType),
+        isOwningTheSameRefValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
     } else {
       // For closures, track variable writes to outer scope
@@ -528,8 +528,8 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore,
         type: variableType,
-        isOwningTheRcValue: typeContainsRcType(variableType),
-        isOwningTheSameRcValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isOwningTheRefValue: typeContainsRefType(variableType),
+        isOwningTheSameRefValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
       isMutatingDefinedVariable = true;
     }

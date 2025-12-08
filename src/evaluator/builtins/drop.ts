@@ -15,7 +15,7 @@ import {
   isArrayType,
   isSomeType,
   isTupleType,
-  typeContainsRcType,
+  typeContainsRefType,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isNumberValue } from "../../value";
@@ -50,7 +50,7 @@ function generateTupleDropCall(tupleExpr: Expr): string {
     .map((element, index) => ({
       index,
       element,
-      needsDrop: typeContainsRcType(element.type),
+      needsDrop: typeContainsRefType(element.type),
     }))
     .filter(({ needsDrop }) => needsDrop);
 
@@ -95,7 +95,7 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   const arrayType = arrayExpr.$.type;
   const childType = arrayType.childType;
 
-  if (!typeContainsRcType(childType)) {
+  if (!typeContainsRefType(childType)) {
     return ""; // No elements need dropping
   }
 
@@ -153,7 +153,7 @@ export function evaluateDrop({
   // Check if there is `.___drop` method available to call or if it's a tuple needing drop
   if (
     !isSomeType(evaluatedArgExpr.$.type) &&
-    typeContainsRcType(evaluatedArgExpr.$.type)
+    typeContainsRefType(evaluatedArgExpr.$.type)
   ) {
     // Handle tuple types specially since they don't have methods
     if (isTupleType(evaluatedArgExpr.$.type)) {

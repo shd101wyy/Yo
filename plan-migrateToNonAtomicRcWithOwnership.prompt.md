@@ -51,9 +51,9 @@
 6. **Implement move semantics for Rc types** (IN PROGRESS)
 
    - ✅ Use existing `consumedAtToken` field on `Variable` to track when variable is moved
-   - ✅ On assignment: if source type lacks `Copy`, mark source variable as consumed and clear `isOwningTheRcValue`
+   - ✅ On assignment: if source type lacks `Copy`, mark source variable as consumed and clear `isOwningTheRefValue`
    - ✅ On variable access: error "use of moved value" if variable is consumed (except during drop)
-   - ✅ Don't set `isOwningTheSameRcValueAs` for move semantics (only for Copy types with `&` operator)
+   - ✅ Don't set `isOwningTheSameRefValueAs` for move semantics (only for Copy types with `&` operator)
    - On function call: mark argument variables as consumed if parameter type lacks `Copy`
    - On value construction: mark field variables as consumed if field type lacks `Copy`
       - tuple

@@ -69,7 +69,7 @@ export function evaluateDynValue({
   const valueType = evaluatedValueExpr.$.type;
 
   // Validate that the value type uses reference semantics
-  // if (!isRcType(valueType)) {
+  // if (!isRefType(valueType)) {
   //   throw formatErrorMessage({
   //     token: valueExpr.token,
   //     errorMessage: `'dyn' can only be used with types that support reference counting (object, Dyn, or Closure types). Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,

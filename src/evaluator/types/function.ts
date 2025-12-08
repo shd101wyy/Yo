@@ -75,7 +75,7 @@ export function evaluateFunctionParameter({
   let label: string | undefined = undefined;
   let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
-  let isOwningTheRcValue: boolean = false;
+  let isOwningTheRefValue: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -179,7 +179,7 @@ export function evaluateFunctionParameter({
     }
 
     if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "own")) {
-      isOwningTheRcValue = true;
+      isOwningTheRefValue = true;
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: lhsExpr.token,
@@ -472,8 +472,8 @@ use_id :: (fn(forall(T : Type),
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
-      isOwningTheRcValue: isOwningTheRcValue,
-      isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
+      isOwningTheRefValue: isOwningTheRefValue,
+      isOwningTheSameRefValueAs: undefined, // Parameters don't borrow from other variables
       isReassignable: false, // Mark as not reassigable
     },
     skipCheckingFunctionOverloading: true,
@@ -517,7 +517,7 @@ use_id :: (fn(forall(T : Type),
       }),
       isCompileTimeOnly,
       isQuote,
-      isOwningTheRcValue,
+      isOwningTheRefValue,
       assignedValue,
     },
     env,
@@ -740,7 +740,7 @@ export function evaluateFunctionParameters({
         isQuote,
         label: parameterName,
         type: parameterType,
-        isOwningTheRcValue: false,
+        isOwningTheRefValue: false,
       };
 
       if (parameterName !== "...") {
@@ -757,8 +757,8 @@ export function evaluateFunctionParameters({
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
-            isOwningTheRcValue: variadicParameter.isOwningTheRcValue,
-            isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
+            isOwningTheRefValue: variadicParameter.isOwningTheRefValue,
+            isOwningTheSameRefValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
           },
         });

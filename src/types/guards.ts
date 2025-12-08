@@ -247,7 +247,7 @@ export function isDynType(type?: Type): type is DynType {
  * @param type
  * @returns
  */
-export function isRcType(type?: Type): boolean {
+export function isRefType(type?: Type): boolean {
   return (
     isObjectType(type) ||
     isDynType(type) || // All Dyn types are reference semantics

@@ -64,7 +64,7 @@ import {
   isModuleType,
   isObjectType,
   isPtrType,
-  isRcType,
+  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -229,7 +229,7 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
  * Check if the type contains `object` or `Dyn`
  * @param type
  */
-export function typeContainsRcType(
+export function typeContainsRefType(
   type?: Type,
   checkedTypes: Type[] = []
 ): boolean {
@@ -243,35 +243,35 @@ export function typeContainsRcType(
     checkedTypes.push(type);
   }
 
-  if (isRcType(type)) {
+  if (isRefType(type)) {
     return true;
   }
 
   // Recursively check in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsRcType((type as ArrayType).childType, checkedTypes);
+      return typeContainsRefType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
-        typeContainsRcType(field.type, checkedTypes)
+        typeContainsRefType(field.type, checkedTypes)
       );
     case TypeTag.Union:
       return (type as UnionType).fields.some((field) =>
-        typeContainsRcType(field.type, checkedTypes)
+        typeContainsRefType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
-        typeContainsRcType(field.type, checkedTypes)
+        typeContainsRefType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.fields?.some((param) =>
-          typeContainsRcType(param.type, checkedTypes)
+          typeContainsRefType(param.type, checkedTypes)
         )
       );
     case TypeTag.Module:
       return (type as ModuleType).fields.some((field) =>
-        typeContainsRcType(field.type, checkedTypes)
+        typeContainsRefType(field.type, checkedTypes)
       );
     case TypeTag.Function: {
       return !!(type as FunctionType).isClosure;
