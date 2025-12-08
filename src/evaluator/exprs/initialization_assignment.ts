@@ -261,11 +261,9 @@ ${exprToString(rhs)}`,
     // Attach the updated env to expr
 
     // Under the new simplified ownership model:
-    // - For non-Copy types (move semantics): the new variable takes exclusive ownership
-    // - For Copy types (shared references): track shared ownership for dup/drop optimization
-
-    // Only track shared ownership for Copy types (like pointers from &)
-    // For non-Copy types, this is a move - no shared ownership
+    // All variables own their values
+    // But we track shared ownership for dup/drop optimization
+    // Find if RHS is sharing ownership with another variabl
     const rhsOwningVariable = findARCValueOwnerRelationship(
       rhs,
       env,
@@ -284,9 +282,9 @@ ${exprToString(rhs)}`,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isHoldingTheRcValue: typeContainsRcType(lhs.$.type),
+        isOwningTheRcValue: typeContainsRcType(lhs.$.type),
         // Only set shared ownership for Copy types (shared references)
-        isHoldingTheSameRcValueAs: rhsOwningVariable,
+        isOwningTheSameRcValueAs: rhsOwningVariable,
         isReassignable: true, // This is not a function parameter
       },
     });

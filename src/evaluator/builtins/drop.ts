@@ -18,6 +18,7 @@ import {
   typeContainsRcType,
 } from "../../types";
 import { VUnit } from "../../unit-value";
+import { isNumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -25,7 +26,7 @@ import { evaluateExpression } from "../exprs/expr";
 /**
  * Generate ___drop function for a tuple type that contains ARC values
  */
-/*
+
 function generateTupleDropCall(tupleExpr: Expr): string {
   if (!tupleExpr.$?.type || !isTupleType(tupleExpr.$.type)) {
     throw formatErrorMessage({
@@ -69,11 +70,10 @@ function generateTupleDropCall(tupleExpr: Expr): string {
   ${dropCalls}
 )`;
 }
-*/
+
 /**
  * Generate ___drop function for an array type that contains ARC values
  */
-/*
 function generateArrayDropCall(arrayExpr: Expr): string {
   if (!arrayExpr.$?.type || !isArrayType(arrayExpr.$.type)) {
     throw formatErrorMessage({
@@ -116,7 +116,6 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   ${dropCalls.join(",\n  ")}
 )`;
 }
-*/
 
 /**
  * ___drop function - handles both struct and tuple types with ARC management
@@ -158,7 +157,6 @@ export function evaluateDrop({
   ) {
     // Handle tuple types specially since they don't have methods
     if (isTupleType(evaluatedArgExpr.$.type)) {
-      /*
       const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);
       if (tupleDropCode) {
         const tupleDropExpr = generateExprFromCode(
@@ -181,10 +179,7 @@ export function evaluateDrop({
         } else {
           return evaluatedTupleDropExpr;
         }
-      } else 
-      */
-      // NOTE: The drop on tuple should be handled by the codegen.
-      {
+      } else {
         // No ARC elements in tuple, just consume and return unit
         env = setExprAsConsumed(evaluatedArgExpr, env, true);
         expr.$ = {
@@ -198,7 +193,6 @@ export function evaluateDrop({
     }
     // Handle array types specially since they don't have methods
     else if (isArrayType(evaluatedArgExpr.$.type)) {
-      /*
       const arrayDropCode = generateArrayDropCall(evaluatedArgExpr);
       if (arrayDropCode) {
         const arrayDropExpr = generateExprFromCode(
@@ -221,10 +215,9 @@ export function evaluateDrop({
         } else {
           return evaluatedArrayDropExpr;
         }
-      } else 
-      */
+      }
       // NOTE: The drop on array should be handled by the codegen.
-      {
+      else {
         // No ARC elements in array, just consume and return unit
         env = setExprAsConsumed(evaluatedArgExpr, env, true);
         expr.$ = {

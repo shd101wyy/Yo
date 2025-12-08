@@ -230,10 +230,10 @@ export function evaluateDup({
           const variables = getVariablesFromEnv(expr.$.env, tempVariableName);
           if (variables.length) {
             const variable = variables[variables.length - 1]!;
-            if (variable.isHoldingTheRcValue) {
+            if (variable.isOwningTheRcValue) {
               const nextEnv = updateExistingVariable(expr.$.env, variable, {
                 ...variable,
-                isHoldingTheRcValue: false,
+                isOwningTheRcValue: false,
               });
               expr.$.env = nextEnv;
             }

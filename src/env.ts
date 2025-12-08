@@ -74,32 +74,32 @@ export interface Variable {
    * This is only relevant for types that are managed by Rc.
    *
    * Under the new simplified ownership model:
-   * - Variables created by := or = always own (isHoldingTheRcValue: true)
-   * - Function parameters borrow by default (isHoldingTheRcValue: false)
-   * - Function parameters with own() explicitly own (isHoldingTheRcValue: true)
+   * - Variables created by := or = always own (isOwningTheRcValue: true)
+   * - Function parameters borrow by default (isOwningTheRcValue: false)
+   * - Function parameters with own() explicitly own (isOwningTheRcValue: true)
    * - For non-Rc types, this is always false (no ownership tracking needed)
    */
-  isHoldingTheRcValue?: boolean;
+  isOwningTheRcValue?: boolean;
 
   /**
    * Tracks when this variable owns a share of the same Rc object as another variable.
    * This is used for dup/drop optimization across variable reassignments.
    *
    * When a temp variable is created to hold the old value during reassignment:
-   * - The temp variable's `isHoldingTheSameRcValueAs` points to the original variable
+   * - The temp variable's `isOwningTheSameRcValueAs` points to the original variable
    * - This allows us to optimize away `dup(original) + drop(temp)` pairs
    *
    * Example:
    * ```yo
-   * x := &(MyBox(42));
+   * x := MyBox(42);
    * y := x;              // y dups x, both hold shares of MyBox(42)
    * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
    * ```
    *
-   * Here, `temp` would have `isHoldingTheSameRcValueAs = y` because both own
+   * Here, `temp` would have `isOwningTheSameRcValueAs = y` because both own
    * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
    */
-  isHoldingTheSameRcValueAs?: Variable;
+  isOwningTheSameRcValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -472,8 +472,8 @@ export function printEnvVarNames(env: Environment) {
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isUndefined: !variable.initializedAtToken,
-        isHoldingTheRcValue: !!variable.isHoldingTheRcValue,
-        isHoldingTheSameRcValueAs: variable.isHoldingTheSameRcValueAs?.name,
+        isOwningTheRcValue: !!variable.isOwningTheRcValue,
+        isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
         isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
@@ -491,8 +491,8 @@ export function printEnvFrame(frame: Frame) {
       value: valueToString(variable.value),
       isCompileTimeOnly: variable.isCompileTimeOnly,
       isUndefined: !variable.initializedAtToken,
-      isHoldingTheRcValue: !!variable.isHoldingTheRcValue,
-      isHoldingTheSameRcValueAs: variable.isHoldingTheSameRcValueAs?.name,
+      isOwningTheRcValue: !!variable.isOwningTheRcValue,
+      isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
       isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))
@@ -1084,7 +1084,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     (variable) =>
       !variable.consumedAtToken &&
       // !variable.isCompileTimeOnly &&
-      variable.isHoldingTheRcValue &&
+      variable.isOwningTheRcValue &&
       typeContainsRcType(variable.type)
   );
 

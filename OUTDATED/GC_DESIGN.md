@@ -1997,7 +1997,7 @@ FileHandle :: struct(  // Value type!
 **1. Remove RC code generation:**
 - Remove `___dup` calls on assignment
 - Remove `___drop` calls at scope exit
-- Remove `isHoldingTheSameRcValueAs` tracking
+- Remove `isOwningTheSameRcValueAs` tracking
 - Remove biased RC infrastructure
 
 **2. Add GC infrastructure:**

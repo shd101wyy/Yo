@@ -1558,13 +1558,10 @@ function typeCanReferenceCyclicRefStruct(
     return true;
   }
 
-  // Check through pointer types
+  // Ptr and MutRef are raw pointers/references - they don't participate in ARC
+  // so they don't form reference counting cycles.
   if (isPtrType(type)) {
-    return typeCanReferenceCyclicRefStruct(
-      type.childType,
-      originalRefStruct,
-      visitedTypes
-    );
+    return false;
   }
 
   // Other types (primitives, functions, etc.) cannot form cycles
