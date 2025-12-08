@@ -69,7 +69,7 @@ export default class Evaluator {
       this.evaluateProgram(stdPath, loadModule);
     } catch (error) {
       throw new Error(
-        `Failed to import module "${modulePath}":\n${error instanceof Error ? error.message : error instanceof YoError ? error.toString() : String(error)}`
+        `Failed to import module "${modulePath}":\n${error instanceof YoError ? error.toString() : error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -99,7 +99,7 @@ export default class Evaluator {
         loadModule(preludePath);
 
       if (preludeError) {
-        console.error(preludeError);
+        // console.error(preludeError);
         throw preludeError;
       }
 

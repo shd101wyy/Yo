@@ -90,7 +90,7 @@ export class ModuleManager {
       debugAsyncAwait?: boolean;
     } = {}
   ) {
-    console.log(`= Compiling module ${modulePath}`);
+    // console.log(`= Compiling module ${modulePath}`);
     const { moduleValue, moduleError } = this.loadModule(modulePath);
     if (moduleError) {
       throw moduleError;

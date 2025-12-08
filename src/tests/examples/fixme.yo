@@ -1,0 +1,25 @@
+open import "std/libc/stdio";
+
+test "test_equal", {
+  printf("before test_equal\n");
+  assert(3 == 4, "3 is not equal to 4"); // This should give error and stop execution
+  printf("after test_equal\n"); // This line should not be executed
+};
+
+some_func :: (fn() -> unit) {
+  printf("inside some_func\n");
+};
+
+test "test_equal_2", {
+  some_func(); // Run some function defined in this file
+
+  x := 10;
+  y := 10;
+  assert(x == y, "x is not equal to y");
+};
+
+test "compile-time test equal", {
+  x :: 10;
+  y :: 10;
+  assert(x == y, "compile-time x is not equal to y");
+};

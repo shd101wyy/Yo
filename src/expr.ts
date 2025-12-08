@@ -471,6 +471,7 @@ export const BuiltinKeywords = {
   cond: ["cond"],
   type: ["type"],
   match: ["match"],
+  test: ["test"], // Test declaration for test runner
   struct: ["struct"],
   object: ["object"],
   newtype: ["newtype"],

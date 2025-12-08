@@ -115,6 +115,7 @@ import { evaluateOpen } from "./open";
 import { evaluatePropertyAccess } from "./property_access";
 import { evaluateRecur } from "./recur";
 import { evaluateSubtypeOf } from "./subtype_of";
+import { evaluateTest } from "./test";
 import { evaluateTypeOf } from "./typeof";
 import { evaluateWhile } from "./while";
 
@@ -243,6 +244,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.c_include)) {
       // c_include
       return evaluateCInclude({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.test)) {
+      // test - no-op during normal compilation, used by test runner
+      return evaluateTest({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
       // cond
       return evaluateCond({ expr, env, context: { ...context } });

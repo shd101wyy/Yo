@@ -446,6 +446,13 @@ function generateFuncCall(
     return `(*((${returnTypeStr}*)NULL))`; // This will never execute but has the right type
   }
 
+  // test - test declaration, skipped during normal compilation
+  // Tests are handled by the test runner which generates a main function for each test
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.test)) {
+    // No-op: test declarations produce no C code
+    return `/* test declaration skipped */`;
+  }
+
   // __yo_concurrency_set_maximum_threads - set maxmium number of threads for coroutine schedular
   if (
     exprIsFunctionCallOf(

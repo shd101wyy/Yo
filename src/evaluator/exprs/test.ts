@@ -1,0 +1,107 @@
+import { Environment } from "../../env";
+import { formatErrorMessage } from "../../error";
+import {
+  BuiltinKeywords,
+  exprIsFunctionCallOf,
+  exprToString,
+  FuncCallExpr,
+} from "../../expr";
+import { VUnit } from "../../unit-value";
+import { isComptStringValue } from "../../value";
+import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "./expr";
+
+/**
+ * Evaluate a test declaration.
+ *
+ * During normal compilation, test declarations are skipped (no-op, returns unit).
+ * The test runner will extract these declarations and compile/run them separately.
+ *
+ * Syntax: test "test_name", { body };
+ *
+ * @param expr The test expression
+ * @param env The current environment
+ * @param context The evaluator context
+ * @returns The expression with unit type (no-op)
+ */
+export function evaluateTest({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FuncCallExpr {
+  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.test)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected test, got ${expr.tag}`,
+    });
+  }
+
+  // Validate the test expression has correct number of arguments
+  if (expr.args.length !== 2) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `test expects 2 arguments (name, body), got ${expr.args.length}`,
+    });
+  }
+
+  const testNameExpr = expr.args[0]!;
+  const testBodyExpr = expr.args[1]!;
+
+  // Evaluate test name to ensure it's a compt_string
+  const evaluatedTestNameExpr = evaluateExpression({
+    expr: testNameExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedTestNameExpr.$ || !evaluatedTestNameExpr.$.value) {
+    throw formatErrorMessage({
+      token: testNameExpr.token,
+      errorMessage: `Failed to evaluate test name: ${exprToString(testNameExpr)}`,
+    });
+  }
+
+  env = evaluatedTestNameExpr.$.env;
+
+  if (!isComptStringValue(evaluatedTestNameExpr.$.value)) {
+    throw formatErrorMessage({
+      token: testNameExpr.token,
+      errorMessage: `Expected string for test name, got ${exprToString(testNameExpr)}`,
+    });
+  }
+
+  // Evaluate the test body to catch any compile-time errors
+  // We evaluate it but don't execute it during normal compilation
+  const evaluatedTestBodyExpr = evaluateExpression({
+    expr: testBodyExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedTestBodyExpr.$) {
+    throw formatErrorMessage({
+      token: testBodyExpr.token,
+      errorMessage: `Failed to evaluate test body: ${exprToString(testBodyExpr)}`,
+    });
+  }
+
+  env = evaluatedTestBodyExpr.$.env;
+
+  // Return unit value (no-op) - the test doesn't produce a runtime value
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+
+  return expr;
+}

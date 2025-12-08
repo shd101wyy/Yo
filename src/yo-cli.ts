@@ -3,6 +3,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import packageJson from "../package.json";
 import { CodeGenerator } from "./codegen";
+import { findTestFiles, runTests } from "./test-runner";
 
 yargs(hideBin(process.argv))
   .wrap(null)
@@ -14,6 +15,12 @@ Example:
   $ yo compile hello.yo -o hello
   $ yo compile hello.yo -cc clang -o hello
   $ yo compile hello.yo -t wasm -o hello.wasm
+
+yo test [path] [options]         Run tests
+Example:
+  $ yo test                      Run all *.test.yo files in the workspace
+  $ yo test ./tests              Run all *.test.yo files in ./tests directory
+  $ yo test ./some-file.yo       Run tests in some-file.yo
 
 yo --help                        Show this help message
 yo --version                     Show version number
@@ -138,6 +145,42 @@ yo run <script>                  Run a script defined in 'yo.json'
         release: argv.release,
         optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
       });
+    }
+  )
+  .command(
+    "test [path]",
+    "Run tests in .test.yo files",
+    (yargs) => {
+      yargs
+        .positional("path", {
+          describe:
+            "Path to test file or directory (default: current directory)",
+          type: "string",
+          default: ".",
+        })
+        .option("verbose", {
+          alias: "v",
+          describe: "Show detailed error messages",
+          type: "boolean",
+          default: false,
+        });
+    },
+    (argv) => {
+      const targetPath = argv.path as string;
+      const testFiles = findTestFiles(targetPath);
+
+      if (testFiles.length === 0) {
+        console.log("No test files found.");
+        process.exit(0);
+      }
+
+      const summary = runTests(testFiles, {
+        cCompiler: argv.cc,
+        verbose: argv.verbose,
+      });
+
+      // Exit with non-zero code if any tests failed
+      process.exit(summary.failed > 0 ? 1 : 0);
     }
   )
   .demandCommand(1, "You need to specify a command (e.g., 'compile')")

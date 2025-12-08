@@ -141,10 +141,10 @@ ${modulePathToImport}`,
       token: moduleArg.token,
       errorMessage: `Failed to import module "${modulePathToImport}":
 ${
-  error instanceof Error
-    ? error.message
-    : error instanceof YoError
-      ? error.toString()
+  error instanceof YoError
+    ? error.toString()
+    : error instanceof Error
+      ? error.message
       : String(error)
 }`,
     });
