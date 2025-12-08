@@ -1,11 +1,13 @@
 import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
+  AtomExpr,
   attachTempVariableToExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   FuncCallExpr,
 } from "../../expr";
@@ -93,6 +95,7 @@ export function evaluateFunctionCall({
     type: Type;
     value?: Value;
     error?: Error | YoError;
+    needsPointerConversion?: boolean;
     args?: Expr[]; // Store potentially modified args for this specific function
   }[] = [];
   if (givenFunc) {
@@ -168,11 +171,37 @@ export function evaluateFunctionCall({
             );
             functions = methods.map((method) => {
               // If pointer conversion is needed, wrap the receiver in &()
-              const methodArgs: Expr[] = [receiverArg, ...args];
+              let methodArgs: Expr[];
+              if (method.needsPointerConversion) {
+                // Create &(receiverArg) expression
+                const ampersandExpr: AtomExpr = {
+                  tag: ExprTag.Atom,
+                  token: receiverArg.token,
+                  $: undefined,
+                };
+                ampersandExpr.token = {
+                  ...receiverArg.token,
+                  value: "&",
+                  type: TokenType.Identifier,
+                };
+
+                const addressOfExpr: FuncCallExpr = {
+                  tag: ExprTag.FuncCall,
+                  func: ampersandExpr,
+                  args: [receiverArg],
+                  token: receiverArg.token,
+                  $: undefined,
+                };
+
+                methodArgs = [addressOfExpr, ...args];
+              } else {
+                methodArgs = [receiverArg, ...args];
+              }
 
               return {
                 type: method.type,
                 value: method.value,
+                needsPointerConversion: method.needsPointerConversion,
                 args: methodArgs,
               };
             });
@@ -297,6 +326,7 @@ export function evaluateFunctionCall({
         functions = moduleMethods.map((method) => ({
           type: method.type,
           value: method.value,
+          needsPointerConversion: method.needsPointerConversion,
         }));
         // No need to change the args
       }
