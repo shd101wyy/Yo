@@ -30,7 +30,6 @@ import {
   isStructType,
   isUnionType,
   Type,
-  typeImplementsCopy,
   typeOfType,
   typeToString,
 } from "../../types";
@@ -1357,15 +1356,6 @@ ${functionsWithMatchingTypes
       };
 
       attachTempVariableToExpr(expr, false); // NOTE: This is like property access, so it doesn't own the value
-
-      // Only check for non-copyable when we're on RHS (moving out)
-      // On LHS of assignment, we're assigning into the element, not moving out
-      if (!context.isLhsOfAssignment && !typeImplementsCopy(type, callerEnv)) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `Cannot move out of array element ${func.$?.variableName ?? "?"}(${index ?? "?"}) because type ${typeToString(type)} does not implement Copy`,
-        });
-      }
 
       return expr;
     }

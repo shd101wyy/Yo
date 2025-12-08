@@ -17,7 +17,6 @@ import {
   StructType,
   Type,
   typeContainsRcType,
-  typeImplementsCopy,
   typeToString,
 } from "./types";
 import {
@@ -1837,27 +1836,6 @@ export function setExprAsNeedsToCallDup(
           }
         }
       }
-    }
-
-    // Check if the type implements Copy
-    // If not, this is a move - consume the source variable without calling dup
-    if (!typeImplementsCopy(expr.$.type, expr.$.env)) {
-      // Move semantics: consume the source variable, transfer ownership
-      const variables = getVariablesFromEnv(expr.$.env, variableName);
-      if (variables.length > 0) {
-        const variable = variables[variables.length - 1]!;
-        if (!variable.consumedAtToken) {
-          expr.$.env = updateExistingVariable(expr.$.env, variable, {
-            ...variable,
-            consumedAtToken: expr.token,
-            // Clear ownership - the value has been moved out
-            isHoldingTheRcValue: false,
-            isHoldingTheSameRcValueAs: undefined,
-          });
-        }
-      }
-      // No dup call needed for move - ownership is transferred
-      return;
     }
 
     // Copy semantics: call dup to share ownership

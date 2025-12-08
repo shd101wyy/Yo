@@ -11,7 +11,6 @@ import { createUnionType, ModuleField, TypeField } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
-import { autoDeriveCopySendForUnionType } from "./utils";
 
 export function evaluateUnionType({
   expr,
@@ -80,13 +79,6 @@ export function evaluateUnionType({
     }
     env = nextEnv;
   }
-
-  // Auto-derive Copy and Send marker modules if all fields implement them
-  env = autoDeriveCopySendForUnionType({
-    unionType,
-    env,
-    context,
-  });
 
   const unionTypeValue = createTypeValue(unionType);
   expr.$ = {

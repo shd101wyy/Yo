@@ -76,7 +76,6 @@ export function evaluateFunctionParameter({
   let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
   let isHoldingTheRcValue: boolean = false;
-  let isMoved: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -185,20 +184,6 @@ export function evaluateFunctionParameter({
         throw formatErrorMessage({
           token: lhsExpr.token,
           errorMessage: `Expected one argument for "own", got ${lhsExpr.args.length}`,
-        });
-      }
-      lhsExpr = lhsExpr.args[0]!;
-    }
-
-    if (
-      exprIsFunctionCall(lhsExpr) &&
-      exprIsFunctionCallOf(lhsExpr, "move")
-    ) {
-      isMoved = true;
-      if (lhsExpr.args.length !== 1) {
-        throw formatErrorMessage({
-          token: lhsExpr.token,
-          errorMessage: `Expected one argument for "move", got ${lhsExpr.args.length}`,
         });
       }
       lhsExpr = lhsExpr.args[0]!;
@@ -533,7 +518,6 @@ use_id :: (fn(forall(T : Type),
       isCompileTimeOnly,
       isQuote,
       isHoldingTheRcValue,
-      isMoved,
       assignedValue,
     },
     env,
@@ -757,7 +741,6 @@ export function evaluateFunctionParameters({
         label: parameterName,
         type: parameterType,
         isHoldingTheRcValue: false,
-        isMoved: false,
       };
 
       if (parameterName !== "...") {

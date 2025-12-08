@@ -22,7 +22,6 @@ import {
   exprToString,
   FuncCallExpr,
   PathCollection,
-  setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
@@ -44,7 +43,6 @@ import {
   isTypeHierarchyType,
   Type,
   TypeHierarchyType,
-  typeImplementsCopy,
   typeRequiresComptModifier,
   typeToString,
 } from "../../types";
@@ -286,18 +284,6 @@ export function checkIfFunctionParameterMatchesArgument({
         if (evaluatedArgExpr.$?.env) {
           callerEnv = evaluatedArgExpr.$?.env;
         }
-      }
-
-      // Move the argument if:
-      // 1. The parameter is marked with move(...) modifier, OR
-      // 2. The argument type doesn't implement Copy (move semantics)
-      if (
-        !parameter.isCompileTimeOnly &&
-        evaluatedArgExpr.$ &&
-        (parameter.isMoved ||
-          !typeImplementsCopy(evaluatedArgExpr.$.type, callerEnv))
-      ) {
-        callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
       }
     }
   }

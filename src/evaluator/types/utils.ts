@@ -17,8 +17,6 @@ import {
   ModuleField,
   StructType,
   typeContainsRcType,
-  typeImplementsCopy,
-  typeImplementsSend,
   typeOfType,
   typeToString,
   UnionType,
@@ -894,7 +892,7 @@ function generateDupFunctionCodeForFutureType(futureType: FutureType): string {
  * Helper function to attach a module to a receiver type.
  * This follows the same pattern as evaluateModuleValue for impl(type, Module()).
  */
-function attachModuleToReceiverType(
+export function attachModuleToReceiverType(
   moduleName: string,
   receiverType: StructType | EnumType | UnionType,
   env: Environment,
@@ -939,130 +937,6 @@ function attachModuleToReceiverType(
 
   // Add the field to the receiver type's module
   receiverType.module.fields.push(field);
-
-  return env;
-}
-
-/**
- * Auto-derive Copy, Send marker modules for a struct type.
- *
- * For struct (value semantics):
- * - Auto-derive Copy if all fields implement Copy
- * - Auto-derive Send if all fields implement Send
- *
- * For object (reference semantics):
- * - Never auto-derive Copy (Rc types are move-only)
- * - Auto-derive Send if all fields implement Send
- */
-export function autoDeriveCopySendForStructType({
-  structType,
-  env,
-  context,
-}: {
-  structType: StructType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  // For object (reference semantics), never auto-derive Copy
-  const canDeriveCopy = !structType.isReferenceSemantics;
-
-  // Check if all fields implement Copy
-  if (canDeriveCopy) {
-    const allFieldsImplementCopy = structType.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsCopy(field.type, env));
-
-    if (allFieldsImplementCopy) {
-      env = attachModuleToReceiverType("Copy", structType, env, context);
-    }
-  }
-
-  // Check if all fields implement Send
-  const allFieldsImplementSend = structType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsSend(field.type, env));
-
-  if (allFieldsImplementSend) {
-    env = attachModuleToReceiverType("Send", structType, env, context);
-  }
-
-  return env;
-}
-
-/**
- * Auto-derive Copy, Send marker modules for an enum type.
- *
- * - Auto-derive Copy if all variant fields implement Copy
- * - Auto-derive Send if all variant fields implement Send
- */
-export function autoDeriveCopySendForEnumType({
-  enumType,
-  env,
-  context,
-}: {
-  enumType: EnumType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  // Check if all variant fields implement Copy
-  const allFieldsImplementCopy = enumType.variants.every((variant) => {
-    if (!variant.fields || variant.fields.length === 0) {
-      return true; // Variants without fields are trivially Copy
-    }
-    return variant.fields.every((field) => typeImplementsCopy(field.type, env));
-  });
-
-  if (allFieldsImplementCopy) {
-    env = attachModuleToReceiverType("Copy", enumType, env, context);
-  }
-
-  // Check if all variant fields implement Send
-  const allFieldsImplementSend = enumType.variants.every((variant) => {
-    if (!variant.fields || variant.fields.length === 0) {
-      return true; // Variants without fields are trivially Send
-    }
-    return variant.fields.every((field) => typeImplementsSend(field.type, env));
-  });
-
-  if (allFieldsImplementSend) {
-    env = attachModuleToReceiverType("Send", enumType, env, context);
-  }
-
-  return env;
-}
-
-/**
- * Auto-derive Copy, Send marker modules for a union type.
- *
- * - Auto-derive Copy if all fields implement Copy
- * - Auto-derive Send if all fields implement Send
- */
-export function autoDeriveCopySendForUnionType({
-  unionType,
-  env,
-  context,
-}: {
-  unionType: UnionType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  // Check if all fields implement Copy
-  const allFieldsImplementCopy = unionType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsCopy(field.type, env));
-
-  if (allFieldsImplementCopy) {
-    env = attachModuleToReceiverType("Copy", unionType, env, context);
-  }
-
-  // Check if all fields implement Send
-  const allFieldsImplementSend = unionType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsSend(field.type, env));
-
-  if (allFieldsImplementSend) {
-    env = attachModuleToReceiverType("Send", unionType, env, context);
-  }
 
   return env;
 }

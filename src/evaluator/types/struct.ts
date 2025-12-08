@@ -15,7 +15,6 @@ import { evaluateTypeField } from "./field";
 import {
   addARCFunctionSignaturesToStructType,
   addARCFunctionsToStructType,
-  autoDeriveCopySendForStructType,
 } from "./utils";
 import { validateDisposeFunction } from "./validation";
 
@@ -125,13 +124,6 @@ export function evaluateStructType({
       errorMessage: `Newtype struct must have exactly one field, but got ${fields.length} fields.`,
     });
   }
-
-  // Auto-derive Copy and Send marker modules if all fields implement them
-  env = autoDeriveCopySendForStructType({
-    structType,
-    env,
-    context,
-  });
 
   // Auto-generate ___drop, ___dup, and ___dispose functions if needed
   env = addARCFunctionsToStructType({

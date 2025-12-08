@@ -107,7 +107,7 @@ export function getModuleTypeFromEnv(
  * Check if a type implements a specific module.
  * This is the core implementation used by typeImplementsCopy and typeImplementsSend.
  */
-function typeImplementsModuleInternal({
+export function typeImplementsModuleInternal({
   targetType,
   moduleType,
   env,
@@ -152,6 +152,7 @@ function typeImplementsModuleInternal({
  * Primitives (i32, boolean, etc.), pointers (*T), and structs where all fields are Copy
  * implement Copy.
  */
+/*
 export function typeImplementsCopy(
   type: Type | undefined,
   env: Environment
@@ -171,6 +172,7 @@ export function typeImplementsCopy(
     env,
   });
 }
+*/
 
 /**
  * Check if a type implements the Send trait.
@@ -179,6 +181,7 @@ export function typeImplementsCopy(
  * Primitives, Send pointers (where T is not Rc and T implements Send),
  * and structs where all fields are Send implement Send.
  */
+/*
 export function typeImplementsSend(
   type: Type | undefined,
   env: Environment
@@ -198,6 +201,7 @@ export function typeImplementsSend(
     env,
   });
 }
+*/
 
 /**
  * Check if the type of the value requires to use the compt modifier.

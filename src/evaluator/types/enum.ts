@@ -21,7 +21,6 @@ import { evaluateTypeField } from "./field";
 import {
   addARCFunctionSignaturesToEnumType,
   addARCFunctionsToEnumType,
-  autoDeriveCopySendForEnumType,
 } from "./utils";
 
 export function evaluateEnumType({
@@ -210,13 +209,6 @@ export function evaluateEnumType({
       }
     }
   }
-
-  // Auto-derive Copy and Send marker modules if all fields implement them
-  env = autoDeriveCopySendForEnumType({
-    enumType,
-    env,
-    context,
-  });
 
   // Auto-generate ARC functions using the systematic approach
   env = addARCFunctionsToEnumType({

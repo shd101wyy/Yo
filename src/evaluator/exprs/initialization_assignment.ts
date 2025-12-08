@@ -13,7 +13,6 @@ import {
   convertComptTypeToRuntimeType,
   prohibitVoidType,
   typeContainsRcType,
-  typeImplementsCopy,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -267,10 +266,11 @@ ${exprToString(rhs)}`,
 
     // Only track shared ownership for Copy types (like pointers from &)
     // For non-Copy types, this is a move - no shared ownership
-    const isCopyType = typeImplementsCopy(lhs.$.type, env);
-    const rhsOwningVariable = isCopyType
-      ? findARCValueOwnerRelationship(rhs, env, env.modulePath)
-      : undefined;
+    const rhsOwningVariable = findARCValueOwnerRelationship(
+      rhs,
+      env,
+      env.modulePath
+    );
 
     // Create new variable
     const { env: nextEnv } = addVariableToEnv({
