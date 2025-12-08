@@ -124,7 +124,7 @@ export function collectTypesFromExpr(
         };
 
         // Now collect the capture type's nested types and module functions (___drop, etc.)
-        // This is crucial for generating Rc functions for the capture struct
+        // This is crucial for generating Ref functions for the capture struct
         if (isStructType(captureType)) {
           // Recursively collect types from struct fields
           for (const field of captureType.fields) {

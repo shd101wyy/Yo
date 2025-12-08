@@ -178,7 +178,7 @@ export function typeImplementsCopy(
  * Check if a type implements the Send trait.
  *
  * Send types can be safely transferred between threads.
- * Primitives, Send pointers (where T is not Rc and T implements Send),
+ * Primitives, Send pointers (where T is not Ref and T implements Send),
  * and structs where all fields are Send implement Send.
  */
 /*

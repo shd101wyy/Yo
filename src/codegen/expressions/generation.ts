@@ -189,7 +189,7 @@ function generateFuncCall(
       // Get captured variable values
       // Dup expressions are created at evaluation time and don't have correct context for code generation
       // When in a closure or state machine, always use generateAtom for proper context-aware access
-      // Otherwise, use dup expressions if available (they handle proper Rc semantics)
+      // Otherwise, use dup expressions if available (they handle proper Ref semantics)
       const functionContext = context as FunctionGenerationContext;
       const inSpecialContext =
         functionContext.currentClosureCaptures !== undefined ||
@@ -197,7 +197,7 @@ function generateFuncCall(
 
       const captureArgs = captureType.fields.map((field) => {
         // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for Rc types,
+        // deferredDupExpressions only contains dup expressions for Ref types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
         if (!inSpecialContext && expr.$?.deferredDupExpressions) {
@@ -857,7 +857,7 @@ function generateFuncCall(
           }
         } else {
           // Copying from another array - use direct struct assignment
-          // Handle temp variable assignment for Rc values
+          // Handle temp variable assignment for Ref values
           let rhsCode: string;
           if (rhs.$?.variableName) {
             const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
@@ -901,7 +901,7 @@ function generateFuncCall(
         // Non-array initialization - use existing logic
         let rhsCode: string;
 
-        // If RHS has a temp variable name (e.g., for Rc values), we need to:
+        // If RHS has a temp variable name (e.g., for Ref values), we need to:
         // 1. First generate the RHS expression and assign it to the temp variable
         // 2. Then use the temp variable for the assignment
         // BUT: don't create temp variables for captured variables
@@ -2795,7 +2795,7 @@ function generateAsyncBlock(
     // Build the capture struct literal
     // Dup expressions are created at evaluation time and don't have correct context for code generation
     // When in a closure or state machine, always use generateAtom for proper context-aware access
-    // Otherwise, use dup expressions if available (they handle proper Rc semantics)
+    // Otherwise, use dup expressions if available (they handle proper Ref semantics)
     const functionContext = context as FunctionGenerationContext;
     const inSpecialContext =
       functionContext.currentClosureCaptures !== undefined ||
@@ -2804,7 +2804,7 @@ function generateAsyncBlock(
     const captureFields = captureType.fields
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for Rc types,
+        // deferredDupExpressions only contains dup expressions for Ref types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
         if (!inSpecialContext && expr.$?.deferredDupExpressions) {
@@ -3227,7 +3227,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  // If this atom has a temp variable name (e.g., for Rc values), use that instead of regenerating code
+  // If this atom has a temp variable name (e.g., for Ref values), use that instead of regenerating code
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
   // ALSO: if this is a compile-time only variable with a value, inline it instead
@@ -3548,7 +3548,7 @@ function generateFieldAccess(
       return cFunctionName;
     }
 
-    // Fallback: Check if this is an Rc method call (___drop, ___dup, ___dispose)
+    // Fallback: Check if this is an Ref method call (___drop, ___dup, ___dispose)
     // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
     // So they are using the `undefined` function value, before we actually update its module fields.
     if (
@@ -3558,7 +3558,7 @@ function generateFieldAccess(
         BuiltinFunctions.___dup.includes(fieldName)) &&
       objectType
     ) {
-      // For Rc methods, we need to look up the function from the type's module
+      // For Ref methods, we need to look up the function from the type's module
       // and return the function name directly instead of treating it as field access
       let typeModule: ModuleType | null = null;
 
@@ -3584,10 +3584,10 @@ function generateFieldAccess(
             functionValue.funcId;
           return cFunctionName;
         } else {
-          return `/* ERROR: Rc method ${fieldName} not found in type module */`;
+          return `/* ERROR: Ref method ${fieldName} not found in type module */`;
         }
       } else {
-        return `/* ERROR: No module found for Rc method ${fieldName} */`;
+        return `/* ERROR: No module found for Ref method ${fieldName} */`;
       }
     }
 

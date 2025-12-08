@@ -89,7 +89,7 @@ export interface CapturedVariable {
   kind: "local" | "outer";
 
   /**
-   * If this variable is borrowing an Rc value from another variable,
+   * If this variable is borrowing an Ref value from another variable,
    * this field holds a reference to the owner variable.
    * This is used to resolve temporary variable names in deferred drops.
    */
@@ -174,10 +174,10 @@ function walkExprForAwaits(
           // In state machines, we need to capture ALL local variables that are used
           // across await points, regardless of whether they're borrowing or owning.
           // This includes:
-          // - Variables owning Rc values
-          // - Variables borrowing Rc values (like task1_future, task2_future)
-          // - Temp variables owning Rc values
-          // - Non-Rc variables (primitives, etc.)
+          // - Variables owning Ref values
+          // - Variables borrowing Ref values (like task1_future, task2_future)
+          // - Temp variables owning Ref values
+          // - Non-Ref variables (primitives, etc.)
           // But skip compile-time-only values (types, compile-time functions, etc.)
           if (
             variable &&

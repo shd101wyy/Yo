@@ -193,9 +193,9 @@ export interface EvaluatedExprData {
   comment?: string;
 
   /**
-   * For closures that capture Rc variables, this contains expressions that
+   * For closures that capture Ref variables, this contains expressions that
    * call ___dup on the captured variables. Used by C codegen to generate
-   * proper Rc handling in closure ___dup methods.
+   * proper Ref handling in closure ___dup methods.
    *
    * Example: If a closure captures `x: MyBox`, this would contain the expression `x.___dup()`
    */
@@ -221,7 +221,7 @@ export interface EvaluatedExprData {
   /**
    * For closure and async block expressions, this contains the capture struct type that holds all
    * captured variables from outer scope.
-   * The capture struct has Rc functions (___drop, ___dup, ___dispose) auto-generated.
+   * The capture struct has Ref functions (___drop, ___dup, ___dispose) auto-generated.
    *
    * Example: For `async { printf("%d", x); }` where `x: MyBox` is from outer scope,
    * this would contain a StructType with a single field `x: MyBox`.
@@ -514,7 +514,6 @@ export const BuiltinKeywords = {
 
   Ptr: ["*"],
 
-  // Rc: ["$"], // Everthing comes with a cost.
   Tuple: ["Tuple"],
   Array: ["Array"],
   Slice: ["Slice"],
@@ -891,7 +890,7 @@ export const BuiltinFunctions = {
   // Error handling
   panic: ["panic"],
 
-  // Rc related
+  // Ref related
   is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
@@ -900,19 +899,19 @@ export const BuiltinFunctions = {
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
 
-  // Dynamic dispatch Rc functions
+  // Dynamic dispatch Ref functions
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
   __yo_dyn_dup: ["__yo_dyn_dup"], // dup the dyn object with wrapped object
 
-  // Closure Rc functions
+  // Closure Ref functions
   __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
   __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
 
-  // Future Rc functions
+  // Future Ref functions
   __yo_future_drop: ["__yo_future_drop"], // drop future object and handle cleanup
   __yo_future_dup: ["__yo_future_dup"], // dup future object with proper reference counting
 
-  // Rc functions
+  // Ref functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
@@ -1425,13 +1424,13 @@ export function mergeAndCheckEnvs(
     for (let i = 0; i < cols; i++) {
       const variableName = frameVariables[i]!.name;
       const initializedAtTokens: (Token | undefined)[] = [];
-      const isHoldingTheRcValueAtTokens: (Token | undefined)[] = [];
+      const isOwningTheRefValueAtTokens: (Token | undefined)[] = [];
       const types: Type[] = [];
       for (let j = 1; j < rows; j++) {
         const caseEnv = caseEnvs[j - 1]!;
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
-        isHoldingTheRcValueAtTokens.push(
+        isOwningTheRefValueAtTokens.push(
           matrix[j]![i]!.isOwningTheRefValue
             ? caseEnvFrameVariables[i]!.token
             : undefined
@@ -1544,34 +1543,34 @@ export function mergeAndCheckEnvs(
         }
       }
 
-      // Check isHoldingTheRcValueAtTokens
-      // Variable is not owning the Rc value outside, but the only case makes it owning.
+      // Check isOwningTheRefValueAtTokens
+      // Variable is not owning the Ref value outside, but the only case makes it owning.
       // case 1
       /*
-      if (isHoldingTheRcValueAtTokens.length === 1) {
+      if (isOwningTheRefValueAtTokens.length === 1) {
         if (
           !frameVariables[i]!.isOwningTheRefValue &&
-          isHoldingTheRcValueAtTokens[0]
+          isOwningTheRefValueAtTokens[0]
         ) {
           throw formatErrorMessages([
             {
               token: frameVariables[i]!.token,
-              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the Rc value in all cases.`,
+              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the Ref value in all cases.`,
             },
             {
-              token: isHoldingTheRcValueAtTokens[0]!,
-              errorMessage: `Might be owning the Rc value here:`,
+              token: isOwningTheRefValueAtTokens[0]!,
+              errorMessage: `Might be owning the Ref value here:`,
             },
           ]);
         }
       }
       // case 2
-      // variable is not owning the Rc value outside, but all cases make it owning.
+      // variable is not owning the Ref value outside, but all cases make it owning.
       else 
       */
       if (
         !frameVariables[i]!.isOwningTheRefValue &&
-        isHoldingTheRcValueAtTokens.every((u) => u)
+        isOwningTheRefValueAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
           ...frameVariables[i]!,
@@ -1583,26 +1582,26 @@ export function mergeAndCheckEnvs(
       }
       // case 3
       else {
-        const isOwningTheRefValue = isHoldingTheRcValueAtTokens.filter(
+        const isOwningTheRefValue = isOwningTheRefValueAtTokens.filter(
           (u) => !!u
         );
-        const isNotHoldingTheRcValue = isHoldingTheRcValueAtTokens.filter(
+        const isNotOwningTheRefValue = isOwningTheRefValueAtTokens.filter(
           (u) => !u
         );
         if (
           isOwningTheRefValue.length > 0 &&
-          isNotHoldingTheRcValue.length > 0
+          isNotOwningTheRefValue.length > 0
         ) {
           throw formatErrorMessages(
-            isHoldingTheRcValueAtTokens.map((token, index) => {
+            isOwningTheRefValueAtTokens.map((token, index) => {
               return {
                 errorMessage:
                   (index === 0
-                    ? `Variable "${variableName}" might be holding the Rc value in some cases but not holding the Rc value in other cases:\n`
+                    ? `Variable "${variableName}" might be holding the Ref value in some cases but not holding the Ref value in other cases:\n`
                     : "") +
                   (token
-                    ? "Might be owning the Rc value here:"
-                    : "Might be not owning the Rc value here:"),
+                    ? "Might be owning the Ref value here:"
+                    : "Might be not owning the Ref value here:"),
                 token: token ?? bodies[index]!.token,
               };
             })
@@ -1805,7 +1804,7 @@ export function setExprAsNeedsToCallDup(
   if (typeContainsRefType(expr.$.type)) {
     const variableName = expr.$.variableName;
 
-    // Check if the expr.variableName is holding the Rc value
+    // Check if the expr.variableName is holding the Ref value
     // if yes, then no need to call dup
     // We just need to set it as consumed
     if (isTempVariableName(expr.$.env.modulePath, variableName)) {
