@@ -4,13 +4,12 @@ import * as vscode from "vscode";
 // Import the parser and lexer from Yo project
 // This assumes your extension can access the Yo project code
 import {
-  clearEnvContainingPrelude,
   Environment,
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
 } from "@yo/env";
 import { YoError, YoLexerError } from "@yo/error";
-import Evaluator, { clearAllGlobalImplState } from "@yo/evaluator";
+import Evaluator from "@yo/evaluator";
 import {
   AtomExpr,
   BuiltinFunctions,
@@ -26,7 +25,6 @@ import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, Token, TokenType } from "@yo/token";
 import {
   areTypesCompatible,
-  clearAllCachedTypes,
   isArrayType,
   isEnumType,
   isFunctionType,
@@ -234,14 +232,9 @@ export function activate(context: vscode.ExtensionContext) {
       // Clear any previous evaluation for this file
       moduleManager.deleteModule(modulePath);
 
-      // Clear all global state to ensure clean re-evaluation
-      // This prevents stale references in cached types from causing errors
-      clearAllGlobalImplState();
-      clearEnvContainingPrelude();
-      clearAllCachedTypes();
-
-      // Load the module again
-      const { moduleError } = moduleManager.loadModule(modulePath);
+      // Load the module again, passing the in-memory document content
+      // This ensures we analyze the current editor content, not the saved file on disk
+      const { moduleError } = moduleManager.loadModule(modulePath, text);
       if (moduleError) {
         throw moduleError;
       }

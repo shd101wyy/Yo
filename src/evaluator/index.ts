@@ -47,10 +47,12 @@ export default class Evaluator {
     modulePath,
     stdPath,
     loadModule,
+    inputString,
   }: {
     modulePath: string;
     stdPath: string;
     loadModule: LoadModuleFn;
+    inputString?: string;
   }) {
     this.modulePath = modulePath;
 
@@ -60,10 +62,12 @@ export default class Evaluator {
       );
     }
     try {
-      this.inputString = readFileSync(
-        modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
-        "utf-8"
-      );
+      this.inputString =
+        inputString ??
+        readFileSync(
+          modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
+          "utf-8"
+        );
 
       // Parse the module
       this.parser = new Parser({ modulePath, inputString: this.inputString });

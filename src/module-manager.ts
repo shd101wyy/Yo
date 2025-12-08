@@ -22,6 +22,16 @@ export class ModuleManager {
     }
   > = new Map();
 
+  /**
+   * Track module dependencies: key is the module path, value is set of modules it imports
+   */
+  private dependencies: Map<string, Set<string>> = new Map();
+
+  /**
+   * Track reverse dependencies: key is the module path, value is set of modules that import it
+   */
+  private dependents: Map<string, Set<string>> = new Map();
+
   public stdPath = path.join(__dirname, "../std");
   private codeGenratorC: CodeGeneratorC;
 
@@ -32,7 +42,68 @@ export class ModuleManager {
     setEvaluateExpressionFn(_evaluateExpression);
   }
 
-  public loadModule(modulePath: string): {
+  /**
+   * Track that parentModule imports childModule
+   */
+  private addDependency(parentModule: string, childModule: string): void {
+    // Add to dependencies (parent -> children)
+    if (!this.dependencies.has(parentModule)) {
+      this.dependencies.set(parentModule, new Set());
+    }
+    this.dependencies.get(parentModule)!.add(childModule);
+
+    // Add to dependents (child -> parents)
+    if (!this.dependents.has(childModule)) {
+      this.dependents.set(childModule, new Set());
+    }
+    this.dependents.get(childModule)!.add(parentModule);
+  }
+
+  /**
+   * Get all modules that depend on the given module (directly or transitively)
+   */
+  private getDependentModules(modulePath: string): Set<string> {
+    const result = new Set<string>();
+    const queue = [modulePath];
+
+    while (queue.length > 0) {
+      const current = queue.pop()!;
+      const dependents = this.dependents.get(current);
+      if (dependents) {
+        for (const dep of dependents) {
+          if (!result.has(dep)) {
+            result.add(dep);
+            queue.push(dep);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Clear dependency tracking for a module
+   */
+  private clearDependencies(modulePath: string): void {
+    // Remove this module from the dependents list of its dependencies
+    const deps = this.dependencies.get(modulePath);
+    if (deps) {
+      for (const dep of deps) {
+        const depDependents = this.dependents.get(dep);
+        if (depDependents) {
+          depDependents.delete(modulePath);
+        }
+      }
+    }
+    this.dependencies.delete(modulePath);
+  }
+
+  public loadModule(
+    modulePath: string,
+    inputString?: string,
+    parentModule?: string
+  ): {
     moduleValue: ModuleValue;
     moduleError: Error | undefined;
   } {
@@ -40,6 +111,11 @@ export class ModuleManager {
       throw new Error(
         `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `
       );
+    }
+
+    // Track dependency if this is being loaded by another module
+    if (parentModule) {
+      this.addDependency(parentModule, modulePath);
     }
 
     const module = this.modules.get(modulePath);
@@ -50,12 +126,15 @@ export class ModuleManager {
       };
     }
 
+    const currentModulePath = modulePath;
     const evaluator = new Evaluator({
       modulePath,
       stdPath: this.stdPath,
-      loadModule: (modulePath: string) => {
-        return this.loadModule(modulePath);
+      loadModule: (childModulePath: string) => {
+        // Track that currentModulePath imports childModulePath
+        return this.loadModule(childModulePath, undefined, currentModulePath);
       },
+      inputString,
     });
     const moduleValue = evaluator.getModuleValue();
     const moduleError = evaluator.getModuleError();
@@ -70,10 +149,23 @@ export class ModuleManager {
       );
     }
 
-    // Clear any impls that were added by this module before deleting it
-    clearImplsFromModule(modulePath);
-    clearGenericImplsFromModule(modulePath);
-    this.modules.delete(modulePath);
+    // Get all modules that depend on this module (they need to be invalidated too)
+    const dependentModules = this.getDependentModules(modulePath);
+
+    // Delete the module and all its dependents
+    const modulesToDelete = [modulePath, ...dependentModules];
+
+    for (const modPath of modulesToDelete) {
+      // Clear any impls that were added by this module before deleting it
+      clearImplsFromModule(modPath);
+      clearGenericImplsFromModule(modPath);
+
+      // Clear dependency tracking for this module
+      this.clearDependencies(modPath);
+
+      // Delete the module from cache
+      this.modules.delete(modPath);
+    }
   }
 
   public compileModule(
