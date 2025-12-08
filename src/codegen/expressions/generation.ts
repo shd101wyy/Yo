@@ -4626,7 +4626,7 @@ function generateYoInlineFunctionCall(
     return `((${args[0]!}) | (${args[1]!}))`;
   }
   // ^
-  else if (BuiltinFunctions.__yo_op_xor.includes(functionName)) {
+  else if (BuiltinFunctions.__yo_op_bit_xor.includes(functionName)) {
     return `((${args[0]!}) ^ (${args[1]!}))`;
   }
   // ~

@@ -224,6 +224,8 @@ static inline size_t __yo_get_thread_id(void) {
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
   // Unix-like systems: Use pthreads (more reliable, especially on macOS)
   #include <pthread.h>
+  #include <unistd.h>
+  #include <sys/syscall.h>
   typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;
   typedef pthread_cond_t YO_COND_TYPE;
   typedef pthread_t YO_THREAD_TYPE;

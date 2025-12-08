@@ -24,7 +24,7 @@ export const BuiltinYoInlineFunctions = [
   // Bitwise
   ...BuiltinFunctions.__yo_op_bit_and, // &
   ...BuiltinFunctions.__yo_op_bit_or, // |
-  ...BuiltinFunctions.__yo_op_xor, // ^
+  ...BuiltinFunctions.__yo_op_bit_xor, // ^
   ...BuiltinFunctions.__yo_op_bit_complement, // ~
   ...BuiltinFunctions.__yo_op_bit_left_shift, // <<
   ...BuiltinFunctions.__yo_op_bit_right_shift, // >>

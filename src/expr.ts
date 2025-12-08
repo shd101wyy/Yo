@@ -880,7 +880,7 @@ export const BuiltinFunctions = {
   /// Bitwise
   __yo_op_bit_and: ["__yo_op_bit_and"], // &
   __yo_op_bit_or: ["__yo_op_bit_or"], // |
-  __yo_op_xor: ["__yo_op_xor"], // ^
+  __yo_op_bit_xor: ["__yo_op_bit_xor"], // ^
   __yo_op_bit_complement: ["__yo_op_bit_complement"], // ~
   __yo_op_bit_left_shift: ["__yo_op_bit_left_shift"], // <<
   __yo_op_bit_right_shift: ["__yo_op_bit_right_shift"], // >>

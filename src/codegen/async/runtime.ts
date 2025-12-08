@@ -85,6 +85,7 @@ typedef struct yo_continuation_t {
 // Worker thread structure with per-thread task queue for async/await
 typedef struct yo_worker_thread {
   YO_THREAD_TYPE id;
+  YO_THREAD_TYPE handle;                 // Thread handle for join
   bool active;
   size_t core_id;                        // CPU core this worker is pinned to
   
@@ -398,9 +399,9 @@ typedef struct {
 
 // Thread-local async runtime state
 #if defined(_WIN32)
-  __declspec(thread) static yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
+  static __declspec(thread) yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
 #else
-  __thread static yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
+  static __thread yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
 #endif
 
 // Enqueue a continuation to be executed

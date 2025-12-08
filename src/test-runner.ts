@@ -193,14 +193,28 @@ export main;
 function runSingleTest(
   test: TestDeclaration,
   originalFileContent: string,
-  tempDir: string,
   cCompiler: string
 ): TestResult {
   const startTime = Date.now();
   const sanitizedName = test.name.replace(/[^a-zA-Z0-9_]/g, "_");
-  const testFilePath = path.join(tempDir, `test_${sanitizedName}.yo`);
-  const testOutputPath = path.join(tempDir, `test_${sanitizedName}`);
-  const testCPath = testOutputPath + ".c";
+  const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+  // Create all temp files in the SAME directory as the original file
+  // This preserves relative import paths
+  const originalDir = path.dirname(test.filePath);
+  const baseName = `.yo_test_${sanitizedName}_${uniqueId}`;
+  const testFilePath = path.join(originalDir, `${baseName}.yo`);
+  const testOutputPath = path.join(originalDir, baseName);
+  const testCPath = path.join(originalDir, `${baseName}.c`);
+
+  // Helper to clean up all temp files
+  const cleanup = () => {
+    for (const file of [testFilePath, testOutputPath, testCPath]) {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    }
+  };
 
   try {
     // Generate test program
@@ -218,6 +232,7 @@ function runSingleTest(
         debugAsyncAwait: false,
       });
     } catch (compileError) {
+      cleanup();
       return {
         testName: test.name,
         filePath: test.filePath,
@@ -230,6 +245,11 @@ function runSingleTest(
     // Get the generated C code
     const generatedCode = moduleManager.getGeneratedCode();
     fs.writeFileSync(testCPath, generatedCode);
+
+    // Clean up temp .yo file after generating C code
+    if (fs.existsSync(testFilePath)) {
+      fs.unlinkSync(testFilePath);
+    }
 
     // Compile C code
     const mimallocStaticPath = path.resolve("vendor/mimalloc/src/static.c");
@@ -256,6 +276,7 @@ function runSingleTest(
     });
 
     if (compileResult.status !== 0) {
+      cleanup();
       return {
         testName: test.name,
         filePath: test.filePath,
@@ -274,6 +295,8 @@ function runSingleTest(
 
     const passed = runResult.status === 0;
 
+    cleanup();
+
     return {
       testName: test.name,
       filePath: test.filePath,
@@ -284,6 +307,7 @@ function runSingleTest(
       duration: Date.now() - startTime,
     };
   } catch (error) {
+    cleanup();
     return {
       testName: test.name,
       filePath: test.filePath,
@@ -308,12 +332,6 @@ export function runTests(
   const cCompiler = options.cCompiler ?? "cc";
   const results: TestResult[] = [];
 
-  // Create temporary directory for test artifacts
-  const tempDir = path.join(process.cwd(), ".yo-test-tmp");
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-
   console.log(
     `\n${colors.bold}${colors.cyan}Running Yo Tests${colors.reset}\n`
   );
@@ -336,7 +354,7 @@ export function runTests(
 
     for (const test of tests) {
       totalTests++;
-      const result = runSingleTest(test, originalContent, tempDir, cCompiler);
+      const result = runSingleTest(test, originalContent, cCompiler);
       results.push(result);
 
       if (result.passed) {
@@ -381,9 +399,6 @@ export function runTests(
     `${colors.dim}${totalTests} total (${totalDuration}ms)${colors.reset}`
   );
   console.log();
-
-  // Clean up temp directory (optional - keep for debugging)
-  // fs.rmSync(tempDir, { recursive: true, force: true });
 
   return {
     totalTests,
