@@ -163,6 +163,10 @@ yo run <script>                  Run a script defined in 'yo.json'
           describe: "Show detailed error messages",
           type: "boolean",
           default: false,
+        })
+        .option("test-name-pattern", {
+          describe: "Only run tests with names matching this regex pattern",
+          type: "string",
         });
     },
     (argv) => {
@@ -176,7 +180,8 @@ yo run <script>                  Run a script defined in 'yo.json'
 
       const summary = runTests(testFiles, {
         cCompiler: argv.cc,
-        verbose: argv.verbose,
+        verbose: argv.verbose as boolean,
+        testNamePattern: argv.testNamePattern as string | undefined,
       });
 
       // Exit with non-zero code if any tests failed

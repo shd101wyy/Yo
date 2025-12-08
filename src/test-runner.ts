@@ -360,15 +360,39 @@ export function runTests(
   options: {
     cCompiler?: string;
     verbose?: boolean;
+    testNamePattern?: string;
   } = {}
 ): TestRunSummary {
   const startTime = Date.now();
   const cCompiler = options.cCompiler ?? "cc";
   const results: TestResult[] = [];
 
+  let testNameRegex: RegExp | undefined;
+  if (options.testNamePattern) {
+    try {
+      testNameRegex = new RegExp(options.testNamePattern);
+    } catch (e) {
+      console.error(
+        `${colors.red}Error: Invalid regex pattern: ${options.testNamePattern}${colors.reset}`
+      );
+      return {
+        totalTests: 0,
+        passed: 0,
+        failed: 0,
+        results: [],
+        duration: 0,
+      };
+    }
+  }
+
   console.log(
     `\n${colors.bold}${colors.cyan}Running Yo Tests${colors.reset}\n`
   );
+  if (testNameRegex) {
+    console.log(
+      `${colors.dim}Filtering tests matching: ${options.testNamePattern}${colors.reset}\n`
+    );
+  }
 
   let totalTests = 0;
   let passedTests = 0;
@@ -379,7 +403,11 @@ export function runTests(
     console.log(`${colors.dim}${relativePath}${colors.reset}`);
 
     const originalContent = fs.readFileSync(filePath, "utf-8");
-    const tests = extractTests(filePath);
+    let tests = extractTests(filePath);
+
+    if (testNameRegex) {
+      tests = tests.filter((test) => testNameRegex.test(test.name));
+    }
 
     if (tests.length === 0) {
       console.log(`  ${colors.yellow}(no tests found)${colors.reset}`);
