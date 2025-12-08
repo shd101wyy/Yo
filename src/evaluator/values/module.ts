@@ -117,6 +117,15 @@ export function clearGenericImplsFromModule(modulePath: string): void {
 }
 
 /**
+ * Clear ALL global impl registries.
+ * Use this to completely reset global state between independent compilation runs.
+ */
+export function clearAllGlobalImplState(): void {
+  implRegistry.clear();
+  genericImplRegistry.clear();
+}
+
+/**
  * Register a generic impl in the registry.
  */
 function registerGenericImpl(

@@ -190,6 +190,9 @@ let _envContainingPrelude: Environment | null = null;
 export function setEnvContainingPrelude(env: Environment) {
   _envContainingPrelude = env;
 }
+export function clearEnvContainingPrelude() {
+  _envContainingPrelude = null;
+}
 export function createEnvContainingPrelude(): Environment {
   if (!_envContainingPrelude) {
     throw new Error("Environment containing prelude is not set.");

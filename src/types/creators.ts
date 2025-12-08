@@ -1008,3 +1008,38 @@ export function createFutureType(
 
   return futureType;
 }
+
+export function clearAllCachedTypes(): void {
+  cachedComptIntType = null;
+  cachedComptFloatType = null;
+  cachedComptStringType = null;
+  cachedExprType = null;
+  cachedComptListTypeMap.clear();
+  cachedBooleanType = null;
+  cachedUsizeType = null;
+  cachedIsizeType = null;
+  cachedU8Type = null;
+  cachedI8Type = null;
+  cachedU16Type = null;
+  cachedI16Type = null;
+  cachedU32Type = null;
+  cachedI32Type = null;
+  cachedU64Type = null;
+  cachedI64Type = null;
+  cachedF32Type = null;
+  cachedF64Type = null;
+  cachedUnitType = null;
+  cachedCharType = null;
+  cachedShortType = null;
+  cachedUShortType = null;
+  cachedIntType = null;
+  cachedUIntType = null;
+  cachedLongType = null;
+  cachedULongType = null;
+  cachedLongLongType = null;
+  cachedULongLongType = null;
+  cachedLongDoubleType = null;
+  cachedSliceTypeMap.clear();
+  cachedVoidType = undefined;
+  cachedTypeMap.clear();
+}

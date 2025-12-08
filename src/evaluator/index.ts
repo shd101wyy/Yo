@@ -17,12 +17,17 @@ import { YoError } from "../error";
 import { LoadModuleFn } from "./context";
 import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous_module";
 import {
+  clearAllGlobalImplState,
   clearGenericImplsFromModule,
   clearImplsFromModule,
 } from "./values/module";
 
 // Re-export clearImplsFromModule and clearGenericImplsFromModule for use by module manager
-export { clearGenericImplsFromModule, clearImplsFromModule };
+export {
+  clearAllGlobalImplState,
+  clearGenericImplsFromModule,
+  clearImplsFromModule,
+};
 
 /**
  * This class is responsible for:

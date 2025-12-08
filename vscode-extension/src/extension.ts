@@ -4,12 +4,13 @@ import * as vscode from "vscode";
 // Import the parser and lexer from Yo project
 // This assumes your extension can access the Yo project code
 import {
+  clearEnvContainingPrelude,
   Environment,
   getMethodsByNameFromEnv,
   getVariablesFromEnv,
 } from "@yo/env";
 import { YoError, YoLexerError } from "@yo/error";
-import Evaluator from "@yo/evaluator";
+import Evaluator, { clearAllGlobalImplState } from "@yo/evaluator";
 import {
   AtomExpr,
   BuiltinFunctions,
@@ -25,6 +26,7 @@ import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, Token, TokenType } from "@yo/token";
 import {
   areTypesCompatible,
+  clearAllCachedTypes,
   isArrayType,
   isEnumType,
   isFunctionType,
@@ -231,6 +233,12 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Clear any previous evaluation for this file
       moduleManager.deleteModule(modulePath);
+
+      // Clear all global state to ensure clean re-evaluation
+      // This prevents stale references in cached types from causing errors
+      clearAllGlobalImplState();
+      clearEnvContainingPrelude();
+      clearAllCachedTypes();
 
       // Load the module again
       const { moduleError } = moduleManager.loadModule(modulePath);
@@ -1030,7 +1038,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Automatically dereference pointer/reference types for field access only
         let fieldAccessType = variableType;
         while (isPtrType(fieldAccessType)) {
-          fieldAccessType = fieldAccessType.type;
+          fieldAccessType = fieldAccessType.childType;
         }
 
         const methods: {
@@ -1055,7 +1063,7 @@ export function activate(context: vscode.ExtensionContext) {
           });
         } else if (isStructType(fieldAccessType)) {
           // For struct types, show all available fields (using dereferenced type for field access)
-          for (const element of fieldAccessType.elements) {
+          for (const element of fieldAccessType.fields) {
             methods.push({
               name: element.label,
               detail: typeToString(element.type),
@@ -1067,15 +1075,15 @@ export function activate(context: vscode.ExtensionContext) {
           for (const variant of fieldAccessType.variants) {
             methods.push({
               name: variant.name,
-              detail: variant.elements
-                ? `(${variant.elements.map((e) => typeToString(e.type)).join(", ")})`
+              detail: variant.fields
+                ? `(${variant.fields.map((e) => typeToString(e.type)).join(", ")})`
                 : "()",
               documentation: `Access ${variant.name} variant of enum`,
             });
           }
         } else if (isUnionType(fieldAccessType)) {
-          // For union types, show all possible type elements (use dereferenced type for field access)
-          for (const element of fieldAccessType.elements) {
+          // For union types, show all possible type fields (use dereferenced type for field access)
+          for (const element of fieldAccessType.fields) {
             methods.push({
               name: element.label,
               detail: typeToString(element.type),
@@ -1190,7 +1198,7 @@ export function activate(context: vscode.ExtensionContext) {
             env = evalInfo?.env;
           }
 
-          for (const element of fieldAccessType.module.elements) {
+          for (const element of fieldAccessType.module.fields) {
             if (isFunctionType(element.type)) {
               // Check if the first parameter of the function matches the original receiver type (not dereferenced)
               if (element.type.parameters.length > 0 && env) {
@@ -1405,9 +1413,9 @@ export function activate(context: vscode.ExtensionContext) {
             // Check if this variable is a module value that might contain the symbol
             if (variable.value && isModuleValue(variable.value)) {
               const moduleValue = variable.value as ModuleValue;
-              if (moduleValue.type && moduleValue.type.elements) {
-                for (let i = 0; i < moduleValue.type.elements.length; i++) {
-                  const element = moduleValue.type.elements[i];
+              if (moduleValue.type && moduleValue.type.fields) {
+                for (let i = 0; i < moduleValue.type.fields.length; i++) {
+                  const element = moduleValue.type.fields[i];
                   if (element && element.label === variableName) {
                     // Found the symbol in the module, return the variable's token as definition
                     return {

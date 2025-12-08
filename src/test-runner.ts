@@ -1,7 +1,9 @@
 import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { clearEnvContainingPrelude } from "./env";
 import { YoError } from "./error";
+import { clearAllGlobalImplState } from "./evaluator/index";
 import {
   BuiltinKeywords,
   Expr,
@@ -11,8 +13,9 @@ import {
   exprToString,
 } from "./expr";
 import { ModuleManager } from "./module-manager";
-import Parser from "./parser";
 import { TokenType } from "./token";
+import { clearAllCachedTypes } from "./types";
+import { isComptStringValue } from "./value";
 
 // ANSI color codes for terminal output
 const colors = {
@@ -109,17 +112,39 @@ function findTestFilesRecursive(dir: string): string[] {
 
 /**
  * Extract test declarations from a Yo source file
+ * Uses the evaluator to get test names from compile-time evaluated expressions
  */
 export function extractTests(filePath: string): TestDeclaration[] {
   const tests: TestDeclaration[] = [];
 
   try {
-    const inputString = fs.readFileSync(filePath, "utf-8");
-    const parser = new Parser({
-      modulePath: `file://${filePath}`,
-      inputString,
-    });
-    const program = parser.getProgram();
+    // Clear global state before evaluating
+    clearAllGlobalImplState();
+    clearEnvContainingPrelude();
+    clearAllCachedTypes();
+
+    // Use ModuleManager to evaluate the file and get the evaluated expressions
+    const moduleManager = new ModuleManager();
+    const modulePath = `file://${filePath}`;
+
+    const { moduleError } = moduleManager.loadModule(modulePath);
+    if (moduleError) {
+      console.error(
+        `${colors.red}Error evaluating ${filePath}: ${moduleError.message}${colors.reset}`
+      );
+      return tests;
+    }
+
+    const moduleData = moduleManager.modules.get(modulePath);
+    if (!moduleData) {
+      console.error(
+        `${colors.red}Error: Module not found after loading: ${filePath}${colors.reset}`
+      );
+      return tests;
+    }
+
+    // Get the evaluated program expressions
+    const program = moduleData.evaluator.getProgram();
 
     for (const expr of program) {
       if (
@@ -130,14 +155,17 @@ export function extractTests(filePath: string): TestDeclaration[] {
           const testNameExpr = expr.args[0]!;
           const testBodyExpr = expr.args[1]!;
 
-          // We need to evaluate the test name to get the string value
-          // For now, we extract it from the string literal token
+          // Get the test name from the evaluated expression
           let testName = "unnamed_test";
-          if (
+
+          // First try to get the value from the evaluated expression's $ field
+          if (testNameExpr.$ && isComptStringValue(testNameExpr.$.value)) {
+            testName = testNameExpr.$.value.value;
+          } else if (
             exprIsAtom(testNameExpr) &&
             testNameExpr.token.type === TokenType.String
           ) {
-            // String literal - extract the value
+            // Fallback: String literal - extract the value directly from token
             testName = testNameExpr.token.value;
           }
 
@@ -217,6 +245,12 @@ function runSingleTest(
   };
 
   try {
+    // Clear all global state before compiling each test
+    // This ensures each test runs in a clean environment
+    clearAllGlobalImplState();
+    clearEnvContainingPrelude();
+    clearAllCachedTypes();
+
     // Generate test program
     const testProgram = generateTestProgram(test, originalFileContent);
     fs.writeFileSync(testFilePath, testProgram);
