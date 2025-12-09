@@ -1842,7 +1842,9 @@ export function setExprAsNeedsToCallDup(
     const evaluatedDupCallExpr = evaluateExpression({
       expr: dupCallExpr,
       env: expr.$.env,
-      context: { ...context },
+      // Don't pass expectedType when calling ___dup, as it refers to the outer expression's expected type,
+      // not the expected type for the dup call itself. The dup call always returns the same type as its argument.
+      context: { ...context, expectedType: undefined },
     }) as FuncCallExpr;
 
     if (evaluatedDupCallExpr.$?.variableName) {

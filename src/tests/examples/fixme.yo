@@ -1,20 +1,40 @@
-open import "std/libc/stdio";
+open import "std/libc/stdio.yo";
+Gc :: import "std/gc";
 
-some_func :: (fn() -> unit) {
-  printf("inside some_func\n");
+MyOption :: (fn(compt(T) : Type) -> compt(Type))
+  enum(
+    None,
+    Some(value: T)
+  )
+;
+
+List :: object(
+  value : i32,
+  next : MyOption(Self),
+  
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing List with value %d\n", self.value);
+  })
+);
+
+form_cycle :: (fn() -> unit) {
+  a := List(3, .None);
+  b := List(5, .None);
+
+  a.next = .Some(b);
+  b.next = .Some(a); // Create a cycle
 };
 
-test "test_equal_2", {
-  some_func(); // Run some function defined in this file
-
-  x := 10;
-  y := 10;
-  assert(x == y, "x is not equal to y");
+test_list :: (fn() -> unit) {
+  form_cycle(); // create cycle
+  c := List(7, .None);
+  printf("Before GC\n");
+  Gc.collect(); // manually trigger the GC collection
+  printf("After GC\n");
 };
 
-test_name :: "compile-time test equal";
-test test_name, {
-  x :: 10;
-  y :: 10;
-  assert(x == y, "compile-time x is not equal to y");
+main :: (fn() -> unit) {
+  test_list();
 };
+
+export main;
