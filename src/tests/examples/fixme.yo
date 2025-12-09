@@ -32,6 +32,83 @@ test2 :: (fn() -> unit) {
   printf("Final result: %d\n", result);
 };
 
+some_cond :: (fn() -> boolean) {
+  return true;
+};
+
+// This should fail
+test2_1 :: (fn() -> unit) {
+  compt_expect_error({
+    closure : Impl(Fn(y : i32) -> i32);
+    cond(
+      some_cond() => {
+        a := 1;
+        closure = ((y) => {
+          return y + a;
+        });
+      },
+      true => {
+        b := 1;
+        closure = ((y) => {
+          return y + b;
+        });
+      }
+    );
+  });
+
+  compt_expect_error({
+    closure : Impl(Fn(y : i32) -> i32);
+    cond(
+      some_cond() => {
+        a := 1;
+        closure = ((y) => {
+          return y + a;
+        });
+      },
+      true => {
+        a := 2;
+        closure = ((y) => {
+          return y + a;
+        });
+      }
+    );
+  }, "no two closures, even if identical, have the same type");
+
+  compt_expect_error(
+    (closure : Impl(Fn(y : i32) -> i32)) =
+    cond(
+      some_cond() => {
+        a := 1;
+        ((y) => {
+          return y + a;
+        })
+      },
+      true => {
+        a := 2;
+        ((y) => {
+          return y + a;
+        })
+      }
+    )
+  );
+
+  // This should fail - sequential reassignment to closures with different capture types
+  compt_expect_error({
+    a := 1;
+    b := 2;
+    closure : Impl(Fn(y : i32) -> i32);
+    closure = ((y) => (y + a));
+    closure = ((y) => (y + b));
+  }, "cannot reassign to variable of Impl");
+  compt_expect_error({
+    a := 1;
+    (closure : Impl(Fn(y : i32) -> i32)) = ((y) => (y + a));
+    closure = ((y) => (y + a));
+  }, "cannot reassign to variable of Impl");
+
+  return ();
+};
+
 test3 :: (fn() -> unit) {
   x := 1;
 
@@ -51,7 +128,9 @@ test3 :: (fn() -> unit) {
 main :: (fn() -> unit) {
   test1();
   test2();
+  test2_1();
   test3();
+  return ();
 };
 
 export main;

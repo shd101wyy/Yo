@@ -14,6 +14,7 @@ import { generateExprFromCode } from "./parser";
 import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
+  isSomeType,
   StructType,
   Type,
   typeContainsRefType,
@@ -1464,6 +1465,43 @@ export function mergeAndCheckEnvs(
         for (let k = 1; k < initializedCases.length; k++) {
           const currentType = types[initializedCases[k]!.index]!;
           const currentCaseEnv = caseEnvs[initializedCases[k]!.index]!;
+
+          // For SomeType (Impl(...)), check that resolvedConcreteType is compatible across branches.
+          // This check must happen BEFORE the `firstType === currentType` optimization,
+          // because the same SomeType variable may have different resolvedConcreteType in different branches.
+          // Impl uses static dispatch, so the concrete capture type must be the same in all branches.
+          // If different capture types are needed, the user should use Dyn(...) instead.
+          if (isSomeType(firstType) && isSomeType(currentType)) {
+            const firstConcreteType = firstType.resolvedConcreteType;
+            const currentConcreteType = currentType.resolvedConcreteType;
+
+            // If both have resolved concrete types, they must be compatible
+            if (firstConcreteType && currentConcreteType) {
+              if (
+                !areTypesCompatible(
+                  { type: firstConcreteType, env: firstCaseEnv },
+                  { type: currentConcreteType, env: currentCaseEnv }
+                )
+              ) {
+                throw formatErrorMessages([
+                  {
+                    token: bodies[initializedCases[0]!.index]!.token,
+                    errorMessage: `Variable "${variableName}" has type Impl(...) but different concrete types across branches.
+Impl(...) uses static dispatch and requires the same concrete type in all branches.
+Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`,
+                  },
+                  {
+                    token: initializedAtTokens[initializedCases[0]!.index]!,
+                    errorMessage: `First branch has concrete type: ${typeToString(firstConcreteType)}`,
+                  },
+                  {
+                    token: initializedAtTokens[initializedCases[k]!.index]!,
+                    errorMessage: `Conflicting branch has concrete type: ${typeToString(currentConcreteType)}`,
+                  },
+                ]);
+              }
+            }
+          }
 
           if (firstType === currentType) {
             continue;

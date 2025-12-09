@@ -11,7 +11,9 @@ import {
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
+  isSomeType,
   prohibitVoidType,
+  SomeType,
   typeContainsRefType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
@@ -260,6 +262,24 @@ ${exprToString(rhs)}`,
     // Add variable to env
     // Attach the updated env to expr
 
+    // For SomeType (Impl(...)), copy the resolvedConcreteType from RHS to LHS type.
+    // This is crucial for closures where the capture struct type is determined at initialization time.
+    // The resolvedConcreteType is needed by mergeAndCheckEnvs to verify that all branches
+    // have compatible concrete types (Impl uses static dispatch, so concrete type must be known).
+    let finalLhsType = lhs.$.type;
+    if (
+      isSomeType(finalLhsType) &&
+      rhsType &&
+      isSomeType(rhsType) &&
+      rhsType.resolvedConcreteType
+    ) {
+      finalLhsType = {
+        ...finalLhsType,
+        resolvedConcreteType: rhsType.resolvedConcreteType,
+      } as SomeType;
+      lhs.$.type = finalLhsType;
+    }
+
     // Under the new simplified ownership model:
     // All variables own their values
     // But we track shared ownership for dup/drop optimization
@@ -275,14 +295,14 @@ ${exprToString(rhs)}`,
       env,
       variable: {
         name: lhs.token.value,
-        type: lhs.$.type,
+        type: finalLhsType,
         isCompileTimeOnly,
         value: lhs.$.value,
         token: lhs.token,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheRefValue: typeContainsRefType(lhs.$.type),
+        isOwningTheRefValue: typeContainsRefType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
         isOwningTheSameRefValueAs: rhsOwningVariable,
         isReassignable: true, // This is not a function parameter

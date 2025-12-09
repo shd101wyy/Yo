@@ -800,7 +800,8 @@ export function getMethodsByNameFromEnv(
   }
 
   // Check if the dereferencedReceiverType itself has method that can be called
-  if (dereferencedReceiverType.module) {
+  // NOTE: Skip DynType here since DynType has specialized handling below
+  if (dereferencedReceiverType.module && !isDynType(dereferencedReceiverType)) {
     // First check direct methods
     const directMethod = dereferencedReceiverType.module.fields.find(
       (field) => field.label === methodName && isFunctionType(field.type)

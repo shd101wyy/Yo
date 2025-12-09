@@ -25,8 +25,10 @@ import {
   EnumType,
   isArrayType,
   isEnumType,
+  isSomeType,
   isStructType,
   isTypeHierarchyType,
+  SomeType,
   StructType,
   TupleType,
   Type,
@@ -385,6 +387,23 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         selectedVariantName: rhsType.selectedVariantName,
       } as EnumType;
     }
+
+    // For SomeType (Impl(...)), copy the resolvedConcreteType from RHS to variable type.
+    // This is crucial for closures where the capture struct type is determined at assignment time.
+    // The resolvedConcreteType is needed by mergeAndCheckEnvs to verify that all branches
+    // have compatible concrete types (Impl uses static dispatch, so concrete type must be known).
+    // Note: Reassignment of SomeType variables is disallowed (see the else branch below),
+    // so this only applies to the initial assignment.
+    if (
+      isSomeType(variableType) &&
+      isSomeType(rhsType) &&
+      rhsType.resolvedConcreteType
+    ) {
+      variableType = {
+        ...variableType,
+        resolvedConcreteType: rhsType.resolvedConcreteType,
+      } as SomeType;
+    }
     let isMutatingDefinedVariable = false;
     const oldVariableIsOwningTheSameARCValueAs =
       variable.isOwningTheSameRefValueAs;
@@ -461,6 +480,26 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         isOwningTheSameRefValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
     } else {
+      // Disallow reassignment of SomeType (Impl(...)) variables.
+      // In Rust, once a variable's concrete type is determined through `impl Trait`,
+      // it cannot be reassigned to a different value (even of the same trait).
+      // This is because Impl(...) uses static dispatch and the concrete type is fixed.
+      // If you need to reassign closures with different capture types, use Dyn(...) instead.
+      if (isSomeType(variableType)) {
+        throw formatErrorMessages([
+          {
+            token: lhs.token,
+            errorMessage: `Cannot reassign variable "${variableName}" of type Impl(...).
+Impl(...) uses static dispatch and the concrete type is fixed at first assignment.
+Consider using Dyn(...) for dynamic dispatch if you need to reassign to different implementations.`,
+          },
+          {
+            token: variable.initializedAtToken ?? variable.token,
+            errorMessage: `First assigned here:`,
+          },
+        ]);
+      }
+
       // For closures, track variable writes to outer scope
       if (
         context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
