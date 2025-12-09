@@ -1,21 +1,5 @@
 open import "std/libc/stdio.yo";
 
-/*
-main :: (fn() -> unit) {
-  x := 1;
-  closure := ((fn(y : i32) => i32) {
-    x = (x + y);
-    return x;
-  });
-
-  closure(1); // 2
-  closure(1); // 3
-
-  result := closure(2); // 5
-  printf("Final result: %d\n", result);
-};
-*/
-
 test1 :: (fn() -> unit) {
   x := 1;
 
@@ -33,8 +17,41 @@ test1 :: (fn() -> unit) {
   printf("Final result: %d\n", result);
 };
 
+test2 :: (fn() -> unit) {
+  x := 1;
+
+  (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
+    x = (x + y);
+    return x;
+  });
+
+  closure(1); // 2
+  closure(1); // 3
+
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
+};
+
+test3 :: (fn() -> unit) {
+  x := 1;
+
+  (closure : Dyn(Fn(y : i32) -> i32)) = ((y) => {
+    x = (x + y);
+    return x;
+  });
+
+  closure(1); // 2
+  closure(1); // 3
+
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
+};
+
+
 main :: (fn() -> unit) {
   test1();
+  test2();
+  test3();
 };
 
 export main;

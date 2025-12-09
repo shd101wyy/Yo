@@ -1084,6 +1084,13 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.Module: {
       const moduleType = type as ModuleType;
+
+      // Check if it's a FnModuleType (closure/function module)
+      if (isFnModuleType(moduleType)) {
+        // Display as Fn(...) -> ReturnType
+        return `Fn${functionTypeToString(moduleType.isFn, visited).slice(2)}`; // Remove "fn" prefix and add "Fn"
+      }
+
       let moduleTypeString: string;
       if (moduleType.typeName) {
         moduleTypeString = moduleType.typeName;
@@ -1164,7 +1171,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
           allModuleStrings.push(`!(${typeToString(mt, visited)})`);
         }
       }
-      return `Dyn(${allModuleStrings.join(", ")})`;
+      return `Dyn(${allModuleStrings.slice(1).join(", ")})`;
     }
 
     case TypeTag.Future: {
