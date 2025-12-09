@@ -11,6 +11,7 @@ import { createUnionType, ModuleField, TypeField } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
+import { autoDeriveSendForUnionType } from "./utils";
 
 export function evaluateUnionType({
   expr,
@@ -79,6 +80,13 @@ export function evaluateUnionType({
     }
     env = nextEnv;
   }
+
+  // Auto-derive Send module if applicable
+  env = autoDeriveSendForUnionType({
+    unionType,
+    env,
+    context,
+  });
 
   const unionTypeValue = createTypeValue(unionType);
   expr.$ = {

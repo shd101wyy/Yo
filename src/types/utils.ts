@@ -181,7 +181,6 @@ export function typeImplementsCopy(
  * Primitives, Send pointers (where T is not Ref and T implements Send),
  * and structs where all fields are Send implement Send.
  */
-/*
 export function typeImplementsSend(
   type: Type | undefined,
   env: Environment
@@ -201,7 +200,6 @@ export function typeImplementsSend(
     env,
   });
 }
-*/
 
 /**
  * Check if the type of the value requires to use the compt modifier.

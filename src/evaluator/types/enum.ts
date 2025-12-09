@@ -21,6 +21,7 @@ import { evaluateTypeField } from "./field";
 import {
   addARCFunctionSignaturesToEnumType,
   addARCFunctionsToEnumType,
+  autoDeriveSendForEnumType,
 } from "./utils";
 
 export function evaluateEnumType({
@@ -209,6 +210,13 @@ export function evaluateEnumType({
       }
     }
   }
+
+  // Auto derive Send module
+  env = autoDeriveSendForEnumType({
+    enumType,
+    env,
+    context,
+  });
 
   // Auto-generate ARC functions using the systematic approach
   env = addARCFunctionsToEnumType({
