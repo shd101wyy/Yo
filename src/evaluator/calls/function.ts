@@ -299,11 +299,16 @@ export function evaluateFunctionCall({
           });
         }
         // Evaluate the first argument to get its type
+        // NOTE: We clear expectedType here because the operand type should be
+        // determined by the operand itself, not by the return type expected from
+        // the outer context (e.g., when `a == b` is used as argument to a function
+        // expecting boolean, we shouldn't force the operands to be boolean)
         const evaluatedFirstArg = evaluateExpression({
           expr: firstArg,
           env,
           context: {
             ...context,
+            expectedType: undefined,
           },
         });
         const receiverType = evaluatedFirstArg.$?.type;

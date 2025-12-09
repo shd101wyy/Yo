@@ -1,0 +1,31 @@
+open import "std/libc/stdio.yo";
+Gc :: import "std/gc";
+
+List :: object(
+  value : i32,
+  next : Option(Self),
+  
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing List with value %d\n", self.value);
+  })
+);
+
+form_cycle :: (fn() -> unit) {
+  a := List(3, .None);
+  b := List(5, .None);
+
+  a.next = .Some(b);
+  b.next = .Some(a); // Create a cycle
+};
+
+test_list :: (fn() -> unit) {
+  form_cycle(); // create cycle
+  c := List(7, .None);
+  assert(Gc.tracked_count() == 3, "Expected 3 tracked objects before GC");
+  Gc.collect(); // manually trigger the GC collection
+  assert(Gc.tracked_count() == 1, "Expected 1 tracked object after GC");
+};
+
+test "Test cycle collection", {
+  test_list();
+};

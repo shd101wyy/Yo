@@ -1,40 +1,15 @@
-open import "std/libc/stdio.yo";
 Gc :: import "std/gc";
 
-MyOption :: (fn(compt(T) : Type) -> compt(Type))
-  enum(
-    None,
-    Some(value: T)
-  )
-;
-
-List :: object(
-  value : i32,
-  next : MyOption(Self),
-  
-  dispose :: ((fn(self : Self)-> unit) {
-    printf("Disposing List with value %d\n", self.value);
-  })
-);
-
-form_cycle :: (fn() -> unit) {
-  a := List(3, .None);
-  b := List(5, .None);
-
-  a.next = .Some(b);
-  b.next = .Some(a); // Create a cycle
+test_fn :: (fn() -> unit) {
+  {
+    flag := (Gc.tracked_count() == 0);
+    assert(flag, "Expected 0 tracked objects at start");
+  };
+  {
+    assert((Gc.tracked_count() == 0), "Expected 0 tracked objects at start");
+  };
 };
 
-test_list :: (fn() -> unit) {
-  form_cycle(); // create cycle
-  c := List(7, .None);
-  printf("Before GC %d\n", Gc.tracked_count());
-  Gc.collect(); // manually trigger the GC collection
-  printf("After GC %d\n", Gc.tracked_count());
+test "Test Gc tracked count", {
+  test_fn();
 };
-
-main :: (fn() -> unit) {
-  test_list();
-};
-
-export main;
