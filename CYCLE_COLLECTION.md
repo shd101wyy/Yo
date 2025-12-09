@@ -44,42 +44,73 @@ This works with non-atomic RC because:
 
 ## Yo's Cycle Collector Design
 
-### Stop-The-World Collection
+### Thread-Local Collection
 
-All threads pause at safepoints for global cycle collection:
+Each thread has its own cycle collector with complete isolation. No stop-the-world pauses are needed because Yo uses an **isolated spawn model** where threads share no memory.
 
 ```c
-// Global GC state
-typedef struct {
-  yo_object** tracked_objects;     // All objects across all threads that might form cycles
-  size_t tracked_count;
-  size_t tracked_capacity;
-  size_t collections_count;
-  size_t objects_collected;
-  pthread_mutex_t lock;            // Protects tracked_objects array
-} yo_gc_state_t;
+// Per-thread GC state
+typedef struct yo_thread_gc_state_t {
+  yo_ref_header_t* tracked_objects;  // Doubly-linked list of potentially cyclic objects
+  size_t tracked_count;              // Number of tracked objects
+  YO_THREAD_TYPE thread_id;          // Owning thread
+  size_t alloc_count;                // Allocations since last GC
+  struct yo_thread_gc_state_t* next; // For global thread list (cleanup only)
+  struct yo_thread_gc_state_t* prev;
+} yo_thread_gc_state_t;
 
-yo_gc_state_t yo_gc_global_state;
-
-// Per-thread allocation counters for triggering GC
-thread_local size_t yo_gc_alloc_count;
+static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc;
 ```
 
-**When to collect:**
+### When to Collect: Adaptive Object Count Threshold
 
-- Periodically (when any thread reaches N allocations)
-- When memory pressure is high
-- Explicitly via `gc_collect()` call
-- Each collection is stop-the-world across all threads
+Yo uses an **adaptive tracked object count threshold** to trigger cycle collection:
 
-**Tracking:**
-Only track objects that can form cycles:
+1. **Initial threshold**: 256 objects
+2. **Trigger**: When `tracked_count >= threshold`, run cycle collection
+3. **Adaptive scaling**: After each collection, `threshold = max(256, 2 × remaining_objects)`
+
+This approach is similar to QuickJS and balances several concerns:
+
+- **Predictable**: Collects based on object count, not memory size
+- **Efficient**: Avoids frequent collection with few objects
+- **Adaptive**: Grows threshold for programs with many long-lived cyclic objects
+- **Simple**: No need to track per-object sizes
+
+**Example behavior:**
+```
+Initial: threshold = 256
+After creating 256 objects → GC runs, 10 survive → threshold = max(256, 20) = 256
+After creating 256 more objects → GC runs, 200 survive → threshold = max(256, 400) = 400
+After creating 400 more objects → GC runs, 300 survive → threshold = max(256, 600) = 600
+```
+
+**Why object count over memory threshold:**
+- Thread-local objects are typically similar sizes (no huge variance)
+- Tracking object count is cheaper than tracking bytes
+- Cycle collection cost is proportional to object count, not bytes
+- Fits well with the thread-local isolation model
+
+**Explicit collection** can also be triggered via `gc.collect()`:
+
+```yo
+import std/gc;
+
+// Force cycle collection
+gc.collect();
+
+// Query tracked object count
+count := gc.tracked_count();
+```
+
+**When to track:**
+Only objects that can form cycles are tracked:
 
 - Objects with reference-type fields
-- Closures capturing Rc values
+- Closures capturing reference-counted values
 - Dyn trait objects
 
-Skip tracking:
+**Skip tracking:**
 
 - Value types (struct with no Rc fields)
 - Primitives

@@ -902,7 +902,8 @@ static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
 static YO_THREAD_SYNC_TYPE yo_thread_list_mutex = YO_THREAD_SYNC_INIT;
 #endif
-static size_t yo_gc_collect_threshold = 1000;  // Collect when this many objects tracked
+static size_t yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
+static size_t yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
 
 // Thread cleanup infrastructure
 #if defined(_WIN32)
@@ -1140,7 +1141,19 @@ void __yo_gc_collect() {
     }
   }
   
-  GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu\\n", collected, yo_current_thread_gc->tracked_count);
+  // Adaptive threshold: set to max(min_threshold, 2 * remaining_objects)
+  size_t new_threshold = yo_current_thread_gc->tracked_count * 2;
+  if (new_threshold < yo_gc_min_threshold) {
+    new_threshold = yo_gc_min_threshold;
+  }
+  yo_gc_collect_threshold = new_threshold;
+  
+  GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu, next_threshold=%zu\\n", collected, yo_current_thread_gc->tracked_count, yo_gc_collect_threshold);
+}
+
+size_t __yo_gc_tracked_count() {
+  if (yo_current_thread_gc == NULL) return 0;
+  return yo_current_thread_gc->tracked_count;
 }`);
 
   // Generate thread cleanup function
