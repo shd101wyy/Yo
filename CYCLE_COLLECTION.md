@@ -1,6 +1,6 @@
 # Cycle Collection
 
-Yo uses **non-atomic reference counting** with **thread-local cycle collection** to reclaim cyclic structures. The cycle collector uses **QuickJS's trial deletion algorithm**, which is simpler than [Nim's ORC coloring approach](https://nim-works.github.io/nimskull/gc.html) while providing similar performance. The implementation is adapted for Yo's thread-per-core model with selective work-stealing.
+Yo uses **non-atomic reference counting** with **thread-local cycle collection** to reclaim cyclic structures. The cycle collector uses **QuickJS's trial deletion algorithm**, which is simpler than [Nim's ORC coloring approach](https://nim-works.github.io/nimskull/gc.html) while providing similar performance. The implementation is adapted for Yo's **isolated spawn model** where each thread has complete isolation with no shared memory.
 
 ## Why Cycle Collection?
 
@@ -37,6 +37,7 @@ QuickJS uses a **trial deletion** approach that works perfectly with non-atomic 
 ### Key Insight
 
 This works with non-atomic RC because:
+
 - Only the owning thread accesses these objects during collection
 - No concurrent modification during collection (thread-local or stop-the-world)
 - Simple increment/decrement operations, no atomics needed
@@ -65,6 +66,7 @@ thread_local size_t yo_gc_alloc_count;
 ```
 
 **When to collect:**
+
 - Periodically (when any thread reaches N allocations)
 - When memory pressure is high
 - Explicitly via `gc_collect()` call
@@ -72,11 +74,13 @@ thread_local size_t yo_gc_alloc_count;
 
 **Tracking:**
 Only track objects that can form cycles:
+
 - Objects with reference-type fields
 - Closures capturing Rc values
 - Dyn trait objects
 
 Skip tracking:
+
 - Value types (struct with no Rc fields)
 - Primitives
 - Objects with no internal references
@@ -92,7 +96,7 @@ void yo_gc_mark_phase(yo_gc_state_t* gc) {
         yo_object* obj = gc->tracked_objects[i];
         obj->gc_mark = GC_CANDIDATE;
     }
-    
+
     // 2. Trial deletion: decrement RC of all objects reachable from candidates
     for (size_t i = 0; i < gc->tracked_count; i++) {
         yo_object* obj = gc->tracked_objects[i];
@@ -100,7 +104,7 @@ void yo_gc_mark_phase(yo_gc_state_t* gc) {
             yo_gc_trial_delete(obj);  // Recursively decrement RC
         }
     }
-    
+
     // 3. Mark survivors: objects with RC > 0 after trial deletion
     for (size_t i = 0; i < gc->tracked_count; i++) {
         yo_object* obj = gc->tracked_objects[i];
@@ -114,9 +118,9 @@ void yo_gc_mark_phase(yo_gc_state_t* gc) {
 
 void yo_gc_trial_delete(yo_object* obj) {
     if (obj->gc_mark != GC_CANDIDATE) return;
-    
+
     obj->gc_mark = GC_TRIAL_DELETED;
-    
+
     // Traverse fields and trial-delete referenced objects
     if (obj->traverse_fn) {
         obj->traverse_fn(obj, yo_gc_trial_delete_visitor);
@@ -136,10 +140,10 @@ void yo_gc_trial_delete_visitor(yo_object* referenced) {
 ```c
 void yo_gc_sweep_phase(yo_gc_state_t* gc) {
     size_t write_index = 0;
-    
+
     for (size_t i = 0; i < gc->tracked_count; i++) {
         yo_object* obj = gc->tracked_objects[i];
-        
+
         if (obj->gc_mark == GC_LIVE) {
             // Restore RC for live objects
             yo_gc_restore_rc(obj);
@@ -150,15 +154,15 @@ void yo_gc_sweep_phase(yo_gc_state_t* gc) {
             gc->objects_collected++;
         }
     }
-    
+
     gc->tracked_count = write_index;
 }
 
 void yo_gc_restore_rc(yo_object* obj) {
     if (obj->gc_mark != GC_LIVE) return;
-    
+
     obj->gc_mark = GC_RESTORED;
-    
+
     // Restore RC for referenced objects
     if (obj->traverse_fn) {
         obj->traverse_fn(obj, yo_gc_restore_visitor);
@@ -173,127 +177,79 @@ void yo_gc_restore_visitor(yo_object* referenced) {
 }
 ```
 
-### Selective Work-Stealing (Nim's Approach)
+### Isolated Spawn Model
 
-**Only tasks without cycle-forming captures can be stolen:**
+Yo uses **complete thread isolation** - spawned tasks run on separate threads with **no shared memory**. Communication happens exclusively through typed message passing (see `PARALLELISM.md`).
 
-```yo
-// ✅ STEALABLE - only primitives and acyclic types
-async {
-  x := box(42);           // Box(i32) - no internal refs
-  y := [1, 2, 3];         // Array(i32) - no internal refs
-  result := await(compute(x, y));
-  return result;
-}
+**Why this simplifies GC:**
 
-// ❌ NOT STEALABLE - captures cycle-forming type
-async {
-  node := Node(1, .None);    // Node has Option(Node) field
-  await(io_operation());     // Task yields
-  // Task CANNOT be stolen - must stay on Thread 1
-  node.next = .Some(node);   // Creates cycle
-}
-```
-
-**Why thread-local GC requires this:**
-1. Objects are tracked by the thread that created them
-2. If a task migrates, the GC on the original thread might collect objects still in use
-3. Solution: Tasks capturing cycle-forming types cannot migrate (thread affinity)
-
-**Compiler Analysis:**
-
-The compiler analyzes captured variables at async function creation:
+1. Each thread has its own heap - no cross-thread references
+2. Each thread has its own cycle collector - no coordination needed
+3. No need to track which objects can be "stolen" - nothing moves between threads
+4. Only value types can be sent between threads (copied, not shared)
 
 ```yo
-async {
-  x := box(42);           // Type: Box(i32)
-  node := Node(1, .None); // Type: Node (has Option(Node))
-  
-  // Analysis:
-  // - Box(i32): no internal refs → stealable ✅
-  // - Node: has Option(Node) → can form cycles ❌
-  // Result: Task is NOT stealable (thread affinity)
-}
+// Parent thread
+x := 42;
+node := Node(1, .None);  // Cycle-forming type, stays on this thread
+
+// Spawn isolated task - runs on different thread
+task := Task(i32, unit).spawn((parent) -> async {
+  // ❌ CANNOT access node here - completely isolated!
+  // ✅ Can only receive copies of value types
+  value := await parent.recv();
+});
+
+await task.send(x);  // Send COPY of x (value type)
+// Cannot send node - reference types stay on their thread
 ```
 
-**Type Analysis Rules:**
+**What can be sent between threads (value types only):**
 
-| Type | Can Form Cycles? | Sendable? | Stealable? |
-|------|------------------|-----------|------------|
-| Primitives (`i32`, `boolean`, etc.) | No | ✅ Yes | ✅ Yes |
-| Value types (`struct(...)`) | No | ✅ Yes | ✅ Yes |
-| `Box(T)` where T is value type | No | ✅ Yes | ✅ Yes |
-| `Array(T)` where T is value type | No | ✅ Yes | ✅ Yes |
-| `*T` (pointers) | No | ❌ No | ❌ No |
-| **`object(...)` without ref fields** | **No** | ✅ **Yes** | ✅ **Yes** |
-| **`object(...)` with ref fields** | **Yes** | ❌ **No (default)** | ❌ **No** |
-| **`Node(value, next: Option(Node))`** | **Yes** | ❌ **No** | ❌ **No** |
-| **`Impl(Fn(...), Send)` capturing values** | **No** | ✅ **Yes** | ✅ **Yes** |
-| **`Fn(...)` capturing cycle-forming** | **Yes** | ❌ **No** | ❌ **No** |
-| **`Dyn(Trait, Send)`** | **No** | ✅ **Yes** | ✅ **Yes** |
-| **`Impl(Future(T), Send)` with Send captures** | **No** | ✅ **Yes** | ✅ **Yes** |
+| Type                                | Can Send? | Reason                          |
+| ----------------------------------- | --------- | ------------------------------- |
+| Primitives (`i32`, `boolean`, etc.) | ✅ Yes    | Value type, copied              |
+| Value structs (`struct(...)`)       | ✅ Yes    | Value type, copied              |
+| Tuples of value types               | ✅ Yes    | Value type, copied              |
+| Enums with value payloads           | ✅ Yes    | Value type, copied              |
+| `object(...)`                       | ❌ No     | Reference counted, thread-local |
+| Closures                            | ❌ No     | May capture references          |
+| `*T` (pointers)                     | ❌ No     | Not safe across threads         |
 
-**Critical Design Rule:** Types that can form cycles **cannot be Send by default**, but can be made Send if they don't actually form cycles:
+**Key Design Decision:** Reference types (`object(...)`) **never** cross thread boundaries. This means:
 
-- ✅ `object(...)` without ref fields → automatically Sendable
-- ❌ `object(...)` with ref fields → NOT Sendable (can form cycles)
-- ✅ `Impl(Fn(...), Send)` → Sendable if compiler verifies no cycle-forming captures
-- ✅ `Dyn(Trait, Send)` → Sendable if trait object doesn't contain cycles
-- ✅ `Impl(Future(T), Send)` → Sendable if state machine captures only Send types
-- ✅ Each thread's GC only tracks objects created on that thread
-- ✅ No cross-thread GC coordination needed
+- Each thread's GC only tracks objects created on that thread
+- No cross-thread GC coordination needed
+- No atomic reference counting needed
+- Simple, predictable garbage collection
 
-**Why this restriction?**
+**Common patterns:**
 
-When an object is created on Thread 1, it's tracked by Thread 1's GC. If we allowed moving it to Thread 2:
-1. Thread 1's GC still tracks the object (in its roots list)
-2. Thread 2 is now using the object
-3. Thread 1's GC might collect it while Thread 2 uses it → **memory corruption!**
-
-**Solution:** Don't allow moving cycle-forming types between threads. Keep them thread-local.
-
-**Common patterns that still work:**
 ```yo
 // ✅ Message passing with value types
-channel.send(Message(id: 42, data: [1, 2, 3]));
+task := Task(Message, Response).spawn((parent) -> async {
+  msg := await parent.recv();  // Receives COPY of Message
+  await parent.send(Response(ok: true));
+});
 
-// ✅ Actor pattern - each thread owns its complex data
-Actor :: object(
-  tree: ComplexTree,           // Thread-local, has cycles
-  inbox: Channel(Command),     // Receives value-type messages
-);
+// ✅ Each thread owns its complex data
+main :: (fn() -> unit) {
+  // Main thread owns complex data structures
+  tree := ComplexTree();  // Has cycles, stays on main thread
 
-// ✅ Async tasks with acyclic captures
-async {
-  data := [1, 2, 3];           // Array is Sendable
-  result := await(process(data));
-  return result;
-}
+  async {
+    // Spawn worker for CPU-intensive computation
+    task := Task(Array(i32), i32).spawn((parent) -> async {
+      data := await parent.recv();
+      result := expensive_computation(data);
+      await parent.send(result);
+    });
 
-// ❌ Cannot do this (but rarely needed)
-tree := BinaryTree(root);      // Has cycles
-spawn_on_other_thread(tree);   // Compile error: not Sendable
-```
-
-**Runtime Behavior:**
-
-```c
-// Each task has a stealability flag
-typedef struct {
-    void (*resume_fn)(void*);
-    void* state_machine;
-    bool is_stealable;  // Set by compiler at creation
-} yo_continuation_t;
-
-// Work stealing checks flag
-yo_continuation_t* yo_try_steal_task(yo_worker_t* victim) {
-    yo_continuation_t* task = victim->queue_head;
-    if (task && task->is_stealable) {
-        // Remove from victim's queue and return
-        return task;
-    }
-    return NULL;  // Task is non-stealable, skip
-}
+    await task.send([1, 2, 3, 4, 5]);  // Send value array
+    result := await task.recv();       // Receive value result
+    tree.update(result);               // Update local data
+  };
+};
 ```
 
 **GC Collection Process:**
@@ -302,41 +258,45 @@ yo_continuation_t* yo_try_steal_task(yo_worker_t* victim) {
 void yo_gc_collect_thread_local() {
     // No synchronization needed - thread-local only
     yo_gc_state_t* gc = &yo_gc_state;
-    
+
     // Run trial deletion on this thread's tracked objects
     yo_gc_mark_phase(gc);
     yo_gc_sweep_phase(gc);
-    
+
     // Other threads continue running in parallel
 }
 ```
 
-**Trade-offs:**
+**Benefits of isolated spawn for GC:**
+
 - ✅ No stop-the-world pauses (each thread collects independently)
 - ✅ Predictable per-thread pause times (O(thread's objects))
 - ✅ Perfect scaling (threads don't interfere)
-- ✅ Most tasks are stealable (primitives and value types common)
-- ⚠️ Tasks capturing cycle-forming types have thread affinity
-- ⚠️ Requires compiler analysis for stealability
+- ✅ No cross-thread coordination needed
+- ✅ Non-atomic reference counting (zero synchronization overhead)
+- ✅ Simple implementation (no stealability analysis needed)
 
 ## Performance Characteristics
 
 ### Thread-Local Collection
 
 **Strengths:**
+
 - ✅ Non-atomic RC in hot path (zero synchronization overhead)
 - ✅ No stop-the-world pauses (each thread collects independently)
 - ✅ Predictable per-thread pause times (O(thread's objects))
 - ✅ Perfect scaling (N threads = N independent collectors)
-- ✅ Most tasks are stealable (good load balancing)
+- ✅ Complete thread isolation (no cross-thread GC concerns)
 - ✅ Real-time friendly (no global synchronization)
+- ✅ Simple implementation (no stealability tracking needed)
 
-**Weaknesses:**
-- ⚠️ Tasks capturing cycle-forming types have thread affinity
-- ⚠️ Requires compiler analysis for stealability
-- ⚠️ Slightly more complex than full STW
+**Trade-offs:**
+
+- ⚠️ Reference types cannot be shared between threads (must use message passing)
+- ⚠️ Large data must be copied when sent between threads
 
 **Why this is better than Go's GC:**
+
 - Yo's pauses: 0.5-5ms per thread (only that thread's cycles)
 - Go's pauses: 10-100ms+ globally (all threads stop)
 - Yo has no global synchronization (true parallelism)
@@ -352,10 +312,10 @@ Global impact: Zero (other threads continue running)
 ```
 
 **Optimization strategies:**
+
 1. **Conservative tracking**: Only track objects with reference-type fields
 2. **Generational**: Track young vs old objects, collect young more frequently
 3. **Threshold tuning**: Per-thread collection frequency based on allocation rate
-4. **Stealability inference**: Compiler automatically determines task stealability
 
 ## API
 
@@ -401,9 +361,9 @@ void Node_traverse(void* obj, void (*visit)(void*)) {
 }
 ```
 
-### Object Registration and Stealability
+### Object Registration
 
-Compiler generates code to register objects with thread-local GC and mark task stealability:
+Compiler generates code to register objects with thread-local GC:
 
 ```c
 // Generated code for object allocation
@@ -422,43 +382,19 @@ if (yo_gc_state.alloc_count >= YO_GC_THRESHOLD) {
 }
 ```
 
-```c
-// Generated code for async task creation
-typedef struct {
-    int value;
-    Node* node;  // Captures Node (can form cycles)
-} MyAsyncState;
-
-yo_continuation_t* task = yo_create_continuation(
-    my_async_resume,
-    state_machine,
-    false  // is_stealable = false (captures Node)
-);
-
-// Alternative: task capturing only primitives
-typedef struct {
-    int x;
-    int y;
-} SimpleAsyncState;
-
-yo_continuation_t* task2 = yo_create_continuation(
-    simple_async_resume,
-    state_machine2,
-    true  // is_stealable = true (only primitives)
-);
-```
+Since spawned tasks are completely isolated (no shared memory), there's no need to track "stealability" - each thread simply manages its own objects independently.
 
 ## Comparison with Other Approaches
 
-| Approach | Pause Time | Cross-Thread | Complexity | Performance |
-|----------|------------|--------------|------------|-------------|
-| **QuickJS trial deletion** | O(N) | No (single-threaded) | Low | Good |
-| **Nim ORC (coloring)** | O(N/threads) | No (thread affinity) | Medium-High | Excellent |
-| **Python (cycle detector)** | O(N) | Yes (GIL serializes) | Medium | Good with GIL |
-| **Swift (weak references)** | O(1) | Yes | Low | Excellent |
-| **Java (tracing GC)** | O(heap) | Yes | High | Variable |
-| **Go (mark-sweep)** | O(heap) | Yes | High | 10-100ms STW |
-| **Yo (QuickJS-style trial deletion)** | O(N/threads) | Selective | Low-Medium | 0.5-5ms per thread |
+| Approach                              | Pause Time   | Cross-Thread         | Complexity  | Performance        |
+| ------------------------------------- | ------------ | -------------------- | ----------- | ------------------ |
+| **QuickJS trial deletion**            | O(N)         | No (single-threaded) | Low         | Good               |
+| **Nim ORC (coloring)**                | O(N/threads) | No (thread affinity) | Medium-High | Excellent          |
+| **Python (cycle detector)**           | O(N)         | Yes (GIL serializes) | Medium      | Good with GIL      |
+| **Swift (weak references)**           | O(1)         | Yes                  | Low         | Excellent          |
+| **Java (tracing GC)**                 | O(heap)      | Yes                  | High        | Variable           |
+| **Go (mark-sweep)**                   | O(heap)      | Yes                  | High        | 10-100ms STW       |
+| **Yo (QuickJS-style trial deletion)** | O(N/threads) | No (isolated)        | Low         | 0.5-5ms per thread |
 
 ## Summary
 
@@ -467,15 +403,17 @@ Yo's cycle collection design:
 1. ✅ **Non-atomic RC** - zero synchronization overhead in hot path
 2. ✅ **Thread-local cycle collection** - no stop-the-world pauses
 3. ✅ **QuickJS trial deletion** - simple, proven algorithm (simpler than [Nim's coloring approach](https://nim-works.github.io/nimskull/gc.html))
-4. ✅ **Selective work stealing** - stealable tasks migrate, others have thread affinity
+4. ✅ **Isolated spawn model** - each thread has its own heap, no shared memory
 5. ✅ **Short per-thread pauses** - 0.5-5ms typical per thread (only that thread's cycles)
-6. ✅ **Compiler-driven** - automatic stealability analysis and tracking
+6. ✅ **Simple implementation** - no cross-thread coordination or stealability tracking
 7. ✅ **Real-time friendly** - predictable latency, no global synchronization
 
 The key insights are:
+
 - **Reference counting frees most objects immediately** - GC only handles cycles
 - **Thread-local collection scales perfectly** - N threads = N independent collectors
-- **Most tasks are stealable** - primitives and value types common in practice
+- **Complete isolation eliminates complexity** - no need to track what can move between threads
 - **No global pauses** - each thread collects independently while others continue
+- **Value-type message passing** - safe inter-thread communication without sharing references
 
-This design gives **excellent performance** (better than Go's 10-100ms STW pauses) and **predictable latency** for real-time applications, while maintaining good work-stealing for load balancing.
+This design gives **excellent performance** (better than Go's 10-100ms STW pauses) and **predictable latency** for real-time applications, with a simpler implementation than work-stealing approaches.
