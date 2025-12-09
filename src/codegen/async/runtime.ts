@@ -21,7 +21,7 @@ export function generateAsyncRuntime(
 // ============================================================================
 // This implements a cooperative async runtime with thread affinity.
 // Each thread has its own task queue for Futures owned by that thread.
-// This respects the BRC memory model where objects stay on their owner thread.
+// Uses non-atomic reference counting (thread-local objects).
 
 // Special drop function for Future types
 // Futures should not be freed while they're still running, even if RC=0
@@ -31,34 +31,24 @@ void __yo_future_drop(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   yo_future_generic_t* future = (yo_future_generic_t*)ptr;
   
-  ASYNC_DEBUG("__yo_future_drop: ptr=%p, owner_tid=%zu\\n", ptr, header->owner_thread_id);
+  ASYNC_DEBUG("__yo_future_drop: ptr=%p, ref_count=%zu\\n", ptr, header->ref_count);
   
   // Load the current state atomically
   yo_future_state_t current_state = atomic_load_explicit(&future->state, memory_order_acquire);
   
-  // Calculate combined reference count (biased + shared)
-  uint64_t biased_word = header->biased_word;
-  uint32_t biased_counter = BRC_GET_BIASED_COUNTER(biased_word);
-  uint32_t shared_word = atomic_load_explicit(&header->shared_word, memory_order_acquire);
-  int32_t shared_counter = BRC_GET_SHARED_COUNTER(shared_word);
+  // Get reference count
+  size_t ref_count = header->ref_count;
   
-  // Combined RC = biased + shared (BRC invariant I1)
-  int32_t combined_rc = (int32_t)biased_counter + shared_counter;
-  
-  #ifdef YO_DEBUG_ASYNC_AWAIT
-  size_t current_tid = __yo_get_thread_id();
-  ASYNC_DEBUG("__yo_future_drop: state=%d, combined_rc=%d (biased=%u, shared=%d), current_tid=%zu, owner_tid=%zu\\n", 
-    current_state, combined_rc, biased_counter, shared_counter, current_tid, header->owner_thread_id);
-  #endif
+  ASYNC_DEBUG("__yo_future_drop: state=%d, ref_count=%zu\\n", current_state, ref_count);
 
-  // Check if this will be the last reference (combined RC will become 0 after decrement)
-  bool is_last_ref = (combined_rc == 1);
+  // Check if this will be the last reference
+  bool is_last_ref = (ref_count == 1);
   
   // If this is the last reference AND the Future is still RUNNING,
   // mark it as detached and DON'T decrement RC
   // The async runtime now owns this reference and will drop it when the task completes
   if (is_last_ref && current_state == YO_FUTURE_RUNNING) {
-    ASYNC_DEBUG("__yo_future_drop: Future %p is still RUNNING with combined_rc=1, marking as detached (async runtime takes ownership)\\n", ptr);
+    ASYNC_DEBUG("__yo_future_drop: Future %p is still RUNNING with ref_count=1, marking as detached (async runtime takes ownership)\\n", ptr);
     atomic_store_explicit(&future->detached, true, memory_order_release);
     // Don't decrement RC - async runtime now owns the last reference
     // When task completes, it will drop the Future normally
@@ -161,7 +151,7 @@ void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
     
     ASYNC_DEBUG("Enqueued task to worker %zu (queue size: %zu)\\n", worker_idx, worker->task_queue_count);
   } else {
-    CONCURRENCY_DEBUG("[SPAWN] Error: No workers available\\n");
+    PARALLELISM_DEBUG("[SPAWN] Error: No workers available\\n");
   }
 }
 
@@ -176,7 +166,7 @@ static void* __yo_worker_thread_func(void* arg) {
   
   __yo_set_thread_affinity(worker->core_id);
   
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
+  PARALLELISM_DEBUG("[WORKER] Thread %lu started on core %zu (worker=%p)\\n", (unsigned long)thread_id, worker->core_id, worker);
   
   while (!atomic_load(&yo_worker_shutdown)) {
     yo_mutex_lock(&worker->queue_mutex);
@@ -201,7 +191,7 @@ static void* __yo_worker_thread_func(void* arg) {
       continue;
     }
     
-    CONCURRENCY_DEBUG("[WORKER] Thread %lu executing task=%p (state_machine=%p, resume_fn=%p)\\n", 
+    PARALLELISM_DEBUG("[WORKER] Thread %lu executing task=%p (state_machine=%p, resume_fn=%p)\\n", 
                       (unsigned long)thread_id, task, task->state_machine, task->resume_fn);
     
     if (task->resume_fn && task->state_machine) {
@@ -212,11 +202,11 @@ static void* __yo_worker_thread_func(void* arg) {
     
     atomic_fetch_sub(&yo_active_task_count, 1);
     
-    CONCURRENCY_DEBUG("[WORKER] Thread %lu completed task, remaining tasks=%zu\\n", 
+    PARALLELISM_DEBUG("[WORKER] Thread %lu completed task, remaining tasks=%zu\\n", 
                       (unsigned long)thread_id, atomic_load(&yo_active_task_count));
   }
   
-  CONCURRENCY_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
+  PARALLELISM_DEBUG("[WORKER] Thread %lu exiting\\n", (unsigned long)thread_id);
   
   // Clean up thread-local GC state before exiting
   // This is important for threads that had objects queued to them via BRC
@@ -249,7 +239,7 @@ static void __yo_set_thread_affinity(size_t core_id) {
   #ifdef _WIN32
   DWORD_PTR mask = 1ULL << core_id;
   SetThreadAffinityMask(GetCurrentThread(), mask);
-  CONCURRENCY_DEBUG("[AFFINITY] Set thread affinity to core %zu (Windows)\\n", core_id);
+  PARALLELISM_DEBUG("[AFFINITY] Set thread affinity to core %zu (Windows)\\n", core_id);
   
   #elif defined(__APPLE__)
   thread_affinity_policy_data_t policy = { (integer_t)core_id };
@@ -258,9 +248,9 @@ static void __yo_set_thread_affinity(size_t core_id) {
                     (thread_policy_t)&policy, 
                     THREAD_AFFINITY_POLICY_COUNT);
   if (result == KERN_SUCCESS) {
-    CONCURRENCY_DEBUG("[AFFINITY] Set thread affinity to core %zu (macOS)\\n", core_id);
+    PARALLELISM_DEBUG("[AFFINITY] Set thread affinity to core %zu (macOS)\\n", core_id);
   } else {
-    CONCURRENCY_DEBUG("[AFFINITY] Failed to set thread affinity to core %zu (macOS, error=%d)\\n", core_id, result);
+    PARALLELISM_DEBUG("[AFFINITY] Failed to set thread affinity to core %zu (macOS, error=%d)\\n", core_id, result);
   }
   
   #elif defined(__linux__)
@@ -278,13 +268,13 @@ static void __yo_set_thread_affinity(size_t core_id) {
   #endif
   
   if (result == 0) {
-    CONCURRENCY_DEBUG("[AFFINITY] Set thread affinity to core %zu (Linux)\\n", core_id);
+    PARALLELISM_DEBUG("[AFFINITY] Set thread affinity to core %zu (Linux)\\n", core_id);
   } else {
-    CONCURRENCY_DEBUG("[AFFINITY] Failed to set thread affinity to core %zu (Linux, errno=%d)\\n", core_id, (int)result);
+    PARALLELISM_DEBUG("[AFFINITY] Failed to set thread affinity to core %zu (Linux, errno=%d)\\n", core_id, (int)result);
   }
   
   #else
-  CONCURRENCY_DEBUG("[AFFINITY] Thread affinity not supported on this platform (core %zu requested)\\n", core_id);
+  PARALLELISM_DEBUG("[AFFINITY] Thread affinity not supported on this platform (core %zu requested)\\n", core_id);
   (void)core_id;
   #endif
 }
@@ -295,7 +285,7 @@ static void __yo_thread_pool_init(size_t num_threads) {
     return;
   }
   
-  CONCURRENCY_DEBUG("[POOL] Initializing %zu worker threads\\n", num_threads);
+  PARALLELISM_DEBUG("[POOL] Initializing %zu worker threads\\n", num_threads);
   
   yo_worker_threads = (yo_worker_thread_t*)__yo_malloc(sizeof(yo_worker_thread_t) * num_threads);
   yo_worker_thread_count = num_threads;
@@ -318,7 +308,7 @@ static void __yo_thread_pool_init(size_t num_threads) {
     pthread_create(&yo_worker_threads[i].handle, NULL, __yo_worker_thread_func, &yo_worker_threads[i]);
     #endif
     
-    CONCURRENCY_DEBUG("[POOL] Spawned worker thread %zu (will pin to core %zu)\\n", i, i);
+    PARALLELISM_DEBUG("[POOL] Spawned worker thread %zu (will pin to core %zu)\\n", i, i);
   }
 }
 
@@ -339,10 +329,10 @@ void __yo_concurrency_set_maximum_threads(size_t num) {
   
   if (num <= yo_worker_thread_count) {
     yo_async_active_worker_limit = num;
-    CONCURRENCY_DEBUG("[POOL] Limited async task distribution to first %zu workers\\n", num);
+    PARALLELISM_DEBUG("[POOL] Limited async task distribution to first %zu workers\\n", num);
   } else {
     yo_async_active_worker_limit = yo_worker_thread_count;
-    CONCURRENCY_DEBUG("[POOL] Cannot limit to %zu workers (only %zu available)\\n", num, yo_worker_thread_count);
+    PARALLELISM_DEBUG("[POOL] Cannot limit to %zu workers (only %zu available)\\n", num, yo_worker_thread_count);
   }
 }
 
@@ -352,10 +342,10 @@ void __yo_async_wait_all(void) {
     return;
   }
   
-  CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for all async tasks to complete\\n");
+  PARALLELISM_DEBUG("[WAIT_ALL] Waiting for all async tasks to complete\\n");
   
   if (yo_worker_thread_count > 0) {
-    CONCURRENCY_DEBUG("[WAIT_ALL] Waiting for thread pool to finish (active_tasks=%zu)\\n", 
+    PARALLELISM_DEBUG("[WAIT_ALL] Waiting for thread pool to finish (active_tasks=%zu)\\n", 
                       atomic_load(&yo_active_task_count));
     
     while (atomic_load(&yo_active_task_count) > 0) {
@@ -366,7 +356,7 @@ void __yo_async_wait_all(void) {
       #endif
     }
     
-    CONCURRENCY_DEBUG("[WAIT_ALL] All tasks completed, shutting down workers\\n");
+    PARALLELISM_DEBUG("[WAIT_ALL] All tasks completed, shutting down workers\\n");
     
     atomic_store(&yo_worker_shutdown, true);
     
@@ -386,7 +376,7 @@ void __yo_async_wait_all(void) {
     yo_worker_threads = NULL;
     yo_worker_thread_count = 0;
     
-    CONCURRENCY_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
+    PARALLELISM_DEBUG("[WAIT_ALL] Thread pool shut down\\n");
   }
 }
 

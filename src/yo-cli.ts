@@ -72,14 +72,14 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: false,
   })
-  .option("debug-brc", {
-    describe: "Enable debug logging for Biased Reference Counting operations.",
+  .option("debug-gc", {
+    describe: "Enable debug logging for GC and reference counting operations.",
     type: "boolean",
     demandOption: false,
     default: false,
   })
-  .option("debug-concurrency", {
-    describe: "Enable debug logging for cooperative task scheduler operations.",
+  .option("debug-parallelism", {
+    describe: "Enable debug logging for parallel worker thread operations.",
     type: "boolean",
     demandOption: false,
     default: false,
@@ -139,8 +139,8 @@ yo run <script>                  Run a script defined in 'yo.json'
         emitC: argv.emitC,
         skipCodegen: argv.skipCodegen,
         skipCCompiler: argv.skipCCompiler,
-        debugBrc: argv.debugBrc,
-        debugConcurrency: argv.debugConcurrency,
+        debugGc: argv.debugGc,
+        debugParallelism: argv.debugParallelism,
         debugAsyncAwait: argv.debugAsyncAwait,
         release: argv.release,
         optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,

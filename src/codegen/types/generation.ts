@@ -33,38 +33,39 @@ import {
  */
 export function generateTypeDeclarations(context: CodeGenContext): void {
   // Always generate atomic reference counter header for objects and ref enums
-  const debugBrcDefine = context.debugBrc
-    ? "#define YO_DEBUG_BRC 1"
-    : "// #define YO_DEBUG_BRC 1";
+  const debugGcDefine = context.debugGc
+    ? "#define YO_DEBUG_GC 1"
+    : "// #define YO_DEBUG_GC 1";
 
-  const debugConcurrencyDefine = context.debugConcurrency
-    ? "#define YO_DEBUG_CONCURRENCY 1"
-    : "// #define YO_DEBUG_CONCURRENCY 1";
+  const debugParallelismDefine = context.debugParallelism
+    ? "#define YO_DEBUG_PARALLELISM 1"
+    : "// #define YO_DEBUG_PARALLELISM 1";
 
   const debugAsyncAwaitDefine = context.debugAsyncAwait
     ? "#define YO_DEBUG_ASYNC_AWAIT 1"
     : "// #define YO_DEBUG_ASYNC_AWAIT 1";
 
   context.emitter
-    .emitDeclarationLine(`// Biased Reference Counting (BRC) header for objects and ref enums
-// Per-thread GC with stop-the-world collection for better scalability
+    .emitDeclarationLine(`// Non-atomic Reference Counting with Thread-Local Cycle Collection
+// Based on QuickJS trial deletion algorithm
+// See CYCLE_COLLECTION.md for design details
 
-// Debug flag for BRC operations - use --debug-brc flag to enable
-${debugBrcDefine}
+// Debug flag for GC operations - use --debug-gc flag to enable
+${debugGcDefine}
 
-#ifdef YO_DEBUG_BRC
-  #define BRC_DEBUG(...) fprintf(stderr, "BRC: " __VA_ARGS__)
+#ifdef YO_DEBUG_GC
+  #define GC_DEBUG(...) fprintf(stderr, "GC: " __VA_ARGS__)
 #else
-  #define BRC_DEBUG(...)
+  #define GC_DEBUG(...)
 #endif
 
-// Debug flag for concurrency operations - use --debug-concurrency flag to enable
-${debugConcurrencyDefine}
+// Debug flag for parallelism operations - use --debug-parallelism flag to enable
+${debugParallelismDefine}
 
-#ifdef YO_DEBUG_CONCURRENCY
-  #define CONCURRENCY_DEBUG(...) fprintf(stderr, __VA_ARGS__)
+#ifdef YO_DEBUG_PARALLELISM
+  #define PARALLELISM_DEBUG(...) fprintf(stderr, __VA_ARGS__)
 #else
-  #define CONCURRENCY_DEBUG(...)
+  #define PARALLELISM_DEBUG(...)
 #endif
 
 // Debug flag for async/await operations - use --debug-async-await flag to enable
@@ -76,125 +77,17 @@ ${debugAsyncAwaitDefine}
   #define ASYNC_DEBUG(...)
 #endif
 
-// Fast thread ID function using platform-specific inline assembly (inspired by Python/mimalloc)
-static inline size_t __yo_get_thread_id(void) {
-    uintptr_t tid;
-#if defined(_MSC_VER) && defined(_M_X64)
-    tid = __readgsqword(48);
-#elif defined(_MSC_VER) && defined(_M_IX86)
-    tid = __readfsdword(24);
-#elif defined(_MSC_VER) && defined(_M_ARM64)
-    tid = __getReg(18);
-#elif defined(__i386__)
-    __asm__("movl %%gs:0, %0" : "=r" (tid));  // 32-bit always uses GS
-#elif defined(__MACH__) && defined(__x86_64__)
-    __asm__("movq %%gs:0, %0" : "=r" (tid));  // x86_64 macOSX uses GS
-#elif defined(__x86_64__)
-    __asm__("movq %%fs:0, %0" : "=r" (tid));  // x86_64 Linux, BSD uses FS
-#elif defined(__arm__)
-    __asm__ ("mrc p15, 0, %0, c13, c0, 3\\nbic %0, %0, #3" : "=r" (tid));
-#elif defined(__aarch64__) && defined(__APPLE__)
-    __asm__ ("mrs %0, tpidrro_el0" : "=r" (tid));
-#elif defined(__aarch64__)
-    __asm__ ("mrs %0, tpidr_el0" : "=r" (tid));
-#else
-    // Fallback to standard library calls for unsupported platforms
-    #if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-        tid = (uintptr_t)pthread_self();
-    #elif defined(_WIN32)
-        tid = (uintptr_t)GetCurrentThreadId();
-    #else
-        tid = 0;  // Ultimate fallback
-    #endif
-#endif
-    return (size_t)tid;
-}
+// GC mark states for QuickJS-style trial deletion cycle collection
+typedef enum {
+  YO_GC_UNMARKED = 0,      // Object not yet processed
+  YO_GC_CANDIDATE = 1,     // Object is a candidate for cycle collection
+  YO_GC_TRIAL_DELETED = 2, // Object has been trial-deleted (RC decremented)
+  YO_GC_LIVE = 3,          // Object is reachable (RC > 0 after trial deletion)
+  YO_GC_GARBAGE = 4        // Object is garbage (RC = 0 after trial deletion)
+} yo_gc_mark_t;
 
-// BRC bit field definitions for split biased/shared words
-
-// Biased word bit fields (32 bits, non-atomic)
-#define BRC_BIASED_COUNTER_BITS    14
-#define BRC_BIASED_COUNTER_MASK    ((1U << BRC_BIASED_COUNTER_BITS) - 1)
-#define BRC_BIASED_COUNTER_SHIFT   0
-
-#define BRC_GC_FLAGS_BITS          2   // GC flags in biased word (owner thread access)
-#define BRC_GC_FLAGS_MASK          ((1U << BRC_GC_FLAGS_BITS) - 1)
-#define BRC_GC_FLAGS_SHIFT         14
-
-#define BRC_BIASED_RESERVED_BITS   16  // Reserved space in biased word (increased from 13)
-#define BRC_BIASED_RESERVED_SHIFT  (BRC_GC_FLAGS_SHIFT + BRC_GC_FLAGS_BITS)
-
-// Shared word bit fields (32 bits, atomic)
-#define BRC_SHARED_COUNTER_BITS    14
-#define BRC_SHARED_COUNTER_MASK    ((1U << BRC_SHARED_COUNTER_BITS) - 1)
-#define BRC_SHARED_COUNTER_SHIFT   0
-#define BRC_SHARED_COUNTER_SIGN_BIT (1U << (BRC_SHARED_COUNTER_BITS - 1))
-
-#define BRC_FLAGS_BITS             2   // BRC flags in shared word 
-#define BRC_FLAGS_MASK             ((1U << BRC_FLAGS_BITS) - 1)
-#define BRC_FLAGS_SHIFT            14
-
-#define BRC_SHARED_RESERVED_BITS   16  // Reserved space in shared word
-#define BRC_SHARED_RESERVED_SHIFT  (BRC_FLAGS_SHIFT + BRC_FLAGS_BITS)
-
-// BRC and GC flag definitions
-// BRC flags (bits 14-15 of shared word) - atomic access required
-#define BRC_FLAG_MERGED            0x1  // Object has been merged from biased to shared state
-#define BRC_FLAG_QUEUED            0x2  // Object has been queued to owner thread (shared counter went negative)
-
-// Convenience aliases for common flag combinations
-#define BRC_NO_BIAS                0x0  // Object is biased (default state)
-#define BRC_UNBIASED               BRC_FLAG_MERGED  // Object is unbiased (merged/shared)
-
-// GC flags (bits 0-1 of biased GC flags field) - owner thread access only
+// GC flags
 #define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
-#define YO_GC_TRIAL_DECREMENTED    0x02  // Biased counter was decremented during trial deletion (vs shared counter)
-
-// Biased word manipulation macros (non-atomic, owner thread only)
-#define BRC_GET_BIASED_COUNTER(biased_word) \
-  ((biased_word >> BRC_BIASED_COUNTER_SHIFT) & BRC_BIASED_COUNTER_MASK)
-
-#define BRC_SET_BIASED_COUNTER(biased_word, count) \
-  ((biased_word & ~(BRC_BIASED_COUNTER_MASK << BRC_BIASED_COUNTER_SHIFT)) | \
-   ((count & BRC_BIASED_COUNTER_MASK) << BRC_BIASED_COUNTER_SHIFT))
-
-#define BRC_GET_GC_FLAGS(biased_word) \
-  ((biased_word >> BRC_GC_FLAGS_SHIFT) & BRC_GC_FLAGS_MASK)
-
-#define BRC_SET_GC_FLAGS(biased_word, flags) \
-  ((biased_word & ~(BRC_GC_FLAGS_MASK << BRC_GC_FLAGS_SHIFT)) | \
-   (((uint32_t)(flags) & BRC_GC_FLAGS_MASK) << BRC_GC_FLAGS_SHIFT))
-
-// Shared word manipulation macros (atomic access)
-#define BRC_GET_SHARED_COUNTER(shared_word) \
-  ((int16_t)((shared_word >> BRC_SHARED_COUNTER_SHIFT) & BRC_SHARED_COUNTER_MASK))
-
-#define BRC_SET_SHARED_COUNTER(shared_word, count) \
-  ((shared_word & ~(BRC_SHARED_COUNTER_MASK << BRC_SHARED_COUNTER_SHIFT)) | \
-   (((uint32_t)(count) & BRC_SHARED_COUNTER_MASK) << BRC_SHARED_COUNTER_SHIFT))
-
-#define BRC_GET_FLAGS(shared_word) \
-  ((shared_word >> BRC_FLAGS_SHIFT) & BRC_FLAGS_MASK)
-
-#define BRC_SET_FLAGS(shared_word, flags) \
-  ((shared_word & ~(BRC_FLAGS_MASK << BRC_FLAGS_SHIFT)) | \
-   (((uint32_t)(flags) & BRC_FLAGS_MASK) << BRC_FLAGS_SHIFT))
-
-#define BRC_HAS_FLAG(shared_word, flag) \
-  ((BRC_GET_FLAGS(shared_word) & (flag)) != 0)
-
-#define BRC_SET_FLAG(shared_word, flag) \
-  BRC_SET_FLAGS(shared_word, BRC_GET_FLAGS(shared_word) | (flag))
-
-#define BRC_CLEAR_FLAG(shared_word, flag) \
-  BRC_SET_FLAGS(shared_word, BRC_GET_FLAGS(shared_word) & ~(flag))
-
-// Convenience macros for GC flag operations (non-atomic, owner thread only)
-#define YO_GC_HAS_FLAG(biased_word, flag)    ((BRC_GET_GC_FLAGS(biased_word) & (flag)) != 0)
-#define YO_GC_SET_FLAG(biased_word, flag)    BRC_SET_GC_FLAGS(biased_word, BRC_GET_GC_FLAGS(biased_word) | (flag))
-#define YO_GC_CLEAR_FLAG(biased_word, flag)  BRC_SET_GC_FLAGS(biased_word, BRC_GET_GC_FLAGS(biased_word) & ~(flag))
-
-// Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
 
 // Thread synchronization for stop-the-world GC
 #ifndef YO_THREAD_SYNC_TYPE
@@ -275,27 +168,20 @@ YO_COND_TYPE yo_cond_create(void) {
 // Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
 typedef struct yo_thread_gc_state yo_thread_gc_state_t;
 
-// Reference counting header - must be defined before yo_thread_gc_state_t
+// Reference counting header - simple non-atomic RC with cycle collection support
+// Thread-local: each object is owned by the thread that created it
 typedef struct yo_ref_header_t {
-  // Biased Reference Counting fields
-  size_t owner_thread_id;                                // Thread ID that owns this object (0 = no owner/shared)
-  uint32_t biased_word;                                 // Biased counter + GC flags (non-atomic, owner thread only)
-  _Atomic(uint32_t) shared_word;                        // Shared counter + BRC flags (atomic access)
+  // Simple reference count (non-atomic, thread-local)
+  size_t ref_count;
   
-  // Biased word format (32 bits):
-  // Bits 0-13:   Biased counter (14 bits) - non-atomic access by owner thread only
-  // Bits 14-15:  GC flags (2 bits) - non-atomic access by owner thread only  
-  // Bits 16-31:  Reserved (16 bits) - for future use
-  
-  // Shared word format (32 bits):
-  // Bits 0-13:   Shared counter (14 bits) - atomic access, can be negative (signed)
-  // Bits 14-15:  BRC flags (2 bits) - merged (bit 0), queued (bit 1) (atomic access)
-  // Bits 16-31:  Reserved (16 bits) - for future use
+  // GC cycle collection fields
+  uint8_t gc_flags;                                     // GC tracking flags
+  yo_gc_mark_t gc_mark;                                 // GC mark state for trial deletion
   
   // GC object management fields (doubly-linked list for O(1) deletion)
   struct yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
   struct yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
-  void (*dispose_fn)(void*);                             // Dispose function for this object type (immutable after construction)
+  void (*dispose_fn)(void*);                            // Dispose function for this object type (immutable after construction)
   void (*traverse_fn)(void*, void (*visit)(void*));     // Traversal function for GC marking (immutable after construction)
 } yo_ref_header_t;
 
@@ -303,8 +189,8 @@ typedef struct yo_ref_header_t {
 struct yo_thread_gc_state {
   yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
   size_t tracked_count;                      // Number of objects tracked by this thread
-  size_t thread_id;                          // Thread identifier
-  _Atomic(int) gc_paused;                    // Flag indicating if this thread is paused for GC
+  size_t thread_id;                          // Thread identifier (for debugging)
+  size_t alloc_count;                        // Allocations since last collection
   yo_thread_gc_state_t* next;                // Next thread in global thread list
   yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
 };

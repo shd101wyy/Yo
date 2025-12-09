@@ -172,13 +172,13 @@ export class ModuleManager {
     modulePath: string,
     {
       emitC,
-      debugBrc,
-      debugConcurrency,
+      debugGc,
+      debugParallelism,
       debugAsyncAwait,
     }: {
       emitC?: boolean;
-      debugBrc?: boolean;
-      debugConcurrency?: boolean;
+      debugGc?: boolean;
+      debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
     } = {}
   ) {
@@ -195,8 +195,8 @@ export class ModuleManager {
     }
 
     this.codeGenratorC.compileModule(modulePath, moduleValue, {
-      debugBrc,
-      debugConcurrency,
+      debugGc,
+      debugParallelism,
       debugAsyncAwait,
     });
     if (emitC) {

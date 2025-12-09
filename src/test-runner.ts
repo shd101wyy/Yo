@@ -261,8 +261,8 @@ function runSingleTest(
     try {
       moduleManager.compileModule(`file://${testFilePath}`, {
         emitC: false,
-        debugBrc: false,
-        debugConcurrency: false,
+        debugGc: false,
+        debugParallelism: false,
         debugAsyncAwait: false,
       });
     } catch (compileError) {
