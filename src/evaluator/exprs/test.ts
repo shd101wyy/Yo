@@ -6,6 +6,7 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
+import { isUnitType } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -90,6 +91,12 @@ export function evaluateTest({
     throw formatErrorMessage({
       token: testBodyExpr.token,
       errorMessage: `Failed to evaluate test body: ${exprToString(testBodyExpr)}`,
+    });
+  }
+  if (!isUnitType(evaluatedTestBodyExpr.$.type)) {
+    throw formatErrorMessage({
+      token: testBodyExpr.token,
+      errorMessage: `Test body must have unit type, got ${evaluatedTestBodyExpr.$.type.tag}`,
     });
   }
 

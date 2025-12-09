@@ -1,6 +1,6 @@
 open import "std/libc/stdio.yo";
 
-test1 :: (fn() -> unit) {
+test "Test ClosureType({...}) to create closure value", {
   x := 1;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
@@ -15,9 +15,11 @@ test1 :: (fn() -> unit) {
 
   result := closure(2); // 5
   printf("Final result: %d\n", result);
+  assert(x == 1, "Captured variable x should remain unchanged outside closure");
+  assert(result == 5, "Expected final result to be 5");
 };
 
-test2 :: (fn() -> unit) {
+test "Test anonymous closure value =>", {
   x := 1;
 
   (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
@@ -30,6 +32,8 @@ test2 :: (fn() -> unit) {
 
   result := closure(2); // 5
   printf("Final result: %d\n", result);
+  assert(x == 1, "Captured variable x should remain unchanged outside closure");
+  assert(result == 5, "Expected final result to be 5");
 };
 
 some_cond :: (fn() -> boolean) {
@@ -37,7 +41,7 @@ some_cond :: (fn() -> boolean) {
 };
 
 // This should fail
-test2_1 :: (fn() -> unit) {
+test "Test multiple expected errors", {
   compt_expect_error({
     closure : Impl(Fn(y : i32) -> i32);
     cond(
@@ -105,12 +109,10 @@ test2_1 :: (fn() -> unit) {
     (closure : Impl(Fn(y : i32) -> i32)) = ((y) => (y + a));
     closure = ((y) => (y + a));
   }, "cannot reassign to variable of Impl");
-
-  return ();
 };
 
 
-test3 :: (fn() -> unit) {
+test "Test closure with Dyn", {
   x := 1;
 
   (closure : Dyn(Fn(y : i32) -> i32)) = ((y) => {
@@ -123,15 +125,6 @@ test3 :: (fn() -> unit) {
 
   result := closure(2); // 5
   printf("Final result: %d\n", result);
+  assert(x == 1, "Captured variable x should remain unchanged outside closure");
+  assert(result == 5, "Expected final result to be 5");
 };
-
-
-main :: (fn() -> unit) {
-  test1();
-  test2();
-  test2_1();
-  test3();
-  return ();
-};
-
-export main;

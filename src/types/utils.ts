@@ -340,6 +340,16 @@ export function typeContainsRefType(
     case TypeTag.Function: {
       return false; // Regular functions are not reference types
     }
+    case TypeTag.SomeType: {
+      if ((type as SomeType).resolvedConcreteType) {
+        return typeContainsRefType(
+          (type as SomeType).resolvedConcreteType!,
+          checkedTypes
+        );
+      } else {
+        return false;
+      }
+    }
     // No need to consider ptr/ref types, as they are not owning types
     default:
       return false; // For other types, no references are present
