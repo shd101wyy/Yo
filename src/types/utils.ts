@@ -202,7 +202,24 @@ export function typeImplementsSend(
 }
 
 export function typeImplementsFn(type: Type | undefined) {
-  if (!type || !type.module) {
+  if (!type) {
+    return false;
+  }
+
+  // Check requiredModules for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
+  if (isSomeType(type) || isDynType(type)) {
+    const requiredModules = (type as SomeType | DynType).requiredModules;
+    if (requiredModules) {
+      for (const moduleType of requiredModules) {
+        if (isFnModuleType(moduleType)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // Check type.module for other types
+  if (!type.module) {
     return false;
   }
 

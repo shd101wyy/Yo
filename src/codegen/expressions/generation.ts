@@ -159,21 +159,36 @@ function generateFuncCall(
       return `// Error: Closure implementation function not found in context`;
     }
 
-    const closureTypeEntry = context.types[closureType.id];
+    // Check if this is a Dyn(Fn(...)) or Impl(Fn(...))
+    const isDynClosure = isDynType(expr.$.type);
 
-    if (!closureTypeEntry) {
-      return `// Error: Closure type not found in context`;
+    // For Dyn(Fn(...)), use the DynType's C name; for Impl(Fn(...)), use the FnModuleType's C name
+    let closureCName: string;
+    if (isDynClosure) {
+      const dynTypeEntry = context.types[expr.$.type.id];
+      if (!dynTypeEntry) {
+        return `// Error: Dyn closure type not found in context`;
+      }
+      closureCName = dynTypeEntry.cName;
+    } else {
+      const closureTypeEntry = context.types[closureType.id];
+      if (!closureTypeEntry) {
+        return `// Error: Closure type not found in context`;
+      }
+      closureCName = closureTypeEntry.cName;
     }
-
-    const closureCName = closureTypeEntry.cName;
 
     // Check if this closure has captures
     const hasCaptures =
       captureType && isStructType(captureType) && captureType.fields.length > 0;
 
-    const constructorName = hasCaptures
-      ? `__yo_create_${closureCName}`
-      : `__yo_new_${closureCName}`;
+    // For Dyn closures, we always use the dyn constructor
+    // For Impl closures, we use the closure constructor
+    const constructorName = isDynClosure
+      ? `__yo_new_${closureCName}`
+      : hasCaptures
+        ? `__yo_create_${closureCName}`
+        : `__yo_new_${closureCName}`;
 
     if (hasCaptures && captureType && isStructType(captureType)) {
       // Closure with captures
@@ -254,28 +269,6 @@ function generateFuncCall(
       );
       emitter.emitLine(`${indent}*${captureTempVar} = ${captureDataCode};`);
 
-      // Generate a unique closure instance ID combining closure type and capture type
-      // This is necessary because the same closure type can have different capture types (e.g., in conditionals)
-      // Strip type prefixes to avoid redundancy: closure_closure_xxx_struct_yyy -> xxx_yyy
-      const closureIdPart = closureType.id.replace(/^closure_/, "");
-      const captureIdPart = captureType.id.replace(/^struct_/, "");
-      const closureInstanceId = `${closureIdPart}_${captureIdPart}`;
-
-      // Generate a closure-instance-specific dispose function name
-      // Each closure instance gets its own dispose function that knows how to clean up its specific capture type
-      const closureDisposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
-
-      // Store the closure-capture mapping so we can generate the dispose function later
-      if (!context.closureCaptureMap) {
-        context.closureCaptureMap = new Map();
-      }
-      context.closureCaptureMap.set(closureInstanceId, {
-        closureType,
-        closureCName,
-        captureType,
-        captureCName,
-      });
-
       // Cast function pointers to generic void* function types for constructor
       const callType = closureType;
       const returnTypeStr = getTypeString(callType.return.type, context);
@@ -287,9 +280,34 @@ function generateFuncCall(
         .join(", ");
 
       const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
-      const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
 
-      return `${constructorName}(${captureTempVar}, ${castCallFunction}, ${castDisposeFunction})`;
+      if (isDynClosure) {
+        // For Dyn closures, the dispose function is the dyn's dispose function
+        const disposeFunctionName = `__yo_dispose_${closureCName}`;
+        return `${constructorName}(${captureTempVar}, ${disposeFunctionName}, ${castCallFunction})`;
+      } else {
+        // For Impl closures, generate a closure-instance-specific dispose function
+        // Generate a unique closure instance ID combining closure type and capture type
+        const closureIdPart = closureType.id.replace(/^closure_/, "");
+        const captureIdPart = captureType.id.replace(/^struct_/, "");
+        const closureInstanceId = `${closureIdPart}_${captureIdPart}`;
+
+        const closureDisposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
+
+        // Store the closure-capture mapping so we can generate the dispose function later
+        if (!context.closureCaptureMap) {
+          context.closureCaptureMap = new Map();
+        }
+        context.closureCaptureMap.set(closureInstanceId, {
+          closureType,
+          closureCName,
+          captureType,
+          captureCName,
+        });
+
+        const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
+        return `${constructorName}(${captureTempVar}, ${castCallFunction}, ${castDisposeFunction})`;
+      }
     } else {
       // Closure without captures
       const callType = closureType;
@@ -302,7 +320,15 @@ function generateFuncCall(
         .join(", ");
 
       const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
-      return `${constructorName}(${castCallFunction}, NULL)`;
+
+      if (isDynClosure) {
+        // For Dyn closures without captures
+        const disposeFunctionName = `__yo_dispose_${closureCName}`;
+        return `${constructorName}(NULL, ${disposeFunctionName}, ${castCallFunction})`;
+      } else {
+        // For Impl closures without captures
+        return `${constructorName}(${castCallFunction}, NULL)`;
+      }
     }
   }
 

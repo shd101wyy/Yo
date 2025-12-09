@@ -102,57 +102,46 @@ export function collectTypesFromExpr(
   }
 
   // For closure and async block expressions, collect the capture struct type
-  // The capture type needs a special C name: {closureTypeName}_capture
-  /*
-  if (expr.$ && expr.$.captureType && expr.$.type) {
+  // The capture type is stored in expr.$.captureType during evaluation
+  if (expr.$ && expr.$.captureType && isStructType(expr.$.captureType)) {
     const captureType = expr.$.captureType;
-    const exprType = expr.$.type;
 
-    // Check if this is a closure or future type
-    if (isClosureType(exprType) || isFutureType(exprType)) {
-      // First collect the main type (closure or future)
-      collectType(exprType, context);
+    // Collect the capture type if not already collected
+    if (!context.types[captureType.id]) {
+      // For closure/future capture types, use the type ID to generate a unique C name
+      // This ensures each unique capture struct gets its own type definition
+      context.types[captureType.id] = {
+        type: captureType,
+        cName: `yo_${captureType.id}`, // Use the capture struct's own ID for uniqueness
+      };
 
-      // Then collect the capture type with a special C name
-      if (!context.types[captureType.id]) {
-        // For closure/future capture types, use the type ID to generate a unique C name
-        // This ensures each unique capture struct gets its own type definition
-        context.types[captureType.id] = {
-          type: captureType,
-          cName: `yo_${captureType.id}`, // Use the capture struct's own ID for uniqueness
-        };
+      // Now collect the capture type's nested types and module functions (___drop, etc.)
+      // This is crucial for generating Ref functions for the capture struct
+      // Recursively collect types from struct fields
+      for (const field of captureType.fields) {
+        collectType(field.type, context);
+      }
 
-        // Now collect the capture type's nested types and module functions (___drop, etc.)
-        // This is crucial for generating Ref functions for the capture struct
-        if (isStructType(captureType)) {
-          // Recursively collect types from struct fields
-          for (const field of captureType.fields) {
-            collectType(field.type, context);
-          }
+      // Collect functions from the module (___dup, ___drop, etc.)
+      for (const field of captureType.module.fields) {
+        if (field.assignedValue && isFunctionValue(field.assignedValue)) {
+          const functionValue = field.assignedValue;
+          if (!context.functions[functionValue.funcId]) {
+            context.functions[functionValue.funcId] = {
+              value: functionValue,
+              cName: functionValue.funcId,
+            };
 
-          // Collect functions from the module (___dup, ___drop, etc.)
-          for (const field of captureType.module.fields) {
-            if (field.assignedValue && isFunctionValue(field.assignedValue)) {
-              const functionValue = field.assignedValue;
-              if (!context.functions[functionValue.funcId]) {
-                context.functions[functionValue.funcId] = {
-                  value: functionValue,
-                  cName: functionValue.funcId,
-                };
+            // Collect types from the function signature (parameters and return type)
+            collectTypesFromFunctionType(functionValue.type, context);
 
-                // Collect types from the function signature (parameters and return type)
-                collectTypesFromFunctionType(functionValue.type, context);
-
-                // Recursively collect functions called by this struct member function
-                findFunctionCallsInExpr(functionValue.body, context);
-              }
-            }
+            // Recursively collect functions called by this struct member function
+            findFunctionCallsInExpr(functionValue.body, context);
           }
         }
       }
     }
   }
-  */
 
   switch (expr.tag) {
     case ExprTag.FuncCall:

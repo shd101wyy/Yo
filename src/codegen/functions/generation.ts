@@ -13,6 +13,7 @@ import {
   FutureType,
   isDynType,
   isEnumType,
+  isFnModuleType,
   isFunctionType,
   isFutureType,
   isStructType,
@@ -696,6 +697,11 @@ export function generateClosureConstructorDeclarations(
   // Generate constructor declarations for each closure (they are also reference-counted)
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
+
+    // Skip DynType - Dyn(Fn(...)) uses dyn constructors, not closure constructors
+    if (isDynType(type)) {
+      continue;
+    }
 
     if (typeImplementsFn(type)) {
       const fnModule = extractFnModuleFromType(type)!;
@@ -1428,6 +1434,11 @@ export function generateClosureConstructorFunctions(
     const type = typeEntry.type;
     const cName = typeEntry.cName;
 
+    // Skip DynType - Dyn(Fn(...)) uses dyn constructors, not closure constructors
+    if (isDynType(type)) {
+      continue;
+    }
+
     if (typeImplementsFn(type)) {
       const fnModule = extractFnModuleFromType(type)!;
       const closureType = fnModule.isFn;
@@ -1613,6 +1624,10 @@ export function generateDynConstructorFunctions(
         continue;
       }
 
+      // Check if this is a Fn dyn type (Dyn(Fn(...)))
+      const fnModule = extractFnModuleFromType(type);
+      const isFnDyn = fnModule !== undefined;
+
       // Generate dyn constructor function
       const constructorName = `__yo_new_${cName}`;
 
@@ -1636,9 +1651,22 @@ export function generateDynConstructorFunctions(
       // Initialize vtable with function pointers from variadic arguments
       const processedMethods = new Set<string>();
       for (const moduleType of dynType.requiredModules) {
+        // Handle FnModuleType specially - it has isFn which represents the "call" method
+        if (isFnModuleType(moduleType)) {
+          emitter.emitLine(`  obj->vtable.call = va_arg(args, void*);`);
+          processedMethods.add("call");
+          continue;
+        }
+
         for (const field of moduleType.fields) {
           // Skip 'Self' and 'This' type declarations (compile-time only)
           if (field.label === "Self") {
+            continue;
+          }
+
+          // For Fn dyn types (Dyn(Fn(...))), skip internal ARC methods (___dup, ___drop, ___dispose)
+          // These are handled by the header's dispose_fn, not the vtable
+          if (isFnDyn && field.label.startsWith("___")) {
             continue;
           }
 
@@ -1666,8 +1694,20 @@ export function generateDynConstructorFunctions(
       const disposeFunctionName = `__yo_dispose_${cName}`;
       emitter.emitLine(`void ${disposeFunctionName}(void* ptr) {`);
       emitter.emitLine(`  ${cName}* self = (${cName}*)ptr;`);
-      emitter.emitLine(`  // Call the wrapped object's dispose function`);
-      emitter.emitLine(`  __yo_decr_rc(self->data);`);
+      if (isFnDyn) {
+        // For Fn dyn types, data is a capture struct, not a ref-counted object
+        // Just free the data if it exists
+        emitter.emitLine(`  // Free captured data (non-ref-counted struct)`);
+        emitter.emitLine(`  if (self->data) {`);
+        emitter.emitLine(`    __yo_free(self->data);`);
+        emitter.emitLine(`  }`);
+      } else {
+        // For regular dyn types, data is a ref-counted object
+        emitter.emitLine(`  // Call the wrapped object's dispose function`);
+        emitter.emitLine(`  if (self->data) {`);
+        emitter.emitLine(`    __yo_decr_rc(self->data);`);
+        emitter.emitLine(`  }`);
+      }
       emitter.emitLine(`}`);
       emitter.emitLine(``);
       emitter.emitLine(``);

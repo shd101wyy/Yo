@@ -6,6 +6,7 @@ import {
   FutureType,
   isDynType,
   isEnumType,
+  isFnModuleType,
   isFunctionType,
   isFutureType,
   isStructType,
@@ -436,14 +437,14 @@ typedef struct {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
-    if (typeImplementsFn(type)) {
+    if (isDynType(type)) {
+      generateDynDeclaration(type, cName, context);
+    } else if (typeImplementsFn(type)) {
       // Pass undefined for captureType since this is just the type declaration
       // Actual capture types are handled during closure construction in expressions/generation.ts
       const fnModule = extractFnModuleFromType(type)!;
 
       generateClosureDeclaration(fnModule.isFn, cName, undefined, context);
-    } else if (isDynType(type)) {
-      generateDynDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
     } else if (isTupleType(type)) {
@@ -801,11 +802,42 @@ export function generateDynDeclaration(
   // Generate function pointers in the correct order: base module methods first, then user module methods
   const processedMethods = new Set<string>();
 
+  // Check if this dyn type contains an FnModuleType (i.e., Dyn(Fn(...)))
+  const isFnDyn = dynType.requiredModules.some((m) => isFnModuleType(m));
+
   // Process modules in the order they appear in dynType.requiredModules
   for (const moduleType of dynType.requiredModules) {
+    // Handle FnModuleType specially - it has isFn which represents the "call" method
+    if (isFnModuleType(moduleType)) {
+      const functionType = moduleType.isFn;
+      const returnTypeStr = getTypeString(functionType.return.type, context);
+
+      // Generate the complete parameter list for the call function pointer
+      const paramList = functionType.parameters
+        .map((param) => {
+          const paramTypeStr = getTypeString(param.type, context);
+          const paramName = sanitizeForCIdentifier(param.label);
+          return `${paramTypeStr} ${paramName}`;
+        })
+        .join(", ");
+
+      // Call function takes void* self as first parameter, then user parameters
+      emitter.emitDeclarationLine(
+        `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Call function pointer`
+      );
+      processedMethods.add("call");
+      continue;
+    }
+
     for (const field of moduleType.fields) {
       // Skip 'Self' type declarations as they're not methods
       if (field.label === "Self") {
+        continue;
+      }
+
+      // For Fn dyn types (Dyn(Fn(...))), skip internal ARC methods (___dup, ___drop, ___dispose)
+      // These are handled by the header's dispose_fn, not the vtable
+      if (isFnDyn && field.label.startsWith("___")) {
         continue;
       }
 
