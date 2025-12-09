@@ -206,6 +206,11 @@ export function typeImplementsFn(type: Type | undefined) {
     return false;
   }
 
+  // Check if this is a FnModuleType directly (e.g., Fn(i32) -> i32)
+  if (isFnModuleType(type)) {
+    return true;
+  }
+
   // Check requiredModules for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
   if (isSomeType(type) || isDynType(type)) {
     const requiredModules = (type as SomeType | DynType).requiredModules;
@@ -240,10 +245,15 @@ export function typeImplementsFn(type: Type | undefined) {
 }
 
 /**
- * Extract FnModuleType from a SomeType or DynType (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
- * Returns the FnModuleType if found in the required modules, otherwise undefined.
+ * Extract FnModuleType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnModuleType directly)
+ * Returns the FnModuleType if found, otherwise undefined.
  */
 export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
+  // If the type is already a FnModuleType, return it directly
+  if (isFnModuleType(type)) {
+    return type;
+  }
+
   // Check requiredModules for SomeType and DynType
   if (isSomeType(type) || isDynType(type)) {
     const requiredModules = (type as SomeType | DynType).requiredModules;

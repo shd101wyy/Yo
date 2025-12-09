@@ -171,7 +171,8 @@ function generateFuncCall(
       }
       closureCName = dynTypeEntry.cName;
     } else {
-      const closureTypeEntry = context.types[closureType.id];
+      // For Impl closures, look up the FnModuleType, not the FunctionType
+      const closureTypeEntry = context.types[fnModule.id];
       if (!closureTypeEntry) {
         return `// Error: Closure type not found in context`;
       }

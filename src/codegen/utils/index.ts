@@ -5,6 +5,7 @@ import {
   ArrayType,
   EnumType,
   EnumVariant,
+  extractFnModuleFromType,
   FunctionType,
   isFunctionSpecializable,
   isObjectType,
@@ -13,9 +14,11 @@ import {
   isStructType,
   PtrType,
   SliceType,
+  SomeType,
   StructType,
   Type,
   TypeId,
+  typeImplementsFn,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -346,10 +349,23 @@ export function getTypeString(
       return sliceTypeName;
     }
 
-    // SomeType (used for Self references in modules/traits)
-    case TypeTag.SomeType:
-      // In dynamic dispatch contexts, Self should be void*
+    // SomeType (used for Impl(...) or Self references in modules/traits)
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      // For Impl(Fn(...)), use the FnModuleType's C name
+      if (typeImplementsFn(someType)) {
+        const fnModule = extractFnModuleFromType(someType);
+        if (fnModule) {
+          const cTypeName = context.types[fnModule.id]?.cName;
+          if (cTypeName) {
+            // Closure types are reference-counted (pointer type)
+            return `${cTypeName}*`;
+          }
+        }
+      }
+      // Fallback for generic Self references in dynamic dispatch contexts
       return "void*";
+    }
 
     // Future type
     case TypeTag.Future: {

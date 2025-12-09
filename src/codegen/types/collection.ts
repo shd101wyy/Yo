@@ -2,6 +2,7 @@ import { Expr, ExprTag } from "../../expr";
 import {
   ArrayType,
   DynType,
+  extractFnModuleFromType,
   FunctionType,
   FutureType,
   isArrayType,
@@ -11,12 +12,14 @@ import {
   isModuleType,
   isPtrType,
   isSliceType,
+  isSomeType,
   isStructType,
   isTupleType,
   isUnionType,
   SliceType,
   Type,
   typeContainsSomeType,
+  typeImplementsFn,
 } from "../../types";
 import {
   isFunctionValue,
@@ -170,6 +173,17 @@ export function collectTypesFromExpr(
 export function collectType(type: Type, context: CodeGenContext): void {
   if (context.types[type.id]) {
     return; // Already collected this type
+  }
+
+  // Handle SomeType (Impl) that implements Fn - collect the FnModuleType for closure generation
+  // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped
+  if (isSomeType(type) && typeImplementsFn(type)) {
+    const fnModule = extractFnModuleFromType(type);
+    if (fnModule) {
+      // Collect the FnModuleType - this generates the closure struct
+      collectType(fnModule, context);
+    }
+    return;
   }
 
   // Skip collecting any types that contain SomeType (generic type parameters)
