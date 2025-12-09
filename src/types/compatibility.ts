@@ -3,8 +3,8 @@ import {
   canAssignTypeHierarchy,
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
-import { areValuesEqual } from "../value";
-import { FunctionType, ModuleField, Type } from "./definitions";
+import { areValuesEqual, isTypeValue } from "../value";
+import { FunctionType, ModuleField, ModuleType, Type } from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
@@ -16,6 +16,7 @@ import {
   isDynType,
   isEnumType,
   isExprType,
+  isFnModuleType,
   isFunctionType,
   isFutureType,
   isModuleType,
@@ -336,6 +337,23 @@ export function areTypesCompatible(
     if (isModuleType(given.type)) {
       givenElements = given.type.fields;
       givenReceiverType = given.type.receiverType;
+
+      // If expected is a FnModuleType (has isFn), given must also be a FnModuleType with compatible isFn
+      if (isFnModuleType(expected.type)) {
+        if (!isFnModuleType(given.type)) {
+          return false; // Expected is callable but given is not
+        }
+        // Compare the function signatures
+        if (
+          !areFunctionTypesCompatible(
+            { type: expected.type.isFn, env: expected.env },
+            { type: given.type.isFn, env: given.env },
+            isMethodReceiver
+          )
+        ) {
+          return false;
+        }
+      }
     } else if (
       isTypeHierarchyType(given.type) &&
       given.type.baseType &&
@@ -496,6 +514,59 @@ export function areTypesCompatible(
         return true;
       }
 
+      // Check required modules compatibility:
+      // Given type must implement ALL modules required by expected type
+      // Example: expected `Impl(Send)` is compatible with given `Impl(Send, Copy)`
+
+      // Extract module types from assignedValue fields
+      const extractModuleTypes = (fields: ModuleField[]): ModuleType[] => {
+        const modules: ModuleType[] = [];
+        for (const f of fields) {
+          if (
+            isTypeValue(f.assignedValue) &&
+            isModuleType(f.assignedValue.value)
+          ) {
+            modules.push(f.assignedValue.value);
+          }
+        }
+        return modules;
+      };
+
+      const expectedModules = extractModuleTypes(
+        expected.type.module?.fields ?? []
+      );
+      const givenModules = extractModuleTypes(given.type.module?.fields ?? []);
+
+      // Check that all expected modules are present in given modules
+      for (const expectedModule of expectedModules) {
+        const matchingGivenModule = givenModules.find((givenModule) => {
+          // Compare by module type compatibility
+          return areTypesCompatible(
+            { type: expectedModule, env: expected.env },
+            { type: givenModule, env: given.env }
+          );
+        });
+        if (!matchingGivenModule) {
+          return false; // Expected module not found in given
+        }
+      }
+
+      // If both have resolvedConcreteType, check they are compatible
+      if (
+        expected.type.resolvedConcreteType &&
+        given.type.resolvedConcreteType
+      ) {
+        if (
+          !areTypesCompatible(
+            { type: expected.type.resolvedConcreteType, env: expected.env },
+            { type: given.type.resolvedConcreteType, env: given.env }
+          )
+        ) {
+          return false;
+        }
+      }
+
+      // If we got here, the required modules are compatible
       const expectedType_ = getValueOfSomeTypeFromEnv(
         expected.env,
         expected.type

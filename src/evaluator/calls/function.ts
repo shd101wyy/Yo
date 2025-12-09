@@ -17,11 +17,11 @@ import { TypeValue } from "../../type-value";
 import {
   ArrayType,
   createExprType,
-  FnModuleType,
+  extractFnModuleFromType,
   isArrayType,
   isComptListType,
+  isDynType,
   isEnumType,
-  isFnModuleType,
   isFunctionType,
   isModuleType,
   isObjectType,
@@ -447,10 +447,13 @@ export function evaluateFunctionCall({
           },
         };
       }
-    } else if (isFnModuleType(functionToCall.type)) {
+    } else if (
+      (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
+      extractFnModuleFromType(functionToCall.type)
+    ) {
+      // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
+      const fnModuleType = extractFnModuleFromType(functionToCall.type)!;
       try {
-        // For closures, delegate to the underlying function type
-        const fnModuleType = functionToCall.type as FnModuleType;
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: fnModuleType.isFn,
@@ -687,28 +690,47 @@ export function evaluateFunctionCall({
           };
         }
       }
-      // closure type
-      else if (isTypeValue(value) && isFnModuleType(value.value)) {
-        const fnModuleType = value.value;
-        try {
-          tryToImplementClosureByFnModuleType({
-            expr: expr,
-            fnModuleType: fnModuleType,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "closure-type",
-            },
-          };
-        } catch (error) {
+      // SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
+      else if (
+        isTypeValue(value) &&
+        (isSomeType(value.value) || isDynType(value.value))
+      ) {
+        const wrapperType = value.value;
+        const fnModuleType = extractFnModuleFromType(wrapperType);
+        if (fnModuleType) {
+          try {
+            tryToImplementClosureByFnModuleType({
+              expr: expr,
+              fnModuleType: fnModuleType,
+              wrapperType: wrapperType,
+              callerEnv: env,
+              context: { ...context },
+            });
+            return {
+              ...functionToCall,
+              result: {
+                kind: "closure-type",
+              },
+            };
+          } catch (error) {
+            return {
+              ...functionToCall,
+              result: {
+                kind: "error",
+                error: error,
+              },
+            };
+          }
+        } else {
           return {
             ...functionToCall,
             result: {
               kind: "error",
-              error: error,
+              error: formatErrorMessage({
+                token: func.token,
+                errorMessage: `Invalid function call on type:
+${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.type)}`,
+              }),
             },
           };
         }
@@ -1050,9 +1072,12 @@ ${functionsWithMatchingTypes
       }
     }
     return expr;
-  } else if (isFnModuleType(functionToCall.type)) {
-    // Handle closure calls by delegating to the underlying function type
-    const fnModuleType = functionToCall.type as FnModuleType;
+  } else if (
+    (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
+    extractFnModuleFromType(functionToCall.type)
+  ) {
+    // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
+    const fnModuleType = extractFnModuleFromType(functionToCall.type)!;
     const {
       returnType,
       returnValue,
@@ -1303,9 +1328,12 @@ ${functionsWithMatchingTypes
       // This should already be evaluated by tryToImplementComptListByComptListType
       return expr;
     }
-    // closure type
-    else if (isTypeValue(value) && isFnModuleType(value.value)) {
-      // This should already be evaluated by tryToImplementClosureByFnModuleType
+    // SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
+    else if (
+      isTypeValue(value) &&
+      (isSomeType(value.value) || isDynType(value.value))
+    ) {
+      // This should already be evaluated in the first pass
       return expr;
     }
     // numeric type conversion (i32, u8, f64, etc.)

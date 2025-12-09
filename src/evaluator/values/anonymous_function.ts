@@ -23,9 +23,11 @@ import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   createFnModuleType,
+  DynType,
   extractFnModuleFromType,
   FnModuleType,
   FunctionType,
+  isDynType,
   isFunctionType,
   isSomeType,
   SomeType,
@@ -64,24 +66,26 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  // Handle FunctionType and SomeType (from Impl(Fn(...)))
+  // Handle FunctionType, SomeType (from Impl(Fn(...))), and DynType (from Dyn(Fn(...)))
   let functionType: FunctionType;
   let isCreatingClosure = false;
   let expectedFnModuleType: FnModuleType | undefined;
+  let wrapperType: SomeType | DynType | undefined;
 
   if (isFunctionType(expectedType)) {
     functionType = expectedType;
-  } else if (isSomeType(expectedType)) {
-    // Handle Impl(Fn(...)) - SomeType with required modules containing a FnModuleType
-    const fnModuleFromSomeType = extractFnModuleFromType(expectedType);
-    if (fnModuleFromSomeType) {
-      expectedFnModuleType = fnModuleFromSomeType;
-      functionType = fnModuleFromSomeType.isFn;
+  } else if (isSomeType(expectedType) || isDynType(expectedType)) {
+    // Handle Impl(Fn(...)) or Dyn(Fn(...)) - SomeType/DynType with required modules containing a FnModuleType
+    const fnModuleFromWrapper = extractFnModuleFromType(expectedType);
+    if (fnModuleFromWrapper) {
+      expectedFnModuleType = fnModuleFromWrapper;
+      functionType = fnModuleFromWrapper.isFn;
       isCreatingClosure = true;
+      wrapperType = expectedType;
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Expected a function type or Impl(Fn(...)), got:\n${typeToString(expectedType)}`,
+        errorMessage: `Expected a function type or Impl(Fn(...))/Dyn(Fn(...)), got:\n${typeToString(expectedType)}`,
       });
     }
   } else {
@@ -399,7 +403,7 @@ Got:      "${paramName}"`,
   let capturedVariableDupExpressions: Expr[] | undefined;
   let captureType: StructType | undefined;
 
-  if (isCreatingClosure && expectedFnModuleType && isSomeType(expectedType)) {
+  if (isCreatingClosure && expectedFnModuleType && wrapperType) {
     // Create a closure type and closure value using helper function
     // We don't need the captureValue since closures are runtime-only
     const result = createCaptureTypeAndValue({
@@ -432,16 +436,24 @@ Got:      "${paramName}"`,
       captureType: captureType,
     };
 
-    // Create a new SomeType with the resolvedConcreteType set to the captureType
-    // This preserves the SomeType structure but records the concrete capture struct
-    const resolvedSomeType: SomeType = {
-      ...expectedType,
-      resolvedConcreteType: captureType,
-    };
+    // Create a new wrapper type with the resolvedConcreteType set to the captureType
+    // This preserves the wrapper type structure but records the concrete capture struct
+    if (isSomeType(wrapperType)) {
+      const resolvedSomeType: SomeType = {
+        ...wrapperType,
+        resolvedConcreteType: captureType,
+      };
+      finalType = resolvedSomeType;
+    } else {
+      // isDynType(wrapperType)
+      const resolvedDynType: DynType = {
+        ...wrapperType,
+      };
+      finalType = resolvedDynType;
+    }
 
     // Closures are always runtime values - create an UnknownValue
     // The closure will be constructed at runtime in C code
-    finalType = resolvedSomeType;
     finalValue = undefined;
   } else {
     // Regular function - use the existing functionValue

@@ -276,22 +276,22 @@ export function getTypeString(
       return "void*";
     }
     // Closure type
-    case TypeTag.Closure: {
-      // const closureType = type as ClosureType;
-      // A closure is represented as a struct containing:
-      // 1. Function pointer for the call function
-      // 2. Capture data (if any)
-
-      // For now, use the existing type registration system
-      const cTypeName = context.types[type.id]?.cName;
-      if (!cTypeName) {
-        throw new Error(
-          `No C type name found for closure ${typeToString(type)}`
-        );
-      }
-      // Closures are reference-counted, so return pointer type
-      return `${cTypeName}*`;
-    }
+    //case TypeTag.Closure: {
+    //  // const closureType = type as ClosureType;
+    //  // A closure is represented as a struct containing:
+    //  // 1. Function pointer for the call function
+    //  // 2. Capture data (if any)
+    //
+    //  // For now, use the existing type registration system
+    //  const cTypeName = context.types[type.id]?.cName;
+    //  if (!cTypeName) {
+    //    throw new Error(
+    //      `No C type name found for closure ${typeToString(type)}`
+    //    );
+    //  }
+    //  // Closures are reference-counted, so return pointer type
+    //  return `${cTypeName}*`;
+    //}
 
     // Dynamic dispatch type
     case TypeTag.Dyn: {

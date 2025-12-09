@@ -3,7 +3,16 @@ import { formatErrorMessage } from "../../error";
 import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import { areTypesCompatible, FnModuleType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  DynType,
+  FnModuleType,
+  isDynType,
+  isSomeType,
+  SomeType,
+  Type,
+  typeToString,
+} from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
@@ -19,16 +28,18 @@ import { createFunctionBodyEvaluationContext } from "./function_type";
 
 /**
  * Handle calling a closure type to create a closure value.
- * expr should be: FnModuleType(closureBody)
+ * expr should be: WrapperType(closureBody) where WrapperType is SomeType or DynType containing a FnModuleType
  */
 export function tryToImplementClosureByFnModuleType({
   expr,
   fnModuleType,
+  wrapperType,
   callerEnv,
   context,
 }: {
   expr: FuncCallExpr;
   fnModuleType: FnModuleType;
+  wrapperType: SomeType | DynType;
   callerEnv: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -147,9 +158,6 @@ export function tryToImplementClosureByFnModuleType({
     context: { ...context },
   });
 
-  // The FnModuleType is already created with the correct isFn
-  const finalFnModuleType = fnModuleType;
-
   // Generate ___dup expressions for captured ARC variables
   const { capturedVariableDupExpressions, env: updatedEnv } =
     generateCapturedVariableDupExpressions({
@@ -161,15 +169,32 @@ export function tryToImplementClosureByFnModuleType({
 
   // Set the closure info on the function value for easy codegen access
   functionValue.closureInfo = {
-    closureType: finalFnModuleType,
+    closureType: fnModuleType,
     captureType: inferredCaptureType,
   };
 
-  // Set the result with the FnModuleType
+  // Determine the final type based on the wrapper type (SomeType or DynType)
+  let finalType: Type;
+  if (isSomeType(wrapperType)) {
+    // For SomeType (Impl(Fn(...))), create a new SomeType with resolvedConcreteType
+    const resolvedSomeType: SomeType = {
+      ...wrapperType,
+      resolvedConcreteType: inferredCaptureType,
+    };
+    finalType = resolvedSomeType;
+  } else if (isDynType(wrapperType)) {
+    // For DynType (Dyn(Fn(...))), no need to do anything
+    finalType = wrapperType;
+  } else {
+    // Fallback (should not happen)
+    finalType = fnModuleType;
+  }
+
+  // Set the result with the wrapper type (SomeType or DynType)
   expr.$ = {
     env: finalCallerEnv,
     value: undefined,
-    type: finalFnModuleType, // Use the FnModuleType
+    type: finalType,
     pathCollection:
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
@@ -184,7 +209,10 @@ export function tryToImplementClosureByFnModuleType({
   };
 
   // Attach a temp variable to the expr to hold the ARC value for closure
-  attachTempVariableToExpr(expr, true);
+  // Only attach for DynType since SomeType is a value type (not reference counted)
+  if (isDynType(wrapperType)) {
+    attachTempVariableToExpr(expr, true);
+  }
 
   return expr;
 }

@@ -617,6 +617,11 @@ export interface FunctionType extends Type {
   /**
    * Whether this function type represents a closure.
    * Closures capture variables from the defining environment.
+   * It's usually defined from Fn module types, like:
+   *
+   *   Impl(Fn(x : i32) -> i32)
+   *   Dyn(Fn(x : i32) -> i32)
+   *
    */
   isClosure?: boolean;
 }
