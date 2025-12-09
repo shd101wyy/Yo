@@ -58,12 +58,7 @@ import {
   Value,
   valueToString,
 } from "../../value";
-import {
-  ArgValues,
-  CapturedVariableInfo,
-  EvaluatorContext,
-  FunctionCallResult,
-} from "../context";
+import { ArgValues, EvaluatorContext, FunctionCallResult } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
@@ -1181,8 +1176,8 @@ function createSpecializedFunctionInline({
         value: originalFunction,
         evaluationEnv: specializedEnv,
       },
-      capturedVariables: functionType.isClosure
-        ? new Map<string, CapturedVariableInfo>()
+      capturedVariables: context.capturedVariables
+        ? context.capturedVariables
         : undefined,
     },
     variablesToAdd: [],
@@ -1250,7 +1245,6 @@ function createSpecializedFunctionInline({
     parametersFrame: specializedEnv.frames[specializedEnv.frames.length - 1]!, // QUESTION: This could be wrong
     env: functionType.env,
     SelfType: functionType.SelfType,
-    isClosure: functionType.isClosure, // Preserve closure property
   });
 
   // console.log(

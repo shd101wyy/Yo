@@ -20,7 +20,6 @@ import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
-  createClosureType,
   createExprListType,
   createFunctionType,
   createType0,
@@ -30,9 +29,9 @@ import {
   getFunctionParameterExprs,
   getFunctionParameterToken,
   getValueOfSomeTypeFromEnv,
-  isClosureType,
   isExprListType,
   isExprType,
+  isFnModuleType,
   isModuleType,
   isSomeType,
   prohibitVoidType,
@@ -54,7 +53,6 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
-import { addARCFunctionsToClosureType } from "./utils";
 
 /**
  * type:
@@ -499,7 +497,7 @@ use_id :: (fn(forall(T : Type),
   }
 
   // Validate closure mutability requirements
-  if (isClosureType(parameterType)) {
+  if (isFnModuleType(parameterType)) {
     // Note: With the new simplified closure system, we don't have different closure kinds
     // All closures work the same way now
   }
@@ -863,14 +861,12 @@ export function evaluateFunctionType({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  // Detect operator type to determine if it's a closure
-  const isClosure = exprIsFunctionCallOf(expr, "=>", 2);
-  const isRegularFunction = exprIsFunctionCallOf(expr, "->", 2);
-
-  if (!isClosure && !isRegularFunction) {
+  // Only regular function types are supported with fn(...) -> ...
+  // For closures, use Impl(Fn(...) -> ...) syntax instead
+  if (!exprIsFunctionCallOf(expr, "->", 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected -> for function type or => for closure type, got:\n${exprToString(expr)}`,
+      errorMessage: `Expected -> for function type, got:\n${exprToString(expr)}\n\nNote: For closures, use Impl(Fn(...) -> ...) syntax.`,
     });
   }
 
@@ -1135,21 +1131,7 @@ ${typeToString(returnType)}`,
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
-    isClosure: isClosure,
   });
-
-  // Create ClosureType if this is a closure, otherwise use FunctionType
-  let finalType;
-  if (isClosure) {
-    finalType = createClosureType(functionType, env);
-    env = addARCFunctionsToClosureType({
-      closureType: finalType,
-      env,
-      context,
-    });
-  } else {
-    finalType = functionType;
-  }
 
   // Pop the environment frame
   env = popEnvFrame(env, true);
@@ -1157,8 +1139,8 @@ ${typeToString(returnType)}`,
   // Set the type and value of the expression
   expr.$ = {
     env,
-    value: createTypeValue(finalType),
-    type: typeOfType(finalType),
+    value: createTypeValue(functionType),
+    type: typeOfType(functionType),
     pathCollection: [],
   };
   return expr;

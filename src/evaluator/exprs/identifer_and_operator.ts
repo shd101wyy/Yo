@@ -482,7 +482,7 @@ export function evaluateIdentifierAndOperator({
       if (
         context.isEvaluatingFunctionBodyOrAsyncBlock &&
         context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body" &&
-        context.isEvaluatingFunctionBodyOrAsyncBlock.type.isClosure &&
+        context.capturedVariables &&
         context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv
       ) {
         const closureEvaluationFrameLevel =

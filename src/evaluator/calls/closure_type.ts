@@ -3,12 +3,11 @@ import { formatErrorMessage } from "../../error";
 import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import { areTypesCompatible, ClosureType, typeToString } from "../../types";
+import { areTypesCompatible, FnModuleType, typeToString } from "../../types";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import { addARCFunctionsToClosureType } from "../types/utils";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
@@ -20,26 +19,26 @@ import { createFunctionBodyEvaluationContext } from "./function_type";
 
 /**
  * Handle calling a closure type to create a closure value.
- * expr should be: ClosureType(closureBody)
+ * expr should be: FnModuleType(closureBody)
  */
-export function tryToImplementClosureByClosureType({
+export function tryToImplementClosureByFnModuleType({
   expr,
-  closureType,
+  fnModuleType,
   callerEnv,
   context,
 }: {
   expr: FuncCallExpr;
-  closureType: ClosureType;
+  fnModuleType: FnModuleType;
   callerEnv: Environment;
   context: EvaluatorContext;
 }): Expr {
-  const closureTypeExpr = expr.func;
+  const fnModuleTypeExpr = expr.func;
   const argExprs = expr.args;
 
   if (argExprs.length !== 1) {
     throw formatErrorMessage({
-      token: closureTypeExpr.token,
-      errorMessage: `Closure type expects exactly 1 argument (the closure body), got ${argExprs.length}`,
+      token: fnModuleTypeExpr.token,
+      errorMessage: `Fn module type expects exactly 1 argument (the closure body), got ${argExprs.length}`,
     });
   }
 
@@ -48,13 +47,13 @@ export function tryToImplementClosureByClosureType({
 
   // Add parameters to the env new frame
   // For closures, we keep the full caller environment to enable variable capturing
-  let env = pushEnvFrame(callerEnv, closureType.callType.parametersFrame);
+  let env = pushEnvFrame(callerEnv, fnModuleType.isFn.parametersFrame);
   // const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value for the closure
   const functionValue: FunctionValue = {
     tag: ValueTag.Function,
-    type: closureType.callType, // The function value uses the call type
+    type: fnModuleType.isFn, // The function value uses the isFn type
     body: closureBodyExpr,
     frameLevel: env.frames.length - 1,
     funcName: undefined,
@@ -66,7 +65,7 @@ export function tryToImplementClosureByClosureType({
   // Create evaluation context using helper function
   const { evaluationContext } = createFunctionBodyEvaluationContext(
     context,
-    closureType.callType,
+    fnModuleType.isFn,
     functionValue,
     env
   );
@@ -95,24 +94,24 @@ export function tryToImplementClosureByClosureType({
   const closureBodyReturnType = evaluatedClosureBody.$.type;
   if (
     !areTypesCompatible(
-      { type: closureType.callType.return.type, env },
+      { type: fnModuleType.isFn.return.type, env },
       { type: closureBodyReturnType, env }
     )
   ) {
     throw formatErrorMessage({
-      token: closureType.callType.return.expr?.token ?? PlaceholderToken,
+      token: fnModuleType.isFn.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Incompatible closure return type:
-- Expected: ${typeToString(closureType.callType.return.type)}
+- Expected: ${typeToString(fnModuleType.isFn.return.type)}
 - Given  : ${typeToString(closureBodyReturnType)}`,
     });
   }
 
   if (
-    closureType.callType.return.isCompileTimeOnly &&
+    fnModuleType.isFn.return.isCompileTimeOnly &&
     !evaluatedClosureBody.$.value
   ) {
     throw formatErrorMessage({
-      token: closureType.callType.return.expr?.token ?? PlaceholderToken,
+      token: fnModuleType.isFn.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }
@@ -148,15 +147,8 @@ export function tryToImplementClosureByClosureType({
     context: { ...context },
   });
 
-  // The closure type is already created with the correct callType
-  const finalClosureType = closureType;
-
-  // Add ARC functions to the closure type
-  finalCallerEnv = addARCFunctionsToClosureType({
-    closureType: finalClosureType,
-    env: finalCallerEnv,
-    context,
-  });
+  // The FnModuleType is already created with the correct isFn
+  const finalFnModuleType = fnModuleType;
 
   // Generate ___dup expressions for captured ARC variables
   const { capturedVariableDupExpressions, env: updatedEnv } =
@@ -169,15 +161,15 @@ export function tryToImplementClosureByClosureType({
 
   // Set the closure info on the function value for easy codegen access
   functionValue.closureInfo = {
-    closureType: finalClosureType,
+    closureType: finalFnModuleType,
     captureType: inferredCaptureType,
   };
 
-  // Set the result with the closure type
+  // Set the result with the FnModuleType
   expr.$ = {
     env: finalCallerEnv,
     value: undefined,
-    type: finalClosureType, // Use the updated closure type
+    type: finalFnModuleType, // Use the FnModuleType
     pathCollection:
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)

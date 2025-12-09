@@ -7,12 +7,10 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
-  ClosureType,
   DynType,
   EnumType,
   FunctionType,
   FutureType,
-  isClosureType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -22,7 +20,11 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import { canRefStructFormCycles } from "../../types/utils";
+import {
+  canRefStructFormCycles,
+  extractFnModuleFromType,
+  typeImplementsFn,
+} from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -335,8 +337,8 @@ export function generateFunction(
     // Use the closure info stored on the function value (set during evaluation)
     const closureInfo = functionValue.closureInfo;
 
-    if (closureInfo && isClosureType(closureInfo.closureType)) {
-      const closureType = closureInfo.closureType as ClosureType;
+    if (closureInfo) {
+      const closureType = closureInfo.closureType.isFn;
       const captureType = closureInfo.captureType;
 
       (context as FunctionGenerationContext).currentClosureType = closureType;
@@ -695,8 +697,9 @@ export function generateClosureConstructorDeclarations(
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
 
-    if (isClosureType(type)) {
-      const closureType = type as ClosureType;
+    if (typeImplementsFn(type)) {
+      const fnModule = extractFnModuleFromType(type)!;
+      const closureType = fnModule.isFn;
 
       // Skip generic closures that contain SomeType parameters
       if (typeContainsSomeType(type)) {
@@ -727,7 +730,7 @@ export function generateClosureConstructorDeclarations(
           })
           .join(", ");
 
-        const callType = closureType.callType;
+        const callType = closureType;
         const returnTypeStr = getTypeString(callType.return.type, context);
         const callParamList = callType.parameters
           .map((param) => {
@@ -747,7 +750,7 @@ export function generateClosureConstructorDeclarations(
         );
       } else {
         // Empty closure (no captures) - just takes call and dispose functions
-        const callType = closureType.callType;
+        const callType = closureType;
         const returnTypeStr = getTypeString(callType.return.type, context);
         const callParamList = callType.parameters
           .map((param) => {
@@ -768,7 +771,7 @@ export function generateClosureConstructorDeclarations(
       }
 
       // Declare the common create function for this closure type
-      const callType = closureType.callType;
+      const callType = closureType;
       const returnTypeStr = getTypeString(callType.return.type, context);
       const callParamList = callType.parameters
         .map((param) => {
@@ -1425,8 +1428,9 @@ export function generateClosureConstructorFunctions(
     const type = typeEntry.type;
     const cName = typeEntry.cName;
 
-    if (isClosureType(type)) {
-      const closureType = type as ClosureType;
+    if (typeImplementsFn(type)) {
+      const fnModule = extractFnModuleFromType(type)!;
+      const closureType = fnModule.isFn;
 
       // Skip generic closures that contain SomeType parameters
       if (typeContainsSomeType(type)) {
@@ -1438,7 +1442,7 @@ export function generateClosureConstructorFunctions(
 
       // For closures, we only generate the __yo_create function that takes void* data
       // We don't generate parameterized constructors since capture types can vary
-      const callType = closureType.callType;
+      const callType = closureType;
       const returnTypeStr = getTypeString(callType.return.type, context);
       const callParamList = callType.parameters
         .map((param) => {

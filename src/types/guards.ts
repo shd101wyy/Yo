@@ -1,9 +1,9 @@
 import {
   ArrayType,
-  ClosureType,
   ComptListType,
   DynType,
   EnumType,
+  FnModuleType,
   FunctionType,
   FutureType,
   ModuleType,
@@ -174,22 +174,16 @@ export function isModuleType(type?: Type): type is ModuleType {
   return type?.tag === TypeTag.Module;
 }
 
+/**
+ * Check if a type is a FnModuleType (callable/closure type).
+ * This replaces the old isClosureType - closures are now ModuleTypes with isFn set.
+ */
+export function isFnModuleType(type?: Type): type is FnModuleType {
+  return type?.tag === TypeTag.Module && !!(type as ModuleType).isFn;
+}
+
 export function isFunctionType(type?: Type): type is FunctionType {
   return type?.tag === TypeTag.Function;
-}
-
-export function isClosureFunctionType(type?: Type): type is FunctionType {
-  return (
-    type?.tag === TypeTag.Function && Boolean((type as FunctionType).isClosure)
-  );
-}
-
-export function isClosureType(type?: Type): type is ClosureType {
-  return type?.tag === TypeTag.Closure;
-}
-
-export function isRegularFunctionType(type?: Type): type is FunctionType {
-  return type?.tag === TypeTag.Function && !(type as FunctionType).isClosure;
 }
 
 export function isFunctionTypeAndIsTypeFunction(type?: Type) {
@@ -244,14 +238,16 @@ export function isDynType(type?: Type): type is DynType {
 
 /**
  * This checks if the type is using the reference semantics.
+ * Note: FnModuleType (closures) are NOT inherently reference types.
+ * - Impl(Fn(...)) is value semantics (anonymous struct)
+ * - Dyn(Fn(...)) is reference semantics (handled by isDynType)
  * @param type
  * @returns
  */
 export function isRefType(type?: Type): boolean {
   return (
     isObjectType(type) ||
-    isDynType(type) || // All Dyn types are reference semantics
-    isClosureType(type) || // All closures are reference semantics
+    isDynType(type) || // All Dyn types are reference semantics (includes Dyn(Fn(...)))
     isFutureType(type) // All futures are reference semantics
   );
 }

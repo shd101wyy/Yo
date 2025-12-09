@@ -7,7 +7,6 @@ import {
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import {
-  ClosureType,
   createTypeHierarchy,
   DynType,
   EnumType,
@@ -31,7 +30,7 @@ import { evaluateExpression } from "../exprs/expr";
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType: StructType | EnumType | DynType | ClosureType | FutureType,
+  SelfType: StructType | EnumType | DynType | FutureType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -71,7 +70,7 @@ export function addFunctionSignatureToSelfTypeModule({
    * Function code string, like (fn()-> unit)
    */
   functionSignature: string;
-  SelfType: StructType | EnumType | DynType | ClosureType | FutureType;
+  SelfType: StructType | EnumType | DynType | FutureType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -104,15 +103,17 @@ export function addFunctionSignatureToSelfTypeModule({
           assignedValueExpr: undefined,
         },
       };
-      const index = SelfType.module.fields.findIndex(
-        (el) => el.label === label
-      );
-      if (index >= 0) {
-        SelfType.module.fields[index] = moduleField;
-        // return env; // No need to update. Don't throw error.
-      } else {
-        // Add new field
-        SelfType.module.fields.push(moduleField);
+      if (SelfType.module) {
+        const index = SelfType.module.fields.findIndex(
+          (el) => el.label === label
+        );
+        if (index >= 0) {
+          SelfType.module.fields[index] = moduleField;
+          // return env; // No need to update. Don't throw error.
+        } else {
+          // Add new field
+          SelfType.module.fields.push(moduleField);
+        }
       }
     }
   }
@@ -135,7 +136,7 @@ export function addFunctionCodeToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType: StructType | EnumType | DynType | ClosureType | FutureType;
+  SelfType: StructType | EnumType | DynType | FutureType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -168,15 +169,17 @@ export function addFunctionCodeToSelfTypeModule({
           assignedValueExpr: functionExpr,
         },
       };
-      const index = SelfType.module.fields.findIndex(
-        (el) => el.label === label
-      );
-      if (index >= 0) {
-        // Replace existing field
-        SelfType.module.fields[index] = moduleField;
-      } else {
-        // Add new field
-        SelfType.module.fields.push(moduleField);
+      if (SelfType.module) {
+        const index = SelfType.module.fields.findIndex(
+          (el) => el.label === label
+        );
+        if (index >= 0) {
+          // Replace existing field
+          SelfType.module.fields[index] = moduleField;
+        } else {
+          // Add new field
+          SelfType.module.fields.push(moduleField);
+        }
       }
     }
   }
@@ -751,75 +754,6 @@ function generateDupFunctionCodeForDynType(_dynType: DynType): string {
   // This builtin function handles the dyn reference counting properly
   return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
     ${BuiltinFunctions.__yo_dyn_dup[0]!}(self);
-    return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
-  })`;
-}
-
-/**
- * Add ARC functions (___dup, ___drop) to a closure type's module.
- * These functions operate on the closure itself and its captured data.
- */
-export function addARCFunctionsToClosureType({
-  closureType,
-  env,
-  context,
-}: {
-  closureType: ClosureType;
-  env: Environment;
-  context: EvaluatorContext;
-}): Environment {
-  // Generate ARC functions for the closure
-  const dropFunctionCode = generateDropFunctionCodeForClosureType(closureType);
-  const dupFunctionCode = generateDupFunctionCodeForClosureType(closureType);
-
-  // Add ___dup function to the closure type module fields
-  if (dupFunctionCode) {
-    env = addFunctionCodeToSelfTypeModule({
-      label: BuiltinFunctions.___dup[0]!,
-      functionCode: dupFunctionCode,
-      SelfType: closureType,
-      env,
-      context,
-    });
-  }
-
-  // Add ___drop function to the closure type module fields
-  if (dropFunctionCode) {
-    env = addFunctionCodeToSelfTypeModule({
-      label: BuiltinFunctions.___drop[0]!,
-      functionCode: dropFunctionCode,
-      SelfType: closureType,
-      env,
-      context,
-    });
-  }
-
-  return env;
-}
-
-/**
- * Generate ___drop function code for a closure type
- */
-function generateDropFunctionCodeForClosureType(
-  _closureType: ClosureType
-): string {
-  // For closure types, drop should use __yo_closure_drop
-  // This builtin function handles both the captured data cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_closureType)}
-    ${BuiltinFunctions.__yo_closure_drop[0]!}(self);
-  })`;
-}
-
-/**
- * Generate ___dup function code for a closure type
- */
-function generateDupFunctionCodeForClosureType(
-  _closureType: ClosureType
-): string {
-  // For closure types, dup should use __yo_closure_dup
-  // This builtin function handles the closure reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_closureType)}
-    ${BuiltinFunctions.__yo_closure_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
 }

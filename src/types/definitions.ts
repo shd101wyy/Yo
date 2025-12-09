@@ -149,6 +149,23 @@ export interface SomeType extends Type {
    */
   functionApplication?: Expr;
 
+  /**
+   * The resolved concrete type for this SomeType.
+   *
+   * For example, when we have `Impl(Fn(y: i32) -> i32)` with a closure body
+   * that captures variable `x`, the resolvedConcreteType would be an anonymous
+   * struct type like `struct(x: i32)` that contains the captured variables.
+   *
+   * This allows us to:
+   * 1. Use SomeType as an abstraction (like a trait object)
+   * 2. Know the actual concrete type at compile time for static dispatch
+   *
+   * For `Impl(...)`, this is set when evaluating the implementation body.
+   * For `Dyn(...)`, this remains undefined since the concrete type is only
+   * known at runtime.
+   */
+  resolvedConcreteType?: Type;
+
   module: ModuleType;
 }
 
@@ -426,7 +443,24 @@ export interface ModuleType extends Type {
    * negativeSelfConstraints would contain [CopyModuleType]
    */
   negativeSelfConstraints?: ModuleType[];
+
+  /**
+   * If this module represents a Fn trait (callable type), this contains the function signature.
+   * Set for modules created via `Fn(params) -> ReturnType` syntax.
+   * The FunctionType contains the parameters and return type of the callable.
+   */
+  isFn?: FunctionType;
 }
+
+/**
+ * FnModuleType represents a callable type (closure/function trait).
+ * This replaces the old ClosureType - now closures are just ModuleTypes with isFn set.
+ *
+ * Examples:
+ * - Fn(x: i32) -> i32
+ * - Impl(Fn(x: i32, y: i32) -> string)
+ */
+export type FnModuleType = ModuleType & { isFn: FunctionType };
 
 export interface EnumVariant {
   /**
@@ -576,18 +610,15 @@ export interface FunctionType extends Type {
   SelfType?: Type;
 
   /**
-   * Whether this function is a closure (uses => syntax) or a regular function (uses -> syntax).
-   *
-   * - true: fn(x: i32) => i32  (closure that can capture variables)
-   * - false: fn(x: i32) -> i32  (regular function, no captures)
-   * - undefined: regular function (default behavior)
-   */
-  isClosure?: boolean;
-
-  /**
-   *
+   * The module that contains this function's methods (like ___drop, ___dup for closures).
    */
   module: ModuleType;
+
+  /**
+   * Whether this function type represents a closure.
+   * Closures capture variables from the defining environment.
+   */
+  isClosure?: boolean;
 }
 
 export interface PtrType extends Type {
@@ -598,37 +629,6 @@ export interface PtrType extends Type {
   childType: Type;
 
   module: ModuleType;
-}
-
-/**
- * ClosureType represents a closure with simplified syntax:
- *
- * Examples:
- * - fn(elem : i32) => i32
- * - fn(x: i32, y: i32) => string
- *
- * The capture type (struct containing captured variables) is stored in
- * the expression's EvaluatedExprData.captureType field, not in the type itself.
- */
-export interface ClosureType extends Type {
-  tag: TypeTag.Closure;
-
-  /**
-   * The function type that defines the call signature.
-   * This is a regular function type without closure kinds.
-   */
-  callType: FunctionType & { isClosure: true };
-
-  /**
-   * The module that contains the closure's ARC functions (___drop, ___dup).
-   * Similar to DynType's module property.
-   */
-  module: ModuleType;
-
-  /**
-   * The env when the closure type is created.
-   */
-  env: Environment;
 }
 
 /*

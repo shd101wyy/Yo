@@ -9,7 +9,6 @@ import {
 } from "./definitions";
 import {
   isArrayType,
-  isClosureType,
   isComptFloatType,
   isComptIntType,
   isComptListType,
@@ -17,6 +16,7 @@ import {
   isDynType,
   isEnumType,
   isExprType,
+  isFnModuleType,
   isFunctionType,
   isFutureType,
   isModuleType,
@@ -138,22 +138,8 @@ export function typeOfType(
   } else if (isFunctionType(type)) {
     // All functions are now level 0 types
     return createType0(type);
-  } else if (isClosureType(type)) {
-    // FIXME: The captureType is now wrong in some ClosureType
-    // if (type.captureType) {
-    //   console.log(typeToString(type.captureType));
-    // }
-    /*
-    // The type universe of a closure is determined by its capture type
-    const closureType = type as ClosureType;
-    if (closureType.captureType) {
-      return typeOfType(closureType.captureType, checkedTupleElements);
-    } else {
-      // If no capture type, it's a level 0 type (no captures)
-      return createType0(type);
-    }
-    */
-    // All closures are now level 0 types
+  } else if (isFnModuleType(type)) {
+    // FnModuleType (closures) are level 0 types - they're just anonymous structs
     return createType0(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type

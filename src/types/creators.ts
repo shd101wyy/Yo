@@ -4,10 +4,10 @@ import { hashString, randomId } from "../utils";
 import { createTypeValue, Value, valueToString } from "../value";
 import {
   ArrayType,
-  ClosureType,
   ComptListType,
   DynType,
   EnumType,
+  FnModuleType,
   FunctionForallParameter,
   FunctionParameter,
   FunctionParameterExprs,
@@ -781,17 +781,17 @@ export function createFunctionType({
   const module = createModuleType(emptyEnv);
 
   const functionType: FunctionType = {
-    id: `${isClosure ? "closure" : "fn"}_${randomId()}`,
+    id: `fn_${randomId()}`,
     tag: TypeTag.Function,
-    parameters: parameters, // Wrap params in a TupleType
+    parameters: parameters,
     forallParameters,
     variadicParameter,
     return: return_,
     env,
     parametersFrame,
     SelfType,
-    isClosure: isClosure ?? false,
     module,
+    isClosure,
   };
   module.receiverType = functionType;
 
@@ -944,31 +944,24 @@ export function getFunctionParameterExprs({
   } as FunctionParameterExprs;
 }
 
-export function createClosureType(
-  callType: FunctionType,
+/**
+ * Creates a FnModuleType (callable/closure type).
+ * This is a ModuleType with isFn set to the function signature.
+ */
+export function createFnModuleType(
+  fnType: FunctionType,
   env: Environment
-): ClosureType {
-  if (!callType.isClosure) {
-    throw new Error(
-      `createClosureType expects a FunctionType with isClosure=true, got FunctionType with isClosure=false`
-    );
-  }
-
-  // Use only call type for closure ID
-  const closureId = `closure_${callType.id}`;
+): FnModuleType {
+  const fnModuleId = `fn_module_${fnType.id}`;
   const module = createModuleType(env);
 
-  const closureType: ClosureType = {
-    id: closureId,
-    tag: TypeTag.Closure,
-    callType: callType as FunctionType & { isClosure: true },
-    module,
-    env,
-  };
+  // Set the isFn field to make this a FnModuleType
+  module.isFn = fnType;
+  module.id = fnModuleId;
 
-  module.receiverType = closureType;
+  module.receiverType = module;
 
-  return closureType;
+  return module as FnModuleType;
 }
 
 export function createDynType(

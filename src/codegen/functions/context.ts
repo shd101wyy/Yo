@@ -1,12 +1,6 @@
 import { Expr } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
-import {
-  ClosureType,
-  FunctionType,
-  FutureType,
-  StructType,
-  TypeId,
-} from "../../types";
+import { FunctionType, FutureType, StructType, TypeId } from "../../types";
 import { AwaitAnalysisResult, CapturedVariable } from "../async/await-analysis";
 import { CodeGenContext } from "../utils";
 
@@ -20,7 +14,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   currentFunctionType?: FunctionType; // Type of the current function being generated
   currentClosureCaptures?: string[]; // Variables captured by current closure function
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
-  currentClosureType?: ClosureType; // Current closure type being generated
+  currentClosureType?: FunctionType; // Current closure type being generated
   currentClosureCaptureTypeCName?: string; // C name of the capture struct type (e.g. "yo_struct_abc123_capture")
   // State machine context (when generating code inside async state machine)
   inStateMachine?: { futureType: FutureType }; // Set when generating code inside a state machine, contains the Future type being generated

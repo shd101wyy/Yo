@@ -501,6 +501,9 @@ export const BuiltinKeywords = {
   dyn: ["dyn"],
   Dyn: ["Dyn"],
 
+  // Fn trait (callable types)
+  Fn: ["Fn"],
+
   // C related
   c_include: ["c_include"],
 

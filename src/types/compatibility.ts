@@ -4,12 +4,11 @@ import {
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import { ClosureType, FunctionType, ModuleField, Type } from "./definitions";
+import { FunctionType, ModuleField, Type } from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
   isCharType,
-  isClosureType,
   isComptFloatType,
   isComptIntType,
   isComptListType,
@@ -409,33 +408,6 @@ export function areTypesCompatible(
       }
       return true;
     }
-  }
-
-  if (isClosureType(expected.type) && isClosureType(given.type)) {
-    const expectedClosure = expected.type as ClosureType;
-    const givenClosure = given.type as ClosureType;
-
-    // Check if the function signatures are compatible
-    if (
-      !areFunctionTypesCompatible(
-        { type: expectedClosure.callType, env: expected.env },
-        { type: givenClosure.callType, env: given.env },
-        isMethodReceiver
-      )
-    ) {
-      return false;
-    } else {
-      return true;
-    }
-
-    // Check if the capture types are compatible
-    // Handle the case where expected has SomeType (inference) and given has StructType (concrete)
-    // return areTypesCompatible(
-    //   { type: expectedClosure.captureType, env: expected.env },
-    //   { type: givenClosure.captureType, env: given.env },
-    //   isMethodReceiver
-    // );
-    // NOTE: No need to check callType, as we now uses the dynamic dispatch for closure
   }
 
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {

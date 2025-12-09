@@ -1,7 +1,7 @@
 import { Environment } from "./env";
 import { CapturedVariableInfo } from "./evaluator/context";
 import { Expr } from "./expr";
-import { ClosureType, FunctionType, Type } from "./types";
+import { FnModuleType, FunctionType, Type } from "./types";
 import type { Value } from "./value";
 import { ValueTag } from "./value-tag";
 
@@ -102,8 +102,8 @@ export type FunctionValue = {
 
   /**
    * Closure-specific information.
-   * Only set for functions that are closure implementations (when type.isClosure is true).
-   * Contains the ClosureType and capture struct type for easy access during codegen.
+   * Only set for functions that are closure implementations.
+   * Contains the FnModuleType and capture struct type for easy access during codegen.
    */
   closureInfo?: ClosureInfo;
 };
@@ -120,9 +120,9 @@ export interface FunctionCapturedVariableInfo extends CapturedVariableInfo {
  */
 export interface ClosureInfo {
   /**
-   * The closure type that wraps this function
+   * The FnModuleType that represents this closure's callable interface
    */
-  closureType: ClosureType; // ClosureType
+  closureType: FnModuleType;
 
   /**
    * The capture struct type that holds captured variables

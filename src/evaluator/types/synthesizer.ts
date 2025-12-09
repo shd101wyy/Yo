@@ -8,9 +8,9 @@ import { PlaceholderToken } from "../../token";
 import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
-  isClosureType,
   isComptListType,
   isEnumType,
+  isFnModuleType,
   isFunctionType,
   isFutureType,
   isModuleType,
@@ -88,8 +88,8 @@ function occursCheck(someTypeId: string, type: Type): boolean {
     return occursCheck(someTypeId, type.childType);
   }
 
-  if (isClosureType(type)) {
-    return occursCheck(someTypeId, type.callType);
+  if (isFnModuleType(type)) {
+    return occursCheck(someTypeId, type.isFn);
   }
 
   return false;
@@ -596,19 +596,19 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  } else if (isClosureType(expected.type) && isClosureType(given.type)) {
-    // Synthesize closure types - match capture types and function types
-    const expectedClosure = expected.type;
-    const givenClosure = given.type;
+  } else if (isFnModuleType(expected.type) && isFnModuleType(given.type)) {
+    // Synthesize FnModuleType types - match the function types (isFn)
+    const expectedFnModule = expected.type;
+    const givenFnModule = given.type;
 
-    // Synthesize the function types (callType)
+    // Synthesize the function types (isFn)
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expectedClosure.callType,
+        type: expectedFnModule.isFn,
         env: expected.env,
       },
       {
-        type: givenClosure.callType,
+        type: givenFnModule.isFn,
         env: given.env,
       },
       checkedTypePairs

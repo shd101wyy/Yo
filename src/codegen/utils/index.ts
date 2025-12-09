@@ -3,7 +3,6 @@ import { exprIsFunctionCall, exprIsFunctionCallOf } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ArrayType,
-  ClosureType,
   EnumType,
   EnumVariant,
   FunctionType,
@@ -74,7 +73,7 @@ export interface CodeGenContext {
   closureCaptureMap: Map<
     string,
     {
-      closureType: ClosureType;
+      closureType: FunctionType;
       closureCName: string;
       captureType: StructType;
       captureCName: string;

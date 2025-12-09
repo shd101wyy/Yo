@@ -81,6 +81,7 @@ import { evaluateClosureType } from "../types/closure";
 import { evaluateComptListType } from "../types/compt_list";
 import { evaluateDynType } from "../types/dyn";
 import { evaluateEnumType } from "../types/enum";
+import { evaluateFnModuleType } from "../types/fn_module";
 import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future";
 import { evaluateModuleType } from "../types/module";
@@ -195,6 +196,19 @@ ${exprToString(expr)}`,
               BuiltinKeywords.unsafe_fn
             ),
           },
+        });
+      }
+
+      // Fn module type (trait for callable types)
+      // Fn(x : i32) -> i32
+      if (
+        exprIsFunctionCall(expr.args[0]) &&
+        exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Fn)
+      ) {
+        return evaluateFnModuleType({
+          expr,
+          env,
+          context: { ...context },
         });
       }
 

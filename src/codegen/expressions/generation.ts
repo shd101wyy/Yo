@@ -14,10 +14,9 @@ import {
 import { TypeValue } from "../../type-value";
 import {
   ArrayType,
-  ClosureType,
+  extractFnModuleFromType,
   FutureType,
   isArrayType,
-  isClosureType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -35,6 +34,7 @@ import {
   StructType,
   Type,
   typeContainsRefType,
+  typeImplementsFn,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -144,9 +144,10 @@ function generateFuncCall(
   if (
     expr.$?.closureFunctionValue &&
     expr.$?.type &&
-    isClosureType(expr.$.type)
+    typeImplementsFn(expr.$.type)
   ) {
-    const closureType = expr.$.type;
+    const fnModule = extractFnModuleFromType(expr.$.type)!;
+    const closureType = fnModule.isFn;
     const closureFunctionValue = expr.$.closureFunctionValue;
     const captureType = expr.$.captureType;
 
@@ -276,7 +277,7 @@ function generateFuncCall(
       });
 
       // Cast function pointers to generic void* function types for constructor
-      const callType = closureType.callType;
+      const callType = closureType;
       const returnTypeStr = getTypeString(callType.return.type, context);
       const callParamList = callType.parameters
         .map((param) => {
@@ -291,7 +292,7 @@ function generateFuncCall(
       return `${constructorName}(${captureTempVar}, ${castCallFunction}, ${castDisposeFunction})`;
     } else {
       // Closure without captures
-      const callType = closureType.callType;
+      const callType = closureType;
       const returnTypeStr = getTypeString(callType.return.type, context);
       const callParamList = callType.parameters
         .map((param) => {
@@ -972,7 +973,7 @@ function generateFuncCall(
               // This is a captured variable, don't create a temp variable for it
               // Generate closure access directly
               const currentClosureType = functionContext.currentClosureType;
-              if (currentClosureType && isClosureType(currentClosureType)) {
+              if (currentClosureType && currentClosureType.isClosure) {
                 const closureTypeEntry = Object.values(
                   functionContext.types
                 ).find((entry) => entry.type === currentClosureType);
@@ -1214,18 +1215,18 @@ function generateFuncCall(
       }
 
       // Check if we need to cast closure types
-      const lhsType = lhs.$.type;
-      const rhsType = rhs.$?.type;
-      if (
-        lhsType &&
-        rhsType &&
-        isClosureType(lhsType) &&
-        isClosureType(rhsType)
-      ) {
-        // Note: All closure types are now the same (no base vs specific distinction)
-        // since captureType is no longer part of ClosureType
-        // No cast needed
-      }
+      // const lhsType = lhs.$.type;
+      // const rhsType = rhs.$?.type;
+      // if (
+      //   lhsType &&
+      //   rhsType &&
+      //   isClosureType(lhsType) &&
+      //   isClosureType(rhsType)
+      // ) {
+      //   // Note: All closure types are now the same (no base vs specific distinction)
+      //   // since captureType is no longer part of ClosureType
+      //   // No cast needed
+      // }
 
       if (!isUnitType(lhs.$.type)) {
         context.emitter.emitLine(
@@ -1939,151 +1940,157 @@ function generateFuncCall(
           }
         }
       }
-    } else if (isClosureType(functionType)) {
-      // Handle closure calls with dynamic dispatch through vtable
-      const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+    } else if (functionType && typeImplementsFn(functionType)) {
+      const fnModule = extractFnModuleFromType(functionType)!;
+      {
+        const functionType = fnModule.isFn;
+        // Handle closure calls with dynamic dispatch through vtable
+        const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
 
-      if (runtimeArgExprs) {
-        // First, handle arguments that need temporary variables
-        const functionContext = context as FunctionGenerationContext;
-        for (const arg of runtimeArgExprs) {
-          if (arg.$?.variableName && arg.$?.type) {
-            // Check if this variable is captured by a closure
-            const isClosureCapturedVariable =
-              functionContext.currentClosureCaptures &&
-              functionContext.currentClosureCaptures.includes(
-                arg.$.variableName
-              ) &&
-              exprIsAtom(arg) &&
-              arg.$.env &&
-              functionContext.currentClosureCaptureFrameLevel !== undefined &&
-              checkVariableIsClosureCaptured(
-                arg.token.value,
-                arg.$.env,
-                functionContext.currentClosureCaptureFrameLevel
-              );
+        if (runtimeArgExprs) {
+          // First, handle arguments that need temporary variables
+          const functionContext = context as FunctionGenerationContext;
+          for (const arg of runtimeArgExprs) {
+            if (arg.$?.variableName && arg.$?.type) {
+              // Check if this variable is captured by a closure
+              const isClosureCapturedVariable =
+                functionContext.currentClosureCaptures &&
+                functionContext.currentClosureCaptures.includes(
+                  arg.$.variableName
+                ) &&
+                exprIsAtom(arg) &&
+                arg.$.env &&
+                functionContext.currentClosureCaptureFrameLevel !== undefined &&
+                checkVariableIsClosureCaptured(
+                  arg.token.value,
+                  arg.$.env,
+                  functionContext.currentClosureCaptureFrameLevel
+                );
 
-            // Generate the argument expression and declare it as a temp variable
-            const argCode = generateExpr(arg, indent, context);
-
-            // Check if this variable is captured by a state machine
-            const isStateMachineCapturedVariable =
-              functionContext.inStateMachine && argCode.startsWith("sm->");
-
-            if (
-              argCode &&
-              argCode !== arg.$.variableName &&
-              !isClosureCapturedVariable &&
-              !isStateMachineCapturedVariable
-            ) {
-              // Only emit declaration if:
-              // 1. The expression doesn't already handle it
-              // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
-              // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
-              const varTypeAndName = getVariableTypeString(
-                arg.$.type,
-                arg.$.variableName,
-                context
-              );
-              context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${argCode};`
-              );
-            }
-          }
-        }
-
-        // Generate closure value and function arguments
-        const closureCode = generateExpr(expr.func, indent, context);
-        const args = runtimeArgExprs.map((arg) => {
-          if (arg.$?.variableName && arg.$?.type) {
-            // Check if this is a closure-captured variable - if so, use the full access expression
-            const isClosureCapturedVariable =
-              functionContext.currentClosureCaptures &&
-              functionContext.currentClosureCaptures.includes(
-                arg.$.variableName
-              ) &&
-              exprIsAtom(arg) &&
-              arg.$.env &&
-              functionContext.currentClosureCaptureFrameLevel !== undefined &&
-              checkVariableIsClosureCaptured(
-                arg.token.value,
-                arg.$.env,
-                functionContext.currentClosureCaptureFrameLevel
-              );
-
-            if (isClosureCapturedVariable) {
-              // Return the inline access expression
-              return generateExpr(arg, indent, context);
-            } else {
-              // Check if this is a state machine variable
+              // Generate the argument expression and declare it as a temp variable
               const argCode = generateExpr(arg, indent, context);
+
+              // Check if this variable is captured by a state machine
               const isStateMachineCapturedVariable =
                 functionContext.inStateMachine && argCode.startsWith("sm->");
 
-              // Handle deferred dup expressions for closure call arguments
-              let finalArgVarName = arg.$.variableName;
               if (
-                arg.$?.deferredDupExpressions &&
-                arg.$.deferredDupExpressions.length > 0
+                argCode &&
+                argCode !== arg.$.variableName &&
+                !isClosureCapturedVariable &&
+                !isStateMachineCapturedVariable
               ) {
-                generateDeferredDupExpressions(arg, indent, functionContext);
-                // Use the dup result variable instead of the original
-                const dupExpr = arg.$.deferredDupExpressions[0]!;
-                if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                  finalArgVarName = sanitizeForCIdentifier(
-                    dupExpr.$.variableName
-                  );
-                }
+                // Only emit declaration if:
+                // 1. The expression doesn't already handle it
+                // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
+                // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
+                const varTypeAndName = getVariableTypeString(
+                  arg.$.type,
+                  arg.$.variableName,
+                  context
+                );
+                context.emitter.emitLine(
+                  `${indent}${varTypeAndName} = ${argCode};`
+                );
               }
-
-              return isStateMachineCapturedVariable ? argCode : finalArgVarName;
             }
-          } else {
-            return generateExpr(arg, indent, context);
-          }
-        });
-
-        // Call through the vtable - closure->vtable.call(closure->data, args...)
-        // Note: The first argument to the call function is the capture data pointer, not the closure itself
-        const allArgs = [`(${closureCode})->data`, ...args];
-        const closureCall = `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
-
-        // Get return type from the closure's function signature
-        const returnType = functionType.callType.return.type;
-
-        if (isUnitType(returnType)) {
-          // If the closure returns unit, just call it without assignment
-          context.emitter.emitLine(`${indent}${closureCall};`);
-
-          // Handle deferred drop expressions if they exist
-          if (expr.$?.deferredDropExpressions) {
-            generateDeferredDropExpressions(expr, indent, context);
           }
 
-          return ""; // No return value
-        } else {
-          // If it returns a value, assign to a temp variable or return directly
-          const tempVar = expr.$?.variableName;
-          if (tempVar) {
-            context.emitter.emitLine(
-              `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
-            );
+          // Generate closure value and function arguments
+          const closureCode = generateExpr(expr.func, indent, context);
+          const args = runtimeArgExprs.map((arg) => {
+            if (arg.$?.variableName && arg.$?.type) {
+              // Check if this is a closure-captured variable - if so, use the full access expression
+              const isClosureCapturedVariable =
+                functionContext.currentClosureCaptures &&
+                functionContext.currentClosureCaptures.includes(
+                  arg.$.variableName
+                ) &&
+                exprIsAtom(arg) &&
+                arg.$.env &&
+                functionContext.currentClosureCaptureFrameLevel !== undefined &&
+                checkVariableIsClosureCaptured(
+                  arg.token.value,
+                  arg.$.env,
+                  functionContext.currentClosureCaptureFrameLevel
+                );
+
+              if (isClosureCapturedVariable) {
+                // Return the inline access expression
+                return generateExpr(arg, indent, context);
+              } else {
+                // Check if this is a state machine variable
+                const argCode = generateExpr(arg, indent, context);
+                const isStateMachineCapturedVariable =
+                  functionContext.inStateMachine && argCode.startsWith("sm->");
+
+                // Handle deferred dup expressions for closure call arguments
+                let finalArgVarName = arg.$.variableName;
+                if (
+                  arg.$?.deferredDupExpressions &&
+                  arg.$.deferredDupExpressions.length > 0
+                ) {
+                  generateDeferredDupExpressions(arg, indent, functionContext);
+                  // Use the dup result variable instead of the original
+                  const dupExpr = arg.$.deferredDupExpressions[0]!;
+                  if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+                    finalArgVarName = sanitizeForCIdentifier(
+                      dupExpr.$.variableName
+                    );
+                  }
+                }
+
+                return isStateMachineCapturedVariable
+                  ? argCode
+                  : finalArgVarName;
+              }
+            } else {
+              return generateExpr(arg, indent, context);
+            }
+          });
+
+          // Call through the vtable - closure->vtable.call(closure->data, args...)
+          // Note: The first argument to the call function is the capture data pointer, not the closure itself
+          const allArgs = [`(${closureCode})->data`, ...args];
+          const closureCall = `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
+
+          // Get return type from the closure's function signature
+          const returnType = functionType.return.type;
+
+          if (isUnitType(returnType)) {
+            // If the closure returns unit, just call it without assignment
+            context.emitter.emitLine(`${indent}${closureCall};`);
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
               generateDeferredDropExpressions(expr, indent, context);
             }
 
-            return tempVar; // Return the temp variable name
+            return ""; // No return value
           } else {
-            // Error: closure returns non-unit type but no temp variable assigned
-            return `// Error: Closure call returns ${getTypeString(returnType, context)} but no temp variable assigned`;
+            // If it returns a value, assign to a temp variable or return directly
+            const tempVar = expr.$?.variableName;
+            if (tempVar) {
+              context.emitter.emitLine(
+                `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
+              );
+
+              // Handle deferred drop expressions if they exist
+              if (expr.$?.deferredDropExpressions) {
+                generateDeferredDropExpressions(expr, indent, context);
+              }
+
+              return tempVar; // Return the temp variable name
+            } else {
+              // Error: closure returns non-unit type but no temp variable assigned
+              return `// Error: Closure call returns ${getTypeString(returnType, context)} but no temp variable assigned`;
+            }
           }
+        } else {
+          // Note: Closure construction is now handled in the isTypeValue(functionValue) branch below
+          // by checking for expr.$?.closureFunctionValue
+          return `// Error: No runtime args found for closure call`;
         }
-      } else {
-        // Note: Closure construction is now handled in the isTypeValue(functionValue) branch below
-        // by checking for expr.$?.closureFunctionValue
-        return `// Error: No runtime args found for closure call`;
       }
     } else if (isTypeValue(functionValue)) {
       // struct
@@ -2247,7 +2254,7 @@ function generateFuncCall(
       }
       // closure type - closure construction
       // Note: This is now handled at the top of generateFuncCall by checking expr.$.closureFunctionValue
-      else if (isClosureType(functionValue.value)) {
+      else if (typeImplementsFn(functionValue.value)) {
         return `// Error: Closure construction should have been handled by closureFunctionValue check at top of generateFuncCall`;
       }
       // union
@@ -3322,8 +3329,9 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       // This is a closure function, find its closure type
       const closureTypeEntry = Object.values(functionContext.types).find(
         (t) =>
-          t.type.tag === TypeTag.Closure &&
-          (t.type as ClosureType).callType === currentFunctionEntry.value.type
+          isFunctionType(t.type) &&
+          t.type.isClosure &&
+          t.type === currentFunctionEntry.value.type
       );
 
       if (closureTypeEntry) {

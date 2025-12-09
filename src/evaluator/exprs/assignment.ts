@@ -465,7 +465,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       if (
         context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
           "function-body" &&
-        context.isEvaluatingFunctionBodyOrAsyncBlock.type.isClosure &&
+        context.capturedVariables &&
         context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv
       ) {
         const closureEvaluationFrameLevel =

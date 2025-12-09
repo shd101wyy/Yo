@@ -1,12 +1,10 @@
 import { Expr, ExprTag } from "../../expr";
 import {
   ArrayType,
-  ClosureType,
   DynType,
   FunctionType,
   FutureType,
   isArrayType,
-  isClosureType,
   isDynType,
   isEnumType,
   isFutureType,
@@ -105,6 +103,7 @@ export function collectTypesFromExpr(
 
   // For closure and async block expressions, collect the capture struct type
   // The capture type needs a special C name: {closureTypeName}_capture
+  /*
   if (expr.$ && expr.$.captureType && expr.$.type) {
     const captureType = expr.$.captureType;
     const exprType = expr.$.type;
@@ -153,6 +152,7 @@ export function collectTypesFromExpr(
       }
     }
   }
+  */
 
   switch (expr.tag) {
     case ExprTag.FuncCall:
@@ -194,7 +194,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isUnionType(type) ||
     isEnumType(type) ||
     isTupleType(type) ||
-    isClosureType(type) ||
+    // isClosureType(type) ||
     isDynType(type) ||
     isFutureType(type) ||
     isModuleType(type) ||
@@ -240,11 +240,11 @@ export function collectType(type: Type, context: CodeGenContext): void {
     }
 
     // For closures, also collect the call type
-    if (isClosureType(type)) {
-      const closureType = type as ClosureType;
-      // Note: capture type is collected from expr.$.captureType above, not from the closure type itself
-      collectTypesFromFunctionType(closureType.callType, context);
-    }
+    // if (isClosureType(type)) {
+    //   const closureType = type as ClosureType;
+    //   // Note: capture type is collected from expr.$.captureType above, not from the closure type itself
+    //   collectTypesFromFunctionType(closureType.callType, context);
+    // }
 
     // For dynamic dispatch types, collect the module types
     if (isDynType(type)) {

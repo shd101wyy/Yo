@@ -18,7 +18,7 @@ import {
   Value,
   valueToString,
 } from "../../value";
-import { ArgValues, CapturedVariableInfo, EvaluatorContext } from "../context";
+import { ArgValues, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 
 /**
@@ -133,8 +133,8 @@ export function evaluateComptFunctionCall({
 
         evaluationEnv: calleeEnv,
       },
-      capturedVariables: functionType.isClosure
-        ? new Map<string, CapturedVariableInfo>()
+      capturedVariables: context.capturedVariables
+        ? context.capturedVariables
         : undefined,
       // Only set isExecuting=true if we're not in validation mode
       isExecuting: context.isValidatingFunctionDefinition ? false : true,

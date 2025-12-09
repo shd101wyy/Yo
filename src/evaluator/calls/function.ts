@@ -16,12 +16,12 @@ import { stringIsOperator, TokenType } from "../../token";
 import { TypeValue } from "../../type-value";
 import {
   ArrayType,
-  ClosureType,
   createExprType,
+  FnModuleType,
   isArrayType,
-  isClosureType,
   isComptListType,
   isEnumType,
+  isFnModuleType,
   isFunctionType,
   isModuleType,
   isObjectType,
@@ -60,7 +60,7 @@ import {
 import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
 import { tryToImplementArrayByArrayType } from "./array_type";
-import { tryToImplementClosureByClosureType } from "./closure_type";
+import { tryToImplementClosureByFnModuleType } from "./closure_type";
 import { tryToImplementComptListByComptListType } from "./compt_list_type";
 import { tryToImplementFunctionByFunctionType } from "./function_type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
@@ -447,13 +447,13 @@ export function evaluateFunctionCall({
           },
         };
       }
-    } else if (isClosureType(functionToCall.type)) {
+    } else if (isFnModuleType(functionToCall.type)) {
       try {
         // For closures, delegate to the underlying function type
-        const closureType = functionToCall.type as ClosureType;
+        const fnModuleType = functionToCall.type as FnModuleType;
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
-          functionType: closureType.callType,
+          functionType: fnModuleType.isFn,
           expr,
           functionCalleeExpr: func,
           argExprs: argsToUse,
@@ -688,12 +688,12 @@ export function evaluateFunctionCall({
         }
       }
       // closure type
-      else if (isTypeValue(value) && isClosureType(value.value)) {
-        const closureType = value.value;
+      else if (isTypeValue(value) && isFnModuleType(value.value)) {
+        const fnModuleType = value.value;
         try {
-          tryToImplementClosureByClosureType({
+          tryToImplementClosureByFnModuleType({
             expr: expr,
-            closureType: closureType,
+            fnModuleType: fnModuleType,
             callerEnv: env,
             context: { ...context },
           });
@@ -1050,9 +1050,9 @@ ${functionsWithMatchingTypes
       }
     }
     return expr;
-  } else if (isClosureType(functionToCall.type)) {
+  } else if (isFnModuleType(functionToCall.type)) {
     // Handle closure calls by delegating to the underlying function type
-    const closureType = functionToCall.type as ClosureType;
+    const fnModuleType = functionToCall.type as FnModuleType;
     const {
       returnType,
       returnValue,
@@ -1067,7 +1067,7 @@ ${functionsWithMatchingTypes
 
     // Check if it's a macro function call,
     // if yes, then we continue to evaluate the returnValue which should be an Expr value.
-    if (closureType.callType.return.isUnquote) {
+    if (fnModuleType.isFn.return.isUnquote) {
       if (isExprValue(returnValue)) {
         const expandedExpr = evaluateExpression({
           expr: returnValue.value,
@@ -1304,8 +1304,8 @@ ${functionsWithMatchingTypes
       return expr;
     }
     // closure type
-    else if (isTypeValue(value) && isClosureType(value.value)) {
-      // This should already be evaluated by tryToImplementClosureByClosureType
+    else if (isTypeValue(value) && isFnModuleType(value.value)) {
+      // This should already be evaluated by tryToImplementClosureByFnModuleType
       return expr;
     }
     // numeric type conversion (i32, u8, f64, etc.)

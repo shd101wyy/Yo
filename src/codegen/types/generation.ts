@@ -1,10 +1,9 @@
 import {
-  ClosureType,
   DynType,
   EnumType,
+  extractFnModuleFromType,
   FunctionType,
   FutureType,
-  isClosureType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -16,6 +15,7 @@ import {
   StructType,
   TupleType,
   typeContainsSomeType,
+  typeImplementsFn,
   typeToString,
   UnionType,
 } from "../../types";
@@ -436,10 +436,12 @@ typedef struct {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
-    if (isClosureType(type)) {
+    if (typeImplementsFn(type)) {
       // Pass undefined for captureType since this is just the type declaration
       // Actual capture types are handled during closure construction in expressions/generation.ts
-      generateClosureDeclaration(type, cName, undefined, context);
+      const fnModule = extractFnModuleFromType(type)!;
+
+      generateClosureDeclaration(fnModule.isFn, cName, undefined, context);
     } else if (isDynType(type)) {
       generateDynDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
@@ -488,7 +490,7 @@ export function generateSliceStructDeclarations(context: CodeGenContext): void {
  * Generate a closure declaration with vtable for dynamic dispatch
  */
 export function generateClosureDeclaration(
-  closureType: ClosureType,
+  functionType: FunctionType,
   cName: string,
   captureType: StructType | undefined,
   context: CodeGenContext
@@ -509,7 +511,7 @@ export function generateClosureDeclaration(
       // This shouldn't normally happen if collection is working properly
       const captureStructName = `${cName}_capture`;
       emitter.emitDeclarationLine(
-        `typedef struct { // Capture data for ${typeToString(closureType)}`
+        `typedef struct { // Capture data for ${typeToString(functionType)}`
       );
 
       for (const field of captureType.fields) {
@@ -529,11 +531,11 @@ export function generateClosureDeclaration(
   const vtableName = `${cName}_vtable`;
 
   emitter.emitDeclarationLine(
-    `typedef struct { // Vtable for ${typeToString(closureType)}`
+    `typedef struct { // Vtable for ${typeToString(functionType)}`
   );
 
   // Generate the call function pointer
-  const callType = closureType.callType;
+  const callType = functionType;
   const returnTypeStr = getTypeString(callType.return.type, context);
 
   // Generate the complete parameter list for the call function pointer
@@ -555,7 +557,7 @@ export function generateClosureDeclaration(
 
   // Generate the closure structure with vtable and captured data pointer
   emitter.emitDeclarationLine(
-    `typedef struct { // ${closureType.typeName || "Closure"} : ${typeToString(closureType)} (reference counted)`
+    `typedef struct { // ${"Closure"} : ${typeToString(functionType)} (reference counted)`
   );
   emitter.emitDeclarationLine(
     `  yo_ref_header_t header; // Reference count header`

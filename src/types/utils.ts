@@ -21,10 +21,10 @@ import {
 } from "./creators";
 import {
   ArrayType,
-  ClosureType,
   ComptListType,
   DynType,
   EnumType,
+  FnModuleType,
   FunctionParameter,
   FunctionType,
   FutureType,
@@ -43,7 +43,6 @@ import {
   isBooleanType,
   isCCompatibleType,
   isCharType,
-  isClosureType,
   isComptFloatType,
   isComptIntType,
   isComptListType,
@@ -54,6 +53,7 @@ import {
   isF32Type,
   isF64Type,
   isFloatType,
+  isFnModuleType,
   isFunctionType,
   isI16Type,
   isI32Type,
@@ -201,6 +201,50 @@ export function typeImplementsSend(
   });
 }
 
+export function typeImplementsFn(type: Type | undefined) {
+  if (!type || !type.module) {
+    return false;
+  }
+
+  for (const field of type.module.fields) {
+    if (
+      field.assignedValue &&
+      isTypeValue(field.assignedValue) &&
+      isModuleType(field.assignedValue.value)
+    ) {
+      const moduleType = field.assignedValue.value as ModuleType;
+      if (moduleType.isFn) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Extract FnModuleType from a SomeType (e.g., from Impl(Fn(...) -> ...))
+ * Returns the FnModuleType if found in the required modules, otherwise undefined.
+ */
+export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
+  // Check the module for required modules (from Impl)
+  if (type.module) {
+    for (const field of type.module.fields) {
+      if (
+        field.assignedValue &&
+        isTypeValue(field.assignedValue) &&
+        isModuleType(field.assignedValue.value)
+      ) {
+        const moduleType = field.assignedValue.value as ModuleType;
+        if (isFnModuleType(moduleType)) {
+          return moduleType;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 /**
  * Check if the type of the value requires to use the compt modifier.
  * For example:
@@ -268,11 +312,9 @@ export function typeContainsRefType(
         )
       );
     case TypeTag.Module:
-      return (type as ModuleType).fields.some((field) =>
-        typeContainsRefType(field.type, checkedTypes)
-      );
+      return false; // Modules do not own references
     case TypeTag.Function: {
-      return !!(type as FunctionType).isClosure;
+      return false; // Regular functions are not reference types
     }
     // No need to consider ptr/ref types, as they are not owning types
     default:
@@ -486,9 +528,13 @@ export function typeRequiresInference(type?: Type): boolean {
     case TypeTag.SomeType:
       // SomeType represents unknown/inferable types
       return true;
-    case TypeTag.Closure: {
-      const closureType = type as ClosureType;
-      return typeRequiresInference(closureType.callType);
+    case TypeTag.Module: {
+      // For FnModuleType, check if the function signature requires inference
+      const moduleType = type as ModuleType;
+      if (moduleType.isFn) {
+        return typeRequiresInference(moduleType.isFn);
+      }
+      return false;
     }
     case TypeTag.Future:
       return typeRequiresInference((type as FutureType).childType);
@@ -853,7 +899,7 @@ function functionTypeToString(
     .join(", ");
   const from = func.SelfType?.typeName;
   const fnKind = "fn";
-  return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) ${func.isClosure ? "=>" : "->"} ${returnString}`;
+  return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) -> ${returnString}`;
 }
 
 /**
@@ -1063,12 +1109,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return func.typeName;
       }
       return functionTypeToString(func, visited);
-    }
-    case TypeTag.Closure: {
-      const closureType = type as ClosureType;
-      // Format the call type with closure kind
-      const callType = closureType.callType;
-      return functionTypeToString(callType, visited);
     }
 
     case TypeTag.SomeType: {
@@ -1498,6 +1538,14 @@ function typeCanReferenceCyclicRefStruct(
     }
   }
 
+  if (isSomeType(type) && type.resolvedConcreteType) {
+    return typeCanReferenceCyclicRefStruct(
+      type.resolvedConcreteType,
+      originalRefStruct,
+      visitedTypes
+    );
+  }
+
   // Check through arrays
   if (isArrayType(type)) {
     return typeCanReferenceCyclicRefStruct(
@@ -1544,11 +1592,6 @@ function typeCanReferenceCyclicRefStruct(
         return true;
       }
     }
-  }
-
-  // Check through closures - they can capture object types
-  if (isClosureType(type)) {
-    return true;
   }
 
   // Check through dynamic types - they can contain object types

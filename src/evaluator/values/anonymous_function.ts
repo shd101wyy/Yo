@@ -22,11 +22,13 @@ import {
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
-  ClosureType,
-  createClosureType,
+  createFnModuleType,
+  extractFnModuleFromType,
+  FnModuleType,
   FunctionType,
-  isClosureType,
   isFunctionType,
+  isSomeType,
+  SomeType,
   StructType,
   Type,
   typeToString,
@@ -37,7 +39,6 @@ import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
-import { addARCFunctionsToClosureType } from "../types/utils";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
@@ -63,18 +64,26 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  // Handle both FunctionType and ClosureType
+  // Handle FunctionType and SomeType (from Impl(Fn(...)))
   let functionType: FunctionType;
   let isCreatingClosure = false;
-  let expectedClosureType: ClosureType | undefined;
+  let expectedFnModuleType: FnModuleType | undefined;
 
   if (isFunctionType(expectedType)) {
     functionType = expectedType;
-  } else if (isClosureType(expectedType)) {
-    // Extract the call type from the closure
-    expectedClosureType = expectedType;
-    functionType = expectedType.callType;
-    isCreatingClosure = true;
+  } else if (isSomeType(expectedType)) {
+    // Handle Impl(Fn(...)) - SomeType with required modules containing a FnModuleType
+    const fnModuleFromSomeType = extractFnModuleFromType(expectedType);
+    if (fnModuleFromSomeType) {
+      expectedFnModuleType = fnModuleFromSomeType;
+      functionType = fnModuleFromSomeType.isFn;
+      isCreatingClosure = true;
+    } else {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected a function type or Impl(Fn(...)), got:\n${typeToString(expectedType)}`,
+      });
+    }
   } else {
     throw formatErrorMessage({
       token: expr.token,
@@ -82,18 +91,10 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  // Determine the expected operator based on the closure kind
-  let expectedOperator: string;
-  let operatorDescription: string;
-
-  if (functionType.isClosure) {
-    expectedOperator = "=>";
-    operatorDescription = "closure";
-  } else {
-    // Regular function (not a closure)
-    expectedOperator = "->";
-    operatorDescription = "function";
-  }
+  // For closures (from Impl(Fn(...))), we expect the `=>` operator
+  // For regular functions, we expect `->`
+  const expectedOperator = isCreatingClosure ? "=>" : "->";
+  const operatorDescription = isCreatingClosure ? "closure" : "function";
 
   if (!exprIsFunctionCallOf(expr, expectedOperator, 2)) {
     throw formatErrorMessage({
@@ -315,7 +316,8 @@ Got:      "${paramName}"`,
   };
 
   // Evaluate the function body
-  const isClosureFunction = functionType.isClosure;
+  // A function is a closure if it's being used as an implementation of an Fn trait (FnModuleType)
+  const isClosureFunction = !!expectedFnModuleType;
   // eslint-disable-next-line prefer-const
   let { evaluationContext } = createFunctionBodyEvaluationContext(
     {
@@ -397,11 +399,11 @@ Got:      "${paramName}"`,
   let capturedVariableDupExpressions: Expr[] | undefined;
   let captureType: StructType | undefined;
 
-  if (isCreatingClosure && expectedClosureType) {
+  if (isCreatingClosure && expectedFnModuleType && isSomeType(expectedType)) {
     // Create a closure type and closure value using helper function
     // We don't need the captureValue since closures are runtime-only
     const result = createCaptureTypeAndValue({
-      expectedCaptureType: undefined, // Capture type is no longer part of ClosureType
+      expectedCaptureType: undefined, // Capture type is no longer part of FnModuleType
       capturedVariablesWithValues,
       env,
       closureToken: expr.token,
@@ -409,14 +411,7 @@ Got:      "${paramName}"`,
     });
     captureType = result.captureType;
 
-    const closureType = createClosureType(newFunctionType, env);
-
-    // Add ARC functions to the closure type
-    env = addARCFunctionsToClosureType({
-      closureType,
-      env,
-      context,
-    });
+    const closureType = createFnModuleType(newFunctionType, env);
 
     // Generate ___dup expressions for captured ARC variables
     const { capturedVariableDupExpressions: dupExpressions, env: updatedEnv } =
@@ -437,9 +432,16 @@ Got:      "${paramName}"`,
       captureType: captureType,
     };
 
+    // Create a new SomeType with the resolvedConcreteType set to the captureType
+    // This preserves the SomeType structure but records the concrete capture struct
+    const resolvedSomeType: SomeType = {
+      ...expectedType,
+      resolvedConcreteType: captureType,
+    };
+
     // Closures are always runtime values - create an UnknownValue
     // The closure will be constructed at runtime in C code
-    finalType = closureType;
+    finalType = resolvedSomeType;
     finalValue = undefined;
   } else {
     // Regular function - use the existing functionValue

@@ -28,7 +28,7 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { areTypesCompatible, isClosureType, typeToString } from "../../types";
+import { areTypesCompatible, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -156,10 +156,11 @@ function searchRecursively(
     // which would create multiple references without corresponding dup calls
     return;
   }
+
   // Skip closures - they may be called multiple times
-  if (exprIsFunctionCall(expr) && isClosureType(expr.$?.type)) {
-    return;
-  }
+  // if (exprIsFunctionCall(expr) && isFnModuleType(expr.$?.type)) {
+  //   return;
+  // }
 
   // Helper function to handle branching expressions (cond, match)
   function handleBranchingExpression(

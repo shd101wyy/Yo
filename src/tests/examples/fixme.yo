@@ -1,15 +1,35 @@
-Gc :: import "std/gc";
+open import "std/libc/stdio.yo";
 
-test_fn :: (fn() -> unit) {
-  {
-    flag := (Gc.tracked_count() == 0);
-    assert(flag, "Expected 0 tracked objects at start");
-  };
-  {
-    assert((Gc.tracked_count() == 0), "Expected 0 tracked objects at start");
-  };
+/*
+main :: (fn() -> unit) {
+  x := 1;
+  closure := ((fn(y : i32) => i32) {
+    x = (x + y);
+    return x;
+  });
+
+  closure(1); // 2
+  closure(1); // 3
+
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
+};
+*/
+
+main :: (fn() -> unit) {
+  x := 1;
+
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  closure := (ClosureType {
+    x = (x + y);
+    return x;
+  });
+
+  closure(1); // 2
+  closure(1); // 3
+
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
 };
 
-test "Test Gc tracked count", {
-  test_fn();
-};
+export main;

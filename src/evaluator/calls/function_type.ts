@@ -41,10 +41,11 @@ export function createFunctionBodyEvaluationContext(
     evaluationEnv: env,
   };
 
-  // Create captured variables map if this is a closure
-  const capturedVariables = functionType.isClosure
-    ? new Map<string, CapturedVariableInfo>()
-    : undefined;
+  // Create captured variables map for tracking variable captures
+  // This is always created since we determine closure behavior from context
+  const capturedVariables = context.capturedVariables
+    ? context.capturedVariables
+    : new Map<string, CapturedVariableInfo>();
 
   const evaluationContext: EvaluatorContext = {
     ...context,
@@ -89,10 +90,12 @@ export function tryToImplementFunctionByFunctionType({
   const functionBodyExpr = argExprs[0]!;
 
   // Add parameters to the env new frame
+  // Check if we're in a closure context (caller already has capturedVariables set)
+  const isInClosureContext = !!context.capturedVariables;
   let env = pushEnvFrame(
     // For closures, we keep the full caller environment to enable variable capturing
     // For regular functions, we only keep top-level frame and compile-time variables
-    functionType.isClosure
+    isInClosureContext
       ? callerEnv
       : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
     functionType.parametersFrame
@@ -170,11 +173,7 @@ export function tryToImplementFunctionByFunctionType({
 
   // For closures, consume the captured variables from outer scopes
   let finalCallerEnv = callerEnv;
-  if (
-    functionType.isClosure &&
-    capturedVariables &&
-    capturedVariables.size > 0
-  ) {
+  if (isInClosureContext && capturedVariables && capturedVariables.size > 0) {
     finalCallerEnv = consumeCapturedVariables({
       capturedVariables,
       env: callerEnv,
