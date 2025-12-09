@@ -467,27 +467,40 @@ export function areTypesCompatible(
   }
 
   if (isDynType(expected.type) && isDynType(given.type)) {
-    const expectedModules = expected.type.moduleTypes
-      .slice(1)
-      .toSorted((m1, m2) => m1.id.localeCompare(m2.id));
-    const givenModules = given.type.moduleTypes
-      .slice(1)
-      .toSorted((m1, m2) => m1.id.localeCompare(m2.id));
-    if (expectedModules.length !== givenModules.length) {
-      return false;
-    }
-    for (let i = 0; i < expectedModules.length; i++) {
-      const expectedModule = expectedModules[i]!;
-      const givenModule = givenModules[i]!;
-      if (
-        !areTypesCompatible(
-          { type: expectedModule, env: expected.env },
-          { type: givenModule, env: given.env }
-        )
-      ) {
-        return false;
+    // Given type must implement ALL modules required by expected type
+    // Example: expected `Dyn(Copy)` is compatible with given `Dyn(Copy, Send)`
+    for (const expectedModule of expected.type.requiredModules) {
+      const matchingGivenModule = given.type.requiredModules.find(
+        (givenModule) =>
+          areTypesCompatible(
+            { type: expectedModule, env: expected.env },
+            { type: givenModule, env: given.env }
+          )
+      );
+      if (!matchingGivenModule) {
+        return false; // Expected module not found in given
       }
     }
+
+    // Check negative modules: given must NOT implement any of expected's negative modules
+    if (
+      expected.type.negativeModules &&
+      expected.type.negativeModules.length > 0
+    ) {
+      for (const negativeModule of expected.type.negativeModules) {
+        const matchingGivenModule = given.type.requiredModules.find(
+          (givenModule) =>
+            areTypesCompatible(
+              { type: negativeModule, env: expected.env },
+              { type: givenModule, env: given.env }
+            )
+        );
+        if (matchingGivenModule) {
+          return false; // Given implements a module that expected forbids
+        }
+      }
+    }
+
     return true;
   }
 
@@ -548,6 +561,24 @@ export function areTypesCompatible(
         });
         if (!matchingGivenModule) {
           return false; // Expected module not found in given
+        }
+      }
+
+      // Check negative modules: given must NOT implement any of expected's negative modules
+      if (
+        expected.type.negativeModules &&
+        expected.type.negativeModules.length > 0
+      ) {
+        for (const negativeModule of expected.type.negativeModules) {
+          const matchingGivenModule = givenModules.find((givenModule) =>
+            areTypesCompatible(
+              { type: negativeModule, env: expected.env },
+              { type: givenModule, env: given.env }
+            )
+          );
+          if (matchingGivenModule) {
+            return false; // Given implements a module that expected forbids
+          }
         }
       }
 

@@ -801,8 +801,8 @@ export function generateDynDeclaration(
   // Generate function pointers in the correct order: base module methods first, then user module methods
   const processedMethods = new Set<string>();
 
-  // Process modules in the order they appear in dynType.moduleTypes
-  for (const moduleType of dynType.moduleTypes) {
+  // Process modules in the order they appear in dynType.requiredModules
+  for (const moduleType of dynType.requiredModules) {
     for (const field of moduleType.fields) {
       // Skip 'Self' type declarations as they're not methods
       if (field.label === "Self") {

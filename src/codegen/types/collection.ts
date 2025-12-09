@@ -250,7 +250,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
     if (isDynType(type)) {
       const dynType = type as DynType;
       // Collect all module types that this dynamic dispatch can handle
-      for (const moduleType of dynType.moduleTypes) {
+      for (const moduleType of dynType.requiredModules) {
         collectType(moduleType, context);
       }
     }

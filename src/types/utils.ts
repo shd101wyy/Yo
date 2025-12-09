@@ -223,25 +223,22 @@ export function typeImplementsFn(type: Type | undefined) {
 }
 
 /**
- * Extract FnModuleType from a SomeType (e.g., from Impl(Fn(...) -> ...))
+ * Extract FnModuleType from a SomeType or DynType (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
  * Returns the FnModuleType if found in the required modules, otherwise undefined.
  */
 export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
-  // Check the module for required modules (from Impl)
-  if (type.module) {
-    for (const field of type.module.fields) {
-      if (
-        field.assignedValue &&
-        isTypeValue(field.assignedValue) &&
-        isModuleType(field.assignedValue.value)
-      ) {
-        const moduleType = field.assignedValue.value as ModuleType;
+  // Check requiredModules for SomeType and DynType
+  if (isSomeType(type) || isDynType(type)) {
+    const requiredModules = (type as SomeType | DynType).requiredModules;
+    if (requiredModules) {
+      for (const moduleType of requiredModules) {
         if (isFnModuleType(moduleType)) {
           return moduleType;
         }
       }
     }
   }
+
   return undefined;
 }
 
@@ -1113,14 +1110,29 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.SomeType: {
       const someType = type as SomeType;
+      // If typeName is available, use it
+      if (someType.typeName) {
+        return someType.typeName;
+      }
       if (someType.functionApplication) {
         return exprToString(someType.functionApplication);
       }
-      // const parentType = someType.parentType;
-      // TODO: Display the interfaces implemented
+      // Display as Impl(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
+      const allModuleStrings: string[] = [];
+      if (someType.requiredModules && someType.requiredModules.length > 0) {
+        for (const mt of someType.requiredModules) {
+          allModuleStrings.push(typeToString(mt, visited));
+        }
+      }
+      if (someType.negativeModules && someType.negativeModules.length > 0) {
+        for (const mt of someType.negativeModules) {
+          allModuleStrings.push(`!(${typeToString(mt, visited)})`);
+        }
+      }
+      if (allModuleStrings.length > 0) {
+        return `${someType.name}(${allModuleStrings.join(", ")})`;
+      }
       return someType.name;
-      // return `${someType.name}(${someType.id})`;
-      // return `some(${parentType.tag})`;
     }
 
     case TypeTag.Ptr: {
@@ -1138,10 +1150,21 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.Dyn: {
       const dynType = type as DynType;
-      return `Dyn(${dynType.moduleTypes
-        .slice(1) // skip the baseModuleType which contains ___dup, ___drop, ___dispose
-        .map((mt) => typeToString(mt, visited))
-        .join(", ")})`;
+      // If typeName is available, use it
+      if (dynType.typeName) {
+        return dynType.typeName;
+      }
+      // Display as Dyn(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
+      const allModuleStrings: string[] = [];
+      for (const mt of dynType.requiredModules) {
+        allModuleStrings.push(typeToString(mt, visited));
+      }
+      if (dynType.negativeModules && dynType.negativeModules.length > 0) {
+        for (const mt of dynType.negativeModules) {
+          allModuleStrings.push(`!(${typeToString(mt, visited)})`);
+        }
+      }
+      return `Dyn(${allModuleStrings.join(", ")})`;
     }
 
     case TypeTag.Future: {

@@ -4,6 +4,8 @@ import {
   BuiltinFunctions,
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
   FuncCallExpr,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
@@ -31,11 +33,21 @@ export function evaluateDynType({
   expectExprToBeFunctionCallOf(expr, BuiltinKeywords.Dyn);
   const moduleExprs = expr.args;
   const moduleTypes: ModuleType[] = [];
+  const negativeModules: ModuleType[] = [];
 
   for (let i = 0; i < moduleExprs.length; i++) {
     const moduleExpr = moduleExprs[i]!;
+
+    // Check if this is a negated module: !(Module)
+    const isNegated =
+      exprIsFunctionCall(moduleExpr) &&
+      exprIsFunctionCallOf(moduleExpr, "!") &&
+      moduleExpr.args.length === 1;
+
+    const actualModuleExpr = isNegated ? moduleExpr.args[0]! : moduleExpr;
+
     const evaluatedModule = evaluateExpression({
-      expr: moduleExpr,
+      expr: actualModuleExpr,
       env,
       context: {
         ...context,
@@ -56,15 +68,25 @@ export function evaluateDynType({
 
     const moduleType = evaluatedModule.$.value.value;
 
-    // Check if the moduleType already exists in moduleTypes
-    if (moduleTypes.some((mt) => mt.id === moduleType.id)) {
-      throw formatErrorMessage({
-        token: moduleExpr.token,
-        errorMessage: `Module type ${typeToString(moduleType)} is already included in '${BuiltinKeywords.Dyn}' expression.`,
-      });
+    if (isNegated) {
+      // Check if the moduleType already exists in negativeModules
+      if (negativeModules.some((mt) => mt.id === moduleType.id)) {
+        throw formatErrorMessage({
+          token: actualModuleExpr.token,
+          errorMessage: `Module type ${typeToString(moduleType)} is already included in negative constraints of '${BuiltinKeywords.Dyn}' expression.`,
+        });
+      }
+      negativeModules.push(moduleType);
+    } else {
+      // Check if the moduleType already exists in moduleTypes
+      if (moduleTypes.some((mt) => mt.id === moduleType.id)) {
+        throw formatErrorMessage({
+          token: actualModuleExpr.token,
+          errorMessage: `Module type ${typeToString(moduleType)} is already included in '${BuiltinKeywords.Dyn}' expression.`,
+        });
+      }
+      moduleTypes.push(moduleType);
     }
-
-    moduleTypes.push(moduleType);
   }
 
   // Prevent having the same function names in different moduleTypes
@@ -147,9 +169,11 @@ module(
   const wrappedObjectARCModuleType = wrappedObjectARCModuleTypeValue.value;
 
   // Create the dyn type with its own module for ARC functions
+  // Note: wrappedObjectARCModuleType is prepended to handle ARC for the wrapped object
   const dynType = createDynType(
     [wrappedObjectARCModuleType, ...moduleTypes],
-    env
+    env,
+    negativeModules
   );
 
   // Add ARC functions to the dyn type's module

@@ -2,7 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  exprIsAtom,
+  exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
@@ -20,12 +20,12 @@ import { evaluateExpression } from "../exprs/expr";
 /**
  * Evaluates the `Impl(module1, module2, ...)` syntax.
  * Creates a SomeType whose module contains the given module constraints.
+ * Supports negated modules with `!(Module)` syntax.
  *
  * Example:
  *   Id :: module(id : (fn(self : Self) -> Self));
  *   ImplId :: Impl(Id);
- *   // Or with custom label:
- *   ImplId :: Impl(MyId : Id);
+ *   ImplIdNotCopy :: Impl(Id, !(Copy));  // Must implement Id but NOT Copy
  *
  * ImplId is a SomeType that requires types to implement the Id module.
  */
@@ -52,34 +52,19 @@ export function evaluateImplConstraint({
     });
   }
 
-  const requiredModules: { label: string; moduleType: ModuleType }[] = [];
+  const requiredModules: ModuleType[] = [];
+  const negativeModules: ModuleType[] = [];
 
   // Evaluate each argument and expect them to be module types
+  // Support negated modules with !(Module) syntax
   for (const arg of expr.args) {
-    let label: string;
-    let moduleExpr = arg;
+    // Check if this is a negated module: !(Module)
+    const isNegated =
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, "!") &&
+      arg.args.length === 1;
 
-    // Check if this is a labeled argument: `Label : ModuleType`
-    if (exprIsFunctionCallOf(arg, ":", 2)) {
-      const labelExpr = (arg as FuncCallExpr).args[0]!;
-      const valueExpr = (arg as FuncCallExpr).args[1]!;
-
-      if (!exprIsAtom(labelExpr)) {
-        throw formatErrorMessage({
-          token: labelExpr.token,
-          errorMessage: `Expected identifier for Impl label, got: ${exprToString(labelExpr)}`,
-        });
-      }
-
-      label = labelExpr.token.value;
-      moduleExpr = valueExpr;
-    } else if (exprIsAtom(arg)) {
-      // Use the atom name as the label
-      label = arg.token.value;
-    } else {
-      // Fallback to a generated label
-      label = `__required_module_${requiredModules.length}`;
-    }
+    const moduleExpr = isNegated ? arg.args[0]! : arg;
 
     const evaluatedArg = evaluateExpression({
       expr: moduleExpr,
@@ -109,15 +94,20 @@ export function evaluateImplConstraint({
       });
     }
 
-    requiredModules.push({ label, moduleType: evaluatedArg.$.value.value });
+    if (isNegated) {
+      negativeModules.push(evaluatedArg.$.value.value);
+    } else {
+      requiredModules.push(evaluatedArg.$.value.value);
+    }
   }
 
-  // Create a SomeType with the required modules
+  // Create a SomeType with the required and negative modules
   const someType = createSomeType(
     createType0(),
     "Impl", // Name for the SomeType
     undefined,
-    requiredModules
+    requiredModules,
+    negativeModules
   );
 
   const typeValue = createTypeValue(someType);

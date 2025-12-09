@@ -189,7 +189,7 @@ export function evaluateDynValue({
   for (const moduleType of moduleTypes) {
     let matched = false;
 
-    for (const expectedModuleType of expectedDynType.moduleTypes) {
+    for (const expectedModuleType of expectedDynType.requiredModules) {
       if (checkedModuleTypes.has(expectedModuleType)) {
         continue;
       }
@@ -215,7 +215,7 @@ export function evaluateDynValue({
   }
 
   // Find missing modules automatically
-  for (const requiredModuleType of expectedDynType.moduleTypes) {
+  for (const requiredModuleType of expectedDynType.requiredModules) {
     if (checkedModuleTypes.has(requiredModuleType)) {
       continue;
     }
@@ -408,10 +408,10 @@ ${filteredImplicitVariables
     checkedModuleTypes.add(requiredModuleType);
   }
 
-  // Reorder moduleValues to match the order of expectedDynType.moduleTypes
+  // Reorder moduleValues to match the order of expectedDynType.requiredModules
   // This ensures the constructor parameters match the vtable order
   const orderedModuleValues: ModuleValue[] = [];
-  for (const expectedModuleType of expectedDynType.moduleTypes) {
+  for (const expectedModuleType of expectedDynType.requiredModules) {
     // Find the corresponding module value
     const moduleValueIndex = moduleTypes.findIndex((moduleType) =>
       areTypesCompatible(

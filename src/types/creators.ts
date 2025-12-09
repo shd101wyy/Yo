@@ -1,7 +1,7 @@
 import { createEmptyEnv, Environment, Frame } from "../env";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
-import { createTypeValue, Value, valueToString } from "../value";
+import { Value, valueToString } from "../value";
 import {
   ArrayType,
   ComptListType,
@@ -14,7 +14,6 @@ import {
   FunctionReturn,
   FunctionType,
   FutureType,
-  ModuleField,
   ModuleType,
   PtrType,
   SliceType,
@@ -825,7 +824,8 @@ export function createSomeType(
   type: TypeHierarchyType,
   variableName: string,
   id?: string,
-  requiredModules?: { label: string; moduleType: ModuleType }[]
+  requiredModules?: ModuleType[],
+  negativeModules?: ModuleType[]
 ): SomeType {
   if (type.level !== 0) {
     console.trace();
@@ -842,33 +842,17 @@ export function createSomeType(
     name: variableName,
     parentType: type,
     size: undefined,
+    requiredModules: requiredModules ?? [],
+    negativeModules:
+      negativeModules && negativeModules.length > 0
+        ? negativeModules
+        : undefined,
     module,
     // Necessary to inherit, like extern types from extern "yo"
     isExtern: type.isExtern,
     externName: type.externName,
   };
   module.receiverType = someType;
-
-  // Add required modules as fields in the module, with receiverType set to someType
-  if (requiredModules && requiredModules.length > 0) {
-    for (const { label, moduleType: requiredModule } of requiredModules) {
-      // Create a copy of the module with receiverType set to the someType
-      const moduleWithReceiver: ModuleType = {
-        ...requiredModule,
-        receiverType: someType,
-      };
-      const field: ModuleField = {
-        label,
-        type: createTypeHierarchy(1), // Module type
-        isCompileTimeOnly: true,
-        assignedValue: createTypeValue(moduleWithReceiver),
-        exprs: {
-          expr: undefined as unknown as Expr, // No expr for synthetic fields
-        },
-      };
-      module.fields.push(field);
-    }
-  }
 
   return someType;
 }
@@ -965,15 +949,20 @@ export function createFnModuleType(
 }
 
 export function createDynType(
-  moduleTypes: ModuleType[],
-  env: Environment
+  requiredModules: ModuleType[],
+  env: Environment,
+  negativeModules?: ModuleType[]
 ): DynType {
   const module = createModuleType(env);
 
   const dynType: DynType = {
-    id: `dyn_${moduleTypes.map((m) => m.id).join("_")}`,
+    id: `dyn_${requiredModules.map((m) => m.id).join("_")}`,
     tag: TypeTag.Dyn,
-    moduleTypes,
+    requiredModules,
+    negativeModules:
+      negativeModules && negativeModules.length > 0
+        ? negativeModules
+        : undefined,
     module,
     env,
   };

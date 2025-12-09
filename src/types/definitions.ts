@@ -166,6 +166,22 @@ export interface SomeType extends Type {
    */
   resolvedConcreteType?: Type;
 
+  /**
+   * The required modules that this SomeType must implement.
+   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredModules = [FnModule, CopyModule]
+   */
+  requiredModules: ModuleType[];
+
+  /**
+   * The negative modules that this SomeType must NOT implement.
+   * For example, `Impl(!(Copy))` has negativeModules = [CopyModule]
+   */
+  negativeModules?: ModuleType[];
+
+  /**
+   * The module that contains where constraints attached to this SomeType.
+   * This is separate from requiredModules which are the explicit modules in Impl(...).
+   */
   module: ModuleType;
 }
 
@@ -646,11 +662,17 @@ export interface DynType extends Type {
   tag: TypeTag.Dyn;
 
   /**
-   * The module types that this dynamic dispatch type can dispatch to.
+   * The required modules that this dynamic dispatch type can dispatch to.
    * This is used to create vtable for dynamic dispatch.
    * Now uses reference semantics by default, so it's not a dynamic sized type.
    */
-  moduleTypes: ModuleType[];
+  requiredModules: ModuleType[];
+
+  /**
+   * The negative modules that this DynType must NOT implement.
+   * For example, `Dyn(!(Copy))` has negativeModules = [CopyModule]
+   */
+  negativeModules?: ModuleType[];
 
   /**
    * The module of the dyn type, which contains

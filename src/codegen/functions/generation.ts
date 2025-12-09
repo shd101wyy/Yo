@@ -1635,7 +1635,7 @@ export function generateDynConstructorFunctions(
 
       // Initialize vtable with function pointers from variadic arguments
       const processedMethods = new Set<string>();
-      for (const moduleType of dynType.moduleTypes) {
+      for (const moduleType of dynType.requiredModules) {
         for (const field of moduleType.fields) {
           // Skip 'Self' and 'This' type declarations (compile-time only)
           if (field.label === "Self") {
