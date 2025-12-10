@@ -514,20 +514,16 @@ IdI32 :: impl i32, Id(
     (self)-> self
 );
 
-MakeStringer ::
-  fn(forall(T: Type, Y: Type),
-   using(TStringer) : (T <: Stringer(T)), 
-   using(UStringer) : (U <: Stringer(U))) ->
-  compt(Stringer((T, Y))) {
-  return impl (T, Y), Stringer(
+impl(forall(T : Type, U : Type), where(T <: Stringer, U <: Stringer), 
+  (T, U), Stringer(
     to_string:
       ((x, y))->
         "(" + 
         x.to_string() + 
         "," + 
         y.to_string() + 
-        ")")
-};
+        ")"
+  ));
 
 /// method call
 12.id(); // 12

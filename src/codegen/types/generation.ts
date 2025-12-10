@@ -438,9 +438,11 @@ typedef struct {
 
     if (isDynType(type)) {
       generateDynDeclaration(type, cName, context);
+    } else if (isFnModuleType(type)) {
+      // Handle FnModuleType directly (collected from Impl(Fn(...)))
+      generateClosureDeclaration(type.isFn.callType, cName, undefined, context);
     } else if (typeImplementsFn(type)) {
-      // Pass undefined for captureType since this is just the type declaration
-      // Actual capture types are handled during closure construction in expressions/generation.ts
+      // Handle SomeType/DynType that implements Fn
       const fnModule = extractFnModuleFromType(type)!;
 
       generateClosureDeclaration(

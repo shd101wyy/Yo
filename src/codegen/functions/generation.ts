@@ -23,7 +23,6 @@ import {
 import {
   canRefStructFormCycles,
   extractFnModuleFromType,
-  typeImplementsFn,
 } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
@@ -705,8 +704,11 @@ export function generateClosureConstructorDeclarations(
       continue;
     }
 
-    if (typeImplementsFn(type)) {
-      const fnModule = extractFnModuleFromType(type)!;
+    // Check for FnModuleType (from Impl(Fn(...))) or SomeType/DynType implementing Fn
+    const fnModule = isFnModuleType(type)
+      ? type
+      : extractFnModuleFromType(type);
+    if (fnModule) {
       const closureType = fnModule.isFn.callType;
 
       // Skip generic closures that contain SomeType parameters
@@ -1441,8 +1443,11 @@ export function generateClosureConstructorFunctions(
       continue;
     }
 
-    if (typeImplementsFn(type)) {
-      const fnModule = extractFnModuleFromType(type)!;
+    // Check for FnModuleType (from Impl(Fn(...))) or SomeType/DynType implementing Fn
+    const fnModule = isFnModuleType(type)
+      ? type
+      : extractFnModuleFromType(type);
+    if (fnModule) {
       const closureType = fnModule.isFn.callType;
 
       // Skip generic closures that contain SomeType parameters
