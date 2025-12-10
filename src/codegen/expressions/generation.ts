@@ -1976,6 +1976,8 @@ function generateFuncCall(
       }
     } else if (functionType && typeImplementsFn(functionType)) {
       const fnModule = extractFnModuleFromType(functionType)!;
+      // Check if this is a Dyn closure (uses vtable) or Impl closure (uses direct call)
+      const isDynClosure = isDynType(functionType);
       {
         const functionType = fnModule.isFn.callType;
         // Handle closure calls with dynamic dispatch through vtable
@@ -2083,10 +2085,14 @@ function generateFuncCall(
             }
           });
 
-          // Call through the vtable - closure->vtable.call(closure->data, args...)
+          // Call through function pointer:
+          // - Dyn closures use vtable: closure->vtable.call(closure->data, args...)
+          // - Impl closures use direct call: closure->call(closure->data, args...)
           // Note: The first argument to the call function is the capture data pointer, not the closure itself
           const allArgs = [`(${closureCode})->data`, ...args];
-          const closureCall = `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
+          const closureCall = isDynClosure
+            ? `(${closureCode})->vtable.call(${allArgs.join(", ")})`
+            : `(${closureCode})->call(${allArgs.join(", ")})`;
 
           // Get return type from the closure's function signature
           const returnType = functionType.return.type;

@@ -1498,8 +1498,8 @@ export function generateClosureConstructorFunctions(
       emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
       emitter.emitLine(`  obj->data = data;`);
 
-      // Set vtable function pointers directly
-      emitter.emitLine(`  obj->vtable.call = call;`);
+      // Set direct call function pointer (static dispatch - no vtable)
+      emitter.emitLine(`  obj->call = call;`);
 
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);

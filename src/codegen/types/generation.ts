@@ -535,15 +535,8 @@ export function generateClosureDeclaration(
     // If it already exists, we don't need to generate it again - just reference it
   }
 
-  // Generate vtable structure for the closure's dynamic dispatch
-  // The vtable contains function pointers for call, dispose, drop, and dup methods
-  const vtableName = `${cName}_vtable`;
-
-  emitter.emitDeclarationLine(
-    `typedef struct { // Vtable for ${typeToString(functionType)}`
-  );
-
-  // Generate the call function pointer
+  // For Impl closures, we use true static dispatch with a direct function pointer
+  // No vtable is needed - the call function pointer is embedded directly in the struct
   const callType = functionType;
   const returnTypeStr = getTypeString(callType.return.type, context);
 
@@ -556,23 +549,17 @@ export function generateClosureDeclaration(
     })
     .join(", ");
 
-  // Call function takes closure pointer as first parameter, then user parameters
+  // Generate the closure structure with direct call function pointer (static dispatch)
   emitter.emitDeclarationLine(
-    `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Call function pointer`
-  );
-
-  emitter.emitDeclarationLine(`} ${vtableName};`);
-  emitter.emitDeclarationLine("");
-
-  // Generate the closure structure with vtable and captured data pointer
-  emitter.emitDeclarationLine(
-    `typedef struct { // ${"Closure"} : ${typeToString(functionType)} (reference counted)`
+    `typedef struct { // Impl Closure : ${typeToString(functionType)} (static dispatch, reference counted)`
   );
   emitter.emitDeclarationLine(
     `  yo_ref_header_t header; // Reference count header`
   );
-  emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
-
+  // Direct function pointer for static dispatch (no vtable indirection)
+  emitter.emitDeclarationLine(
+    `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Direct call function pointer`
+  );
   // Data field is always void* to allow different capture types for same closure type
   emitter.emitDeclarationLine(`  void* data; // Captured data`);
 
