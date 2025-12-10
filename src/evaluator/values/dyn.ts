@@ -22,6 +22,7 @@ import {
 import { createModuleValue, ModuleValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { addARCFunctionsToDynType } from "../types/utils";
 
 export function evaluateDynValue({
   expr,
@@ -112,9 +113,21 @@ export function evaluateDynValue({
       env,
       valueType.negativeModules
     );
+    // Add ARC functions to the DynType
+    env = addARCFunctionsToDynType({
+      dynType: expectedDynType,
+      env,
+      context,
+    });
   } else if (valueType.module) {
     // For concrete types with .module, create DynType from the module
     expectedDynType = createDynType([valueType.module], env, []);
+    // Add ARC functions to the DynType
+    env = addARCFunctionsToDynType({
+      dynType: expectedDynType,
+      env,
+      context,
+    });
   } else {
     throw formatErrorMessage({
       token: expr.token,
