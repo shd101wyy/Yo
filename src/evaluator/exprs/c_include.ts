@@ -97,8 +97,9 @@ c_include "<stdio.h>" ...;`,
     }
 
     // Set the isExtern and cInclude for the field type
-    field.type.isExtern = "c";
-    field.type.cInclude = cHeaderFile;
+    // IMPORTANT: Create a copy of the type to avoid mutating cached types
+    // (e.g., the shared Type(0) object from createType0())
+    field.type = { ...field.type, isExtern: "c", cInclude: cHeaderFile };
 
     // Expect field to be compile-time only
     if (!field.isCompileTimeOnly) {

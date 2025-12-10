@@ -26,21 +26,42 @@ main :: (fn() -> unit) {
 };
 */
 
+PrintSelf :: module(
+  print_self : (fn(self : Self) -> unit)
+);
+
+use_print_self :: (fn(
+  forall(T : Type),
+  value : T,
+  where(T <: PrintSelf)
+) -> unit) {
+  (T <: PrintSelf).print_self(value);
+  value.print_self();
+};
+
+impl(i32, PrintSelf(
+  print_self : ((self) -> {
+    printf("i32 value: %d\n", self);
+  })
+));
+
+impl(boolean, PrintSelf(
+  print_self : ((self) -> {
+    cond(
+      self => printf("boolean value: true\n"),
+      true => printf("boolean value: false\n")
+    );
+  })
+));
+
 main :: (fn() -> unit) {
-  x := 1;
+  i := 42;
+  t := true;
+  f := false;
 
-  ClosureType :: Impl(Fn(y : i32) -> i32);
-  T :: Type.to_string(ClosureType);
-  closure := (ClosureType {
-    x = (x + y);
-    return x;
-  });
-
-  closure(1); // 2
-  closure(1); // 3
-
-  result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  use_print_self(i);
+  use_print_self(t);
+  use_print_self(f);
 };
 
 export main;

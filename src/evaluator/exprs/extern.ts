@@ -98,8 +98,9 @@ export function evaluateExtern({
     }
 
     // Set the isExtern for the field type
-    field.type.isExtern = language;
-    field.type.externName = field.label;
+    // IMPORTANT: Create a copy of the type to avoid mutating cached types
+    // (e.g., the shared Type(0) object from createType0())
+    field.type = { ...field.type, isExtern: language, externName: field.label };
 
     // Expect field to be compile-time only
     if (!field.isCompileTimeOnly) {
