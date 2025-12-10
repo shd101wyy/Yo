@@ -1271,7 +1271,32 @@ ${exprToString(expr)}`);
       }
       return;
     }
-    // If variable doesn't exist in env (shouldn't happen), fall through to create new one
+    // Variable name exists but not in current env - this can happen during overload
+    // resolution when multiple env copies are created. Reuse the existing name
+    // and add it to the current env instead of creating a new name.
+    // This ensures consistency between the variable name stored in the expression
+    // and the one added to the begin block frame for dropping.
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: expr.$.variableName,
+        type,
+        value: _isOwningTheARCValue ? undefined : value,
+        isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
+        initializedAtToken: expr.token,
+        isOwningTheRefValue: _isOwningTheARCValue,
+        isOwningTheSameRefValueAs,
+        consumedAtToken: undefined,
+        token: expr.token,
+      },
+      addToBeginBlockFrame: true,
+    });
+    // Preserve the originType
+    if (!originType) {
+      expr.$.originType = type;
+    }
+    expr.$.env = nextEnv;
+    return;
   }
 
   // Create a new temp variable

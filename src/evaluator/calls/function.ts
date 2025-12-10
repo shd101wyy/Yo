@@ -1064,6 +1064,9 @@ ${functionsWithMatchingTypes
 
       // No consumption logic needed anymore
 
+      // Preserve the variableName if it was already set (e.g., from a previous overload attempt)
+      const previousVariableName = expr.$?.variableName;
+
       expr.$ = {
         env,
         type: returnType,
@@ -1072,6 +1075,7 @@ ${functionsWithMatchingTypes
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
         deferredDropExpressions,
+        variableName: previousVariableName,
       };
 
       // Set temp variable which holds the result of the function call
