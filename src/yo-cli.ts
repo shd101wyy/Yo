@@ -115,6 +115,13 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: [],
   })
+  .option("sanitize", {
+    describe:
+      "Enable AddressSanitizer for memory leak and error detection. Use 'address' for full sanitizer or 'leak' for leak detection only.",
+    type: "string",
+    demandOption: false,
+    choices: ["address", "leak"],
+  })
   .command(
     "compile <file>",
     "Compile a '.yo' file",
@@ -152,6 +159,7 @@ yo run <script>                  Run a script defined in 'yo.json'
         release: argv.release,
         optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
         allocator: argv.allocator as "mimalloc" | "libc",
+        sanitize: argv.sanitize as "address" | "leak" | undefined,
       });
     }
   )

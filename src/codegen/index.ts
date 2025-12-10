@@ -64,6 +64,12 @@ export class CodeGenerator {
        * Memory allocator to use: 'mimalloc' (default) or 'libc'.
        */
       allocator?: "mimalloc" | "libc";
+      /**
+       * Enable sanitizer for memory error detection.
+       * 'address' - Full AddressSanitizer (memory errors + leaks)
+       * 'leak' - Leak detection only
+       */
+      sanitize?: "address" | "leak";
     }
   ): void {
     if (!options.skipCodegen) {
@@ -114,6 +120,20 @@ export class CodeGenerator {
           "-o",
           outputFile,
         ];
+
+        // Add sanitizer flags if requested
+        if (options.sanitize) {
+          if (options.sanitize === "address") {
+            compileArgs.splice(-2, 0, "-fsanitize=address");
+            compileArgs.splice(-2, 0, "-fno-omit-frame-pointer");
+            console.log(
+              "AddressSanitizer enabled (memory errors + leak detection)"
+            );
+          } else if (options.sanitize === "leak") {
+            compileArgs.splice(-2, 0, "-fsanitize=leak");
+            console.log("LeakSanitizer enabled (leak detection only)");
+          }
+        }
 
         // Add external files from --extern option
         const externalFiles = options.extern;
