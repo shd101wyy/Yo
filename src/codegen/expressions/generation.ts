@@ -147,7 +147,7 @@ function generateFuncCall(
     typeImplementsFn(expr.$.type)
   ) {
     const fnModule = extractFnModuleFromType(expr.$.type)!;
-    const closureType = fnModule.isFn;
+    const closureType = fnModule.isFn.callType;
     const closureFunctionValue = expr.$.closureFunctionValue;
     const captureType = expr.$.captureType;
 
@@ -1970,7 +1970,7 @@ function generateFuncCall(
     } else if (functionType && typeImplementsFn(functionType)) {
       const fnModule = extractFnModuleFromType(functionType)!;
       {
-        const functionType = fnModule.isFn;
+        const functionType = fnModule.isFn.callType;
         // Handle closure calls with dynamic dispatch through vtable
         const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
 

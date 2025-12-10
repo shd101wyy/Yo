@@ -940,7 +940,7 @@ export function createFnModuleType(
   const module = createModuleType(env);
 
   // Set the isFn field to make this a FnModuleType
-  module.isFn = fnType;
+  module.isFn = { callType: fnType };
   module.id = fnModuleId;
 
   module.receiverType = module;

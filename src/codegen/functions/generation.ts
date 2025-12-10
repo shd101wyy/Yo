@@ -342,7 +342,8 @@ export function generateFunction(
       const closureType = closureInfo.closureType.isFn;
       const captureType = closureInfo.captureType;
 
-      (context as FunctionGenerationContext).currentClosureType = closureType;
+      (context as FunctionGenerationContext).currentClosureType =
+        closureType.callType;
 
       // Get captured variables from the capture type
       if (
@@ -705,7 +706,7 @@ export function generateClosureConstructorDeclarations(
 
     if (typeImplementsFn(type)) {
       const fnModule = extractFnModuleFromType(type)!;
-      const closureType = fnModule.isFn;
+      const closureType = fnModule.isFn.callType;
 
       // Skip generic closures that contain SomeType parameters
       if (typeContainsSomeType(type)) {
@@ -1441,7 +1442,7 @@ export function generateClosureConstructorFunctions(
 
     if (typeImplementsFn(type)) {
       const fnModule = extractFnModuleFromType(type)!;
-      const closureType = fnModule.isFn;
+      const closureType = fnModule.isFn.callType;
 
       // Skip generic closures that contain SomeType parameters
       if (typeContainsSomeType(type)) {

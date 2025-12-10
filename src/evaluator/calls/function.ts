@@ -456,7 +456,7 @@ export function evaluateFunctionCall({
       try {
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
-          functionType: fnModuleType.isFn,
+          functionType: fnModuleType.isFn.callType,
           expr,
           functionCalleeExpr: func,
           argExprs: argsToUse,
@@ -1092,7 +1092,7 @@ ${functionsWithMatchingTypes
 
     // Check if it's a macro function call,
     // if yes, then we continue to evaluate the returnValue which should be an Expr value.
-    if (fnModuleType.isFn.return.isUnquote) {
+    if (fnModuleType.isFn.callType.return.isUnquote) {
       if (isExprValue(returnValue)) {
         const expandedExpr = evaluateExpression({
           expr: returnValue.value,

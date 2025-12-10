@@ -465,7 +465,7 @@ export interface ModuleType extends Type {
    * Set for modules created via `Fn(params) -> ReturnType` syntax.
    * The FunctionType contains the parameters and return type of the callable.
    */
-  isFn?: FunctionType;
+  isFn?: { callType: FunctionType };
 }
 
 /**
@@ -476,7 +476,7 @@ export interface ModuleType extends Type {
  * - Fn(x: i32) -> i32
  * - Impl(Fn(x: i32, y: i32) -> string)
  */
-export type FnModuleType = ModuleType & { isFn: FunctionType };
+export type FnModuleType = ModuleType & { isFn: { callType: FunctionType } };
 
 export interface EnumVariant {
   /**

@@ -89,7 +89,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
   }
 
   if (isFnModuleType(type)) {
-    return occursCheck(someTypeId, type.isFn);
+    return occursCheck(someTypeId, type.isFn.callType);
   }
 
   return false;
@@ -604,11 +604,11 @@ export function synthesizeTypes(
     // Synthesize the function types (isFn)
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expectedFnModule.isFn,
+        type: expectedFnModule.isFn.callType,
         env: expected.env,
       },
       {
-        type: givenFnModule.isFn,
+        type: givenFnModule.isFn.callType,
         env: given.env,
       },
       checkedTypePairs

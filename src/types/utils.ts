@@ -566,7 +566,7 @@ export function typeRequiresInference(type?: Type): boolean {
       // For FnModuleType, check if the function signature requires inference
       const moduleType = type as ModuleType;
       if (moduleType.isFn) {
-        return typeRequiresInference(moduleType.isFn);
+        return typeRequiresInference(moduleType.isFn.callType);
       }
       return false;
     }
@@ -1125,7 +1125,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       // Check if it's a FnModuleType (closure/function module)
       if (isFnModuleType(moduleType)) {
         // Display as Fn(...) -> ReturnType
-        return `Fn${functionTypeToString(moduleType.isFn, visited).slice(2)}`; // Remove "fn" prefix and add "Fn"
+        return `Fn${functionTypeToString(moduleType.isFn.callType, visited).slice(2)}`; // Remove "fn" prefix and add "Fn"
       }
 
       let moduleTypeString: string;

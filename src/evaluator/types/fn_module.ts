@@ -127,7 +127,7 @@ export function evaluateFnModuleType({
   const fnModuleType = createModuleType(popEnvFrame(envWithParams, true));
 
   // Set the isFn field to the function type
-  fnModuleType.isFn = fnType;
+  fnModuleType.isFn = { callType: fnType };
 
   // Pop the environment frame (parameters are only for type evaluation)
   env = popEnvFrame(envWithParams, true);

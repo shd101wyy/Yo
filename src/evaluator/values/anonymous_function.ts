@@ -79,7 +79,7 @@ export function evaluateAnonymousFunctionImplementation({
     const fnModuleFromWrapper = extractFnModuleFromType(expectedType);
     if (fnModuleFromWrapper) {
       expectedFnModuleType = fnModuleFromWrapper;
-      functionType = fnModuleFromWrapper.isFn;
+      functionType = fnModuleFromWrapper.isFn.callType;
       isCreatingClosure = true;
       wrapperType = expectedType;
     } else {

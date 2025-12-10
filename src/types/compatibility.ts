@@ -346,8 +346,8 @@ export function areTypesCompatible(
         // Compare the function signatures
         if (
           !areFunctionTypesCompatible(
-            { type: expected.type.isFn, env: expected.env },
-            { type: given.type.isFn, env: given.env },
+            { type: expected.type.isFn.callType, env: expected.env },
+            { type: given.type.isFn.callType, env: given.env },
             isMethodReceiver
           )
         ) {

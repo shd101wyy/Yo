@@ -58,13 +58,13 @@ export function tryToImplementClosureByFnModuleType({
 
   // Add parameters to the env new frame
   // For closures, we keep the full caller environment to enable variable capturing
-  let env = pushEnvFrame(callerEnv, fnModuleType.isFn.parametersFrame);
+  let env = pushEnvFrame(callerEnv, fnModuleType.isFn.callType.parametersFrame);
   // const originalEnv = env; // backup the env for later CPS transformation use.
 
   // Create the function value for the closure
   const functionValue: FunctionValue = {
     tag: ValueTag.Function,
-    type: fnModuleType.isFn, // The function value uses the isFn type
+    type: fnModuleType.isFn.callType, // The function value uses the isFn type
     body: closureBodyExpr,
     frameLevel: env.frames.length - 1,
     funcName: undefined,
@@ -76,7 +76,7 @@ export function tryToImplementClosureByFnModuleType({
   // Create evaluation context using helper function
   const { evaluationContext } = createFunctionBodyEvaluationContext(
     context,
-    fnModuleType.isFn,
+    fnModuleType.isFn.callType,
     functionValue,
     env
   );
@@ -105,24 +105,24 @@ export function tryToImplementClosureByFnModuleType({
   const closureBodyReturnType = evaluatedClosureBody.$.type;
   if (
     !areTypesCompatible(
-      { type: fnModuleType.isFn.return.type, env },
+      { type: fnModuleType.isFn.callType.return.type, env },
       { type: closureBodyReturnType, env }
     )
   ) {
     throw formatErrorMessage({
-      token: fnModuleType.isFn.return.expr?.token ?? PlaceholderToken,
+      token: fnModuleType.isFn.callType.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Incompatible closure return type:
-- Expected: ${typeToString(fnModuleType.isFn.return.type)}
+- Expected: ${typeToString(fnModuleType.isFn.callType.return.type)}
 - Given  : ${typeToString(closureBodyReturnType)}`,
     });
   }
 
   if (
-    fnModuleType.isFn.return.isCompileTimeOnly &&
+    fnModuleType.isFn.callType.return.isCompileTimeOnly &&
     !evaluatedClosureBody.$.value
   ) {
     throw formatErrorMessage({
-      token: fnModuleType.isFn.return.expr?.token ?? PlaceholderToken,
+      token: fnModuleType.isFn.callType.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }

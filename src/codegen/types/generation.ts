@@ -444,7 +444,12 @@ typedef struct {
       // Actual capture types are handled during closure construction in expressions/generation.ts
       const fnModule = extractFnModuleFromType(type)!;
 
-      generateClosureDeclaration(fnModule.isFn, cName, undefined, context);
+      generateClosureDeclaration(
+        fnModule.isFn.callType,
+        cName,
+        undefined,
+        context
+      );
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
     } else if (isTupleType(type)) {
@@ -809,7 +814,7 @@ export function generateDynDeclaration(
   for (const moduleType of dynType.requiredModules) {
     // Handle FnModuleType specially - it has isFn which represents the "call" method
     if (isFnModuleType(moduleType)) {
-      const functionType = moduleType.isFn;
+      const functionType = moduleType.isFn.callType;
       const returnTypeStr = getTypeString(functionType.return.type, context);
 
       // Generate the complete parameter list for the call function pointer
