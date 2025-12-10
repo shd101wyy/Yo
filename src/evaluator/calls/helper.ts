@@ -794,6 +794,25 @@ Got:   ${argExprs.length} arguments`,
     });
   }
 
+  // If forall arguments were not explicitly provided (i.e., forallArgsExpr is undefined),
+  // we need to extract the inferred type parameter values from calleeEnv after
+  // argument type checking has resolved them via synthesizeTypes.
+  if (!forallArgsExpr && functionType.forallParameters.length > 0) {
+    for (const forallParameter of functionType.forallParameters) {
+      if (forallParameter.label) {
+        const variables = getVariablesFromEnv(calleeEnv, forallParameter.label);
+        const variable = variables.at(-1);
+        if (variable?.value && isTypeValue(variable.value)) {
+          forallArgValues.push({
+            value: variable.value,
+            argType: variable.value.type,
+            parameterType: forallParameter.type,
+          });
+        }
+      }
+    }
+  }
+
   // NOTE: We should handle the returnType before the implicit arguments
   // Evaluate the function return type again
   let {
@@ -1127,17 +1146,17 @@ function createSpecializedFunctionInline({
         const currentValue = compileTimeArgValues[index]!;
 
         // Use areValuesEqual for robust comparison
-        return areValuesEqual(
+        const result = areValuesEqual(
           { value: cachedValue, env: cache.env },
           { value: currentValue, env: callerEnv }
         );
+        return result;
       })
   );
 
   if (existingCache) {
     return existingCache.specializedFunction;
   }
-
   // Create specialized environment with compile-time arguments bound
   let specializedEnv = calleeEnv;
 
