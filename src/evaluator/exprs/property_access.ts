@@ -10,10 +10,12 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import {
+  areTypesCompatible,
   createUsizeType,
   EnumType,
   isArrayType,
   isEnumType,
+  isFunctionType,
   isModuleType,
   isPtrType,
   isSliceType,
@@ -29,6 +31,7 @@ import {
   createTypeValue,
   createUnknownValue,
   isEnumValue,
+  isFunctionValue,
   isModuleValue,
   isStructValue,
   isTupleValue,
@@ -358,8 +361,67 @@ export function evaluatePropertyAccess({
         });
       }
       const propertyName = propertyExpr.token.value;
-      // Check if the type method exists
-      const field = typeValue.value.fields.find(
+      const moduleType = typeValue.value;
+
+      // Special case: If the ModuleType has a receiverType set (from a subtype expression like (T <: PrintSelf)),
+      // we need to look up the actual method implementation from the receiver type's module.
+      if (moduleType.receiverType && moduleType.receiverType.module) {
+        // Look for the impl'd module that matches this module type
+        for (const field of moduleType.receiverType.module.fields) {
+          if (
+            field.label === "" &&
+            field.assignedValue &&
+            isModuleValue(field.assignedValue)
+          ) {
+            const implModuleValue = field.assignedValue;
+            const implModuleType = implModuleValue.type;
+
+            // Check if this impl module matches our module type using areTypesCompatible
+            if (
+              !areTypesCompatible(
+                { type: moduleType, env },
+                { type: implModuleType, env }
+              )
+            ) {
+              continue;
+            }
+
+            // Now look for the method in this matched impl module
+            const methodIndex = implModuleType.fields.findIndex(
+              (f) => f.label === propertyName && isFunctionType(f.type)
+            );
+            if (methodIndex >= 0) {
+              const method = implModuleType.fields[methodIndex]!;
+              if (isFunctionType(method.type)) {
+                // Get the actual function value from the module value
+                const methodValue = implModuleValue.fields[methodIndex];
+                if (methodValue) {
+                  // Use the function value's specialized type if available
+                  let methodType = method.type;
+                  if (
+                    isFunctionValue(methodValue) &&
+                    methodValue.specializedType
+                  ) {
+                    methodType = methodValue.specializedType;
+                  }
+                  expr.$ = {
+                    env,
+                    type: methodType,
+                    value: methodValue,
+                    pathCollection: [],
+                    isAccessingProperty: true,
+                  };
+                  propertyExpr.$ = expr.$;
+                  return expr;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Check if the type method exists in the module's own fields
+      const field = moduleType.fields.find(
         (property) => property.label === propertyName
       );
       if (field) {
