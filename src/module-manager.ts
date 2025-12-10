@@ -175,11 +175,13 @@ export class ModuleManager {
       debugGc,
       debugParallelism,
       debugAsyncAwait,
+      allocator,
     }: {
       emitC?: boolean;
       debugGc?: boolean;
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
+      allocator?: "mimalloc" | "libc";
     } = {}
   ) {
     // console.log(`= Compiling module ${modulePath}`);
@@ -198,6 +200,7 @@ export class ModuleManager {
       debugGc,
       debugParallelism,
       debugAsyncAwait,
+      allocator,
     });
     if (emitC) {
       console.log(this.codeGenratorC.print());

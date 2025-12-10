@@ -60,6 +60,10 @@ export class CodeGenerator {
        * Set optimization level (0, 1, 2, 3). Overrides release.
        */
       optimize?: "0" | "1" | "2" | "3";
+      /**
+       * Memory allocator to use: 'mimalloc' (default) or 'libc'.
+       */
+      allocator?: "mimalloc" | "libc";
     }
   ): void {
     if (!options.skipCodegen) {
@@ -68,6 +72,7 @@ export class CodeGenerator {
         debugGc: options.debugGc,
         debugParallelism: options.debugParallelism,
         debugAsyncAwait: options.debugAsyncAwait,
+        allocator: options.allocator ?? "mimalloc",
       });
 
       // Get the generated C code
@@ -122,18 +127,23 @@ export class CodeGenerator {
           }
         });
 
-        // Always use bundled mimalloc
-        const mimallocStaticPath = "vendor/mimalloc/src/static.c";
-        const mimallocIncludePath = "vendor/mimalloc/include";
+        // Add mimalloc if using mimalloc allocator
+        const allocator = options.allocator ?? "mimalloc";
+        if (allocator === "mimalloc") {
+          const mimallocStaticPath = "vendor/mimalloc/src/static.c";
+          const mimallocIncludePath = "vendor/mimalloc/include";
 
-        if (fs.existsSync(mimallocStaticPath)) {
-          compileArgs.splice(-2, 0, mimallocStaticPath); // Add mimalloc static.c
-          compileArgs.splice(-2, 0, `-I${mimallocIncludePath}`); // Add include path
-          console.log("Using bundled mimalloc");
+          if (fs.existsSync(mimallocStaticPath)) {
+            compileArgs.splice(-2, 0, mimallocStaticPath); // Add mimalloc static.c
+            compileArgs.splice(-2, 0, `-I${mimallocIncludePath}`); // Add include path
+            console.log("Using bundled mimalloc");
+          } else {
+            console.warn(
+              "Bundled mimalloc not found, falling back to standard malloc"
+            );
+          }
         } else {
-          console.warn(
-            "Bundled mimalloc not found, falling back to standard malloc"
-          );
+          console.log("Using libc allocator");
         }
 
         console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);

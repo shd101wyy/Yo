@@ -119,6 +119,11 @@ export interface CodeGenContext {
   debugAsyncAwait: boolean;
 
   /**
+   * Memory allocator to use: 'mimalloc' (default) or 'libc'
+   */
+  allocator: "mimalloc" | "libc";
+
+  /**
    * Current loop label for handling break/continue in nested match expressions
    * This is used to generate goto statements when match expressions inside loops
    * need to break or continue the loop (not just the switch statement)

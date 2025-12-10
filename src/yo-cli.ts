@@ -90,6 +90,13 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     default: false,
   })
+  .option("allocator", {
+    describe: "Memory allocator to use: 'mimalloc' (default) or 'libc'.",
+    type: "string",
+    demandOption: false,
+    default: "mimalloc",
+    choices: ["mimalloc", "libc"],
+  })
   .option("release", {
     describe: "Build in release mode with optimizations (-O2, no warnings).",
     type: "boolean",
@@ -144,6 +151,7 @@ yo run <script>                  Run a script defined in 'yo.json'
         debugAsyncAwait: argv.debugAsyncAwait,
         release: argv.release,
         optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
+        allocator: argv.allocator as "mimalloc" | "libc",
       });
     }
   )

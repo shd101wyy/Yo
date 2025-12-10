@@ -37,6 +37,7 @@ export class CodeGeneratorC {
       debugGc?: boolean;
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
+      allocator?: "mimalloc" | "libc";
     } = {}
   ): void {
     this.emitter.emitDeclarationLine(`\n// Module ${modulePath}`);
@@ -70,6 +71,7 @@ export class CodeGeneratorC {
       debugParallelism: options.debugParallelism ?? false,
       debugAsyncAwait: options.debugAsyncAwait ?? false,
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
+      allocator: options.allocator ?? "mimalloc",
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)
