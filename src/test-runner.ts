@@ -255,7 +255,7 @@ function runSingleTest(
     const testProgram = generateTestProgram(test, originalFileContent);
     fs.writeFileSync(testFilePath, testProgram);
 
-    // Compile the test using ModuleManager
+    // Compile the test using ModuleManager with libc allocator (faster compilation)
     const moduleManager = new ModuleManager();
 
     try {
@@ -264,6 +264,7 @@ function runSingleTest(
         debugGc: false,
         debugParallelism: false,
         debugAsyncAwait: false,
+        allocator: "libc",
       });
     } catch (compileError) {
       cleanup();
@@ -285,24 +286,19 @@ function runSingleTest(
       fs.unlinkSync(testFilePath);
     }
 
-    // Compile C code
-    const mimallocStaticPath = path.resolve("vendor/mimalloc/src/static.c");
-    const mimallocIncludePath = path.resolve("vendor/mimalloc/include");
-
+    // Compile C code with AddressSanitizer for memory leak detection
+    // Note: Using libc allocator (no mimalloc) for faster test compilation
     const compileArgs = [
       "-std=c11",
       "-Wall",
       "-Wextra",
       "-O0",
+      "-fsanitize=address",
+      "-fno-omit-frame-pointer",
       testCPath,
       "-o",
       testOutputPath,
     ];
-
-    if (fs.existsSync(mimallocStaticPath)) {
-      compileArgs.push(mimallocStaticPath);
-      compileArgs.push(`-I${mimallocIncludePath}`);
-    }
 
     const compileResult = spawnSync(cCompiler, compileArgs, {
       stdio: "pipe",
@@ -320,24 +316,48 @@ function runSingleTest(
       };
     }
 
-    // Run the test executable
+    // Run the test executable with AddressSanitizer leak detection enabled
     const runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
       timeout: 30000, // 30 second timeout
+      env: {
+        ...process.env,
+        ASAN_OPTIONS: "detect_leaks=1",
+      },
     });
 
-    const passed = runResult.status === 0;
+    // Check for memory leaks in the output
+    const combinedOutput = `${runResult.stdout || ""}${runResult.stderr || ""}`;
+    const hasMemoryLeak =
+      combinedOutput.includes("LeakSanitizer") ||
+      combinedOutput.includes("detected memory leaks") ||
+      combinedOutput.includes("Direct leak") ||
+      combinedOutput.includes("Indirect leak");
+
+    const passed = runResult.status === 0 && !hasMemoryLeak;
 
     cleanup();
+
+    let errorMessage: string | undefined;
+    if (!passed) {
+      if (hasMemoryLeak) {
+        // Extract just the leak summary for a cleaner error message
+        const leakMatch = combinedOutput.match(
+          /=+\n([\s\S]*?SUMMARY[\s\S]*?)(\n=+|$)/
+        );
+        const leakInfo = leakMatch ? leakMatch[1] : combinedOutput;
+        errorMessage = `Memory leak detected:\n${leakInfo}`;
+      } else {
+        errorMessage = `Test failed with exit code ${runResult.status}\n${runResult.stdout}\n${runResult.stderr}`;
+      }
+    }
 
     return {
       testName: test.name,
       filePath: test.filePath,
       passed,
-      errorMessage: passed
-        ? undefined
-        : `Test failed with exit code ${runResult.status}\n${runResult.stdout}\n${runResult.stderr}`,
+      errorMessage,
       duration: Date.now() - startTime,
     };
   } catch (error) {
