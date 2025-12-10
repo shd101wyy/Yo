@@ -103,10 +103,11 @@ function generateDeferredDropExpressions({
     );
 
     // Evaluate the dropExpr to ensure it's properly typed and processed
+    // Note: We clear expectedType because ___drop returns unit, not whatever the outer context expects
     const evaluatedDropExpr = evaluateExpression({
       expr: dropExpr,
       env: finalEnv,
-      context: { ...context },
+      context: { ...context, expectedType: undefined },
     });
 
     deferredDropExpressions.push(evaluatedDropExpr);

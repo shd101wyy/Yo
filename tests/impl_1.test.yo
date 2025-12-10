@@ -1,31 +1,6 @@
 open import "std/libc/stdio.yo";
 { GlobalAllocator } :: import "std/allocator.yo";
 
-/*
-StaticAsync :: Impl(Future(i32));
-DynamicAsync :: Dyn(Future(i32));
-
-main :: (fn() -> unit) {
-  async {
-    task1 := dyn(async {
-      printf("Task 1 started\n");
-    });
-    task2 := async {
-      printf("Task 2 started\n");
-    };
-    task3 := async {
-      printf("Task 3 started\n");
-    };
-
-    await task1;
-    await task2;
-    await task3;
-  };
-
-  return ();
-};
-*/
-
 Id :: module(
   id : (fn(self : Self) -> Self)
 );
@@ -63,7 +38,7 @@ impl(Box(i32), Id(
   })
 ));
 
-main :: (fn() -> unit) {
+test "Test impl for i32, boolean, Box(i32)", {
   i := 42;
   t := true;
   f := false;
@@ -79,5 +54,3 @@ main :: (fn() -> unit) {
 
   assert(use_id(bi).* == bi.*, "use_id should return the same Boxed i32 value");
 };
-
-export main;

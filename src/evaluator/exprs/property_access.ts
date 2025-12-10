@@ -145,10 +145,13 @@ export function evaluatePropertyAccess({
   const propertyExpr = expr.args[1]!;
 
   // Evaluate object
+  // Note: We don't pass expectedType when evaluating the object, because the expectedType
+  // applies to the final property access result, not to the object itself.
+  // For example, in `use_id(bi).*`, the expectedType might be i32, but use_id(bi) returns Box(i32).
   objectExpr = evaluateExpression({
     expr: objectExpr,
     env,
-    context: { ...context },
+    context: { ...context, expectedType: undefined },
   });
   if (objectExpr.$?.env) {
     env = objectExpr.$?.env;
