@@ -611,9 +611,27 @@ function generateFuncCall(
         argCode = generateExpr(arg, indent, context);
       }
 
+      // Handle deferred dup expressions for the return argument.
+      // This is needed when returning a borrowed parameter - we must call dup
+      // to increment the reference count since return values are owned.
+      let handledDeferredDup = false;
+      if (
+        arg.$?.deferredDupExpressions &&
+        arg.$.deferredDupExpressions.length > 0
+      ) {
+        generateDeferredDupExpressions(arg, indent, functionContext);
+        const dupExpr = arg.$.deferredDupExpressions[0]!;
+        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+          argCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          handledDeferredDup = true;
+        }
+      }
+
       const returnType = getTypeString(expr.$.type!, context);
 
+      // Skip re-declaring if we already generated a dup call with a temp variable
       if (
+        !handledDeferredDup &&
         !isUnitType(expr.$.type) &&
         expr.$.variableName &&
         (needsTempVarDeclaration || expr.$.variableName !== argCode) // Prevent something like: int32_t _yof4ca7ba3_temp_2071 = _yof4ca7ba3_temp_2071;
@@ -712,7 +730,10 @@ function generateFuncCall(
         return `return`;
       }
 
-      return `return ${expr.$.variableName}`;
+      // If we handled deferred dup, use argCode (which is the dup result temp variable)
+      // Otherwise use expr.$.variableName as before
+      const returnValue = handledDeferredDup ? argCode : expr.$.variableName;
+      return `return ${returnValue}`;
     } else {
       if (expr.$?.deferredDropExpressions) {
         generateDeferredDropExpressions(expr, indent, context);

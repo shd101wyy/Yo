@@ -1242,12 +1242,22 @@ ${exprToString(expr)}`);
     const existingVariables = getVariablesFromEnv(env, expr.$.variableName);
     if (existingVariables.length > 0) {
       const existingVariable = existingVariables[existingVariables.length - 1]!;
+      // IMPORTANT: Preserve the existing variable's ownership if it's borrowed.
+      // A borrowed parameter should NOT be upgraded to owning just because we're
+      // attaching a temp variable to it. This is crucial for correct reference
+      // counting - returning a borrowed parameter should generate a dup call.
+      const preservedIsOwningTheRefValue =
+        existingVariable.isOwningTheRefValue === false
+          ? false
+          : _isOwningTheARCValue;
       const updatedVariable: Variable = {
         ...existingVariable,
         type,
-        value: _isOwningTheARCValue ? undefined : value,
-        isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
-        isOwningTheRefValue: _isOwningTheARCValue,
+        value: preservedIsOwningTheRefValue ? undefined : value,
+        isCompileTimeOnly: preservedIsOwningTheRefValue
+          ? false
+          : Boolean(value),
+        isOwningTheRefValue: preservedIsOwningTheRefValue,
         isOwningTheSameRefValueAs,
       };
       expr.$.env = updateExistingVariable(
