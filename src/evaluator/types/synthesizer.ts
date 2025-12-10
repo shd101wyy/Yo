@@ -12,7 +12,7 @@ import {
   isEnumType,
   isFnModuleType,
   isFunctionType,
-  isFutureType,
+  isFutureModuleType,
   isModuleType,
   isPtrType,
   isSliceType,
@@ -84,8 +84,8 @@ function occursCheck(someTypeId: string, type: Type): boolean {
     );
   }
 
-  if (isFutureType(type)) {
-    return occursCheck(someTypeId, type.childType);
+  if (isFutureModuleType(type)) {
+    return occursCheck(someTypeId, type.isFuture.outputType);
   }
 
   if (isFnModuleType(type)) {
@@ -581,15 +581,18 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  } else if (isFutureType(expected.type) && isFutureType(given.type)) {
+  } else if (
+    isFutureModuleType(expected.type) &&
+    isFutureModuleType(given.type)
+  ) {
     // Synthesize the element types of the Futures
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
-        type: expected.type.childType,
+        type: expected.type.isFuture.outputType,
         env: expected.env,
       },
       {
-        type: given.type.childType,
+        type: given.type.isFuture.outputType,
         env: given.env,
       },
       checkedTypePairs

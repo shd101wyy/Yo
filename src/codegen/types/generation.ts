@@ -3,12 +3,11 @@ import {
   EnumType,
   extractFnModuleFromType,
   FunctionType,
-  FutureType,
   isDynType,
   isEnumType,
   isFnModuleType,
   isFunctionType,
-  isFutureType,
+  isFutureModuleType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -218,7 +217,7 @@ typedef struct {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
-    if (isFutureType(type)) {
+    if (isFutureModuleType(type)) {
       // Forward declaration for Future types (they don't use _struct pattern)
       context.emitter.emitDeclarationLine(
         `typedef struct ${cName}_struct ${cName}; // Forward declaration`
@@ -455,9 +454,11 @@ typedef struct {
     } else if (isTupleType(type)) {
       // For tuples, we can generate a struct-like declaration
       generateTupleDeclaration(type, cName, context);
-    } else if (isFutureType(type)) {
-      generateFutureDeclaration(type, cName, context);
     }
+    // FIXME: Handle FutureModuleType declarations if needed
+    // else if (isFutureModuleType(type)) {
+    //   generateFutureDeclaration(type, cName, context);
+    // }
     // Note: isEnumType and isStructType are handled in the passes above
   }
 }
@@ -922,63 +923,64 @@ export function generateDynDeclaration(
  * Generate a Future declaration for stackless async/await
  * Future is a reference-counted struct that holds an async task result
  */
-export function generateFutureDeclaration(
-  futureType: FutureType,
-  cName: string,
-  context: CodeGenContext
-): void {
-  const emitter = context.emitter;
-  const elementTypeStr = getTypeString(futureType.childType, context);
-  const isUnit = isUnitType(futureType.childType);
-
-  emitter.emitDeclarationLine(
-    `struct ${cName}_struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (GC managed)`
-  );
-  emitter.emitDeclarationLine(
-    `  yo_ref_header_t header; // Reference count header`
-  );
-
-  // Future state (atomic for thread-safe access across threads)
-  emitter.emitDeclarationLine(
-    `  _Atomic(yo_future_state_t) state; // Future state (PENDING/RUNNING/COMPLETED/ERROR) - atomic for cross-thread access`
-  );
-
-  // Pointer to state machine (if this Future is backed by a state machine)
-  emitter.emitDeclarationLine(
-    `  void* state_machine; // Pointer to state machine that created this Future (freed when Future is disposed)`
-  );
-
-  // Dispose function for the state machine (called before freeing state_machine)
-  emitter.emitDeclarationLine(
-    `  void (*state_machine_dispose_fn)(void*); // Dispose function to clean up state machine variables before freeing`
-  );
-
-  // Resume function for this Future's state machine (for lazy spawning)
-  emitter.emitDeclarationLine(
-    `  void (*resume_fn)(void*); // Resume function for this Future's state machine (for lazy spawn on await)`
-  );
-
-  // Continuation callback and state machine for async notification
-  emitter.emitDeclarationLine(
-    `  _Atomic(void*) continuation_fn; // Resume function to call when Future completes (NULL if no continuation)`
-  );
-  emitter.emitDeclarationLine(
-    `  _Atomic(void*) continuation_sm; // State machine to resume when Future completes (the AWAITING state machine)`
-  );
-
-  // Detached flag - set when Future is dropped while still RUNNING
-  emitter.emitDeclarationLine(
-    `  _Atomic(bool) detached; // True if Future was dropped while RUNNING (should be freed when completed)`
-  );
-
-  // Only include result field if not unit/void
-  if (!isUnit) {
-    emitter.emitDeclarationLine(
-      `  ${elementTypeStr} result; // The result value (only valid when state=COMPLETED)`
-    );
-  }
-
-  emitter.emitDeclarationLine(`};`);
-  emitter.emitDeclarationLine(`typedef struct ${cName}_struct ${cName};`);
-  emitter.emitDeclarationLine(""); // Add blank line for readability
-}
+// FIXME: Outdated
+/// export function generateFutureDeclaration(
+///   futureType: FutureType,
+///   cName: string,
+///   context: CodeGenContext
+/// ): void {
+///   const emitter = context.emitter;
+///   const elementTypeStr = getTypeString(futureType.childType, context);
+///   const isUnit = isUnitType(futureType.childType);
+///
+///   emitter.emitDeclarationLine(
+///     `struct ${cName}_struct { // ${futureType.typeName || "Future"} : ${typeToString(futureType)} (GC managed)`
+///   );
+///   emitter.emitDeclarationLine(
+///     `  yo_ref_header_t header; // Reference count header`
+///   );
+///
+///   // Future state (atomic for thread-safe access across threads)
+///   emitter.emitDeclarationLine(
+///     `  _Atomic(yo_future_state_t) state; // Future state (PENDING/RUNNING/COMPLETED/ERROR) - atomic for cross-thread access`
+///   );
+///
+///   // Pointer to state machine (if this Future is backed by a state machine)
+///   emitter.emitDeclarationLine(
+///     `  void* state_machine; // Pointer to state machine that created this Future (freed when Future is disposed)`
+///   );
+///
+///   // Dispose function for the state machine (called before freeing state_machine)
+///   emitter.emitDeclarationLine(
+///     `  void (*state_machine_dispose_fn)(void*); // Dispose function to clean up state machine variables before freeing`
+///   );
+///
+///   // Resume function for this Future's state machine (for lazy spawning)
+///   emitter.emitDeclarationLine(
+///     `  void (*resume_fn)(void*); // Resume function for this Future's state machine (for lazy spawn on await)`
+///   );
+///
+///   // Continuation callback and state machine for async notification
+///   emitter.emitDeclarationLine(
+///     `  _Atomic(void*) continuation_fn; // Resume function to call when Future completes (NULL if no continuation)`
+///   );
+///   emitter.emitDeclarationLine(
+///     `  _Atomic(void*) continuation_sm; // State machine to resume when Future completes (the AWAITING state machine)`
+///   );
+///
+///   // Detached flag - set when Future is dropped while still RUNNING
+///   emitter.emitDeclarationLine(
+///     `  _Atomic(bool) detached; // True if Future was dropped while RUNNING (should be freed when completed)`
+///   );
+///
+///   // Only include result field if not unit/void
+///   if (!isUnit) {
+///     emitter.emitDeclarationLine(
+///       `  ${elementTypeStr} result; // The result value (only valid when state=COMPLETED)`
+///     );
+///   }
+///
+///   emitter.emitDeclarationLine(`};`);
+///   emitter.emitDeclarationLine(`typedef struct ${cName}_struct ${cName};`);
+///   emitter.emitDeclarationLine(""); // Add blank line for readability
+/// }

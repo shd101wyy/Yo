@@ -8,14 +8,19 @@ import {
 } from "../../expr";
 import {
   convertComptTypeToRuntimeType,
-  createFutureType,
-  isFutureType,
+  createFutureModuleType,
+  createSomeType,
+  createType0,
+  DynType,
+  extractFutureModuleFromType,
+  isDynType,
+  isSomeType,
+  SomeType,
   Type,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToFutureType } from "../types/utils";
 import {
   createCaptureTypeAndValue,
   enrichCapturedVariables,
@@ -70,11 +75,26 @@ export function evaluateAsync({
 
   const bodyExpr = expr.args[0]!;
 
-  // Determine the expected return type for the body
-  // If context expects Future(T), we should expect T inside the async block
+  // Determine the expected return type for the body and wrapper type
+  // If context expects Impl(Future(T)) or Dyn(Future(T)), extract T for the body
   let unwrappedFutureExpectedType: Type | undefined = undefined;
-  if (context.expectedType && isFutureType(context.expectedType.type)) {
-    unwrappedFutureExpectedType = context.expectedType.type.childType;
+  // let expectedFutureModuleType: FutureModuleType | undefined = undefined;
+  let wrapperType: SomeType | DynType | undefined;
+
+  if (context.expectedType) {
+    const expectedType = context.expectedType.type;
+    const futureModuleFromExpected = extractFutureModuleFromType(expectedType);
+    if (futureModuleFromExpected) {
+      // expectedFutureModuleType = futureModuleFromExpected;
+      unwrappedFutureExpectedType =
+        futureModuleFromExpected.isFuture.outputType;
+      if (isDynType(expectedType)) {
+        wrapperType = expectedType;
+      } else if (isSomeType(expectedType)) {
+        // SomeType or FutureModuleType directly
+        wrapperType = expectedType;
+      }
+    }
   }
 
   // Create a map to track captured variables (similar to closures)
@@ -119,15 +139,8 @@ export function evaluateAsync({
     env,
   });
 
-  // Create Future(returnType)
-  const futureType = createFutureType(returnType, env);
-
-  // Add ARC functions to the future type
-  env = addARCFunctionsToFutureType({
-    futureType,
-    env,
-    context: { ...context },
-  });
+  // Create FutureModuleType for the inferred return type
+  const futureModuleType = createFutureModuleType(returnType, env);
 
   // Enrich captured variables with values and types (convert to FunctionCapturedVariableInfo)
   const capturedVariables =
@@ -157,10 +170,38 @@ export function evaluateAsync({
     });
   env = updatedEnv;
 
+  // Determine the final type based on expected wrapper type
+  let finalType: Type;
+
+  if (wrapperType && isDynType(wrapperType)) {
+    // Expected type is Dyn(Future(T)) - create DynType with resolvedConcreteType
+    const resolvedDynType: DynType = {
+      ...wrapperType,
+    };
+    finalType = resolvedDynType;
+  } else if (wrapperType && isSomeType(wrapperType)) {
+    const resolvedSomeType: SomeType = {
+      ...wrapperType,
+      resolvedConcreteType: captureType,
+    };
+    finalType = resolvedSomeType;
+  } else {
+    // Default to SomeType (Impl(Future(T))) for static dispatch
+    const someType = createSomeType(
+      createType0(),
+      "", // Name for the SomeType QUESTION: What should be this?
+      undefined,
+      [futureModuleType], // requiredModules
+      undefined // negativeModules
+    );
+    someType.resolvedConcreteType = captureType;
+    finalType = someType;
+  }
+
   // Store the captured variables for codegen (bodyExpr already has evaluated data)
   expr.$ = {
     env,
-    type: futureType,
+    type: finalType,
     value: undefined, // Runtime value (the Future handle)
     pathCollection: [],
     // Store metadata for async codegen

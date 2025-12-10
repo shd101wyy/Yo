@@ -27,7 +27,7 @@ import {
   isComptListType,
   isEnumType,
   isFunctionType,
-  isFutureType,
+  isFutureModuleType,
   isModuleType,
   isPtrType,
   isSliceType,
@@ -368,12 +368,15 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
     return { ...type, fields: newFields } as Type;
   }
 
-  if (isFutureType(type)) {
-    const newChildType = substituteInType(type.childType, substitutions);
-    if (newChildType === type.childType) {
+  if (isFutureModuleType(type)) {
+    const newChildType = substituteInType(
+      type.isFuture.outputType,
+      substitutions
+    );
+    if (newChildType === type.isFuture.outputType) {
       return type;
     }
-    return { ...type, childType: newChildType } as Type;
+    return { ...type, isFuture: { childType: newChildType } } as Type;
   }
 
   if (isFunctionType(type)) {

@@ -466,6 +466,12 @@ export interface ModuleType extends Type {
    * The FunctionType contains the parameters and return type of the callable.
    */
   isFn?: { callType: FunctionType };
+
+  /**
+   * If this module represents a Future type, this contains the child type.
+   * Set for modules created via `Future(T)` syntax.
+   */
+  isFuture?: { outputType: Type };
 }
 
 /**
@@ -477,6 +483,17 @@ export interface ModuleType extends Type {
  * - Impl(Fn(x: i32, y: i32) -> string)
  */
 export type FnModuleType = ModuleType & { isFn: { callType: FunctionType } };
+
+/**
+ * FutureModuleType represents an async/await future for stackless coroutines.
+ * This replaces the old FutureType - now futures are just ModuleTypes with isFuture set.
+ *
+ * Examples:
+ * - Future(i32): A future that will eventually yield an i32 value
+ * - Impl(Future(i32)) for static dispatch with futures
+ * - Dyn(Future(i32)) for dynamic dispatch
+ */
+export type FutureModuleType = ModuleType & { isFuture: { outputType: Type } };
 
 export interface EnumVariant {
   /**
@@ -684,43 +701,6 @@ export interface DynType extends Type {
   /**
    * The env when the dyn type is created.
    * The env is also useful to show the frame level at which the dyn is defined.
-   */
-  env: Environment;
-}
-
-/**
- * FutureType represents an async/await future for stackless coroutines.
- * A Future(T) is a value that will be available in the future after an async operation completes.
- *
- * Examples:
- * - Future(i32): A future that will eventually yield an i32 value
- * - Future(string): A future that will eventually yield a string value
- * - Future(unit): A future that completes without returning a value
- *
- * Usage:
- * ```yo
- * read_async :: (fn(fd: i32) -> Future(String)) { ... }
- * future := read_async(fd);          // Returns Future(string)
- * result := await future;            // Waits for and extracts the string
- * ```
- */
-export interface FutureType extends Type {
-  tag: TypeTag.Future;
-
-  /**
-   * The type of value that this future will eventually yield.
-   */
-  childType: Type;
-
-  /**
-   * The module associated with this future type.
-   * Contains ARC functions (___dup, ___drop) for reference counting.
-   */
-  module: ModuleType;
-
-  /**
-   * The env when the future type is created.
-   * The env is also useful to show the frame level at which the future is defined.
    */
   env: Environment;
 }

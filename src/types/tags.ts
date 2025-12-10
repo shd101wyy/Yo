@@ -81,7 +81,4 @@ export enum TypeTag {
 
   // Compile-time known List
   ComptList = "ComptList",
-
-  // Concurrency
-  Future = "Future",
 }

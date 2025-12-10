@@ -18,7 +18,7 @@ import {
   isExprType,
   isFnModuleType,
   isFunctionType,
-  isFutureType,
+  isFutureModuleType,
   isModuleType,
   isObjectType,
   isPrimitiveType,
@@ -188,7 +188,7 @@ export function typeOfType(
     // Pointer type hierarchy logic
     // Raw pointers are now level 0 types
     return createType0(type);
-  } else if (isFutureType(type)) {
+  } else if (isFutureModuleType(type)) {
     return createType0(type);
   } else if (isVoidType(type)) {
     return createType0(type);

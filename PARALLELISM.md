@@ -108,13 +108,13 @@ Why thread affinity?
 ┌────────────────────────────────────────────────────┐
 │                 Thread Pool                        │
 │                                                    │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐         │
-│  │ Worker 0 │  │ Worker 1 │  │ Worker 2 │  ...    │
-│  │ (pinned) │  │ (pinned) │  │ (pinned) │         │
-│  ├──────────┤  ├──────────┤  ├──────────┤         │
-│  │ Task A   │  │ Task B   │  │ Task C   │         │
-│  │ Task D   │  │ Task E   │  │ Task F   │         │
-│  └──────────┘  └──────────┘  └──────────┘         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐          │
+│  │ Worker 0 │  │ Worker 1 │  │ Worker 2 │  ...     │
+│  │ (pinned) │  │ (pinned) │  │ (pinned) │          │
+│  ├──────────┤  ├──────────┤  ├──────────┤          │
+│  │ Task A   │  │ Task B   │  │ Task C   │          │
+│  │ Task D   │  │ Task E   │  │ Task F   │          │
+│  └──────────┘  └──────────┘  └──────────┘          │
 │                                                    │
 │  Each task stays on its assigned worker forever    │
 └────────────────────────────────────────────────────┘
@@ -139,6 +139,9 @@ Task :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
     // Spawn a new isolated task
     // This is a regular function, not closure, so no captured variables.
     spawn :: (fn(body: Fn(Task(ReceiveType, SendType)) -> Future(unit)) -> Future(Self)),
+
+    // Spawn a dedicated local task (not from thread pool)
+    spawn_local :: (fn(body: Fn(Task(ReceiveType, SendType)) -> unit) -> Future(Self)),
     
     // Send a message to the other end (blocks if buffer full)
     send :: (fn(self: Self, msg: SendType) -> Future(unit)),

@@ -10,12 +10,11 @@ import {
   DynType,
   EnumType,
   FunctionType,
-  FutureType,
   isDynType,
   isEnumType,
   isFnModuleType,
   isFunctionType,
-  isFutureType,
+  isFutureModuleType,
   isStructType,
   isUnitType,
   typeContainsSomeType,
@@ -430,7 +429,7 @@ export function generateFunctionBody(
       const lastExpr = args[args.length - 1];
 
       // Check if this is an async function - async functions return Future(T)
-      const isAsyncFunction = isFutureType(functionType.return.type);
+      const isAsyncFunction = isFutureModuleType(functionType.return.type);
 
       if (isAsyncFunction && lastExpr) {
         // Check if the last expression is an async block
@@ -443,68 +442,70 @@ export function generateFunctionBody(
         // Check if the last expression already returns a Future type
         // If so, return it directly without wrapping (e.g., from Option.unwrap())
         const lastExprType = lastExpr.$?.type;
-        const isAlreadyFuture = lastExprType && isFutureType(lastExprType);
+        const isAlreadyFuture =
+          lastExprType && isFutureModuleType(lastExprType);
 
         if (isAsyncBlock || isAlreadyFuture) {
           // Last expression is an async block or already returns a Future - return it directly
           const resultCode = generateExpr(lastExpr, indent, context);
           emitter.emitLine(`${indent}return ${resultCode};`);
         } else {
-          // For async functions, wrap the return value in a Future
-          const futureType = functionType.return.type as FutureType;
-          const childType = futureType.childType;
-          const isUnitResult = isUnitType(childType);
-
-          // Get the Future type C name
-          const futureTypeCName = context.types[futureType.id]?.cName;
-          if (!futureTypeCName) {
-            emitter.emitLine(
-              `${indent}// Error: Future type not found in context`
-            );
-            return;
-          }
-
-          // Generate the result expression (if not unit)
-          if (!isUnitResult) {
-            const resultCode = generateExpr(lastExpr, indent, context);
-            emitter.emitLine(
-              `${indent}${getTypeString(childType, context)} _yo_async_result = ${resultCode};`
-            );
-          } else {
-            // For unit, just execute the expression as a statement
-            const exprCode = generateExpr(lastExpr, indent, context);
-            if (exprCode) {
-              emitter.emitLine(`${indent}${exprCode};`);
-            }
-          }
-
-          // Allocate and initialize the Future
-          emitter.emitLine(
-            `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
-          );
-          emitter.emitLine(`${indent}_yo_future->header.ref_count = 1;`);
-          emitter.emitLine(`${indent}_yo_future->header.gc_flags = 0;`);
-          emitter.emitLine(
-            `${indent}_yo_future->header.gc_mark = YO_GC_UNMARKED;`
-          );
-          emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
-          emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
-          emitter.emitLine(
-            `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
-          );
-          emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
-          emitter.emitLine(
-            `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
-          );
-          emitter.emitLine(
-            `${indent}_yo_future->state_machine = NULL;  // No state machine for immediate completion`
-          );
-
-          if (!isUnitResult) {
-            emitter.emitLine(`${indent}_yo_future->result = _yo_async_result;`);
-          }
-
-          emitter.emitLine(`${indent}return _yo_future;`);
+          // FIXME: OUTDATED
+          /// // For async functions, wrap the return value in a Future
+          /// const futureType = functionType.return.type as FutureType;
+          /// const childType = futureType.childType;
+          /// const isUnitResult = isUnitType(childType);
+          ///
+          /// // Get the Future type C name
+          /// const futureTypeCName = context.types[futureType.id]?.cName;
+          /// if (!futureTypeCName) {
+          ///   emitter.emitLine(
+          ///     `${indent}// Error: Future type not found in context`
+          ///   );
+          ///   return;
+          /// }
+          ///
+          /// // Generate the result expression (if not unit)
+          /// if (!isUnitResult) {
+          ///   const resultCode = generateExpr(lastExpr, indent, context);
+          ///   emitter.emitLine(
+          ///     `${indent}${getTypeString(childType, context)} _yo_async_result = ${resultCode};`
+          ///   );
+          /// } else {
+          ///   // For unit, just execute the expression as a statement
+          ///   const exprCode = generateExpr(lastExpr, indent, context);
+          ///   if (exprCode) {
+          ///     emitter.emitLine(`${indent}${exprCode};`);
+          ///   }
+          /// }
+          ///
+          /// // Allocate and initialize the Future
+          /// emitter.emitLine(
+          ///   `${indent}${futureTypeCName}* _yo_future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+          /// );
+          /// emitter.emitLine(`${indent}_yo_future->header.ref_count = 1;`);
+          /// emitter.emitLine(`${indent}_yo_future->header.gc_flags = 0;`);
+          /// emitter.emitLine(
+          ///   `${indent}_yo_future->header.gc_mark = YO_GC_UNMARKED;`
+          /// );
+          /// emitter.emitLine(`${indent}_yo_future->header.gc_next = NULL;`);
+          /// emitter.emitLine(`${indent}_yo_future->header.gc_prev = NULL;`);
+          /// emitter.emitLine(
+          ///   `${indent}_yo_future->header.dispose_fn = yo_future_dispose;`
+          /// );
+          /// emitter.emitLine(`${indent}_yo_future->header.traverse_fn = NULL;`);
+          /// emitter.emitLine(
+          ///   `${indent}atomic_store_explicit(&_yo_future->state, YO_FUTURE_COMPLETED, memory_order_relaxed);`
+          /// );
+          /// emitter.emitLine(
+          ///   `${indent}_yo_future->state_machine = NULL;  // No state machine for immediate completion`
+          /// );
+          ///
+          /// if (!isUnitResult) {
+          ///   emitter.emitLine(`${indent}_yo_future->result = _yo_async_result;`);
+          /// }
+          ///
+          /// emitter.emitLine(`${indent}return _yo_future;`);
         }
       } else if (lastExpr && isUnitType(functionType.return.type)) {
         // For unit/void functions, generate the expression as a statement

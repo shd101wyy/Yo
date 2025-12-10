@@ -5,7 +5,7 @@ import {
   EnumType,
   FnModuleType,
   FunctionType,
-  FutureType,
+  FutureModuleType,
   ModuleType,
   PtrType,
   SliceType,
@@ -238,17 +238,15 @@ export function isDynType(type?: Type): type is DynType {
 
 /**
  * This checks if the type is using the reference semantics.
- * Note: FnModuleType (closures) are NOT inherently reference types.
- * - Impl(Fn(...)) is value semantics (anonymous struct)
- * - Dyn(Fn(...)) is reference semantics (handled by isDynType)
+ * Note: FnModuleType (closures) and FutureModuleType (futures) are NOT inherently reference types.
+ * - Impl(Fn(...)) / Impl(Future(...)) is value semantics (anonymous struct)
+ * - Dyn(Fn(...)) / Dyn(Future(...)) is reference semantics (handled by isDynType)
  * @param type
  * @returns
  */
 export function isRefType(type?: Type): boolean {
   return (
-    isObjectType(type) ||
-    isDynType(type) || // All Dyn types are reference semantics (includes Dyn(Fn(...)))
-    isFutureType(type) // All futures are reference semantics
+    isObjectType(type) || isDynType(type) // All Dyn types are reference semantics (includes Dyn(Fn(...)) and Dyn(Future(...)))
   );
 }
 
@@ -337,8 +335,8 @@ export function isVoidType(type?: Type): type is VoidType {
   return type?.tag === TypeTag.Void;
 }
 
-export function isFutureType(type?: Type): type is FutureType {
-  return type?.tag === TypeTag.Future;
+export function isFutureModuleType(type?: Type): type is FutureModuleType {
+  return isModuleType(type) && type.isFuture !== undefined;
 }
 
 // Helper function to check if a type is a C compatible type

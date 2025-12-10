@@ -1,6 +1,12 @@
 import { Expr } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
-import { FunctionType, FutureType, StructType, TypeId } from "../../types";
+import {
+  DynType,
+  FunctionType,
+  SomeType,
+  StructType,
+  TypeId,
+} from "../../types";
 import { AwaitAnalysisResult, CapturedVariable } from "../async/await-analysis";
 import { CodeGenContext } from "../utils";
 
@@ -17,7 +23,8 @@ export interface FunctionGenerationContext extends CodeGenContext {
   currentClosureType?: FunctionType; // Current closure type being generated
   currentClosureCaptureTypeCName?: string; // C name of the capture struct type (e.g. "yo_struct_abc123_capture")
   // State machine context (when generating code inside async state machine)
-  inStateMachine?: { futureType: FutureType }; // Set when generating code inside a state machine, contains the Future type being generated
+  // FIXME: OUTDATED, it used to be { futureType: FutureType }
+  inStateMachine?: { futureType: SomeType | DynType }; // Set when generating code inside a state machine, contains the Future type being generated
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
   // Deferred async block generation - async blocks are generated after all regular functions
   deferredAsyncBlocks?: Array<{
@@ -27,7 +34,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     resumeFunctionName: string;
     constructorName: string;
     disposeFunctionName: string;
-    futureType: FutureType;
+    futureType: SomeType | DynType;
     futureTypeCName: string;
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;

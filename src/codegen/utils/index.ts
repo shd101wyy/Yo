@@ -368,17 +368,18 @@ export function getTypeString(
     }
 
     // Future type
-    case TypeTag.Future: {
-      // Use the registered C type name
-      const cTypeName = context.types[type.id]?.cName;
-      if (!cTypeName) {
-        throw new Error(
-          `No C type name found for future ${typeToString(type)}`
-        );
-      }
-      // Future types are reference-counted, so return pointer type
-      return `${cTypeName}*`;
-    }
+    // OUTDATED - Future is now a module type
+    /// case TypeTag.Future: {
+    ///   // Use the registered C type name
+    ///   const cTypeName = context.types[type.id]?.cName;
+    ///   if (!cTypeName) {
+    ///     throw new Error(
+    ///       `No C type name found for future ${typeToString(type)}`
+    ///     );
+    ///   }
+    ///   // Future types are reference-counted, so return pointer type
+    ///   return `${cTypeName}*`;
+    /// }
 
     // Pointer type (mutable or immutable)
     case TypeTag.Ptr: {

@@ -5,7 +5,13 @@
  */
 
 import { Expr, exprIsFunctionCallOf } from "../../expr";
-import { FutureType, isUnitType, StructType } from "../../types";
+import {
+  DynType,
+  extractFutureModuleFromType,
+  isUnitType,
+  SomeType,
+  StructType,
+} from "../../types";
 import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
@@ -107,13 +113,14 @@ export function generateAsyncBlockResumeFunction(
   structName: string,
   resumeFunctionName: string,
   analysis: AwaitAnalysisResult,
-  futureType: FutureType,
+  futureType: SomeType | DynType,
   captureType: StructType | undefined,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
-  const childType = futureType.childType;
+  const futureModuleType = extractFutureModuleFromType(futureType)!;
+  const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
   // Split the body into state segments

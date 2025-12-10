@@ -14,13 +14,14 @@ import {
 import { TypeValue } from "../../type-value";
 import {
   ArrayType,
+  DynType,
   extractFnModuleFromType,
-  FutureType,
+  extractFutureModuleFromType,
   isArrayType,
   isDynType,
   isEnumType,
   isFunctionType,
-  isFutureType,
+  isFutureModuleType,
   isNewtypeType,
   isObjectType,
   isPtrType,
@@ -31,10 +32,12 @@ import {
   isUnitType,
   ModuleType,
   SliceType,
+  SomeType,
   StructType,
   Type,
   typeContainsRefType,
   typeImplementsFn,
+  typeImplementsFuture,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -407,25 +410,25 @@ function generateFuncCall(
   }
 
   // __yo_future_drop - call __yo_decr_rc on future with special running check
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_future_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Use a special dispose function that checks is_running flag
-    return `__yo_future_drop((void*)(${selfCode}))`;
-  }
-
-  // __yo_future_dup - call __yo_incr_rc on future
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_future_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc((void*)(${selfCode}))`;
-  }
+  /// if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
+  ///   const selfArg = expr.args[0];
+  ///   if (!selfArg) {
+  ///     return `// Error: __yo_future_drop requires exactly 1 argument`;
+  ///   }
+  ///   const selfCode = generateExpr(selfArg, indent, context);
+  ///   // Use a special dispose function that checks is_running flag
+  ///   return `__yo_future_drop((void*)(${selfCode}))`;
+  /// }
+  ///
+  /// // __yo_future_dup - call __yo_incr_rc on future
+  /// if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
+  ///   const selfArg = expr.args[0];
+  ///   if (!selfArg) {
+  ///     return `// Error: __yo_future_dup requires exactly 1 argument`;
+  ///   }
+  ///   const selfCode = generateExpr(selfArg, indent, context);
+  ///   return `__yo_incr_rc((void*)(${selfCode}))`;
+  /// }
 
   // __yo_gc_collect - trigger garbage collection
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
@@ -539,25 +542,26 @@ function generateFuncCall(
       return `// Error: await requires exactly 1 argument`;
     }
 
-    const futureCode = generateExpr(futureArg, indent, context);
+    // const futureCode = generateExpr(futureArg, indent, context);
     const futureType = futureArg.$?.type;
 
-    if (!futureType || !isFutureType(futureType)) {
+    if (!futureType || !isFutureModuleType(futureType)) {
       return `// Error: await argument must be a Future type`;
     }
 
-    const resultType = (futureType as FutureType).childType;
-    const isUnit = isUnitType(resultType);
-
-    // For now, futures complete immediately, so we just extract the result
-    // TODO: Add actual async waiting/polling when we implement the async runtime
-    if (isUnit) {
-      // Future(unit) - just check if completed and return unit
-      return `({ (void)(${futureCode})->state; })`;
-    } else {
-      // Future(T) - extract the result field
-      return `(${futureCode})->result`;
-    }
+    // FIXME: OUTDATED
+    /// const resultType = (futureType as FutureType).childType;
+    /// const isUnit = isUnitType(resultType);
+    ///
+    /// // For now, futures complete immediately, so we just extract the result
+    /// // TODO: Add actual async waiting/polling when we implement the async runtime
+    /// if (isUnit) {
+    ///   // Future(unit) - just check if completed and return unit
+    ///   return `({ (void)(${futureCode})->state; })`;
+    /// } else {
+    ///   // Future(T) - extract the result field
+    ///   return `(${futureCode})->result`;
+    /// }
   }
 
   // return
@@ -610,7 +614,8 @@ function generateFuncCall(
       if (functionContext.inStateMachine) {
         // State machine return - complete the Future and clean up
         const futureType = functionContext.inStateMachine.futureType;
-        const childType = futureType.childType;
+        const futureModuleType = extractFutureModuleFromType(futureType)!;
+        const childType = futureModuleType.isFuture.outputType;
         const isUnitResult = isUnitType(childType);
         const futureTypeCName = context.types[futureType.id]?.cName;
 
@@ -2637,7 +2642,7 @@ function generateAsyncBlock(
   }
 
   const futureType = expr.$?.type;
-  if (!futureType || !isFutureType(futureType)) {
+  if (!futureType || !typeImplementsFuture(futureType)) {
     return `/* Error: async block must have Future type */`;
   }
 
@@ -2726,14 +2731,15 @@ function generateAsyncBlock(
           // Get the Future type from the await expression's argument
           const awaitExpr = awaitPoint.expr;
           if (awaitExpr.tag === ExprTag.FuncCall && awaitExpr.args[0]) {
-            const futureExpr = awaitExpr.args[0];
-            const futureType = futureExpr.$?.type;
-            if (futureType && futureType.tag === TypeTag.Future) {
-              const awaitedFutureTypeCName = getTypeString(futureType, context);
-              emitter.emitDeclarationLine(
-                `  ${awaitedFutureTypeCName} await_future_${awaitPoint.index};`
-              );
-            }
+            // FIXME: OUTDATED
+            /// const futureExpr = awaitExpr.args[0];
+            /// const futureType = futureExpr.$?.type;
+            /// if (futureType && futureType.tag === TypeTag.Future) {
+            ///   const awaitedFutureTypeCName = getTypeString(futureType, context);
+            ///   emitter.emitDeclarationLine(
+            ///     `  ${awaitedFutureTypeCName} await_future_${awaitPoint.index};`
+            ///   );
+            /// }
           }
         }
       }
@@ -2815,7 +2821,7 @@ function generateAsyncBlock(
     resumeFunctionName,
     constructorName,
     disposeFunctionName,
-    futureType: futureType as FutureType,
+    futureType: futureType,
     futureTypeCName,
     captureType: expr.$?.captureType,
     analysis,
@@ -3010,7 +3016,7 @@ function generateAsyncBlockConstructor(
   resumeFunctionName: string,
   constructorName: string,
   disposeFunctionName: string,
-  futureType: FutureType,
+  futureType: SomeType | DynType,
   futureTypeCName: string,
   captureType: StructType | undefined,
   context: FunctionGenerationContext

@@ -18,7 +18,7 @@ import {
   isExprType,
   isFnModuleType,
   isFunctionType,
-  isFutureType,
+  isFutureModuleType,
   isModuleType,
   isPrimitiveType,
   isPtrType,
@@ -354,6 +354,24 @@ export function areTypesCompatible(
           return false;
         }
       }
+
+      if (isFutureModuleType(expected.type)) {
+        if (!isFutureModuleType(given.type)) {
+          return false; // Expected is Future but given is not
+        }
+        // Compare the output types
+        if (
+          !areTypesCompatible(
+            {
+              type: expected.type.isFuture.outputType,
+              env: expected.env,
+            },
+            { type: given.type.isFuture.outputType, env: given.env }
+          )
+        ) {
+          return false;
+        }
+      }
     } else if (
       isTypeHierarchyType(given.type) &&
       given.type.baseType &&
@@ -502,15 +520,6 @@ export function areTypesCompatible(
     }
 
     return true;
-  }
-
-  if (isFutureType(expected.type) && isFutureType(given.type)) {
-    // Future types are compatible if their element types are compatible
-    return areTypesCompatible(
-      { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env },
-      isMethodReceiver
-    );
   }
 
   // Meet SomeType,

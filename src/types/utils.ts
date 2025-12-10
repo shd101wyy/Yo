@@ -27,7 +27,7 @@ import {
   FnModuleType,
   FunctionParameter,
   FunctionType,
-  FutureType,
+  FutureModuleType,
   ModuleField,
   ModuleType,
   PtrType,
@@ -55,6 +55,7 @@ import {
   isFloatType,
   isFnModuleType,
   isFunctionType,
+  isFutureModuleType,
   isI16Type,
   isI32Type,
   isI64Type,
@@ -201,14 +202,11 @@ export function typeImplementsSend(
   });
 }
 
-export function typeImplementsFn(type: Type | undefined) {
+export function typeImplementsFn(
+  type: Type | undefined
+): type is SomeType | DynType {
   if (!type) {
     return false;
-  }
-
-  // Check if this is a FnModuleType directly (e.g., Fn(i32) -> i32)
-  if (isFnModuleType(type)) {
-    return true;
   }
 
   // Check requiredModules for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
@@ -219,24 +217,6 @@ export function typeImplementsFn(type: Type | undefined) {
         if (isFnModuleType(moduleType)) {
           return true;
         }
-      }
-    }
-  }
-
-  // Check type.module for other types
-  if (!type.module) {
-    return false;
-  }
-
-  for (const field of type.module.fields) {
-    if (
-      field.assignedValue &&
-      isTypeValue(field.assignedValue) &&
-      isModuleType(field.assignedValue.value)
-    ) {
-      const moduleType = field.assignedValue.value as ModuleType;
-      if (moduleType.isFn) {
-        return true;
       }
     }
   }
@@ -260,6 +240,55 @@ export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
     if (requiredModules) {
       for (const moduleType of requiredModules) {
         if (isFnModuleType(moduleType)) {
+          return moduleType;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function typeImplementsFuture(
+  type: Type | undefined
+): type is SomeType | DynType {
+  if (!type) {
+    return false;
+  }
+
+  // Check requiredModules for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
+  if (isSomeType(type) || isDynType(type)) {
+    const requiredModules = (type as SomeType | DynType).requiredModules;
+    if (requiredModules) {
+      for (const moduleType of requiredModules) {
+        if (isFutureModuleType(moduleType)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Extract FutureModuleType from a type (e.g., from Impl(Future(T)) or Dyn(Future(T)) or FutureModuleType directly)
+ * Returns the FutureModuleType if found, otherwise undefined.
+ */
+export function extractFutureModuleFromType(
+  type: Type
+): FutureModuleType | undefined {
+  // If the type is already a FutureModuleType, return it directly
+  if (isFutureModuleType(type)) {
+    return type;
+  }
+
+  // Check requiredModules for SomeType and DynType
+  if (isSomeType(type) || isDynType(type)) {
+    const requiredModules = (type as SomeType | DynType).requiredModules;
+    if (requiredModules) {
+      for (const moduleType of requiredModules) {
+        if (isFutureModuleType(moduleType)) {
           return moduleType;
         }
       }
@@ -384,6 +413,11 @@ export function typeContainsSomeType(
     if (type.isExtern) {
       return false;
     }
+
+    if (type.resolvedConcreteType) {
+      return typeContainsSomeType(type.resolvedConcreteType, checkedTypes);
+    }
+
     return true;
   }
 
@@ -425,8 +459,7 @@ export function typeContainsSomeType(
       );
     case TypeTag.Ptr:
       return typeContainsSomeType((type as PtrType).childType, checkedTypes);
-    case TypeTag.Future:
-      return typeContainsSomeType((type as FutureType).childType, checkedTypes);
+
     default:
       return false; // For other types, no SomeType is present
   }
@@ -480,9 +513,6 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
         break;
       case TypeTag.Ptr:
         helper((t as PtrType).childType);
-        break;
-      case TypeTag.Future:
-        helper((t as FutureType).childType);
         break;
       default:
         break; // For other types, do nothing
@@ -570,8 +600,6 @@ export function typeRequiresInference(type?: Type): boolean {
       }
       return false;
     }
-    case TypeTag.Future:
-      return typeRequiresInference((type as FutureType).childType);
     default:
       return false; // For other types, no unknown values are present
   }
@@ -1128,6 +1156,11 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return `Fn${functionTypeToString(moduleType.isFn.callType, visited).slice(2)}`; // Remove "fn" prefix and add "Fn"
       }
 
+      // Check if it's a FutureModuleType
+      if (isFutureModuleType(moduleType)) {
+        return `Future(${typeToString(moduleType.isFuture.outputType, visited)})`;
+      }
+
       let moduleTypeString: string;
       if (moduleType.typeName) {
         moduleTypeString = moduleType.typeName;
@@ -1209,11 +1242,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         }
       }
       return `Dyn(${allModuleStrings.slice(1).join(", ")})`;
-    }
-
-    case TypeTag.Future: {
-      const futureType = type as FutureType;
-      return `Future(${typeToString(futureType.childType, visited)})`;
     }
 
     default: {

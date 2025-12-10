@@ -13,7 +13,7 @@ import {
   FunctionParameterExprs,
   FunctionReturn,
   FunctionType,
-  FutureType,
+  FutureModuleType,
   ModuleType,
   PtrType,
   SliceType,
@@ -948,6 +948,26 @@ export function createFnModuleType(
   return module as FnModuleType;
 }
 
+/**
+ * Creates a FutureModuleType (future/async type).
+ * This is a ModuleType with isFuture set to the child type.
+ */
+export function createFutureModuleType(
+  outputType: Type,
+  env: Environment
+): FutureModuleType {
+  const futureModuleId = `future_module_${outputType.id}`;
+  const module = createModuleType(env);
+
+  // Set the isFuture field to make this a FutureModuleType
+  module.isFuture = { outputType };
+  module.id = futureModuleId;
+
+  module.receiverType = module;
+
+  return module as FutureModuleType;
+}
+
 export function createDynType(
   requiredModules: ModuleType[],
   env: Environment,
@@ -970,25 +990,6 @@ export function createDynType(
   module.receiverType = dynType;
 
   return dynType;
-}
-
-export function createFutureType(
-  childType: Type,
-  env: Environment
-): FutureType {
-  const module = createModuleType(env);
-
-  const futureType: FutureType = {
-    id: `future_${childType.id}`,
-    tag: TypeTag.Future,
-    childType,
-    module,
-    env,
-  };
-
-  module.receiverType = futureType;
-
-  return futureType;
 }
 
 export function clearAllCachedTypes(): void {

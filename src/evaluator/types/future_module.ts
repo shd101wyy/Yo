@@ -1,22 +1,25 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr } from "../../expr";
-import { createFutureType } from "../../types";
+import { createModuleType, typeOfType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToFutureType } from "./utils";
 
 /**
- * Evaluate a Future type constructor call
- * For example:
+ * Evaluates the `Future(T)` syntax.
+ * Creates a module type that represents a future trait (similar to Fn trait pattern).
  *
- * FutureType :: Future(i32);       // future that will yield i32
- * FutureType :: Future(String);    // future that will yield String
- * FutureType :: Future(unit);      // future that completes without returning a value
+ * Example:
+ *   Future(i32)       // future that will yield i32
+ *   Future(String)    // future that will yield String
+ *   Future(unit)      // future that completes without returning a value
  *
- * async_fn :: (fn() -> Future(i32)) { ... };
- * future_var: Future(i32) := async_fn();  // calling async function returns Future(i32)
+ * This creates a module type with `isFuture` set to the child type.
+ *
+ * The Future module can be used with:
+ * - Impl(Future(T)) for static dispatch with futures
+ * - Dyn(Future(T)) for dynamic dispatch
  */
 export function evaluateFutureType({
   expr,
@@ -31,7 +34,7 @@ export function evaluateFutureType({
   if (expr.args.length !== 1) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Future type constructor expects exactly 1 argument, got ${expr.args.length}. Usage: Future(TypeField)`,
+      errorMessage: `Future type constructor expects exactly 1 argument, got ${expr.args.length}. Usage: Future(T)`,
     });
   }
 
@@ -64,25 +67,20 @@ export function evaluateFutureType({
     });
   }
 
-  const childType = evaluatedElementTypeExpr.$.value.value;
+  const outputType = evaluatedElementTypeExpr.$.value.value;
 
-  // Create the Future type
-  const futureType = createFutureType(childType, env);
+  // Create the Future module type (similar to how Fn module type is created)
+  const futureModuleType = createModuleType(env);
 
-  // Add ARC functions to the future type
-  env = addARCFunctionsToFutureType({
-    futureType,
-    env,
-    context: { ...context },
-  });
-
-  const typeValueForFuture = createTypeValue(futureType);
+  // Set the isFuture field to the child type
+  futureModuleType.isFuture = { outputType };
 
   expr.$ = {
     env,
-    type: typeValueForFuture.type,
-    value: typeValueForFuture,
+    type: typeOfType(futureModuleType),
+    value: createTypeValue(futureModuleType),
     pathCollection: [],
   };
+
   return expr;
 }

@@ -51,11 +51,7 @@ import {
   evaluateYoExprIsFnCall,
   evaluateYoExprToString,
 } from "../builtins/expr_fns";
-import {
-  evaluateAwait,
-  evaluateYoFutureDrop,
-  evaluateYoFutureDup,
-} from "../builtins/future_fns";
+import { evaluateAwait } from "../builtins/future_fns";
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateImplConstraint } from "../builtins/impl_constraint";
@@ -83,7 +79,7 @@ import { evaluateDynType } from "../types/dyn";
 import { evaluateEnumType } from "../types/enum";
 import { evaluateFnModuleType } from "../types/fn_module";
 import { evaluateFunctionType } from "../types/function";
-import { evaluateFutureType } from "../types/future";
+import { evaluateFutureType } from "../types/future_module";
 import { evaluateModuleType } from "../types/module";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
@@ -375,12 +371,6 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
-      // __yo_future_drop
-      return evaluateYoFutureDrop({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
-      // __yo_future_dup
-      return evaluateYoFutureDup({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
       // import
       return evaluateImport({

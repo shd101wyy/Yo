@@ -4,11 +4,9 @@ import {
   DynType,
   extractFnModuleFromType,
   FunctionType,
-  FutureType,
   isArrayType,
   isDynType,
   isEnumType,
-  isFutureType,
   isModuleType,
   isPtrType,
   isSliceType,
@@ -197,16 +195,17 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isUnionType(type) ||
     isEnumType(type) ||
     isTupleType(type) ||
-    // isClosureType(type) ||
     isDynType(type) ||
-    isFutureType(type) ||
     isModuleType(type) ||
     isSliceType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
-    const cTypeName = isFutureType(type)
-      ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).childType, context))}_t`
-      : isSliceType(type)
+    const cTypeName =
+      // NOTE: OUTDATED
+      // isFutureModuleType(type)
+      // ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).childType, context))}_t`
+      // :
+      isSliceType(type)
         ? getTypeString(type, context) // For slices, use the special slice type name
         : `yo_${type.id}`;
     context.types[type.id] = {
@@ -259,11 +258,12 @@ export function collectType(type: Type, context: CodeGenContext): void {
     }
 
     // For future types, collect the field type
-    if (isFutureType(type)) {
-      const futureType = type as FutureType;
-      // Recursively collect the field type
-      collectType(futureType.childType, context);
-    }
+    // NOTE: OUTDATED
+    // if (isFutureModuleType(type)) {
+    //   const futureType = type as FutureType;
+    //   // Recursively collect the field type
+    //   collectType(futureType.childType, context);
+    // }
 
     // For slice types, collect the field type
     if (isSliceType(type)) {
