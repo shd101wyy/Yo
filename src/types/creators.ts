@@ -978,7 +978,7 @@ export function createDynType(
   const dynType: DynType = {
     id: `dyn_${requiredModules.map((m) => m.id).join("_")}`,
     tag: TypeTag.Dyn,
-    requiredModules,
+    requiredModules: [...requiredModules],
     negativeModules:
       negativeModules && negativeModules.length > 0
         ? negativeModules
@@ -988,6 +988,51 @@ export function createDynType(
   };
 
   module.receiverType = dynType;
+
+  /*
+  // QUESTION: From the C codegen, it seems like only the ___dispose is used for the wrapped object
+  // So do we still need to have ___dup and ___drop in the module type for the wrapped object?
+  // Create a module type that defines the ARC interface for the wrapped object
+  // This will be used to call ___dup, ___drop, ___dispose on the inner data
+  const wrappedObjectARCModuleTypeExpr = generateExprFromCode(`
+  module(
+    Self : Type,
+    /// ___dup :
+    ///   fn(self: Self) -> Self,
+    /// ___drop :
+    ///   fn(self: Self) -> unit,
+    ___dispose :
+      fn(self: Self) -> unit
+  )
+  `);
+  const evaluatedWrappedObjectARCModuleTypeExpr = evaluateExpression({
+    expr: wrappedObjectARCModuleTypeExpr,
+    env,
+    context: {
+      SelfType: dynType,
+      stdPath: "",
+    },
+  });
+  /// get its type value, which should be a ModuleType
+  const wrappedObjectARCModuleTypeValue =
+    evaluatedWrappedObjectARCModuleTypeExpr.$?.value;
+  if (!isTypeValue(wrappedObjectARCModuleTypeValue)) {
+    throw new Error(
+      `Expected a type value for wrapped object ARC module type.`
+    );
+  }
+  if (!isModuleType(wrappedObjectARCModuleTypeValue.value)) {
+    throw new Error(
+      `Expected a module type for wrapped object ARC module type.`
+    );
+  }
+  const wrappedObjectARCModuleType = wrappedObjectARCModuleTypeValue.value;
+
+  dynType.requiredModules = [
+    wrappedObjectARCModuleType,
+    ...dynType.requiredModules,
+  ];
+  */
 
   return dynType;
 }

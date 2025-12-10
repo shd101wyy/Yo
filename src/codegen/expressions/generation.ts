@@ -388,27 +388,6 @@ function generateFuncCall(
     return `__yo_incr_rc((void*)(${selfCode}))`;
   }
 
-  // __yo_closure_drop - call dispose on closure via vtable then __yo_decr_rc on closure
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_closure_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Decrement RC - dispose function is stored in header
-    return `__yo_decr_rc((void*)(${selfCode}))`;
-  }
-
-  // __yo_closure_dup - call __yo_incr_rc on closure
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_closure_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_closure_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc((void*)(${selfCode}))`;
-  }
-
   // __yo_future_drop - call __yo_decr_rc on future with special running check
   /// if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
   ///   const selfArg = expr.args[0];

@@ -908,10 +908,6 @@ export const BuiltinFunctions = {
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
   __yo_dyn_dup: ["__yo_dyn_dup"], // dup the dyn object with wrapped object
 
-  // Closure Ref functions
-  __yo_closure_drop: ["__yo_closure_drop"], // drop closure with captured data
-  __yo_closure_dup: ["__yo_closure_dup"], // dup closure with captured data
-
   // Ref functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],

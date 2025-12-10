@@ -1241,7 +1241,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
           allModuleStrings.push(`!(${typeToString(mt, visited)})`);
         }
       }
-      return `Dyn(${allModuleStrings.slice(1).join(", ")})`;
+      return `Dyn(${allModuleStrings /*.slice(1)*/
+        .join(", ")})`;
     }
 
     default: {
