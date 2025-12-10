@@ -62,7 +62,7 @@ export function evaluateAwait({
   if (!futureModuleType) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `await expects a Future(T) type, but got: ${typeToString(argType)}`,
+      errorMessage: `await expects type that implements Future(T), but got: ${typeToString(argType)}`,
     });
   }
 

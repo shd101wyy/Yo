@@ -943,7 +943,7 @@ export function createFnModuleType(
   module.isFn = { callType: fnType };
   module.id = fnModuleId;
 
-  module.receiverType = module;
+  module.receiverType = undefined;
 
   return module as FnModuleType;
 }
@@ -963,7 +963,7 @@ export function createFutureModuleType(
   module.isFuture = { outputType };
   module.id = futureModuleId;
 
-  module.receiverType = module;
+  module.receiverType = undefined;
 
   return module as FutureModuleType;
 }

@@ -861,6 +861,17 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     ) {
       const error = functionsToCall[0]!.result.error;
       if (error instanceof YoError) {
+        // console.log("Error type:", error?.constructor?.name);
+        // console.log(
+        //   "Error message:",
+        //   error instanceof Error ? error.message : String(error)
+        // );
+        // console.log(
+        //   "Error stack:",
+        //   error instanceof Error
+        //     ? error.stack?.split("\n").slice(0, 10).join("\n")
+        //     : "no stack"
+        // );
         // console.trace(exprToString(expr));
         throw formatErrorMessages(
           [
@@ -879,6 +890,17 @@ ${error.tokenAndErrorList
           error.isAssertionError
         );
       } else {
+        // console.log("Error type:", error?.constructor?.name);
+        // console.log(
+        //   "Error message:",
+        //   error instanceof Error ? error.message : String(error)
+        // );
+        // console.log(
+        //   "Error stack:",
+        //   error instanceof Error
+        //     ? error.stack?.split("\n").slice(0, 10).join("\n")
+        //     : "no stack"
+        // );
         // console.trace(exprToString(expr));
         throw formatErrorMessages([
           {
