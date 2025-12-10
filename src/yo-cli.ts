@@ -172,6 +172,12 @@ yo run <script>                  Run a script defined in 'yo.json'
           type: "boolean",
           default: false,
         })
+        .option("bail", {
+          alias: "b",
+          describe: "Stop running tests after the first failure",
+          type: "boolean",
+          default: false,
+        })
         .option("test-name-pattern", {
           describe: "Only run tests with names matching this regex pattern",
           type: "string",
@@ -189,6 +195,7 @@ yo run <script>                  Run a script defined in 'yo.json'
       const summary = runTests(testFiles, {
         cCompiler: argv.cc,
         verbose: argv.verbose as boolean,
+        bail: argv.bail as boolean,
         testNamePattern: argv.testNamePattern as string | undefined,
       });
 

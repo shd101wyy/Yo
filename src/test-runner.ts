@@ -380,6 +380,7 @@ export function runTests(
   options: {
     cCompiler?: string;
     verbose?: boolean;
+    bail?: boolean;
     testNamePattern?: string;
   } = {}
 ): TestRunSummary {
@@ -459,6 +460,31 @@ export function runTests(
           // Show a brief error message
           const firstLine = result.errorMessage.split("\n")[0];
           console.log(`    ${colors.red}${firstLine}${colors.reset}`);
+        }
+
+        // Bail out early if --bail flag is set
+        if (options.bail) {
+          console.log(
+            `\n${colors.yellow}Bailing out early due to test failure (--bail)${colors.reset}\n`
+          );
+          const totalDuration = Date.now() - startTime;
+          console.log(`${colors.bold}Test Summary${colors.reset}`);
+          console.log(`─────────────────────────────────`);
+          if (passedTests > 0) {
+            console.log(`${colors.green}${passedTests} passed${colors.reset}`);
+          }
+          console.log(`${colors.red}${failedTests} failed${colors.reset}`);
+          console.log(
+            `${colors.dim}${totalTests} total (${totalDuration}ms)${colors.reset}`
+          );
+          console.log();
+          return {
+            totalTests,
+            passed: passedTests,
+            failed: failedTests,
+            results,
+            duration: totalDuration,
+          };
         }
       }
     }
