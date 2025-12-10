@@ -349,8 +349,10 @@ export function evaluateBeginExpression({
     return expr;
   }
 
-  // Push a new environment frame
-  env = pushEnvFrame(env);
+  // Push a new environment frame marked as begin block frame
+  // This is important for temp variable placement - temp variables should be added
+  // to the nearest begin block frame, not nested function call frames
+  env = pushEnvFrame(env, undefined, true /* isBeginBlockFrame */);
 
   // Add variablesToAdd to the environment
   for (let i = 0; i < variablesToAdd.length; i++) {

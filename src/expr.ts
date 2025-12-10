@@ -1277,7 +1277,9 @@ ${exprToString(expr)}`);
   // Create a new temp variable
   const tempVariableName = generateNewTempVariableName(modulePath);
 
-  // Add temp variable to the environment
+  // Add temp variable to the environment at the nearest begin block frame.
+  // This ensures temp variables are tracked at the begin block level and get
+  // dropped when the begin block ends, not when a nested function call frame is popped.
   const { env: nextEnv } = addVariableToEnv({
     env,
     variable: {
@@ -1291,6 +1293,7 @@ ${exprToString(expr)}`);
       consumedAtToken: undefined,
       token: expr.token,
     },
+    addToBeginBlockFrame: true,
   });
 
   expr.$.variableName = tempVariableName;

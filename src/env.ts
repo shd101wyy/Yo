@@ -155,6 +155,12 @@ export type Frame = {
    * The unique identifier of the frame.
    */
   id: string;
+  /**
+   * Whether this frame was created from a begin block.
+   * Temp variables created during evaluation should be added to the nearest
+   * begin block frame, not the current top frame (which might be a function call frame).
+   */
+  isBeginBlockFrame: boolean;
 };
 
 export type Environment = {
@@ -209,14 +215,32 @@ export function addVariableToEnv({
   deltaFrame,
   variableId,
   skipCheckingFunctionOverloading,
+  addToBeginBlockFrame,
 }: {
   env: Environment;
   variable: Omit<Variable, "id" | "frameLevel">;
   deltaFrame?: number;
   variableId?: string;
   skipCheckingFunctionOverloading?: boolean;
+  /**
+   * If true, the variable will be added to the nearest begin block frame
+   * instead of the top frame. This is used for temp variables that hold
+   * intermediate results - they should be tracked at the begin block level
+   * so they get dropped when the begin block ends, not when a nested
+   * function call frame is popped.
+   */
+  addToBeginBlockFrame?: boolean;
 }): { env: Environment; variable: Variable } {
-  const frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
+  let frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
+
+  // If addToBeginBlockFrame is true, find the nearest begin block frame
+  if (addToBeginBlockFrame) {
+    const beginBlockFrameLevel = findNearestBeginBlockFrameLevel(env);
+    if (beginBlockFrameLevel >= 0) {
+      frameLevel = beginBlockFrameLevel;
+    }
+    // If no begin block frame found, fall back to top frame
+  }
 
   // Prevent the function overloading
   if (!skipCheckingFunctionOverloading && isFunctionType(variable.type)) {
@@ -307,12 +331,14 @@ export function addVariableToFrame({
     return {
       id: frame.id,
       variables: newVariables,
+      isBeginBlockFrame: frame.isBeginBlockFrame,
     };
   }
 
   return {
     id: frame.id,
     variables: [...frame.variables, variable],
+    isBeginBlockFrame: frame.isBeginBlockFrame,
   };
 }
 
@@ -381,12 +407,17 @@ export function pushEnvFrame(
   frame: Frame = {
     id: generateVarialeId(env.modulePath, "frame"),
     variables: [],
-  }
+    isBeginBlockFrame: false,
+  },
+  isBeginBlockFrame?: boolean
 ): Environment {
+  const newFrame: Frame = isBeginBlockFrame
+    ? { ...frame, isBeginBlockFrame: true }
+    : frame;
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
     freeVariables: env.freeVariables,
-    frames: [...env.frames, frame],
+    frames: [...env.frames, newFrame],
     modulePath: env.modulePath,
     inputString: env.inputString,
   };
@@ -1094,6 +1125,21 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
 
   // Return in reverse order (end to start) for proper drop order
   return variables.reverse();
+}
+
+/**
+ * Find the nearest begin block frame level in the environment.
+ * Temp variables should be added to the nearest begin block frame,
+ * not the current top frame (which might be a function call frame).
+ * Returns the frame level (0-indexed) or -1 if not found.
+ */
+export function findNearestBeginBlockFrameLevel(env: Environment): number {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    if (env.frames[i]?.isBeginBlockFrame) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 export function variableExistsInEnvTopFrame(
