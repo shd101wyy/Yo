@@ -19,6 +19,22 @@ To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.t
 
 Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
 
+**Memory Allocator Options:**
+- `--allocator mimalloc` (default) - Use mimalloc for high-performance allocation
+- `--allocator libc` - Use standard libc malloc (faster compilation, useful for debugging)
+
+**Memory Leak Detection:**
+- `--sanitize address` - Enable AddressSanitizer for memory error and leak detection
+- `--sanitize leak` - Enable LeakSanitizer for leak detection only
+- Example: `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --sanitize address --allocator libc -o test && ./test`
+
+**Running Tests:**
+- `bun run src/yo-cli.ts test` - Run all *.test.yo files
+- `bun run src/yo-cli.ts test path/to/file.yo` - Run tests in a specific file
+- `--bail` or `-b` - Stop immediately after first test failure
+- `-v` or `--verbose` - Show detailed error messages
+- Tests automatically use AddressSanitizer for memory leak detection
+
 Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
 
 You can ignore the editor erros for the `.yo` files, because the vscode extension might not use the updated Yo language grammar or evaluator/compiler code.

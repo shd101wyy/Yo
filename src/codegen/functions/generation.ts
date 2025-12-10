@@ -695,7 +695,7 @@ export function generateClosureConstructorDeclarations(
 ): void {
   const emitter = context.emitter;
 
-  // Generate constructor declarations for each closure (they are also reference-counted)
+  // Generate constructor declarations for each Impl closure (value types)
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
 
@@ -716,71 +716,7 @@ export function generateClosureConstructorDeclarations(
         continue;
       }
 
-      const constructorName = `__yo_new_${cName}`;
-
-      // Generate closure constructor that takes captured values directly
-      // Note: captureType is no longer on ClosureType, look it up by naming convention
-      const captureTypeName = `${cName}_capture`;
-      const captureTypeEntry = Object.values(context.types).find(
-        (entry) => entry.cName === captureTypeName
-      );
-      const captureType = captureTypeEntry?.type;
-
-      if (
-        captureType &&
-        isStructType(captureType) &&
-        captureType.fields.length > 0
-      ) {
-        // Constructor takes captured values, call function, and drop function
-        const captureParams = captureType.fields
-          .map((field) => {
-            const fieldType = getTypeString(field.type, context);
-            const fieldName = sanitizeForCIdentifier(field.label);
-            return `${fieldType} ${fieldName}`;
-          })
-          .join(", ");
-
-        const callType = closureType;
-        const returnTypeStr = getTypeString(callType.return.type, context);
-        const callParamList = callType.parameters
-          .map((param) => {
-            const paramTypeStr = getTypeString(param.type, context);
-            const paramName = sanitizeForCIdentifier(param.label);
-            return `${paramTypeStr} ${paramName}`;
-          })
-          .join(", ");
-
-        const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
-        const disposeFnParam = `void (*dispose)(void* self)`;
-
-        const allParams = `${captureParams}, ${callFnParam}, ${disposeFnParam}`;
-
-        emitter.emitDeclarationLine(
-          `${cName}* ${constructorName}(${allParams}); // Closure constructor`
-        );
-      } else {
-        // Empty closure (no captures) - just takes call and dispose functions
-        const callType = closureType;
-        const returnTypeStr = getTypeString(callType.return.type, context);
-        const callParamList = callType.parameters
-          .map((param) => {
-            const paramTypeStr = getTypeString(param.type, context);
-            const paramName = sanitizeForCIdentifier(param.label);
-            return `${paramTypeStr} ${paramName}`;
-          })
-          .join(", ");
-
-        const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
-        const disposeFnParam = `void (*dispose)(void* self)`;
-
-        const allParams = `${callFnParam}, ${disposeFnParam}`;
-
-        emitter.emitDeclarationLine(
-          `${cName}* ${constructorName}(${allParams}); // Empty closure constructor`
-        );
-      }
-
-      // Declare the common create function for this closure type
+      // Generate the create function declaration for Impl closures (value types - return by value)
       const callType = closureType;
       const returnTypeStr = getTypeString(callType.return.type, context);
       const callParamList = callType.parameters
@@ -794,14 +730,9 @@ export function generateClosureConstructorDeclarations(
       const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
       const disposeFnParam = `void (*dispose)(void* self)`;
 
+      // Impl closures return by value (not pointer)
       emitter.emitDeclarationLine(
-        `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}); // Create closure with data`
-      );
-
-      // Declare the dispose function for this closure type
-      const disposeFunctionName = `__yo_dispose_${cName}`;
-      emitter.emitDeclarationLine(
-        `void ${disposeFunctionName}(${cName}* self); // Dispose closure and captured data`
+        `${cName} __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}); // Create Impl closure (value type)`
       );
     }
   }
@@ -1456,10 +1387,7 @@ export function generateClosureConstructorFunctions(
       }
 
       // Generate closure constructor function
-      const constructorName = `__yo_new_${cName}`;
-
-      // For closures, we only generate the __yo_create function that takes void* data
-      // We don't generate parameterized constructors since capture types can vary
+      // Impl closures are VALUE TYPES - return by value, not pointer
       const callType = closureType;
       const returnTypeStr = getTypeString(callType.return.type, context);
       const callParamList = callType.parameters
@@ -1473,50 +1401,15 @@ export function generateClosureConstructorFunctions(
       const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
       const disposeFnParam = `void (*dispose)(void* self)`;
 
-      const allParams = `${callFnParam}, ${disposeFnParam}`;
-
-      emitter.emitLine(`${cName}* ${constructorName}(${allParams}) {`);
-
-      // Use common create_closure function with NULL data
-      emitter.emitLine(`  return __yo_create_${cName}(NULL, call, dispose);`);
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
-
-      // Generate the common create_closure function
+      // Generate the create_closure function that returns by value (stack allocation)
       emitter.emitLine(
-        `${cName}* __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
+        `${cName} __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
       );
-      emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
-      );
-      emitter.emitLine(`  obj->header.ref_count = 1;`);
-      emitter.emitLine(`  obj->header.gc_flags = 0;`);
-      emitter.emitLine(`  obj->header.gc_mark = YO_GC_UNMARKED;`);
-      emitter.emitLine(`  obj->header.gc_next = NULL;`);
-      emitter.emitLine(`  obj->header.gc_prev = NULL;`);
-      emitter.emitLine(`  obj->header.dispose_fn = dispose;`);
-      emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
-      emitter.emitLine(`  obj->data = data;`);
-
-      // Set direct call function pointer (static dispatch - no vtable)
-      emitter.emitLine(`  obj->call = call;`);
-
+      emitter.emitLine(`  ${cName} obj;`);
+      emitter.emitLine(`  obj.call = call;`);
+      emitter.emitLine(`  obj.data = data;`);
+      emitter.emitLine(`  obj.dispose = dispose;`);
       emitter.emitLine(`  return obj;`);
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
-
-      // Generate a generic dispose function that frees the data pointer
-      // Note: The actual dispose logic should be in a capture-specific function
-      // passed when creating the closure
-      const disposeFunctionName = `__yo_dispose_${cName}`;
-      emitter.emitLine(`void ${disposeFunctionName}(${cName}* self) {`);
-      emitter.emitLine(`  // Generic dispose - just free the data pointer`);
-      emitter.emitLine(
-        `  // Actual cleanup should be done by capture-specific dispose function`
-      );
-      emitter.emitLine(`  if (self->data) {`);
-      emitter.emitLine(`    __yo_free(self->data);`);
-      emitter.emitLine(`  }`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);
     }
@@ -1585,12 +1478,13 @@ export function generateClosureDisposeFunctions(
       continue; // Skip if drop function C name not found
     }
 
-    // Generate the dispose function
+    // Generate the dispose function for Impl closures (value types)
+    // For Impl closures, captures are stack-allocated, so we only call drop, NOT free
     // Signature: void dispose(void* closure_ptr)
     // This function receives the CLOSURE pointer (not capture pointer),
-    // extracts the capture data, calls drop, and frees it
+    // extracts the capture data, and calls drop (no free needed for stack-allocated capture)
     emitter.emitLine(
-      `void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName}`
+      `void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName} (Impl closure - value type)`
     );
     emitter.emitLine(`  if (closure_ptr) {`);
     emitter.emitLine(
@@ -1601,7 +1495,7 @@ export function generateClosureDisposeFunctions(
       `      ${dropFunctionCName}(*(${captureCName}*)closure->data); // Drop the capture struct (dereference pointer to pass by value)`
     );
     emitter.emitLine(
-      `      __yo_free(closure->data); // Free the capture data`
+      `      // Note: capture data is stack-allocated for Impl closures, no __yo_free needed`
     );
     emitter.emitLine(`    }`);
     emitter.emitLine(`  }`);

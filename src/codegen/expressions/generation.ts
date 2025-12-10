@@ -114,14 +114,16 @@ interface ClosureCaptureResult {
 }
 
 /**
- * Allocate and initialize a closure capture struct on the heap.
- * This is shared between Impl closure construction and Dyn(Fn(...)) wrapping.
+ * Allocate and initialize a closure capture struct.
+ * For Impl closures: stack-allocate the capture struct (value type semantics)
+ * For Dyn closures: heap-allocate the capture struct (reference type semantics)
  *
  * @param captureType The struct type containing captured variables
  * @param closureTypeId A unique ID for generating temp variable names
  * @param sourceExpr The expression containing deferredDupExpressions (for Ref handling)
  * @param indent The current indentation level
  * @param context The code generation context
+ * @param useStackAllocation If true, allocate on stack (for Impl closures); if false, heap-allocate (for Dyn closures)
  * @returns The capture result with temp var name and type name, or null if allocation failed
  */
 function allocateClosureCapture(
@@ -129,7 +131,8 @@ function allocateClosureCapture(
   closureTypeId: string,
   sourceExpr: Expr,
   indent: string,
-  context: CodeGenContext
+  context: CodeGenContext,
+  useStackAllocation: boolean = false
 ): ClosureCaptureResult | null {
   const captureTypeEntry = Object.values(context.types).find(
     (entry) => entry.type === captureType
@@ -197,11 +200,20 @@ function allocateClosureCapture(
   // Generate a unique temporary variable name for the capture data
   const captureTempVar = `__capture_${closureTypeId}_${Date.now()}`;
 
-  // Allocate capture data on heap
-  context.emitter.emitLine(
-    `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_malloc(sizeof(${captureCName}));`
-  );
-  context.emitter.emitLine(`${indent}*${captureTempVar} = ${captureDataCode};`);
+  if (useStackAllocation) {
+    // Stack-allocate capture data (for Impl closures - value type semantics)
+    context.emitter.emitLine(
+      `${indent}${captureCName} ${captureTempVar} = ${captureDataCode};`
+    );
+  } else {
+    // Heap-allocate capture data (for Dyn closures - reference type semantics)
+    context.emitter.emitLine(
+      `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_malloc(sizeof(${captureCName}));`
+    );
+    context.emitter.emitLine(
+      `${indent}*${captureTempVar} = ${captureDataCode};`
+    );
+  }
 
   return { captureTempVar, captureCName };
 }
@@ -290,12 +302,8 @@ function generateFuncCall(
       captureType && isStructType(captureType) && captureType.fields.length > 0;
 
     // For Dyn closures, we always use the dyn constructor
-    // For Impl closures, we use the closure constructor
-    const constructorName = isDynClosure
-      ? `__yo_new_${closureCName}`
-      : hasCaptures
-        ? `__yo_create_${closureCName}`
-        : `__yo_new_${closureCName}`;
+    // For Impl closures, we use the closure constructor (returns by value)
+    const constructorName = `__yo_create_${closureCName}`;
 
     // Generate call function cast
     const returnTypeStr = getTypeString(closureType.return.type, context);
@@ -306,12 +314,16 @@ function generateFuncCall(
 
     if (hasCaptures && captureType && isStructType(captureType)) {
       // Closure with captures - use the helper function
+      // For Impl closures: stack-allocate capture (value type semantics)
+      // For Dyn closures: heap-allocate capture (reference type semantics)
+      const useStackAllocation = !isDynClosure;
       const captureResult = allocateClosureCapture(
         captureType,
         closureType.id,
         expr,
         indent,
-        context
+        context,
+        useStackAllocation
       );
 
       if (!captureResult) {
@@ -325,7 +337,9 @@ function generateFuncCall(
         const disposeFunctionName = `__yo_dispose_${closureCName}`;
         return `${constructorName}(${captureTempVar}, ${disposeFunctionName}, ${castCallFunction})`;
       } else {
-        // For Impl closures, generate a closure-instance-specific dispose function
+        // For Impl closures (value type):
+        // - Capture is stack-allocated, pass address to closure
+        // - Dispose function handles cleanup when closure goes out of scope
         const closureIdPart = closureType.id.replace(/^closure_/, "");
         const captureIdPart = captureType.id.replace(/^struct_/, "");
         const closureInstanceId = `${closureIdPart}_${captureIdPart}`;
@@ -344,7 +358,8 @@ function generateFuncCall(
         });
 
         const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
-        return `${constructorName}(${captureTempVar}, ${castCallFunction}, ${castDisposeFunction})`;
+        // Pass address of stack-allocated capture struct
+        return `${constructorName}(&${captureTempVar}, ${castCallFunction}, ${castDisposeFunction})`;
       }
     } else {
       // Closure without captures
@@ -353,8 +368,8 @@ function generateFuncCall(
         const disposeFunctionName = `__yo_dispose_${closureCName}`;
         return `${constructorName}(NULL, ${disposeFunctionName}, ${castCallFunction})`;
       } else {
-        // For Impl closures without captures
-        return `${constructorName}(${castCallFunction}, NULL)`;
+        // For Impl closures without captures (value type, returns by value)
+        return `${constructorName}(NULL, ${castCallFunction}, NULL)`;
       }
     }
   }
@@ -2086,13 +2101,19 @@ function generateFuncCall(
           });
 
           // Call through function pointer:
-          // - Dyn closures use vtable: closure->vtable.call(closure->data, args...)
-          // - Impl closures use direct call: closure->call(closure->data, args...)
+          // - Dyn closures (reference type) use vtable: closure->vtable.call(closure->data, args...)
+          // - Impl closures (value type) use direct call: closure.call(closure.data, args...)
           // Note: The first argument to the call function is the capture data pointer, not the closure itself
-          const allArgs = [`(${closureCode})->data`, ...args];
-          const closureCall = isDynClosure
-            ? `(${closureCode})->vtable.call(${allArgs.join(", ")})`
-            : `(${closureCode})->call(${allArgs.join(", ")})`;
+          let closureCall: string;
+          if (isDynClosure) {
+            // Dyn closures are reference types (pointers)
+            const allArgs = [`(${closureCode})->data`, ...args];
+            closureCall = `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
+          } else {
+            // Impl closures are value types (use . not ->)
+            const allArgs = [`(${closureCode}).data`, ...args];
+            closureCall = `(${closureCode}).call(${allArgs.join(", ")})`;
+          }
 
           // Get return type from the closure's function signature
           const returnType = functionType.return.type;

@@ -363,8 +363,9 @@ export function getTypeString(
         if (fnModule) {
           const cTypeName = context.types[fnModule.id]?.cName;
           if (cTypeName) {
-            // Closure types are reference-counted (pointer type)
-            return `${cTypeName}*`;
+            // Impl closures are now VALUE types (like Rust closures)
+            // They are stack-allocated, not heap-allocated with ref counting
+            return cTypeName;
           }
         }
       }

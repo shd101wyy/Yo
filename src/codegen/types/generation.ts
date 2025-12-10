@@ -537,6 +537,7 @@ export function generateClosureDeclaration(
 
   // For Impl closures, we use true static dispatch with a direct function pointer
   // No vtable is needed - the call function pointer is embedded directly in the struct
+  // Impl closures are VALUE TYPES (like Rust closures) - no reference counting
   const callType = functionType;
   const returnTypeStr = getTypeString(callType.return.type, context);
 
@@ -550,18 +551,22 @@ export function generateClosureDeclaration(
     .join(", ");
 
   // Generate the closure structure with direct call function pointer (static dispatch)
+  // Impl closures are value types - no yo_ref_header_t, stack-allocated
   emitter.emitDeclarationLine(
-    `typedef struct { // Impl Closure : ${typeToString(functionType)} (static dispatch, reference counted)`
-  );
-  emitter.emitDeclarationLine(
-    `  yo_ref_header_t header; // Reference count header`
+    `typedef struct { // Impl Closure : ${typeToString(functionType)} (static dispatch, value type)`
   );
   // Direct function pointer for static dispatch (no vtable indirection)
   emitter.emitDeclarationLine(
     `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Direct call function pointer`
   );
   // Data field is always void* to allow different capture types for same closure type
-  emitter.emitDeclarationLine(`  void* data; // Captured data`);
+  emitter.emitDeclarationLine(
+    `  void* data; // Captured data (pointer to stack-allocated capture struct)`
+  );
+  // Dispose function pointer for cleanup when closure goes out of scope
+  emitter.emitDeclarationLine(
+    `  void (*dispose)(void* self); // Dispose function for cleanup`
+  );
 
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
