@@ -11,9 +11,7 @@ import {
   createFutureModuleType,
   createSomeType,
   createType0,
-  DynType,
   extractFutureModuleFromType,
-  isDynType,
   isSomeType,
   SomeType,
   Type,
@@ -75,23 +73,18 @@ export function evaluateAsync({
 
   const bodyExpr = expr.args[0]!;
 
-  // Determine the expected return type for the body and wrapper type
-  // If context expects Impl(Future(T)) or Dyn(Future(T)), extract T for the body
+  // Determine the expected return type for the body
+  // If context expects Impl(Future(T)), extract T for the body
   let unwrappedFutureExpectedType: Type | undefined = undefined;
-  // let expectedFutureModuleType: FutureModuleType | undefined = undefined;
-  let wrapperType: SomeType | DynType | undefined;
+  let wrapperType: SomeType | undefined;
 
   if (context.expectedType) {
     const expectedType = context.expectedType.type;
     const futureModuleFromExpected = extractFutureModuleFromType(expectedType);
     if (futureModuleFromExpected) {
-      // expectedFutureModuleType = futureModuleFromExpected;
       unwrappedFutureExpectedType =
         futureModuleFromExpected.isFuture.outputType;
-      if (isDynType(expectedType)) {
-        wrapperType = expectedType;
-      } else if (isSomeType(expectedType)) {
-        // SomeType or FutureModuleType directly
+      if (isSomeType(expectedType)) {
         wrapperType = expectedType;
       }
     }
@@ -170,32 +163,26 @@ export function evaluateAsync({
     });
   env = updatedEnv;
 
-  // Determine the final type based on expected wrapper type
-  let finalType: Type;
+  // Determine the final type - always SomeType (Impl(Future(T))) for static dispatch
+  // Use `dyn async { ... }` to get Dyn(Future(T)) for dynamic dispatch
+  let finalType: SomeType;
 
-  if (wrapperType && isDynType(wrapperType)) {
-    // Expected type is Dyn(Future(T)) - create DynType with resolvedConcreteType
-    const resolvedDynType: DynType = {
-      ...wrapperType,
-    };
-    finalType = resolvedDynType;
-  } else if (wrapperType && isSomeType(wrapperType)) {
-    const resolvedSomeType: SomeType = {
+  if (wrapperType) {
+    // Use the expected SomeType wrapper with resolved concrete type
+    finalType = {
       ...wrapperType,
       resolvedConcreteType: captureType,
     };
-    finalType = resolvedSomeType;
   } else {
-    // Default to SomeType (Impl(Future(T))) for static dispatch
-    const someType = createSomeType(
+    // Create a new SomeType (Impl(Future(T)))
+    finalType = createSomeType(
       createType0(),
-      "", // Name for the SomeType QUESTION: What should be this?
+      "", // Name for the SomeType
       undefined,
       [futureModuleType], // requiredModules
       undefined // negativeModules
     );
-    someType.resolvedConcreteType = captureType;
-    finalType = someType;
+    finalType.resolvedConcreteType = captureType;
   }
 
   // Store the captured variables for codegen (bodyExpr already has evaluated data)

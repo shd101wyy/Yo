@@ -23,7 +23,6 @@ import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   createFnModuleType,
-  DynType,
   extractFnModuleFromType,
   FnModuleType,
   FunctionType,
@@ -66,16 +65,17 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  // Handle FunctionType, SomeType (from Impl(Fn(...))), and DynType (from Dyn(Fn(...)))
+  // Handle FunctionType and SomeType (from Impl(Fn(...)))
+  // Use `dyn (x) => expr` to get Dyn(Fn(...)) for dynamic dispatch
   let functionType: FunctionType;
   let isCreatingClosure = false;
   let expectedFnModuleType: FnModuleType | undefined;
-  let wrapperType: SomeType | DynType | undefined;
+  let wrapperType: SomeType | undefined;
 
   if (isFunctionType(expectedType)) {
     functionType = expectedType;
-  } else if (isSomeType(expectedType) || isDynType(expectedType)) {
-    // Handle Impl(Fn(...)) or Dyn(Fn(...)) - SomeType/DynType with required modules containing a FnModuleType
+  } else if (isSomeType(expectedType)) {
+    // Handle Impl(Fn(...)) - SomeType with required modules containing a FnModuleType
     const fnModuleFromWrapper = extractFnModuleFromType(expectedType);
     if (fnModuleFromWrapper) {
       expectedFnModuleType = fnModuleFromWrapper;
@@ -85,13 +85,13 @@ export function evaluateAnonymousFunctionImplementation({
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Expected a function type or Impl(Fn(...))/Dyn(Fn(...)), got:\n${typeToString(expectedType)}`,
+        errorMessage: `Expected a function type or Impl(Fn(...)), got:\n${typeToString(expectedType)}`,
       });
     }
   } else {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected a function type or closure type, got:\n${typeToString(expectedType)}`,
+      errorMessage: `Expected a function type or Impl(Fn(...)), got:\n${typeToString(expectedType)}${isDynType(expectedType) ? "\nUse 'dyn((x) => expr)' for dynamic dispatch" : ""}`,
     });
   }
 
@@ -438,19 +438,12 @@ Got:      "${paramName}"`,
 
     // Create a new wrapper type with the resolvedConcreteType set to the captureType
     // This preserves the wrapper type structure but records the concrete capture struct
-    if (isSomeType(wrapperType)) {
-      const resolvedSomeType: SomeType = {
-        ...wrapperType,
-        resolvedConcreteType: captureType,
-      };
-      finalType = resolvedSomeType;
-    } else {
-      // isDynType(wrapperType)
-      const resolvedDynType: DynType = {
-        ...wrapperType,
-      };
-      finalType = resolvedDynType;
-    }
+    // Always produce SomeType - use `dyn (x) => expr` to get DynType
+    const resolvedSomeType: SomeType = {
+      ...wrapperType,
+      resolvedConcreteType: captureType,
+    };
+    finalType = resolvedSomeType;
 
     // Closures are always runtime values - create an UnknownValue
     // The closure will be constructed at runtime in C code
