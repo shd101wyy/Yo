@@ -1043,7 +1043,7 @@ export function getMethodsByNameFromEnv(
    * REASON 3: The ambiguity problem might root deeper, for examle the code below:
    *
    * Id :: module(
-   *   id : (fn(self : Self) -> Self)
+   *   id : (fn(ref(self) : Self) -> Self)
    * );
    * Point :: struct(x : i32, y : i32,
    *   id :: ((self) -> self)

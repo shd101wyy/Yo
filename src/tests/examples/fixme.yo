@@ -1,15 +1,8 @@
-swap :: (fn(ref(x) : i32, ref(y) : i32) -> unit) {
-  temp := x;
-  x = y;
-  y = temp;
-};
-
-main :: (fn() -> unit) {
-  x := 1;
-  y := 2;
-  swap(x, y);
-  assert(x == 2);
-  assert(y == 1);
-};
-
-export main;
+List :: object(
+  value : i32,
+  next : Option(Self),
+  
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing List with value %d\n", self.value);
+  })
+);

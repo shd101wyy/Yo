@@ -23,7 +23,7 @@ import { evaluateExpression } from "../exprs/expr";
  * Supports negated modules with `!(Module)` syntax.
  *
  * Example:
- *   Id :: module(id : (fn(self : Self) -> Self));
+ *   Id :: module(id : (fn(ref(self) : Self) -> Self));
  *   ImplId :: Impl(Id);
  *   ImplIdNotCopy :: Impl(Id, !(Copy));  // Must implement Id but NOT Copy
  *

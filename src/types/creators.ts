@@ -998,11 +998,11 @@ export function createDynType(
   module(
     Self : Type,
     /// ___dup :
-    ///   fn(self: Self) -> Self,
+    ///   fn(ref(self) : Self) -> Self,
     /// ___drop :
-    ///   fn(self: Self) -> unit,
+    ///   fn(ref(self) : Self) -> unit,
     ___dispose :
-      fn(self: Self) -> unit
+      fn(ref(self) : Self) -> unit
   )
   `);
   const evaluatedWrappedObjectARCModuleTypeExpr = evaluateExpression({

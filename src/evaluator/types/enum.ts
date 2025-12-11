@@ -125,7 +125,7 @@ export function evaluateEnumType({
 
       // dispose function
       // Verify the disposeFunction has the correct type.
-      // fn(self : Self) -> unit
+      // fn(ref(self) : Self) -> unit
       // if (type.label === BuiltinFunctions.dispose[0]) {
       //   validateDisposeFunction(type as ModuleField, arg.token);
       // }

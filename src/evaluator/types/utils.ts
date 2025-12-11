@@ -509,7 +509,7 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
           .map((field) => field.label);
 
         const paramList = variant
-          .fields!.map((field) => field.label)
+          .fields!.map((field) => `ref(${field.label})`)
           .join(", ");
         const dropStatements = destructurings
           .map((label) => `      (${BuiltinFunctions.___drop[0]!})(${label});`)
@@ -572,7 +572,7 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
           .map((field) => field.label);
 
         const paramList = variant
-          .fields!.map((field) => field.label)
+          .fields!.map((field) => `ref(${field.label})`)
           .join(", ");
         const dupStatements = destructurings
           .map((label) => `      (${BuiltinFunctions.___dup[0]!})(${label});`)
@@ -740,7 +740,7 @@ export function addARCFunctionsToDynType({
 function generateDropFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, drop should use __yo_dyn_drop
   // This builtin function handles both the wrapped object cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
+  return `((fn(ref(self) : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
     ${BuiltinFunctions.__yo_dyn_drop[0]!}(self);
   })`;
 }
@@ -751,7 +751,7 @@ function generateDropFunctionCodeForDynType(_dynType: DynType): string {
 function generateDupFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, dup should use __yo_dyn_dup
   // This builtin function handles the dyn reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
+  return `((fn(ref(self) : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
     ${BuiltinFunctions.__yo_dyn_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
