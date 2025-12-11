@@ -14,7 +14,7 @@ import {
   isSomeType,
   ModuleType,
   Type,
-  typeContainsRefType,
+  typeContainsGcType,
   typeContainsSomeType,
   typeToString,
 } from "./types";
@@ -74,19 +74,19 @@ export interface Variable {
    * This is only relevant for types that are managed by Ref.
    *
    * Under the new simplified ownership model:
-   * - Variables created by := or = always own (isOwningTheRefValue: true)
-   * - Function parameters borrow by default (isOwningTheRefValue: false)
-   * - Function parameters with own() explicitly own (isOwningTheRefValue: true)
+   * - Variables created by := or = always own (isOwningTheGcValue: true)
+   * - Function parameters borrow by default (isOwningTheGcValue: false)
+   * - Function parameters with own() explicitly own (isOwningTheGcValue: true)
    * - For non-Ref types, this is always false (no ownership tracking needed)
    */
-  isOwningTheRefValue?: boolean;
+  isOwningTheGcValue?: boolean;
 
   /**
    * Tracks when this variable owns a share of the same Ref object as another variable.
    * This is used for dup/drop optimization across variable reassignments.
    *
    * When a temp variable is created to hold the old value during reassignment:
-   * - The temp variable's `isOwningTheSameRefValueAs` points to the original variable
+   * - The temp variable's `isOwningTheSameGcValueAs` points to the original variable
    * - This allows us to optimize away `dup(original) + drop(temp)` pairs
    *
    * Example:
@@ -96,10 +96,10 @@ export interface Variable {
    * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
    * ```
    *
-   * Here, `temp` would have `isOwningTheSameRefValueAs = y` because both own
+   * Here, `temp` would have `isOwningTheSameGcValueAs = y` because both own
    * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
    */
-  isOwningTheSameRefValueAs?: Variable;
+  isOwningTheSameGcValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -506,8 +506,8 @@ export function printEnvVarNames(env: Environment) {
         value: valueToString(variable.value),
         isCompileTimeOnly: variable.isCompileTimeOnly,
         isUndefined: !variable.initializedAtToken,
-        isOwningTheRefValue: !!variable.isOwningTheRefValue,
-        isOwningTheSameRefValueAs: variable.isOwningTheSameRefValueAs?.name,
+        isOwningTheGcValue: !!variable.isOwningTheGcValue,
+        isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
         isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
@@ -525,8 +525,8 @@ export function printEnvFrame(frame: Frame) {
       value: valueToString(variable.value),
       isCompileTimeOnly: variable.isCompileTimeOnly,
       isUndefined: !variable.initializedAtToken,
-      isOwningTheRefValue: !!variable.isOwningTheRefValue,
-      isOwningTheSameRefValueAs: variable.isOwningTheSameRefValueAs?.name,
+      isOwningTheGcValue: !!variable.isOwningTheGcValue,
+      isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
       isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))
@@ -1119,8 +1119,8 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     (variable) =>
       !variable.consumedAtToken &&
       // !variable.isCompileTimeOnly &&
-      variable.isOwningTheRefValue &&
-      typeContainsRefType(variable.type)
+      variable.isOwningTheGcValue &&
+      typeContainsGcType(variable.type)
   );
 
   // Return in reverse order (end to start) for proper drop order

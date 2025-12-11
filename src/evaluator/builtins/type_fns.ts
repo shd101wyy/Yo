@@ -13,7 +13,7 @@ import {
   isModuleType,
   isTypeHierarchyType,
   ModuleType,
-  typeContainsRefType,
+  typeContainsGcType,
   typeToString,
 } from "../../types";
 import {
@@ -202,7 +202,7 @@ export function evaluateYoTypeContainsArcType({
     });
   }
 
-  const flag = typeContainsRefType(typeValue.value);
+  const flag = typeContainsGcType(typeValue.value);
   const value = createBooleanValue(flag);
 
   expr.$ = {

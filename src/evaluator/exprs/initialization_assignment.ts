@@ -14,7 +14,7 @@ import {
   isSomeType,
   prohibitVoidType,
   SomeType,
-  typeContainsRefType,
+  typeContainsGcType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -302,9 +302,9 @@ ${exprToString(rhs)}`,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheRefValue: typeContainsRefType(finalLhsType),
+        isOwningTheGcValue: typeContainsGcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
-        isOwningTheSameRefValueAs: rhsOwningVariable,
+        isOwningTheSameGcValueAs: rhsOwningVariable,
         isReassignable: true, // This is not a function parameter
       },
     });

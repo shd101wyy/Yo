@@ -35,7 +35,7 @@ import {
   SomeType,
   StructType,
   Type,
-  typeContainsRefType,
+  typeContainsGcType,
   typeImplementsFn,
   typeImplementsFuture,
   TypeTag,
@@ -899,8 +899,8 @@ function generateFuncCall(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isOwningTheSameRefValueAs
-            ? variable.isOwningTheSameRefValueAs.id
+          const idToCheck = variable.isOwningTheSameGcValueAs
+            ? variable.isOwningTheSameGcValueAs.id
             : variable.id;
 
           if (functionContext.stateMachineVariables.has(idToCheck)) {
@@ -3004,7 +3004,7 @@ function generateAsyncBlockStateDisposeFunction(
   emitter.emitLine(``);
 
   // Drop capture struct (like closures do)
-  if (captureType && typeContainsRefType(captureType)) {
+  if (captureType && typeContainsGcType(captureType)) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
     );
@@ -3344,8 +3344,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       // e.g., _temp_123 owns the value, future1 borrows from _temp_123
       // In deferred drops, we drop _temp_123, but in state machine it's stored as sm->var_future1
       if (
-        capturedVar.isOwningTheSameRefValueAs &&
-        capturedVar.isOwningTheSameRefValueAs.name === varName
+        capturedVar.isOwningTheSameGcValueAs &&
+        capturedVar.isOwningTheSameGcValueAs.name === varName
       ) {
         const fieldName =
           capturedVar.kind === "outer"
@@ -3361,10 +3361,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheSameRefValueAs) {
+        if (variable.isOwningTheSameGcValueAs) {
           // This variable is borrowing - try to find the owner in state machine
-          const ownerName = variable.isOwningTheSameRefValueAs.name;
-          const ownerId = variable.isOwningTheSameRefValueAs.id;
+          const ownerName = variable.isOwningTheSameGcValueAs.name;
+          const ownerId = variable.isOwningTheSameGcValueAs.id;
 
           for (const [
             varId,

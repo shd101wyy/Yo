@@ -32,7 +32,7 @@ import {
   StructType,
   TupleType,
   Type,
-  typeContainsRefType,
+  typeContainsGcType,
   typeRequiresInference,
   typeToString,
 } from "../../types";
@@ -406,7 +406,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
     let isMutatingDefinedVariable = false;
     const oldVariableIsOwningTheSameARCValueAs =
-      variable.isOwningTheSameRefValueAs;
+      variable.isOwningTheSameGcValueAs;
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
@@ -476,8 +476,8 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         initializedAtToken: lhs.token,
         value: valueToStore,
         type: variableType,
-        isOwningTheRefValue: typeContainsRefType(variableType),
-        isOwningTheSameRefValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isOwningTheGcValue: typeContainsGcType(variableType),
+        isOwningTheSameGcValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
     } else {
       // Disallow reassignment of SomeType (Impl(...)) variables.
@@ -567,8 +567,8 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore,
         type: variableType,
-        isOwningTheRefValue: typeContainsRefType(variableType),
-        isOwningTheSameRefValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isOwningTheGcValue: typeContainsGcType(variableType),
+        isOwningTheSameGcValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
       isMutatingDefinedVariable = true;
     }

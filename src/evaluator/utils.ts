@@ -37,13 +37,13 @@ export function findARCValueOwnerRelationship(
 
   // Follow the borrowing chain until we reach an owning variable or it breaks.
   const visited = new Set<string>();
-  while (candidate && candidate.isOwningTheSameRefValueAs) {
+  while (candidate && candidate.isOwningTheSameGcValueAs) {
     if (visited.has(candidate.id)) return undefined; // cycle guard
     visited.add(candidate.id);
-    candidate = candidate.isOwningTheSameRefValueAs;
+    candidate = candidate.isOwningTheSameGcValueAs;
   }
 
-  if (candidate && candidate.isOwningTheRefValue) {
+  if (candidate && candidate.isOwningTheGcValue) {
     return candidate;
   }
   return undefined;

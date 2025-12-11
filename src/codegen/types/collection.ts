@@ -376,7 +376,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
     else if (
       isPtrType(type) ||
       isPtrType(type) ||
-      isRefType(type) ||
+      isGcType(type) ||
       isMutRefType(type)
     ) {
       // Use the base type's C name

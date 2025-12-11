@@ -129,14 +129,14 @@ function searchRecursively(
       // Track dup calls for optimization:
       // 1. If the variable owns the same ARC value as another variable (optimization tracking)
       // 2. If the variable itself is owning (new pattern with assignments always own)
-      if (variable.isOwningTheSameRefValueAs) {
+      if (variable.isOwningTheSameGcValueAs) {
         // Store the dup call mapped to the shared variable ID
-        const sharedVariableId = variable.isOwningTheSameRefValueAs.id;
+        const sharedVariableId = variable.isOwningTheSameGcValueAs.id;
         if (!dupCalls.has(sharedVariableId)) {
           dupCalls.set(sharedVariableId, []);
         }
         dupCalls.get(sharedVariableId)!.push(expr);
-      } else if (variable.isOwningTheRefValue) {
+      } else if (variable.isOwningTheGcValue) {
         // For owning variables, track the dup call directly under the variable's ID
         if (!dupCalls.has(variable.id)) {
           dupCalls.set(variable.id, []);
@@ -250,13 +250,13 @@ function isUnitValueExpression(expr: Expr): boolean {
 }
 
 /**
- * Helper to get the base variable ID by following the isOwningTheSameRefValueAs chain.
+ * Helper to get the base variable ID by following the isOwningTheSameGcValueAs chain.
  * This is used for dup/drop optimization to identify which variables share the same ARC value.
  */
 function getBaseVariableId(variable: Variable): string {
   let current = variable;
-  while (current.isOwningTheSameRefValueAs) {
-    current = current.isOwningTheSameRefValueAs;
+  while (current.isOwningTheSameGcValueAs) {
+    current = current.isOwningTheSameGcValueAs;
   }
   return current.id;
 }
@@ -707,10 +707,10 @@ export function evaluateBeginExpression({
   // Mark the owning variable as consumed so it will not receive an auto ___drop,
   // and skip adding a ___dup for the returned expression later.
   // Likewise, if directly returning an owning variable from this frame, mark it consumed.
-  if (returnVariable?.isOwningTheSameRefValueAs && returnValueExpr) {
-    const ownerVariable = returnVariable.isOwningTheSameRefValueAs;
+  if (returnVariable?.isOwningTheSameGcValueAs && returnValueExpr) {
+    const ownerVariable = returnVariable.isOwningTheSameGcValueAs;
     if (
-      ownerVariable.isOwningTheRefValue &&
+      ownerVariable.isOwningTheGcValue &&
       ownerVariable.frameLevel === env.frames.length - 1 &&
       !ownerVariable.consumedAtToken
     ) {
@@ -724,7 +724,7 @@ export function evaluateBeginExpression({
       env = returnValueExpr.$!.env!;
     }
   } else if (
-    returnVariable?.isOwningTheRefValue &&
+    returnVariable?.isOwningTheGcValue &&
     returnVariable.frameLevel === env.frames.length - 1 &&
     !returnVariable.consumedAtToken
   ) {
@@ -732,7 +732,7 @@ export function evaluateBeginExpression({
       ...returnVariable,
       consumedAtToken: lastExpr.token,
     });
-  } else if (!returnVariable?.isOwningTheRefValue && returnValueExpr) {
+  } else if (!returnVariable?.isOwningTheGcValue && returnValueExpr) {
     setExprAsNeedsToCallDup(returnValueExpr, context);
     env = returnValueExpr.$!.env!;
   } else {

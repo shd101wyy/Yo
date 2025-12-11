@@ -56,6 +56,7 @@ import {
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
+  isGcType,
   isI16Type,
   isI32Type,
   isI64Type,
@@ -65,7 +66,6 @@ import {
   isModuleType,
   isObjectType,
   isPtrType,
-  isRefType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -324,7 +324,7 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
  * Check if the type contains `object` or `Dyn`
  * @param type
  */
-export function typeContainsRefType(
+export function typeContainsGcType(
   type?: Type,
   checkedTypes: Type[] = []
 ): boolean {
@@ -338,30 +338,30 @@ export function typeContainsRefType(
     checkedTypes.push(type);
   }
 
-  if (isRefType(type)) {
+  if (isGcType(type)) {
     return true;
   }
 
   // Recursively check in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsRefType((type as ArrayType).childType, checkedTypes);
+      return typeContainsGcType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
-        typeContainsRefType(field.type, checkedTypes)
+        typeContainsGcType(field.type, checkedTypes)
       );
     case TypeTag.Union:
       return (type as UnionType).fields.some((field) =>
-        typeContainsRefType(field.type, checkedTypes)
+        typeContainsGcType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
-        typeContainsRefType(field.type, checkedTypes)
+        typeContainsGcType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.fields?.some((param) =>
-          typeContainsRefType(param.type, checkedTypes)
+          typeContainsGcType(param.type, checkedTypes)
         )
       );
     case TypeTag.Module:
@@ -371,7 +371,7 @@ export function typeContainsRefType(
     }
     case TypeTag.SomeType: {
       if ((type as SomeType).resolvedConcreteType) {
-        return typeContainsRefType(
+        return typeContainsGcType(
           (type as SomeType).resolvedConcreteType!,
           checkedTypes
         );
@@ -1585,7 +1585,7 @@ export function canRefStructFormCycles(
   try {
     // Check all fields in the struct
     for (const field of type.fields) {
-      if (typeCanReferenceCyclicRefStruct(field.type, type, visitedTypes)) {
+      if (typeCanFormCyclicGcReference(field.type, type, visitedTypes)) {
         return true;
       }
     }
@@ -1600,7 +1600,7 @@ export function canRefStructFormCycles(
  * Helper function to check if a type can reference back to a cyclic object.
  * This traverses through containers (enums, arrays, etc.) to find object references.
  */
-function typeCanReferenceCyclicRefStruct(
+function typeCanFormCyclicGcReference(
   type: Type,
   originalRefStruct: StructType,
   visitedTypes: Set<string>
@@ -1621,7 +1621,7 @@ function typeCanReferenceCyclicRefStruct(
       if (variant.fields) {
         for (const field of variant.fields) {
           if (
-            typeCanReferenceCyclicRefStruct(
+            typeCanFormCyclicGcReference(
               field.type,
               originalRefStruct,
               visitedTypes
@@ -1635,7 +1635,7 @@ function typeCanReferenceCyclicRefStruct(
   }
 
   if (isSomeType(type) && type.resolvedConcreteType) {
-    return typeCanReferenceCyclicRefStruct(
+    return typeCanFormCyclicGcReference(
       type.resolvedConcreteType,
       originalRefStruct,
       visitedTypes
@@ -1644,7 +1644,7 @@ function typeCanReferenceCyclicRefStruct(
 
   // Check through arrays
   if (isArrayType(type)) {
-    return typeCanReferenceCyclicRefStruct(
+    return typeCanFormCyclicGcReference(
       type.childType,
       originalRefStruct,
       visitedTypes
@@ -1653,7 +1653,7 @@ function typeCanReferenceCyclicRefStruct(
 
   // Check through slices
   if (isSliceType(type)) {
-    return typeCanReferenceCyclicRefStruct(
+    return typeCanFormCyclicGcReference(
       type.childType,
       originalRefStruct,
       visitedTypes
@@ -1664,7 +1664,7 @@ function typeCanReferenceCyclicRefStruct(
   if (isTupleType(type)) {
     for (const field of type.fields) {
       if (
-        typeCanReferenceCyclicRefStruct(
+        typeCanFormCyclicGcReference(
           field.type,
           originalRefStruct,
           visitedTypes
@@ -1679,7 +1679,7 @@ function typeCanReferenceCyclicRefStruct(
   if (isUnionType(type)) {
     for (const field of type.fields) {
       if (
-        typeCanReferenceCyclicRefStruct(
+        typeCanFormCyclicGcReference(
           field.type,
           originalRefStruct,
           visitedTypes

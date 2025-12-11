@@ -225,7 +225,7 @@ export function generateAsyncBlockResumeFunction(
                       name: field.label,
                       type: field.type,
                       kind: "outer",
-                      isOwningTheSameRefValueAs: undefined, // FIXME
+                      isOwningTheSameGcValueAs: undefined, // FIXME
                     });
                   }
                 }
@@ -311,7 +311,7 @@ export function generateAsyncBlockResumeFunction(
                   name: field.label,
                   type: field.type,
                   kind: "outer",
-                  isOwningTheSameRefValueAs: undefined, // FIXME
+                  isOwningTheSameGcValueAs: undefined, // FIXME
                 });
               }
             }
@@ -362,7 +362,7 @@ export function generateAsyncBlockResumeFunction(
                 name: field.label,
                 type: field.type,
                 kind: "outer",
-                isOwningTheSameRefValueAs: undefined, // FIXME
+                isOwningTheSameGcValueAs: undefined, // FIXME
               });
             }
           }
@@ -437,7 +437,7 @@ export function generateAsyncBlockResumeFunction(
           name: field.label,
           type: field.type,
           kind: "outer",
-          isOwningTheSameRefValueAs: undefined,
+          isOwningTheSameGcValueAs: undefined,
         });
       }
     }

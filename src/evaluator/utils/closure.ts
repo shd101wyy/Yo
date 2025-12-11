@@ -12,7 +12,7 @@ import {
   areTypesCompatible,
   createStructType,
   StructType,
-  typeContainsRefType,
+  typeContainsGcType,
   TypeField,
   typeToString,
 } from "../../types";
@@ -331,7 +331,7 @@ export function generateCapturedVariableDupExpressions({
       captureInfo,
     ] of capturedVariablesWithValues.entries()) {
       // Check if the captured variable type requires ARC (contains ARC types)
-      if (typeContainsRefType(captureInfo.type)) {
+      if (typeContainsGcType(captureInfo.type)) {
         // Create an expression: varName.___dup()
         const dupExpr: Expr = generateExprFromCode(
           `${BuiltinFunctions.___dup[0]!}(${varName})`

@@ -243,7 +243,7 @@ Got:      "${paramName}"`,
     }
 
     // Add regular parameter to environment
-    // Use the expected parameter's isOwningTheRefValue to properly track ownership
+    // Use the expected parameter's isOwningTheGcValue to properly track ownership
     // (borrowed parameters default to false, owned parameters are true)
     const { env: nextEnv } = addVariableToEnv({
       env,
@@ -257,7 +257,7 @@ Got:      "${paramName}"`,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
-        isOwningTheRefValue: expectedParam.isOwningTheRefValue,
+        isOwningTheGcValue: expectedParam.isOwningTheGcValue,
       },
       skipCheckingFunctionOverloading: true,
     });

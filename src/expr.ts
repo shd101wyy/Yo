@@ -17,7 +17,7 @@ import {
   isSomeType,
   StructType,
   Type,
-  typeContainsRefType,
+  typeContainsGcType,
   typeToString,
 } from "./types";
 import {
@@ -899,7 +899,7 @@ export const BuiltinFunctions = {
   is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
-  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheRefValue to be true. This is useful for implementing ___dup function.
+  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheGcValue to be true. This is useful for implementing ___dup function.
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
@@ -1221,8 +1221,8 @@ function exprToPrettyString(
 
 export function attachTempVariableToExpr(
   expr: Expr,
-  isOwningTheRefValue: boolean,
-  isOwningTheSameRefValueAs?: Variable
+  isOwningTheGcValue: boolean,
+  isOwningTheSameGcValueAs?: Variable
 ): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
@@ -1231,10 +1231,10 @@ ${exprToString(expr)}`);
   const { env, type, value, originType } = expr.$;
   const modulePath = env.modulePath;
 
-  // NOTE: For now let's make all the isOwningTheRefValue variable runtime-only
+  // NOTE: For now let's make all the isOwningTheGcValue variable runtime-only
   // so the `object` value can only be used in runtime.
   // Actually, all C pointer related should be runtime-only.
-  const _isOwningTheARCValue = isOwningTheRefValue && typeContainsRefType(type);
+  const _isOwningTheARCValue = isOwningTheGcValue && typeContainsGcType(type);
 
   // Check if a temp variable already exists
   if (expr.$.variableName) {
@@ -1247,7 +1247,7 @@ ${exprToString(expr)}`);
       // attaching a temp variable to it. This is crucial for correct reference
       // counting - returning a borrowed parameter should generate a dup call.
       const preservedIsOwningTheRefValue =
-        existingVariable.isOwningTheRefValue === false
+        existingVariable.isOwningTheGcValue === false
           ? false
           : _isOwningTheARCValue;
       const updatedVariable: Variable = {
@@ -1257,8 +1257,8 @@ ${exprToString(expr)}`);
         isCompileTimeOnly: preservedIsOwningTheRefValue
           ? false
           : Boolean(value),
-        isOwningTheRefValue: preservedIsOwningTheRefValue,
-        isOwningTheSameRefValueAs,
+        isOwningTheGcValue: preservedIsOwningTheRefValue,
+        isOwningTheSameGcValueAs,
       };
       expr.$.env = updateExistingVariable(
         env,
@@ -1284,8 +1284,8 @@ ${exprToString(expr)}`);
         value: _isOwningTheARCValue ? undefined : value,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
         initializedAtToken: expr.token,
-        isOwningTheRefValue: _isOwningTheARCValue,
-        isOwningTheSameRefValueAs,
+        isOwningTheGcValue: _isOwningTheARCValue,
+        isOwningTheSameGcValueAs,
         consumedAtToken: undefined,
         token: expr.token,
       },
@@ -1313,8 +1313,8 @@ ${exprToString(expr)}`);
       value: _isOwningTheARCValue ? undefined : value,
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
-      isOwningTheRefValue: _isOwningTheARCValue,
-      isOwningTheSameRefValueAs,
+      isOwningTheGcValue: _isOwningTheARCValue,
+      isOwningTheSameGcValueAs,
       consumedAtToken: undefined,
       token: expr.token,
     },
@@ -1392,14 +1392,14 @@ export function mergeAndCheckEnvs(
       consumedAtToken: Token | undefined;
       initializedAtToken: Token | undefined;
       type: Type;
-      isOwningTheRefValue: boolean;
+      isOwningTheGcValue: boolean;
     }[][] = [[]];
     frameVariables.forEach((variable) => {
       matrix[0]!.push({
         consumedAtToken: variable.consumedAtToken,
         initializedAtToken: variable.initializedAtToken,
         type: variable.type,
-        isOwningTheRefValue: variable.isOwningTheRefValue ?? false,
+        isOwningTheGcValue: variable.isOwningTheGcValue ?? false,
       });
     });
 
@@ -1444,7 +1444,7 @@ export function mergeAndCheckEnvs(
           consumedAtToken: variable.consumedAtToken,
           initializedAtToken: variable.initializedAtToken,
           type: variable.type,
-          isOwningTheRefValue: variable.isOwningTheRefValue ?? false,
+          isOwningTheGcValue: variable.isOwningTheGcValue ?? false,
         });
       });
     }
@@ -1466,7 +1466,7 @@ export function mergeAndCheckEnvs(
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
         isOwningTheRefValueAtTokens.push(
-          matrix[j]![i]!.isOwningTheRefValue
+          matrix[j]![i]!.isOwningTheGcValue
             ? caseEnvFrameVariables[i]!.token
             : undefined
         );
@@ -1621,7 +1621,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       /*
       if (isOwningTheRefValueAtTokens.length === 1) {
         if (
-          !frameVariables[i]!.isOwningTheRefValue &&
+          !frameVariables[i]!.isOwningTheGcValue &&
           isOwningTheRefValueAtTokens[0]
         ) {
           throw formatErrorMessages([
@@ -1641,27 +1641,27 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       else 
       */
       if (
-        !frameVariables[i]!.isOwningTheRefValue &&
+        !frameVariables[i]!.isOwningTheGcValue &&
         isOwningTheRefValueAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
           ...frameVariables[i]!,
-          isOwningTheRefValue: true,
-          isOwningTheSameRefValueAs: undefined,
+          isOwningTheGcValue: true,
+          isOwningTheSameGcValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
       }
       // case 3
       else {
-        const isOwningTheRefValue = isOwningTheRefValueAtTokens.filter(
+        const isOwningTheGcValue = isOwningTheRefValueAtTokens.filter(
           (u) => !!u
         );
         const isNotOwningTheRefValue = isOwningTheRefValueAtTokens.filter(
           (u) => !u
         );
         if (
-          isOwningTheRefValue.length > 0 &&
+          isOwningTheGcValue.length > 0 &&
           isNotOwningTheRefValue.length > 0
         ) {
           throw formatErrorMessages(
@@ -1708,7 +1708,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           ...frameVariables[i]!,
           id: newVariableId,
           // Clear ownership tracking since the value may come from different sources
-          isOwningTheSameRefValueAs: undefined,
+          isOwningTheSameGcValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
@@ -1873,7 +1873,7 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
-  if (typeContainsRefType(expr.$.type)) {
+  if (typeContainsGcType(expr.$.type)) {
     const variableName = expr.$.variableName;
 
     // Check if the expr.variableName is holding the Ref value
@@ -1887,7 +1887,7 @@ export function setExprAsNeedsToCallDup(
         const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
-          if (variable.isOwningTheRefValue) {
+          if (variable.isOwningTheGcValue) {
             // Set the variable as consumed so we won't need to drop it later
             if (!variable.consumedAtToken) {
               expr.$.env = updateExistingVariable(expr.$.env, variable, {
