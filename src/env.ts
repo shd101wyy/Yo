@@ -73,10 +73,12 @@ export interface Variable {
    * Whether the variable is owning the value or referencing the value.
    *
    * Under the new simplified ownership model:
-   * - Variables created by := or = always own (isOwningTheValue: true)
+   * - Variables created by := or = without `ref()` always own (isOwningTheValue: true)
+   * - Variables created with `ref()` always borrow (isOwningTheValue: false)
    * - Function parameters own by default (isOwningTheValue: true)
    * - Function parameters with ref() explicitly borrow (isOwningTheValue: false)
-   * - Variables from destructuring always borrow (isOwningTheValue: false)
+   * - Variables from destructuring always own (isOwningTheValue: true)
+   * - Variables from destructuring with ref() explicitly borrow (isOwningTheValue: false)
    */
   isOwningTheValue: boolean;
 

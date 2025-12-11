@@ -821,6 +821,10 @@ export function functionParameterToString(
 ): string {
   let label = parameter.label;
 
+  if (!parameter.isOwningTheValue) {
+    label = `ref${label}`;
+  }
+
   if (parameter.isQuote) {
     label = `quote(${label})`;
   } else if (parameter.isCompileTimeOnly) {

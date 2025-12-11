@@ -1,54 +1,15 @@
-open import "std/libc/stdio.yo";
-
-/*
-StaticAsync :: Impl(Future(i32));
-DynamicAsync :: Dyn(Future(i32));
-
-main :: (fn() -> unit) {
-  async {
-    task1 := dyn(async {
-      printf("Task 1 started\n");
-    });
-    task2 := async {
-      printf("Task 2 started\n");
-    };
-    task3 := async {
-      printf("Task 3 started\n");
-    };
-
-    await task1;
-    await task2;
-    await task3;
-  };
-
-  return ();
-};
-*/
-
-Id :: module(
-  id : (fn(self : Self) -> Self)
-);
-
-use_id :: (fn(
-  forall(T : Type),
-  value : T,
-  where(T <: Id)
-) -> T) {
-  // (T <: Id).id(value);
-  return value.id();
+swap :: (fn(ref(x) : i32, ref(y) : i32) -> unit) {
+  temp := x;
+  x = y;
+  y = temp;
 };
 
-impl(Box(i32), Id(
-  id : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.*);
-    return self;
-    // TODO: self
-  })
-));
-
 main :: (fn() -> unit) {
-  bi := Box(i32)(100);
-  assert(use_id(bi).* == bi.*, "use_id should return the same Boxed i32 value");
+  x := 1;
+  y := 2;
+  swap(x, y);
+  assert(x == 2);
+  assert(y == 1);
 };
 
 export main;
