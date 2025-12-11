@@ -483,6 +483,15 @@ export function activate(context: vscode.ExtensionContext) {
             variables.length > 0 &&
             !variables[variables.length - 1]!.initializedAtToken;
 
+          const isRef =
+            variables &&
+            variables.length > 0 &&
+            !variables[variables.length - 1]!.isOwningTheValue;
+
+          if (isRef) {
+            tokenText = `ref(${tokenText})`;
+          }
+
           if (isCompileTimeOnly) {
             tokenText = `compt(${tokenText})`;
           }
