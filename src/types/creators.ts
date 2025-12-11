@@ -1002,7 +1002,7 @@ export function createDynType(
     /// ___drop :
     ///   fn(ref(self) : Self) -> unit,
     ___dispose :
-      fn(ref(self) : Self) -> unit
+      fn(self : Self) -> unit
   )
   `);
   const evaluatedWrappedObjectARCModuleTypeExpr = evaluateExpression({

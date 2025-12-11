@@ -99,7 +99,7 @@ export function evaluateStructType({
       if (field.isCompileTimeOnly && field.assignedValue) {
         // dispose function
         // Verify the disposeFunction has the correct type.
-        // fn(ref(self) : Self) -> unit
+        // fn(self : Self) -> unit
         if (field.label === BuiltinFunctions.dispose[0]) {
           validateDisposeFunction(
             field as ModuleField,

@@ -186,7 +186,7 @@ export function addFunctionCodeToSelfTypeModule({
   return nextEnv;
 }
 
-export const DisposeFnSignature = "(fn(ref(self) : Self) -> unit)";
+export const DisposeFnSignature = "(fn(self : Self) -> unit)";
 export const DropFnSignature = "(fn(ref(self) : Self) -> unit)";
 export const DupFnSignature = "(fn(ref(self) : Self) -> Self)";
 

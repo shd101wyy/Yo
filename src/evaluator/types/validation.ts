@@ -4,7 +4,7 @@ import { Token } from "../../token";
 import { isFunctionType, isUnitType, ModuleField } from "../../types";
 
 /**
- * Validate that a dispose function has the correct signature: fn(ref(self) : Self) -> unit
+ * Validate that a dispose function has the correct signature: fn(self : Self) -> unit
  */
 export function validateDisposeFunction(
   moduleElement: ModuleField,
@@ -26,14 +26,7 @@ export function validateDisposeFunction(
       });
     }
 
-    if (funcType.parameters[0]?.isOwningTheValue) {
-      throw formatErrorMessage({
-        token,
-        errorMessage: `The "dispose" function must have a parameter of type "ref(self)".`,
-      });
-    }
-
-    // TODO: Check "self" parameter type
+    // TODO: Check if the parameter type is "Self"
 
     // Check if the return type is unit
     if (!isUnitType(funcType.return.type)) {
