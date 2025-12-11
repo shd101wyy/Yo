@@ -826,7 +826,10 @@ export function evaluateBeginExpression({
         ? variablesActuallyNeedingDrop
         : variablesNeedingDrop,
       env,
-      context,
+      context: {
+        ...context,
+        expectedType: undefined, // Drop expressions should not inherit expectedType
+      },
     });
     deferredDropExpressions = dropResult.deferredDropExpressions;
     env = dropResult.env;
