@@ -29,6 +29,8 @@ export {
   clearImplsFromModule,
 };
 
+const SKIP_PRELUDE = false;
+
 /**
  * This class is responsible for:
  * - Type checking the program
@@ -103,7 +105,7 @@ export default class Evaluator {
     const preludePath = "file://" + path.join(stdPath, "prelude.yo");
     const isPreludeItself = this.modulePath === preludePath;
 
-    if (!isPreludeItself) {
+    if (!isPreludeItself && !SKIP_PRELUDE) {
       const { moduleValue: preludeValue, moduleError: preludeError } =
         loadModule(preludePath);
 

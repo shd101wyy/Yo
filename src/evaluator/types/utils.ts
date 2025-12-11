@@ -186,9 +186,9 @@ export function addFunctionCodeToSelfTypeModule({
   return nextEnv;
 }
 
-export const DisposeFnSignature = "(fn(self : Self) -> unit)";
-export const DropFnSignature = "(fn(self : Self) -> unit)";
-export const DupFnSignature = "(fn(self : Self) -> Self)";
+export const DisposeFnSignature = "(fn(ref(self) : Self) -> unit)";
+export const DropFnSignature = "(fn(ref(self) : Self) -> unit)";
+export const DupFnSignature = "(fn(ref(self) : Self) -> Self)";
 
 /**
  * Generate ___dispose function code for a struct type

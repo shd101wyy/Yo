@@ -822,7 +822,7 @@ export function functionParameterToString(
   let label = parameter.label;
 
   if (!parameter.isOwningTheValue) {
-    label = `ref${label}`;
+    label = `ref(${label})`;
   }
 
   if (parameter.isQuote) {

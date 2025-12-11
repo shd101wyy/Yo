@@ -1232,11 +1232,6 @@ ${exprToString(expr)}`);
   const { env, type, value, originType } = expr.$;
   const modulePath = env.modulePath;
 
-  // NOTE: For now let's make all the isOwningTheValue variable runtime-only
-  // so the `object` value can only be used in runtime.
-  // Actually, all C pointer related should be runtime-only.
-  const _isOwningTheARCValue = isOwningTheValue && typeContainsGcType(type);
-
   // Check if a temp variable already exists
   if (expr.$.variableName) {
     // Update the existing variable instead of creating a new one
@@ -1248,9 +1243,7 @@ ${exprToString(expr)}`);
       // attaching a temp variable to it. This is crucial for correct reference
       // counting - returning a borrowed parameter should generate a dup call.
       const preservedIsOwningTheRefValue =
-        existingVariable.isOwningTheValue === false
-          ? false
-          : _isOwningTheARCValue;
+        existingVariable.isOwningTheValue === false ? false : isOwningTheValue;
       const updatedVariable: Variable = {
         ...existingVariable,
         type,
@@ -1282,10 +1275,10 @@ ${exprToString(expr)}`);
       variable: {
         name: expr.$.variableName,
         type,
-        value: _isOwningTheARCValue ? undefined : value,
-        isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
+        value: isOwningTheValue ? undefined : value,
+        isCompileTimeOnly: isOwningTheValue ? false : Boolean(value),
         initializedAtToken: expr.token,
-        isOwningTheValue: _isOwningTheARCValue,
+        isOwningTheValue: isOwningTheValue,
         isOwningTheSameGcValueAs,
         consumedAtToken: undefined,
         token: expr.token,
@@ -1311,10 +1304,10 @@ ${exprToString(expr)}`);
     variable: {
       name: tempVariableName,
       type,
-      value: _isOwningTheARCValue ? undefined : value,
-      isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
+      value: isOwningTheValue ? undefined : value,
+      isCompileTimeOnly: isOwningTheValue ? false : Boolean(value),
       initializedAtToken: expr.token,
-      isOwningTheValue: _isOwningTheARCValue,
+      isOwningTheValue: isOwningTheValue,
       isOwningTheSameGcValueAs,
       consumedAtToken: undefined,
       token: expr.token,
