@@ -83,6 +83,21 @@ ${exprToString(rhs)}`,
     lhs = lhs.args[0]!;
   }
 
+  let isOwningTheValue = true;
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.ref)
+  ) {
+    isOwningTheValue = false;
+    if (lhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected one argument for "ref" , got ${lhs.args.length}`,
+      });
+    }
+    lhs = lhs.args[0]!;
+  }
+
   if (
     !isCompileTimeOnly &&
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
@@ -124,6 +139,7 @@ ${exprToString(rhs)}`,
       name: variableName,
       type: userDefinedType,
       isCompileTimeOnly,
+      isOwningTheValue,
       value: isCompileTimeOnly
         ? createUnknownValue(userDefinedType, variableName)
         : undefined,

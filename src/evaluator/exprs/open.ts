@@ -68,6 +68,7 @@ export function evaluateOpen({
           name: field.label,
           type: field.type,
           isCompileTimeOnly: field.isCompileTimeOnly,
+          isOwningTheValue: true, // QUESTION: Should we default to "own"?
           value: value,
           token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
           initializedAtToken:
@@ -97,6 +98,7 @@ export function evaluateOpen({
             name: field.label,
             type: field.type,
             isCompileTimeOnly: field.isCompileTimeOnly,
+            isOwningTheValue: true, // QUESTION: Should we default to "own"?
             value: value,
             token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
             initializedAtToken:

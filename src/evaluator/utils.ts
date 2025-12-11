@@ -43,7 +43,7 @@ export function findARCValueOwnerRelationship(
     candidate = candidate.isOwningTheSameGcValueAs;
   }
 
-  if (candidate && candidate.isOwningTheGcValue) {
+  if (candidate && candidate.isOwningTheValue) {
     return candidate;
   }
   return undefined;

@@ -302,7 +302,7 @@ ${exprToString(rhs)}`,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheGcValue: typeContainsGcType(finalLhsType),
+        isOwningTheValue: typeContainsGcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
         isOwningTheSameGcValueAs: rhsOwningVariable,
         isReassignable: true, // This is not a function parameter

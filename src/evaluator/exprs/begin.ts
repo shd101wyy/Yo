@@ -136,7 +136,7 @@ function searchRecursively(
           dupCalls.set(sharedVariableId, []);
         }
         dupCalls.get(sharedVariableId)!.push(expr);
-      } else if (variable.isOwningTheGcValue) {
+      } else if (variable.isOwningTheValue) {
         // For owning variables, track the dup call directly under the variable's ID
         if (!dupCalls.has(variable.id)) {
           dupCalls.set(variable.id, []);
@@ -710,7 +710,7 @@ export function evaluateBeginExpression({
   if (returnVariable?.isOwningTheSameGcValueAs && returnValueExpr) {
     const ownerVariable = returnVariable.isOwningTheSameGcValueAs;
     if (
-      ownerVariable.isOwningTheGcValue &&
+      ownerVariable.isOwningTheValue &&
       ownerVariable.frameLevel === env.frames.length - 1 &&
       !ownerVariable.consumedAtToken
     ) {
@@ -724,7 +724,7 @@ export function evaluateBeginExpression({
       env = returnValueExpr.$!.env!;
     }
   } else if (
-    returnVariable?.isOwningTheGcValue &&
+    returnVariable?.isOwningTheValue &&
     returnVariable.frameLevel === env.frames.length - 1 &&
     !returnVariable.consumedAtToken
   ) {
@@ -732,7 +732,7 @@ export function evaluateBeginExpression({
       ...returnVariable,
       consumedAtToken: lastExpr.token,
     });
-  } else if (!returnVariable?.isOwningTheGcValue && returnValueExpr) {
+  } else if (!returnVariable?.isOwningTheValue && returnValueExpr) {
     setExprAsNeedsToCallDup(returnValueExpr, context);
     env = returnValueExpr.$!.env!;
   } else {

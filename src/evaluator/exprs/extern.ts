@@ -122,6 +122,7 @@ export function evaluateExtern({
         value:
           field.assignedValue ?? createUnknownValue(field.type, field.label),
         isCompileTimeOnly: field.isCompileTimeOnly,
+        isOwningTheValue: true,
         token: field.exprs.expr.token,
         initializedAtToken: field.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet

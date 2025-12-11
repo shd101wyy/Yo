@@ -198,6 +198,7 @@ Got:      "${paramName}"`,
         name: expectedParam.label,
         type: expectedParam.type,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
+        isOwningTheValue: expectedParam.isOwningTheValue,
         value: createUnknownValue(expectedParam.type, expectedParam.label),
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
@@ -243,7 +244,7 @@ Got:      "${paramName}"`,
     }
 
     // Add regular parameter to environment
-    // Use the expected parameter's isOwningTheGcValue to properly track ownership
+    // Use the expected parameter's isOwningTheValue to properly track ownership
     // (borrowed parameters default to false, owned parameters are true)
     const { env: nextEnv } = addVariableToEnv({
       env,
@@ -257,7 +258,7 @@ Got:      "${paramName}"`,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
-        isOwningTheGcValue: expectedParam.isOwningTheGcValue,
+        isOwningTheValue: expectedParam.isOwningTheValue,
       },
       skipCheckingFunctionOverloading: true,
     });

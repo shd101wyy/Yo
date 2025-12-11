@@ -265,6 +265,7 @@ export function evaluateMatch({
               name: variableName,
               type: variableType,
               isCompileTimeOnly: false,
+              isOwningTheValue: false, // QUESTION: Should we default to "ref"?
               value: evaluatedScrutineeExpr.$.value,
               token: evaluatedScrutineeExpr.token,
               initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
@@ -566,6 +567,7 @@ export function evaluateMatch({
                     name: variableName,
                     type: field.type,
                     isCompileTimeOnly: false,
+                    isOwningTheValue: false, // QUESTION: Should we default to "ref"?
                     value: undefined,
                     token: variableExpr.token,
                     initializedAtToken: variableExpr.token,
@@ -609,6 +611,7 @@ export function evaluateMatch({
                   name: paramName,
                   type: field.type,
                   isCompileTimeOnly: false,
+                  isOwningTheValue: false, // QUESTION: Should we default to "ref"?
                   value: undefined,
                   token: param.token,
                   initializedAtToken: param.token,
@@ -649,6 +652,7 @@ export function evaluateMatch({
               name: variableName,
               type: variableType,
               isCompileTimeOnly: false,
+              isOwningTheValue: false, // QUESTION: Should we default to "ref"?
               value: evaluatedScrutineeExpr.$.value,
               token: evaluatedScrutineeExpr.token,
               initializedAtToken: evaluatedScrutineeExpr.token,

@@ -476,7 +476,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         initializedAtToken: lhs.token,
         value: valueToStore,
         type: variableType,
-        isOwningTheGcValue: typeContainsGcType(variableType),
+        isOwningTheValue: typeContainsGcType(variableType),
         isOwningTheSameGcValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
     } else {
@@ -567,7 +567,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore,
         type: variableType,
-        isOwningTheGcValue: typeContainsGcType(variableType),
+        isOwningTheValue: typeContainsGcType(variableType),
         isOwningTheSameGcValueAs: rhsOwningVariable, // Track shared ownership for optimization
       });
       isMutatingDefinedVariable = true;

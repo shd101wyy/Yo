@@ -166,6 +166,7 @@ export function handleMemberDestructuring({
             value: fieldValue,
             type: field.type,
             isCompileTimeOnly,
+            isOwningTheValue: false, // QUESTION: Should we set this to false here?
             token: lhsField.token,
             initializedAtToken: lhsField.token,
             consumedAtToken: undefined,
@@ -347,6 +348,7 @@ export function handleMemberDestructuring({
           name: variableName,
           type: rhsField.type,
           isCompileTimeOnly: isCompileTimeOnly,
+          isOwningTheValue: false, // QUESTION: Should we set this to false here?
           value: fieldValue,
           token: variableToken,
           initializedAtToken: variableToken,

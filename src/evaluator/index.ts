@@ -129,6 +129,7 @@ export default class Evaluator {
               type: field.type,
               value: fieldValue,
               isCompileTimeOnly: true,
+              isOwningTheValue: true,
               initializedAtToken:
                 field.exprs.labelExpr?.token ?? field.exprs.expr.token,
               consumedAtToken: undefined,

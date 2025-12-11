@@ -281,6 +281,7 @@ export function evaluateAnonymousStructValue({
       initializedAtToken: expr.token,
       token: expr.token,
       isCompileTimeOnly: true,
+      isOwningTheValue: true,
       consumedAtToken: undefined,
     },
   });

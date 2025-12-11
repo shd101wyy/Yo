@@ -275,7 +275,7 @@ export function checkIfFunctionParameterMatchesArgument({
       }
 
       // If parameter takes ownership, call ___dup on borrowed ARC values
-      if (parameter.isOwningTheGcValue && !parameter.isCompileTimeOnly) {
+      if (parameter.isOwningTheValue && !parameter.isCompileTimeOnly) {
         setExprAsNeedsToCallDup(evaluatedArgExpr, context);
         if (evaluatedArgExpr.$?.env) {
           callerEnv = evaluatedArgExpr.$?.env;
@@ -343,7 +343,7 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
-      isOwningTheGcValue: parameter.isOwningTheGcValue,
+      isOwningTheValue: parameter.isOwningTheValue,
     },
   });
   calleeEnv = nextEnv;
@@ -517,6 +517,7 @@ export function tryToCallFunctionWithArguments({
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
         value: typeValue,
+        isOwningTheValue: true,
       },
     });
     calleeEnv = nextEnv;
@@ -543,6 +544,7 @@ export function tryToCallFunctionWithArguments({
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
+          isOwningTheValue: true,
         },
       });
       calleeEnv = nextEnv;
@@ -724,6 +726,7 @@ Got:   ${typeToString(typeValue.type)}`,
               token: token,
               initializedAtToken: token, // Set as initialized
               consumedAtToken: undefined,
+              isOwningTheValue: true,
             },
           });
           calleeEnv = nextEnv;
@@ -941,6 +944,7 @@ Got:   ${argExprs.length} arguments`,
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
           consumedAtToken: undefined,
+          isOwningTheValue: true,
         },
       });
       calleeEnv = nextEnv;

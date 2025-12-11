@@ -230,10 +230,10 @@ export function evaluateDup({
           const variables = getVariablesFromEnv(expr.$.env, tempVariableName);
           if (variables.length) {
             const variable = variables[variables.length - 1]!;
-            if (variable.isOwningTheGcValue) {
+            if (variable.isOwningTheValue) {
               const nextEnv = updateExistingVariable(expr.$.env, variable, {
                 ...variable,
-                isOwningTheGcValue: false,
+                isOwningTheValue: false,
               });
               expr.$.env = nextEnv;
             }
