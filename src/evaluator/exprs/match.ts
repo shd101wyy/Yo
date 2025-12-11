@@ -41,10 +41,19 @@ import { evaluateBeginExpression } from "./begin";
 /**
  *
  *
- * match shape // shape will be consumed here and moved to `s` in each condition.
- *   .Circle => ((s) => s.radius),
- *   .Square => ((s) => s.side),
- *   .Rectangle => ((s) => s.width + s.height)
+ * match shape,
+ *   .Circle(radius) => ...,
+ *   .Square(side) => ...,
+ *
+ *   // positional destructuring
+ *   .Rectangle(width, height) => ...
+ *
+ *   // labelled destructuring
+ *   .Rectangle(height : h, width : w }) => ...
+ *
+ *   // labelled destructuring with curly braces
+ *   .Rectangle({ height, width })
+ *
  * ;
  */
 export function evaluateMatch({
@@ -516,22 +525,22 @@ export function evaluateMatch({
         for (let j = 0; j < destructuringParams.length; j++) {
           const param = destructuringParams[j]!;
 
-          // Handle labeled destructuring like (label: variable) or (label: _)
+          // Handle labeled destructuring like (label: variable) or (label: _) or (label : ref(variable))
           if (
             exprIsFunctionCall(param) &&
             exprIsFunctionCallOf(param, ":", 2)
           ) {
-            let labelExpr = param.args[0]!;
-            const variableExpr = param.args[1]!;
+            const labelExpr = param.args[0]!;
+            let variableExpr = param.args[1]!;
             let isOwningTheValue = true;
 
             if (
-              exprIsFunctionCall(labelExpr) &&
-              exprIsFunctionCallOf(labelExpr, BuiltinKeywords.ref, 1)
+              exprIsFunctionCall(variableExpr) &&
+              exprIsFunctionCallOf(variableExpr, BuiltinKeywords.ref, 1)
             ) {
               // Handle "ref" label
               isOwningTheValue = false;
-              labelExpr = labelExpr.args[0]!;
+              variableExpr = variableExpr.args[0]!;
             }
 
             if (!exprIsAtom(labelExpr)) {

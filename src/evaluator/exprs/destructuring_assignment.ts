@@ -190,7 +190,7 @@ export function handleMemberDestructuring({
 
     // Handle labeled destructuring pattern like:
     // - (c : x)
-    // - (ref(c) : x)
+    // - (c : ref(x))
     // -  Nested destructuring is disallowed now
     // - ~~(c: (x, y))~~
     // - ~~(c: _(x, y))~~
@@ -198,20 +198,21 @@ export function handleMemberDestructuring({
       exprIsFunctionCall(lhsField) &&
       exprIsFunctionCallOf(lhsField, ":", 2)
     ) {
-      let leftSide = lhsField.args[0]!; // The label (c)
-      const rightSide = lhsField.args[1]!; // Could be (x, y) or could be a variable
+      const leftSide = lhsField.args[0]!; // The label (c)
+      let rightSide = lhsField.args[1]!; // Could be ref(x) or just x
 
       let isOwningTheValue = true;
 
+      // Check if the right side is ref(x) - this means we want a reference
       if (
-        exprIsFunctionCall(leftSide) &&
-        exprIsFunctionCallOf(leftSide, BuiltinKeywords.ref, 1)
+        exprIsFunctionCall(rightSide) &&
+        exprIsFunctionCallOf(rightSide, BuiltinKeywords.ref, 1)
       ) {
         isOwningTheValue = false;
-        leftSide = leftSide.args[0]!;
+        rightSide = rightSide.args[0]!;
       }
 
-      // The left side should be an identifier
+      // The left side should be an identifier (the field label)
       if (!exprIsAtom(leftSide) || !isValidVariableName(leftSide)) {
         throw formatErrorMessage({
           token: leftSide.token,

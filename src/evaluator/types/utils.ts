@@ -219,7 +219,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
 
   const dropDestructuringsExpr = destructurings.length
     ? `
-  { ${destructurings.join(", ")} } := self;
+  { ${destructurings.map((label) => `ref(${label})`).join(", ")} } := self;
   ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
 `
     : "";
@@ -257,7 +257,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
     ? ""
     : destructurings.length
       ? `
-  { ${destructurings.join(", ")} } := self;
+  { ${destructurings.map((label) => `ref(${label})`).join(", ")} } := self;
   ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
 `
       : "";
@@ -295,7 +295,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
     ? ""
     : destructurings.length
       ? `
-  { ${destructurings.join(", ")} } := self;
+  { ${destructurings.map((label) => `ref(${label})`).join(", ")} } := self;
   ${destructurings.map((label) => `(${BuiltinFunctions.___dup[0]!})(${label});`).join("\n")}
 `
       : "";

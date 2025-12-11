@@ -4,6 +4,8 @@ import {
   BuiltinKeywords,
   Expr,
   exprIsAtom,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
   ExprTag,
   exprToString,
   FuncCallExpr,
@@ -403,11 +405,14 @@ export default class Parser {
     }
 
     if (separator === TokenType.Comma || !separator) {
-      // Go over the args, if it's an identifier, then convert it to (:)
+      // Go over the args, if it's an identifier or ref(identifier), then convert it to (:)
       // For example:
       // { x, y: 2 }
       // get converted to
       // _( x: x, y: 2 );
+      // { ref(x), y: 2 }
+      // get converted to
+      // _( x: ref(x), y: 2 );
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
         if (exprIsAtom(arg)) {
@@ -426,6 +431,31 @@ export default class Parser {
             },
             isInfix: true,
             args: [arg, arg],
+            token: colonToken,
+          };
+          args[i] = newArg;
+        } else if (
+          exprIsFunctionCall(arg) &&
+          exprIsFunctionCallOf(arg, BuiltinKeywords.ref, 1) &&
+          exprIsAtom(arg.args[0]!)
+        ) {
+          // Handle ref(identifier) shorthand: { ref(x) } -> _( x: ref(x) )
+          const identifierArg = arg.args[0]!;
+          const colonToken: Token = {
+            type: TokenType.Operator,
+            value: ":",
+            position: tokens[startIndex]!.position,
+            modulePath: this.modulePath,
+            inputString: this.inputString,
+          };
+          const newArg: FuncCallExpr = {
+            tag: ExprTag.FuncCall,
+            func: {
+              tag: ExprTag.Atom,
+              token: colonToken,
+            },
+            isInfix: true,
+            args: [identifierArg, arg],
             token: colonToken,
           };
           args[i] = newArg;

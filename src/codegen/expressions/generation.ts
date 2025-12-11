@@ -4538,24 +4538,68 @@ function generateMatchExpression(
               const destructuredVar = caseValue.args[fieldIndex + 1]!; // Skip the variant name
               const variantElement = variant.fields[fieldIndex];
 
-              if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+              // Handle both Atom patterns (value) and ref() patterns (ref(value))
+              let varName: string;
+              let isRef = false;
+
+              if (destructuredVar.tag === ExprTag.Atom) {
+                varName = destructuredVar.token.value;
+              } else if (
+                exprIsFunctionCall(destructuredVar) &&
+                exprIsFunctionCallOf(destructuredVar, "ref", 1) &&
+                destructuredVar.args[0] &&
+                destructuredVar.args[0].tag === ExprTag.Atom
+              ) {
+                // This is ref(varName) pattern
+                varName = destructuredVar.args[0].token.value;
+                isRef = true;
+              } else {
+                // Unsupported pattern, skip
+                continue;
+              }
+
+              if (variantElement) {
                 // Skip unit type fields - they don't exist in the generated struct
                 if (isUnitType(variantElement.type)) {
                   continue;
                 }
 
-                const varName = destructuredVar.token.value;
                 const fieldName = sanitizeForCIdentifier(variantElement.label);
                 const fieldType = getTypeString(variantElement.type, context);
+
+                // For ref patterns, we're borrowing the field
+                // If the field is a value type (struct), we take its address
+                // If the field is already a reference type (object), we just use it directly
+                const fieldIsRefType =
+                  isObjectType(variantElement.type) ||
+                  isPtrType(variantElement.type);
+                const fieldTypeWithRef =
+                  isRef && !fieldIsRefType ? `${fieldType}*` : fieldType;
 
                 // Generate variable declaration and assignment
                 const accessPrefix =
                   ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
+
+                // For pointer/ref types, if matchedValueCode is a dereferenced pointer like (*self),
+                // we need to strip the deref and use the pointer directly with ->
+                let baseCode = matchedValueCode;
+                if (
+                  ptrOrRefType &&
+                  matchedValueCode.startsWith("(*") &&
+                  matchedValueCode.endsWith(")")
+                ) {
+                  // Strip (*...) to get the pointer
+                  baseCode = matchedValueCode.slice(2, -1);
+                }
+
+                const fieldAccessCode = `${baseCode}${accessPrefix}data.${variantName}.${fieldName}`;
+                // Only take address if field is value type and we're borrowing
+                const assignmentCode =
+                  isRef && !fieldIsRefType
+                    ? `&(${fieldAccessCode})`
+                    : fieldAccessCode;
                 context.emitter.emitLine(
-                  `${indent}  /* MARKER: Generating destructured variable ${varName} */`
-                );
-                context.emitter.emitLine(
-                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                  `${indent}  ${fieldTypeWithRef} ${varName} = ${assignmentCode};`
                 );
                 // Check if this variable needs to be stored in the state machine
                 // For async contexts, pattern-matched variables that are used across await points
@@ -4665,65 +4709,102 @@ function generateMatchExpression(
             const destructuredVar = destructuringParams[fieldIndex]!;
             const variantElement = variant.fields[fieldIndex];
 
-            if (destructuredVar.tag === ExprTag.Atom && variantElement) {
-              const varName = destructuredVar.token.value;
+            // Handle both Atom patterns (value) and ref() patterns (ref(value))
+            let varName: string;
+            let isRef = false;
+
+            if (destructuredVar.tag === ExprTag.Atom) {
+              varName = destructuredVar.token.value;
+            } else if (
+              exprIsFunctionCall(destructuredVar) &&
+              exprIsFunctionCallOf(destructuredVar, "ref", 1) &&
+              destructuredVar.args[0] &&
+              destructuredVar.args[0].tag === ExprTag.Atom
+            ) {
+              // This is ref(varName) pattern
+              varName = destructuredVar.args[0].token.value;
+              isRef = true;
+            } else {
+              // Unsupported pattern, skip
+              continue;
+            }
+
+            if (variantElement) {
+              // Skip unit type fields
+              if (isUnitType(variantElement.type)) {
+                continue;
+              }
 
               // Skip if variable name is "_" (ignore pattern)
-              if (varName !== "_") {
-                // For unit type fields, generate a comment instead of a variable
-                // This allows the variable name to be "declared" without generating invalid C
-                if (isUnitType(variantElement.type)) {
-                  context.emitter.emitLine(
-                    `${indent}  // ${varName} is unit type (no value)`
+              if (varName === "_") {
+                continue;
+              }
+
+              const fieldName = sanitizeForCIdentifier(variantElement.label);
+              const fieldType = getTypeString(variantElement.type, context);
+
+              // For ref patterns, we're borrowing the field
+              // If the field is a value type (struct), we take its address
+              // If the field is already a reference type (object), we just use it directly
+              const fieldIsRefType =
+                isObjectType(variantElement.type) ||
+                isPtrType(variantElement.type);
+              const fieldTypeWithRef =
+                isRef && !fieldIsRefType ? `${fieldType}*` : fieldType;
+
+              // Generate variable declaration and assignment
+              const accessPrefix =
+                ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
+
+              // For pointer/ref types, if matchedValueCode is a dereferenced pointer like (*self),
+              // we need to strip the deref and use the pointer directly with ->
+              let baseCode = matchedValueCode;
+              if (
+                ptrOrRefType &&
+                matchedValueCode.startsWith("(*") &&
+                matchedValueCode.endsWith(")")
+              ) {
+                // Strip (*...) to get the pointer
+                baseCode = matchedValueCode.slice(2, -1);
+              }
+
+              const fieldAccessCode = `${baseCode}${accessPrefix}data.${variantName}.${fieldName}`;
+              // Only take address if field is value type and we're borrowing
+              const assignmentCode =
+                isRef && !fieldIsRefType
+                  ? `&(${fieldAccessCode})`
+                  : fieldAccessCode;
+
+              context.emitter.emitLine(
+                `${indent}  ${fieldTypeWithRef} ${varName} = ${assignmentCode};`
+              );
+
+              // Check if this variable needs to be stored in the state machine
+              const functionContext = context as FunctionGenerationContext;
+              if (
+                functionContext?.inStateMachine &&
+                functionContext.stateMachineVariables
+              ) {
+                let varId: string | undefined;
+
+                // if (destructuredVar.$?.id) {
+                //   varId = destructuredVar.$.id;
+                // } else
+                if (destructuredVar.$?.env) {
+                  const vars = getVariablesFromEnv(
+                    destructuredVar.$.env,
+                    varName
                   );
-                  // Register this as a unit variable so expression generation can handle it
-                  // (Expression generation should skip generating references to unit variables)
-                } else {
-                  const fieldName = sanitizeForCIdentifier(
-                    variantElement.label
-                  );
-                  const fieldType = getTypeString(variantElement.type, context);
-
-                  // Generate variable declaration and assignment
-                  const accessPrefix =
-                    ptrOrRefType === "ref_semantics" || ptrOrRefType
-                      ? "->"
-                      : ".";
-                  context.emitter.emitLine(
-                    `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
-                  );
-
-                  // Check if this variable needs to be stored in the state machine
-                  const functionContext = context as FunctionGenerationContext;
-                  if (
-                    functionContext?.inStateMachine &&
-                    functionContext.stateMachineVariables
-                  ) {
-                    let varId: string | undefined;
-
-                    // if (destructuredVar.$?.id) {
-                    //   varId = destructuredVar.$.id;
-                    // } else
-                    if (destructuredVar.$?.env) {
-                      const vars = getVariablesFromEnv(
-                        destructuredVar.$.env,
-                        varName
-                      );
-                      if (vars.length > 0) {
-                        varId = vars[vars.length - 1]!.id;
-                      }
-                    }
-
-                    if (
-                      varId &&
-                      functionContext.stateMachineVariables.has(varId)
-                    ) {
-                      // This variable crosses an await boundary, store it in state machine
-                      context.emitter.emitLine(
-                        `${indent}  sm->var_${varId} = ${varName};`
-                      );
-                    }
+                  if (vars.length > 0) {
+                    varId = vars[vars.length - 1]!.id;
                   }
+                }
+
+                if (varId && functionContext.stateMachineVariables.has(varId)) {
+                  // This variable crosses an await boundary, store it in state machine
+                  context.emitter.emitLine(
+                    `${indent}  sm->var_${varId} = ${varName};`
+                  );
                 }
               }
             }
