@@ -160,7 +160,12 @@ export function generateFunctionPrototype(
       return functionPointerType;
     } else {
       // Handle non-function parameters
-      const paramTypeStr = getTypeString(param.type, context);
+      let paramTypeStr = getTypeString(param.type, context);
+
+      // If this is a ref parameter (not owning), use pointer type
+      if (!param.isOwningTheValue) {
+        paramTypeStr = `${paramTypeStr}*`;
+      }
 
       return `${paramTypeStr} ${paramName}`;
     }

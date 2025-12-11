@@ -1173,7 +1173,23 @@ function generateFuncCall(
     if (!lhs.$?.type) {
       return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
     }
-    const lhsCode = generateExpr(lhs, indent, context);
+    let lhsCode = generateExpr(lhs, indent, context);
+
+    // Check if LHS is a ref parameter (not owning) - if so, it's already dereferenced by generateAtom
+    // but for assignment we need the pointer itself, not the dereferenced value
+    // So we need to strip the dereference and use the pointer
+    let isRefParam = false;
+    if (exprIsAtom(lhs) && lhs.$?.env) {
+      const variables = getVariablesFromEnv(lhs.$.env, lhs.token.value);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (!variable.isOwningTheValue) {
+          isRefParam = true;
+          // lhsCode is currently (*param), we need just param for the pointer
+          lhsCode = sanitizeForCIdentifier(lhs.token.value);
+        }
+      }
+    }
 
     // Check if we need to save the old value into temp variable
     if (expr.$?.variableName) {
@@ -1194,13 +1210,17 @@ function generateFuncCall(
         // Handle array assignment specially
         if (isArrayType(lhs.$.type)) {
           // For array, use direct struct assignment
+          // For ref param, dereference to get the value
+          const readCode = isRefParam ? `*${lhsCode}` : lhsCode;
           context.emitter.emitLine(
-            `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+            `${indent}${tempVarNameAndType} = ${readCode}; // Save old value for later use`
           );
         } else {
           if (!isUnitType(lhs.$.type)) {
+            // For ref param, dereference to get the value
+            const readCode = isRefParam ? `*${lhsCode}` : lhsCode;
             context.emitter.emitLine(
-              `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+              `${indent}${tempVarNameAndType} = ${readCode}; // Save old value for later use`
             );
           }
         }
@@ -1251,7 +1271,9 @@ function generateFuncCall(
         );
       } else {
         // For assignment to existing array variable, use direct struct assignment
-        context.emitter.emitLine(`${indent}${lhsCode} = ${finalRhsCode};`);
+        // For ref param, use pointer dereference
+        const assignTarget = isRefParam ? `*${lhsCode}` : lhsCode;
+        context.emitter.emitLine(`${indent}${assignTarget} = ${finalRhsCode};`);
       }
     } else {
       // Non-array assignment - use existing logic
@@ -1299,8 +1321,10 @@ function generateFuncCall(
       // }
 
       if (!isUnitType(lhs.$.type)) {
+        // For ref param, use pointer dereference when assigning
+        const assignTarget = isRefParam ? `*${lhsCode}` : lhsCode;
         context.emitter.emitLine(
-          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${finalRhsCode};`
+          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${assignTarget} = ${finalRhsCode};`
         );
       }
     }
@@ -1746,8 +1770,17 @@ function generateFuncCall(
           }
         }
 
+        // Get runtime parameters (filter out compile-time only parameters)
+        const runtimeParams = functionType.parameters.filter(
+          (param) => !param.isCompileTimeOnly
+        );
+
         // Generate arg list with special handling for dyn method calls
         const args = runtimeArgExprs.map((arg, index) => {
+          // Get the corresponding parameter to check if it's a ref parameter
+          const param = runtimeParams[index];
+          const isRefParam = param && !param.isOwningTheValue;
+
           // First, check if this argument needs a temporary variable
           if (arg.$?.variableName && arg.$?.type) {
             const functionContext = context as FunctionGenerationContext;
@@ -1843,9 +1876,17 @@ function generateFuncCall(
               // If this is a closure-captured variable, use the generated code (inline access)
               // If this is a state machine variable, use the generated code (sm->var_xxx access)
               // Otherwise use the variable name (potentially duped)
-              return isClosureCapturedVariable || isStateMachineCapturedVariable
-                ? argCode
-                : finalArgVarName;
+              let result =
+                isClosureCapturedVariable || isStateMachineCapturedVariable
+                  ? argCode
+                  : finalArgVarName;
+
+              // If this is a ref parameter, pass the address
+              if (isRefParam) {
+                result = `&${result}`;
+              }
+
+              return result;
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
@@ -1879,7 +1920,14 @@ function generateFuncCall(
               // For all other methods (wrapped object methods), pass the wrapped object data
               return `${dynObjectCode}->data`;
             } else {
-              return generateExpr(arg, indent, context);
+              let result = generateExpr(arg, indent, context);
+
+              // If this is a ref parameter, pass the address
+              if (isRefParam) {
+                result = `&(${result})`;
+              }
+
+              return result;
             }
           }
         });
@@ -3385,7 +3433,20 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // Variable not in stateMachineVariables - it's a local C variable in the resume function
     // Just use the variable name (don't regenerate its value)
     if (expr.$?.variableName) {
-      return sanitizeForCIdentifier(expr.$.variableName);
+      const varName = sanitizeForCIdentifier(expr.$.variableName);
+
+      // Check if this is a ref parameter - if so, dereference it
+      if (expr.$?.env) {
+        const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          if (!variable.isOwningTheValue) {
+            return `(*${varName})`;
+          }
+        }
+      }
+
+      return varName;
     }
   }
 
@@ -3419,7 +3480,20 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     ) {
       // Don't return early - let it fall through to closure capture logic
     } else {
-      return sanitizeForCIdentifier(expr.$.variableName);
+      const varName = sanitizeForCIdentifier(expr.$.variableName);
+
+      // Check if this is a ref parameter - if so, dereference it
+      if (expr.$?.env) {
+        const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          if (!variable.isOwningTheValue) {
+            return `(*${varName})`;
+          }
+        }
+      }
+
+      return varName;
     }
   }
 
@@ -3492,7 +3566,21 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  return sanitizeForCIdentifier(expr.token.value);
+  const varName = sanitizeForCIdentifier(expr.token.value);
+
+  // Check if this is a ref parameter (not owning) - if so, dereference it
+  if (expr.$?.env) {
+    const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
+      // If this variable is a ref parameter (not owning), dereference it
+      if (!variable.isOwningTheValue) {
+        return `(*${varName})`;
+      }
+    }
+  }
+
+  return varName;
 }
 
 /**
