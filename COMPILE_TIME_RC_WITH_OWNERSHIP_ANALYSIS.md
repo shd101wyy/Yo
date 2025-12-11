@@ -6,7 +6,7 @@ Yo uses non-atomic reference counting for heap-allocated objects, and employs co
 
 Yo uses a simplified ownership model with clear rules:
 
-### 1. Variable Assignment: Always Own
+### 1. Variable Assignment: Own by default, unless marked with `ref()`
 
 Both `:=` (initialization) and `=` (reassignment) make the LHS **own** the value:
 
@@ -17,69 +17,63 @@ z = y;              // ___dup(y), ___drop(old z), z owns
 // End of scope: ___drop(z), ___drop(y), ___drop(x), __drop(Point(3, 4))
 ```
 
-**Rule:** Variables always own their values. Every assignment calls `___dup`, every scope exit calls `___drop`.
-
-### 2. Function Parameters: Borrow by Default
-
-Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
+Unless marked with `ref()` to borrow:
 
 ```rust
-fn print_point(p: Point) -> unit {
-  printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
-}
-
-point := Point(3, 4);
-print_point(point);  // No ___dup at call site, p borrows point
+x := Point(3, 4);           // ___dup(Point(3, 4), x owns
+ref(y) := x;                // y borrows from x, no dup
+ref(z) = y;                 // z borrows from y, no dup
+// End of scope: ___drop(x), __drop(Point(3, 4))
 ```
 
-**Rule:** Parameters borrow unless explicitly marked with `own()`. Not having `own()` means borrow.
+**Rule:** Variables always own their values. Every assignment calls `___dup`, every scope exit calls `___drop`.
 
-**Destructuring also borrows:**
+### 2. Function Parameters: Own by default, unless marked with `ref()`
+
+- **own**
+
+  ```rust
+  fn print_point(p: Point) -> unit {
+    printf("(%d, %d)", p.x, p.y);
+    // Drop p at end of function
+  }
+
+  point := Point(3, 4);
+  print_point(point);  // Call site does ___dup(point), p owns copy
+  ```
+
+- **ref**
+
+  ```rust
+  fn print_point(ref(p) : Point) -> unit {
+    printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
+    // No drop on p at end of function
+  }
+
+  point := Point(3, 4);
+  print_point(point);  // No ___dup at call site, p borrows point
+  ```
+
+### 3. Destructuring: Own by default, unless marked with `ref()`
 
 ```rust
 // Destructuring assignment borrows
-Point(x, y) := point;  // x and y borrow from point, no dup
+_(x, y) := point;  // x and y own from point, calls dup.
 
-// Match destructuring borrows
+_(ref(x), ref(y)) := point;  // x and y borrow from point, no dup.
+
+// Match destructuring own by default
 match(result,
   .Ok(value) => printf("%d", value),  // value borrows from result
   .Err(e) => printf("error")
 );
+
+// Unless marked with ref
+match(result,
+  .Ok(ref(value)) => printf("%d", value),  // value borrows from result
+  .Err(e) => printf("error")
+);
 ```
-
-### 3. Parameter Mutation: Allowed, Reassignment: Forbidden
-
-You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
-
-```rust
-fn move_point(p: Point, dx: i32, dy: i32) -> unit {
-  p.x = (p.x + dx);  // ✅ OK: Mutating field through parameter
-  p.y = (p.y + dy);  // ✅ OK: Mutating field through parameter
-}
-
-fn broken(p: Point) -> unit {
-  p = Point(0, 0);   // ❌ ERROR: Cannot reassign parameter
-}
-```
-
-**Rule:** Parameters are **not reassignable** to prevent ownership state changes.
-
-### 4. Explicit Ownership Transfer: `own()` keyword
-
-Use `own()` to transfer ownership to a function parameter. The caller must call `___dup` at the call site:
-
-```rust
-fn consume(own(box): Box(i32)) -> unit {
-  printf("value: %d\n", box.(*));
-  // box is dropped at end of function
-}
-
-b := box(42);      // b owns
-consume(b);        // ___dup(b) at call site, ownership transferred to function
-                   // b still owns its reference after the call
-```
-
-**Rule:** `own()` parameters take ownership via `___dup` at call site. The caller's variable remains valid.
 
 ## Basic Model
 
@@ -112,21 +106,6 @@ p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
 // End of scope
 ___drop(p1);       // RC = 1
 ___drop(temp_var); // RC = 0, memory freed
-```
-
-### Function Parameters Borrow
-
-Function parameters do not increment the reference count:
-
-```rust
-fn use_point(p: Point) -> unit {
-  printf("(%d, %d)", p.x, p.y);  // p borrows, no RC change
-}
-
-point := Point(3, 4);  // temp_var owns, RC = 1
-                       // ___dup(temp_var), point owns, RC = 2
-use_point(point);      // No ___dup, p borrows point
-// End of scope: ___drop(point), ___drop(temp_var)
 ```
 
 ## The Lifetime Problem
@@ -234,12 +213,33 @@ arr := [p1];                 // ___dup(p1), array owns a copy
 result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 ```
 
-### Rule 3: Returning from Functions
+### Rule 3: Passing to Functions
+
+**Call `___dup` when passing an owned variable to a function parameter:**
+
+```rust
+fn process(p: Point) -> unit {
+  // p owns a copy of the argument
+}
+p1 := Point(3, 4);   // p1 owns
+process(p1);         // ___dup(p1), p owns copy
+```
+
+### Rule 4: Destructuring
+
+**Call `___dup` when destructuring into owned variables:**
+
+```rust
+point := Point(3, 4);        // point owns
+_(x, y) := point;            // ___dup(point), x and y own copies
+```
+
+### Rule 5: Returning from Functions
 
 **Call `___dup` when returning a borrowed parameter:**
 
 ```rust
-fn identity(p: Point) -> Point {  // p borrows (parameter)
+fn identity(ref(p): Point) -> Point {  // p borrows (parameter)
   return p;  // ___dup(p), return value owns a copy
 }
 
@@ -249,79 +249,6 @@ fn create() -> Point {
   // ___drop(p) after return
 }
 ```
-
-### Rule 4: The `own()` Keyword
-
-**`own()` parameters take ownership, caller must dup:**
-
-```rust
-fn consume(own(box): Box(i32)) -> unit {
-  printf("value: %d\n", box.(*));
-  // box is dropped at end of function
-}
-
-b := box(42);      // b owns
-consume(b);        // ___dup(b) at call site, b is consumed
-// b cannot be used after this point
-```
-
-### Exception: Function Parameters (Borrow by Default)
-
-**No `___dup` when passing to borrowed parameters (parameters without `own()`):**
-
-```rust
-fn print_point(p: Point) -> unit {  // p borrows (no own keyword)
-  printf("(%d, %d)", p.x, p.y);
-}
-
-point := Point(3, 4);  // point owns
-print_point(point);    // No ___dup! p borrows point
-```
-
-**Destructuring in match expressions also borrows:**
-
-```rust
-match(optional,
-  .Some(value) => {
-    // `value` borrows from optional, no ___dup
-    // `value` is also not reassignable.
-    printf("%d", value);
-  },
-  .None => ()
-);
-```
-
-## Special Case: Loops
-
-In loops, assignments follow the same "always own" rule:
-
-### Example: Linked List Traversal
-
-```rust
-current_opt := self.head;  // ___dup(self.head), current_opt owns
-
-while runtval(true), {
-  match(current_opt,
-    .None => return false,
-    .Some(current) => {
-      current_opt = current.next;  // ___dup(current.next)
-                                   // ___drop(old current_opt)
-    }
-  );
-}
-
-// End of scope: ___drop(current_opt)
-```
-
-**Analysis:**
-
-- Initial: `___dup(self.head)` creates owned copy
-- Each iteration: `___dup(current.next)` + `___drop(old current_opt)`
-- End: `___drop(current_opt)` cleans up
-
-**Cost:** 2 RC operations per iteration (dup + drop)
-
-This is conservative but correct. Phase 2 optimization can eliminate these operations.
 
 ## Implementation Strategy
 
@@ -466,16 +393,6 @@ current_opt = local;          // Should this dup or not?
 2. **Explicit borrowing** (pointer types): Zero overhead, requires lifetime tracking
 
 Trying to optimize RC while maintaining "assignments always own" leads to inconsistent or unsound behavior. The correct solution is to introduce proper pointer types with borrow checking, similar to how Rust uses `&T` for borrowed pointers.
-
-**Note on Nim's approach:**
-
-Nim uses ARC with a similar "assignments own" model. For iteration, Nim relies on:
-
-1. The `lent T` type for temporary borrows (compiler-checked, limited scope)
-2. `var T` parameters for mutable borrows (function parameters only)
-3. Cursor inference to detect last-use and eliminate RC operations in simple cases
-
-However, Nim's optimizations are heuristic-based and can be unpredictable. Our approach prioritizes simplicity and predictability, with explicit pointer types as the solution for zero-cost traversal patterns.
 
 ## Summary
 

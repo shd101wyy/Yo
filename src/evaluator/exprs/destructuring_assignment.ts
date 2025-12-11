@@ -139,6 +139,7 @@ export function handleMemberDestructuring({
             label: field.label,
             variableName: field.label,
             type: field.type,
+            isOwningTheValue: true,
           };
         }
 
@@ -166,7 +167,7 @@ export function handleMemberDestructuring({
             value: fieldValue,
             type: field.type,
             isCompileTimeOnly,
-            isOwningTheValue: false, // QUESTION: Should we set this to false here?
+            isOwningTheValue: true, // QUESTION: Should we set this to true here?
             token: lhsField.token,
             initializedAtToken: lhsField.token,
             consumedAtToken: undefined,
@@ -189,6 +190,7 @@ export function handleMemberDestructuring({
 
     // Handle labeled destructuring pattern like:
     // - (c : x)
+    // - (ref(c) : x)
     // -  Nested destructuring is disallowed now
     // - ~~(c: (x, y))~~
     // - ~~(c: _(x, y))~~
@@ -196,8 +198,18 @@ export function handleMemberDestructuring({
       exprIsFunctionCall(lhsField) &&
       exprIsFunctionCallOf(lhsField, ":", 2)
     ) {
-      const leftSide = lhsField.args[0]!; // The label (c)
+      let leftSide = lhsField.args[0]!; // The label (c)
       const rightSide = lhsField.args[1]!; // Could be (x, y) or could be a variable
+
+      let isOwningTheValue = true;
+
+      if (
+        exprIsFunctionCall(leftSide) &&
+        exprIsFunctionCallOf(leftSide, BuiltinKeywords.ref, 1)
+      ) {
+        isOwningTheValue = false;
+        leftSide = leftSide.args[0]!;
+      }
 
       // The left side should be an identifier
       if (!exprIsAtom(leftSide) || !isValidVariableName(leftSide)) {
@@ -266,28 +278,42 @@ export function handleMemberDestructuring({
           label: rhsField.label,
           variableName: variableName,
           type: rhsField.type,
+          isOwningTheValue: isOwningTheValue,
         };
       }
     }
 
-    // Handle nested struct/module destructuring pattern like:
-    // - ((x, y), )
-    // - (_(x, y) )
-    else if (exprIsFunctionCall(lhsField)) {
-      // NOTE: Let's disable the nested destructuring for now
-      throw formatErrorMessage({
-        token: lhsField.token,
-        errorMessage: `Nested destructuring is not supported:
-  
-  ${exprToString(lhsField)}`,
-      });
-    }
-
     // Handle positional destructuring
-    else if (exprIsAtom(lhsField) && isValidVariableName(lhsField)) {
+    // - (x)
+    // - (ref(x))
+    else if (
+      exprIsAtom(lhsField) ||
+      exprIsFunctionCallOf(lhsField, BuiltinKeywords.ref, 1)
+    ) {
+      let isOwningTheValue = true;
+      let actualLhsField = lhsField;
+
+      if (
+        exprIsFunctionCall(lhsField) &&
+        exprIsFunctionCallOf(lhsField, BuiltinKeywords.ref, 1)
+      ) {
+        isOwningTheValue = false;
+        actualLhsField = lhsField.args[0]!;
+      }
+
+      // The lhsField should be an identifier
+      if (!exprIsAtom(actualLhsField) || !isValidVariableName(actualLhsField)) {
+        throw formatErrorMessage({
+          token: actualLhsField.token,
+          errorMessage: `Expected identifier for variable in destructuring pattern, got ${exprToString(
+            actualLhsField
+          )}`,
+        });
+      }
+
       if (isUnionType(rhsType)) {
         throw formatErrorMessage({
-          token: lhsField.token,
+          token: actualLhsField.token,
           errorMessage: `Cannot destructure union type with positional destructuring, got ${typeToString(
             rhsType
           )}`,
@@ -296,14 +322,15 @@ export function handleMemberDestructuring({
 
       if (destructuredRhsFields[rhsField.label]) {
         throw formatErrorMessage({
-          token: lhsField.token,
+          token: actualLhsField.token,
           errorMessage: `Label "${rhsField.label}" being destructured already exists.`,
         });
       } else {
         destructuredRhsFields[rhsField.label] = {
           label: rhsField.label,
-          variableName: lhsField.token.value,
+          variableName: actualLhsField.token.value,
           type: rhsField.type,
+          isOwningTheValue,
         };
       }
 
@@ -317,8 +344,8 @@ export function handleMemberDestructuring({
         fieldValue = rhsValue.fields[fieldIndex];
       }
 
-      variableName = lhsField.token.value;
-      variableToken = lhsField.token;
+      variableName = actualLhsField.token.value;
+      variableToken = actualLhsField.token;
     }
 
     // Throw error
@@ -394,6 +421,7 @@ export function handleMemberDestructuring({
       label: field.label,
       type: field.type,
       variableName: field.variableName,
+      isOwningTheValue: field.isOwningTheValue,
     });
   }
 

@@ -96,6 +96,7 @@ export interface RuntimeDestructuring {
   label: string;
   type: Type;
   variableName: string;
+  isOwningTheValue: boolean;
 }
 
 export type ControlFlowKind = "return" | "break" | "continue";

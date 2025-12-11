@@ -1,6 +1,7 @@
 import { addVariableToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -14,7 +15,6 @@ import {
   isSomeType,
   prohibitVoidType,
   SomeType,
-  typeContainsGcType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -69,7 +69,7 @@ export function evaluateInitializationAssignment({
     });
   }
 
-  const lhs = expr.args[0]!;
+  let lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
   // Prevent declaring variable type using :: or :=
@@ -105,6 +105,16 @@ export function evaluateInitializationAssignment({
   if (rhs.$?.controlFlow) {
     // Check if the RHS is a cond expression to provide a more specific error message
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
+  }
+
+  // ref(x) := y  --> x borrows y
+  let isOwningTheValue = true;
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.ref, 1)
+  ) {
+    isOwningTheValue = false;
+    lhs = lhs.args[0]!;
   }
 
   if (exprIsAtom(lhs)) {
@@ -302,7 +312,7 @@ ${exprToString(rhs)}`,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheValue: typeContainsGcType(finalLhsType),
+        isOwningTheValue: isOwningTheValue,
         // Only set shared ownership for Copy types (shared references)
         isOwningTheSameGcValueAs: rhsOwningVariable,
       },

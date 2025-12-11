@@ -265,7 +265,7 @@ export function evaluateMatch({
               name: variableName,
               type: variableType,
               isCompileTimeOnly: false,
-              isOwningTheValue: false, // QUESTION: Should we default to "ref"?
+              isOwningTheValue: true,
               value: evaluatedScrutineeExpr.$.value,
               token: evaluatedScrutineeExpr.token,
               initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
@@ -521,8 +521,18 @@ export function evaluateMatch({
             exprIsFunctionCall(param) &&
             exprIsFunctionCallOf(param, ":", 2)
           ) {
-            const labelExpr = param.args[0]!;
+            let labelExpr = param.args[0]!;
             const variableExpr = param.args[1]!;
+            let isOwningTheValue = true;
+
+            if (
+              exprIsFunctionCall(labelExpr) &&
+              exprIsFunctionCallOf(labelExpr, BuiltinKeywords.ref, 1)
+            ) {
+              // Handle "ref" label
+              isOwningTheValue = false;
+              labelExpr = labelExpr.args[0]!;
+            }
 
             if (!exprIsAtom(labelExpr)) {
               throw formatErrorMessage({
@@ -566,7 +576,7 @@ export function evaluateMatch({
                     name: variableName,
                     type: field.type,
                     isCompileTimeOnly: false,
-                    isOwningTheValue: false, // QUESTION: Should we default to "ref"?
+                    isOwningTheValue: isOwningTheValue,
                     value: undefined,
                     token: variableExpr.token,
                     initializedAtToken: variableExpr.token,
@@ -597,8 +607,29 @@ export function evaluateMatch({
             }
           }
           // Handle positional destructuring like (r) or (_)
-          else if (exprIsAtom(param)) {
-            const paramName = param.token.value;
+          else if (
+            exprIsAtom(param) ||
+            exprIsFunctionCallOf(param, BuiltinKeywords.ref, 1)
+          ) {
+            let isOwningTheValue = true;
+            let paramName: string;
+            if (
+              exprIsFunctionCall(param) &&
+              exprIsFunctionCallOf(param, BuiltinKeywords.ref, 1)
+            ) {
+              isOwningTheValue = false;
+              const paramExpr = param.args[0]!;
+              if (!exprIsAtom(paramExpr)) {
+                throw formatErrorMessage({
+                  token: paramExpr.token,
+                  errorMessage: `Expected identifier or "_" for destructuring parameter, got ${exprToString(paramExpr)}`,
+                });
+              }
+              paramName = paramExpr.token.value;
+            } else {
+              paramName = param.token.value;
+            }
+
             const field = variant.fields[j]!;
 
             // Skip if parameter name is "_" (ignore pattern)
@@ -609,7 +640,7 @@ export function evaluateMatch({
                   name: paramName,
                   type: field.type,
                   isCompileTimeOnly: false,
-                  isOwningTheValue: false, // QUESTION: Should we default to "ref"?
+                  isOwningTheValue: isOwningTheValue,
                   value: undefined,
                   token: param.token,
                   initializedAtToken: param.token,
@@ -649,7 +680,7 @@ export function evaluateMatch({
               name: variableName,
               type: variableType,
               isCompileTimeOnly: false,
-              isOwningTheValue: false, // QUESTION: Should we default to "ref"?
+              isOwningTheValue: true,
               value: evaluatedScrutineeExpr.$.value,
               token: evaluatedScrutineeExpr.token,
               initializedAtToken: evaluatedScrutineeExpr.token,
