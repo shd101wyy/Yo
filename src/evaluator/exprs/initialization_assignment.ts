@@ -305,7 +305,6 @@ ${exprToString(rhs)}`,
         isOwningTheValue: typeContainsGcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
         isOwningTheSameGcValueAs: rhsOwningVariable,
-        isReassignable: true, // This is not a function parameter
       },
     });
     env = nextEnv;

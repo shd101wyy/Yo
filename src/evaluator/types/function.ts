@@ -475,7 +475,6 @@ use_id :: (fn(forall(T : Type),
       consumedAtToken: undefined, // Not consumed yet
       isOwningTheValue: isOwningTheValue,
       isOwningTheSameGcValueAs: undefined, // Parameters don't borrow from other variables
-      isReassignable: false, // Mark as not reassigable
     },
     skipCheckingFunctionOverloading: true,
   });
@@ -760,7 +759,6 @@ export function evaluateFunctionParameters({
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheValue: variadicParameter.isOwningTheValue,
             isOwningTheSameGcValueAs: undefined, // Parameters don't borrow from other variables
-            isReassignable: false, // Mark as not reassigable
           },
         });
         env = nextEnv;

@@ -198,15 +198,6 @@ export function evaluateAssignment({
     }
     const variable = variables[variables.length - 1]!;
 
-    // Check if trying to reassign, eg a function parameter
-    if (!variable.isReassignable) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Cannot reassign "${variableName}".  
-You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign itself.`,
-      });
-    }
-
     // Evaluate the rhs expression
     rhs = evaluateExpression({
       expr: rhs,

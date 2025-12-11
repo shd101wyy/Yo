@@ -101,12 +101,6 @@ export interface Variable {
   isOwningTheSameGcValueAs?: Variable;
 
   /**
-   * Whether this variable is isReassignable or not.
-   * For example, the function parameter is not reassignable.
-   */
-  isReassignable?: boolean;
-
-  /**
    * Then token at which the variable is initialized.
    * If such token exists, then it means the variable is initialized at that point.
    */
@@ -507,7 +501,6 @@ export function printEnvVarNames(env: Environment) {
         isUndefined: !variable.initializedAtToken,
         isOwningTheValue: !!variable.isOwningTheValue,
         isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
-        isReassignable: !!variable.isReassignable,
         isConsumed: !!variable.consumedAtToken,
       }));
     })
@@ -526,7 +519,6 @@ export function printEnvFrame(frame: Frame) {
       isUndefined: !variable.initializedAtToken,
       isOwningTheValue: !!variable.isOwningTheValue,
       isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
-      isReassignable: !!variable.isReassignable,
       isConsumed: !!variable.consumedAtToken,
     }))
   );
