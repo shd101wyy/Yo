@@ -4732,7 +4732,25 @@ export function generateReturnStatement(
   switch (expr.tag) {
     case ExprTag.Atom: {
       // Use generateExpressionAsCode to handle compile-time values
-      const atomCode = generateAtom(expr, context);
+      let atomCode = generateAtom(expr, context);
+
+      // Handle deferred dup expressions for atoms (borrowed parameters that need to be duped before returning)
+      if (
+        expr.$?.deferredDupExpressions &&
+        expr.$.deferredDupExpressions.length > 0
+      ) {
+        generateDeferredDupExpressions(
+          expr,
+          indent,
+          context as FunctionGenerationContext
+        );
+        // Use the duped value's variable name instead of the original
+        const dupExpr = expr.$.deferredDupExpressions[0]!;
+        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+          atomCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+        }
+      }
+
       context.emitter.emitLine(`${indent}return ${atomCode};`);
       break;
     }
