@@ -104,6 +104,34 @@ function checkVariableIsClosureCaptured(
 }
 
 /**
+ * Get the actual variable name to use in generated code, checking for parameterAlias.
+ * In anonymous functions, the parameter name may differ from the expected interface parameter name.
+ * If a parameterAlias exists, it should be used instead of the variable's actual name.
+ *
+ * @param variableName The variable name to look up
+ * @param env The environment containing the variable
+ * @returns The name to use in generated code (either parameterAlias or the original name)
+ */
+function getVariableNameForCodegen(
+  variableName: string,
+  env: Environment | undefined
+): string {
+  if (!env) {
+    return variableName;
+  }
+
+  const variables = getVariablesFromEnv(env, variableName);
+  if (variables.length > 0) {
+    const variable = variables[variables.length - 1]!;
+    if (variable.parameterAlias) {
+      return variable.parameterAlias;
+    }
+  }
+
+  return variableName;
+}
+
+/**
  * Result of allocating and initializing a closure capture struct.
  */
 interface ClosureCaptureResult {
@@ -3419,7 +3447,12 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     ) {
       // Don't return early - let it fall through to closure capture logic
     } else {
-      return sanitizeForCIdentifier(expr.$.variableName);
+      // Check if this variable has a parameterAlias
+      const varNameToUse = getVariableNameForCodegen(
+        expr.$.variableName,
+        expr.$?.env
+      );
+      return sanitizeForCIdentifier(varNameToUse);
     }
   }
 
@@ -3492,7 +3525,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  return sanitizeForCIdentifier(expr.token.value);
+  // Check if this variable has a parameterAlias (used in anonymous functions
+  // where the actual parameter name differs from the expected interface parameter name)
+  const varNameToUse = getVariableNameForCodegen(expr.token.value, expr.$?.env);
+  return sanitizeForCIdentifier(varNameToUse);
 }
 
 /**

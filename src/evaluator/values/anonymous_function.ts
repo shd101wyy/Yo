@@ -245,10 +245,12 @@ Got:      "${paramName}"`,
     // Add regular parameter to environment
     // Use the expected parameter's isOwningTheGcValue to properly track ownership
     // (borrowed parameters default to false, owned parameters are true)
+    const anonymousParamName = paramExpr.token.value;
+    const expectedParamName = expectedParam.label;
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
-        name: paramExpr.token.value,
+        name: anonymousParamName,
         type: expectedParam.type,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
         value: expectedParam.isCompileTimeOnly
@@ -258,6 +260,12 @@ Got:      "${paramName}"`,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
         isOwningTheGcValue: false, // Parameters borrow by default
+        // If anonymous function uses different parameter name than expected,
+        // store the expected name as alias for C codegen
+        parameterAlias:
+          anonymousParamName !== expectedParamName
+            ? expectedParamName
+            : undefined,
       },
       skipCheckingFunctionOverloading: true,
     });

@@ -72,6 +72,7 @@ export interface Variable {
   /**
    * Whether the variable is holding the Gc value or borrowing the Gc value.
    * This is only relevant for types that are managed by Gc.
+   * If the value is not Gc managed, then it should be 'false'
    *
    * Under the new simplified ownership model:
    * - Variables created by := or = always own (isOwningTheGcValue: true)
@@ -147,6 +148,24 @@ export interface Variable {
    * };
    */
   isCreatedFromDestructuringAtomVariable?: boolean;
+
+  /**
+   * When an anonymous function parameter has a different name than the expected
+   * interface parameter, this field stores the expected name for C codegen.
+   *
+   * Example:
+   * ```yo
+   * Id :: module(id : (fn(self : Self) -> Self));
+   * impl(Box(i32), Id(
+   *   id : ((self2) -> { return self2; })
+   * ));
+   * ```
+   *
+   * Here, `self2` is the anonymous function parameter name, but the interface
+   * expects `self`. So `parameterAlias` would be "self" for the `self2` variable.
+   * In C codegen, we use `self` in the function signature but reference `self2` in the body.
+   */
+  parameterAlias?: string;
 }
 
 export type Frame = {
