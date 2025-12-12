@@ -124,6 +124,19 @@ export interface CodeGenContext {
   allocator: "mimalloc" | "libc";
 
   /**
+   * Track dyn() usage for generating box types, wrappers, and vtables
+   * Each entry represents a concrete type used with a specific dyn module
+   */
+  dynImpls: Map<
+    string,
+    {
+      dynType: DynType;
+      concreteType: Type;
+      moduleValue: ModuleValue;
+    }
+  >;
+
+  /**
    * Current loop label for handling break/continue in nested match expressions
    * This is used to generate goto statements when match expressions inside loops
    * need to break or continue the loop (not just the switch statement)

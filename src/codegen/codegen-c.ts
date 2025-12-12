@@ -55,6 +55,7 @@ export class CodeGeneratorC {
       spawnedFunctionSignatures: new Map(),
       spawnedClosureSignatures: new Map(),
       closureCaptureMap: new Map(),
+      dynImpls: new Map(),
       currentFunctionName: "",
       emitter: this.emitter,
       cIncludes: new Set([

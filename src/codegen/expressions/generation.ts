@@ -2150,14 +2150,14 @@ function generateFuncCall(
           });
 
           // Call through function pointer:
-          // - Dyn closures (reference type) use vtable: closure->vtable.call(closure->data, args...)
+          // - Dyn closures (value type with vtable pointer) use: closure.vtable->call(closure.data, args...)
           // - Impl closures (value type) use direct call: closure.call(closure.data, args...)
           // Note: The first argument to the call function is the capture data pointer, not the closure itself
           let closureCall: string;
           if (isDynClosure) {
-            // Dyn closures are reference types (pointers)
-            const allArgs = [`(${closureCode})->data`, ...args];
-            closureCall = `(${closureCode})->vtable.call(${allArgs.join(", ")})`;
+            // Dyn closures are value types (use . to access fields, -> for vtable pointer)
+            const allArgs = [`(${closureCode}).data`, ...args];
+            closureCall = `(${closureCode}).vtable->call(${allArgs.join(", ")})`;
           } else {
             // Impl closures are value types (use . not ->)
             const allArgs = [`(${closureCode}).data`, ...args];
@@ -3197,27 +3197,11 @@ function generateDynCall(
     return `/* Error: dyn() requires a value argument */`;
   }
 
-  // Use the temp variable name from the expression if available, otherwise generate one
-  const tempVarName = expr.$?.variableName || `dyn_temp_${Date.now()}`;
-
   // Get the dyn type information
   const dynType = expr.$.type;
   if (!isDynType(dynType)) {
     return `/* Error: dyn() result type is not DynType */`;
   }
-
-  let dynTypeName = `yo_dyn_unknown`;
-
-  // Find the type in context.types
-  for (const typeEntry of Object.values(context.types)) {
-    if (typeEntry.type === dynType) {
-      dynTypeName = typeEntry.cName;
-      break;
-    }
-  }
-
-  const constructorName = `__yo_new_${dynTypeName}`;
-  const disposeFunctionName = `__yo_dispose_${dynTypeName}`;
 
   // Check if this is a Dyn(Fn(...)) wrapping a closure
   const fnModule = extractFnModuleFromType(dynType);
@@ -3229,9 +3213,22 @@ function generateDynCall(
     valueExpr.$?.captureType
   ) {
     // Special handling for Dyn(Fn(...)) wrapping a closure
+    // This is the old path - keeping it for now
     const closureFunctionValue = valueExpr.$.closureFunctionValue;
     const captureType = valueExpr.$.captureType;
     const functionContext = context as FunctionGenerationContext;
+
+    let dynTypeName = `yo_dyn_unknown`;
+    for (const typeEntry of Object.values(context.types)) {
+      if (typeEntry.type === dynType) {
+        dynTypeName = typeEntry.cName;
+        break;
+      }
+    }
+
+    const constructorName = `__yo_new_${dynTypeName}`;
+    const disposeFunctionName = `__yo_dispose_${dynTypeName}`;
+    const tempVarName = expr.$?.variableName || `dyn_temp_${Date.now()}`;
 
     const functionCName =
       functionContext.functions[closureFunctionValue.funcId]?.cName;
@@ -3246,12 +3243,10 @@ function generateDynCall(
       .join(", ");
     const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
 
-    // Check if this closure has captures
     const hasCaptures =
       captureType && isStructType(captureType) && captureType.fields.length > 0;
 
     if (hasCaptures && isStructType(captureType)) {
-      // Closure with captures - use the helper function
       const captureResult = allocateClosureCapture(
         captureType,
         closureType.id,
@@ -3259,17 +3254,13 @@ function generateDynCall(
         indent,
         context
       );
-
       if (!captureResult) {
         return `/* Error: Failed to allocate closure capture */`;
       }
-
-      // Generate the Dyn constructor call
       context.emitter.emitLine(
         `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(${captureResult.captureTempVar}, ${disposeFunctionName}, ${castCallFunction});`
       );
     } else {
-      // Closure without captures
       context.emitter.emitLine(
         `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(NULL, ${disposeFunctionName}, ${castCallFunction});`
       );
@@ -3278,45 +3269,56 @@ function generateDynCall(
     return tempVarName;
   }
 
-  // Regular dyn() call (not Fn)
-  // Generate the value expression
-  const valueCode = generateExpr(valueExpr, indent, context);
-
-  // Collect all function pointers that need to be passed to constructor
-  const functionPointers: string[] = [];
-  const moduleValues = expr.$.dynCallModuleValues;
-  for (const moduleValue of moduleValues) {
-    // Find functions in the module and collect their function IDs
-    for (let i = 0; i < moduleValue.fields.length; i++) {
-      const field = moduleValue.fields[i];
-      const childType = moduleValue.type.fields[i];
-
-      if (field && isFunctionValue(field) && childType) {
-        const methodName = childType.label;
-        // Skip 'Self' and 'This' type declarations (compile-time only)
-        if (methodName !== "Self") {
-          const functionId = field.funcId;
-          // Check if function exists in context
-          if (context.functions[functionId]) {
-            functionPointers.push(functionId);
-          } else {
-            functionPointers.push("NULL");
-          }
-        }
-      }
-    }
+  // Regular dyn() call - new implementation with box types and vtables
+  const concreteType = valueExpr.$.type;
+  if (!concreteType) {
+    return `/* Error: dyn() value has no type */`;
   }
 
-  const functionArgs = functionPointers.join(", ");
-  const constructorArgs = functionArgs
-    ? `${valueCode}, ${disposeFunctionName}, ${functionArgs}`
-    : `${valueCode}, ${disposeFunctionName}`;
+  // Get the module value from dynCallModuleValues
+  const moduleValues = expr.$.dynCallModuleValues;
+  if (!moduleValues || moduleValues.length === 0) {
+    return `/* Error: dyn() call missing module values */`;
+  }
 
+  // For now, assume single module (no multiple traits yet)
+  const moduleValue = moduleValues[0];
+  if (!moduleValue) {
+    return `/* Error: Invalid module value */`;
+  }
+
+  // Create a unique key for this impl combination
+  const dynTypeCName =
+    context.types[dynType.id]?.cName || `yo_dyn_${dynType.id}`;
+  const concreteTypeCName =
+    context.types[concreteType.id]?.cName || `unknown_${concreteType.id}`;
+  const implKey = `${concreteTypeCName}_${dynTypeCName}`;
+
+  // Register this impl in context for later generation
+  context.dynImpls.set(implKey, {
+    dynType,
+    concreteType,
+    moduleValue,
+  });
+
+  // Generate the value expression
+  const valueCode = generateExpr(valueExpr, indent, context);
+  const tempVarName = expr.$?.variableName || `dyn_${implKey}_${Date.now()}`;
+
+  // Generate: box = __yo_new_dyn_box_T(value)
+  const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
+  const boxCtorName = `__yo_new_${boxTypeName}`;
   context.emitter.emitLine(
-    `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(${constructorArgs});`
+    `${indent}${boxTypeName}* box_${tempVarName} = ${boxCtorName}(${valueCode});`
   );
 
-  // Return the variable reference
+  // Generate: Dyn value = { .data = box, .vtable = &vtable }
+  const vtableName = `yo_vtable_${implKey}`;
+  context.emitter.emitLine(`${indent}${dynTypeCName} ${tempVarName} = {`);
+  context.emitter.emitLine(`${indent}  .data = box_${tempVarName},`);
+  context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);
+  context.emitter.emitLine(`${indent}};`);
+
   return tempVarName;
 }
 
@@ -3906,8 +3908,8 @@ function generateFieldAccess(
     // Handle dynamic dispatch method access
     else if (isDynType(objectType)) {
       // For dyn types, access methods through vtable
-      // e.g. s.speak becomes s->vtable.speak
-      return `${objectCode}->vtable.${sanitizeForCIdentifier(fieldName)}`;
+      // e.g. s.speak becomes s.vtable->speak (Dyn is value type, vtable is pointer)
+      return `${objectCode}.vtable->${sanitizeForCIdentifier(fieldName)}`;
     } else {
       // For C structs and unions, access fields directly
       // Check if this is a reference-counted type (object)

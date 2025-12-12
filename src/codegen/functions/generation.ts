@@ -7,7 +7,6 @@ import {
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
-  DynType,
   EnumType,
   FunctionType,
   isDynType,
@@ -232,6 +231,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Generate the function body
     generateFunction(value, cName, context);
   }
+
+  // Generate box types and functions for dyn() implementations (after all functions are processed)
+  generateDynBoxTypes(context);
+  generateDynBoxFunctions(context);
+  generateDynVtables(context);
 
   // Generate main wrapper if user defined a main function
   generateMainWrapper(context);
@@ -764,32 +768,10 @@ export function generateCaptureDisposeFunctionDeclarations(
 export function generateDynConstructorDeclarations(
   context: FunctionGenerationContext
 ): void {
-  const emitter = context.emitter;
-
-  // Generate constructor declarations for each dyn type
-  for (const typeId in context.types) {
-    const { type, cName } = context.types[typeId]!;
-
-    if (isDynType(type)) {
-      // Skip generic dyn types that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      const constructorName = `__yo_new_${cName}`;
-
-      // Declare the constructor function that takes data, dispose function, and function pointers
-      emitter.emitDeclarationLine(
-        `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...); // Dyn constructor`
-      );
-
-      // Declare the dispose function for this dyn type
-      const disposeFunctionName = `__yo_dispose_${cName}`;
-      emitter.emitDeclarationLine(
-        `void ${disposeFunctionName}(void* ptr); // Dispose dyn and wrapped data`
-      );
-    }
-  }
+  // Dyn is now a value type (fat pointer) - no constructor/dispose functions needed
+  // Box types for wrapped values will be generated separately with their own RC
+  // Static vtables will be generated for each impl
+  return;
 }
 
 /**
@@ -1510,108 +1492,159 @@ export function generateClosureDisposeFunctions(
 export function generateDynConstructorFunctions(
   context: FunctionGenerationContext
 ): void {
+  // Dyn is now a value type (fat pointer) - no constructor/dispose functions needed
+  // Instead, we'll generate:
+  // 1. Box types for each concrete type being wrapped (with yo_ref_header_t)
+  // 2. Static vtable instances for each impl
+  // 3. Inline dyn construction in generateDynCall
+
+  // TODO: Generate static vtables for each impl
+  // TODO: Generate box types for wrapped values
+  return;
+}
+
+/**
+ * Generate box constructor and dispose functions for dyn implementations
+ */
+function generateDynBoxFunctions(context: FunctionGenerationContext): void {
   const emitter = context.emitter;
 
-  // Generate dyn constructor functions
-  for (const typeEntry of Object.values(context.types)) {
-    const type = typeEntry.type;
-    const cName = typeEntry.cName;
+  if (context.dynImpls.size === 0) {
+    return; // No dyn() calls to generate boxes for
+  }
 
-    if (isDynType(type)) {
-      const dynType = type as DynType;
+  emitter.emitLine("");
+  emitter.emitLine("// === Dyn Box Functions ===");
+  emitter.emitLine("// Constructor and dispose functions for dyn boxes");
+  emitter.emitLine("");
 
-      // Skip generic dyn types that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
+  // Track generated box functions to avoid duplicates
+  const generatedBoxFunctions = new Set<string>();
 
-      // Check if this is a Fn dyn type (Dyn(Fn(...)))
-      const fnModule = extractFnModuleFromType(type);
-      const isFnDyn = fnModule !== undefined;
+  for (const [implKey, impl] of context.dynImpls) {
+    const concreteTypeCName =
+      context.types[impl.concreteType.id]?.cName ||
+      `unknown_${impl.concreteType.id}`;
+    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
 
-      // Generate dyn constructor function
-      const constructorName = `__yo_new_${cName}`;
-
-      emitter.emitLine(
-        `${cName}* ${constructorName}(void* data, void (*dispose_fn)(void*), ...) {`
-      );
-      emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
-      );
-      emitter.emitLine(`  obj->header.ref_count = 1;`);
-      emitter.emitLine(`  obj->header.gc_flags = 0;`);
-      emitter.emitLine(`  obj->header.gc_mark = YO_GC_UNMARKED;`);
-      emitter.emitLine(`  obj->header.gc_next = NULL;`);
-      emitter.emitLine(`  obj->header.gc_prev = NULL;`);
-      emitter.emitLine(`  obj->header.dispose_fn = dispose_fn;`);
-      emitter.emitLine(`  obj->header.traverse_fn = NULL;`);
-
-      emitter.emitLine(`  va_list args;`);
-      emitter.emitLine(`  va_start(args, dispose_fn);`);
-
-      // Initialize vtable with function pointers from variadic arguments
-      const processedMethods = new Set<string>();
-      for (const moduleType of dynType.requiredModules) {
-        // Handle FnModuleType specially - it has isFn which represents the "call" method
-        if (isFnModuleType(moduleType)) {
-          emitter.emitLine(`  obj->vtable.call = va_arg(args, void*);`);
-          processedMethods.add("call");
-          continue;
-        }
-
-        for (const field of moduleType.fields) {
-          // Skip 'Self' and 'This' type declarations (compile-time only)
-          if (field.label === "Self") {
-            continue;
-          }
-
-          // For Fn dyn types (Dyn(Fn(...))), skip internal ARC methods (___dup, ___drop, ___dispose)
-          // These are handled by the header's dispose_fn, not the vtable
-          if (isFnDyn && field.label.startsWith("___")) {
-            continue;
-          }
-
-          // Avoid duplicate methods from different modules
-          if (processedMethods.has(field.label)) {
-            continue;
-          }
-          processedMethods.add(field.label);
-
-          const methodName = sanitizeForCIdentifier(field.label);
-          emitter.emitLine(
-            `  obj->vtable.${methodName} = va_arg(args, void*);`
-          );
-        }
-      }
-
-      emitter.emitLine(`  va_end(args);`);
-
-      emitter.emitLine(`  obj->data = data;`);
-      emitter.emitLine(`  return obj;`);
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
-
-      // Generate dispose function for this dyn type
-      const disposeFunctionName = `__yo_dispose_${cName}`;
-      emitter.emitLine(`void ${disposeFunctionName}(void* ptr) {`);
-      emitter.emitLine(`  ${cName}* self = (${cName}*)ptr;`);
-      if (isFnDyn) {
-        // For Fn dyn types, data is a capture struct, not a ref-counted object
-        // Just free the data if it exists
-        emitter.emitLine(`  // Free captured data (non-ref-counted struct)`);
-        emitter.emitLine(`  if (self->data) {`);
-        emitter.emitLine(`    __yo_free(self->data);`);
-        emitter.emitLine(`  }`);
-      } else {
-        // For regular dyn types, data is a ref-counted object
-        emitter.emitLine(`  // Call the wrapped object's dispose function`);
-        emitter.emitLine(`  if (self->data) {`);
-        emitter.emitLine(`    __yo_decr_rc(self->data);`);
-        emitter.emitLine(`  }`);
-      }
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
-      emitter.emitLine(``);
+    // Skip if already generated
+    if (generatedBoxFunctions.has(boxTypeName)) {
+      continue;
     }
+    generatedBoxFunctions.add(boxTypeName);
+
+    const valueTypeStr = getTypeString(impl.concreteType, context);
+
+    // Generate box constructor
+    emitter.emitLine(
+      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`
+    );
+    emitter.emitLine(
+      `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`
+    );
+    emitter.emitLine(`  box->header.ref_count = 1;`);
+    emitter.emitLine(`  box->header.gc_flags = 0;`);
+    emitter.emitLine(`  box->header.gc_mark = YO_GC_UNMARKED;`);
+    emitter.emitLine(`  box->header.gc_next = NULL;`);
+    emitter.emitLine(`  box->header.gc_prev = NULL;`);
+    emitter.emitLine(`  box->header.dispose_fn = __yo_dispose_${boxTypeName};`);
+    emitter.emitLine(
+      `  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types`
+    );
+    emitter.emitLine(`  box->value = value;`);
+    emitter.emitLine(`  return box;`);
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+
+    // Generate box dispose
+    emitter.emitLine(`void __yo_dispose_${boxTypeName}(void* ptr) {`);
+    emitter.emitLine(`  ${boxTypeName}* box = (${boxTypeName}*)ptr;`);
+
+    // TODO: Check if value type is a reference type that needs RC decrement
+    // For now, just handle reference-counted types (pointers)
+    emitter.emitLine(`  // TODO: Drop box->value if it's a reference type`);
+
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+  }
+}
+
+/**
+ * Generate box type declarations for dyn implementations
+ */
+function generateDynBoxTypes(context: FunctionGenerationContext): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return; // No dyn() calls to generate boxes for
+  }
+
+  emitter.emitLine("");
+  emitter.emitLine("// === Dyn Box Types ===");
+  emitter.emitLine("// These structs wrap concrete types for dynamic dispatch");
+  emitter.emitLine("");
+
+  // Track generated box types to avoid duplicates
+  const generatedBoxTypes = new Set<string>();
+
+  for (const [implKey, impl] of context.dynImpls) {
+    const concreteTypeCName =
+      context.types[impl.concreteType.id]?.cName ||
+      `unknown_${impl.concreteType.id}`;
+    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
+
+    // Skip if already generated (multiple dyn() calls with same type)
+    if (generatedBoxTypes.has(boxTypeName)) {
+      continue;
+    }
+    generatedBoxTypes.add(boxTypeName);
+
+    const valueTypeStr = getTypeString(impl.concreteType, context);
+
+    // Generate box struct
+    emitter.emitLine(`typedef struct {`);
+    emitter.emitLine(`  yo_ref_header_t header;`);
+    emitter.emitLine(`  ${valueTypeStr} value;`);
+    emitter.emitLine(`} ${boxTypeName};`);
+    emitter.emitLine("");
+
+    // Generate box constructor declaration
+    emitter.emitLine(
+      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
+    );
+
+    // Generate box dispose declaration
+    emitter.emitLine(`void __yo_dispose_${boxTypeName}(void* ptr);`);
+    emitter.emitLine("");
+  }
+}
+
+/**
+ * Generate static vtables for dyn implementations
+ */
+function generateDynVtables(context: FunctionGenerationContext): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return; // No dyn() calls to generate vtables for
+  }
+
+  emitter.emitLine("");
+  emitter.emitLine("// === Dyn Static Vtables ===");
+  emitter.emitLine("// Static vtables for dynamic dispatch");
+  emitter.emitLine("");
+
+  for (const [implKey, impl] of context.dynImpls) {
+    const dynTypeCName =
+      context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+    const vtableName = `yo_vtable_${implKey}`;
+
+    emitter.emitLine(
+      `// TODO: Generate vtable ${vtableName} for ${dynTypeCName}`
+    );
+    emitter.emitLine(
+      `// static const ${dynTypeCName}_vtable ${vtableName} = { ... };`
+    );
+    emitter.emitLine("");
   }
 }

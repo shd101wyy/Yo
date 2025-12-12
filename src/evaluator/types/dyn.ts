@@ -129,6 +129,10 @@ export function evaluateDynType({
     }
   }
 
+  // Note: We don't check object-safety here during Dyn type creation
+  // Object-safety is checked when CALLING methods on Dyn values
+  // This allows modules to have any methods, but only object-safe ones are callable on Dyn
+
   // Create the dyn type with its own module for ARC functions
   // Note: wrappedObjectARCModuleType is prepended to handle ARC for the wrapped object
   const dynType = createDynType(moduleTypes, env, negativeModules);

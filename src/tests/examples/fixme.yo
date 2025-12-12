@@ -25,26 +25,64 @@ main :: (fn() -> unit) {
 };
 */
 
-Id :: module(
-  id : (fn(self : Self) -> Self)
+TestDyn :: module(
+  print : (fn(self : Self) -> unit),
+  return_i32 : (fn(self : Self) -> i32)
 );
 
-use_id :: (fn(
-  value : Dyn(Id)
-) -> unit) {
-  value.id();
+use_test_dyn :: (fn(
+  value : Dyn(TestDyn)
+) -> i32) {
+  value.print();
+  return value.return_i32();
 };
 
-impl(Box(i32), Id(
-  id : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.*);
+MyBox :: object(
+  x : i32,
+
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing Boxed i32 with value: %d\n", self.x);
+  })
+);
+
+impl(i32, TestDyn(
+  print : ((self) -> {
+    printf("i32 value: %d\n", self);
+  }),
+  return_i32 : ((self) -> {
     return self;
   })
 ));
 
+impl(boolean, TestDyn(
+  print : ((self) -> {
+    cond(
+      self => printf("boolean value: true\n"),
+      true => printf("boolean value: false\n")
+    );
+  }),
+  return_i32 : ((self) ->
+    cond(
+      self => 1,
+      true => return 0
+    )
+  )
+));
+
+impl(MyBox, TestDyn(
+  print : ((self) -> {
+    printf("Boxed i32 value: %d\n", self.x);
+  }),
+  return_i32 : ((self) -> {
+    return self.x;
+  })
+));
+
 main :: (fn() -> unit) {
-  bi := Box(i32)(100);
-  use_id(dyn(bi));
+  assert(use_test_dyn(dyn(i32(42))) == 42);
+  assert(use_test_dyn(dyn(true)) == 1);
+  bi := MyBox(100);
+  assert(use_test_dyn(dyn(bi)) == 100);
 };
 
 export main;

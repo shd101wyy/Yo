@@ -1704,3 +1704,87 @@ function typeCanFormCyclicGcReference(
   // Other types (primitives, functions, etc.) cannot form cycles
   return false;
 }
+
+/**
+ * Check if a type contains Self (directly or nested in compound types)
+ * This is used for object-safety checks - methods returning types containing Self
+ * cannot be called on Dyn values because different implementations return different types.
+ *
+ * @param type The type to check
+ * @param selfType The SelfType to check against (from the function's type)
+ * @returns true if the type contains Self anywhere in its structure
+ */
+export function typeContainsSelfTypeForDynamicDispatchCheck(
+  type: Type,
+  selfType: Type | undefined
+): boolean {
+  if (!selfType) {
+    return false; // No Self type defined, so can't contain it
+  }
+
+  // Direct match: type IS Self
+  if (type.id === selfType.id) {
+    return true;
+  }
+
+  // Check compound types recursively
+  if (isArrayType(type)) {
+    return typeContainsSelfTypeForDynamicDispatchCheck(
+      type.childType,
+      selfType
+    );
+  }
+
+  if (isSliceType(type)) {
+    return typeContainsSelfTypeForDynamicDispatchCheck(
+      type.childType,
+      selfType
+    );
+  }
+
+  if (isPtrType(type)) {
+    return typeContainsSelfTypeForDynamicDispatchCheck(
+      type.childType,
+      selfType
+    );
+  }
+
+  if (isTupleType(type)) {
+    return type.fields.some((elem) =>
+      typeContainsSelfTypeForDynamicDispatchCheck(elem.type, selfType)
+    );
+  }
+
+  if (isStructType(type)) {
+    return type.fields.some((field) =>
+      typeContainsSelfTypeForDynamicDispatchCheck(field.type, selfType)
+    );
+  }
+
+  if (isUnionType(type)) {
+    return type.fields.some((t) =>
+      typeContainsSelfTypeForDynamicDispatchCheck(t.type, selfType)
+    );
+  }
+
+  if (isEnumType(type)) {
+    return type.variants.some((variant) =>
+      variant.fields?.some((field) =>
+        typeContainsSelfTypeForDynamicDispatchCheck(field.type, selfType)
+      )
+    );
+  }
+
+  if (isFunctionType(type)) {
+    // Only check return type, not parameters
+    // Parameters with Self are fine - they're passed as void* boxes
+    // The problem is only with return types (caller doesn't know concrete type)
+    return typeContainsSelfTypeForDynamicDispatchCheck(
+      type.return.type,
+      selfType
+    );
+  }
+
+  // Other types (primitives, modules, etc.) don't contain Self
+  return false;
+}

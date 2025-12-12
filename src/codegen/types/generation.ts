@@ -900,15 +900,18 @@ export function generateDynDeclaration(
   emitter.emitDeclarationLine("");
 
   // Generate the dynamic dispatch object structure
-  // Contains vtable pointer + actual data pointer
+  // Dyn is a value type (fat pointer) - just data pointer + vtable pointer
+  // The data pointer points to a boxed value that has yo_ref_header_t
+  // The vtable pointer points to a static vtable instance (one per impl)
   emitter.emitDeclarationLine(
-    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (reference counted)`
+    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (value type - fat pointer)`
   );
   emitter.emitDeclarationLine(
-    `  yo_ref_header_t header; // Reference count header`
+    `  void* data; // Pointer to boxed data (with yo_ref_header_t)`
   );
-  emitter.emitDeclarationLine(`  ${vtableName} vtable; // Function pointers`);
-  emitter.emitDeclarationLine(`  void* data; // Actual object data`);
+  emitter.emitDeclarationLine(
+    `  const ${vtableName}* vtable; // Pointer to static vtable (no allocation needed)`
+  );
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
 }
@@ -978,3 +981,56 @@ export function generateDynDeclaration(
 ///   emitter.emitDeclarationLine(`typedef struct ${cName}_struct ${cName};`);
 ///   emitter.emitDeclarationLine(""); // Add blank line for readability
 /// }
+
+/**
+ * Generate box types for all dyn() implementations
+ * Box types wrap values for dynamic dispatch with reference counting header
+ */
+function generateDynBoxTypes(context: CodeGenContext): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return; // No dyn() calls to generate boxes for
+  }
+
+  emitter.emitDeclarationLine("");
+  emitter.emitDeclarationLine("// === Dyn Box Types ===");
+  emitter.emitDeclarationLine(
+    "// These structs wrap concrete types for dynamic dispatch"
+  );
+  emitter.emitDeclarationLine("");
+
+  // Track generated box types to avoid duplicates
+  const generatedBoxTypes = new Set<string>();
+
+  for (const [implKey, impl] of context.dynImpls) {
+    const concreteTypeCName =
+      context.types[impl.concreteType.id]?.cName ||
+      `unknown_${impl.concreteType.id}`;
+    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
+
+    // Skip if already generated (multiple dyn() calls with same type)
+    if (generatedBoxTypes.has(boxTypeName)) {
+      continue;
+    }
+    generatedBoxTypes.add(boxTypeName);
+
+    const valueTypeStr = getTypeString(impl.concreteType, context);
+
+    // Generate box struct
+    emitter.emitDeclarationLine(`typedef struct {`);
+    emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
+    emitter.emitDeclarationLine(`  ${valueTypeStr} value;`);
+    emitter.emitDeclarationLine(`} ${boxTypeName};`);
+    emitter.emitDeclarationLine("");
+
+    // Generate box constructor declaration
+    emitter.emitDeclarationLine(
+      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
+    );
+
+    // Generate box dispose declaration
+    emitter.emitDeclarationLine(`void __yo_dispose_${boxTypeName}(void* ptr);`);
+    emitter.emitDeclarationLine("");
+  }
+}

@@ -30,6 +30,7 @@ import {
   isStructType,
   isUnionType,
   Type,
+  typeContainsSelfTypeForDynamicDispatchCheck,
   typeOfType,
   typeToString,
 } from "../../types";
@@ -168,6 +169,29 @@ export function evaluateFunctionCall({
               receiverType,
               false // isInfixOperatorCall - property access allows auto pointer conversion
             );
+
+            // Object-safety check: if receiver is Dyn, check that the method doesn't return Self
+            if (isDynType(receiverType)) {
+              for (const method of methods) {
+                if (isFunctionType(method.type)) {
+                  const returnType = method.type.return.type;
+                  if (
+                    typeContainsSelfTypeForDynamicDispatchCheck(
+                      returnType,
+                      method.type.SelfType
+                    )
+                  ) {
+                    throw formatErrorMessage({
+                      token: methodExpr.token,
+                      errorMessage: `Cannot call method '${methodName}' on Dyn type: method returns type '${typeToString(
+                        returnType
+                      )}' which contains Self. Only object-safe methods (those not returning Self or types containing Self) can be called on Dyn values.`,
+                    });
+                  }
+                }
+              }
+            }
+
             functions = methods.map((method) => {
               // If pointer conversion is needed, wrap the receiver in &()
               let methodArgs: Expr[];
