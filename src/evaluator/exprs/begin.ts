@@ -79,7 +79,13 @@ function generateDeferredDropExpressions({
     const evaluatedDropExpr = evaluateExpression({
       expr: dropExpr,
       env: finalEnv,
-      context: { ...context },
+      context: {
+        ...context,
+        expectedType: {
+          env: finalEnv,
+          type: VUnit.type,
+        },
+      },
     });
 
     deferredDropExpressions.push(evaluatedDropExpr);
@@ -826,7 +832,10 @@ export function evaluateBeginExpression({
         ? variablesActuallyNeedingDrop
         : variablesNeedingDrop,
       env,
-      context,
+      context: {
+        ...context,
+        expectedType: undefined, // Drop expressions should not inherit expectedType
+      },
     });
     deferredDropExpressions = dropResult.deferredDropExpressions;
     env = dropResult.env;

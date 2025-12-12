@@ -1247,7 +1247,7 @@ ${exprToString(expr)}`);
       // attaching a temp variable to it. This is crucial for correct reference
       // counting - returning a borrowed parameter should generate a dup call.
       const preservedIsOwningTheRefValue =
-        existingVariable.isOwningTheGcValue === false
+        Boolean(existingVariable.isOwningTheGcValue) === false
           ? false
           : _isOwningTheARCValue;
       const updatedVariable: Variable = {
