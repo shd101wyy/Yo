@@ -293,12 +293,6 @@ export interface FunctionParameter {
    */
   isQuote: boolean;
   /**
-   * Whether this parameter takes ownership of ARC values.
-   * When true, the caller must dup the value before passing.
-   * The parameter becomes the owner and will be dropped at function exit.
-   */
-  isOwningTheGcValue: boolean;
-  /**
    * The expression information of the parameter.
    */
   exprs: FunctionParameterExprs;

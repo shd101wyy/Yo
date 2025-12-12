@@ -22,7 +22,6 @@ import {
   exprToString,
   FuncCallExpr,
   PathCollection,
-  setExprAsNeedsToCallDup,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
 import { generateExprFromCode } from "../../parser";
@@ -273,14 +272,6 @@ export function checkIfFunctionParameterMatchesArgument({
       if (!parameter.isCompileTimeOnly) {
         runtimeArgExprsInOrder.push(evaluatedArgExpr);
       }
-
-      // If parameter takes ownership, call ___dup on borrowed ARC values
-      if (parameter.isOwningTheGcValue && !parameter.isCompileTimeOnly) {
-        setExprAsNeedsToCallDup(evaluatedArgExpr, context);
-        if (evaluatedArgExpr.$?.env) {
-          callerEnv = evaluatedArgExpr.$?.env;
-        }
-      }
     }
   }
 
@@ -343,7 +334,6 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
-      isOwningTheGcValue: parameter.isOwningTheGcValue,
     },
   });
   calleeEnv = nextEnv;

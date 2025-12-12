@@ -257,7 +257,6 @@ Got:      "${paramName}"`,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
-        isOwningTheGcValue: expectedParam.isOwningTheGcValue,
       },
       skipCheckingFunctionOverloading: true,
     });
