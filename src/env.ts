@@ -1021,9 +1021,8 @@ export function getMethodsByNameFromEnv(
               true // isMethodReceiver
             ))
         ) {
-          // For dynamic dispatch, we create an unknown value since we don't know
-          // which concrete implementation will be called at runtime
-          const value = createUnknownValue(method.type, method.label);
+          // For dynamic dispatch, we create `undefined` to represent the method value
+          const value = undefined; // NOTE: UnknownValue here is wrong: createUnknownValue(method.type, method.label);
           methods.push({ type: method.type, value });
         }
         // Don't break - continue checking other modules in case they have different signatures

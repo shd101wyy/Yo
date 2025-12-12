@@ -19,6 +19,8 @@ To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.t
 
 Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
 
+For debugging running command, always use `| head` or `| tail` to limit the output.
+
 **Memory Allocator Options:**
 - `--allocator mimalloc` (default) - Use mimalloc for high-performance allocation
 - `--allocator libc` - Use standard libc malloc (faster compilation, useful for debugging)
