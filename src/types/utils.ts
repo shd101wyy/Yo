@@ -179,7 +179,7 @@ export function typeImplementsCopy(
  * Check if a type implements the Send trait.
  *
  * Send types can be safely transferred between threads.
- * Primitives, Send pointers (where T is not Ref and T implements Send),
+ * Primitives, Send pointers (where T is not Gc and T implements Send),
  * and structs where all fields are Send implement Send.
  */
 export function typeImplementsSend(
@@ -584,7 +584,7 @@ export function typeRequiresInference(type?: Type): boolean {
       return typeRequiresInference((type as PtrType).type);
     case TypeTag.Ptr:
       return typeRequiresInference((type as PtrType).type);
-    case TypeTag.Ref:
+    case TypeTag.Gc:
       return typeRequiresInference((type as RefType).type);
     case TypeTag.MutRef:
       return typeRequiresInference((type as MutRefType).type);

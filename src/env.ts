@@ -70,19 +70,19 @@ export interface Variable {
   isCompileTimeOnly: boolean;
 
   /**
-   * Whether the variable is holding the Ref value or borrowing the Ref value.
-   * This is only relevant for types that are managed by Ref.
+   * Whether the variable is holding the Gc value or borrowing the Gc value.
+   * This is only relevant for types that are managed by Gc.
    *
    * Under the new simplified ownership model:
    * - Variables created by := or = always own (isOwningTheGcValue: true)
    * - Function parameters borrow by default (isOwningTheGcValue: false)
    * - Function parameters with own() explicitly own (isOwningTheGcValue: true)
-   * - For non-Ref types, this is always false (no ownership tracking needed)
+   * - For non-Gc types, this is always false (no ownership tracking needed)
    */
   isOwningTheGcValue?: boolean;
 
   /**
-   * Tracks when this variable owns a share of the same Ref object as another variable.
+   * Tracks when this variable owns a share of the same Gc object as another variable.
    * This is used for dup/drop optimization across variable reassignments.
    *
    * When a temp variable is created to hold the old value during reassignment:
@@ -964,7 +964,7 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
-    // First, check the dyn object's own module for its Ref methods (___drop, ___dup, ___dispose)
+    // First, check the dyn object's own module for its Gc methods (___drop, ___dup, ___dispose)
     const dynMethod = dereferencedReceiverType.module.fields.find(
       (field) =>
         field.label === methodName &&

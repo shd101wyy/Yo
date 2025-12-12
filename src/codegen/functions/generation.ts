@@ -206,14 +206,14 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
-  // Generate closure constructor and Ref functions
+  // Generate closure constructor and Gc functions
   generateClosureConstructorFunctions(context);
 
   // NOTE: Don't generate capture dispose functions here yet!
   // They will be generated after deferred async blocks are processed
   // because closure creation happens during async block generation
 
-  // Generate dyn type constructor and Ref functions
+  // Generate dyn type constructor and Gc functions
   generateDynConstructorFunctions(context);
 
   for (const funcId in context.functions) {
@@ -1357,7 +1357,7 @@ export function generateRefStructConstructorFunctions(
 }
 
 /**
- * Generate constructor function implementations for closures and their Ref functions
+ * Generate constructor function implementations for closures and their Gc functions
  */
 export function generateClosureConstructorFunctions(
   context: FunctionGenerationContext
@@ -1505,7 +1505,7 @@ export function generateClosureDisposeFunctions(
 }
 
 /**
- * Generate constructor function implementations for dyn types and their Ref functions
+ * Generate constructor function implementations for dyn types and their Gc functions
  */
 export function generateDynConstructorFunctions(
   context: FunctionGenerationContext

@@ -194,9 +194,9 @@ export interface EvaluatedExprData {
   comment?: string;
 
   /**
-   * For closures that capture Ref variables, this contains expressions that
+   * For closures that capture Gc variables, this contains expressions that
    * call ___dup on the captured variables. Used by C codegen to generate
-   * proper Ref handling in closure ___dup methods.
+   * proper Gc handling in closure ___dup methods.
    *
    * Example: If a closure captures `x: MyBox`, this would contain the expression `x.___dup()`
    */
@@ -222,7 +222,7 @@ export interface EvaluatedExprData {
   /**
    * For closure and async block expressions, this contains the capture struct type that holds all
    * captured variables from outer scope.
-   * The capture struct has Ref functions (___drop, ___dup, ___dispose) auto-generated.
+   * The capture struct has Gc functions (___drop, ___dup, ___dispose) auto-generated.
    *
    * Example: For `async { printf("%d", x); }` where `x: MyBox` is from outer scope,
    * this would contain a StructType with a single field `x: MyBox`.
@@ -895,7 +895,7 @@ export const BuiltinFunctions = {
   // Error handling
   panic: ["panic"],
 
-  // Ref related
+  // Gc related
   is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
@@ -904,11 +904,11 @@ export const BuiltinFunctions = {
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
 
-  // Dynamic dispatch Ref functions
+  // Dynamic dispatch Gc functions
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
   __yo_dyn_dup: ["__yo_dyn_dup"], // dup the dyn object with wrapped object
 
-  // Ref functions
+  // Gc functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
@@ -1616,7 +1616,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       }
 
       // Check isOwningTheRefValueAtTokens
-      // Variable is not owning the Ref value outside, but the only case makes it owning.
+      // Variable is not owning the Gc value outside, but the only case makes it owning.
       // case 1
       /*
       if (isOwningTheRefValueAtTokens.length === 1) {
@@ -1627,17 +1627,17 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           throw formatErrorMessages([
             {
               token: frameVariables[i]!.token,
-              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the Ref value in all cases.`,
+              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the Gc value in all cases.`,
             },
             {
               token: isOwningTheRefValueAtTokens[0]!,
-              errorMessage: `Might be owning the Ref value here:`,
+              errorMessage: `Might be owning the Gc value here:`,
             },
           ]);
         }
       }
       // case 2
-      // variable is not owning the Ref value outside, but all cases make it owning.
+      // variable is not owning the Gc value outside, but all cases make it owning.
       else 
       */
       if (
@@ -1669,11 +1669,11 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
               return {
                 errorMessage:
                   (index === 0
-                    ? `Variable "${variableName}" might be holding the Ref value in some cases but not holding the Ref value in other cases:\n`
+                    ? `Variable "${variableName}" might be holding the Gc value in some cases but not holding the Gc value in other cases:\n`
                     : "") +
                   (token
-                    ? "Might be owning the Ref value here:"
-                    : "Might be not owning the Ref value here:"),
+                    ? "Might be owning the Gc value here:"
+                    : "Might be not owning the Gc value here:"),
                 token: token ?? bodies[index]!.token,
               };
             })
@@ -1876,7 +1876,7 @@ export function setExprAsNeedsToCallDup(
   if (typeContainsGcType(expr.$.type)) {
     const variableName = expr.$.variableName;
 
-    // Check if the expr.variableName is holding the Ref value
+    // Check if the expr.variableName is holding the Gc value
     // if yes, then no need to call dup
     // We just need to set it as consumed
     if (isTempVariableName(expr.$.env.modulePath, variableName)) {
