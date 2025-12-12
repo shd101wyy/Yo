@@ -270,6 +270,7 @@ export function evaluateMatch({
               initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
               consumedAtToken: undefined, // Not consumed yet
               isReassignable: false,
+              isOwningTheGcValue: false,
             },
           });
           caseEnv = nextEnv;
@@ -571,6 +572,7 @@ export function evaluateMatch({
                     initializedAtToken: variableExpr.token,
                     consumedAtToken: undefined,
                     isReassignable: false,
+                    isOwningTheGcValue: false,
                   },
                 });
                 caseEnv = nextEnv;
@@ -614,6 +616,7 @@ export function evaluateMatch({
                   initializedAtToken: param.token,
                   consumedAtToken: undefined,
                   isReassignable: false,
+                  isOwningTheGcValue: false,
                 },
               });
               caseEnv = nextEnv;
@@ -654,6 +657,7 @@ export function evaluateMatch({
               initializedAtToken: evaluatedScrutineeExpr.token,
               consumedAtToken: undefined,
               isReassignable: false,
+              isOwningTheGcValue: false,
             },
           });
           caseEnv = nextEnv;

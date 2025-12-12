@@ -91,6 +91,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
         token: lengthExpr.token,
         initializedAtToken: lengthExpr.token,
         consumedAtToken: undefined,
+        isOwningTheGcValue: false,
       },
     });
 

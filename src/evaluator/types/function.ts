@@ -743,6 +743,7 @@ export function evaluateFunctionParameters({
             consumedAtToken: undefined, // Not consumed yet
             isOwningTheSameGcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
+            isOwningTheGcValue: false,
           },
         });
         env = nextEnv;

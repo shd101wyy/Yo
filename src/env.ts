@@ -80,7 +80,7 @@ export interface Variable {
    * - Function parameters with own() explicitly own (isOwningTheGcValue: true)
    * - For non-Gc types, this is always false (no ownership tracking needed)
    */
-  isOwningTheGcValue?: boolean;
+  isOwningTheGcValue: boolean;
 
   /**
    * Tracks when this variable owns a share of the same Gc object as another variable.

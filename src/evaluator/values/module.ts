@@ -472,6 +472,7 @@ function tryMatchGenericImpl({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
+          isOwningTheGcValue: false,
         },
       });
       unifyEnv = nextEnv;
@@ -487,6 +488,7 @@ function tryMatchGenericImpl({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
+          isOwningTheGcValue: false,
         },
       });
       unifyEnv = nextEnv;
@@ -1161,6 +1163,7 @@ export function evaluateModuleValue({
           token: paramExpr.token,
           initializedAtToken: paramExpr.token,
           consumedAtToken: undefined,
+          isOwningTheGcValue: false,
         },
       });
       env = nextEnv;

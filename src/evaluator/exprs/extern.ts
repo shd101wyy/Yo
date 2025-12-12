@@ -125,6 +125,7 @@ export function evaluateExtern({
         token: field.exprs.expr.token,
         initializedAtToken: field.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet
+        isOwningTheGcValue: false,
       },
     });
     env = nextNextEnv;

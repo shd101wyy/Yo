@@ -171,6 +171,7 @@ export function handleMemberDestructuring({
             consumedAtToken: undefined,
             isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
             isReassignable: false, // NOTE: Destructuring only borrows but not owns, so we disable reassignment here.
+            isOwningTheGcValue: false,
           },
         });
         env = nextEnv;
@@ -353,6 +354,7 @@ export function handleMemberDestructuring({
           consumedAtToken: undefined, // Not consumed yet
           isCreatedFromDestructuringAtomVariable: isDestructuringAtomVariable,
           isReassignable: false, // NOTE: Destructuring only borrows but not owns, so we disable reassignment here.
+          isOwningTheGcValue: false,
         },
       });
 

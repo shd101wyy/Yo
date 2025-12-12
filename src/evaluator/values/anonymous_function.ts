@@ -202,6 +202,7 @@ Got:      "${paramName}"`,
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
         consumedAtToken: undefined,
+        isOwningTheGcValue: false,
       },
       skipCheckingFunctionOverloading: true,
     });

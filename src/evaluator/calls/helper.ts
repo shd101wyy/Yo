@@ -334,6 +334,7 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
+      isOwningTheGcValue: false,
     },
   });
   calleeEnv = nextEnv;
@@ -507,6 +508,7 @@ export function tryToCallFunctionWithArguments({
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
         value: typeValue,
+        isOwningTheGcValue: false,
       },
     });
     calleeEnv = nextEnv;
@@ -533,6 +535,7 @@ export function tryToCallFunctionWithArguments({
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
+          isOwningTheGcValue: false,
         },
       });
       calleeEnv = nextEnv;
@@ -714,6 +717,7 @@ Got:   ${typeToString(typeValue.type)}`,
               token: token,
               initializedAtToken: token, // Set as initialized
               consumedAtToken: undefined,
+              isOwningTheGcValue: false,
             },
           });
           calleeEnv = nextEnv;
@@ -931,6 +935,7 @@ Got:   ${argExprs.length} arguments`,
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
           consumedAtToken: undefined,
+          isOwningTheGcValue: false,
         },
       });
       calleeEnv = nextEnv;

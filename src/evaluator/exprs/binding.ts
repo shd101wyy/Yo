@@ -10,6 +10,7 @@ import {
 } from "../../expr";
 import {
   prohibitVoidType,
+  typeContainsGcType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -131,6 +132,7 @@ ${exprToString(rhs)}`,
       initializedAtToken: undefined, // The variable is not initialized yet
       consumedAtToken: undefined,
       isReassignable: true,
+      isOwningTheGcValue: typeContainsGcType(userDefinedType),
     },
   });
   env = nextEnv;
