@@ -26,8 +26,8 @@ main :: (fn() -> unit) {
 */
 
 TestDyn :: module(
-  print : (fn(self : Self) -> unit),
-  return_i32 : (fn(self : Self) -> i32)
+  print : (fn(self : *(Self)) -> unit),
+  return_i32 : (fn(self : *(Self)) -> i32)
 );
 
 use_test_dyn :: (fn(
@@ -47,23 +47,23 @@ MyBox :: object(
 
 impl(i32, TestDyn(
   print : ((self) -> {
-    printf("i32 value: %d\n", self);
+    printf("i32 value: %d\n", *self);
   }),
   return_i32 : ((self) -> {
-    return self;
+    return *self;
   })
 ));
 
 impl(boolean, TestDyn(
   print : ((self) -> {
     cond(
-      self => printf("boolean value: true\n"),
+      *self => printf("boolean value: true\n"),
       true => printf("boolean value: false\n")
     );
   }),
   return_i32 : ((self) ->
     cond(
-      self => 1,
+      *self => 1,
       true => return 0
     )
   )
@@ -71,10 +71,10 @@ impl(boolean, TestDyn(
 
 impl(MyBox, TestDyn(
   print : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.x);
+    printf("Boxed i32 value: %d\n", self->x);
   }),
   return_i32 : ((self) -> {
-    return self.x;
+    return self->x;
   })
 ));
 

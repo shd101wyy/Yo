@@ -25,6 +25,7 @@ import {
   isFunctionType,
   isModuleType,
   isObjectType,
+  isPtrType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -170,10 +171,29 @@ export function evaluateFunctionCall({
               false // isInfixOperatorCall - property access allows auto pointer conversion
             );
 
-            // Object-safety check: if receiver is Dyn, check that the method doesn't return Self
+            // Object-safety check: if receiver is Dyn, check that the method is object-safe
             if (isDynType(receiverType)) {
               for (const method of methods) {
                 if (isFunctionType(method.type)) {
+                  // Check 1: Self parameter must be by reference (&Self or &mut Self), not by value
+                  if (
+                    method.type.parameters.length > 0 &&
+                    method.type.SelfType
+                  ) {
+                    const selfParam = method.type.parameters[0];
+                    if (selfParam) {
+                      const selfParamType = selfParam.type;
+                      // Self parameter must be a pointer type
+                      if (!isPtrType(selfParamType)) {
+                        throw formatErrorMessage({
+                          token: methodExpr.token,
+                          errorMessage: `Cannot call method '${methodName}' on Dyn type: method takes Self by value. Methods callable on Dyn must take self by reference (&Self or &mut Self), not by value. This follows Rust's object-safety rules.`,
+                        });
+                      }
+                    }
+                  }
+
+                  // Check 2: Return type must not contain Self
                   const returnType = method.type.return.type;
                   if (
                     typeContainsSelfTypeForDynamicDispatchCheck(

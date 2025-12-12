@@ -59,44 +59,48 @@ typedef struct {
 ## Object-Safety Constraint (Following Rust)
 
 **Constraint**: Modules used with `Dyn()` **cannot** have methods that:
-1. Return `Self` 
-2. Return types containing `Self` (like `Option(Self)`, `Result(Self, E)`, etc.)
+1. Take `Self` by value - must use `&Self` or `&mut Self` instead
+2. Return `Self` 
+3. Return types containing `Self` (like `Option(Self)`, `Result(Self, E)`, etc.)
 
-This follows Rust's "object-safety" rules. The reason: different concrete types would produce different return types, making uniform vtable signatures impossible without complex type erasure.
+This follows Rust's "object-safety" rules (dyn-compatibility). The reasons:
+- Taking `Self` by value: Different concrete types have different sizes (i32 vs MyBox*), impossible to pass through uniform `void*` parameter
+- Returning `Self`: Different concrete types produce different return types, making uniform vtable signatures impossible
 
 **Valid** for dynamic dispatch:
 ```yo
 TestDyn :: module(
-  return_i32 : fn(Self) -> i32,  // Returns concrete type - OK!
-  print : fn(Self) -> unit        // Returns unit - OK!
+  return_i32 : fn(&Self) -> i32,  // Takes &Self, returns concrete type - OK!
+  print : fn(&Self) -> unit        // Takes &Self, returns unit - OK!
 );
 ```
 
-**Invalid** for dynamic dispatch (object-safety violation):
+**Invalid** for dynamic dispatch (object-safety violations):
 ```yo
 TestDyn :: module(
-  id : fn(Self) -> Self           // Returns Self - NOT object-safe!
+  by_value : fn(Self) -> unit,    // Takes Self by value - NOT object-safe!
+  id : fn(&Self) -> Self           // Returns Self - NOT object-safe!
 );
 ```
 
-The constraint is **enforced at method call time**, not at module definition. You can define modules with Self-returning methods, but you cannot call those methods on Dyn values.
+The constraint is **enforced at method call time**, not at module definition. You can define modules with non-object-safe methods, but you cannot call those methods on Dyn values.
 
 ### 4. Static Vtables Example
 
 ```c
-// Original method implementations (unchanged)
-int32_t fn_i32_return_i32(int32_t self) {
-  return self;
+// Original method implementations - take pointer to value
+int32_t fn_i32_return_i32(int32_t* self) {
+  return *self;
 }
 
-void fn_i32_print(int32_t self) {
-  printf("i32: %d\n", self);
+void fn_i32_print(int32_t* self) {
+  printf("i32: %d\n", *self);
 }
 
 // Static vtable: direct casts only (no wrappers needed!)
 static const yo_dyn_module_TestDyn_vtable yo_vtable_i32_TestDyn = {
-  .return_i32 = (int32_t(*)(void*))fn_i32_return_i32,  // Direct cast
-  .print = (void(*)(void*))fn_i32_print                 // Direct cast
+  .return_i32 = (int32_t(*)(void*))fn_i32_return_i32,  // Direct cast: void* -> int32_t*
+  .print = (void(*)(void*))fn_i32_print                 // Direct cast: void* -> int32_t*
 };
 ```
 
