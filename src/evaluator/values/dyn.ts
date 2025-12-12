@@ -19,7 +19,12 @@ import {
   ModuleType,
   typeToString,
 } from "../../types";
-import { createModuleValue, ModuleValue, Value } from "../../value";
+import {
+  createModuleValue,
+  isModuleValue,
+  ModuleValue,
+  Value,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToDynType } from "../types/utils";
@@ -121,7 +126,14 @@ export function evaluateDynValue({
     });
   } else if (valueType.module) {
     // For concrete types with .module, create DynType from the module
-    expectedDynType = createDynType([valueType.module], env, []);
+    const implementedModuleTypes: ModuleType[] = [];
+    for (const field of valueType.module.fields) {
+      if (field.assignedValue && isModuleValue(field.assignedValue)) {
+        implementedModuleTypes.push(field.assignedValue.type);
+      }
+    }
+
+    expectedDynType = createDynType(implementedModuleTypes, env, []);
     // Add ARC functions to the DynType
     env = addARCFunctionsToDynType({
       dynType: expectedDynType,
@@ -136,9 +148,10 @@ export function evaluateDynValue({
   }
 
   // Check negativeModules - ensure required modules are not in the negative list
-  const negativeModules = isSomeType(valueType)
-    ? (valueType.negativeModules ?? [])
-    : [];
+  const negativeModules =
+    isSomeType(valueType) || isDynType(valueType)
+      ? (valueType.negativeModules ?? [])
+      : [];
 
   for (const requiredModuleType of expectedDynType.requiredModules) {
     for (const negativeModule of negativeModules) {
@@ -163,7 +176,7 @@ export function evaluateDynValue({
     }
 
     // For SomeType values, check if the required module is in requiredModules
-    if (isSomeType(valueType)) {
+    if (isSomeType(valueType) || isDynType(valueType)) {
       let foundInSomeType = false;
       for (const someTypeModule of valueType.requiredModules) {
         if (
@@ -203,40 +216,35 @@ export function evaluateDynValue({
         });
       }
     } else if (valueType.module) {
-      // For concrete types, check if the module matches
-      if (
-        areTypesCompatible(
-          { type: requiredModuleType, env },
-          { type: valueType.module, env }
-        )
-      ) {
-        // Create the module value from the value type's module
-        const fields: (Value | undefined)[] = [];
-        for (let i = 0; i < requiredModuleType.fields.length; i++) {
-          const field = requiredModuleType.fields[i]!;
-          const valueTypeFieldIndex = valueType.module.fields.findIndex(
-            (e) => e.label === field.label
-          );
-          if (valueTypeFieldIndex === -1) {
-            fields.push(undefined);
-          } else {
-            fields.push(
-              valueType.module.fields[valueTypeFieldIndex]!.assignedValue
-            );
+      let foundInModule = false;
+      for (const field of valueType.module.fields) {
+        if (field.assignedValue && isModuleValue(field.assignedValue)) {
+          // For concrete types, check if the module matches
+          if (
+            areTypesCompatible(
+              { type: requiredModuleType, env },
+              { type: field.assignedValue.type, env }
+            )
+          ) {
+            moduleValues.push(field.assignedValue);
+            moduleTypes.push(field.assignedValue.type);
+            checkedModuleTypes.add(requiredModuleType);
+
+            foundInModule = true;
+            break;
           }
         }
-        const moduleValue = createModuleValue(requiredModuleType, fields);
+      }
 
-        moduleValues.push(moduleValue);
-        moduleTypes.push(moduleValue.type);
-        checkedModuleTypes.add(requiredModuleType);
-      } else {
+      if (!foundInModule) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Required module ${typeToString(requiredModuleType)} is not compatible with value type's module ${typeToString(valueType.module)}.`,
+          errorMessage: `Required module ${typeToString(requiredModuleType)} is not implemented by type ${typeToString(valueType)}.`,
         });
       }
-    } else {
+    }
+    // QUESTION: Should we allow to assign DynType to another DynType with superset of modules?
+    else {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Cannot find module ${typeToString(requiredModuleType)} for value type ${typeToString(valueType)}.`,

@@ -30,25 +30,21 @@ Id :: module(
 );
 
 use_id :: (fn(
-  forall(T : Type),
-  value : T,
-  where(T <: Id)
-) -> T) {
-  // (T <: Id).id(value);
-  return value.id();
+  value : Dyn(Id)
+) -> unit) {
+  value.id();
 };
 
 impl(Box(i32), Id(
-  id : ((self2) -> {
-    printf("Boxed i32 value: %d\n", self2.*);
-    // return self2;
-    self2
+  id : ((self) -> {
+    printf("Boxed i32 value: %d\n", self.*);
+    return self;
   })
 ));
 
 main :: (fn() -> unit) {
   bi := Box(i32)(100);
-  assert(use_id(bi).* == bi.*, "use_id should return the same Boxed i32 value");
+  use_id(dyn(bi));
 };
 
 export main;
