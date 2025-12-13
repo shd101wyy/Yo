@@ -4,7 +4,7 @@
 
 `Dyn(Module)` enables runtime polymorphism through dynamic dispatch with type erasure.
 
-**Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to an object type (reference counted).
+**Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to an `object` type (reference counted).
 
 ```yo
 Id :: module(id : (fn(self : *(Self)) -> i32));
@@ -265,7 +265,7 @@ function generateDynMethodWrapper(
   moduleType: ModuleType,
   context: CodeGenContext
 ): string {
-  if (implType.kind === 'object') {
+  if (isObjectType(implType)) {
     // Object type: no wrapper needed, return direct cast
     const methodFuncId = getMethodFunctionId(implType, method.name);
     const returnType = getTypeString(method.returnType, context);

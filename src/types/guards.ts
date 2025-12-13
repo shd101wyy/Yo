@@ -384,3 +384,21 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
 
   return hasCompileTimeParams;
 }
+
+/**
+ * Check if the given type is a Boxed type (Box(T)).
+ * @param type
+ * @returns
+ */
+export function isBoxedType(type: Type): boolean {
+  if (!isObjectType(type)) {
+    return false;
+  } else {
+    // Check if it's the Box(T) where Box is from the prelude.yo
+    return (
+      type.fields.length === 1 &&
+      type.fields[0]!.label === "*" &&
+      !!type.typeName?.startsWith("Box(")
+    );
+  }
+}

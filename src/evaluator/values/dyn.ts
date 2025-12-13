@@ -14,11 +14,11 @@ import {
   createSomeType,
   createType0,
   DynType,
+  isBoxedType,
   isDynType,
   isObjectType,
   isSomeType,
   ModuleType,
-  Type,
   typeToString,
 } from "../../types";
 import {
@@ -30,19 +30,6 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToDynType } from "../types/utils";
-
-function isBoxedType(type: Type): boolean {
-  if (!isObjectType(type)) {
-    return false;
-  } else {
-    // Check if it's the Box(T) where Box is from the prelude.yo
-    return (
-      type.fields.length === 1 &&
-      type.fields[0]!.label === "*" &&
-      !!type.typeName?.startsWith("Box(")
-    );
-  }
-}
 
 export function evaluateDynValue({
   expr,
