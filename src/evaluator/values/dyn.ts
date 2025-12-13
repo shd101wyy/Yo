@@ -15,8 +15,10 @@ import {
   createType0,
   DynType,
   isDynType,
+  isObjectType,
   isSomeType,
   ModuleType,
+  Type,
   typeToString,
 } from "../../types";
 import {
@@ -28,6 +30,14 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToDynType } from "../types/utils";
+
+function isBoxedType(type: Type): boolean {
+  if (!isObjectType(type)) {
+    return false;
+  } else {
+    return type.fields.length === 1 && type.fields[0]!.label === "*";
+  }
+}
 
 export function evaluateDynValue({
   expr,
@@ -63,6 +73,8 @@ export function evaluateDynValue({
       expectedDynType.negativeModules
     );
     innerExpectedType = { type: someType, env: context.expectedType.env };
+  } else {
+    innerExpectedType = undefined;
   }
 
   // Evaluate the value expression with SomeType expected type
@@ -85,14 +97,21 @@ export function evaluateDynValue({
 
   const valueType = evaluatedValueExpr.$.type;
 
-  // Validate that the value type can be converted to Dyn
-  // Either a SomeType (Impl) with requiredModules, or a concrete type with a .module field
-  if (!isSomeType(valueType) && !valueType.module) {
+  if (!isObjectType(valueType)) {
     throw formatErrorMessage({
       token: valueExpr.token,
-      errorMessage: `'${BuiltinKeywords.dyn}' expects a SomeType (Impl) value or a type with an associated module. Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+      errorMessage: `'${BuiltinKeywords.dyn}' expects an 'object' value. Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
     });
   }
+
+  // Validate that the value type can be converted to Dyn
+  // Either a SomeType (Impl) with requiredModules, or a concrete type with a .module field
+  /// if (!isSomeType(valueType) && !valueType.module) {
+  ///   throw formatErrorMessage({
+  ///     token: valueExpr.token,
+  ///     errorMessage: `'${BuiltinKeywords.dyn}' expects a SomeType (Impl) value or a type with an associated module. Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+  ///   });
+  /// }
 
   setExprAsNeedsToCallDup(evaluatedValueExpr, context);
   env = evaluatedValueExpr.$!.env!;
@@ -109,21 +128,31 @@ export function evaluateDynValue({
   if (context.expectedType && isDynType(context.expectedType.type)) {
     // Explicit expected DynType from context
     expectedDynType = context.expectedType.type;
-  } else if (isSomeType(valueType)) {
-    // Infer DynType from SomeType's requiredModules
-    // This handles: dyn async { ... } -> Dyn(Future(T))
-    //               dyn (x) => expr  -> Dyn(Fn(...))
-    expectedDynType = createDynType(
-      valueType.requiredModules,
-      env,
-      valueType.negativeModules
-    );
-    // Add ARC functions to the DynType
-    env = addARCFunctionsToDynType({
-      dynType: expectedDynType,
-      env,
-      context,
-    });
+  }
+  // Check if it's Box(T) case
+  else if (isBoxedType(valueType)) {
+    const boxedFieldType = valueType.fields[0]!.type;
+    if (boxedFieldType.module) {
+      const implementedModuleTypes: ModuleType[] = [];
+      for (const field of boxedFieldType.module.fields) {
+        if (field.assignedValue && isModuleValue(field.assignedValue)) {
+          implementedModuleTypes.push(field.assignedValue.type);
+        }
+      }
+
+      expectedDynType = createDynType(implementedModuleTypes, env, []);
+      // Add ARC functions to the DynType
+      env = addARCFunctionsToDynType({
+        dynType: expectedDynType,
+        env,
+        context,
+      });
+    } else {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `'${BuiltinKeywords.dyn}' with Box(T) requires T to have a module. Got boxed type: ${typeToString(boxedFieldType)}`,
+      });
+    }
   } else if (valueType.module) {
     // For concrete types with .module, create DynType from the module
     const implementedModuleTypes: ModuleType[] = [];
@@ -148,10 +177,14 @@ export function evaluateDynValue({
   }
 
   // Check negativeModules - ensure required modules are not in the negative list
-  const negativeModules =
-    isSomeType(valueType) || isDynType(valueType)
-      ? (valueType.negativeModules ?? [])
-      : [];
+  const negativeModules: ModuleType[] = [];
+  // Check if it's Box(T) case
+  if (valueType.fields.length === 1 && valueType.fields[0]?.label === "*") {
+    const boxedFieldType = valueType.fields[0]!.type;
+    if (isSomeType(boxedFieldType) || isDynType(boxedFieldType)) {
+      negativeModules.push(...(boxedFieldType.negativeModules ?? []));
+    }
+  }
 
   for (const requiredModuleType of expectedDynType.requiredModules) {
     for (const negativeModule of negativeModules) {
@@ -175,10 +208,15 @@ export function evaluateDynValue({
       continue;
     }
 
-    // For SomeType values, check if the required module is in requiredModules
-    if (isSomeType(valueType) || isDynType(valueType)) {
+    // For Boxed SomeType values, check if the required module is in requiredModules
+    if (
+      isBoxedType(valueType) &&
+      (isSomeType(valueType.fields[0]!.type) ||
+        isDynType(valueType.fields[0]!.type))
+    ) {
+      const boxedFieldType = valueType.fields[0]!.type;
       let foundInSomeType = false;
-      for (const someTypeModule of valueType.requiredModules) {
+      for (const someTypeModule of boxedFieldType.requiredModules) {
         if (
           areTypesCompatible(
             { type: requiredModuleType, env },
@@ -215,40 +253,48 @@ export function evaluateDynValue({
           errorMessage: `Required module ${typeToString(requiredModuleType)} not found in SomeType's requiredModules.`,
         });
       }
-    } else if (valueType.module) {
-      let foundInModule = false;
-      for (const field of valueType.module.fields) {
-        if (field.assignedValue && isModuleValue(field.assignedValue)) {
-          // For concrete types, check if the module matches
-          if (
-            areTypesCompatible(
-              { type: requiredModuleType, env },
-              { type: field.assignedValue.type, env }
-            )
-          ) {
-            moduleValues.push(field.assignedValue);
-            moduleTypes.push(field.assignedValue.type);
-            checkedModuleTypes.add(requiredModuleType);
+    }
+    // Check if it's Boxed T with T.module
+    else {
+      const fieldType = isBoxedType(valueType)
+        ? valueType.fields[0]!.type
+        : valueType;
 
-            foundInModule = true;
-            break;
+      if (fieldType.module) {
+        let foundInModule = false;
+        for (const field of fieldType.module.fields) {
+          if (field.assignedValue && isModuleValue(field.assignedValue)) {
+            // For concrete types, check if the module matches
+            if (
+              areTypesCompatible(
+                { type: requiredModuleType, env },
+                { type: field.assignedValue.type, env }
+              )
+            ) {
+              moduleValues.push(field.assignedValue);
+              moduleTypes.push(field.assignedValue.type);
+              checkedModuleTypes.add(requiredModuleType);
+
+              foundInModule = true;
+              break;
+            }
           }
         }
-      }
 
-      if (!foundInModule) {
+        if (!foundInModule) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Required module ${typeToString(requiredModuleType)} is not implemented by type ${typeToString(valueType)}.`,
+          });
+        }
+      }
+      // QUESTION: Should we allow to assign DynType to another DynType with superset of modules?
+      else {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Required module ${typeToString(requiredModuleType)} is not implemented by type ${typeToString(valueType)}.`,
+          errorMessage: `Cannot find module ${typeToString(requiredModuleType)} for value type ${typeToString(valueType)}.`,
         });
       }
-    }
-    // QUESTION: Should we allow to assign DynType to another DynType with superset of modules?
-    else {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Cannot find module ${typeToString(requiredModuleType)} for value type ${typeToString(valueType)}.`,
-      });
     }
   }
 

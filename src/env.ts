@@ -10,11 +10,13 @@ import {
   isDynType,
   isFunctionType,
   isModuleType,
+  isObjectType,
   isPtrType,
   isSomeType,
   ModuleType,
   Type,
   typeContainsGcType,
+  typeContainsSelfTypeForDynamicDispatchCheck,
   typeContainsSomeType,
   typeToString,
 } from "./types";
@@ -762,6 +764,36 @@ export function getMethodsByNameFromEnv(
           );
           if (isRuntimeCompatible) {
             return true;
+          }
+        }
+
+        // Check if it's a valid dyn type method call
+        if (isDynType(receiverType)) {
+          // Check 1: Self parameter must be by reference (&Self or &mut Self), not by value
+          if (method.type.parameters.length > 0 && method.type.SelfType) {
+            const selfParam = method.type.parameters[0];
+            if (selfParam) {
+              const selfParamType = selfParam.type;
+              // Self parameter must be a pointer type
+              if (
+                !isObjectType(selfParamType) &&
+                !isDynType(selfParamType) &&
+                !isPtrType(selfParamType)
+              ) {
+                return false;
+              }
+            }
+          }
+
+          // Check 2: Return type must not contain Self
+          const returnType = method.type.return.type;
+          if (
+            typeContainsSelfTypeForDynamicDispatchCheck(
+              returnType,
+              method.type.SelfType
+            )
+          ) {
+            return false;
           }
         }
 

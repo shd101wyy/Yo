@@ -246,7 +246,9 @@ export function isDynType(type?: Type): type is DynType {
  */
 export function isGcType(type?: Type): boolean {
   return (
-    isObjectType(type) || isDynType(type) // All Dyn types are reference semantics (includes Dyn(Fn(...)) and Dyn(Future(...)))
+    isObjectType(type) ||
+    // The DynType is a struct that contains a pointer to data where the data must be an ObjectType
+    isDynType(type)
   );
 }
 
