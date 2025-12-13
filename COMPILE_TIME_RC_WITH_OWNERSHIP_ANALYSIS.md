@@ -2,34 +2,6 @@
 
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 
-## Object Types and Pointers
-
-**Important**: `object` types in Yo must be used with pointer syntax `&(...)`.
-
-```yo
-Point :: object(x : i32, y : i32);
-
-// WRONG: Cannot use object type directly
-p := Point(3, 4);      // ERROR: Point(3, 4) is incomplete, needs pointer
-
-// CORRECT: Use &(...) to create an owned pointer
-p := &(Point(3, 4));   // OK: p has type *(Point)
-```
-
-**Why?** In C codegen, `object` types are always pointers with `ref_header`. Making this explicit:
-- Clarifies what's heap-allocated vs stack-allocated
-- Aligns Yo syntax with C implementation
-
-**Type correspondence:**
-```yo
-Point :: object(x : i32, y : i32);  // Defines the object type
-p := &(Point(3, 4));                 // p : *(Point)
-
-// In C:
-// typedef struct { yo_ref_header_t header; int32_t x; int32_t y; } Point;
-// Point* p = ...
-```
-
 ## Ownership Model
 
 Yo uses a simplified ownership model with clear rules:
@@ -39,10 +11,10 @@ Yo uses a simplified ownership model with clear rules:
 Both `:=` (initialization) and `=` (reassignment) make the LHS **own** the value:
 
 ```yo
-x := &(Point(3, 4)); // temp_var owns Point(3, 4), RC = 1
-                     // ___dup(temp_var), x owns, RC = 2
-y := x;              // ___dup(x), y owns, RC = 3
-z = y;               // ___dup(y), ___drop(old z), z owns, RC = 4
+x := Point(3, 4);   // temp_var owns Point(3, 4), RC = 1
+                    // ___dup(temp_var), x owns, RC = 2
+y := x;             // ___dup(x), y owns, RC = 3
+z = y;              // ___dup(y), ___drop(old z), z owns, RC = 4
 // End of scope: ___drop(z), ___drop(y), ___drop(x), ___drop(temp_var)
 ```
 
@@ -53,11 +25,11 @@ z = y;               // ___dup(y), ___drop(old z), z owns, RC = 4
 Function parameters **borrow** by default (no reference count change).
 
 ```yo
-fn print_point(p : *(Point)) -> unit {
+fn print_point(p : Point) -> unit {
   printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
 }
 
-point := &(Point(3, 4));
+point := Point(3, 4);
 print_point(point);  // No ___dup at call site, p borrows point
 ```
 
@@ -82,13 +54,13 @@ match(result,
 You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
 
 ```yo
-fn move_point(p : *(Point), dx : i32, dy : i32) -> unit {
+fn move_point(p : Point, dx : i32, dy : i32) -> unit {
   p.x = (p.x + dx);  // ✅ OK: Mutating field through parameter
   p.y = (p.y + dy);  // ✅ OK: Mutating field through parameter
 }
 
-fn broken(p : *(Point)) -> unit {
-  p = &(Point(0, 0));   // ❌ ERROR: Cannot reassign parameter
+fn broken(p : Point) -> unit {
+  p = Point(0, 0);   // ❌ ERROR: Cannot reassign parameter
 }
 ```
 
@@ -103,7 +75,7 @@ Each heap allocated ARC value has a unique owner. Its reference counter starts a
 ```yo
 Point :: object(x : i32, y : i32);
 
-&(Point(3, 4)); // temp_var owns the Point(3, 4), RC = 1
+Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
 ```
 
 ### Assignment Creates Ownership
@@ -111,20 +83,20 @@ Point :: object(x : i32, y : i32);
 Using `:=` for initialization calls `___dup` to create a new owner:
 
 ```yo
-p1 := &(Point(3, 4)); // temp_var owns Point(3, 4), RC = 1
-                      // ___dup(temp_var)
-                      // p1 now owns the value, RC = 2
+p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
+                   // ___dup(temp_var)
+                   // p1 now owns the value, RC = 2
 ```
 
 When an owned variable goes out of scope, we automatically call `___drop` on it:
 
 ```yo
-p1 := &(Point(3, 4)); // temp_var owns Point(3, 4), RC = 1
-                      // ___dup(temp_var), p1 owns, RC = 2
+p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
+                   // ___dup(temp_var), p1 owns, RC = 2
 
 // End of scope
-___drop(p1);          // RC = 1
-___drop(temp_var);    // RC = 0, memory freed
+___drop(p1);       // RC = 1
+___drop(temp_var); // RC = 0, memory freed
 ```
 
 ### Function Parameters Borrow
@@ -132,13 +104,13 @@ ___drop(temp_var);    // RC = 0, memory freed
 Function parameters do not increment the reference count:
 
 ```yo
-fn use_point(p : *(Point)) -> unit {
+fn use_point(p : Point) -> unit {
   printf("(%d, %d)", p.x, p.y);  // p borrows, no RC change
 }
 
-point := &(Point(3, 4));  // temp_var owns, RC = 1
-                          // ___dup(temp_var), point owns, RC = 2
-use_point(point);         // No ___dup, p borrows point
+point := Point(3, 4);  // temp_var owns, RC = 1
+                       // ___dup(temp_var), point owns, RC = 2
+use_point(point);      // No ___dup, p borrows point
 // End of scope: ___drop(point), ___drop(temp_var)
 ```
 
@@ -147,10 +119,10 @@ use_point(point);         // No ___dup, p borrows point
 **Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
 ```yo
-x := &(box(12));   // temp_var_x owns box(12), RC = 1
+x := box(12);      // temp_var_x owns box(12), RC = 1
                    // ___dup(temp_var_x), x owns, RC = 2
 {
-  y := &(box(13)); // temp_var_y owns box(13), RC = 1
+  y := box(13);    // temp_var_y owns box(13), RC = 1
                    // ___dup(temp_var_y), y owns, RC = 2
   x = y;           // DANGER if x just borrows from y...
 
@@ -167,9 +139,9 @@ printf("%d\n", x.*); // BUG: x would point to freed memory!
 With our model (assignments always own):
 
 ```yo
-x := &(box(12));   // ___dup, x owns, RC = 2
+x := box(12);      // ___dup, x owns, RC = 2
 {
-  y := &(box(13)); // ___dup, y owns, RC = 2
+  y := box(13);    // ___dup, y owns, RC = 2
   x = y;           // ___dup(y), ___drop(old x), x owns new value
                    // New box(13): RC = 3, old box(12): RC = 1
 
@@ -194,9 +166,9 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 **Example - simple and safe:**
 
 ```yo
-x := &(box(12));
+x := box(12);
 {
-  y := &(box(13));
+  y := box(13);
   x = y;  // Always safe: ___dup(y), ___drop(old x)
 }
 printf("%d\n", x.*); // Always works: x owns a valid reference
@@ -217,14 +189,14 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 **Always call `___dup` on the RHS when assigning ARC values:**
 
 ```yo
-p1 := &(Point(3, 4)); // ___dup(temp_var), p1 owns
-p2 := &(Point(5, 6)); // ___dup(temp_var2), p2 owns
+p1 := Point(3, 4); // ___dup(temp_var), p1 owns
+p2 := Point(5, 6); // ___dup(temp_var2), p2 owns
 
-p2 = p1;              // ___dup(p1), ___drop(old p2), p2 owns copy of p1's value
+p2 = p1;           // ___dup(p1), ___drop(old p2), p2 owns copy of p1's value
 
 // End of scope
-___drop(p2);          // Decrement RC
-___drop(p1);          // Decrement RC
+___drop(p2);       // Decrement RC
+___drop(p1);       // Decrement RC
 ___drop(temp_var2);
 ___drop(temp_var);
 ```
@@ -233,7 +205,7 @@ ___drop(temp_var);
 
 ```yo
 data.point = p1;   // ___dup(p1), storing into data structure
-arr[0] = p1;       // ___dup(p1), storing into array
+arr(0) = p1;       // ___dup(p1), storing into array
 ```
 
 ### Rule 2: Passing to Constructors
@@ -241,10 +213,10 @@ arr[0] = p1;       // ___dup(p1), storing into array
 **Always call `___dup` when passing to struct/enum/array constructors:**
 
 ```yo
-p1 := &(Point(3, 4));              // p1 owns
-data := &(Data(p1));               // ___dup(p1), data owns a copy
-arr := [p1];                       // ___dup(p1), array owns a copy
-result := &(Result(Point).Ok(p1)); // ___dup(p1), enum owns a copy
+p1 := Point(3, 4);           // p1 owns
+data := Data(p1);            // ___dup(p1), data owns a copy
+arr := [p1,];                 // ___dup(p1), array owns a copy
+result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 ```
 
 ### Rule 3: Returning from Functions
@@ -252,13 +224,13 @@ result := &(Result(Point).Ok(p1)); // ___dup(p1), enum owns a copy
 **Call `___dup` when returning a borrowed parameter:**
 
 ```yo
-fn identity(p : *(Point)) -> *(Point) {  // p borrows (parameter)
+fn identity(p : Point) -> Point {  // p borrows (parameter)
   return p;  // ___dup(p), return value owns a copy
 }
 
-fn create() -> *(Point) {
-  p := &(Point(3, 4));  // p owns
-  return p;             // ___dup(p), return value owns a copy
+fn create() -> Point {
+  p := Point(3, 4);  // p owns
+  return p;          // ___dup(p), return value owns a copy
   // ___drop(p) after return
 }
 ```
@@ -268,12 +240,12 @@ fn create() -> *(Point) {
 **No `___dup` when passing to borrowed parameters (parameters without `own()`):**
 
 ```yo
-fn print_point(p : *(Point)) -> unit {  // p borrows (no own keyword)
+fn print_point(p : Point) -> unit {  // p borrows (no own keyword)
   printf("(%d, %d)", p.x, p.y);
 }
 
-point := &(Point(3, 4));  // point owns
-print_point(point);       // No ___dup! p borrows point
+point := Point(3, 4);  // point owns
+print_point(point);    // No ___dup! p borrows point
 ```
 
 **Destructuring in match expressions also borrows:**
@@ -341,15 +313,15 @@ The straightforward "always own" model is now fully implemented:
 **Example:**
 
 ```yo
-fn process(p : *(Point)) -> unit {
-  p.x = 10;              // ✅ OK: Mutate field (if Point is mutable)
-  p = &(Point(0, 0));    // ❌ ERROR: Cannot reassign parameter
+fn process(p : Point) -> unit {
+  p.x = 10;        // ✅ OK: Mutate field (if Point is mutable)
+  p = Point(0, 0); // ❌ ERROR: Cannot reassign parameter
 }
 
-x := &(Point(3, 4));  // ___dup, x owns
-y := x;               // ___dup(x), y owns
-process(y);           // No dup (y is borrowed by process)
-z := y;               // ___dup(y), z owns
+x := Point(3, 4);  // ___dup, x owns
+y := x;            // ___dup(x), y owns
+process(y);        // No dup (y is borrowed by process)
+z := y;            // ___dup(y), z owns
 
 // ___drop(z), ___drop(y), ___drop(x), ___drop(temp_vars...)
 ```
@@ -370,8 +342,8 @@ We've implemented a **same-value ownership tracking** optimization that eliminat
 When a variable is assigned from another variable, we track the ownership relationship:
 
 ```yo
-x := &(Point(3, 4));   // x owns Point(3, 4)
-y := x;                // y owns Point(3, 4), y.isOwningTheSameARCValueAs = x
+x := Point(3, 4);   // x owns Point(3, 4)
+y := x;             // y owns Point(3, 4), y.isOwningTheSameARCValueAs = x
 
 // Before optimization:
 // ___dup(x), ___drop(y), ___drop(x)
@@ -396,10 +368,10 @@ y := x;                // y owns Point(3, 4), y.isOwningTheSameARCValueAs = x
 **Example with reassignment in branches:**
 
 ```yo
-x := &(MyBox(42));
+x := MyBox(42);
 cond(
-  some_cond() => { x = &(MyBox(100)); },  // Creates temp for old value
-  true => { x = &(MyBox(200)); }          // Creates temp for old value
+  some_cond() => { x = MyBox(100); },  // Creates temp for old value
+  true => { x = MyBox(200); }          // Creates temp for old value
 );
 // Temps are tracked with isOwningTheSameARCValueAs = x
 // Dup/drop pairs for temps are optimized away

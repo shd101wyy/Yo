@@ -20,7 +20,7 @@ main :: (fn() -> unit) {
   use_id(dyn(box(true)));
   
   // Object types can be used directly
-  point := &(Point(3, 4));
+  point := Point(3, 4);
   use_id(dyn(point));
 };
 ```
@@ -55,19 +55,20 @@ Box_i32* boxed = /* box(42) */;  // Box(i32) is an object type
 void* data = boxed;               // Store Box pointer
 
 // For object types - use directly
-Point* point = /* &(Point(3, 4)) */;  // Point is an object type
-void* data = point;                    // Store Point pointer
+Point* point = /* Point(3, 4) */;  // Point is an object type
+void* data = point;                // Store Point pointer
 ```
 
 **Box Type Definition:**
 ```yo
-Box :: (fn(T : type) -> type) object(value : T);
-
-box :: (fn(T : type) -> fn(value : T) -> *(Box(T))) {
-  return (fn(value : T) -> *(Box(T))) {
-    return &(Box(T)(value));
-  };
-};
+Box :: (fn(compt(V) : Type) -> compt(Type))
+  object(
+    (*) : V
+  )
+;
+box :: (fn(forall(V : Type), value : V) -> Box(V))
+  Box(V)(value)
+;
 ```
 
 **Why this constraint?**
@@ -127,17 +128,15 @@ The constraint is **enforced at method call time**, not at module definition. Yo
 **Examples:**
 ```yo
 // Value types must be boxed
-dyn(box(42));           // OK: box(42) returns *(Box(i32)), which is an object type
-dyn(box(true));         // OK: box(true) returns *(Box(boolean))
+dyn(box(42));           // OK: box(42) returns Box(i32), which is an object type
+dyn(box(true));         // OK: box(true) returns Box(boolean)
 
 // Object types can be used directly
-point := &(Point(3, 4));  // point : *(Point), Point is object type
-dyn(point);               // OK: point is an object type
+point := Point(3, 4);   // point : Point, Point is object type
+dyn(point);             // OK: point is an object type
 
 // Direct values NOT allowed
 dyn(42);                // ERROR: 42 is i32 (value type), not object type
-dyn(&(42));             // ERROR: &(42) is *(i32), but i32 is not an object
-dyn(Point(3, 4));       // ERROR: Point(3, 4) is incomplete, need &(Point(3, 4))
 ```
 
 ### 4. Static Vtables and Wrappers
@@ -192,8 +191,8 @@ yo_dyn_module_Id result = {
 ```
 
 ```c
-// For dyn(point) where point : *(Point):
-Point* point = /* &(Point(3, 4)) */;  // Already has RC = 1
+// For dyn(point) where point : Point:
+Point* point = /* Point(3, 4) */;  // Already has RC = 1
 
 yo_dyn_module_Printer result = {
   .data = point,
@@ -393,7 +392,7 @@ function generateDynDupDrop(dynType: DynType, context: CodeGenContext) {
 ## Testing Plan
 
 1. **Boxed value types**: `dyn(box(42))`, `dyn(box(true))`
-2. **Object types**: `point := &(Point(3, 4)); dyn(point)`
+2. **Object types**: `point := Point(3, 4); dyn(point)`
 3. **Method calls**: `value.print()`, `value.return_i32()`
 4. **Memory leaks**: Verify no leaks with AddressSanitizer (should see Box being freed)
 5. **Object-safety**: Verify error when calling Self-returning methods on Dyn
@@ -405,7 +404,7 @@ function generateDynDupDrop(dynType: DynType, context: CodeGenContext) {
 1. **`Dyn` is a value type**: Simple struct with `{ void* data, vtable* }`, no ref_header
 2. **`data` must be object type**: Enforces that data is always reference counted
 3. **Value types use `box()`**: `dyn(box(42))` wraps value in `Box(T)` object type
-4. **Object types direct**: `dyn(&(Point(3, 4)))` uses Point pointer directly
+4. **Object types direct**: `dyn(Point(3, 4))` uses Point pointer directly
 5. **Wrappers for Box**: Generated wrappers unwrap `Box(T)` before calling impl methods
 6. **Simple RC**: Only `data` is reference counted, `Dyn` struct is copied by value
 7. **Dup/Drop functions**: Standard functions that dup/drop the `data` pointer
