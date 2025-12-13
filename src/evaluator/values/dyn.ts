@@ -35,7 +35,12 @@ function isBoxedType(type: Type): boolean {
   if (!isObjectType(type)) {
     return false;
   } else {
-    return type.fields.length === 1 && type.fields[0]!.label === "*";
+    // Check if it's the Box(T) where Box is from the prelude.yo
+    return (
+      type.fields.length === 1 &&
+      type.fields[0]!.label === "*" &&
+      !!type.typeName?.startsWith("Box(")
+    );
   }
 }
 
