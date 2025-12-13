@@ -4,17 +4,24 @@
 
 `Dyn(Module)` enables runtime polymorphism through dynamic dispatch with type erasure.
 
-```yo
-Id :: module(id : (fn(self : Self) -> Self));
+**Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to an object type (reference counted).
 
-impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self); return self; })));
-impl(boolean, Id(id : ((self) -> { printf("bool\n"); return self; })));
+```yo
+Id :: module(id : (fn(self : *(Self)) -> i32));
+
+impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self.*); return self.*; })));
+impl(boolean, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
 
 use_id :: (fn(value : Dyn(Id)) -> unit) { x := value.id(); };
 
 main :: (fn() -> unit) {
-  use_id(dyn(i32(42)));
-  use_id(dyn(true));
+  // Value types must be boxed
+  use_id(dyn(box(42)));
+  use_id(dyn(box(true)));
+  
+  // Object types can be used directly
+  point := &(Point(3, 4));
+  use_id(dyn(point));
 };
 ```
 
@@ -22,30 +29,54 @@ main :: (fn() -> unit) {
 
 ### 1. Dyn Type (Value Type - Fat Pointer)
 
+`Dyn(Module)` is a **value type struct** (no ref_header). It's a fat pointer containing data and vtable.
+
 ```c
 typedef struct {
-  void* data;                    // Box pointer (yo_ref_header_t + value)
+  void* data;                    // MUST point to object type (has ref_header)
   const ModuleVtable* vtable;    // Static vtable pointer
 } yo_dyn_module_Id;
 ```
 
-### 2. Box Types (One Per Concrete Type)
+**Key Points:**
+- `Dyn` is a **value type** - copied by value like a struct
+- `data` **must** point to an object type (always has ref_header)
+- When you copy a `Dyn`, you `___dup` the `data` pointer
+- When you drop a `Dyn`, you `___drop` the `data` pointer
+- The `Dyn` struct itself is not heap-allocated
+
+### 2. Data Storage (Object Type Constraint)
+
+The `data` field **must** point to an object type (reference counted). Value types must be wrapped in `Box(T)`.
 
 ```c
-// For value types - store inline
-typedef struct {
-  yo_ref_header_t header;
-  int32_t value;
-} yo_dyn_box_i32;
+// For value types - MUST use Box(T)
+Box_i32* boxed = /* box(42) */;  // Box(i32) is an object type
+void* data = boxed;               // Store Box pointer
 
-// For reference types - store pointer
-typedef struct {
-  yo_ref_header_t header;
-  MyBox* value;  // Pointer to RC'd object
-} yo_dyn_box_MyBox;
+// For object types - use directly
+Point* point = /* &(Point(3, 4)) */;  // Point is an object type
+void* data = point;                    // Store Point pointer
 ```
 
-### 3. Vtable Structure (Uniform Signatures with Direct Casts)
+**Box Type Definition:**
+```yo
+Box :: (fn(T : type) -> type) object(value : T);
+
+box :: (fn(T : type) -> fn(value : T) -> *(Box(T))) {
+  return (fn(value : T) -> *(Box(T))) {
+    return &(Box(T)(value));
+  };
+};
+```
+
+**Why this constraint?**
+- Simplifies `Dyn`: No ref_header needed
+- Single RC layer: Only `data` is reference counted
+- Uniform handling: All `data` pointers have the same memory layout
+- Type safety: Enforced at compile time
+
+### 3. Vtable Structure (Uniform Signatures)
 
 ```c
 typedef struct {
@@ -54,12 +85,14 @@ typedef struct {
 } yo_dyn_module_TestDyn_vtable;
 ```
 
-**Key insight**: NO wrapper functions needed! All methods use direct function pointer casts.
+**Wrapper Functions:**
+- **Object types**: Use direct casts (no wrapper needed)
+- **Boxed value types**: Generate wrappers to unwrap `Box(T)` before calling impl
 
 ## Object-Safety Constraint (Following Rust)
 
 **Constraint**: Modules used with `Dyn()` **cannot** have methods that:
-1. Take `Self` by value - must use `&Self` or `&mut Self` instead
+1. Take `Self` by value - must use `self : *(Self)` instead
 2. Return `Self` 
 3. Return types containing `Self` (like `Option(Self)`, `Result(Self, E)`, etc.)
 
@@ -70,89 +103,150 @@ This follows Rust's "object-safety" rules (dyn-compatibility). The reasons:
 **Valid** for dynamic dispatch:
 ```yo
 TestDyn :: module(
-  return_i32 : fn(&Self) -> i32,  // Takes &Self, returns concrete type - OK!
-  print : fn(&Self) -> unit        // Takes &Self, returns unit - OK!
+  return_i32 : fn(self : *(Self)) -> i32,  // Takes *(Self), returns concrete type - OK!
+  print : fn(self : *(Self)) -> unit        // Takes *(Self), returns unit - OK!
 );
 ```
 
 **Invalid** for dynamic dispatch (object-safety violations):
 ```yo
 TestDyn :: module(
-  by_value : fn(Self) -> unit,    // Takes Self by value - NOT object-safe!
-  id : fn(&Self) -> Self           // Returns Self - NOT object-safe!
+  by_value : fn(self : Self) -> unit,      // Takes Self by value - NOT object-safe!
+  id : fn(self : *(Self)) -> Self           // Returns Self - NOT object-safe!
 );
 ```
 
 The constraint is **enforced at method call time**, not at module definition. You can define modules with non-object-safe methods, but you cannot call those methods on Dyn values.
 
-### 4. Static Vtables Example
+## Object Type Requirement for dyn(...)
+
+**Rule**: `dyn(value)` requires `value` to have an **object type** (pointer to RC'd data).
+
+**Rationale**: The `data` field in `Dyn` must point to reference-counted memory. This ensures safe memory management without adding a ref_header to `Dyn` itself.
+
+**Examples:**
+```yo
+// Value types must be boxed
+dyn(box(42));           // OK: box(42) returns *(Box(i32)), which is an object type
+dyn(box(true));         // OK: box(true) returns *(Box(boolean))
+
+// Object types can be used directly
+point := &(Point(3, 4));  // point : *(Point), Point is object type
+dyn(point);               // OK: point is an object type
+
+// Direct values NOT allowed
+dyn(42);                // ERROR: 42 is i32 (value type), not object type
+dyn(&(42));             // ERROR: &(42) is *(i32), but i32 is not an object
+dyn(Point(3, 4));       // ERROR: Point(3, 4) is incomplete, need &(Point(3, 4))
+```
+
+### 4. Static Vtables and Wrappers
+
+**For value types (boxed):**
 
 ```c
-// Original method implementations - take pointer to value
-int32_t fn_i32_return_i32(int32_t* self) {
+// Original method implementation for i32
+int32_t fn_i32_id(int32_t* self) {
   return *self;
 }
 
-void fn_i32_print(int32_t* self) {
-  printf("i32: %d\n", *self);
+// Wrapper to unwrap Box(i32)
+int32_t wrapper_Box_i32_id(void* self_ptr) {
+  Box_i32* box = (Box_i32*)self_ptr;
+  return fn_i32_id(&box->value);  // Extract value, call original
 }
 
-// Static vtable: direct casts only (no wrappers needed!)
-static const yo_dyn_module_TestDyn_vtable yo_vtable_i32_TestDyn = {
-  .return_i32 = (int32_t(*)(void*))fn_i32_return_i32,  // Direct cast: void* -> int32_t*
-  .print = (void(*)(void*))fn_i32_print                 // Direct cast: void* -> int32_t*
+// Static vtable for dyn(box(i32))
+static const yo_dyn_module_Id_vtable yo_vtable_Box_i32_Id = {
+  .id = wrapper_Box_i32_id  // Points to wrapper
+};
+```
+
+**For object types:**
+
+```c
+// Original method implementation for Point
+void fn_Point_print(Point* self) {
+  printf("(%d, %d)", self->x, self->y);
+}
+
+// Static vtable for dyn(point) - no wrapper needed!
+static const yo_dyn_module_Printer_vtable yo_vtable_Point_Printer = {
+  .print = (void(*)(void*))fn_Point_print  // Direct cast
 };
 ```
 
 ## Construction: `dyn(value)`
 
+When constructing a `Dyn`, the value must be an object type. The `Dyn` struct is created on the stack and stores the data pointer.
+
 ```c
-// For dyn(i32(42)):
-yo_dyn_box_i32* box = __yo_new_dyn_box_i32(42);
+// For dyn(box(42)):
+Box_i32* boxed = /* result of box(42) */;  // Already has RC = 1
+
 yo_dyn_module_Id result = {
-  .data = box,
-  .vtable = &yo_vtable_i32_Id
+  .data = boxed,
+  .vtable = &yo_vtable_Box_i32_Id
 };
+// Note: No dup here, ownership transfers from box(42) to dyn
 ```
 
-Box constructor:
 ```c
-yo_dyn_box_i32* __yo_new_dyn_box_i32(int32_t value) {
-  yo_dyn_box_i32* box = __yo_malloc(sizeof(yo_dyn_box_i32));
-  box->header.ref_count = 1;
-  box->header.gc_flags = 0;
-  box->header.gc_mark = YO_GC_UNMARKED;
-  box->header.gc_next = NULL;
-  box->header.gc_prev = NULL;
-  box->header.dispose_fn = __yo_dispose_dyn_box_i32;
-  box->header.traverse_fn = NULL;
-  box->value = value;
-  return box;
-}
+// For dyn(point) where point : *(Point):
+Point* point = /* &(Point(3, 4)) */;  // Already has RC = 1
+
+yo_dyn_module_Printer result = {
+  .data = point,
+  .vtable = &yo_vtable_Point_Printer
+};
+// Note: No dup here, ownership transfers from point to dyn
 ```
+
+**Key Point**: Since `Dyn` is a value type, it's created on the stack. The `data` pointer's ownership is transferred (no dup at construction).
 
 ## Method Dispatch
 
+Method calls on `Dyn` go through the vtable. Since `Dyn` is a value type, `value` is the struct itself.
+
 ```c
-// All methods return concrete types - no boxing/unboxing needed!
+// value has type yo_dyn_module_TestDyn (struct, not pointer)
 int32_t result = value.vtable->return_i32(value.data);
 value.vtable->print(value.data);
 ```
 
-## Box Dispose Functions
+## Reference Counting for Dyn
+
+Since `Dyn` is a value type, we need dup/drop functions that operate on the `data` pointer.
+
+### Dup Function
+
+When copying a `Dyn`, increment the `data` pointer's RC:
 
 ```c
-void __yo_dispose_dyn_box_i32(void* ptr) {
-  // Value type - no cleanup needed
+yo_dyn_module_Id __yo_dup_dyn_module_Id(yo_dyn_module_Id dyn) {
+  if (dyn.data) {
+    __yo_incr_rc(dyn.data);  // data is always an object type
+  }
+  return dyn;  // Return the copied struct
 }
+```
 
-void __yo_dispose_dyn_box_MyBox(void* ptr) {
-  yo_dyn_box_MyBox* box = (yo_dyn_box_MyBox*)ptr;
-  if (box->value) {
-    __yo_decr_rc(box->value);  // Drop wrapped object
+### Drop Function
+
+When dropping a `Dyn`, decrement the `data` pointer's RC:
+
+```c
+void __yo_drop_dyn_module_Id(yo_dyn_module_Id dyn) {
+  if (dyn.data) {
+    __yo_decr_rc(dyn.data);  // data is always an object type
   }
 }
 ```
+
+**Key Points:**
+- No type-specific dup/drop needed - `data` is always an object pointer
+- The `data` object's dispose function handles cleanup (Box or regular object)
+- `Dyn` itself is never heap-allocated, so no dispose function needed
 
 ## Implementation Plan
 
@@ -161,33 +255,43 @@ void __yo_dispose_dyn_box_MyBox(void* ptr) {
 - Collect: `{ dynType, concreteType, implModuleValue }[]`
 - Store in `context.dynImpls` or similar
 
-### Phase 2: Generate Box Types
-**Location**: `src/codegen/types/generation.ts`
+### Phase 2: Generate Wrapper Functions
+**Location**: `src/codegen/functions/generation.ts`
 
-For each concrete type used in `dyn()`:
+For boxed value types, generate wrappers to unwrap `Box(T)` before calling impl:
 ```typescript
-function generateDynBoxType(concreteType: Type, cName: string, context: CodeGenContext) {
-  const boxTypeName = `yo_dyn_box_${cName}`;
-  const valueType = getTypeString(concreteType, context);
+function generateDynMethodWrapper(
+  implType: Type,
+  method: Method,
+  moduleType: ModuleType,
+  context: CodeGenContext
+): string {
+  if (implType.kind === 'object') {
+    // Object type: no wrapper needed, return direct cast
+    const methodFuncId = getMethodFunctionId(implType, method.name);
+    const returnType = getTypeString(method.returnType, context);
+    return `(${returnType}(*)(void*))${methodFuncId}`;
+  }
   
-  // Generate box struct
-  emitter.emitDeclarationLine(`typedef struct {`);
-  emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
-  emitter.emitDeclarationLine(`  ${valueType} value;`);
-  emitter.emitDeclarationLine(`} ${boxTypeName};`);
+  // Value type: generate wrapper to unwrap Box(T)
+  const implCName = getTypeCName(implType, context);
+  const wrapperName = `wrapper_Box_${implCName}_${method.name}`;
+  const returnType = getTypeString(method.returnType, context);
+  const methodFuncId = getMethodFunctionId(implType, method.name);
   
-  // Generate constructor declaration
-  emitter.emitDeclarationLine(`${boxTypeName}* __yo_new_${boxTypeName}(${valueType} value);`);
+  emitter.emitLine(`${returnType} ${wrapperName}(void* self_ptr) {`);
+  emitter.emitLine(`  Box_${implCName}* box = (Box_${implCName}*)self_ptr;`);
+  emitter.emitLine(`  return ${methodFuncId}(&box->value);`);
+  emitter.emitLine(`}`);
   
-  // Generate dispose declaration
-  emitter.emitDeclarationLine(`void __yo_dispose_${boxTypeName}(void* ptr);`);
+  return wrapperName;
 }
 ```
 
 ### Phase 3: Generate Static Vtables
 **Location**: `src/codegen/functions/generation.ts`
 
-For each dyn impl, generate static vtable with direct casts:
+For each dyn impl, generate static vtable using wrappers or direct casts:
 ```typescript
 function generateStaticVtable(
   implType: Type,
@@ -199,10 +303,9 @@ function generateStaticVtable(
   emitter.emitLine(`static const ${dynVtableType} ${vtableName} = {`);
   
   for (const method of moduleType.fields) {
-    // Direct cast - no wrapper functions!
-    const methodFuncId = getMethodFunctionId(implType, method.name);
-    const returnTypeStr = getTypeString(method.type.return.type, context);
-    emitter.emitLine(`  .${method.name} = (${returnTypeStr}(*)(void*))${methodFuncId},`);
+    // Generate wrapper (or direct cast for object types)
+    const funcPtr = generateDynMethodWrapper(implType, method, moduleType, context);
+    emitter.emitLine(`  .${method.name} = ${funcPtr},`);
   }
   
   emitter.emitLine(`};`);
@@ -216,20 +319,26 @@ function generateStaticVtable(
 function generateDynCall(expr: FuncCallExpr, indent: string, context: CodeGenContext): string {
   const valueExpr = expr.args[0];
   const dynType = expr.$.type as DynType;
-  const concreteType = valueExpr.$.type;
+  const valueType = valueExpr.$.type;
   
-  // Generate value
+  // valueExpr must be an object type (pointer with ref_header)
+  if (valueType.kind !== 'pointer' || valueType.baseType.kind !== 'object') {
+    throw new Error('dyn() requires object type (use box() for value types)');
+  }
+  
+  const concreteType = valueType.baseType;
+  
+  // Generate value (this is an object pointer)
   const valueCode = generateExpr(valueExpr, indent, context);
   
-  // Allocate box
-  const boxCtor = `__yo_new_dyn_box_${concreteCName}`;
-  context.emitter.emitLine(`${indent}${boxType}* box = ${boxCtor}(${valueCode});`);
-  
-  // Create Dyn value
+  // Create Dyn struct on stack
   const dynVar = expr.$.variableName || generateTempName();
+  const dynCName = getTypeCName(dynType, context);
+  const vtableName = `yo_vtable_${getTypeCName(concreteType, context)}_${dynType.moduleName}`;
+  
   context.emitter.emitLine(`${indent}${dynCName} ${dynVar} = {`);
-  context.emitter.emitLine(`${indent}  .data = box,`);
-  context.emitter.emitLine(`${indent}  .vtable = &yo_vtable_${implCName}_${moduleCName}`);
+  context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
+  context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);
   context.emitter.emitLine(`${indent}};`);
   
   return dynVar;
@@ -239,7 +348,7 @@ function generateDynCall(expr: FuncCallExpr, indent: string, context: CodeGenCon
 ### Phase 5: Update Method Call on Dyn
 **Location**: `src/codegen/expressions/generation.ts`
 
-When calling a method on Dyn value:
+When calling a method on Dyn value (which is a struct):
 ```typescript
 function generateMethodCallOnDyn(
   receiver: Expr,
@@ -249,25 +358,54 @@ function generateMethodCallOnDyn(
 ): string {
   const receiverCode = generateExpr(receiver, indent, context);
   
+  // receiver is a struct: yo_dyn_module_TestDyn
   // Generate: receiver.vtable->method(receiver.data)
   return `${receiverCode}.vtable->${methodName}(${receiverCode}.data)`;
 }
 ```
 
-### Phase 6: Update ___drop for Dyn
+### Phase 6: Generate Dup/Drop Functions
 **Location**: `src/codegen/functions/generation.ts`
 
-Dyn drop function should decrement RC of boxed data:
-```c
-void fn_drop_Dyn_TestDyn(yo_dyn_module_TestDyn self) {
-  __yo_decr_rc(self.data);
+Since `Dyn` is a value type, generate dup/drop functions that operate on the `data` pointer:
+
+```typescript
+function generateDynDupDrop(dynType: DynType, context: CodeGenContext) {
+  const dynCName = getTypeCName(dynType, context);
+  
+  // Generate dup function
+  emitter.emitLine(`${dynCName} __yo_dup_${dynCName}(${dynCName} dyn) {`);
+  emitter.emitLine(`  if (dyn.data) {`);
+  emitter.emitLine(`    __yo_incr_rc(dyn.data);`);
+  emitter.emitLine(`  }`);
+  emitter.emitLine(`  return dyn;`);
+  emitter.emitLine(`}`);
+  
+  // Generate drop function
+  emitter.emitLine(`void __yo_drop_${dynCName}(${dynCName} dyn) {`);
+  emitter.emitLine(`  if (dyn.data) {`);
+  emitter.emitLine(`    __yo_decr_rc(dyn.data);`);
+  emitter.emitLine(`  }`);
+  emitter.emitLine(`}`);
 }
 ```
 
 ## Testing Plan
 
-1. **Basic value types**: `dyn(i32(42))`, `dyn(true)`
-2. **Reference types**: `dyn(MyBox(100))`
+1. **Boxed value types**: `dyn(box(42))`, `dyn(box(true))`
+2. **Object types**: `point := &(Point(3, 4)); dyn(point)`
 3. **Method calls**: `value.print()`, `value.return_i32()`
-4. **Memory leaks**: Verify no leaks with AddressSanitizer
+4. **Memory leaks**: Verify no leaks with AddressSanitizer (should see Box being freed)
 5. **Object-safety**: Verify error when calling Self-returning methods on Dyn
+6. **Type errors**: Verify error when calling `dyn(42)` or `dyn(&(42))` without `box()`
+7. **Dup/Drop**: Verify correct RC on assignment: `x := dyn(box(42)); y := x;`
+
+## Summary of Design
+
+1. **`Dyn` is a value type**: Simple struct with `{ void* data, vtable* }`, no ref_header
+2. **`data` must be object type**: Enforces that data is always reference counted
+3. **Value types use `box()`**: `dyn(box(42))` wraps value in `Box(T)` object type
+4. **Object types direct**: `dyn(&(Point(3, 4)))` uses Point pointer directly
+5. **Wrappers for Box**: Generated wrappers unwrap `Box(T)` before calling impl methods
+6. **Simple RC**: Only `data` is reference counted, `Dyn` struct is copied by value
+7. **Dup/Drop functions**: Standard functions that dup/drop the `data` pointer
