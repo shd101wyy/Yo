@@ -15,6 +15,7 @@ mkShell rec {
     valgrind
     emscripten
     vsce
+    ripgrep
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc

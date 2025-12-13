@@ -986,7 +986,7 @@ export function generateDynDeclaration(
  * Generate box types for all dyn() implementations
  * Box types wrap values for dynamic dispatch with reference counting header
  */
-function generateDynBoxTypes(context: CodeGenContext): void {
+export function generateDynBoxTypes(context: CodeGenContext): void {
   const emitter = context.emitter;
 
   if (context.dynImpls.size === 0) {
@@ -1003,7 +1003,7 @@ function generateDynBoxTypes(context: CodeGenContext): void {
   // Track generated box types to avoid duplicates
   const generatedBoxTypes = new Set<string>();
 
-  for (const [implKey, impl] of context.dynImpls) {
+  for (const [, impl] of context.dynImpls) {
     const concreteTypeCName =
       context.types[impl.concreteType.id]?.cName ||
       `unknown_${impl.concreteType.id}`;

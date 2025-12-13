@@ -3,10 +3,12 @@ import { exprIsFunctionCall, exprIsFunctionCallOf } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ArrayType,
+  DynType,
   EnumType,
   EnumVariant,
   extractFnModuleFromType,
   FunctionType,
+  isEnumType,
   isFunctionSpecializable,
   isObjectType,
   isPtrType,
@@ -22,7 +24,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
-import { isNumberValue } from "../../value";
+import { isNumberValue, ModuleValue } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 
 export interface CodeGenContext {
@@ -132,6 +134,13 @@ export interface CodeGenContext {
     {
       dynType: DynType;
       concreteType: Type;
+      /**
+       * The actual type stored in Dyn.data (must be an object type, e.g. Box(T) or a user object).
+       * This can differ from concreteType when Dyn wraps Box(T):
+       * - concreteType = T
+       * - dataType = Box(T)
+       */
+      dataType: Type;
       moduleValue: ModuleValue;
     }
   >;
@@ -323,8 +332,9 @@ export function getTypeString(
           `No C type name found for dynamic dispatch type ${typeToString(type)}`
         );
       }
-      // Dynamic dispatch types are reference-counted, so return pointer type
-      return `${cTypeName}*`;
+      // Dyn is a value type (struct with data pointer and vtable pointer)
+      // It's passed by value, not by pointer
+      return cTypeName;
     }
 
     // Fixed size array
@@ -404,7 +414,10 @@ export function getTypeString(
     case TypeTag.Ptr: {
       const ptrType = type as PtrType;
       const childType = ptrType.childType;
-      const isMutable = isPtrType(type);
+
+      // NOTE: In Yo, PtrType represents a borrow like `*(T)`.
+      // For reference-semantics types (objects), the value is already a pointer in C,
+      // so a borrow should NOT introduce another level of indirection.
 
       // Special handling for pointer-to-slice: in Rust-like semantics,
       // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
@@ -425,11 +438,22 @@ export function getTypeString(
       }
 
       const baseTypeStr = getTypeString(childType, context);
-      if (isMutable) {
-        return `${baseTypeStr}*`; // Mutable pointer
-      } else {
-        return `${baseTypeStr}* const`; // Immutable pointer
+
+      // Borrowing an object type should keep the same C type (already a pointer)
+      if (isStructType(childType) && childType.isReferenceSemantics) {
+        return baseTypeStr;
       }
+      // Borrowing an enum that is represented as a pointer (nullable pointer optimization)
+      // should also keep the same C type string.
+      if (
+        isEnumType(childType) &&
+        canOptimizeAsNullablePointer(childType as EnumType)
+      ) {
+        return baseTypeStr;
+      }
+
+      // For value types, a borrow is a pointer to the value.
+      return `${baseTypeStr}*`;
     }
   }
 

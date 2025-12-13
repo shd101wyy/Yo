@@ -9,13 +9,16 @@ import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   EnumType,
   FunctionType,
+  isBoxedType,
   isDynType,
   isEnumType,
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
+  isPtrType,
   isStructType,
   isUnitType,
+  isVoidType,
   typeContainsSomeType,
   typeToString,
 } from "../../types";
@@ -97,7 +100,6 @@ export function generateFunctionDeclarations(
 
   // Generate constructor functions for dyn types
   emitter.emitDeclarationLine(`/// Dyn type constructors`);
-  generateDynConstructorDeclarations(context);
   emitter.emitDeclarationLine("");
 
   // Generate declarations for other functions
@@ -212,9 +214,6 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // They will be generated after deferred async blocks are processed
   // because closure creation happens during async block generation
 
-  // Generate dyn type constructor and Gc functions
-  generateDynConstructorFunctions(context);
-
   for (const funcId in context.functions) {
     const { value, cName } = context.functions[funcId]!;
 
@@ -232,9 +231,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     generateFunction(value, cName, context);
   }
 
-  // Generate box types and functions for dyn() implementations (after all functions are processed)
-  generateDynBoxTypes(context);
-  generateDynBoxFunctions(context);
+  // Dyn uses existing object types (including Box(T)); wrappers + vtables are generated from dynImpls.
+  generateDynWrapperFunctions(context);
   generateDynVtables(context);
 
   // Generate main wrapper if user defined a main function
@@ -760,18 +758,6 @@ export function generateCaptureDisposeFunctionDeclarations(
       );
     }
   }
-}
-
-/**
- * Generate constructor function declarations for dyn types
- */
-export function generateDynConstructorDeclarations(
-  context: FunctionGenerationContext
-): void {
-  // Dyn is now a value type (fat pointer) - no constructor/dispose functions needed
-  // Box types for wrapped values will be generated separately with their own RC
-  // Static vtables will be generated for each impl
-  return;
 }
 
 /**
@@ -1487,26 +1473,11 @@ export function generateClosureDisposeFunctions(
 }
 
 /**
- * Generate constructor function implementations for dyn types and their Gc functions
- */
-export function generateDynConstructorFunctions(
-  context: FunctionGenerationContext
-): void {
-  // Dyn is now a value type (fat pointer) - no constructor/dispose functions needed
-  // Instead, we'll generate:
-  // 1. Box types for each concrete type being wrapped (with yo_ref_header_t)
-  // 2. Static vtable instances for each impl
-  // 3. Inline dyn construction in generateDynCall
-
-  // TODO: Generate static vtables for each impl
-  // TODO: Generate box types for wrapped values
-  return;
-}
-
-/**
  * Generate box constructor and dispose functions for dyn implementations
  */
-function generateDynBoxFunctions(context: FunctionGenerationContext): void {
+export function generateDynBoxFunctions(
+  context: FunctionGenerationContext
+): void {
   const emitter = context.emitter;
 
   if (context.dynImpls.size === 0) {
@@ -1521,7 +1492,7 @@ function generateDynBoxFunctions(context: FunctionGenerationContext): void {
   // Track generated box functions to avoid duplicates
   const generatedBoxFunctions = new Set<string>();
 
-  for (const [implKey, impl] of context.dynImpls) {
+  for (const [, impl] of context.dynImpls) {
     const concreteTypeCName =
       context.types[impl.concreteType.id]?.cName ||
       `unknown_${impl.concreteType.id}`;
@@ -1572,7 +1543,7 @@ function generateDynBoxFunctions(context: FunctionGenerationContext): void {
 /**
  * Generate box type declarations for dyn implementations
  */
-function generateDynBoxTypes(context: FunctionGenerationContext): void {
+export function generateDynBoxTypes(context: FunctionGenerationContext): void {
   const emitter = context.emitter;
 
   if (context.dynImpls.size === 0) {
@@ -1587,7 +1558,7 @@ function generateDynBoxTypes(context: FunctionGenerationContext): void {
   // Track generated box types to avoid duplicates
   const generatedBoxTypes = new Set<string>();
 
-  for (const [implKey, impl] of context.dynImpls) {
+  for (const [, impl] of context.dynImpls) {
     const concreteTypeCName =
       context.types[impl.concreteType.id]?.cName ||
       `unknown_${impl.concreteType.id}`;
@@ -1620,31 +1591,172 @@ function generateDynBoxTypes(context: FunctionGenerationContext): void {
 }
 
 /**
+ * Generate wrapper functions for dyn method dispatch
+ */
+export function generateDynWrapperFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return;
+  }
+
+  emitter.emitDeclarationLine("");
+  emitter.emitDeclarationLine("// === Dyn Wrapper Functions ===");
+  emitter.emitDeclarationLine(
+    "// Wrappers that unwrap boxed values and call impl methods"
+  );
+  emitter.emitDeclarationLine("");
+
+  for (const [implKey, impl] of context.dynImpls) {
+    const dataType = impl.dataType;
+
+    const moduleType = impl.moduleValue.type;
+    const moduleFields = moduleType.fields;
+
+    for (let i = 0; i < moduleFields.length; i++) {
+      const field = moduleFields[i]!;
+      const fieldValue = impl.moduleValue.fields[i];
+
+      if (!fieldValue || !isFunctionValue(fieldValue)) {
+        emitter.emitDeclarationLine(
+          `/* Warning: Module field ${field.label} is not a function value */`
+        );
+        continue;
+      }
+
+      const funcType = field.type;
+      if (!isFunctionType(funcType)) {
+        emitter.emitDeclarationLine(
+          `/* Warning: Module field ${field.label} is not a function type */`
+        );
+        continue;
+      }
+
+      // Get the impl function name
+      const implFuncId = fieldValue.funcId;
+      const implFuncCName = context.functions[implFuncId]?.cName;
+      if (!implFuncCName) {
+        emitter.emitDeclarationLine(
+          `/* Warning: Impl function for ${field.label} not found */`
+        );
+        continue;
+      }
+
+      // Generate wrapper function
+      const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+
+      // Build parameter list
+      const returnTypeStr = getTypeString(funcType.return.type, context);
+      const params = ["void* self_ptr"];
+      for (let j = 1; j < funcType.parameters.length; j++) {
+        const param = funcType.parameters[j]!;
+        const paramTypeStr = getTypeString(param.type, context);
+        params.push(`${paramTypeStr} arg${j}`);
+      }
+
+      emitter.emitDeclarationLine(
+        `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
+      );
+
+      // Unwrap the boxed value and prepare first argument
+      // The first parameter of the impl function determines what we pass
+      const implFirstParamType = funcType.parameters[0]?.type;
+
+      let firstArg: string;
+
+      if (isBoxedType(dataType)) {
+        // Dyn wraps Box(T) from the prelude.
+        const boxedCName =
+          context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
+        const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
+        emitter.emitDeclarationLine(
+          `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
+        );
+
+        // If the impl expects a borrow, pass pointer to the field inside Box.
+        if (implFirstParamType && isPtrType(implFirstParamType)) {
+          firstArg = `&box->${fieldName}`;
+        } else {
+          firstArg = `box->${fieldName}`;
+        }
+      } else {
+        // Dyn wraps a normal object type (already a pointer in C).
+        const concreteTypeStr = getTypeString(impl.concreteType, context);
+        emitter.emitDeclarationLine(
+          `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
+        );
+        // Borrow of an object type does not add another indirection (see getTypeString PtrType).
+        firstArg = `concrete_value`;
+      }
+
+      // Build argument list for impl call
+      const args = [firstArg];
+      for (let j = 1; j < funcType.parameters.length; j++) {
+        args.push(`arg${j}`);
+      }
+
+      // Call the impl function
+      if (isVoidType(funcType.return.type)) {
+        emitter.emitDeclarationLine(`  ${implFuncCName}(${args.join(", ")});`);
+      } else {
+        emitter.emitDeclarationLine(
+          `  return ${implFuncCName}(${args.join(", ")});`
+        );
+      }
+
+      emitter.emitDeclarationLine(`}`);
+      emitter.emitDeclarationLine("");
+    }
+  }
+}
+
+/**
  * Generate static vtables for dyn implementations
  */
-function generateDynVtables(context: FunctionGenerationContext): void {
+export function generateDynVtables(context: FunctionGenerationContext): void {
   const emitter = context.emitter;
 
   if (context.dynImpls.size === 0) {
     return; // No dyn() calls to generate vtables for
   }
 
-  emitter.emitLine("");
-  emitter.emitLine("// === Dyn Static Vtables ===");
-  emitter.emitLine("// Static vtables for dynamic dispatch");
-  emitter.emitLine("");
+  emitter.emitDeclarationLine("");
+  emitter.emitDeclarationLine("// === Dyn Static Vtables ===");
+  emitter.emitDeclarationLine("// Static vtables for dynamic dispatch");
+  emitter.emitDeclarationLine("");
 
   for (const [implKey, impl] of context.dynImpls) {
     const dynTypeCName =
       context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+    const concreteTypeCName =
+      context.types[impl.concreteType.id]?.cName ||
+      `unknown_${impl.concreteType.id}`;
     const vtableName = `yo_vtable_${implKey}`;
+    const vtableTypeName = `${dynTypeCName}_vtable`;
 
-    emitter.emitLine(
-      `// TODO: Generate vtable ${vtableName} for ${dynTypeCName}`
+    emitter.emitDeclarationLine(
+      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.label || "?").join(" + ")})`
     );
-    emitter.emitLine(
-      `// static const ${dynTypeCName}_vtable ${vtableName} = { ... };`
+    emitter.emitDeclarationLine(
+      `static const ${vtableTypeName} ${vtableName} = {`
     );
-    emitter.emitLine("");
+
+    // Get module fields (methods) from moduleValue
+    const moduleType = impl.moduleValue.type;
+    const moduleFields = moduleType.fields;
+
+    for (let i = 0; i < moduleFields.length; i++) {
+      const field = moduleFields[i]!;
+
+      // Get the wrapper function name for this method
+      const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+
+      emitter.emitDeclarationLine(`  .${field.label} = ${wrapperName},`);
+    }
+
+    emitter.emitDeclarationLine(`};`);
+    emitter.emitDeclarationLine("");
   }
 }

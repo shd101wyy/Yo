@@ -18,6 +18,7 @@ import {
   extractFnModuleFromType,
   extractFutureModuleFromType,
   isArrayType,
+  isBoxedType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -41,7 +42,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
-import { isTempVariableName } from "../../utils";
+import { generateNewTempVariableName, isTempVariableName } from "../../utils";
 import {
   isArrayValue,
   isBooleanValue,
@@ -439,8 +440,8 @@ function generateFuncCall(
       return `// Error: __yo_dyn_drop requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    // Decrement RC - dispose function is stored in header
-    return `__yo_decr_rc((void*)(${selfCode}))`;
+    // Dyn is a value type; ref-counting applies to its .data pointer.
+    return `__yo_decr_rc((void*)(${selfCode}).data)`;
   }
 
   // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
@@ -450,8 +451,8 @@ function generateFuncCall(
       return `// Error: __yo_dyn_dup requires exactly 1 argument`;
     }
     const selfCode = generateExpr(selfArg, indent, context);
-    // Only increment the dyn object's own reference count, don't duplicate wrapped object
-    return `__yo_incr_rc((void*)(${selfCode}))`;
+    // Dyn is a value type; ref-counting applies to its .data pointer.
+    return `__yo_incr_rc((void*)(${selfCode}).data)`;
   }
 
   // __yo_future_drop - call __yo_decr_rc on future with special running check
@@ -1866,7 +1867,12 @@ function generateFuncCall(
               }
 
               // For all other methods (wrapped object methods), pass the wrapped object data
-              return `${finalArgVarName}->data`;
+              // Dyn is a value type, but callers may pass a borrow (pointer) depending on the method signature.
+              const argType = arg.$?.type;
+              if (argType && isPtrType(argType)) {
+                return `${finalArgVarName}->data`;
+              }
+              return `(${finalArgVarName}).data`;
             } else {
               // If this is a closure-captured variable, use the generated code (inline access)
               // If this is a state machine variable, use the generated code (sm->var_xxx access)
@@ -1905,7 +1911,11 @@ function generateFuncCall(
               }
 
               // For all other methods (wrapped object methods), pass the wrapped object data
-              return `${dynObjectCode}->data`;
+              const argType = arg.$?.type;
+              if (argType && isPtrType(argType)) {
+                return `(${dynObjectCode})->data`;
+              }
+              return `(${dynObjectCode}).data`;
             } else {
               return generateExpr(arg, indent, context);
             }
@@ -3228,7 +3238,11 @@ function generateDynCall(
 
     const constructorName = `__yo_new_${dynTypeName}`;
     const disposeFunctionName = `__yo_dispose_${dynTypeName}`;
-    const tempVarName = expr.$?.variableName || `dyn_temp_${Date.now()}`;
+    let tempVarName = expr.$?.variableName;
+    if (!tempVarName) {
+      tempVarName = generateNewTempVariableName(expr.$.env.modulePath);
+      expr.$.variableName = tempVarName;
+    }
 
     const functionCName =
       functionContext.functions[closureFunctionValue.funcId]?.cName;
@@ -3269,9 +3283,10 @@ function generateDynCall(
     return tempVarName;
   }
 
-  // Regular dyn() call - new implementation with box types and vtables
-  const concreteType = valueExpr.$.type;
-  if (!concreteType) {
+  // Regular dyn() call - dyn is a value type (fat pointer)
+  // The wrapped value must be an object type (including Box(T)).
+  const valueType = valueExpr.$?.type;
+  if (!valueType) {
     return `/* Error: dyn() value has no type */`;
   }
 
@@ -3287,6 +3302,16 @@ function generateDynCall(
     return `/* Error: Invalid module value */`;
   }
 
+  // dyn() requires an object type (including Box(T)); value types must use box().
+  if (!isObjectType(valueType) && !isBoxedType(valueType)) {
+    return `/* Error: dyn() requires an object type (use box() for value types) */`;
+  }
+
+  // If value is Box(T), the impl concrete type is T, but the runtime data type is Box(T).
+  const concreteType: Type = isBoxedType(valueType)
+    ? valueType.fields[0]!.type
+    : valueType;
+
   // Create a unique key for this impl combination
   const dynTypeCName =
     context.types[dynType.id]?.cName || `yo_dyn_${dynType.id}`;
@@ -3298,24 +3323,22 @@ function generateDynCall(
   context.dynImpls.set(implKey, {
     dynType,
     concreteType,
+    dataType: valueType,
     moduleValue,
   });
 
   // Generate the value expression
   const valueCode = generateExpr(valueExpr, indent, context);
-  const tempVarName = expr.$?.variableName || `dyn_${implKey}_${Date.now()}`;
+  let tempVarName = expr.$?.variableName;
+  if (!tempVarName) {
+    tempVarName = generateNewTempVariableName(expr.$.env.modulePath);
+    expr.$.variableName = tempVarName;
+  }
 
-  // Generate: box = __yo_new_dyn_box_T(value)
-  const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
-  const boxCtorName = `__yo_new_${boxTypeName}`;
-  context.emitter.emitLine(
-    `${indent}${boxTypeName}* box_${tempVarName} = ${boxCtorName}(${valueCode});`
-  );
-
-  // Generate: Dyn value = { .data = box, .vtable = &vtable }
+  // Generate: Dyn value = { .data = valueCode, .vtable = &vtable }
   const vtableName = `yo_vtable_${implKey}`;
   context.emitter.emitLine(`${indent}${dynTypeCName} ${tempVarName} = {`);
-  context.emitter.emitLine(`${indent}  .data = box_${tempVarName},`);
+  context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
   context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);
   context.emitter.emitLine(`${indent}};`);
 

@@ -390,7 +390,9 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
  * @param type
  * @returns
  */
-export function isBoxedType(type: Type): boolean {
+export function isBoxedType(
+  type: Type
+): type is StructType & { isReferenceSemantics: true; __isBoxed: true } {
   if (!isObjectType(type)) {
     return false;
   } else {
