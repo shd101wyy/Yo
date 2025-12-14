@@ -755,6 +755,33 @@ Got:   ${argExprs.length} arguments`,
     }
   }
 
+  // If we have an expected return type and forall parameters without explicit arguments,
+  // try to do early synthesis to resolve forall parameters before processing regular arguments.
+  // This is necessary when parameter types reference forall parameters (e.g., value : V in box).
+  if (
+    context.expectedType &&
+    !forallArgsExpr &&
+    functionType.forallParameters.length > 0
+  ) {
+    try {
+      const { returnType: tempReturnType, calleeEnv: tempCalleeEnv } =
+        evaluateFunctionReturnTypeAgain({
+          functionType,
+          calleeEnv,
+          context: { ...context, isEvaluatingFunctionType: true },
+          functionCalleeExpr,
+        });
+
+      const { expectedEnv } = synthesizeTypes(
+        { type: tempReturnType, env: tempCalleeEnv },
+        { type: context.expectedType.type, env: context.expectedType.env }
+      );
+      calleeEnv = expectedEnv;
+    } catch {
+      // Silently ignore errors - synthesis will happen again later after arguments
+    }
+  }
+
   // Check if the regular parameters match the arguments
   const parametersToProcess = functionType.parameters.length;
 

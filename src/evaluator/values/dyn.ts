@@ -1,13 +1,21 @@
-import { Environment } from "../../env";
+import {
+  addVariableToEnv,
+  Environment,
+  getVariablesFromEnv,
+  pushEnvFrame,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   createDynType,
@@ -16,20 +24,109 @@ import {
   DynType,
   isBoxedType,
   isDynType,
+  isFunctionType,
   isObjectType,
   isSomeType,
   ModuleType,
+  SomeType,
+  StructType,
+  Type,
   typeToString,
 } from "../../types";
 import {
   createModuleValue,
+  createTypeValue,
+  isFunctionValue,
   isModuleValue,
+  isTypeValue,
   ModuleValue,
   Value,
 } from "../../value";
+import { evaluateComptFunctionCall } from "../calls/compt_function";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addARCFunctionsToDynType } from "../types/utils";
+
+/**
+ * Helper function to construct Box(T) type by calling the compile-time Box function.
+ */
+function createBoxedType(
+  innerType: Type,
+  env: Environment,
+  context: EvaluatorContext
+): { boxType: StructType; env: Environment } {
+  // Look up the Box type constructor from environment
+  const boxVariables = getVariablesFromEnv(env, "Box");
+  const boxVariable = boxVariables.find(
+    (v) => v.value && isFunctionValue(v.value) && isFunctionType(v.type)
+  );
+
+  if (
+    !boxVariable ||
+    !boxVariable.value ||
+    !isFunctionValue(boxVariable.value)
+  ) {
+    throw new Error(`Cannot find Box type constructor in environment`);
+  }
+
+  const boxFunctionValue = boxVariable.value;
+  const boxFunctionType = boxFunctionValue.type;
+
+  // Box :: (fn(compt(V) : Type) -> compt(Type))
+  // We need to create a calleeEnv with the parameter V added
+  const parameter = boxFunctionType.parameters[0]!;
+  const innerTypeValue = createTypeValue(innerType);
+
+  // Push new frame on top of the function's environment
+  const calleeEnv = pushEnvFrame(boxFunctionType.env);
+
+  // Add parameter V to calleeEnv
+  const { env: calleeEnvWithParam } = addVariableToEnv({
+    env: calleeEnv,
+    variable: {
+      name: parameter.label,
+      token: PlaceholderToken,
+      type: innerTypeValue.type,
+      isCompileTimeOnly: true,
+      initializedAtToken: PlaceholderToken,
+      consumedAtToken: undefined,
+      value: innerTypeValue,
+      isOwningTheGcValue: false,
+    },
+  });
+
+  // Call Box(innerType) to get Box(innerType) type
+  const { value: boxTypeValue, callerEnv: nextEnv } = evaluateComptFunctionCall(
+    {
+      functionCalleeExpr: undefined,
+      functionType: boxFunctionType,
+      functionValue: boxFunctionValue,
+      argValues: {
+        forallArgs: [],
+        args: [
+          {
+            value: innerTypeValue,
+            parameterType: parameter.type,
+            argType: createType0(),
+          },
+        ],
+        variadicArgs: [],
+      },
+      callerEnv: env,
+      calleeEnv: calleeEnvWithParam,
+      context,
+    }
+  );
+
+  if (!isTypeValue(boxTypeValue) || !isObjectType(boxTypeValue.value)) {
+    throw new Error(`Box type constructor did not return a type value`);
+  }
+
+  return {
+    boxType: boxTypeValue.value,
+    env: nextEnv,
+  };
+}
 
 export function evaluateDynValue({
   expr,
@@ -54,22 +151,38 @@ export function evaluateDynValue({
   // Determine the expected type for the inner expression
   // If context expects DynType, convert it to SomeType for the inner expression
   let innerExpectedType = context.expectedType;
+  let someType: SomeType | undefined;
   if (context.expectedType && isDynType(context.expectedType.type)) {
     const expectedDynType = context.expectedType.type;
     // Create a SomeType from the DynType's requiredModules
-    const someType = createSomeType(
+    someType = createSomeType(
       createType0(),
       "",
       undefined,
       expectedDynType.requiredModules,
       expectedDynType.negativeModules
     );
-    innerExpectedType = { type: someType, env: context.expectedType.env };
+
+    // Special handling for dyn(box(...)) pattern:
+    // For dyn(box(closure)), we need Box(Impl(A)) as the expected type
+    if (
+      exprIsFunctionCall(valueExpr) &&
+      exprIsFunctionCallOf(valueExpr, "box", 1)
+    ) {
+      // Construct Box(Impl(A)) type
+      const { boxType, env: nextEnv } = createBoxedType(someType, env, context);
+      env = nextEnv;
+
+      // Pass Box(Impl(A)) as expected type for box(...)
+      innerExpectedType = { type: boxType, env };
+    } else {
+      innerExpectedType = { type: someType, env: context.expectedType.env };
+    }
   } else {
     innerExpectedType = undefined;
   }
 
-  // Evaluate the value expression with SomeType expected type
+  // Evaluate the value expression
   const evaluatedValueExpr = evaluateExpression({
     expr: valueExpr,
     env,
@@ -77,7 +190,7 @@ export function evaluateDynValue({
       ...context,
       expectedType: innerExpectedType,
     },
-  });
+  }) as FuncCallExpr;
 
   if (!evaluatedValueExpr.$) {
     throw formatErrorMessage({

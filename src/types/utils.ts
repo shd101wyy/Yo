@@ -1207,9 +1207,9 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         }
       }
       if (allModuleStrings.length > 0) {
-        return `${someType.name}(${allModuleStrings.join(", ")})`;
+        return `${someType.name || "Impl"}(${allModuleStrings.join(", ")})`;
       }
-      return someType.name;
+      return someType.name || "Impl()";
     }
 
     case TypeTag.Ptr: {
