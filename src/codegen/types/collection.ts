@@ -3,6 +3,7 @@ import {
   ArrayType,
   DynType,
   extractFnModuleFromType,
+  extractFutureModuleFromType,
   FunctionType,
   isArrayType,
   isDynType,
@@ -18,6 +19,7 @@ import {
   Type,
   typeContainsSomeType,
   typeImplementsFn,
+  typeImplementsFuture,
 } from "../../types";
 import {
   isFunctionValue,
@@ -180,6 +182,17 @@ export function collectType(type: Type, context: CodeGenContext): void {
     if (fnModule) {
       // Collect the FnModuleType - this generates the closure struct
       collectType(fnModule, context);
+    }
+    return;
+  }
+
+  // Handle SomeType (Impl) that implements Future - collect the FutureModuleType for async state machine generation
+  // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped
+  if (isSomeType(type) && typeImplementsFuture(type)) {
+    const futureModule = extractFutureModuleFromType(type);
+    if (futureModule) {
+      // Collect the FutureModuleType - this generates the state machine struct
+      collectType(futureModule, context);
     }
     return;
   }

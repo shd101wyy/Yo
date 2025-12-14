@@ -1,51 +1,39 @@
-open import "std/libc/stdio.yo";
-{ GlobalAllocator } :: import "std/allocator";
-open GlobalAllocator;
+open import "std/libc/stdio";
 
-MyBox :: object(
-  (x) : i32,
-  dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.x);
-  })
-);
-
-TestDyn :: module(
-  print : (fn(self : *(Self)) -> unit),
-  return_i32 : (fn(self : *(Self)) -> i32)
-);
-
-use_test_dyn :: (fn(
-  value : Dyn(TestDyn)
-) -> i32) {
-  value.print();
-  return value.return_i32();
-};
-
-impl(MyBox, TestDyn(
-  print : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.x);
-  }),
-  return_i32 : ((self) -> {
-    return self.x;
-  })
-));
+StaticAsync :: Impl(Future(i32));
+DynamicAsync :: Dyn(Future(i32));
 
 main :: (fn() -> unit) {
-  // b := MyBox(42);
-  // p := malloc(sizeof((MyBox)));
-  // match(p,
-  //   .None => {
-  //     printf("Memory allocation failed\n");
-  //   },
-  //   .Some(ptr) => {
-  //     casted_ptr := (*((MyBox)))(ptr);
-  //     casted_ptr.* = b;
-  //   }
-  // );
-  // free(p);
+  async {
+    b := Box(i32)(0);
 
-  bi := MyBox(100);
-  use_test_dyn(dyn bi);
+    task1 := async {
+      printf("Task 1 started\n");
+      counter := 1;
+      b.* = (b.* + counter);
+      return counter;
+    };
+    task2 := async {
+      printf("Task 2 started\n");
+      counter := 2;
+      b.* = (b.* + counter);
+      return counter;
+    };
+    task3 := async {
+      printf("Task 3 started\n");
+      counter := 3;
+      b.* = (b.* + counter);
+      return counter;
+    };
+
+    x := await task1;
+    y := await task2;
+    z := await task3;
+
+    assert(b.* == ((x + y) + z));
+  };
+
+  return ();
 };
 
 export main;

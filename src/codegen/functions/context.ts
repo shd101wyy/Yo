@@ -5,6 +5,7 @@ import {
   FunctionType,
   SomeType,
   StructType,
+  Type,
   TypeId,
 } from "../../types";
 import { AwaitAnalysisResult, CapturedVariable } from "../async/await-analysis";
@@ -35,7 +36,9 @@ export interface FunctionGenerationContext extends CodeGenContext {
     constructorName: string;
     disposeFunctionName: string;
     futureType: SomeType | DynType;
-    futureTypeCName: string;
+    futureModuleType: import("../../types").FutureModuleType;
+    resultType: Type;
+    resultTypeCName: string;
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
   }>;

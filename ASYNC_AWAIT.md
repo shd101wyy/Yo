@@ -37,7 +37,7 @@ async {
 };
 
 // Parallelism: Different threads, true simultaneous execution
-task := Task(i32, boolean).spawn(fn(parent) -> Future(unit) {
+task := Task(i32, boolean).spawn((parent) -> {
   // Runs on a DIFFERENT thread!
   // Completely isolated - no shared memory
 });
@@ -68,15 +68,15 @@ Yo's approach: Keep async simple (single-threaded), use `spawn` for parallelism 
 ## Language Syntax
 
 ```yo
-// Async function - MUST return Future(T) type
-fetch_data :: (fn(url: String) -> Future(Data)) async {
+// Async function
+fetch_data :: (fn(url: String) -> Impl Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
   return data;
 };
 
 // Calling async from another async function
-process :: (fn() -> Future(unit)) async {
+process :: (fn() -> Impl Future(unit)) async {
   data := await fetch_data("http://example.com");
   println(data);
 };
@@ -91,7 +91,7 @@ main :: (fn() -> unit) {
 };
 
 // Async blocks - create inline async tasks
-compute :: (fn() -> Future(i32)) {
+compute :: (fn() -> Impl Future(i32)) {
   return async {
     x := await fetch_data("http://example.com");
     y := await process_data(x);
@@ -108,11 +108,10 @@ await expr       // Suspend until Future ready (only in async context)
 ```
 
 **Important Rules**:
-1. Async functions **must** return `Future(T)` type
-2. Async blocks `async { ... }` return `Future(T)` where T is the block's result type
-3. `await` can **only** be used inside async functions or `async { ... }` blocks
-4. All async code runs on the **same thread** - no thread spawning
-5. `await` suspends the current coroutine and yields to other ready tasks
+1. Async blocks `async { ... }` return `Impl Future(T)` where T is the block's result type
+2. `await` can **only** be used inside async functions or `async { ... }` blocks
+3. All async code runs on the **same thread** - no thread spawning
+4. `await` suspends the current coroutine and yields to other ready tasks
 
 ### Execution Model
 
@@ -147,7 +146,7 @@ async {
 // - result: T (the result value when ready)
 
 // Async function signature
-fetch :: (fn(url: String) -> Future(String));
+fetch :: (fn(url: String) -> Impl Future(String));
 ```
 
 ## State Machine Transformation
@@ -158,7 +157,7 @@ The compiler transforms async functions into state machines at each `await` poin
 
 **Input Yo code:**
 ```yo
-fetch_data :: (fn(url: String) -> Future(Data)) async {
+fetch_data :: (fn(url: String) -> Impl Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
   return data;
@@ -319,7 +318,7 @@ State machines are small (~32-500 bytes):
 async { ... }
 
 // Define async function
-name :: (fn(...) -> Future(T)) async { ... };
+name :: (fn(...) -> Impl Future(T)) async { ... };
 
 // Await a future (only in async context)
 result := await future;
@@ -329,14 +328,14 @@ result := await future;
 
 ```yo
 // Async function
-fetch :: (fn(url: String) -> Future(String)) async {
+fetch :: (fn(url: String) -> Impl Future(String)) async {
   response := await http_get(url);
   body := await response.read_body();
   return body;
 };
 
 // Async function with multiple awaits
-fetch_both :: (fn(url1: String, url2: String) -> Future(String)) async {
+fetch_both :: (fn(url1: String, url2: String) -> Impl Future(String)) async {
   // Start both fetches (neither blocks!)
   f1 := fetch(url1);
   f2 := fetch(url2);
@@ -393,7 +392,7 @@ Yo's async/await provides:
 
 ```yo
 // Define async function
-fetch :: (fn(url: String) -> Future(Data)) async {
+fetch :: (fn(url: String) -> Impl Future(Data)) async {
   response := await http_get(url);
   data := await response.read();
   return data;
@@ -416,7 +415,7 @@ async {
 };
 
 // Async blocks
-compute :: (fn() -> Future(i32)) {
+compute :: (fn() -> Impl Future(i32)) {
   return async {
     x := await get_value();
     y := await process(x);
@@ -427,7 +426,7 @@ compute :: (fn() -> Future(i32)) {
 
 ### Key Principles
 
-1. **`async { ... }` blocks** - start event loop, return Future(T)
+1. **`async { ... }` blocks** - start event loop, return `Impl Future(T)`
 2. **Single-threaded** - all async code runs on the calling thread
 3. **`await` yields** - suspends coroutine, yields to other ready tasks
 4. **State machines** - compiler transforms each `await` into state transition

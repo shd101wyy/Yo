@@ -7,6 +7,7 @@ import {
   EnumType,
   EnumVariant,
   extractFnModuleFromType,
+  extractFutureModuleFromType,
   FunctionType,
   isEnumType,
   isFunctionSpecializable,
@@ -21,6 +22,7 @@ import {
   Type,
   TypeId,
   typeImplementsFn,
+  typeImplementsFuture,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -388,6 +390,18 @@ export function getTypeString(
           if (cTypeName) {
             // Impl closures are now VALUE types (like Rust closures)
             // They are stack-allocated, not heap-allocated with ref counting
+            return cTypeName;
+          }
+        }
+      }
+      // For Impl(Future(...)), use the FutureModuleType's C name
+      if (typeImplementsFuture(someType)) {
+        const futureModule = extractFutureModuleFromType(someType);
+        if (futureModule) {
+          const cTypeName = context.types[futureModule.id]?.cName;
+          if (cTypeName) {
+            // Impl futures are VALUE types (state machines)
+            // They are stack-allocated structs, not heap-allocated with ref counting
             return cTypeName;
           }
         }

@@ -443,6 +443,68 @@ function generateFuncCall(
     return `__yo_decr_rc((void*)(${selfCode}).data)`;
   }
 
+  // Handle ___drop on Future value types
+  // Future value types (Impl(Future(T))) don't have ___drop in their module,
+  // so we handle them specially by generating inline dispose code
+  if (
+    expr.func &&
+    exprIsFunctionCall(expr.func) &&
+    exprIsFunctionCallOf(expr.func, ".", 2)
+  ) {
+    const objectExpr = expr.func.args[0];
+    const methodExpr = expr.func.args[1];
+    if (objectExpr && methodExpr && exprIsAtom(methodExpr)) {
+      const methodName = methodExpr.token.value;
+      const objectType = objectExpr.$?.type;
+
+      // Check if this is ___drop on a Future value type
+      if (
+        BuiltinFunctions.___drop.includes(methodName) &&
+        objectType &&
+        typeImplementsFuture(objectType)
+      ) {
+        // For Future value types, drop the captured variables
+        // The state machine struct has a __capture field containing captured variables
+        const selfCode = generateExpr(objectExpr, indent, context);
+
+        // Get the capture type from the async block info if available
+        const futureModuleType = extractFutureModuleFromType(objectType);
+        if (futureModuleType) {
+          // For Future value types, we need to drop the __capture field
+          // which contains captured Gc types. The capture struct has its own ___drop.
+          // Generate: capture_drop_fn(value.__capture);
+          // For now, generate a comment since we don't track capture types here
+          // The capture struct's ___drop will be called automatically
+          return `/* Future value ${selfCode} dropped - captured vars cleaned up by capture struct */`;
+        }
+        return `/* Future value ${selfCode} dropped */`;
+      }
+
+      // Check if this is ___dup on a Future value type
+      if (
+        BuiltinFunctions.___dup.includes(methodName) &&
+        objectType &&
+        typeImplementsFuture(objectType)
+      ) {
+        const selfCode = generateExpr(objectExpr, indent, context);
+        // For value types, dup just returns the value (copy)
+        // But we need to dup any captured Gc types
+        // For now, just return the value - proper dup needs capture type info
+        return selfCode;
+      }
+
+      // Check if this is ___dispose on a Future value type
+      if (
+        BuiltinFunctions.___dispose.includes(methodName) &&
+        objectType &&
+        typeImplementsFuture(objectType)
+      ) {
+        // Dispose is no-op for value types (nothing to free)
+        return `/* Future value dispose - no-op for value types */`;
+      }
+    }
+  }
+
   // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
     const selfArg = expr.args[0];
@@ -2734,32 +2796,48 @@ function generateAsyncBlock(
     return `/* Error: async block must have Future type */`;
   }
 
-  const futureTypeCName = context.types[futureType.id]?.cName;
-  if (!futureTypeCName) {
-    return `/* Error: Future type not found in context */`;
+  // Extract the FutureModuleType from Impl(Future(T)) or Dyn(Future(T))
+  const futureModuleType = extractFutureModuleFromType(futureType);
+  if (!futureModuleType) {
+    return `/* Error: Could not extract Future module type */`;
   }
 
-  // Generate a unique name for this async block's state machine
+  // The state machine struct name will be based on the async block ID
+  // This struct IS the Future implementation (value type, not pointer)
   const asyncBlockId = expr.$?.variableName || `async_block_${Date.now()}`;
   const structName = `${asyncBlockId}_state_t`;
   const resumeFunctionName = `${asyncBlockId}_resume`;
   const constructorName = `__yo_new_${asyncBlockId}`;
   const disposeFunctionName = `${asyncBlockId}_state_dispose`;
 
+  // Register this state machine struct as the concrete type for the FutureModuleType
+  // This allows getTypeString to find the struct name when generating code
+  if (!context.types[futureModuleType.id]) {
+    context.types[futureModuleType.id] = {
+      type: futureModuleType,
+      cName: structName,
+    };
+  }
+
   // Analyze the body for await points
   const analysis = analyzeAwaitPoints(bodyExpr);
 
+  // Get the result type (T in Future(T))
+  const resultType = futureModuleType.isFuture.outputType;
+  const resultTypeCName = getTypeString(resultType, context);
+
   // Generate the state machine struct declaration
+  // This struct IS the Future implementation (value type)
   const emitter = context.emitter;
   emitter.emitDeclarationLine(
-    `// State machine for async block ${asyncBlockId}`
+    `// State machine for async block ${asyncBlockId} - implements Future(${typeToString(resultType)})`
   );
-  emitter.emitDeclarationLine(`typedef struct {`);
+  emitter.emitDeclarationLine(`typedef struct ${structName}_struct {`);
   emitter.emitDeclarationLine(
     `  int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done)`
   );
   emitter.emitDeclarationLine(
-    `  ${futureTypeCName}* result;  // The Future this async block returns`
+    `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`
   );
   emitter.emitDeclarationLine(``);
 
@@ -2867,7 +2945,10 @@ function generateAsyncBlock(
     emitter.emitDeclarationLine(``);
   }
 
-  emitter.emitDeclarationLine(`} ${structName};`);
+  emitter.emitDeclarationLine(`} ${structName}_struct;`);
+  emitter.emitDeclarationLine(
+    `typedef struct ${structName}_struct ${structName};`
+  );
   emitter.emitDeclarationLine(``);
 
   // Generate forward declaration for state machine dispose function
@@ -2881,6 +2962,7 @@ function generateAsyncBlock(
   emitter.emitDeclarationLine(``);
 
   // Generate forward declaration for constructor function
+  // Constructor returns the state machine struct by value (not a pointer)
   if (expr.$?.captureType) {
     const captureType = expr.$.captureType;
     const existingCaptureTypeEntry = Object.values(context.types).find(
@@ -2890,10 +2972,10 @@ function generateAsyncBlock(
       ? existingCaptureTypeEntry.cName
       : `async_capture_${captureType.id}`;
     emitter.emitDeclarationLine(
-      `${futureTypeCName}* ${constructorName}(${captureStructName} __capture);`
+      `${structName} ${constructorName}(${captureStructName} __capture);`
     );
   } else {
-    emitter.emitDeclarationLine(`${futureTypeCName}* ${constructorName}();`);
+    emitter.emitDeclarationLine(`${structName} ${constructorName}();`);
   }
   emitter.emitDeclarationLine(``);
 
@@ -2910,7 +2992,9 @@ function generateAsyncBlock(
     constructorName,
     disposeFunctionName,
     futureType: futureType,
-    futureTypeCName,
+    futureModuleType: futureModuleType,
+    resultType: resultType,
+    resultTypeCName: resultTypeCName,
     captureType: expr.$?.captureType,
     analysis,
   });
@@ -3105,13 +3189,14 @@ function generateAsyncBlockConstructor(
   constructorName: string,
   disposeFunctionName: string,
   futureType: SomeType | DynType,
-  futureTypeCName: string,
+  resultType: Type,
+  resultTypeCName: string,
   captureType: StructType | undefined,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
-  // Generate constructor signature
+  // Generate constructor signature - returns struct by value
   if (captureType) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
@@ -3120,72 +3205,38 @@ function generateAsyncBlockConstructor(
       ? existingCaptureTypeEntry.cName
       : `async_capture_${captureType.id}`;
     emitter.emitLine(
-      `${futureTypeCName}* ${constructorName}(${captureStructName} __capture) {`
+      `${structName} ${constructorName}(${captureStructName} __capture) {`
     );
   } else {
-    emitter.emitLine(`${futureTypeCName}* ${constructorName}() {`);
+    emitter.emitLine(`${structName} ${constructorName}() {`);
   }
 
-  // Allocate state machine
-  emitter.emitLine(`  // Allocate async block state machine`);
-  emitter.emitLine(
-    `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`
-  );
-  emitter.emitLine(`  sm->state = 0;`);
+  // Initialize state machine as a value type (not heap-allocated)
+  emitter.emitLine(`  // Initialize async block state machine (value type)`);
+  emitter.emitLine(`  ${structName} sm;`);
+  emitter.emitLine(`  sm.state = 0;`);
   emitter.emitLine(``);
 
   // Initialize capture struct
   if (captureType) {
-    emitter.emitLine(`  // Initialize capture struct`);
-    emitter.emitLine(`  sm->__capture = __capture;`);
+    emitter.emitLine(`  // Initialize captured variables`);
+    emitter.emitLine(`  sm.__capture = __capture;`);
     emitter.emitLine(``);
   }
 
-  // Allocate and initialize Future
-  emitter.emitLine(`  // Allocate and initialize Future`);
+  // Initialize result to default/zero value
+  // For now, we just zero-initialize
   emitter.emitLine(
-    `  ${futureTypeCName}* future = (${futureTypeCName}*)__yo_malloc(sizeof(${futureTypeCName}));`
+    `  // Initialize result (will be set when async block completes)`
   );
-  emitter.emitLine(`  future->header.ref_count = 1;`);
-  emitter.emitLine(`  future->header.gc_flags = 0;`);
-  emitter.emitLine(`  future->header.gc_mark = YO_GC_UNMARKED;`);
-  emitter.emitLine(`  future->header.gc_next = NULL;`);
-  emitter.emitLine(`  future->header.gc_prev = NULL;`);
-  emitter.emitLine(`  future->header.dispose_fn = yo_future_dispose;`);
-  emitter.emitLine(`  future->header.traverse_fn = NULL;`);
-  emitter.emitLine(
-    `  future->state_machine_dispose_fn = ${disposeFunctionName};`
-  );
-  emitter.emitLine(
-    `  atomic_store_explicit(&future->state, YO_FUTURE_RUNNING, memory_order_relaxed);`
-  );
-  emitter.emitLine(`  future->state_machine = sm;`);
-  emitter.emitLine(
-    `  future->resume_fn = (void (*)(void*))${resumeFunctionName};`
-  );
-  emitter.emitLine(
-    `  atomic_store_explicit(&future->continuation_fn, NULL, memory_order_relaxed);`
-  );
-  emitter.emitLine(
-    `  atomic_store_explicit(&future->continuation_sm, NULL, memory_order_relaxed);`
-  );
-  emitter.emitLine(
-    `  atomic_store_explicit(&future->detached, false, memory_order_relaxed);`
-  );
-  emitter.emitLine(`  sm->result = future;`);
+  if (isUnitType(resultType)) {
+    emitter.emitLine(`  // Result is unit type, no initialization needed`);
+  } else {
+    emitter.emitLine(`  memset(&sm.result, 0, sizeof(${resultTypeCName}));`);
+  }
   emitter.emitLine(``);
 
-  // Spawn the task immediately (eager spawning - JavaScript-style)
-  emitter.emitLine(`  // Spawn task immediately (eager - JavaScript-style)`);
-  emitter.emitLine(
-    `  yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, sm);`
-  );
-  emitter.emitLine(
-    `  ASYNC_DEBUG("${asyncBlockId}: Created and spawned Future immediately\\n");`
-  );
-  emitter.emitLine(``);
-
-  emitter.emitLine(`  return future;`);
+  emitter.emitLine(`  return sm;`);
   emitter.emitLine(`}`);
   emitter.emitLine(``);
 }
@@ -5191,7 +5242,9 @@ export function generateDeferredAsyncBlocks(
       constructorName,
       disposeFunctionName,
       futureType,
-      futureTypeCName,
+      futureModuleType,
+      resultType,
+      resultTypeCName,
       captureType,
       analysis,
     } = asyncBlockInfo;
@@ -5230,7 +5283,8 @@ export function generateDeferredAsyncBlocks(
       constructorName,
       disposeFunctionName,
       futureType,
-      futureTypeCName,
+      resultType,
+      resultTypeCName,
       captureType,
       context
     );
