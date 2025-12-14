@@ -9,6 +9,7 @@ import {
   attachTempVariableToExpr,
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
+  Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -128,6 +129,40 @@ function createBoxedType(
   };
 }
 
+function isBoxFunctionCall(
+  funcExpr: Expr,
+  env: Environment,
+  context: EvaluatorContext
+): boolean {
+  // Evaluate the function expression to get its value
+  const evaluatedFuncExpr = evaluateExpression({
+    expr: funcExpr,
+    env,
+    context,
+  }) as FuncCallExpr;
+
+  if (!evaluatedFuncExpr.$) {
+    return false;
+  }
+
+  const funcValue = evaluatedFuncExpr.$.value;
+
+  if (isFunctionValue(funcValue)) {
+    // Check if the funcValue matches the `box` function in the env
+    const boxVariables = getVariablesFromEnv(env, "box");
+    const findBoxFunction = boxVariables.find(
+      (v) => v.value && isFunctionValue(v.value) && v.value === funcValue
+    );
+    return Boolean(findBoxFunction);
+  } else if (isTypeValue(funcValue)) {
+    const typeValue = funcValue;
+    const type = typeValue.value;
+    return Boolean(type?.typeName?.startsWith("Box("));
+  } else {
+    return false;
+  }
+}
+
 export function evaluateDynValue({
   expr,
   env,
@@ -167,7 +202,8 @@ export function evaluateDynValue({
     // For dyn(box(closure)), we need Box(Impl(A)) as the expected type
     if (
       exprIsFunctionCall(valueExpr) &&
-      exprIsFunctionCallOf(valueExpr, "box", 1) // TODO: Right now we check by name "box". We need to support other aliases if any
+      isBoxFunctionCall(valueExpr.func, env, { ...context }) && // Check if it's `box` or `Box(T)` call
+      exprIsFunctionCallOf(valueExpr.args[0]!, "=>") // anonymous closure
     ) {
       // Construct Box(Impl(A)) type
       const { boxType, env: nextEnv } = createBoxedType(someType, env, context);
