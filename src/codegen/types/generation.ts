@@ -1,3 +1,4 @@
+import { BuiltinFunctions } from "../../expr";
 import {
   DynType,
   EnumType,
@@ -877,8 +878,13 @@ export function generateDynDeclaration(
   // Generate function pointers in the correct order: base module methods first, then user module methods
   const processedMethods = new Set<string>();
 
-  // Check if this dyn type contains an FnModuleType (i.e., Dyn(Fn(...)))
-  const isFnDyn = dynType.requiredModules.some((m) => isFnModuleType(m));
+  // Reserved ARC/GC hooks are generated outside the dyn vtable.
+  const reservedDynMethodLabels = new Set<string>([
+    BuiltinFunctions.___dup[0]!,
+    BuiltinFunctions.___drop[0]!,
+    BuiltinFunctions.___dispose[0]!,
+    BuiltinFunctions.dispose[0]!,
+  ]);
 
   // Process modules in the order they appear in dynType.requiredModules
   for (const moduleType of dynType.requiredModules) {
@@ -910,9 +916,8 @@ export function generateDynDeclaration(
         continue;
       }
 
-      // For Fn dyn types (Dyn(Fn(...))), skip internal ARC methods (___dup, ___drop, ___dispose)
-      // These are handled by the header's dispose_fn, not the vtable
-      if (isFnDyn && field.label.startsWith("___")) {
+      // Skip reserved ARC/GC hooks; Dyn dup/drop are generated separately.
+      if (reservedDynMethodLabels.has(field.label)) {
         continue;
       }
 

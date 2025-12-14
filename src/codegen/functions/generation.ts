@@ -1603,7 +1603,12 @@ export function generateDynWrapperFunctions(
 
   for (const [implKey, impl] of context.dynImpls) {
     const dataType = impl.dataType;
-    const isFnDyn = impl.dynType.requiredModules.some((m) => isFnModuleType(m));
+    const reservedDynMethodLabels = new Set<string>([
+      BuiltinFunctions.___dup[0]!,
+      BuiltinFunctions.___drop[0]!,
+      BuiltinFunctions.___dispose[0]!,
+      BuiltinFunctions.dispose[0]!,
+    ]);
 
     // Special-case Dyn(Fn(...)): the vtable uses a synthetic `call` slot derived from FnModuleType.isFn,
     // not from module fields. For boxed closures, we can dispatch directly to the embedded call pointer.
@@ -1684,8 +1689,8 @@ export function generateDynWrapperFunctions(
         continue;
       }
 
-      // For Dyn(Fn(...)), skip internal ARC methods (___dup, ___drop, ___dispose)
-      if (isFnDyn && field.label.startsWith("___")) {
+      // Skip reserved ARC/GC hooks; Dyn dup/drop are generated separately.
+      if (reservedDynMethodLabels.has(field.label)) {
         continue;
       }
 
@@ -1817,7 +1822,12 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
 
     // Initialize vtable slots in the exact same way the vtable type is generated in generateDynDeclaration.
     const processedMethods = new Set<string>();
-    const isFnDyn = impl.dynType.requiredModules.some((m) => isFnModuleType(m));
+    const reservedDynMethodLabels = new Set<string>([
+      BuiltinFunctions.___dup[0]!,
+      BuiltinFunctions.___drop[0]!,
+      BuiltinFunctions.___dispose[0]!,
+      BuiltinFunctions.dispose[0]!,
+    ]);
 
     for (const moduleType of impl.dynType.requiredModules) {
       if (isFnModuleType(moduleType)) {
@@ -1833,7 +1843,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
           continue;
         }
 
-        if (isFnDyn && field.label.startsWith("___")) {
+        if (reservedDynMethodLabels.has(field.label)) {
           continue;
         }
 
