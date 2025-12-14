@@ -1342,6 +1342,8 @@ function getStructTypeSize(type: StructType): number | null {
 
 function getEnumTypeSize(type: EnumType): number | null {
   let maxSize = 0;
+  let maxAlignment = 0;
+
   for (const variant of type.variants) {
     let variantSize: number = 0;
     if (variant.fields) {
@@ -1354,13 +1356,51 @@ function getEnumTypeSize(type: EnumType): number | null {
           return -1; // If any parameter size is dynamic, return -1
         }
         variantSize += fieldSize; // Accumulate the size of each parameter
+
+        // Track maximum alignment requirement
+        const fieldAlignment = getAlignmentOfType(field.type);
+        if (fieldAlignment === null) {
+          return null;
+        }
+        maxAlignment = Math.max(maxAlignment, fieldAlignment * 8); // Convert bytes to bits
       }
     }
     maxSize = Math.max(maxSize, variantSize); // Track the maximum size of variants
   }
 
   const tagSize = Math.ceil(Math.ceil(Math.log2(type.variants.length)) / 8) * 8; // Size of the tag in bits
-  return maxSize + tagSize; // Return total size in bits (max variant size + tag size)
+  const tagAlignment = 32; // Tag is typically int (4 bytes = 32 bits)
+
+  // The union must be aligned to its largest member's alignment
+  const dataAlignment = Math.max(maxAlignment, 8); // At least 1 byte alignment
+
+  // Calculate total size with proper alignment:
+  // 1. Tag takes tagSize bits
+  // 2. Padding after tag to align data to dataAlignment
+  // 3. Data takes maxSize bits
+  // 4. Final struct alignment to the largest alignment requirement
+
+  const structAlignment = Math.max(tagAlignment, dataAlignment);
+
+  // Align tag end to data alignment
+  const tagSizeBytes = tagSize / 8;
+  const dataAlignmentBytes = dataAlignment / 8;
+  const paddingAfterTag =
+    ((dataAlignmentBytes - (tagSizeBytes % dataAlignmentBytes)) %
+      dataAlignmentBytes) *
+    8;
+
+  const totalBeforeAlignment = tagSize + paddingAfterTag + maxSize;
+
+  // Align total size to struct alignment
+  const totalBytes = totalBeforeAlignment / 8;
+  const structAlignmentBytes = structAlignment / 8;
+  const finalPadding =
+    ((structAlignmentBytes - (totalBytes % structAlignmentBytes)) %
+      structAlignmentBytes) *
+    8;
+
+  return totalBeforeAlignment + finalPadding; // Return total size in bits
 }
 
 function getUnionType(type: UnionType): number | null {
