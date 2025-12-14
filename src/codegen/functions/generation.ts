@@ -231,12 +231,54 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     generateFunction(value, cName, context);
   }
 
-  // Dyn uses existing object types (including Box(T)); wrappers + vtables are generated from dynImpls.
-  generateDynWrapperFunctions(context);
-  generateDynVtables(context);
-
   // Generate main wrapper if user defined a main function
   generateMainWrapper(context);
+}
+
+/**
+ * Generate dup/drop functions for dyn types
+ */
+export function generateDynDupDrop(context: FunctionGenerationContext): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return;
+  }
+
+  emitter.emitLine("");
+  emitter.emitLine("// === Dyn Dup/Drop Functions ===");
+  emitter.emitLine("");
+
+  const generatedTypes = new Set<string>();
+
+  for (const [, impl] of context.dynImpls) {
+    const dynTypeCName =
+      context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+
+    if (generatedTypes.has(dynTypeCName)) {
+      continue;
+    }
+    generatedTypes.add(dynTypeCName);
+
+    // Dup
+    emitter.emitLine(
+      `${dynTypeCName} __yo_dup_${dynTypeCName}(${dynTypeCName} dyn) {`
+    );
+    emitter.emitLine(`  if (dyn.data) {`);
+    emitter.emitLine(`    __yo_incr_rc(dyn.data);`);
+    emitter.emitLine(`  }`);
+    emitter.emitLine(`  return dyn;`);
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+
+    // Drop
+    emitter.emitLine(`void __yo_drop_${dynTypeCName}(${dynTypeCName} dyn) {`);
+    emitter.emitLine(`  if (dyn.data) {`);
+    emitter.emitLine(`    __yo_decr_rc(dyn.data);`);
+    emitter.emitLine(`  }`);
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+  }
 }
 
 /**
@@ -1541,56 +1583,6 @@ export function generateDynBoxFunctions(
 }
 
 /**
- * Generate box type declarations for dyn implementations
- */
-export function generateDynBoxTypes(context: FunctionGenerationContext): void {
-  const emitter = context.emitter;
-
-  if (context.dynImpls.size === 0) {
-    return; // No dyn() calls to generate boxes for
-  }
-
-  emitter.emitLine("");
-  emitter.emitLine("// === Dyn Box Types ===");
-  emitter.emitLine("// These structs wrap concrete types for dynamic dispatch");
-  emitter.emitLine("");
-
-  // Track generated box types to avoid duplicates
-  const generatedBoxTypes = new Set<string>();
-
-  for (const [, impl] of context.dynImpls) {
-    const concreteTypeCName =
-      context.types[impl.concreteType.id]?.cName ||
-      `unknown_${impl.concreteType.id}`;
-    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
-
-    // Skip if already generated (multiple dyn() calls with same type)
-    if (generatedBoxTypes.has(boxTypeName)) {
-      continue;
-    }
-    generatedBoxTypes.add(boxTypeName);
-
-    const valueTypeStr = getTypeString(impl.concreteType, context);
-
-    // Generate box struct
-    emitter.emitLine(`typedef struct {`);
-    emitter.emitLine(`  yo_ref_header_t header;`);
-    emitter.emitLine(`  ${valueTypeStr} value;`);
-    emitter.emitLine(`} ${boxTypeName};`);
-    emitter.emitLine("");
-
-    // Generate box constructor declaration
-    emitter.emitLine(
-      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
-    );
-
-    // Generate box dispose declaration
-    emitter.emitLine(`void __yo_dispose_${boxTypeName}(void* ptr);`);
-    emitter.emitLine("");
-  }
-}
-
-/**
  * Generate wrapper functions for dyn method dispatch
  */
 export function generateDynWrapperFunctions(
@@ -1737,7 +1729,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     const vtableTypeName = `${dynTypeCName}_vtable`;
 
     emitter.emitDeclarationLine(
-      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.label || "?").join(" + ")})`
+      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.typeName || "?").join(" + ")})`
     );
     emitter.emitDeclarationLine(
       `static const ${vtableTypeName} ${vtableName} = {`

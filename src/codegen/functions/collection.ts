@@ -1,5 +1,13 @@
 import { Expr, exprIsAtom, exprIsFunctionCall } from "../../expr";
-import { isFunctionType, isUnitType, typeContainsSomeType } from "../../types";
+import {
+  isBoxedType,
+  isDynType,
+  isFunctionType,
+  isObjectType,
+  isUnitType,
+  Type,
+  typeContainsSomeType,
+} from "../../types";
 import {
   isFunctionValue,
   isTypeValue,
@@ -132,6 +140,38 @@ export function findFunctionCallsInExpr(
       };
       // Also recursively collect functions called by this closure function
       findFunctionCallsInExpr(closureFunctionValue.body, context);
+    }
+  }
+
+  // Check for dyn() calls to collect impls
+  if (
+    exprIsFunctionCall(expr) &&
+    expr.$ &&
+    expr.$.dynCallModuleValues &&
+    expr.$.dynCallModuleValues.length > 0
+  ) {
+    const dynType = expr.$.type;
+    const valueExpr = expr.args[0];
+
+    if (isDynType(dynType) && valueExpr && valueExpr.$?.type) {
+      const valueType = valueExpr.$.type;
+      const moduleValue = expr.$.dynCallModuleValues[0];
+
+      if (moduleValue && (isObjectType(valueType) || isBoxedType(valueType))) {
+        const concreteType: Type = isBoxedType(valueType)
+          ? valueType.fields[0]!.type
+          : valueType;
+
+        // Use ID-based key for now, will be fixed up later
+        const implKey = `${concreteType.id}_${dynType.id}`;
+
+        context.dynImpls.set(implKey, {
+          dynType,
+          concreteType,
+          dataType: valueType,
+          moduleValue,
+        });
+      }
     }
   }
 

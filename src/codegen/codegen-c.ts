@@ -10,12 +10,20 @@ import { FunctionGenerationContext } from "./functions/context";
 import {
   generateAllFunctions,
   generateClosureDisposeFunctions,
+  generateDynBoxFunctions,
+  generateDynDupDrop,
+  generateDynVtables,
+  generateDynWrapperFunctions,
   generateFunctionDeclarations,
   generateSpecializedFunctionDeclarations,
   generateSpecializedFunctions,
 } from "./functions/generation";
 import { collectRequiredTypes } from "./types/collection";
-import { generateTypeDeclarations } from "./types/generation";
+import {
+  generateDynBoxTypes,
+  generateTypeDeclarations,
+} from "./types/generation";
+import { fixupDynImplKeys } from "./utils/fixup";
 
 export class CodeGeneratorC {
   private emitter: Emitter;
@@ -98,11 +106,29 @@ typedef enum {
     // Second pass: Generate type declarations
     generateTypeDeclarations(context);
 
+    // Fix up dyn impl keys now that types have C names
+    fixupDynImplKeys(context);
+
+    // Generate dyn box types
+    generateDynBoxTypes(context);
+
     // Third pass: Generate function declarations (prototypes) for regular functions
     generateFunctionDeclarations(context);
 
     // Fourth pass: Generate all collected functions
     generateAllFunctions(context);
+
+    // Generate dyn box functions
+    generateDynBoxFunctions(context);
+
+    // Generate dyn wrapper functions
+    generateDynWrapperFunctions(context);
+
+    // Generate dyn vtables
+    generateDynVtables(context);
+
+    // Generate dyn dup/drop functions
+    generateDynDupDrop(context);
 
     // Generate deferred async block implementations
     // This must happen after all regular functions are generated to avoid nesting

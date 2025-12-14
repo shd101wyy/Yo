@@ -3,6 +3,7 @@ import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   AtomExpr,
   attachTempVariableToExpr,
+  cloneExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -422,14 +423,17 @@ export function evaluateFunctionCall({
 
     if (isFunctionType(functionToCall.type)) {
       try {
+        // NOTE: We need to pass the cloneExpr expr and argExprs here because
+        // we might modify the expressions during the tryToCallFunctionWithArguments
+        // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: functionToCall.type,
-          expr,
+          expr: cloneExpr(expr),
           functionCalleeExpr: func,
-          argExprs: argsToUse,
+          argExprs: argsToUse.map((arg) => cloneExpr(arg)),
           callerEnv: env,
-          context: { ...context },
+          context,
           isMethodCall: Boolean(methodExpr),
         });
         return {
@@ -455,14 +459,17 @@ export function evaluateFunctionCall({
       // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
       const fnModuleType = extractFnModuleFromType(functionToCall.type)!;
       try {
+        // NOTE: We need to pass the cloneExpr expr and argExprs here because
+        // we might modify the expressions during the tryToCallFunctionWithArguments
+        // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: fnModuleType.isFn.callType,
-          expr,
+          expr: cloneExpr(expr),
           functionCalleeExpr: func,
-          argExprs: argsToUse,
+          argExprs: argsToUse.map((arg) => cloneExpr(arg)),
           callerEnv: env,
-          context: { ...context },
+          context,
           isMethodCall: Boolean(methodExpr),
         });
         return {
@@ -980,12 +987,29 @@ ${functionsWithMatchingTypes
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isUnquote
     ) {
+      // Evaluate the function again with the real expr and arg exprs
       const {
         returnValue,
         callerEnv,
         pathCollection,
         deferredDropExpressions,
-      } = getFunctionCallResult(functionToCall);
+      } = tryToCallFunctionWithArguments({
+        functionValue: extractFunctionValue(functionToCall.value),
+        functionType: functionToCall.type,
+        expr: expr,
+        functionCalleeExpr: func,
+        argExprs: functionToCall.args ?? args,
+        callerEnv: env,
+        context,
+        isMethodCall: Boolean(methodExpr),
+      });
+
+      // const {
+      //   returnValue,
+      //   callerEnv,
+      //   pathCollection,
+      //   deferredDropExpressions,
+      // } = getFunctionCallResult(functionToCall);
 
       env = popEnvFrame(callerEnv);
 
@@ -1015,6 +1039,7 @@ ${functionsWithMatchingTypes
       // - Function returns runtime value
       // - Function returns comptime value
       // For function returns comptime value, we can evaluate the function body.
+      // Evaluate the function again with the real expr and arg exprs
       const {
         returnType,
         returnValue,
@@ -1025,7 +1050,16 @@ ${functionsWithMatchingTypes
         specializedFunctionValue,
         runtimeArgExprsInOrder,
         deferredDropExpressions,
-      } = getFunctionCallResult(functionToCall);
+      } = tryToCallFunctionWithArguments({
+        functionValue: extractFunctionValue(functionToCall.value),
+        functionType: functionToCall.type,
+        expr: expr,
+        functionCalleeExpr: func,
+        argExprs: functionToCall.args ?? args,
+        callerEnv: env,
+        context,
+        isMethodCall: Boolean(methodExpr),
+      });
 
       env = popEnvFrame(callerEnv);
 
@@ -1098,8 +1132,10 @@ ${functionsWithMatchingTypes
         };
       }
     }
+
     return expr;
   } else if (
+    // Check if it's a closure call
     (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
     extractFnModuleFromType(functionToCall.type)
   ) {

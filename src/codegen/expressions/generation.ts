@@ -3202,7 +3202,8 @@ function generateDynCall(
     return `/* Error: dyn() call missing module values */`;
   }
 
-  const valueExpr = expr.args[0];
+  // Use runtimeArgExprsInOrder which contains the evaluated args with metadata
+  const valueExpr = expr.$?.runtimeArgExprsInOrder?.[0] ?? expr.args[0];
   if (!valueExpr) {
     return `/* Error: dyn() requires a value argument */`;
   }
@@ -3328,11 +3329,23 @@ function generateDynCall(
   });
 
   // Generate the value expression
-  const valueCode = generateExpr(valueExpr, indent, context);
-  let tempVarName = expr.$?.variableName;
+  let valueCode = generateExpr(valueExpr, indent, context);
+
+  // If the value expression has a temporary variable name assigned by the evaluator,
+  // we must declare it because deferred drop expressions might refer to it.
+  if (valueExpr.$?.variableName && valueCode !== valueExpr.$.variableName) {
+    const varTypeAndName = getVariableTypeString(
+      valueExpr.$.type!,
+      valueExpr.$.variableName,
+      context
+    );
+    context.emitter.emitLine(`${indent}${varTypeAndName} = ${valueCode};`);
+    valueCode = valueExpr.$.variableName;
+  }
+
+  const tempVarName = expr.$?.variableName;
   if (!tempVarName) {
-    tempVarName = generateNewTempVariableName(expr.$.env.modulePath);
-    expr.$.variableName = tempVarName;
+    return `/* Error: dyn() expression missing temp variable name */`;
   }
 
   // Generate: Dyn value = { .data = valueCode, .vtable = &vtable }

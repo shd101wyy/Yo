@@ -242,6 +242,11 @@ export interface NumericTypeCallResult {
 
 export interface FunctionToCall {
   type: Type;
+  /**
+   * This is the original arg expressions.
+   * Not the one we called with cloneExpr(...)
+   */
+  args?: Expr[];
   value?: Value;
   result:
     | {

@@ -69,7 +69,21 @@ function generateDeferredDropExpressions({
   const deferredDropExpressions: Expr[] = [];
   let finalEnv = env;
 
+  /// console.log("\\n=== DEBUG: generateDeferredDropExpressions ===");
+  /// console.log(
+  ///   "Variables to drop:",
+  ///   variablesToDrop.map((v) => `${v.name} (id: ${v.id})`).join(", ")
+  /// );
+
   for (const variable of variablesToDrop) {
+    /// console.log(`\\nGenerating drop for variable: ${variable.name}`);
+    /// console.log(`  Variable ID: ${variable.id}`);
+    /// console.log(`  Variable type: ${typeToString(variable.type)}`);
+    /// console.log(
+    ///   `  Variable initializedAtToken:`,
+    ///   variable.initializedAtToken?.value
+    /// );
+
     // Create a drop expression: ___drop(varName)
     const dropExpr: Expr = generateExprFromCode(
       `${BuiltinFunctions.___drop[0]!}(${variable.name})`
@@ -839,6 +853,28 @@ export function evaluateBeginExpression({
     });
     deferredDropExpressions = dropResult.deferredDropExpressions;
     env = dropResult.env;
+
+    // DEBUG: Log deferred drop expressions
+    /// if (deferredDropExpressions) {
+    ///   console.log("\n=== DEBUG: Deferred Drop Expressions ===");
+    ///   for (const dropExpr of deferredDropExpressions) {
+    ///     console.log("Drop expression:", exprToString(dropExpr));
+    ///     if (dropExpr.$?.variableName) {
+    ///       console.log("  Variable name:", dropExpr.$.variableName);
+    ///     }
+    ///     if (exprIsFunctionCall(dropExpr)) {
+    ///       console.log("  Function:", exprToString(dropExpr.func));
+    ///       console.log(
+    ///         "  Args:",
+    ///         dropExpr.args.map((a) => exprToString(a)).join(", ")
+    ///       );
+    ///       if (dropExpr.args[0]?.$?.type) {
+    ///         console.log("  Arg type:", typeToString(dropExpr.args[0].$.type));
+    ///       }
+    ///     }
+    ///   }
+    ///   console.log("=== END DEBUG ===\n");
+    /// }
   }
 
   // Attach deferredDropExpressions to returnExpr if exists
