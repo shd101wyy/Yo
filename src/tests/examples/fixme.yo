@@ -1,24 +1,26 @@
 open import "std/libc/stdio.yo";
+{ GlobalAllocator } :: import "std/allocator";
+open GlobalAllocator;
+
+MyBox :: object(
+  (*) : i32,
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.*);
+  })
+);
 
 main :: (fn() -> unit) {
-  x := 42;
-  p := &(x);
-  
-  // Test casting to void pointer
-  void_ptr := (*(void))(p);
-  printf("Original pointer: %p\n", p);
-  printf("As void*: %p\n", void_ptr);
-  
-  // Test casting back to i32 pointer
-  i32_ptr := (*(i32))(void_ptr);
-  printf("Back to i32*: %p\n", i32_ptr);
-  printf("Value through casted pointer: %d\n", i32_ptr.*);
-  
-  // Test pointer arithmetic
-  q := Ptr.(+)(p, 2);
-  q = Ptr.(-)(q, 2);
-  printf("After arithmetic: %p\n", q);
-  printf("Pointers equal: %d\n", Ptr.(==)(p, q));
+  b := MyBox(42);
+  p := malloc(sizeof(MyBox));
+  match(p, 
+    .None => {
+      printf("Memory allocation failed\n");
+    },
+    .Some(ptr) => {
+      casted_ptr := (*(MyBox))(ptr);
+      casted_ptr.* = b;
+    }
+  );
 };
 
 export main;

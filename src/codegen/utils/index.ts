@@ -440,8 +440,8 @@ export function getTypeString(
       const baseTypeStr = getTypeString(childType, context);
 
       // Borrowing an object type should keep the same C type (already a pointer)
-      if (isStructType(childType) && childType.isReferenceSemantics) {
-        return baseTypeStr;
+      if (isObjectType(childType)) {
+        return `${baseTypeStr}*`;
       }
       // Borrowing an enum that is represented as a pointer (nullable pointer optimization)
       // should also keep the same C type string.
