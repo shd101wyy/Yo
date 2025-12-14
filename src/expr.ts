@@ -551,7 +551,6 @@ export const BuiltinFunctions = {
 
   // Pointer related functions
   // Check std/data/primitives/ptr.yo
-  __yo_ptr_cast: ["__yo_ptr_cast"],
   __yo_ptr_add: ["__yo_ptr_add"],
   __yo_ptr_sub: ["__yo_ptr_sub"],
   __yo_ptr_diff: ["__yo_ptr_diff"],
@@ -565,10 +564,8 @@ export const BuiltinFunctions = {
   __yo_ptr_deref: ["__yo_ptr_deref"],
   __yo_ptr_set: ["__yo_ptr_set"],
 
-  // Type casting for primitives (generic form)
-  __yo_as: ["__yo_as"],
-
-  // expr related functions
+  // Type casting for primitives and pointers (generic form)
+  __yo_as: ["__yo_as"], // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],
   __yo_expr_is_atom: ["__yo_expr_is_atom"],
   __yo_expr_is_fn_call: ["__yo_expr_is_fn_call"],

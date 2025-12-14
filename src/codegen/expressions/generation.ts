@@ -11,7 +11,6 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { TypeValue } from "../../type-value";
 import {
   ArrayType,
   DynType,
@@ -4858,14 +4857,7 @@ usleep((${args[0]!}) * 1000)
   else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {
     return `__yo_decr_rc((void*)(${args[0]!}))`;
   }
-  // __yo_ptr_cast
-  else if (BuiltinFunctions.__yo_ptr_cast.includes(functionName)) {
-    const typeValueArg = expr.args[expr.args.length - 1]!;
-    const typeValue = typeValueArg.$?.value as TypeValue;
-    const targetCType = getTypeString(typeValue.value, context);
-    return `((${targetCType})(${args[0]!}))`;
-  }
-  // __yo_as - generic type casting (when type-specific __yo_*_as is simplified)
+  // __yo_as - generic type casting for primitives and pointers
   else if (BuiltinFunctions.__yo_as.includes(functionName) && expr.$?.type) {
     // The return type tells us what to cast to
     const targetCType = getTypeString(expr.$.type, context);

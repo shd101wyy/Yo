@@ -240,6 +240,11 @@ export interface NumericTypeCallResult {
   env: Environment;
 }
 
+export interface PointerTypeCallResult {
+  expr: Expr;
+  env: Environment;
+}
+
 export interface FunctionToCall {
   type: Type;
   /**
@@ -319,6 +324,15 @@ export interface FunctionToCall {
         result: NumericTypeCallResult;
       }
     | {
+        /**
+         * This is the result from calling:
+         *
+         *   tryToConvertToPointerType
+         */
+        kind: "pointer-type";
+        result: PointerTypeCallResult;
+      }
+    | {
         kind: "error";
         error: Error | YoError;
       };
@@ -356,6 +370,15 @@ export function getArrayCallResult(
 ): ArrayCallResult {
   if (functionToCall.result.kind !== "array") {
     throw new Error("Expected array call result");
+  }
+  return functionToCall.result.result;
+}
+
+export function getPointerTypeCallResult(
+  functionToCall: FunctionToCall
+): PointerTypeCallResult {
+  if (functionToCall.result.kind !== "pointer-type") {
+    throw new Error("Expected pointer type call result");
   }
   return functionToCall.result.result;
 }

@@ -56,8 +56,6 @@ extern "Yo",
   __yo_op_bit_right_shift : (fn(forall(T : Type), x : T, y : T) -> T),
 
   // Ptr related functions
-  __yo_ptr_cast :
-    fn(forall(Source: Type), source : Source, compt(Target) : Type) -> Target,
   __yo_ptr_add :
     fn(forall(T: Type), ptr : T, offset : usize) -> T,
   __yo_ptr_sub :
@@ -2569,6 +2567,7 @@ export compt_string : _compt_string;
 
 /// Ptr
 impl(forall(T : Type), where(T <: Send), *(T), Send());
+/*
 impl(forall(T : Type), *(T), Add(usize, *(T))(
   (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
 ));
@@ -2590,10 +2589,26 @@ impl(forall(T : Type), *(T), {
     return __yo_ptr_diff(lhs, rhs);
   };
   cast :: (fn(self : Self, compt(Target) : Type) -> Target) {
-    return __yo_ptr_cast(self, Target);
+    return __yo_as(self, Target);
   };
   export diff, cast;
 });
+*/
+Ptr :: impl {
+  (+) :: __yo_ptr_add;
+  (-) :: __yo_ptr_sub;
+  (==) :: __yo_ptr_eq;
+  (!=) :: __yo_ptr_neq;
+  (<) :: __yo_ptr_lt;
+  (<=) :: __yo_ptr_lte;
+  (>) :: __yo_ptr_gt;
+  (>=) :: __yo_ptr_gte;
+  diff :: __yo_ptr_diff;
+
+  export (+), (-), (==), (!=), (<), (<=), (>), (>=), diff;
+};
+export Ptr;
+
 
 /// Array
 impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());

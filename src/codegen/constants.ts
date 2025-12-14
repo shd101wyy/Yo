@@ -30,7 +30,6 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_op_bit_right_shift, // >>
 
   // Pointer operations
-  ...BuiltinFunctions.__yo_ptr_cast, // __yo_ptr_cast
   ...BuiltinFunctions.__yo_ptr_add, // __yo_ptr_add
   ...BuiltinFunctions.__yo_ptr_sub, // __yo_ptr_sub
   ...BuiltinFunctions.__yo_ptr_diff, // __yo_ptr_diff

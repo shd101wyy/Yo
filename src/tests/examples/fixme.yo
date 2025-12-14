@@ -1,71 +1,24 @@
 open import "std/libc/stdio.yo";
 
-TestDyn :: module(
-  print : (fn(self : *(Self)) -> unit),
-  return_i32 : (fn(self : *(Self)) -> i32)
-);
-
-use_test_dyn :: (fn(
-  value : Dyn(TestDyn)
-) -> i32) {
-  value.print();
-  return value.return_i32();
-};
-
-MyBox :: object(
-  x : i32,
-
-  dispose :: ((fn(self : Self)-> unit) {
-    printf("Disposing Boxed i32 with value: %d\n", self.x);
-  })
-);
-
-impl(i32, TestDyn(
-  print : ((self) -> {
-    printf("i32 value: %d\n", self.*);
-  }),
-  return_i32 : ((self) -> {
-    return self.*;
-  })
-));
-
-impl(boolean, TestDyn(
-  print : ((self) -> {
-    cond(
-      self.* => printf("boolean value: true\n"),
-      true => printf("boolean value: false\n")
-    );
-  }),
-  return_i32 : ((self) ->
-    cond(
-      self.* => 1,
-      true => return 0
-    )
-  )
-));
-
-impl(MyBox, TestDyn(
-  print : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.x);
-  }),
-  return_i32 : ((self) -> {
-    return self.x;
-  })
-));
-
-add :: (fn(x : i32, y : i32) -> i32) {
-  return (x + y);
-};
-
 main :: (fn() -> unit) {
-  i := use_test_dyn(dyn Box(i32) i32(42));
-  assert(i == 42);    
-
-  b := use_test_dyn(dyn box true);
-  assert(b == 1);
+  x := 42;
+  p := &(x);
   
-  bi := MyBox(100);
-  assert(use_test_dyn(dyn bi) == 100);
+  // Test casting to void pointer
+  void_ptr := (*(void))(p);
+  printf("Original pointer: %p\n", p);
+  printf("As void*: %p\n", void_ptr);
+  
+  // Test casting back to i32 pointer
+  i32_ptr := (*(i32))(void_ptr);
+  printf("Back to i32*: %p\n", i32_ptr);
+  printf("Value through casted pointer: %d\n", i32_ptr.*);
+  
+  // Test pointer arithmetic
+  q := Ptr.(+)(p, 2);
+  q = Ptr.(-)(q, 2);
+  printf("After arithmetic: %p\n", q);
+  printf("Pointers equal: %d\n", Ptr.(==)(p, q));
 };
 
 export main;

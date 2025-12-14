@@ -26,6 +26,7 @@ import {
   isFunctionType,
   isModuleType,
   isObjectType,
+  isPtrType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -70,6 +71,7 @@ import {
   isConvertibleNumericType,
   tryToConvertToNumericType,
 } from "./numeric_type";
+import { tryToConvertToPointerType } from "./pointer_type";
 import { tryToCallTypeWithArguments } from "./type";
 
 export function evaluateFunctionCall({
@@ -829,6 +831,60 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             },
           };
         }
+      }
+      // pointer type casting (*(T))
+      else if (isTypeValue(value) && isPtrType(value.value)) {
+        const targetType = value.value;
+        // Pointer type casting expects exactly one argument
+        if (argsToUse.length !== 1) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: formatErrorMessage({
+                token: func.token,
+                errorMessage: `Pointer type casting expects exactly 1 argument, got ${argsToUse.length}`,
+              }),
+            },
+          };
+        }
+        try {
+          const result = tryToConvertToPointerType({
+            targetType,
+            argExpr: argsToUse[0]!,
+            expr,
+            callerEnv: env,
+            context: { ...context },
+          });
+          if (result) {
+            return {
+              ...functionToCall,
+              result: {
+                kind: "pointer-type",
+                result,
+              },
+            };
+          } else {
+            return {
+              ...functionToCall,
+              result: {
+                kind: "error",
+                error: formatErrorMessage({
+                  token: func.token,
+                  errorMessage: `Failed to cast to pointer type ${typeToString(targetType)}`,
+                }),
+              },
+            };
+          }
+        } catch (error) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: error,
+            },
+          };
+        }
       } else {
         return {
           ...functionToCall,
@@ -1402,6 +1458,12 @@ ${functionsWithMatchingTypes
     // numeric type conversion (i32, u8, f64, etc.)
     else if (isTypeValue(value) && isConvertibleNumericType(value.value)) {
       // This should already be evaluated by tryToConvertToNumericType
+      // The expr has been transformed to __yo_as call if needed
+      return expr;
+    }
+    // pointer type casting (*(T))
+    else if (isTypeValue(value) && isPtrType(value.value)) {
+      // This should already be evaluated by tryToConvertToPointerType
       // The expr has been transformed to __yo_as call if needed
       return expr;
     }
