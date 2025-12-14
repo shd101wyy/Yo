@@ -39,6 +39,7 @@ import {
   evaluateAsync,
   evaluateTaskSetMaximumThreads,
 } from "../builtins/concurrency_fns";
+import { evaluateConsume } from "../builtins/consume";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
 import {
@@ -481,6 +482,13 @@ ${exprToString(expr)}`,
     ) {
       // && ||
       return evaluateAndOr({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
+      // consume
+      return evaluateConsume({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
       // ___drop
       return evaluateDrop({ expr, env, context: { ...context } });

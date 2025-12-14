@@ -1744,11 +1744,12 @@ function generateFuncCall(
     }
   }
   // consume
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
+    return generateExpr(expr.args[0]!, indent, context);
+  }
+
   // compt_expect_error
-  else if (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.consume) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error)
-  ) {
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error)) {
     // no-op in C, just return empty string
     return "";
   }

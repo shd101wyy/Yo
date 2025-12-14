@@ -12,13 +12,13 @@ MyBox :: object(
 main :: (fn() -> unit) {
   b := MyBox(42);
   p := malloc(sizeof(MyBox));
-  match(p, 
+  match(p,
     .None => {
       printf("Memory allocation failed\n");
     },
     .Some(ptr) => {
       casted_ptr := (*(MyBox))(ptr);
-      casted_ptr.* = b;
+      consume(casted_ptr.* = b);
     }
   );
 };
