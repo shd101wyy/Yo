@@ -72,16 +72,18 @@ The async runtime supports two models:
 **Event Loop + Thread Pool Pseudocode:**
 ```c
 // === Event Loop (for async) ===
-yo_continuation_t* async_task_queue_head = NULL;
-yo_continuation_t* async_task_queue_tail = NULL;
+// Thread-local task queue (each thread has its own event loop)
+__thread yo_continuation_t* async_task_queue_head = NULL;
+__thread yo_continuation_t* async_task_queue_tail = NULL;
 
-// Queue a cooperative task (async)
+// Queue a cooperative task to CURRENT THREAD's event loop (EAGER)
 void yo_async_task(void (*resume_fn)(void*), void* state_machine) {
   yo_continuation_t* task = malloc(sizeof(yo_continuation_t));
   task->resume_fn = resume_fn;
   task->state_machine = state_machine;
   task->next = NULL;
   
+  // Queue to current thread's event loop
   if (async_task_queue_tail) {
     async_task_queue_tail->next = task;
   } else {
@@ -90,7 +92,7 @@ void yo_async_task(void (*resume_fn)(void*), void* state_machine) {
   async_task_queue_tail = task;
 }
 
-// Run the event loop until all async tasks complete
+// Run the event loop until all async tasks complete (on current thread)
 void yo_run_event_loop() {
   while (async_task_queue_head != NULL) {
     yo_continuation_t* task = async_task_queue_head;
@@ -225,19 +227,21 @@ Yo supports two types of concurrency:
 
 #### 1. `async { ... }` - Cooperative Multitasking (Event Loop)
 
-**Single-threaded, cooperative** - like JavaScript/Python async:
+**Single-threaded per thread, cooperative** - like C#/JavaScript async:
 
 ```yo
-task1 := async { ... };  // Queues to event loop (yo_async_task)
-task2 := async { ... };  // Queues to event loop
+task1 := async { ... };  // Queues to event loop (yo_async_task) - EAGER
+task2 := async { ... };  // Queues to event loop - EAGER
 x := await task1;        // Yields, event loop runs other tasks
 y := await task2;        // Yields, event loop runs other tasks
 ```
 
-- **All tasks run on main thread** 
-- **Cooperative** - tasks yield at `await` points
+- **Tasks run on the thread that created them** (like C# `async/await`)
+- **Each thread has its own event loop** (thread-local task queue)
+- **Eager execution** - tasks are queued immediately when created
+- **Cooperative** - tasks yield at `await` points within the same thread
 - **Good for**: I/O-bound work, many lightweight tasks
-- **Runtime**: Event loop with task queue (`yo_async_task`, `yo_run_event_loop`)
+- **Runtime**: Per-thread event loop with task queue (`yo_async_task`, `yo_run_event_loop`)
 
 #### 2. `spawn { ... }` - Real Parallelism (Thread Pool)
 
@@ -259,11 +263,13 @@ y := await task2;        // Waits for completion (may block)
 
 | Feature | `async` | `spawn` |
 |---------|---------|---------|
-| Execution | Single-threaded | Multi-threaded |
+| Execution | Runs on creating thread | Runs on worker thread |
 | Concurrency | Cooperative (yields) | Parallel (simultaneous) |
+| Scheduling | Eager (queued immediately) | Eager (dispatched immediately) |
 | Overhead | Very low | Thread overhead |
 | Use case | I/O-bound | CPU-bound |
-| Runtime | Event loop | Thread pool |
+| Runtime | Per-thread event loop | Thread pool |
+| Thread affinity | Stays on same thread | May run on any worker |
 
 #### Event Loop Execution Model
 
@@ -288,15 +294,31 @@ y := await task2;        // Waits for completion (may block)
    → When task2 completes, resume current task
 ```
 
-#### Constructor Behavior
+#### Constructor Behavior - Eager Execution
 
-The async block constructor:
+The async block constructor (**eager**):
 1. Initializes state machine struct with state = 0
 2. Copies captured variables (dup Gc types)
-3. **Queues** the task to the event loop (doesn't execute yet!)
+3. **Queues** the task to **current thread's** event loop immediately
 4. Returns struct by value
 
-The task starts executing when the event loop processes it, not immediately in the constructor.
+**Eager means**: The task is queued immediately when `async { ... }` is evaluated. It will start running as soon as the event loop processes it (not lazy - no delay until first `await`).
+
+**Thread affinity**: The task always runs on the thread that created it, using that thread's event loop.
+
+**Example**:
+```yo
+// On thread A:
+task := async { ... };  // Queued to thread A's event loop
+// Task will execute on thread A when event loop runs
+
+// If you spawn a thread:
+spawn {
+  // On thread B:
+  task2 := async { ... };  // Queued to thread B's event loop
+  // task2 will execute on thread B
+};
+```
 
 ### Memory Lifetime - Futures are GC'd
 
