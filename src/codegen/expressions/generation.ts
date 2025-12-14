@@ -443,68 +443,6 @@ function generateFuncCall(
     return `__yo_decr_rc((void*)(${selfCode}).data)`;
   }
 
-  // Handle ___drop on Future value types
-  // Future value types (Impl(Future(T))) don't have ___drop in their module,
-  // so we handle them specially by generating inline dispose code
-  if (
-    expr.func &&
-    exprIsFunctionCall(expr.func) &&
-    exprIsFunctionCallOf(expr.func, ".", 2)
-  ) {
-    const objectExpr = expr.func.args[0];
-    const methodExpr = expr.func.args[1];
-    if (objectExpr && methodExpr && exprIsAtom(methodExpr)) {
-      const methodName = methodExpr.token.value;
-      const objectType = objectExpr.$?.type;
-
-      // Check if this is ___drop on a Future value type
-      if (
-        BuiltinFunctions.___drop.includes(methodName) &&
-        objectType &&
-        typeImplementsFuture(objectType)
-      ) {
-        // For Future value types, drop the captured variables
-        // The state machine struct has a __capture field containing captured variables
-        const selfCode = generateExpr(objectExpr, indent, context);
-
-        // Get the capture type from the async block info if available
-        const futureModuleType = extractFutureModuleFromType(objectType);
-        if (futureModuleType) {
-          // For Future value types, we need to drop the __capture field
-          // which contains captured Gc types. The capture struct has its own ___drop.
-          // Generate: capture_drop_fn(value.__capture);
-          // For now, generate a comment since we don't track capture types here
-          // The capture struct's ___drop will be called automatically
-          return `/* Future value ${selfCode} dropped - captured vars cleaned up by capture struct */`;
-        }
-        return `/* Future value ${selfCode} dropped */`;
-      }
-
-      // Check if this is ___dup on a Future value type
-      if (
-        BuiltinFunctions.___dup.includes(methodName) &&
-        objectType &&
-        typeImplementsFuture(objectType)
-      ) {
-        const selfCode = generateExpr(objectExpr, indent, context);
-        // For value types, dup just returns the value (copy)
-        // But we need to dup any captured Gc types
-        // For now, just return the value - proper dup needs capture type info
-        return selfCode;
-      }
-
-      // Check if this is ___dispose on a Future value type
-      if (
-        BuiltinFunctions.___dispose.includes(methodName) &&
-        objectType &&
-        typeImplementsFuture(objectType)
-      ) {
-        // Dispose is no-op for value types (nothing to free)
-        return `/* Future value dispose - no-op for value types */`;
-      }
-    }
-  }
-
   // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
     const selfArg = expr.args[0];

@@ -11,12 +11,7 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import {
-  isArrayType,
-  isSomeType,
-  isTupleType,
-  typeContainsGcType,
-} from "../../types";
+import { isArrayType, isTupleType, typeContainsGcType } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isNumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
@@ -150,11 +145,8 @@ export function evaluateDrop({
   }
   env = evaluatedArgExpr.$.env;
 
-  // Check if there is `.___drop` method available to call or if it's a tuple needing drop
-  if (
-    !isSomeType(evaluatedArgExpr.$.type) &&
-    typeContainsGcType(evaluatedArgExpr.$.type)
-  ) {
+  // Check if there is `.___drop` method available to call or if it's a tuple/array needing drop
+  if (typeContainsGcType(evaluatedArgExpr.$.type)) {
     // Handle tuple types specially since they don't have methods
     if (isTupleType(evaluatedArgExpr.$.type)) {
       const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);

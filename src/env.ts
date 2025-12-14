@@ -736,6 +736,25 @@ export function getMethodsByNameFromEnv(
           return true;
         }
 
+        // Special case: if receiverType is a SomeType with resolvedConcreteType,
+        // and the method's first parameter matches the resolvedConcreteType,
+        // accept it (e.g., ___drop from capture struct for Future value types)
+        if (
+          isSomeType(receiverType) &&
+          receiverType.resolvedConcreteType &&
+          !typeContainsSomeType(methodFirstParamType) &&
+          areTypesCompatible(
+            {
+              type: methodFirstParamType,
+              env: method.type.env,
+            },
+            { type: receiverType.resolvedConcreteType, env },
+            true // isMethodReceiver
+          )
+        ) {
+          return true;
+        }
+
         // If only receiver has SomeType, but method doesn't
         if (
           !typeContainsSomeType(methodFirstParamType) &&
@@ -988,6 +1007,22 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a SomeType with required modules
   if (isSomeType(dereferencedReceiverType)) {
+    // First, if SomeType has resolvedConcreteType (like async block's capture struct),
+    // look for methods there (e.g., ___drop, ___dup from capture struct)
+    if (dereferencedReceiverType.resolvedConcreteType?.module) {
+      const concreteModule =
+        dereferencedReceiverType.resolvedConcreteType.module;
+      const concreteMethod = concreteModule.fields.find(
+        (f) => f.label === methodName && isFunctionType(f.type)
+      );
+      if (concreteMethod && isFunctionType(concreteMethod.type)) {
+        const value =
+          concreteMethod.assignedValue ||
+          createUnknownValue(concreteMethod.type, concreteMethod.label);
+        methods.push({ type: concreteMethod.type, value });
+      }
+    }
+
     // Look for methods in the required modules stored in the SomeType's module
     // Only consider modules with empty label "" (from where clauses)
     for (const field of dereferencedReceiverType.module.fields) {

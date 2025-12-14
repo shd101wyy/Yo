@@ -637,6 +637,20 @@ export function areTypesCompatible(
       );
     }
   } else if (isSomeType(given.type)) {
+    // First check if the given SomeType has a resolvedConcreteType that matches expected
+    // This is important for Future value types where the SomeType (Impl(Future(T)))
+    // has a resolvedConcreteType (the capture struct) that should match the method parameter
+    if (
+      given.type.resolvedConcreteType &&
+      areTypesCompatible(
+        expected,
+        { type: given.type.resolvedConcreteType, env: given.env },
+        isMethodReceiver
+      )
+    ) {
+      return true;
+    }
+
     const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
     if (given.type === givenType_) {
       return false;
