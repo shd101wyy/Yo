@@ -418,6 +418,12 @@ export function typeContainsSomeType(
       return typeContainsSomeType(type.resolvedConcreteType, checkedTypes);
     }
 
+    // Treat Impl(Fn(...)) as concrete at codegen time.
+    // Codegen lowers such SomeType to the corresponding FnModuleType.
+    if (typeImplementsFn(type)) {
+      return false;
+    }
+
     return true;
   }
 

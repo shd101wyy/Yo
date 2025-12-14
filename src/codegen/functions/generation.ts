@@ -1603,12 +1603,92 @@ export function generateDynWrapperFunctions(
 
   for (const [implKey, impl] of context.dynImpls) {
     const dataType = impl.dataType;
+    const isFnDyn = impl.dynType.requiredModules.some((m) => isFnModuleType(m));
 
+    // Special-case Dyn(Fn(...)): the vtable uses a synthetic `call` slot derived from FnModuleType.isFn,
+    // not from module fields. For boxed closures, we can dispatch directly to the embedded call pointer.
+    for (const requiredModule of impl.dynType.requiredModules) {
+      if (!isFnModuleType(requiredModule)) {
+        continue;
+      }
+
+      const callType = requiredModule.isFn.callType;
+      const returnTypeStr = getTypeString(callType.return.type, context);
+      const wrapperName = `yo_wrap_${implKey}_call`;
+
+      const params: string[] = ["void* self_ptr"];
+      for (let i = 0; i < callType.parameters.length; i++) {
+        const param = callType.parameters[i]!;
+        const paramTypeStr = getTypeString(param.type, context);
+        params.push(`${paramTypeStr} arg${i + 1}`);
+      }
+
+      emitter.emitDeclarationLine(
+        `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
+      );
+
+      if (isBoxedType(dataType)) {
+        const boxedCName =
+          context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
+        const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
+        emitter.emitDeclarationLine(
+          `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
+        );
+
+        const callArgs: string[] = [`box->${fieldName}.data`];
+        for (let i = 0; i < callType.parameters.length; i++) {
+          callArgs.push(`arg${i + 1}`);
+        }
+
+        if (isVoidType(callType.return.type)) {
+          emitter.emitDeclarationLine(
+            `  box->${fieldName}.call(${callArgs.join(", ")});`
+          );
+        } else {
+          emitter.emitDeclarationLine(
+            `  return box->${fieldName}.call(${callArgs.join(", ")});`
+          );
+        }
+      } else {
+        // Non-box Dyn(Fn(...)) is not expected for anonymous closures; keep a clear failure mode.
+        // (Dyn design requires `.data` to always point at an object type; closures are value types -> must be boxed.)
+        emitter.emitDeclarationLine(
+          `  (void)self_ptr; /* Dyn(Fn): expected Box(...) data */`
+        );
+        for (let i = 0; i < callType.parameters.length; i++) {
+          emitter.emitDeclarationLine(`  (void)arg${i + 1};`);
+        }
+        if (isVoidType(callType.return.type)) {
+          emitter.emitDeclarationLine(`  return;`);
+        } else {
+          emitter.emitDeclarationLine(
+            `  ${returnTypeStr} zero = (${returnTypeStr})0;`
+          );
+          emitter.emitDeclarationLine(`  return zero;`);
+        }
+      }
+
+      emitter.emitDeclarationLine(`}`);
+      emitter.emitDeclarationLine("");
+    }
+
+    // Regular dyn method wrappers (non-Fn modules)
     const moduleType = impl.moduleValue.type;
     const moduleFields = moduleType.fields;
 
     for (let i = 0; i < moduleFields.length; i++) {
       const field = moduleFields[i]!;
+
+      // Skip 'Self' type declarations as they're not methods
+      if (field.label === "Self") {
+        continue;
+      }
+
+      // For Dyn(Fn(...)), skip internal ARC methods (___dup, ___drop, ___dispose)
+      if (isFnDyn && field.label.startsWith("___")) {
+        continue;
+      }
+
       const fieldValue = impl.moduleValue.fields[i];
 
       if (!fieldValue || !isFunctionValue(fieldValue)) {
@@ -1735,17 +1815,46 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
       `static const ${vtableTypeName} ${vtableName} = {`
     );
 
-    // Get module fields (methods) from moduleValue
-    const moduleType = impl.moduleValue.type;
-    const moduleFields = moduleType.fields;
+    // Initialize vtable slots in the exact same way the vtable type is generated in generateDynDeclaration.
+    const processedMethods = new Set<string>();
+    const isFnDyn = impl.dynType.requiredModules.some((m) => isFnModuleType(m));
 
-    for (let i = 0; i < moduleFields.length; i++) {
-      const field = moduleFields[i]!;
+    for (const moduleType of impl.dynType.requiredModules) {
+      if (isFnModuleType(moduleType)) {
+        // Fn dyn has a synthetic `call` slot
+        const wrapperName = `yo_wrap_${implKey}_call`;
+        emitter.emitDeclarationLine(`  .call = ${wrapperName},`);
+        processedMethods.add("call");
+        continue;
+      }
 
-      // Get the wrapper function name for this method
-      const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+      for (const field of moduleType.fields) {
+        if (field.label === "Self") {
+          continue;
+        }
 
-      emitter.emitDeclarationLine(`  .${field.label} = ${wrapperName},`);
+        if (isFnDyn && field.label.startsWith("___")) {
+          continue;
+        }
+
+        if (processedMethods.has(field.label)) {
+          continue;
+        }
+        processedMethods.add(field.label);
+
+        if (isFunctionType(field.type)) {
+          const functionType = field.type as FunctionType;
+          if (functionType.parameters.length > 0) {
+            const firstParam = functionType.parameters[0];
+            if (firstParam && firstParam.label === "self") {
+              const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+              emitter.emitDeclarationLine(
+                `  .${sanitizeForCIdentifier(field.label)} = ${wrapperName},`
+              );
+            }
+          }
+        }
+      }
     }
 
     emitter.emitDeclarationLine(`};`);

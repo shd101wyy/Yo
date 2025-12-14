@@ -42,7 +42,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
-import { generateNewTempVariableName, isTempVariableName } from "../../utils";
+import { isTempVariableName } from "../../utils";
 import {
   isArrayValue,
   isBooleanValue,
@@ -3214,75 +3214,8 @@ function generateDynCall(
     return `/* Error: dyn() result type is not DynType */`;
   }
 
-  // Check if this is a Dyn(Fn(...)) wrapping a closure
-  const fnModule = extractFnModuleFromType(dynType);
-  const isFnDyn = fnModule !== undefined;
-
-  if (
-    isFnDyn &&
-    valueExpr.$?.closureFunctionValue &&
-    valueExpr.$?.captureType
-  ) {
-    // Special handling for Dyn(Fn(...)) wrapping a closure
-    // This is the old path - keeping it for now
-    const closureFunctionValue = valueExpr.$.closureFunctionValue;
-    const captureType = valueExpr.$.captureType;
-    const functionContext = context as FunctionGenerationContext;
-
-    let dynTypeName = `yo_dyn_unknown`;
-    for (const typeEntry of Object.values(context.types)) {
-      if (typeEntry.type === dynType) {
-        dynTypeName = typeEntry.cName;
-        break;
-      }
-    }
-
-    const constructorName = `__yo_new_${dynTypeName}`;
-    const disposeFunctionName = `__yo_dispose_${dynTypeName}`;
-    let tempVarName = expr.$?.variableName;
-    if (!tempVarName) {
-      tempVarName = generateNewTempVariableName(expr.$.env.modulePath);
-      expr.$.variableName = tempVarName;
-    }
-
-    const functionCName =
-      functionContext.functions[closureFunctionValue.funcId]?.cName;
-    if (!functionCName) {
-      return `/* Error: Closure implementation function not found in context */`;
-    }
-
-    const closureType = fnModule.isFn.callType;
-    const returnTypeStr = getTypeString(closureType.return.type, context);
-    const callParamList = closureType.parameters
-      .map((param) => getTypeString(param.type, context))
-      .join(", ");
-    const castCallFunction = `(${returnTypeStr} (*)(void*${callParamList ? ", " + callParamList : ""}))${functionCName}`;
-
-    const hasCaptures =
-      captureType && isStructType(captureType) && captureType.fields.length > 0;
-
-    if (hasCaptures && isStructType(captureType)) {
-      const captureResult = allocateClosureCapture(
-        captureType,
-        closureType.id,
-        valueExpr,
-        indent,
-        context
-      );
-      if (!captureResult) {
-        return `/* Error: Failed to allocate closure capture */`;
-      }
-      context.emitter.emitLine(
-        `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(${captureResult.captureTempVar}, ${disposeFunctionName}, ${castCallFunction});`
-      );
-    } else {
-      context.emitter.emitLine(
-        `${indent}${dynTypeName}* ${tempVarName} = ${constructorName}(NULL, ${disposeFunctionName}, ${castCallFunction});`
-      );
-    }
-
-    return tempVarName;
-  }
+  // Note: Dyn is always a value type fat pointer (per DYN_DESIGN.md).
+  // Closures are value types, so Dyn(Fn(...)) must wrap a boxed closure: `dyn(box(closure))`.
 
   // Regular dyn() call - dyn is a value type (fat pointer)
   // The wrapped value must be an object type (including Box(T)).
@@ -3316,8 +3249,19 @@ function generateDynCall(
   // Create a unique key for this impl combination
   const dynTypeCName =
     context.types[dynType.id]?.cName || `yo_dyn_${dynType.id}`;
-  const concreteTypeCName =
-    context.types[concreteType.id]?.cName || `unknown_${concreteType.id}`;
+  // For boxed closures, concreteType is often `Impl(Fn(...))` which is a `SomeType`.
+  // Prefer the corresponding FnModuleType's C name so generated symbols are stable.
+  const concreteTypeCName = (() => {
+    const direct = context.types[concreteType.id]?.cName;
+    if (direct) {
+      return direct;
+    }
+    const fnModule = extractFnModuleFromType(concreteType);
+    const fnModuleCName = fnModule
+      ? context.types[fnModule.id]?.cName
+      : undefined;
+    return fnModuleCName || `unknown_${concreteType.id}`;
+  })();
   const implKey = `${concreteTypeCName}_${dynTypeCName}`;
 
   // Register this impl in context for later generation

@@ -1,4 +1,5 @@
 import { DynType, Type } from "../../types";
+import { extractFnModuleFromType } from "../../types/utils";
 import { ModuleValue } from "../../value";
 import { CodeGenContext } from "./index";
 
@@ -20,9 +21,17 @@ export function fixupDynImplKeys(context: CodeGenContext): void {
   for (const [, impl] of context.dynImpls) {
     const dynTypeCName =
       context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
-    const concreteTypeCName =
-      context.types[impl.concreteType.id]?.cName ||
-      `unknown_${impl.concreteType.id}`;
+    const concreteTypeCName = (() => {
+      const direct = context.types[impl.concreteType.id]?.cName;
+      if (direct) {
+        return direct;
+      }
+      const fnModule = extractFnModuleFromType(impl.concreteType);
+      const fnModuleCName = fnModule
+        ? context.types[fnModule.id]?.cName
+        : undefined;
+      return fnModuleCName || `unknown_${impl.concreteType.id}`;
+    })();
     const newKey = `${concreteTypeCName}_${dynTypeCName}`;
 
     newDynImpls.set(newKey, impl);

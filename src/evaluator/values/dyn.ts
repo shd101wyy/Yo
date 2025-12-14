@@ -167,7 +167,7 @@ export function evaluateDynValue({
     // For dyn(box(closure)), we need Box(Impl(A)) as the expected type
     if (
       exprIsFunctionCall(valueExpr) &&
-      exprIsFunctionCallOf(valueExpr, "box", 1)
+      exprIsFunctionCallOf(valueExpr, "box", 1) // TODO: Right now we check by name "box". We need to support other aliases if any
     ) {
       // Construct Box(Impl(A)) type
       const { boxType, env: nextEnv } = createBoxedType(someType, env, context);
