@@ -3845,6 +3845,17 @@ function generateFieldAccess(
           currentType = currentType.childType;
         }
 
+        // IMPORTANT: For reference-semantics types (objects), the type is already a pointer in C.
+        // So *(MyBox) in Yo becomes MyBox** in C, which requires 2 dereferences, not 1.
+        // We need to add an extra dereference level for reference-semantics types.
+        if (
+          dereferenceLevel > 0 &&
+          isStructType(currentType) &&
+          currentType.isReferenceSemantics
+        ) {
+          dereferenceLevel++;
+        }
+
         // Check if the dereferenced type is a newtype accessing its single field
         if (isNewtypeType(currentType) && currentType.fields.length === 1) {
           const singleField = currentType.fields[0];
@@ -3864,8 +3875,9 @@ function generateFieldAccess(
           if (dereferenceLevel === 1) {
             return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
           } else {
-            // Multiple levels of dereference: **(ptr).field
-            const dereferencedObjectCode = `${"*".repeat(dereferenceLevel - 1)}(${objectCode})`;
+            // Multiple levels of dereference: (*ptr)->field for ptr**
+            // Need to parenthesize the dereferenced expression to get correct precedence
+            const dereferencedObjectCode = `(${"*".repeat(dereferenceLevel - 1)}${objectCode})`;
             return `${dereferencedObjectCode}->${sanitizeForCIdentifier(fieldName)}`;
           }
         } else {

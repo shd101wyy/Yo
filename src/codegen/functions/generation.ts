@@ -1764,8 +1764,13 @@ export function generateDynWrapperFunctions(
         emitter.emitDeclarationLine(
           `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
         );
-        // Borrow of an object type does not add another indirection (see getTypeString PtrType).
-        firstArg = `concrete_value`;
+
+        // If the impl expects a pointer to the object type, take the address
+        if (implFirstParamType && isPtrType(implFirstParamType)) {
+          firstArg = `&concrete_value`;
+        } else {
+          firstArg = `concrete_value`;
+        }
       }
 
       // Build argument list for impl call

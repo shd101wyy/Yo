@@ -46,10 +46,12 @@ impl(boolean, TestDyn(
 
 impl(MyBox, TestDyn(
   print : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.x);
+    printf("Boxed i32 value: %d\n", self.x);   // Test auto-dereference
+    printf("Boxed i32 value: %d\n", self.*.x); // Test manual dereference
   }),
+  // Let's x2 here
   return_i32 : ((self) -> {
-    return self.x;
+    return self.x + (self.*.x);
   })
 ));
 
@@ -61,12 +63,12 @@ test "Test simple dynamic dispatch with `box`", {
   assert(use_test_dyn(dyn box i32(42)) == 42);
   assert(use_test_dyn(dyn box true) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn bi) == 100);
+  assert(use_test_dyn(dyn bi) == 200);
 };
 
 test "Test simple dynamic dispatch with `Box(T)`", {
   assert(use_test_dyn(dyn Box(i32) i32(42)) == 42);
   assert(use_test_dyn(dyn Box(boolean) true) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn bi) == 100);
+  assert(use_test_dyn(dyn bi) == 200);
 };

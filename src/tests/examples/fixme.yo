@@ -3,32 +3,49 @@ open import "std/libc/stdio.yo";
 open GlobalAllocator;
 
 MyBox :: object(
-  (*) : i32,
+  (x) : i32,
   dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing MyBox with value: %d\n", self.*);
+    printf("Disposing MyBox with value: %d\n", self.x);
   })
 );
 
+TestDyn :: module(
+  print : (fn(self : *(Self)) -> unit),
+  return_i32 : (fn(self : *(Self)) -> i32)
+);
+
+use_test_dyn :: (fn(
+  value : Dyn(TestDyn)
+) -> i32) {
+  value.print();
+  return value.return_i32();
+};
+
+impl(MyBox, TestDyn(
+  print : ((self) -> {
+    printf("Boxed i32 value: %d\n", self.x);
+  }),
+  return_i32 : ((self) -> {
+    return self.x;
+  })
+));
+
 main :: (fn() -> unit) {
-  b := MyBox(42);
-  p := malloc(sizeof(Option(MyBox)));
-  match(p,
-    .None => {
-      printf("Memory allocation failed\n");
-    },
-    .Some(ptr) => {
-      casted_ptr := (*(Option(MyBox)))(ptr);
+  // b := MyBox(42);
+  // p := malloc(sizeof((MyBox)));
+  // match(p,
+  //   .None => {
+  //     printf("Memory allocation failed\n");
+  //   },
+  //   .Some(ptr) => {
+  //     casted_ptr := (*((MyBox)))(ptr);
+  //     casted_ptr.* = b;
+  //   }
+  // );
+  // free(p);
 
-      // Test the `consume` function here.
-      // In theory, the old value will be dropped.
-      // So we need to `consume` it here as this is our initialization of the pointer value.
-      consume(casted_ptr.* = .Some b);
-
-      // Test moving out the `b`.        
-      casted_ptr.* = .None;
-    }
-  );
-  free(p);
+  bi := MyBox(100);
+  use_test_dyn(dyn bi);
 };
 
 export main;
