@@ -829,18 +829,22 @@ function generateFuncCall(
 
       const returnType = getTypeString(expr.$.type!, context);
 
+      // The evaluator provides a temp variable name for return expressions so we can
+      // compute the value before running deferred drops.
+      const returnTempVar = expr.$.variableName
+        ? sanitizeForCIdentifier(expr.$.variableName)
+        : undefined;
+
       // Skip re-declaring if we already generated a dup call with a temp variable
       // Also skip if the variable name is the same as the arg code (e.g., returning a local variable)
       if (
         !handledDeferredDup &&
         !isUnitType(expr.$.type) &&
-        expr.$.variableName &&
-        expr.$.variableName !== argCode && // Prevent something like: int32_t counter = counter;
-        (needsTempVarDeclaration ||
-          expr.$.variableName !== sanitizeForCIdentifier(expr.$.variableName))
+        returnTempVar &&
+        returnTempVar !== argCode // Prevent something like: int32_t counter = counter;
       ) {
         context.emitter.emitLine(
-          `${indent}${returnType} ${expr.$.variableName} = ${argCode};`
+          `${indent}${returnType} ${returnTempVar} = ${argCode};`
         );
       }
 
@@ -925,7 +929,9 @@ function generateFuncCall(
 
       // If we handled deferred dup, use argCode (which is the dup result temp variable)
       // Otherwise use expr.$.variableName as before
-      const returnValue = handledDeferredDup ? argCode : expr.$.variableName;
+      const returnValue = handledDeferredDup
+        ? argCode
+        : (returnTempVar ?? argCode);
       return `return ${returnValue}`;
     } else {
       if (expr.$?.deferredDropExpressions) {
