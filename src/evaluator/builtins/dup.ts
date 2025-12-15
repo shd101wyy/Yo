@@ -8,6 +8,7 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
@@ -123,6 +124,15 @@ export function evaluateDup({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___dup, 1);
 
   const argExpr = expr.args[0]!;
+  if (!exprIsAtom(argExpr)) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___dup[0]}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+
   const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
@@ -134,7 +144,7 @@ export function evaluateDup({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "drop":\n${exprToString(
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.___dup[0]}":\n${exprToString(
         argExpr
       )}`,
     });
@@ -227,7 +237,7 @@ export function evaluateDup({
       if (!tempVariableName || !evaluatedDupMethodCallExpr.$) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to evaluate the "___dup" method call:\n${exprToString(
+          errorMessage: `Failed to evaluate the "${BuiltinFunctions.___dup[0]}" method call:\n${exprToString(
             dupMethodCallExpr
           )}`,
         });

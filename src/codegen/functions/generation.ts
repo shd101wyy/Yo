@@ -453,7 +453,7 @@ export function generateFunctionBody(
       const argCode = generateExpr(arg, indent, context);
       if (
         argCode &&
-        !isTempVariableName(arg.$!.env.modulePath, argCode) // Prevent emit meaningless line like `_yof4ca7ba3_temp_127;`
+        (!arg.$ || !isTempVariableName(arg.$.env.modulePath, argCode)) // Prevent emit meaningless line like `_yof4ca7ba3_temp_127;`
       ) {
         // Emit the expression as a statement
         emitter.emitLine(`${indent}${argCode};`);

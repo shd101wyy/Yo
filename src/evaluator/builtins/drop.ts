@@ -149,7 +149,7 @@ export function evaluateDrop({
   if (!exprIsAtom(argExpr)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected variable name as argument to "drop":\n${exprToString(
+      errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___drop[0]}":\n${exprToString(
         argExpr
       )}`,
     });
@@ -165,7 +165,7 @@ export function evaluateDrop({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for "drop":\n${exprToString(
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.___drop[0]}":\n${exprToString(
         argExpr
       )}`,
     });
@@ -176,7 +176,7 @@ export function evaluateDrop({
   if (!variableName) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected variable name as argument to "drop":\n${exprToString(
+      errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___drop[0]}":\n${exprToString(
         argExpr
       )}`,
     });
@@ -288,7 +288,7 @@ export function evaluateDrop({
       if (!evaluatedDropMethodCallExpr.$?.env) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get updated environment after evaluating "___drop" method call:\n${exprToString(
+          errorMessage: `Failed to get updated environment after evaluating "${BuiltinFunctions.___drop[0]}" method call:\n${exprToString(
             dropMethodCallExpr
           )}`,
         });
@@ -304,7 +304,7 @@ export function evaluateDrop({
       if (!variable) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Variable "${variableName}" not found in environment after evaluating "___drop" method call:\n${exprToString(
+          errorMessage: `Variable "${variableName}" not found in environment after evaluating "${BuiltinFunctions.___drop[0]}" method call:\n${exprToString(
             dropMethodCallExpr
           )}`,
         });
