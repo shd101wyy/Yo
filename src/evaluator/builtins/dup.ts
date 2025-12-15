@@ -141,13 +141,16 @@ export function evaluateDup({
   }
   env = evaluatedArgExpr.$.env;
 
+  const argType = evaluatedArgExpr.$.type;
+  const concreteType =
+    isSomeType(argType) && argType.resolvedConcreteType
+      ? argType.resolvedConcreteType
+      : argType;
+
   // Check if there is `.___dup` method available to call or if it's a tuple needing dup
-  if (
-    !isSomeType(evaluatedArgExpr.$.type) &&
-    typeContainsGcType(evaluatedArgExpr.$.type)
-  ) {
+  if (typeContainsGcType(concreteType)) {
     // Handle tuple types specially since they don't have methods
-    if (isTupleType(evaluatedArgExpr.$.type)) {
+    if (isTupleType(concreteType)) {
       const tupleDupCode = generateTupleDupCall(evaluatedArgExpr);
 
       if (tupleDupCode) {
@@ -176,7 +179,7 @@ export function evaluateDup({
         };
         return expr;
       }
-    } else if (isArrayType(evaluatedArgExpr.$.type)) {
+    } else if (isArrayType(concreteType)) {
       // Handle array types
       const arrayDupCode = generateArrayDupCall(evaluatedArgExpr);
       if (arrayDupCode) {

@@ -11,7 +11,12 @@ import {
   setExprAsConsumed,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { isArrayType, isTupleType, typeContainsGcType } from "../../types";
+import {
+  isArrayType,
+  isSomeType,
+  isTupleType,
+  typeContainsGcType,
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { isNumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
@@ -45,7 +50,11 @@ function generateTupleDropCall(tupleExpr: Expr): string {
     .map((element, index) => ({
       index,
       element,
-      needsDrop: typeContainsGcType(element.type),
+      needsDrop: typeContainsGcType(
+        isSomeType(element.type) && element.type.resolvedConcreteType
+          ? element.type.resolvedConcreteType
+          : element.type
+      ),
     }))
     .filter(({ needsDrop }) => needsDrop);
 
@@ -90,7 +99,12 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   const arrayType = arrayExpr.$.type;
   const childType = arrayType.childType;
 
-  if (!typeContainsGcType(childType)) {
+  const concreteChildType =
+    isSomeType(childType) && childType.resolvedConcreteType
+      ? childType.resolvedConcreteType
+      : childType;
+
+  if (!typeContainsGcType(concreteChildType)) {
     return ""; // No elements need dropping
   }
 
@@ -145,10 +159,16 @@ export function evaluateDrop({
   }
   env = evaluatedArgExpr.$.env;
 
+  const argType = evaluatedArgExpr.$.type;
+  const concreteType =
+    isSomeType(argType) && argType.resolvedConcreteType
+      ? argType.resolvedConcreteType
+      : argType;
+
   // Check if there is `.___drop` method available to call or if it's a tuple/array needing drop
-  if (typeContainsGcType(evaluatedArgExpr.$.type)) {
+  if (typeContainsGcType(concreteType)) {
     // Handle tuple types specially since they don't have methods
-    if (isTupleType(evaluatedArgExpr.$.type)) {
+    if (isTupleType(concreteType)) {
       const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);
       if (tupleDropCode) {
         const tupleDropExpr = generateExprFromCode(
@@ -184,7 +204,7 @@ export function evaluateDrop({
       }
     }
     // Handle array types specially since they don't have methods
-    else if (isArrayType(evaluatedArgExpr.$.type)) {
+    else if (isArrayType(concreteType)) {
       const arrayDropCode = generateArrayDropCall(evaluatedArgExpr);
       if (arrayDropCode) {
         const arrayDropExpr = generateExprFromCode(
