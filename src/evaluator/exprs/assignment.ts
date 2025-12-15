@@ -573,10 +573,14 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       isMutatingDefinedVariable = true;
     }
 
+    // NOTE: The finalVariable might be SomeType that contains resolvedConcreteType
+    // That's what we need
+    const finalVariables = getVariablesFromEnv(env, variableName);
+    const finalVariable = finalVariables[finalVariables.length - 1]!;
     lhs.$ = {
       env,
-      type: variable.type, // NOTE: It shouldn't be the rhsType.
-      value: variable.isCompileTimeOnly ? rhsValue : undefined,
+      type: finalVariable.type, // NOTE: It shouldn't be the rhsType.
+      value: finalVariable.isCompileTimeOnly ? rhsValue : undefined,
       pathCollection: [[variableName]],
     };
 

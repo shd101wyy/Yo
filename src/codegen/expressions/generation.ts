@@ -229,7 +229,11 @@ function allocateClosureCapture(
     .join(", ")} }`;
 
   // Generate a unique temporary variable name for the capture data
-  const captureTempVar = `__capture_${closureTypeId}_${Date.now()}`;
+  // Use sourceExpr token location for uniqueness to avoid collisions
+  const uniqueSuffix = sourceExpr.token.start !== undefined 
+    ? `${Date.now()}_${sourceExpr.token.start}` 
+    : `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const captureTempVar = `__capture_${closureTypeId}_${uniqueSuffix}`;
 
   if (useStackAllocation) {
     // Stack-allocate capture data (for Impl closures - value type semantics)
@@ -1254,10 +1258,18 @@ function generateFuncCall(
       // Since we use struct wrappers consistently, we can use direct struct assignment
       const rhsCode = generateExpr(rhs, indent, context);
 
+      // Check if RHS is a closure construction
+      const rhsIsClosureConstruction =
+        exprIsFunctionCall(rhs) &&
+        rhs.$?.closureFunctionValue &&
+        rhs.$?.type &&
+        typeImplementsFn(rhs.$.type);
+
       // Handle deferred dup expressions for RHS
       const functionContext = context as FunctionGenerationContext;
       let finalRhsCode = rhsCode;
       if (
+        !rhsIsClosureConstruction &&
         rhs.$?.deferredDupExpressions &&
         rhs.$.deferredDupExpressions.length > 0
       ) {
@@ -1299,10 +1311,18 @@ function generateFuncCall(
       // Non-array assignment - use existing logic
       const rhsCode = generateExpr(rhs, indent, context);
 
+      // Check if RHS is a closure construction
+      const rhsIsClosureConstruction =
+        exprIsFunctionCall(rhs) &&
+        rhs.$?.closureFunctionValue &&
+        rhs.$?.type &&
+        typeImplementsFn(rhs.$.type);
+
       // Handle deferred dup expressions for RHS
       const functionContext = context as FunctionGenerationContext;
       let finalRhsCode = rhsCode;
       if (
+        !rhsIsClosureConstruction &&
         rhs.$?.deferredDupExpressions &&
         rhs.$.deferredDupExpressions.length > 0
       ) {

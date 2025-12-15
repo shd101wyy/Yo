@@ -12,10 +12,25 @@ main :: (fn() -> unit) {
   x := MyBox(1);
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
-  closure := (ClosureType {
+  /*
+  // FIXME:
+  (closure : ClosureType) = ((y) => {
     x.* = (x.* + y);
     return x.*;
   });
+  */
+  // FIXME:
+  (closure : ClosureType) = (ClosureType {
+    x.* = (x.* + y);
+    return x.*;
+  });
+
+  // This works
+  closure_working := (ClosureType {
+    x.* = (x.* + y);
+    return x.*;
+  });
+
 
   closure(1); // 2
   closure(1); // 3
