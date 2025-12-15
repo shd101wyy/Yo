@@ -1,25 +1,42 @@
 
 /*
+open import "std/libc/stdio";
+
 StaticAsync :: Impl(Future(i32));
 DynamicAsync :: Dyn(Future(i32));
 
 main :: (fn() -> unit) {
   async {
-    task1 := dyn(async {
+    b := Box(i32)(0);
+
+    task1 := async {
       printf("Task 1 started\n");
-    });
+      counter := 1;
+      b.* = (b.* + counter);
+      return counter;
+    };
     task2 := async {
       printf("Task 2 started\n");
+      counter := 2;
+      b.* = (b.* + counter);
+      return counter;
     };
     task3 := async {
       printf("Task 3 started\n");
+      counter := 3;
+      b.* = (b.* + counter);
+      return counter;
     };
 
-    await task1;
-    await task2;
-    await task3;
+    x := await task1;
+    y := await task2;
+    z := await task3;
+
+    assert(b.* == ((x + y) + z));
   };
 
   return ();
 };
+
+export main;
 */
