@@ -141,6 +141,17 @@ interface ClosureCaptureResult {
   captureCName: string;
 }
 
+function getDeferredDupTargetAtomName(dupExpr: Expr): string | undefined {
+  if (!exprIsFunctionCall(dupExpr) || dupExpr.args.length < 1) {
+    return;
+  }
+  const firstArg = dupExpr.args[0];
+  if (!firstArg || !exprIsAtom(firstArg)) {
+    return;
+  }
+  return firstArg.token.value;
+}
+
 /**
  * Allocate and initialize a closure capture struct.
  * For Impl closures: stack-allocate the capture struct (value type semantics)
@@ -176,6 +187,19 @@ function allocateClosureCapture(
   const captureCName = captureTypeEntry.cName;
   const functionContext = context as FunctionGenerationContext;
 
+  // Build a lookup for deferred dup expressions attached to the closure construction.
+  // These are commonly emitted for captured object values and must be applied
+  // to the capture struct fields (not substituted as the closure value).
+  const closureDeferredDupByName = new Map<string, Expr>();
+  if (sourceExpr.$?.deferredDupExpressions) {
+    for (const possibleDupExpr of sourceExpr.$.deferredDupExpressions) {
+      const targetName = getDeferredDupTargetAtomName(possibleDupExpr);
+      if (targetName) {
+        closureDeferredDupByName.set(targetName, possibleDupExpr);
+      }
+    }
+  }
+
   // Generate captured variable values
   const captureArgs = captureType.fields.map((field) => {
     // Find the dup expression for this captured variable.
@@ -188,18 +212,16 @@ function allocateClosureCapture(
       dupExpr = fieldExpr.$.deferredDupExpressions[0];
     }
 
-    if (!dupExpr && sourceExpr.$?.deferredDupExpressions) {
-      for (const possibleDupExpr of sourceExpr.$.deferredDupExpressions) {
-        if (
-          exprIsFunctionCall(possibleDupExpr) &&
-          possibleDupExpr.args.length > 0 &&
-          exprIsAtom(possibleDupExpr.args[0])
-        ) {
-          const varName = possibleDupExpr.args[0].token.value;
-          if (varName === field.label) {
-            dupExpr = possibleDupExpr;
-            break;
-          }
+    if (!dupExpr) {
+      const candidates: string[] = [field.label];
+      if (exprIsAtom(fieldExpr)) {
+        candidates.push(fieldExpr.token.value);
+      }
+      for (const name of candidates) {
+        const possible = closureDeferredDupByName.get(name);
+        if (possible) {
+          dupExpr = possible;
+          break;
         }
       }
     }
@@ -439,6 +461,64 @@ function generateFuncCall(
     }
     const selfCode = generateExpr(selfArg, indent, context);
     return selfCode; // Just return the argument as-is
+  }
+
+  // ___dup - generic dup hook used by evaluator for GC/reference-counted values.
+  // In many cases the evaluator rewrites `___dup(x)` into `x.___dup()`, but in
+  // some contexts (e.g. deferred dup for dyn-closure captures) the builtin call
+  // is intentionally deferred to codegen.
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.___dup)) {
+    const valueArg = expr.args[0];
+    if (!valueArg) {
+      return `// Error: ___dup requires exactly 1 argument`;
+    }
+
+    const valueCode = generateExpr(valueArg, indent, context);
+    const valueType = valueArg.$?.type ?? expr.$?.type;
+    if (!valueType) {
+      // Best-effort: preserve the expression.
+      return valueCode;
+    }
+
+    // Dyn is a value type; duplication increments the RC of `.data` and returns the copied fat pointer.
+    if (isDynType(valueType)) {
+      const dynCName = getTypeString(valueType, context);
+      return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
+    }
+
+    // Object types are reference counted; duplication increments RC and returns the same pointer.
+    if (isObjectType(valueType)) {
+      const objCName = getTypeString(valueType, context);
+      return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
+    }
+
+    // Value types: no-op dup.
+    return valueCode;
+  }
+
+  // ___drop - generic drop hook used by evaluator for GC/reference-counted values.
+  // Similar to ___dup, some drops are deferred to codegen.
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
+    const valueArg = expr.args[0];
+    if (!valueArg) {
+      return `// Error: ___drop requires exactly 1 argument`;
+    }
+
+    const valueCode = generateExpr(valueArg, indent, context);
+    const valueType = valueArg.$?.type ?? expr.$?.type;
+    if (!valueType) {
+      return ``;
+    }
+
+    if (isDynType(valueType)) {
+      return `__yo_decr_rc((void*)(${valueCode}).data)`;
+    }
+    if (isObjectType(valueType)) {
+      return `__yo_decr_rc((void*)(${valueCode}))`;
+    }
+
+    // Value types: no-op drop.
+    return ``;
   }
 
   // __yo_dyn_drop - call dispose on dyn object via dispose function then __yo_decr_rc on dyn
@@ -1865,13 +1945,38 @@ function generateFuncCall(
               arg.$?.deferredDupExpressions &&
               arg.$.deferredDupExpressions.length > 0
             ) {
-              generateDeferredDupExpressions(arg, indent, functionContext);
-              // Use the dup result variable instead of the original temp variable
-              const dupExpr = arg.$.deferredDupExpressions[0]!;
-              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                finalArgVarName = sanitizeForCIdentifier(
-                  dupExpr.$.variableName
-                );
+              // Only treat deferred dup as a replacement for the argument value
+              // when it actually targets this argument. For example, closure
+              // construction may carry deferred dups for captured variables; those
+              // must be applied during capture initialization, not substituted as
+              // the call argument.
+              const argTargets = new Set<string>();
+              if (arg.$?.variableName) {
+                argTargets.add(sanitizeForCIdentifier(arg.$.variableName));
+              }
+              if (argCode) {
+                argTargets.add(argCode);
+              }
+              if (exprIsAtom(arg)) {
+                argTargets.add(sanitizeForCIdentifier(arg.token.value));
+              }
+
+              const matchingDupExpr = arg.$.deferredDupExpressions.find((e) => {
+                const target = getDeferredDupTargetAtomName(e);
+                if (!target) return false;
+                return argTargets.has(sanitizeForCIdentifier(target));
+              });
+
+              if (matchingDupExpr) {
+                generateDeferredDupExpressions(arg, indent, functionContext);
+                if (
+                  exprIsFunctionCall(matchingDupExpr) &&
+                  matchingDupExpr.$?.variableName
+                ) {
+                  finalArgVarName = sanitizeForCIdentifier(
+                    matchingDupExpr.$.variableName
+                  );
+                }
               }
             }
 

@@ -788,31 +788,40 @@ export function getMethodsByNameFromEnv(
 
         // Check if it's a valid dyn type method call
         if (isDynType(receiverType)) {
-          // Check 1: Self parameter must be by reference (&Self or &mut Self), not by value
-          if (method.type.parameters.length > 0 && method.type.SelfType) {
-            const selfParam = method.type.parameters[0];
-            if (selfParam) {
-              const selfParamType = selfParam.type;
-              // Self parameter must be a pointer type
-              if (
-                !isObjectType(selfParamType) &&
-                !isDynType(selfParamType) &&
-                !isPtrType(selfParamType)
-              ) {
-                return false;
+          // Dyn has two kinds of callable methods:
+          // 1) Dyn wrapper's own module methods (e.g., ___dup/___drop) which have concrete values.
+          //    These are NOT dynamically dispatched to the wrapped object, so they may return Self.
+          // 2) Wrapped object methods invoked via dynamic dispatch (value is undefined here).
+          //    These must be object-safe (e.g., must not return Self).
+          if (method.value !== undefined) {
+            // Skip dynamic-dispatch object-safety restrictions for dyn wrapper methods.
+          } else {
+            // Check 1: Self parameter must be by reference (&Self or &mut Self), not by value
+            if (method.type.parameters.length > 0 && method.type.SelfType) {
+              const selfParam = method.type.parameters[0];
+              if (selfParam) {
+                const selfParamType = selfParam.type;
+                // Self parameter must be a pointer type
+                if (
+                  !isObjectType(selfParamType) &&
+                  !isDynType(selfParamType) &&
+                  !isPtrType(selfParamType)
+                ) {
+                  return false;
+                }
               }
             }
-          }
 
-          // Check 2: Return type must not contain Self
-          const returnType = method.type.return.type;
-          if (
-            typeContainsSelfTypeForDynamicDispatchCheck(
-              returnType,
-              method.type.SelfType
-            )
-          ) {
-            return false;
+            // Check 2: Return type must not contain Self
+            const returnType = method.type.return.type;
+            if (
+              typeContainsSelfTypeForDynamicDispatchCheck(
+                returnType,
+                method.type.SelfType
+              )
+            ) {
+              return false;
+            }
           }
         }
 

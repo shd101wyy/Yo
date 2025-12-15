@@ -18,8 +18,10 @@ test "Test ClosureType({...}) to create closure value", {
     return x;
   });
 
+  closure2 := closure;  // Test dup on closure
+
   closure(1); // 2
-  closure(1); // 3
+  closure2(1); // 3
 
   result := closure(2); // 5
   printf("Final result: %d\n", result);
@@ -35,8 +37,10 @@ test "Test anonymous closure value =>", {
     return x;
   });
 
+  closure2 := closure;  // Test dup on closure
+
   closure(1); // 2
-  closure(1); // 3
+  closure2(1); // 3
 
   result := closure(2); // 5
   printf("Final result: %d\n", result);
@@ -128,8 +132,10 @@ test "Test closure with Dyn", {
     return x;
   });
 
+  closure2 := closure;  // Test dup on closure
+
   closure(1); // 2
-  closure(1); // 3
+  closure2(1); // 3
 
   result := closure(2); // 5
   printf("Final result: %d\n", result);
@@ -146,8 +152,10 @@ test "Test closure with Impl that captures Gc object", {
     return x.*;
   });
 
+  closure2 := closure;  // Test dup on closure
+
   closure(1); // 2
-  closure(1); // 3
+  closure2(1); // 3
   result := closure(2); // 5
 
   printf("Final result: %d\n", result);
@@ -165,8 +173,29 @@ test "Test anonymous closure value with Impl that captures Gc object", {
     return x.*;
   });
 
+  closure2 := closure;  // Test dup on closure
+
   closure(1); // 2
-  closure(1); // 3
+  closure2(1); // 3
+  result := closure(2); // 5
+
+  printf("Final result: %d\n", result);
+  assert(x.* == 5, "Captured boxed variable should be 5");
+  assert(x.* == result, "Expected final result to be 5");
+};
+
+test "Test anonymous closure value with Dyn that captures Gc object", {
+  x := MyBox(1);
+
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
+    x.* = (x.* + y);
+    return x.*;
+  });
+
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure2(1); // 3
   result := closure(2); // 5
 
   printf("Final result: %d\n", result);

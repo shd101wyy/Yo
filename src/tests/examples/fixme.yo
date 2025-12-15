@@ -9,40 +9,23 @@ MyBox :: object(
 );
 
 main :: (fn() -> unit) {
-  x := 1;
-
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
-    x = (x + y);
-    return x;
-  });
-
-  closure(1); // 2
-  closure(1); // 3
-
-  result := closure(2); // 5
-  printf("Final result: %d\n", result);
-  assert(x == 1, "Captured variable x should remain unchanged outside closure");
-  assert(result == 5, "Expected final result to be 5");
-};
-
-/*
-// FIXME: fix me later after fixing the code block above 
-main :: (fn() -> unit) {
   x := MyBox(1);
 
+  // FIXME:
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
     x.* = (x.* + y);
     return x.*;
   });
 
-  closure(1); // 2
-  closure(1); // 3
-  result := closure(2); // 5
+  closure2 := closure;
 
-  printf("Final result: %d\n", result);
-  assert(x.* == 5, "Captured boxed variable should be 5");
-  assert(x.* == result, "Expected final result to be 5");
+  /// closure(1); // 2
+  /// closure2(1); // 3
+  /// result := closure(2); // 5
+  /// 
+  /// printf("Final result: %d\n", result);
+  /// assert(x.* == 5, "Captured boxed variable should be 5");
+  /// assert(x.* == result, "Expected final result to be 5");
 };
-*/
 
 export main;
