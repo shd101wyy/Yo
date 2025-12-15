@@ -21,7 +21,6 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
-  isFutureModuleType,
   isNewtypeType,
   isObjectType,
   isPtrType,
@@ -186,7 +185,7 @@ function allocateClosureCapture(
   }
 
   const captureCName = captureTypeEntry.cName;
-  const functionContext = context as FunctionGenerationContext;
+  // const functionContext = context as FunctionGenerationContext;
 
   // Build a lookup for deferred dup expressions attached to the closure construction.
   // These are commonly emitted for captured object values and must be applied
@@ -254,8 +253,8 @@ function allocateClosureCapture(
   // Generate a unique temporary variable name for the capture data
   // Use sourceExpr token location for uniqueness to avoid collisions
   const uniqueSuffix =
-    sourceExpr.token.start !== undefined
-      ? `${Date.now()}_${sourceExpr.token.start}`
+    sourceExpr.token.position.row !== undefined
+      ? `${Date.now()}_${sourceExpr.token.position.row}`
       : `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const captureTempVar = `__capture_${closureTypeId}_${uniqueSuffix}`;
 
@@ -380,7 +379,7 @@ function generateFuncCall(
         return `// Error: Failed to allocate closure capture`;
       }
 
-      const { captureTempVar, captureCName } = captureResult;
+      const { captureTempVar } = captureResult;
 
       if (isDynClosure) {
         const constructorName = `__yo_create_${closureCName}`;
@@ -757,23 +756,29 @@ function generateFuncCall(
     // const futureCode = generateExpr(futureArg, indent, context);
     const futureType = futureArg.$?.type;
 
-    if (!futureType || !isFutureModuleType(futureType)) {
+    // Check if the type implements Future (handles both FutureModuleType and SomeType with Future impl)
+    if (!futureType || !typeImplementsFuture(futureType)) {
       return `// Error: await argument must be a Future type`;
     }
 
-    // FIXME: OUTDATED
-    /// const resultType = (futureType as FutureType).childType;
-    /// const isUnit = isUnitType(resultType);
-    ///
-    /// // For now, futures complete immediately, so we just extract the result
-    /// // TODO: Add actual async waiting/polling when we implement the async runtime
-    /// if (isUnit) {
-    ///   // Future(unit) - just check if completed and return unit
-    ///   return `({ (void)(${futureCode})->state; })`;
-    /// } else {
-    ///   // Future(T) - extract the result field
-    ///   return `(${futureCode})->result`;
-    /// }
+    // Extract the Future module type to get the result type
+    const futureModuleType = extractFutureModuleFromType(futureType);
+    if (!futureModuleType) {
+      return `// Error: could not extract Future module from type`;
+    }
+
+    // In async context (state machine), await expressions don't generate code
+    // The result is extracted at the start of the next state
+    // If this await expression is assigned to a variable, that variable's name is in expr.$.variableName
+    const functionContext = context as FunctionGenerationContext;
+    if (functionContext.inStateMachine) {
+      // Return empty string - the actual await logic is handled by state machine generator
+      // The result will be available in the target variable in the next state
+      return ``;
+    }
+
+    // Outside async context - this is an error
+    return `// Error: await should only be used inside async blocks`;
   }
 
   // return
@@ -825,11 +830,14 @@ function generateFuncCall(
       const returnType = getTypeString(expr.$.type!, context);
 
       // Skip re-declaring if we already generated a dup call with a temp variable
+      // Also skip if the variable name is the same as the arg code (e.g., returning a local variable)
       if (
         !handledDeferredDup &&
         !isUnitType(expr.$.type) &&
         expr.$.variableName &&
-        (needsTempVarDeclaration || expr.$.variableName !== argCode) // Prevent something like: int32_t _yof4ca7ba3_temp_2071 = _yof4ca7ba3_temp_2071;
+        expr.$.variableName !== argCode && // Prevent something like: int32_t counter = counter;
+        (needsTempVarDeclaration ||
+          expr.$.variableName !== sanitizeForCIdentifier(expr.$.variableName))
       ) {
         context.emitter.emitLine(
           `${indent}${returnType} ${expr.$.variableName} = ${argCode};`
@@ -847,14 +855,6 @@ function generateFuncCall(
         const futureModuleType = extractFutureModuleFromType(futureType)!;
         const childType = futureModuleType.isFuture.outputType;
         const isUnitResult = isUnitType(childType);
-        const futureTypeCName = context.types[futureType.id]?.cName;
-
-        if (!futureTypeCName) {
-          context.emitter.emitLine(
-            `${indent}// Error: Future type not found for async return`
-          );
-          return `return`;
-        }
 
         context.emitter.emitLine(
           `${indent}// Final state - complete the result Future`
@@ -873,9 +873,7 @@ function generateFuncCall(
           context.emitter.emitLine(
             `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting result = %d\\n", (int)${resultValue});`
           );
-          context.emitter.emitLine(
-            `${indent}sm->result->result = ${resultValue};`
-          );
+          context.emitter.emitLine(`${indent}sm->result = ${resultValue};`);
         }
 
         // Set state to COMPLETED with release semantics
@@ -884,7 +882,7 @@ function generateFuncCall(
           `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`
         );
         context.emitter.emitLine(
-          `${indent}atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
+          `${indent}atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
         );
 
         // Check if there's a continuation waiting (with acquire semantics to see the continuation registration)
@@ -893,10 +891,10 @@ function generateFuncCall(
           `${indent}// Check if there's a continuation waiting for this Future to complete`
         );
         context.emitter.emitLine(
-          `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->result->continuation_fn, memory_order_acquire);`
+          `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
         );
         context.emitter.emitLine(
-          `${indent}void* continuation_sm = atomic_load_explicit(&sm->result->continuation_sm, memory_order_acquire);`
+          `${indent}void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
         );
         context.emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
         context.emitter.emitLine(
@@ -3008,10 +3006,22 @@ function generateAsyncBlock(
   );
   emitter.emitDeclarationLine(`typedef struct ${structName}_struct {`);
   emitter.emitDeclarationLine(
-    `  int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done)`
+    `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
+  );
+
+  // For unit type, we don't generate a result field (would be `void result;` which is invalid C)
+  if (!isUnitType(resultType)) {
+    emitter.emitDeclarationLine(
+      `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`
+    );
+  }
+
+  // Add continuation tracking fields for await chaining
+  emitter.emitDeclarationLine(
+    `  _Atomic(void (*)(void*)) continuation_fn;  // Resume function of awaiting task`
   );
   emitter.emitDeclarationLine(
-    `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`
+    `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`
   );
   emitter.emitDeclarationLine(``);
 
@@ -5416,7 +5426,7 @@ export function generateDeferredAsyncBlocks(
       constructorName,
       disposeFunctionName,
       futureType,
-      futureModuleType,
+      //      futureModuleType,
       resultType,
       resultTypeCName,
       captureType,

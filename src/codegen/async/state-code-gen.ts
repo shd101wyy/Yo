@@ -211,11 +211,12 @@ export function generateStateSegmentCode(
         context
       );
     } else if (isLastExpr && captureLastExprResult) {
-      // Last expression in final segment - capture its value in sm->result->result
+      // Last expression in final segment - capture its value in sm->result
+      // For value-type Futures, the result field is directly in the state machine struct
       const code = generateExpr(expr, indent, context);
       if (code) {
         emitter.emitLine(`${indent}// Store final expression result`);
-        emitter.emitLine(`${indent}sm->result->result = ${code};`);
+        emitter.emitLine(`${indent}sm->result = ${code};`);
       }
     } else {
       // Regular expression - generate normally

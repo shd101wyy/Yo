@@ -159,13 +159,13 @@ export function generateAsyncBlockResumeFunction(
           `      // Extract result from await ${stateNumber - 1}`
         );
         emitter.emitLine(
-          `      yo_future_state_t state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire);`
+          `      int state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}.state, memory_order_acquire);`
         );
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
         emitter.emitLine(
-          `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
+          `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}.result;`
         );
 
         // If this await has a target variable, assign the result to it
@@ -483,15 +483,15 @@ export function generateAsyncBlockResumeFunction(
       emitter.emitLine(``);
       emitter.emitLine(`      // Check if future is ready`);
       emitter.emitLine(
-        `      yo_future_state_t future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+        `      int future_state = atomic_load_explicit(&sm->${futureFieldName}.state, memory_order_acquire);`
       );
-      emitter.emitLine(`      if (future_state == YO_FUTURE_COMPLETED) {`);
+      emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
       emitter.emitLine(
         `        goto state_${nextState};  // Continue immediately`
       );
       emitter.emitLine(`      } else {`);
       emitter.emitLine(
-        `        yo_async_register_continuation((void*)sm->${futureFieldName}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        `        yo_async_register_continuation(&sm->${futureFieldName}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
       );
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      }`);
@@ -526,33 +526,33 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(``);
         }
 
-        emitter.emitLine(`      // Final state - complete the result Future`);
+        emitter.emitLine(`      // Final state - complete the Future`);
         emitter.emitLine(
-          `      atomic_store_explicit(&sm->result->state, YO_FUTURE_COMPLETED, memory_order_release);`
+          `      atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
         );
 
         emitter.emitLine(``);
         emitter.emitLine(`      // Check if there's a continuation to invoke`);
         emitter.emitLine(
-          `      void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->result->continuation_fn, memory_order_acquire);`
+          `      void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
         );
         emitter.emitLine(
-          `      void* continuation_sm = atomic_load_explicit(&sm->result->continuation_sm, memory_order_acquire);`
+          `      void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
         );
         emitter.emitLine(``);
         emitter.emitLine(`      if (continuation_fn != NULL) {`);
         emitter.emitLine(
-          `        ASYNC_DEBUG("Future %p completed, spawning continuation: resume_fn=%p, sm=%p\\n", (void*)sm->result, (void*)continuation_fn, continuation_sm);`
+          `        ASYNC_DEBUG("Future %p completed, spawning continuation: resume_fn=%p, sm=%p\\n", (void*)sm, (void*)continuation_fn, continuation_sm);`
         );
         emitter.emitLine(``);
         emitter.emitLine(
           `        // Clear the continuation (prevent double-spawn)`
         );
         emitter.emitLine(
-          `        atomic_store_explicit(&sm->result->continuation_fn, NULL, memory_order_relaxed);`
+          `        atomic_store_explicit(&sm->continuation_fn, NULL, memory_order_relaxed);`
         );
         emitter.emitLine(
-          `        atomic_store_explicit(&sm->result->continuation_sm, NULL, memory_order_relaxed);`
+          `        atomic_store_explicit(&sm->continuation_sm, NULL, memory_order_relaxed);`
         );
         emitter.emitLine(``);
         emitter.emitLine(`        // Spawn the continuation as a new task`);
@@ -563,28 +563,14 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(``);
 
         emitter.emitLine(
-          `      // Check if Future was detached (dropped while RUNNING)`
+          `      // Value-type Futures don't need detached handling`
         );
         emitter.emitLine(
-          `      bool was_detached = atomic_load_explicit(&sm->result->detached, memory_order_acquire);`
+          `      // The state machine is owned by whoever holds the struct`
         );
-        emitter.emitLine(`      if (was_detached) {`);
-        emitter.emitLine(
-          `        ASYNC_DEBUG("Future %p was detached, dropping now that it's completed\\n", (void*)sm->result);`
-        );
-        emitter.emitLine(
-          `        // Drop the Future - this will decrement RC from 1->0 and free it`
-        );
-        emitter.emitLine(
-          `        // The async runtime "owned" the last reference while it was RUNNING`
-        );
-        emitter.emitLine(`        __yo_future_drop((void*)sm->result);`);
-        emitter.emitLine(`      }`);
-        emitter.emitLine(``);
 
-        emitter.emitLine(
-          `      sm->state = ${stateNumber + 1};  // Terminal state`
-        );
+        emitter.emitLine(``);
+        emitter.emitLine(`      // Stay in terminal state (-1)`);
         emitter.emitLine(`      return;`);
       }
 

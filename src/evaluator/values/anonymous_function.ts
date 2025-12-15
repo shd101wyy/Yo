@@ -455,7 +455,7 @@ Got:      "${paramName}"`,
     finalType = {
       ...wrapperType,
       resolvedConcreteType: captureType,
-    };
+    } as SomeType;
 
     // Closures are always runtime values - create an UnknownValue
     // The closure will be constructed at runtime in C code

@@ -15,6 +15,10 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import { Type } from "../../types";
+import {
+  extractFutureModuleFromType,
+  typeImplementsFuture,
+} from "../../types/utils";
 
 /**
  * Information about a single await expression found in an async function.
@@ -318,67 +322,72 @@ function walkExprForAwaits(
           break;
         }
 
-        // const futureType = awaitArg.$?.type;
+        const futureType = awaitArg.$?.type;
 
-        // FIXME: Outdated
-        /// if (futureType && futureType.tag === TypeTag.Future) {
-        ///   const ft = futureType as FutureType;
-        ///
-        ///   // Get the Future variable ID from the await argument
-        ///   let futureVariableId: string | undefined;
-        ///   if (
-        ///     awaitArg.tag === ExprTag.Atom &&
-        ///     awaitArg.token.type === TokenType.Identifier &&
-        ///     awaitArg.$
-        ///   ) {
-        ///     const futureVarName = awaitArg.token.value;
-        ///     const futureVariables = getVariablesFromEnv(
-        ///       awaitArg.$.env,
-        ///       futureVarName
-        ///     );
-        ///     if (futureVariables.length > 0) {
-        ///       const futureVar = futureVariables[futureVariables.length - 1]!;
-        ///       // If the Future variable is borrowing from another variable, use the owner's ID
-        ///       // This ensures we reference the correct field in the state machine struct
-        ///       if (futureVar.isOwningTheSameGcValueAs) {
-        ///         futureVariableId = futureVar.isOwningTheSameGcValueAs.id;
-        ///       } else {
-        ///         futureVariableId = futureVar.id;
-        ///       }
-        ///     }
-        ///   }
-        ///
-        ///   // Check if parent is an assignment to capture target variable
-        ///   let targetVariableId: string | undefined;
-        ///   if (
-        ///     parentExpr &&
-        ///     parentExpr.tag === ExprTag.FuncCall &&
-        ///     exprIsFunctionCallOf(parentExpr, ":=")
-        ///   ) {
-        ///     const varExpr = parentExpr.args[0];
-        ///     if (
-        ///       varExpr &&
-        ///       varExpr.tag === ExprTag.Atom &&
-        ///       varExpr.token.type === TokenType.Identifier
-        ///     ) {
-        ///       const varName = varExpr.token.value;
-        ///       if (varExpr.$) {
-        ///         const variables = getVariablesFromEnv(varExpr.$.env, varName);
-        ///         if (variables.length > 0) {
-        ///           targetVariableId = variables[variables.length - 1]!.id;
-        ///         }
-        ///       }
-        ///     }
-        ///   }
-        ///
-        ///   awaitPoints.push({
-        ///     index: awaitPoints.length,
-        ///     expr,
-        ///     resultType: ft.childType,
-        ///     targetVariableId,
-        ///     futureVariableId,
-        ///   });
-        /// }
+        // Check if the type implements Future (handles both FutureModuleType and SomeType)
+        if (futureType && typeImplementsFuture(futureType)) {
+          const futureModuleType = extractFutureModuleFromType(futureType);
+          if (!futureModuleType) {
+            break;
+          }
+
+          const resultType = futureModuleType.isFuture.outputType;
+
+          // Get the Future variable ID from the await argument
+          let futureVariableId: string | undefined;
+          if (
+            awaitArg.tag === ExprTag.Atom &&
+            awaitArg.token.type === TokenType.Identifier &&
+            awaitArg.$
+          ) {
+            const futureVarName = awaitArg.token.value;
+            const futureVariables = getVariablesFromEnv(
+              awaitArg.$.env,
+              futureVarName
+            );
+            if (futureVariables.length > 0) {
+              const futureVar = futureVariables[futureVariables.length - 1]!;
+              // If the Future variable is borrowing from another variable, use the owner's ID
+              // This ensures we reference the correct field in the state machine struct
+              if (futureVar.isOwningTheSameGcValueAs) {
+                futureVariableId = futureVar.isOwningTheSameGcValueAs.id;
+              } else {
+                futureVariableId = futureVar.id;
+              }
+            }
+          }
+
+          // Check if parent is an assignment to capture target variable
+          let targetVariableId: string | undefined;
+          if (
+            parentExpr &&
+            parentExpr.tag === ExprTag.FuncCall &&
+            exprIsFunctionCallOf(parentExpr, ":=")
+          ) {
+            const varExpr = parentExpr.args[0];
+            if (
+              varExpr &&
+              varExpr.tag === ExprTag.Atom &&
+              varExpr.token.type === TokenType.Identifier
+            ) {
+              const varName = varExpr.token.value;
+              if (varExpr.$) {
+                const variables = getVariablesFromEnv(varExpr.$.env, varName);
+                if (variables.length > 0) {
+                  targetVariableId = variables[variables.length - 1]!.id;
+                }
+              }
+            }
+          }
+
+          awaitPoints.push({
+            index: awaitPoints.length,
+            expr,
+            resultType,
+            targetVariableId,
+            futureVariableId,
+          });
+        }
       }
 
       // Recursively walk the function and arguments, passing current expr as parent
