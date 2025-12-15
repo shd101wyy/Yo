@@ -230,9 +230,10 @@ function allocateClosureCapture(
 
   // Generate a unique temporary variable name for the capture data
   // Use sourceExpr token location for uniqueness to avoid collisions
-  const uniqueSuffix = sourceExpr.token.start !== undefined 
-    ? `${Date.now()}_${sourceExpr.token.start}` 
-    : `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const uniqueSuffix =
+    sourceExpr.token.start !== undefined
+      ? `${Date.now()}_${sourceExpr.token.start}`
+      : `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const captureTempVar = `__capture_${closureTypeId}_${uniqueSuffix}`;
 
   if (useStackAllocation) {

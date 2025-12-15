@@ -176,12 +176,13 @@ export function tryToImplementClosureByFnModuleType({
   // Determine the final type based on the wrapper type (SomeType or DynType)
   let finalType: Type;
   if (isSomeType(wrapperType)) {
-    // For SomeType (Impl(Fn(...))), create a new SomeType with resolvedConcreteType
-    const resolvedSomeType: SomeType = {
+    // IMPORTANT: Mutate the wrapper SomeType in-place so downstream generic specialization
+    // can observe the concrete capture struct type.
+    wrapperType.resolvedConcreteType = inferredCaptureType;
+    finalType = {
       ...wrapperType,
       resolvedConcreteType: inferredCaptureType,
     };
-    finalType = resolvedSomeType;
   } else if (isDynType(wrapperType)) {
     // For DynType (Dyn(Fn(...))), no need to do anything
     finalType = wrapperType;

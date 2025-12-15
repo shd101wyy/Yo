@@ -15,6 +15,7 @@ import {
   isFunctionType,
   isFutureModuleType,
   isPtrType,
+  isSomeType,
   isStructType,
   isUnitType,
   isVoidType,
@@ -1547,19 +1548,48 @@ export function generateDynWrapperFunctions(
           `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
         );
 
-        const callArgs: string[] = [`box->${fieldName}.data`];
-        for (let i = 0; i < callType.parameters.length; i++) {
-          callArgs.push(`arg${i + 1}`);
-        }
+        // `Box(Impl(Fn...))` stores the capture struct by value.
+        // Dispatch by calling the compiled closure function with `&box->value` as the closure context.
+        // (Legacy representation: if the boxed value is a module fat pointer with `.data`/`.call`, fall back.)
+        const boxedValueType = dataType.fields[0]!.type;
+        const captureType =
+          isSomeType(boxedValueType) && boxedValueType.resolvedConcreteType
+            ? boxedValueType.resolvedConcreteType
+            : boxedValueType;
+        const closureInfo = context.implClosureCallMap.get(captureType.id);
 
-        if (isVoidType(callType.return.type)) {
-          emitter.emitDeclarationLine(
-            `  box->${fieldName}.call(${callArgs.join(", ")});`
-          );
+        const callArgs: string[] = [];
+        if (closureInfo && closureInfo.fnModuleId === requiredModule.id) {
+          callArgs.push(`(void*)&box->${fieldName}`);
+          for (let i = 0; i < callType.parameters.length; i++) {
+            callArgs.push(`arg${i + 1}`);
+          }
+
+          if (isVoidType(callType.return.type)) {
+            emitter.emitDeclarationLine(
+              `  ${closureInfo.functionCName}(${callArgs.join(", ")});`
+            );
+          } else {
+            emitter.emitDeclarationLine(
+              `  return ${closureInfo.functionCName}(${callArgs.join(", ")});`
+            );
+          }
         } else {
-          emitter.emitDeclarationLine(
-            `  return box->${fieldName}.call(${callArgs.join(", ")});`
-          );
+          // Fallback for older closure/module representations
+          callArgs.push(`box->${fieldName}.data`);
+          for (let i = 0; i < callType.parameters.length; i++) {
+            callArgs.push(`arg${i + 1}`);
+          }
+
+          if (isVoidType(callType.return.type)) {
+            emitter.emitDeclarationLine(
+              `  box->${fieldName}.call(${callArgs.join(", ")});`
+            );
+          } else {
+            emitter.emitDeclarationLine(
+              `  return box->${fieldName}.call(${callArgs.join(", ")});`
+            );
+          }
         }
       } else {
         // Non-box Dyn(Fn(...)) is not expected for anonymous closures; keep a clear failure mode.

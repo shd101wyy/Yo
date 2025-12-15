@@ -448,14 +448,14 @@ Got:      "${paramName}"`,
       captureType: captureType,
     };
 
-    // Create a new wrapper type with the resolvedConcreteType set to the captureType
-    // This preserves the wrapper type structure but records the concrete capture struct
-    // Always produce SomeType - use `dyn (x) => expr` to get DynType
-    const resolvedSomeType: SomeType = {
+    // IMPORTANT: Mutate the wrapper SomeType in-place so downstream generic specialization
+    // (e.g. `box`) can observe the concrete capture struct and codegen can use it.
+    // We also return a resolved copy for local typing, but the in-place update is the key.
+    wrapperType.resolvedConcreteType = captureType;
+    finalType = {
       ...wrapperType,
       resolvedConcreteType: captureType,
     };
-    finalType = resolvedSomeType;
 
     // Closures are always runtime values - create an UnknownValue
     // The closure will be constructed at runtime in C code
