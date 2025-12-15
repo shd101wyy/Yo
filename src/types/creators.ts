@@ -1,4 +1,5 @@
 import { createEmptyEnv, Environment, Frame } from "../env";
+import { addARCFunctionsToSomeType } from "../evaluator/types/utils";
 import { Expr } from "../expr";
 import { hashString, randomId } from "../utils";
 import { Value, valueToString } from "../value";
@@ -834,7 +835,8 @@ export function createSomeType(
     );
   }
 
-  const module: ModuleType = createModuleType(createEmptyEnv());
+  const emptyEnv = createEmptyEnv();
+  const module: ModuleType = createModuleType(emptyEnv);
 
   const someType: SomeType = {
     id: id ?? `sometype_${randomId()}`,
@@ -853,6 +855,16 @@ export function createSomeType(
     externName: type.externName,
   };
   module.receiverType = someType;
+
+  // Add ARC functions to SomeType - these dispatch to resolvedConcreteType at codegen time
+  addARCFunctionsToSomeType({
+    someType,
+    env: emptyEnv,
+    context: {
+      SelfType: someType,
+      stdPath: "",
+    },
+  });
 
   return someType;
 }

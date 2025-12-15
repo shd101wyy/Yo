@@ -891,6 +891,10 @@ export const BuiltinFunctions = {
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
   __yo_dyn_dup: ["__yo_dyn_dup"], // dup the dyn object with wrapped object
 
+  // SomeType Gc functions - dispatch to resolvedConcreteType if available
+  __yo_sometype_drop: ["__yo_sometype_drop"], // drop by dispatching to resolvedConcreteType
+  __yo_sometype_dup: ["__yo_sometype_dup"], // dup by dispatching to resolvedConcreteType
+
   // Gc functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],

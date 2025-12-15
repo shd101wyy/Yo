@@ -21,6 +21,8 @@ import {
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
   evaluateYoRcOwn,
+  evaluateYoSomeTypeDrop,
+  evaluateYoSomeTypeDup,
 } from "../builtins/arc_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
@@ -513,6 +515,14 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
       // __yo_dyn_dup
       return evaluateYoDynVtableDup({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_drop)
+    ) {
+      // __yo_sometype_drop
+      return evaluateYoSomeTypeDrop({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_dup)) {
+      // __yo_sometype_dup
+      return evaluateYoSomeTypeDup({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
       // __yo_gc_collect
       return evaluateYoGcCollect({ expr, env, context: { ...context } });

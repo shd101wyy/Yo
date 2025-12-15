@@ -26,6 +26,7 @@ import {
   isObjectType,
   isPtrType,
   isSliceType,
+  isSomeType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -516,6 +517,24 @@ function generateFuncCall(
     if (isObjectType(valueType)) {
       return `__yo_decr_rc((void*)(${valueCode}))`;
     }
+    // For SomeType with resolvedConcreteType, dispatch to the concrete type's ___drop
+    if (isSomeType(valueType) && valueType.resolvedConcreteType) {
+      const concreteType = valueType.resolvedConcreteType;
+      const dropFn = concreteType.module?.fields.find(
+        (f) => f.label === BuiltinFunctions.___drop[0]
+      );
+      if (
+        dropFn &&
+        dropFn.assignedValue &&
+        isFunctionValue(dropFn.assignedValue)
+      ) {
+        const dropFnCName =
+          context.functions[dropFn.assignedValue.funcId]?.cName;
+        if (dropFnCName) {
+          return `${dropFnCName}(${valueCode})`;
+        }
+      }
+    }
 
     // Value types: no-op drop.
     return ``;
@@ -541,6 +560,65 @@ function generateFuncCall(
     const selfCode = generateExpr(selfArg, indent, context);
     // Dyn is a value type; ref-counting applies to its .data pointer.
     return `__yo_incr_rc((void*)(${selfCode}).data)`;
+  }
+
+  // __yo_sometype_drop - dispatch to resolvedConcreteType's ___drop if available
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_drop)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_sometype_drop requires exactly 1 argument`;
+    }
+    const argType = selfArg.$?.type;
+    if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
+      // Dispatch to concrete type's ___drop
+      const concreteType = argType.resolvedConcreteType;
+      const dropFn = concreteType.module?.fields.find(
+        (f) => f.label === BuiltinFunctions.___drop[0]
+      );
+      if (
+        dropFn &&
+        dropFn.assignedValue &&
+        isFunctionValue(dropFn.assignedValue)
+      ) {
+        const dropFnCName =
+          context.functions[dropFn.assignedValue.funcId]?.cName;
+        if (dropFnCName) {
+          const selfCode = generateExpr(selfArg, indent, context);
+          return `${dropFnCName}(${selfCode})`;
+        }
+      }
+    }
+    // No concrete type or no drop function - no-op
+    return `/* __yo_sometype_drop: no-op */`;
+  }
+
+  // __yo_sometype_dup - dispatch to resolvedConcreteType's ___dup if available
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_dup)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_sometype_dup requires exactly 1 argument`;
+    }
+    const argType = selfArg.$?.type;
+    if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
+      // Dispatch to concrete type's ___dup
+      const concreteType = argType.resolvedConcreteType;
+      const dupFn = concreteType.module?.fields.find(
+        (f) => f.label === BuiltinFunctions.___dup[0]
+      );
+      if (
+        dupFn &&
+        dupFn.assignedValue &&
+        isFunctionValue(dupFn.assignedValue)
+      ) {
+        const dupFnCName = context.functions[dupFn.assignedValue.funcId]?.cName;
+        if (dupFnCName) {
+          const selfCode = generateExpr(selfArg, indent, context);
+          return `${dupFnCName}(${selfCode})`;
+        }
+      }
+    }
+    // No concrete type or no dup function - no-op
+    return `/* __yo_sometype_dup: no-op */`;
   }
 
   // __yo_future_drop - call __yo_decr_rc on future with special running check

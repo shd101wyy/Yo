@@ -13,6 +13,7 @@ import {
   isFunctionType,
   isGcType,
   ModuleField,
+  SomeType,
   StructType,
   typeContainsGcType,
   typeImplementsSend,
@@ -29,7 +30,7 @@ import { evaluateExpression } from "../exprs/expr";
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType: StructType | EnumType | DynType,
+  SelfType: StructType | EnumType | DynType | SomeType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -69,7 +70,7 @@ export function addFunctionSignatureToSelfTypeModule({
    * Function code string, like (fn()-> unit)
    */
   functionSignature: string;
-  SelfType: StructType | EnumType | DynType;
+  SelfType: StructType | EnumType | DynType | SomeType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -135,7 +136,7 @@ export function addFunctionCodeToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType: StructType | EnumType | DynType;
+  SelfType: StructType | EnumType | DynType | SomeType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -191,6 +192,57 @@ export const DropFnSignature = "(fn(self : Self) -> unit)";
 export const DupFnSignature = "(fn(self : Self) -> Self)";
 
 /**
+ * Sanitize a field label to be a valid Yo identifier.
+ * Similar to sanitizeForCIdentifier but for Yo variable names.
+ */
+function sanitizeFieldLabel(label: string): string {
+  return label.replace(/[^a-zA-Z0-9_]/g, (char) => {
+    return `_u${char.charCodeAt(0)}_`;
+  });
+}
+
+/**
+ * Check if a label is a valid Yo identifier (alphanumeric + underscore, not starting with digit)
+ */
+function isValidIdentifier(label: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(label);
+}
+
+/**
+ * Generate destructuring and drop/dup expressions for ARC functions.
+ * Handles special field names like `*` by using aliased destructuring.
+ */
+function generateDestructuringAndCalls(
+  labels: string[],
+  callFn: string
+): { destructuringExpr: string; callsExpr: string } {
+  if (labels.length === 0) {
+    return { destructuringExpr: "", callsExpr: "" };
+  }
+
+  const destructurings: string[] = [];
+  const calls: string[] = [];
+
+  for (const label of labels) {
+    if (isValidIdentifier(label)) {
+      // Simple case: label is a valid identifier
+      destructurings.push(label);
+      calls.push(`(${callFn})(${label});`);
+    } else {
+      // Need aliased destructuring: { (label) : alias }
+      const alias = sanitizeFieldLabel(label);
+      destructurings.push(`(${label}) : ${alias}`);
+      calls.push(`(${callFn})(${alias});`);
+    }
+  }
+
+  return {
+    destructuringExpr: `{ ${destructurings.join(", ")} } := self;`,
+    callsExpr: calls.join("\n  "),
+  };
+}
+
+/**
  * Generate ___dispose function code for a struct type
  */
 function generateDisposeFunctionCodeForStructType(structType: StructType): {
@@ -199,10 +251,10 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
 } {
   const signature = DisposeFnSignature;
   if (!isGcType(structType)) {
-    // return null; // no need to generate ___dispose function
     return { signature, code: `(${signature} ())` };
   }
-  const destructurings = structType.fields
+
+  const destructuringLabels = structType.fields
     .filter(
       (field) => !field.isCompileTimeOnly && typeContainsGcType(field.type)
     )
@@ -212,25 +264,38 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
     (field) => field.label === BuiltinFunctions.dispose[0]
   );
 
-  if (!destructurings.length && !hasDisposeFunction) {
-    // return null; // no need to generate ___dispose function
+  if (!destructuringLabels.length && !hasDisposeFunction) {
     return { signature, code: `(${signature} ())` };
   }
 
-  const dropDestructuringsExpr = destructurings.length
+  const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
+    destructuringLabels,
+    BuiltinFunctions.___drop[0]!
+  );
+
+  const dropDestructuringsExpr = destructuringLabels.length
     ? `
-  { ${destructurings.join(", ")} } := self;
-  ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
+  ${destructuringExpr}
+  ${callsExpr}
 `
     : "";
 
-  return {
-    signature,
-    code: `(${signature} { // ___dispose
+  const finalCode = `(${signature} { // ___dispose
       ${hasDisposeFunction ? "Self.dispose(self);" : ""}
       ${dropDestructuringsExpr}
       return ();
-  })`,
+  })`;
+
+  // DEBUG: Log generated code for Box types
+  if (structType.fields.some((f) => f.label === "*")) {
+    console.log(
+      `DEBUG dispose dropDestructuringsExpr: ${JSON.stringify(dropDestructuringsExpr)}`
+    );
+  }
+
+  return {
+    signature,
+    code: finalCode,
   };
 }
 
@@ -242,7 +307,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   code: string;
 } {
   const signature = DropFnSignature;
-  const destructurings = structType.fields
+  const destructuringLabels = structType.fields
     .filter(
       (field) => !field.isCompileTimeOnly && typeContainsGcType(field.type)
     )
@@ -253,14 +318,17 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   ${BuiltinFunctions.__yo_decr_rc[0]!}(self);`
     : "";
 
-  const dropDestructuringsExpr = isGcType(structType)
-    ? ""
-    : destructurings.length
-      ? `
-  { ${destructurings.join(", ")} } := self;
-  ${destructurings.map((label) => `(${BuiltinFunctions.___drop[0]!})(${label});`).join("\n")}
-`
-      : "";
+  let dropDestructuringsExpr = "";
+  if (!isGcType(structType) && destructuringLabels.length) {
+    const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
+      destructuringLabels,
+      BuiltinFunctions.___drop[0]!
+    );
+    dropDestructuringsExpr = `
+  ${destructuringExpr}
+  ${callsExpr}
+`;
+  }
 
   return {
     signature,
@@ -280,7 +348,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   code: string;
 } {
   const signature = DupFnSignature;
-  const destructurings = structType.fields
+  const destructuringLabels = structType.fields
     .filter(
       (field) => !field.isCompileTimeOnly && typeContainsGcType(field.type)
     )
@@ -291,14 +359,17 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
     : "";
 
-  const dupDestructuringsExpr = isGcType(structType)
-    ? ""
-    : destructurings.length
-      ? `
-  { ${destructurings.join(", ")} } := self;
-  ${destructurings.map((label) => `(${BuiltinFunctions.___dup[0]!})(${label});`).join("\n")}
-`
-      : "";
+  let dupDestructuringsExpr = "";
+  if (!isGcType(structType) && destructuringLabels.length) {
+    const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
+      destructuringLabels,
+      BuiltinFunctions.___dup[0]!
+    );
+    dupDestructuringsExpr = `
+  ${destructuringExpr}
+  ${callsExpr}
+`;
+  }
 
   return {
     signature,
@@ -755,6 +826,67 @@ function generateDupFunctionCodeForDynType(_dynType: DynType): string {
     ${BuiltinFunctions.__yo_dyn_dup[0]!}(self);
     return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
   })`;
+}
+
+/**
+ * Generate ___drop function code for a SomeType
+ */
+function generateDropFunctionCodeForSomeType(someType: SomeType): string {
+  // For SomeType, drop should use __yo_sometype_drop
+  // This builtin function dispatches to resolvedConcreteType if available
+  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(someType)}
+    ${BuiltinFunctions.__yo_sometype_drop[0]!}(self);
+  })`;
+}
+
+/**
+ * Generate ___dup function code for a SomeType
+ */
+function generateDupFunctionCodeForSomeType(someType: SomeType): string {
+  // For SomeType, dup should use __yo_sometype_dup
+  // This builtin function dispatches to resolvedConcreteType if available
+  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(someType)}
+    ${BuiltinFunctions.__yo_sometype_dup[0]!}(self);
+    return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+  })`;
+}
+
+/**
+ * Add ARC functions (___drop, ___dup) to a SomeType's module.
+ * These functions dispatch to resolvedConcreteType's methods in codegen.
+ */
+export function addARCFunctionsToSomeType({
+  someType,
+  env,
+  context,
+}: {
+  someType: SomeType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Generate ARC functions for SomeType
+  const dropFunctionCode = generateDropFunctionCodeForSomeType(someType);
+  const dupFunctionCode = generateDupFunctionCodeForSomeType(someType);
+
+  // Add ___drop function to the SomeType module fields
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___drop[0]!,
+    functionCode: dropFunctionCode,
+    SelfType: someType,
+    env,
+    context,
+  });
+
+  // Add ___dup function to the SomeType module fields
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___dup[0]!,
+    functionCode: dupFunctionCode,
+    SelfType: someType,
+    env,
+    context,
+  });
+
+  return env;
 }
 
 /**

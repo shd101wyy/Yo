@@ -370,14 +370,10 @@ export function typeContainsGcType(
       return false; // Regular functions are not reference types
     }
     case TypeTag.SomeType: {
-      if ((type as SomeType).resolvedConcreteType) {
-        return typeContainsGcType(
-          (type as SomeType).resolvedConcreteType!,
-          checkedTypes
-        );
-      } else {
-        return false;
-      }
+      // SomeType conservatively returns true because we don't know at
+      // generation time whether the concrete type will contain GC types.
+      // This ensures Box(SomeType_V) generates proper ___dispose code.
+      return true;
     }
     // No need to consider ptr/ref types, as they are not owning types
     default:
