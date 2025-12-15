@@ -428,6 +428,8 @@ export function evaluateFunctionCall({
         // NOTE: We need to pass the cloneExpr expr and argExprs here because
         // we might modify the expressions during the tryToCallFunctionWithArguments
         // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
+        // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
+        // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: functionToCall.type,
@@ -437,6 +439,7 @@ export function evaluateFunctionCall({
           callerEnv: env,
           context,
           isMethodCall: Boolean(methodExpr),
+          skipSpecialization: true,
         });
         return {
           ...functionToCall,
@@ -464,6 +467,8 @@ export function evaluateFunctionCall({
         // NOTE: We need to pass the cloneExpr expr and argExprs here because
         // we might modify the expressions during the tryToCallFunctionWithArguments
         // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
+        // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
+        // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: fnModuleType.isFn.callType,
@@ -473,6 +478,7 @@ export function evaluateFunctionCall({
           callerEnv: env,
           context,
           isMethodCall: Boolean(methodExpr),
+          skipSpecialization: true,
         });
         return {
           ...functionToCall,

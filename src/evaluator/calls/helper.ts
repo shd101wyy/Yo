@@ -435,6 +435,7 @@ export function tryToCallFunctionWithArguments({
   callerEnv,
   context,
   isMethodCall,
+  skipSpecialization,
 }: {
   functionValue?: FunctionValue;
   functionType: FunctionType;
@@ -444,6 +445,13 @@ export function tryToCallFunctionWithArguments({
   callerEnv: Environment;
   context: EvaluatorContext;
   isMethodCall: boolean;
+  /**
+   * If true, skip function specialization. This is used during the "checking phase"
+   * where we try function calls with cloned expressions to see if parameters match,
+   * but don't actually want to create cached specialized functions.
+   * See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
+   */
+  skipSpecialization?: boolean;
 }): FunctionCallResult {
   if (functionValue) {
     // Use the specializedType if available (e.g., from generic impls)
@@ -1084,7 +1092,12 @@ Got:   ${argExprs.length} arguments`,
     context.isEvaluatingFunctionBodyOrAsyncBlock.value.funcId ===
       functionValue.funcId;
 
+  // Skip specialization during the "checking phase" where we try function calls
+  // with cloned expressions to see if parameters match. This avoids polluting
+  // the specialization cache with intermediate capture structs.
+  // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
   if (
+    !skipSpecialization &&
     functionValue &&
     isFunctionValue(functionValue) && // functionValue might be UnknownValue, so this condition check is necessary
     isFunctionSpecializable(functionType) &&
@@ -1176,11 +1189,10 @@ function createSpecializedFunctionInline({
         const currentValue = compileTimeArgValues[index]!;
 
         // Use areValuesEqual for robust comparison
-        const result = areValuesEqual(
+        return areValuesEqual(
           { value: cachedValue, env: cache.env },
           { value: currentValue, env: callerEnv }
         );
-        return result;
       })
   );
 

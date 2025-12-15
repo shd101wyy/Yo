@@ -178,11 +178,19 @@ export function tryToImplementClosureByFnModuleType({
   if (isSomeType(wrapperType)) {
     // IMPORTANT: Mutate the wrapper SomeType in-place so downstream generic specialization
     // can observe the concrete capture struct type.
+    //
+    // This mutation is safe because we use `skipSpecialization: true` during the "checking phase"
+    // of function call resolution (when tryToCallFunctionWithArguments is called with cloned
+    // expressions to test if parameters match). This prevents cache pollution from intermediate
+    // capture structs created during checking. The actual specialization only happens during
+    // the real call phase with the final capture struct.
+    //
+    // See issues/SPECIALIZATION_CACHE_PITFALL.md for details on the bug this pattern caused.
     wrapperType.resolvedConcreteType = inferredCaptureType;
     finalType = {
       ...wrapperType,
       resolvedConcreteType: inferredCaptureType,
-    };
+    } as SomeType;
   } else if (isDynType(wrapperType)) {
     // For DynType (Dyn(Fn(...))), no need to do anything
     finalType = wrapperType;

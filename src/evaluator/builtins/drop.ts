@@ -278,13 +278,6 @@ export function evaluateDrop({
         expr: dropMethodCallExpr,
       });
 
-      console.log(
-        "DEBUG drop: ",
-        exprToString(evaluatedDropMethodCallExpr),
-        !!evaluatedDropMethodCallExpr.$,
-        variableName
-      );
-
       if (!evaluatedDropMethodCallExpr.$?.env) {
         throw formatErrorMessage({
           token: expr.token,

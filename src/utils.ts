@@ -1,8 +1,9 @@
 import { createHash } from "crypto";
 import { charIsOperator, Operators } from "./token";
 
+let randomIdCounter = 0;
 export function randomId() {
-  return Math.random().toString(36).slice(2);
+  return `id${randomIdCounter++}`;
 }
 
 export function generateModuleId(modulePath: string) {

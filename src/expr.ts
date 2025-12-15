@@ -1867,13 +1867,6 @@ export function setExprAsNeedsToCallDup(
   }
 
   if (typeContainsGcType(expr.$.type)) {
-    console.log(
-      "DEBUG setExprAsNeedsToCallDup:",
-      exprToString(expr),
-      variableName,
-      exprIsAtom(expr) && expr.token.value !== variableName
-    );
-
     // Check if the expr.variableName is holding the Gc value
     // if yes, then no need to call dup
     // We just need to set it as consumed
@@ -1893,11 +1886,6 @@ export function setExprAsNeedsToCallDup(
                 consumedAtToken: expr.token,
               });
             }
-
-            console.log(
-              "DEBUG setExprAsNeedsToCallDup: no dup needed",
-              exprToString(expr)
-            );
             return;
           }
         }

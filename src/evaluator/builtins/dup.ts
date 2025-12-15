@@ -224,8 +224,6 @@ export function evaluateDup({
         `(${exprToString(evaluatedArgExpr)}).___dup()`
       ) as FuncCallExpr;
 
-      console.log("DEBUG dup: ", exprToString(dupMethodCallExpr));
-
       // Convert this ___dup(x) to x.___dup() and evaluate the function call
       const evaluatedDupMethodCallExpr = evaluateFunctionCall({
         env,
