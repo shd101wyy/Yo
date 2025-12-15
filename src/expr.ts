@@ -1850,14 +1850,29 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
-  if (!expr.$.variableName) {
-    // If expr has no variableName, then we just ignore it for now.
-    // For example, calling __yo_rc_own(...) function has no variableName.
-    return;
+  if (
+    expr.$.value ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.panic) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.___dup)
+  ) {
+    return; // DO NOT call dup on expression that evaluates to compile-time known value.
+  }
+
+  const variableName = expr.$.variableName;
+  if (!variableName) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expression does not have a variable name to call ${BuiltinFunctions.___dup} on:\n${exprToString(expr)}`,
+    });
   }
 
   if (typeContainsGcType(expr.$.type)) {
-    const variableName = expr.$.variableName;
+    console.log(
+      "DEBUG setExprAsNeedsToCallDup:",
+      exprToString(expr),
+      variableName,
+      exprIsAtom(expr) && expr.token.value !== variableName
+    );
 
     // Check if the expr.variableName is holding the Gc value
     // if yes, then no need to call dup
@@ -1867,7 +1882,7 @@ export function setExprAsNeedsToCallDup(
         // Do nothing
         // We need to call ___dup on it
       } else {
-        const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+        const variables = getVariablesFromEnv(expr.$.env, variableName);
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           if (variable.isOwningTheGcValue) {
@@ -1879,6 +1894,10 @@ export function setExprAsNeedsToCallDup(
               });
             }
 
+            console.log(
+              "DEBUG setExprAsNeedsToCallDup: no dup needed",
+              exprToString(expr)
+            );
             return;
           }
         }
@@ -1924,7 +1943,6 @@ export function setExprAsNeedsToCallDup(
 
     expr.$.deferredDupExpressions = [evaluatedDupCallExpr];
     expr.$.env = evaluatedDupCallExpr.$!.env;
-    // replaceExprWithFuncCallExpr(expr, evaluatedDupCallExpr);
   }
 }
 

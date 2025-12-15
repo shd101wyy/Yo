@@ -1,9 +1,14 @@
-import { Environment } from "../../env";
+import {
+  Environment,
+  getVariablesFromEnv,
+  updateExistingVariable,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
@@ -141,6 +146,14 @@ export function evaluateDrop({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___drop, 1);
 
   const argExpr = expr.args[0]!;
+  if (!exprIsAtom(argExpr)) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Expected variable name as argument to "drop":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
   const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
@@ -158,6 +171,16 @@ export function evaluateDrop({
     });
   }
   env = evaluatedArgExpr.$.env;
+
+  const variableName = evaluatedArgExpr.$?.variableName;
+  if (!variableName) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Expected variable name as argument to "drop":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
 
   const argType = evaluatedArgExpr.$.type;
   const concreteType =
@@ -255,29 +278,48 @@ export function evaluateDrop({
         expr: dropMethodCallExpr,
       });
 
-      // Set the expression as consumed AFTER the drop method call succeeds
-      if (evaluatedDropMethodCallExpr.$?.env) {
-        env = setExprAsConsumed(
-          evaluatedArgExpr,
-          evaluatedDropMethodCallExpr.$.env,
-          true
-        );
-      } else {
-        env = setExprAsConsumed(evaluatedArgExpr, env, true);
+      console.log(
+        "DEBUG drop: ",
+        exprToString(evaluatedDropMethodCallExpr),
+        !!evaluatedDropMethodCallExpr.$,
+        variableName
+      );
+
+      if (!evaluatedDropMethodCallExpr.$?.env) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Failed to get updated environment after evaluating "___drop" method call:\n${exprToString(
+            dropMethodCallExpr
+          )}`,
+        });
       }
 
-      // Replace the original expr with the evaluated drop method call
-      if (exprIsFunctionCall(evaluatedDropMethodCallExpr)) {
-        // Update the env in the result
-        if (evaluatedDropMethodCallExpr.$) {
-          evaluatedDropMethodCallExpr.$.env = env;
-        }
-        replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDropMethodCallExpr);
-        return expr;
-      } else {
-        // In theory we shouldn't enter here
-        return evaluatedDropMethodCallExpr;
+      // Set the expression as consumed AFTER the drop method call succeeds
+
+      const variables = getVariablesFromEnv(
+        evaluatedDropMethodCallExpr.$.env,
+        variableName
+      );
+      const variable = variables.at(-1);
+      if (!variable) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Variable "${variableName}" not found in environment after evaluating "___drop" method call:\n${exprToString(
+            dropMethodCallExpr
+          )}`,
+        });
       }
+      const nextEnv = updateExistingVariable(
+        evaluatedDropMethodCallExpr.$.env,
+        variable,
+        {
+          ...variable,
+          consumedAtToken: expr.token,
+        }
+      );
+
+      evaluatedDropMethodCallExpr.$.env = nextEnv;
+      return evaluatedDropMethodCallExpr;
     }
   } else {
     // Set the expression as consumed

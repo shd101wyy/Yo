@@ -9,41 +9,12 @@ MyBox :: object(
 );
 
 main :: (fn() -> unit) {
-  /*
   x := MyBox(1);
-
-  ClosureType :: Impl(Fn(y : i32) -> i32);
-  (closure : ClosureType) = ((y) => {
-    x.* = (x.* + y);
-    return x.*;
-  });
-
-  closure2 := closure;  // Test dup on closure
-
-  closure(1); // 2
-  closure(1); // 3
-  result := closure(2); // 5
-
-  printf("Final result: %d\n", result);
-  assert(x.* == 5, "Captured boxed variable should be 5");
-  assert(x.* == result, "Expected final result to be 5");
-  */  
-  x := MyBox(1);
-
+  y := x;
+  
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
-    x.* = (x.* + y);
     return x.*;
   });
-
-  closure2 := closure;  // Test dup on closure
-
-  closure(1); // 2
-  closure2(1); // 3
-  result := closure(2); // 5
-
-  printf("Final result: %d\n", result);
-  assert(x.* == 5, "Captured boxed variable should be 5");
-  assert(x.* == result, "Expected final result to be 5");
 };
 
 export main;

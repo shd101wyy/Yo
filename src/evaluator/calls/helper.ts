@@ -112,8 +112,15 @@ function generateDeferredDropExpressions({
     deferredDropExpressions.push(evaluatedDropExpr);
 
     // Update the environment with the evaluated expression's environment
-    if (evaluatedDropExpr.$ && evaluatedDropExpr.$.env) {
+    if (evaluatedDropExpr.$?.env) {
       finalEnv = evaluatedDropExpr.$.env;
+    } else {
+      throw formatErrorMessage({
+        token: dropExpr.token,
+        errorMessage: `Failed to evaluate "___drop" expression for variable "${variable.name}":\n${exprToString(
+          dropExpr
+        )}`,
+      });
     }
   }
 

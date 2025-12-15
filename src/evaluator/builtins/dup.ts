@@ -214,6 +214,8 @@ export function evaluateDup({
         `(${exprToString(evaluatedArgExpr)}).___dup()`
       ) as FuncCallExpr;
 
+      console.log("DEBUG dup: ", exprToString(dupMethodCallExpr));
+
       // Convert this ___dup(x) to x.___dup() and evaluate the function call
       const evaluatedDupMethodCallExpr = evaluateFunctionCall({
         env,
@@ -221,35 +223,38 @@ export function evaluateDup({
         expr: dupMethodCallExpr,
       });
 
-      // Replace the original expr with the evaluated dup method call
-      if (exprIsFunctionCall(evaluatedDupMethodCallExpr)) {
-        replaceFuncCallExprWithFuncCallExpr(expr, evaluatedDupMethodCallExpr);
-
-        const tempVariableName = expr.$?.variableName;
-        if (expr.$ && tempVariableName) {
-          // In theory, we should enter here.
-          // We need to set the variable as not owning the ARC value
-          // This is necessary, otherwise we will generate the ___drop function call for that temp variable
-          const variables = getVariablesFromEnv(expr.$.env, tempVariableName);
-          if (variables.length) {
-            const variable = variables[variables.length - 1]!;
-            if (variable.isOwningTheGcValue) {
-              const nextEnv = updateExistingVariable(expr.$.env, variable, {
-                ...variable,
-                isOwningTheGcValue: false,
-              });
-              expr.$.env = nextEnv;
-            }
-          }
-        }
-        // NOTE: In theory, the code above is handled in expr.ts setExprAsNeedsToCallDup function
-        // But let's still set it here to be safe
-
-        return expr;
-      } else {
-        // In theory we shouldn't enter here
-        return evaluatedDupMethodCallExpr;
+      const tempVariableName = evaluatedDupMethodCallExpr.$?.variableName;
+      if (!tempVariableName || !evaluatedDupMethodCallExpr.$) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Failed to evaluate the "___dup" method call:\n${exprToString(
+            dupMethodCallExpr
+          )}`,
+        });
       }
+
+      // In theory, we should enter here.
+      // We need to set the variable as not owning the ARC value
+      // This is necessary, otherwise we will generate the ___drop function call for that temp variable
+      const variables = getVariablesFromEnv(
+        evaluatedDupMethodCallExpr.$.env,
+        tempVariableName
+      );
+      if (variables.length) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.isOwningTheGcValue) {
+          const nextEnv = updateExistingVariable(
+            evaluatedDupMethodCallExpr.$.env,
+            variable,
+            {
+              ...variable,
+              isOwningTheGcValue: false,
+            }
+          );
+          evaluatedDupMethodCallExpr.$.env = nextEnv;
+        }
+      }
+      return evaluatedDupMethodCallExpr;
     }
   }
 
