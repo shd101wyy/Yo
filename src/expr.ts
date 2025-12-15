@@ -1854,12 +1854,8 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
-  if (
-    expr.$.value ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.panic) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.___dup)
-  ) {
-    return; // DO NOT call dup on expression that evaluates to compile-time known value.
+  if (expr.$.value || !expr.$.variableName) {
+    return; // DO NOT call dup on expression that evaluates to compile-time known value or doesn't have temp variable name, like __yo_rc_own.
   }
 
   const variableName = expr.$.variableName;
