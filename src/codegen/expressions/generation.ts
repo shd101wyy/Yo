@@ -176,16 +176,19 @@ function allocateClosureCapture(
   const captureCName = captureTypeEntry.cName;
   const functionContext = context as FunctionGenerationContext;
 
-  // Check if we're in a special context (nested closure or state machine)
-  const inSpecialContext =
-    functionContext.currentClosureCaptures !== undefined ||
-    functionContext.inStateMachine !== undefined;
-
   // Generate captured variable values
   const captureArgs = captureType.fields.map((field) => {
-    // Find the dup expression for this variable by checking the variable name
+    // Find the dup expression for this captured variable.
+    // Prefer per-field deferred dup expressions (attached to the captured expr itself),
+    // then fall back to any deferred dup expressions attached to the closure construction.
     let dupExpr: Expr | undefined;
-    if (!inSpecialContext && sourceExpr.$?.deferredDupExpressions) {
+
+    const fieldExpr = field.exprs.expr;
+    if (fieldExpr.$?.deferredDupExpressions?.length) {
+      dupExpr = fieldExpr.$.deferredDupExpressions[0];
+    }
+
+    if (!dupExpr && sourceExpr.$?.deferredDupExpressions) {
       for (const possibleDupExpr of sourceExpr.$.deferredDupExpressions) {
         if (
           exprIsFunctionCall(possibleDupExpr) &&
@@ -308,32 +311,23 @@ function generateFuncCall(
     // Check if this is a Dyn(Fn(...)) or Impl(Fn(...))
     const isDynClosure = isDynType(expr.$.type);
 
-    // For Dyn(Fn(...)), use the DynType's C name; for Impl(Fn(...)), use the FnModuleType's C name
-    let closureCName: string;
+    // For Dyn(Fn(...)), use the DynType's C name.
+    // For Impl(Fn(...)), the runtime representation is the resolvedConcreteType (capture struct),
+    // so we do NOT use the FnModuleType's C name here.
+    let closureCName: string | undefined;
     if (isDynClosure) {
       const dynTypeEntry = context.types[expr.$.type.id];
       if (!dynTypeEntry) {
         return `// Error: Dyn closure type not found in context`;
       }
       closureCName = dynTypeEntry.cName;
-    } else {
-      // For Impl closures, look up the FnModuleType, not the FunctionType
-      const closureTypeEntry = context.types[fnModule.id];
-      if (!closureTypeEntry) {
-        return `// Error: Closure type not found in context`;
-      }
-      closureCName = closureTypeEntry.cName;
     }
 
     // Check if this closure has captures
     const hasCaptures =
       captureType && isStructType(captureType) && captureType.fields.length > 0;
 
-    // For Dyn closures, we always use the dyn constructor
-    // For Impl closures, we use the closure constructor (returns by value)
-    const constructorName = `__yo_create_${closureCName}`;
-
-    // Generate call function cast
+    // Generate call function cast (Dyn only)
     const returnTypeStr = getTypeString(closureType.return.type, context);
     const callParamList = closureType.parameters
       .map((param) => getTypeString(param.type, context))
@@ -361,43 +355,53 @@ function generateFuncCall(
       const { captureTempVar, captureCName } = captureResult;
 
       if (isDynClosure) {
+        const constructorName = `__yo_create_${closureCName}`;
         // For Dyn closures, the dispose function is the dyn's dispose function
         const disposeFunctionName = `__yo_dispose_${closureCName}`;
         return `${constructorName}(${captureTempVar}, ${disposeFunctionName}, ${castCallFunction})`;
       } else {
-        // For Impl closures (value type):
-        // - Capture is stack-allocated, pass address to closure
-        // - Dispose function handles cleanup when closure goes out of scope
-        const closureIdPart = closureType.id.replace(/^closure_/, "");
-        const captureIdPart = captureType.id.replace(/^struct_/, "");
-        const closureInstanceId = `${closureIdPart}_${captureIdPart}`;
-
-        const closureDisposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
-
-        // Store the closure-capture mapping so we can generate the dispose function later
-        if (!context.closureCaptureMap) {
-          context.closureCaptureMap = new Map();
-        }
-        context.closureCaptureMap.set(closureInstanceId, {
-          closureType,
-          closureCName,
-          captureType,
-          captureCName,
+        // Impl(Fn(...)) is true static dispatch:
+        // - The runtime value IS the capture struct value type.
+        // - Calls dispatch directly to the generated closure function.
+        // Record mapping for call-site generation.
+        context.implClosureCallMap.set(captureType.id, {
+          functionCName,
+          fnModuleId: fnModule.id,
         });
 
-        const castDisposeFunction = `(void (*)(void*))${closureDisposeFunctionName}`;
-        // Pass address of stack-allocated capture struct
-        return `${constructorName}(&${captureTempVar}, ${castCallFunction}, ${castDisposeFunction})`;
+        // Return the capture struct variable (value type).
+        // The caller will store it in a local and drop it normally.
+        return captureTempVar;
       }
     } else {
       // Closure without captures
       if (isDynClosure) {
+        const constructorName = `__yo_create_${closureCName}`;
         // For Dyn closures without captures
         const disposeFunctionName = `__yo_dispose_${closureCName}`;
         return `${constructorName}(NULL, ${disposeFunctionName}, ${castCallFunction})`;
       } else {
-        // For Impl closures without captures (value type, returns by value)
-        return `${constructorName}(NULL, ${castCallFunction}, NULL)`;
+        // Impl closures without captures: still static dispatch.
+        // Use an empty capture struct as the concrete representation.
+        // Record mapping using the resolved concrete type if available.
+        if (expr.$.type && expr.$.type.tag === TypeTag.SomeType) {
+          const someType = expr.$.type as SomeType;
+          if (someType.resolvedConcreteType) {
+            context.implClosureCallMap.set(someType.resolvedConcreteType.id, {
+              functionCName,
+              fnModuleId: fnModule.id,
+            });
+
+            // Represent as an empty literal for the concrete capture struct.
+            const concreteCName = getTypeString(
+              someType.resolvedConcreteType,
+              context
+            );
+            return `(${concreteCName}){}`;
+          }
+        }
+
+        return `// Error: Impl(Fn(...)) without captures missing resolvedConcreteType`;
       }
     }
   }
@@ -1007,6 +1011,12 @@ function generateFuncCall(
         // Non-array initialization - use existing logic
         let rhsCode: string;
 
+        const rhsIsClosureConstruction =
+          exprIsFunctionCall(rhs) &&
+          rhs.$?.closureFunctionValue &&
+          rhs.$?.type &&
+          typeImplementsFn(rhs.$.type);
+
         // If RHS has a temp variable name (e.g., for Gc values), we need to:
         // 1. First generate the RHS expression and assign it to the temp variable
         // 2. Then use the temp variable for the assignment
@@ -1024,6 +1034,7 @@ function generateFuncCall(
 
             // Handle deferred dup expressions even for simple variable references
             if (
+              !rhsIsClosureConstruction &&
               rhs.$?.deferredDupExpressions &&
               rhs.$.deferredDupExpressions.length > 0
             ) {
@@ -1042,6 +1053,7 @@ function generateFuncCall(
 
             // Handle deferred dup expressions even for simple variable references
             if (
+              !rhsIsClosureConstruction &&
               rhs.$?.deferredDupExpressions &&
               rhs.$.deferredDupExpressions.length > 0
             ) {
@@ -1107,6 +1119,7 @@ function generateFuncCall(
               // Handle deferred dup expressions for RHS
               // After generating the RHS temp variable, check if we need to dup it
               if (
+                !rhsIsClosureConstruction &&
                 rhs.$?.deferredDupExpressions &&
                 rhs.$.deferredDupExpressions.length > 0
               ) {
@@ -1130,6 +1143,7 @@ function generateFuncCall(
 
           // Handle deferred dup expressions for RHS without temp variable
           if (
+            !rhsIsClosureConstruction &&
             rhs.$?.deferredDupExpressions &&
             rhs.$.deferredDupExpressions.length > 0
           ) {
@@ -2049,11 +2063,12 @@ function generateFuncCall(
         }
       }
     } else if (functionType && typeImplementsFn(functionType)) {
-      const fnModule = extractFnModuleFromType(functionType)!;
-      // Check if this is a Dyn closure (uses vtable) or Impl closure (uses direct call)
-      const isDynClosure = isDynType(functionType);
+      const closureValueType = functionType;
+      const fnModule = extractFnModuleFromType(closureValueType)!;
+      // Check if this is a Dyn closure (uses vtable) or Impl closure (static dispatch)
+      const isDynClosure = isDynType(closureValueType);
       {
-        const functionType = fnModule.isFn.callType;
+        const callSig = fnModule.isFn.callType;
         // Handle closure calls with dynamic dispatch through vtable
         const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
 
@@ -2159,23 +2174,40 @@ function generateFuncCall(
             }
           });
 
-          // Call through function pointer:
-          // - Dyn closures (value type with vtable pointer) use: closure.vtable->call(closure.data, args...)
-          // - Impl closures (value type) use direct call: closure.call(closure.data, args...)
-          // Note: The first argument to the call function is the capture data pointer, not the closure itself
+          // Dispatch:
+          // - Dyn(Fn(...)) uses vtable: closure.vtable->call(closure.data, args...)
+          // - Impl(Fn(...)) uses static dispatch: closure_impl(&closure, args...)
           let closureCall: string;
           if (isDynClosure) {
-            // Dyn closures are value types (use . to access fields, -> for vtable pointer)
             const allArgs = [`(${closureCode}).data`, ...args];
             closureCall = `(${closureCode}).vtable->call(${allArgs.join(", ")})`;
           } else {
-            // Impl closures are value types (use . not ->)
-            const allArgs = [`(${closureCode}).data`, ...args];
-            closureCall = `(${closureCode}).call(${allArgs.join(", ")})`;
+            // For Impl closures, the value is the concrete capture struct.
+            // Find the corresponding generated implementation function.
+            let concreteTypeId: string | undefined;
+            if (closureValueType.tag === TypeTag.SomeType) {
+              const someType = closureValueType as SomeType;
+              if (someType.resolvedConcreteType) {
+                concreteTypeId = someType.resolvedConcreteType.id;
+              }
+            }
+
+            const mapped = concreteTypeId
+              ? context.implClosureCallMap.get(concreteTypeId)
+              : undefined;
+
+            if (!mapped) {
+              // Fallback to old representation if mapping is missing.
+              const allArgs = [`(${closureCode}).data`, ...args];
+              closureCall = `(${closureCode}).call(${allArgs.join(", ")})`;
+            } else {
+              const allArgs = [`&(${closureCode})`, ...args];
+              closureCall = `${mapped.functionCName}(${allArgs.join(", ")})`;
+            }
           }
 
           // Get return type from the closure's function signature
-          const returnType = functionType.return.type;
+          const returnType = callSig.return.type;
 
           if (isUnitType(returnType)) {
             // If the closure returns unit, just call it without assignment

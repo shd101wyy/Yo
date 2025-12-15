@@ -88,6 +88,21 @@ export interface CodeGenContext {
   >;
 
   /**
+   * Impl(Fn(...)) closure dispatch map.
+   *
+   * For static-dispatch closures, the runtime value is the resolvedConcreteType
+   * (typically a capture struct). Calls should dispatch directly to the
+   * generated closure implementation function for that concrete type.
+   */
+  implClosureCallMap: Map<
+    TypeId,
+    {
+      functionCName: string;
+      fnModuleId: TypeId;
+    }
+  >;
+
+  /**
    * track the current function being generated for recur
    */
   currentFunctionName: string;
@@ -382,6 +397,13 @@ export function getTypeString(
     // SomeType (used for Impl(...) or Self references in modules/traits)
     case TypeTag.SomeType: {
       const someType = type as SomeType;
+
+      // If this SomeType has a resolved concrete type (e.g., Impl(Fn(...)) closures),
+      // codegen should use that concrete representation for true static dispatch.
+      if (someType.resolvedConcreteType) {
+        return getTypeString(someType.resolvedConcreteType, context);
+      }
+
       // For Impl(Fn(...)), use the FnModuleType's C name
       if (typeImplementsFn(someType)) {
         const fnModule = extractFnModuleFromType(someType);

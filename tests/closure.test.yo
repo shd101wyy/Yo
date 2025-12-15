@@ -1,5 +1,13 @@
 open import "std/libc/stdio.yo";
 
+MyBox :: object(
+  (*) : i32,
+
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing Boxed i32 with value: %d\n", self.*);
+  })
+);
+
 test "Test ClosureType({...}) to create closure value", {
   x := 1;
 
@@ -127,4 +135,22 @@ test "Test closure with Dyn", {
   printf("Final result: %d\n", result);
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
+};
+
+test "Test closure with Impl that captures Gc object", {
+  x := MyBox(1);
+
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  closure := (ClosureType {
+    x.* = (x.* + y);
+    return x.*;
+  });
+
+  closure(1); // 2
+  closure(1); // 3
+  result := closure(2); // 5
+
+  printf("Final result: %d\n", result);
+  assert(x.* == 5, "Captured boxed variable should be 5");
+  assert(x.* == result, "Expected final result to be 5");
 };

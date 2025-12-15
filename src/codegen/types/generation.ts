@@ -2,14 +2,12 @@ import { BuiltinFunctions } from "../../expr";
 import {
   DynType,
   EnumType,
-  extractFnModuleFromType,
   FunctionType,
   isDynType,
   isEnumType,
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
-  isPtrType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -17,7 +15,6 @@ import {
   StructType,
   TupleType,
   typeContainsSomeType,
-  typeImplementsFn,
   typeToString,
   UnionType,
 } from "../../types";
@@ -242,11 +239,6 @@ typedef struct {
           `typedef struct ${cName}_struct ${cName}; // Forward declaration`
         );
       }
-    } else if (isFnModuleType(type)) {
-      // FnModuleType is emitted as a value-type closure struct (Impl closure).
-      context.emitter.emitDeclarationLine(
-        `typedef struct ${cName}_struct ${cName}; // Forward declaration`
-      );
     }
   }
 
@@ -285,12 +277,12 @@ typedef struct {
     }
   }
 
-  // Second pass: Collect structs, Impl-closure module types (FnModuleType), and complex enums for topological sorting
+  // Second pass: Collect structs and complex enums for topological sorting
   const structsAndEnums: Array<{
     typeId: string;
-    type: StructType | EnumType | import("../../types").FnModuleType;
+    type: StructType | EnumType;
     cName: string;
-    kind: "struct" | "enum" | "fnModule";
+    kind: "struct" | "enum";
   }> = [];
 
   for (const typeId in context.types) {
@@ -301,8 +293,6 @@ typedef struct {
 
     if (isStructType(type)) {
       structsAndEnums.push({ typeId, type, cName, kind: "struct" });
-    } else if (isFnModuleType(type)) {
-      structsAndEnums.push({ typeId, type, cName, kind: "fnModule" });
     } else if (
       isEnumType(type) &&
       !canOptimizeAsSimpleEnum(type) &&
@@ -320,25 +310,11 @@ typedef struct {
     structsAndEnums.map((e) => [e.cName, e.typeId])
   );
 
-  function addFnModuleDependency(fromTypeId: string, maybeFnType: unknown) {
-    // Struct field type can be `SomeType` (Impl(Fn(...))) or the FnModuleType itself.
-    const fnModule = extractFnModuleFromType(maybeFnType as any);
-    if (!fnModule) {
-      return;
-    }
-    const depTypeId = cNameToTypeId.get(
-      context.types[fnModule.id]?.cName ?? ""
-    );
-    if (depTypeId && depTypeId !== fromTypeId && typeIdToData.has(depTypeId)) {
-      dependencies.get(fromTypeId)!.add(depTypeId);
-    }
-  }
-
   for (const { typeId, type, kind } of structsAndEnums) {
     dependencies.set(typeId, new Set());
 
     if (kind === "struct" && isStructType(type)) {
-      // Check if struct contains enums by value AND FnModuleType by value
+      // Check if struct contains enums by value
       for (const field of type.fields) {
         if (isEnumType(field.type)) {
           const depCName = getTypeString(field.type, context);
@@ -351,10 +327,6 @@ typedef struct {
             dependencies.get(typeId)!.add(depTypeId);
           }
         }
-
-        // If a struct stores an Impl-closure (SomeType implementing Fn) by value,
-        // it depends on the corresponding FnModuleType declaration.
-        addFnModuleDependency(typeId, field.type);
       }
     } else if (kind === "enum" && isEnumType(type)) {
       // Check if enum contains other enums or structs by value
@@ -378,56 +350,6 @@ typedef struct {
           }
         }
       }
-    } else if (kind === "fnModule" && isFnModuleType(type)) {
-      // For the closure struct, the function pointer signature can mention value types.
-      // Add dependencies on any by-value struct/enum/tuple/union types used in the signature.
-      const callType = type.isFn.callType;
-      const sigTypes = [
-        callType.return.type,
-        ...callType.parameters.map((p) => p.type),
-      ];
-      for (const t of sigTypes) {
-        // Pointer types don't require full definitions.
-        if (isPtrType(t)) {
-          continue;
-        }
-        if (isStructType(t) && !t.isReferenceSemantics) {
-          const depTypeId = cNameToTypeId.get(context.types[t.id]?.cName ?? "");
-          if (
-            depTypeId &&
-            depTypeId !== typeId &&
-            typeIdToData.has(depTypeId)
-          ) {
-            dependencies.get(typeId)!.add(depTypeId);
-          }
-        }
-        if (
-          isEnumType(t) &&
-          !canOptimizeAsSimpleEnum(t) &&
-          !canOptimizeAsNullablePointer(t)
-        ) {
-          const depTypeId = cNameToTypeId.get(context.types[t.id]?.cName ?? "");
-          if (
-            depTypeId &&
-            depTypeId !== typeId &&
-            typeIdToData.has(depTypeId)
-          ) {
-            dependencies.get(typeId)!.add(depTypeId);
-          }
-        }
-        if (isTupleType(t) || isUnionType(t)) {
-          const depTypeId = cNameToTypeId.get(context.types[t.id]?.cName ?? "");
-          if (
-            depTypeId &&
-            depTypeId !== typeId &&
-            typeIdToData.has(depTypeId)
-          ) {
-            dependencies.get(typeId)!.add(depTypeId);
-          }
-        }
-        // SomeType implementing Fn should depend on its FnModuleType.
-        addFnModuleDependency(typeId, t);
-      }
     }
   }
 
@@ -445,9 +367,9 @@ typedef struct {
   }
 
   const sortedTypes: Array<{
-    type: StructType | EnumType | import("../../types").FnModuleType;
+    type: StructType | EnumType;
     cName: string;
-    kind: "struct" | "enum" | "fnModule";
+    kind: "struct" | "enum";
   }> = [];
 
   while (queue.length > 0) {
@@ -490,8 +412,6 @@ typedef struct {
       generateStructDeclaration(type, cName, context);
     } else if (kind === "enum" && isEnumType(type)) {
       generateEnumDeclaration(type, cName, context);
-    } else if (kind === "fnModule" && isFnModuleType(type)) {
-      generateClosureDeclaration(type.isFn.callType, cName, undefined, context);
     }
   }
 
@@ -516,16 +436,6 @@ typedef struct {
 
     if (isDynType(type)) {
       generateDynDeclaration(type, cName, context);
-    } else if (typeImplementsFn(type)) {
-      // Handle SomeType/DynType that implements Fn
-      const fnModule = extractFnModuleFromType(type)!;
-
-      generateClosureDeclaration(
-        fnModule.isFn.callType,
-        cName,
-        undefined,
-        context
-      );
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
     } else if (isTupleType(type)) {

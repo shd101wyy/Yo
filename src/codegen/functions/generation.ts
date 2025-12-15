@@ -10,7 +10,6 @@ import {
   EnumType,
   FunctionType,
   isBoxedType,
-  isDynType,
   isEnumType,
   isFnModuleType,
   isFunctionType,
@@ -22,10 +21,7 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import {
-  canRefStructFormCycles,
-  extractFnModuleFromType,
-} from "../../types/utils";
+import { canRefStructFormCycles } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -737,49 +733,9 @@ export function generateObjectConstructorDeclarations(
 export function generateClosureConstructorDeclarations(
   context: FunctionGenerationContext
 ): void {
-  const emitter = context.emitter;
-
-  // Generate constructor declarations for each Impl closure (value types)
-  for (const typeId in context.types) {
-    const { type, cName } = context.types[typeId]!;
-
-    // Skip DynType - Dyn(Fn(...)) uses dyn constructors, not closure constructors
-    if (isDynType(type)) {
-      continue;
-    }
-
-    // Check for FnModuleType (from Impl(Fn(...))) or SomeType/DynType implementing Fn
-    const fnModule = isFnModuleType(type)
-      ? type
-      : extractFnModuleFromType(type);
-    if (fnModule) {
-      const closureType = fnModule.isFn.callType;
-
-      // Skip generic closures that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      // Generate the create function declaration for Impl closures (value types - return by value)
-      const callType = closureType;
-      const returnTypeStr = getTypeString(callType.return.type, context);
-      const callParamList = callType.parameters
-        .map((param) => {
-          const paramTypeStr = getTypeString(param.type, context);
-          const paramName = sanitizeForCIdentifier(param.label);
-          return `${paramTypeStr} ${paramName}`;
-        })
-        .join(", ");
-
-      const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
-      const disposeFnParam = `void (*dispose)(void* self)`;
-
-      // Impl closures return by value (not pointer)
-      emitter.emitDeclarationLine(
-        `${cName} __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}); // Create Impl closure (value type)`
-      );
-    }
-  }
+  // No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls.
+  // Dyn(Fn(...)) uses dyn constructors (generated elsewhere).
+  void context;
 }
 
 /**
@@ -1372,58 +1328,9 @@ export function generateRefStructConstructorFunctions(
 export function generateClosureConstructorFunctions(
   context: FunctionGenerationContext
 ): void {
-  const emitter = context.emitter;
-
-  // Generate closure constructor functions
-  for (const typeEntry of Object.values(context.types)) {
-    const type = typeEntry.type;
-    const cName = typeEntry.cName;
-
-    // Skip DynType - Dyn(Fn(...)) uses dyn constructors, not closure constructors
-    if (isDynType(type)) {
-      continue;
-    }
-
-    // Check for FnModuleType (from Impl(Fn(...))) or SomeType/DynType implementing Fn
-    const fnModule = isFnModuleType(type)
-      ? type
-      : extractFnModuleFromType(type);
-    if (fnModule) {
-      const closureType = fnModule.isFn.callType;
-
-      // Skip generic closures that contain SomeType parameters
-      if (typeContainsSomeType(type)) {
-        continue;
-      }
-
-      // Generate closure constructor function
-      // Impl closures are VALUE TYPES - return by value, not pointer
-      const callType = closureType;
-      const returnTypeStr = getTypeString(callType.return.type, context);
-      const callParamList = callType.parameters
-        .map((param) => {
-          const paramTypeStr = getTypeString(param.type, context);
-          const paramName = sanitizeForCIdentifier(param.label);
-          return `${paramTypeStr} ${paramName}`;
-        })
-        .join(", ");
-
-      const callFnParam = `${returnTypeStr} (*call)(void* self${callParamList ? ", " + callParamList : ""})`;
-      const disposeFnParam = `void (*dispose)(void* self)`;
-
-      // Generate the create_closure function that returns by value (stack allocation)
-      emitter.emitLine(
-        `${cName} __yo_create_${cName}(void* data, ${callFnParam}, ${disposeFnParam}) {`
-      );
-      emitter.emitLine(`  ${cName} obj;`);
-      emitter.emitLine(`  obj.call = call;`);
-      emitter.emitLine(`  obj.data = data;`);
-      emitter.emitLine(`  obj.dispose = dispose;`);
-      emitter.emitLine(`  return obj;`);
-      emitter.emitLine(`}`);
-      emitter.emitLine(``);
-    }
-  }
+  // No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls.
+  // Dyn(Fn(...)) uses dyn constructors (generated elsewhere).
+  void context;
 }
 
 /**

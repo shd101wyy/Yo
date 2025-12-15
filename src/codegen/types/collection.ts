@@ -178,9 +178,17 @@ export function collectType(type: Type, context: CodeGenContext): void {
   // Handle SomeType (Impl) that implements Fn - collect the FnModuleType for closure generation
   // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped
   if (isSomeType(type) && typeImplementsFn(type)) {
+    // Prefer the resolved concrete type for static dispatch (capture struct).
+    // This avoids generating/depending on the FnModuleType runtime closure struct.
+    if (type.resolvedConcreteType) {
+      collectType(type.resolvedConcreteType, context);
+      return;
+    }
+
+    // Fallback: if concrete type is not resolved (shouldn't happen for Impl closures
+    // at codegen time), keep the old behavior to avoid crashing.
     const fnModule = extractFnModuleFromType(type);
     if (fnModule) {
-      // Collect the FnModuleType - this generates the closure struct
       collectType(fnModule, context);
     }
     return;
