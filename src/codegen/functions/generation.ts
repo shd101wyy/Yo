@@ -1277,19 +1277,21 @@ export function generateRefStructConstructorFunctions(
       emitter.emitLine(`  obj->header.gc_next = NULL;`);
       emitter.emitLine(`  obj->header.gc_prev = NULL;`);
 
-      // Set dispose function pointer to user's dispose function (not ___dispose which includes ref counting)
-      const disposeFunctionElement = type.module.fields.find(
+      // Set dispose function pointer to ___dispose, which handles both user cleanup and field dropping.
+      // ___dispose will call user's dispose() if it exists, then drop all GC-containing fields.
+      const disposeInternalFunctionElement = type.module.fields.find(
         (field) =>
-          field.label === BuiltinFunctions.dispose[0]! &&
+          field.label === BuiltinFunctions.___dispose[0]! &&
           field.assignedValue &&
           isFunctionValue(field.assignedValue)
       );
 
       if (
-        disposeFunctionElement &&
-        isFunctionValue(disposeFunctionElement.assignedValue)
+        disposeInternalFunctionElement &&
+        isFunctionValue(disposeInternalFunctionElement.assignedValue)
       ) {
-        const disposeFunctionValue = disposeFunctionElement.assignedValue;
+        const disposeFunctionValue =
+          disposeInternalFunctionElement.assignedValue;
         const disposeFunctionCName =
           context.functions[disposeFunctionValue.funcId]?.cName ||
           disposeFunctionValue.funcId;
@@ -1297,7 +1299,7 @@ export function generateRefStructConstructorFunctions(
           `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`
         );
       } else {
-        // Fallback to NULL if no dispose function found
+        // Fallback to NULL if no ___dispose function found
         emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
       }
 

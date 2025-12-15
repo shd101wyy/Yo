@@ -280,22 +280,13 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
 `
     : "";
 
-  const finalCode = `(${signature} { // ___dispose
+  return {
+    signature,
+    code: `(${signature} { // ___dispose
       ${hasDisposeFunction ? "Self.dispose(self);" : ""}
       ${dropDestructuringsExpr}
       return ();
-  })`;
-
-  // DEBUG: Log generated code for Box types
-  if (structType.fields.some((f) => f.label === "*")) {
-    console.log(
-      `DEBUG dispose dropDestructuringsExpr: ${JSON.stringify(dropDestructuringsExpr)}`
-    );
-  }
-
-  return {
-    signature,
-    code: finalCode,
+  })`,
   };
 }
 
