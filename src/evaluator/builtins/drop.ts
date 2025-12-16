@@ -21,6 +21,7 @@ import {
   isSomeType,
   isTupleType,
   typeContainsGcType,
+  typeImplementsFuture,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isNumberValue } from "../../value";
@@ -183,10 +184,17 @@ export function evaluateDrop({
   }
 
   const argType = evaluatedArgExpr.$.type;
-  const concreteType =
-    isSomeType(argType) && argType.resolvedConcreteType
-      ? argType.resolvedConcreteType
-      : argType;
+
+  // For Impl(Future(T)), do NOT unwrap resolvedConcreteType
+  // The state machine is ref-counted and uses __yo_sometype_drop
+  // which is generated for SomeType in addARCFunctionsToSomeType
+  const shouldUseConcreteType =
+    isSomeType(argType) &&
+    argType.resolvedConcreteType &&
+    !typeImplementsFuture(argType);
+  const concreteType = shouldUseConcreteType
+    ? argType.resolvedConcreteType!
+    : argType;
 
   // Check if there is `.___drop` method available to call or if it's a tuple/array needing drop
   if (typeContainsGcType(concreteType)) {

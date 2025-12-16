@@ -4,6 +4,7 @@ import {
   Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  FuncCallExpr,
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
@@ -24,7 +25,6 @@ import {
 } from "../../types";
 import {
   canRefStructFormCycles,
-  extractFutureModuleFromType,
   typeImplementsFuture,
 } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
@@ -217,7 +217,7 @@ export function generateFunctionDeclaration(
 
   if (functionBody && typeImplementsFuture(functionType.return.type)) {
     const asyncBlock = findReturnedAsyncBlock(functionBody);
-    if (asyncBlock?.$.asyncStateMachineStructName) {
+    if (asyncBlock?.$?.asyncStateMachineStructName) {
       overrideReturnType = `${asyncBlock.$.asyncStateMachineStructName}*`;
     }
   }
@@ -353,72 +353,16 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   // REQUIREMENT: main must return unit or Impl(Future(unit))
   const returnType = mainFunctionValue.type.return.type;
   const returnsUnit = isUnitType(returnType);
-  const returnsFuture = typeImplementsFuture(returnType);
 
-  if (!returnsUnit && !returnsFuture) {
+  if (!returnsUnit) {
     throw new Error(
-      `main function must return unit or Impl(Future(unit)), but it returns ${typeToString(returnType)}. ` +
-        `Use 'main :: (fn() -> unit)' or 'main :: (fn() -> Impl(Future(unit)))' instead. ` +
+      `main function must return unit , but it returns ${typeToString(returnType)}. ` +
+        `Use 'main :: (fn() -> unit)' instead. ` +
         `For exit codes, use 'exit(code)' from std/libc/stdlib.yo`
     );
   }
 
-  if (returnsFuture) {
-    // If main returns Future(unit), verify it's actually Future(unit), not Future(i32) etc.
-    const futureModule = extractFutureModuleFromType(returnType);
-    if (futureModule && !isUnitType(futureModule.isFuture.outputType)) {
-      throw new Error(
-        `main function returning a Future must return Impl(Future(unit)), not ${typeToString(returnType)}. ` +
-          `The async main task must have unit result type.`
-      );
-    }
-
-    // Async main - call it to get a Future, then run event loop on it.
-    // IMPORTANT: multiple async blocks can implement the same Future(T) module.
-    // `getTypeString(Impl(Future(T)))` uses `context.types[futureModuleType.id]`,
-    // which can be overwritten by later async blocks. For main specifically we
-    // need the *concrete* state machine type produced by yo_user_main's body.
-    let mainReturnTypeCName = getTypeString(returnType, context);
-    if (mainFunctionValue.body) {
-      const asyncBlock = findReturnedAsyncBlock(mainFunctionValue.body);
-      if (asyncBlock?.$.asyncStateMachineStructName) {
-        mainReturnTypeCName = `${asyncBlock.$.asyncStateMachineStructName}*`;
-      }
-    }
-
-    const concreteStructName = mainReturnTypeCName.trim().endsWith("*")
-      ? mainReturnTypeCName.trim().slice(0, -1).trim()
-      : mainReturnTypeCName.trim();
-    const rootDisposeFnName = concreteStructName.endsWith("_state_t")
-      ? `${concreteStructName.slice(0, -"_state_t".length)}_state_dispose`
-      : `${concreteStructName}_state_dispose`;
-    emitter.emitLine(`
-// Forward declaration for yo_user_main
-${mainReturnTypeCName} yo_user_main(void);
-
-// Main wrapper - calls async yo_user_main and runs event loop
-int main(void) {
-  // Initialize async runtime
-  __yo_async_scheduler_init();
-  
-  // Call async main to get the root Future task
-  ${mainReturnTypeCName} root_task = yo_user_main();
-  
-  // Run event loop on the root task until completion
-  // The event loop will process all queued async tasks
-  __yo_async_run_until_complete(root_task);
-
-  // Dispose the root future (heap-backed state machine)
-  if (root_task != NULL) {
-    ${rootDisposeFnName}((void*)root_task);
-  }
-  
-  // NOTE: root_task is heap-backed; disposed above.
-  
-  return 0;
-}
-`);
-  } else {
+  {
     // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
 // Main wrapper - calls yo_user_main directly
@@ -459,7 +403,7 @@ export function generateFunction(
 
   if (functionValue.body && typeImplementsFuture(functionType.return.type)) {
     const asyncBlock = findReturnedAsyncBlock(functionValue.body);
-    if (asyncBlock?.$.asyncStateMachineStructName) {
+    if (asyncBlock?.$?.asyncStateMachineStructName) {
       overrideReturnType = `${asyncBlock.$.asyncStateMachineStructName}*`;
     }
   }

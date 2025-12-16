@@ -315,25 +315,85 @@ static inline bool yo_rc_dec(yo_ref_header_t* header) {
 }
 ```
 
+### Future Lifetime Management
+
+Futures (async block state machines) are **reference counted** to handle cases where tasks complete before being awaited:
+
+**Lifetime Pattern: "Event Loop Holds References"**
+
+```yo
+main :: (fn() -> unit) {
+  task := async { /* work */ };  // Creates Future with refcount=2
+  // User reference (task) + Running task reference (event loop)
+  
+  // task goes out of scope - refcount decrements to 1
+  // Task continues running! Event loop still holds reference
+};
+// After main, __yo_async_wait_all() processes remaining tasks
+// Task completes, decrements refcount to 0, frees memory
+```
+
+**Refcount Lifecycle:**
+
+1. **Creation**: Constructor initializes `refcount = 1`
+2. **Eager Start**: `__yo_incr_rc()` before spawning (refcount = 2)
+   - One reference for user code (the `task` variable)
+   - One reference for the running task (held by event loop)
+3. **User Drop**: When `task` goes out of scope, `__yo_decr_rc()` (refcount = 1)
+4. **Task Completion**: State machine calls `__yo_decr_rc()` (refcount = 0, freed)
+
+**Key Insight**: Tasks stay alive until completion even if user code drops them early!
+
+**Implementation Details:**
+
+The state machine struct includes a `yo_ref_header_t` as its first field:
+
+```c
+struct async_block_state_t {
+  yo_ref_header_t header;  // Must be first for __yo_decr_rc to work
+  _Atomic int state;
+  // ... other fields ...
+};
+```
+
+The `Impl(Future(T))` type uses `__yo_sometype_drop` which calls `__yo_decr_rc`:
+
+```c
+void fn_id12345___drop(async_block_state_t* self) {
+  if (self != NULL) { __yo_decr_rc((void*)self); };
+}
+```
+
+**Type System Integration:**
+
+The evaluator's `getMethodsByNameFromEnv` function has special handling for Future types - it does NOT use the `resolvedConcreteType` for method lookup. This ensures that when calling `task.___drop()`, it uses the SomeType's own `___drop` method which calls `__yo_sometype_drop`, rather than using the capture struct's drop function.
+
 ### State Machine Lifecycle
 
 ```c
 // 1. Creation - allocate Future with state machine
 FunctionName_Future* future = __yo_malloc(sizeof(FunctionName_Future));
+future->header.ref_count = 1;  // Initial refcount
 future->state = PENDING;
 // Initialize state machine fields...
 
-// 2. Polling - poll repeatedly until complete
+// 2. Eager Execution - increment refcount and spawn
+__yo_incr_rc(future);  // refcount = 2
+yo_async_spawn_task(resume_fn, future);
+// Runs immediately until first await
+
+// 3. Polling - event loop polls repeatedly until complete
 while (poll(future) == PENDING) {
   yield_to_event_loop();
 }
 
-// 3. Completion
+// 4. Completion
 future->state = READY;
 future->result = final_value;
+__yo_decr_rc(future);  // Release running task reference
 // Wake awaiters
 
-// 4. Cleanup - freed when ref_count reaches 0
+// 5. Cleanup - when user drops, refcount reaches 0, freed
 ```
 
 ### State Machine Memory

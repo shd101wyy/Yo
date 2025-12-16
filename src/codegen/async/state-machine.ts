@@ -17,7 +17,7 @@ import {
 import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
-import { getTypeString, sanitizeForCIdentifier } from "../utils";
+import { sanitizeForCIdentifier } from "../utils";
 import {
   AwaitAnalysisResult,
   AwaitPoint,
@@ -128,25 +128,6 @@ export function generateAsyncBlockResumeFunction(
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
-  const getFutureDisposeFnName = (futureType: SomeType | DynType): string => {
-    const futureModule = extractFutureModuleFromType(futureType);
-    if (!futureModule) {
-      throw new Error(
-        `Internal error: missing Future module for type ${getTypeString(futureType, context)}`
-      );
-    }
-    const concreteStructName = context.types[futureModule.id]?.cName;
-    if (!concreteStructName) {
-      throw new Error(
-        `Internal error: missing C name for Future module id=${futureModule.id}`
-      );
-    }
-    const baseName = concreteStructName.endsWith("_state_t")
-      ? concreteStructName.slice(0, -"_state_t".length)
-      : concreteStructName;
-    return `${baseName}_state_dispose`;
-  };
-
   emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
   emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
   emitter.emitLine(
@@ -173,7 +154,7 @@ export function generateAsyncBlockResumeFunction(
 
     // If this is not the first state, extract the result from the previous await
     if (stateNumber > 0 && analysis.awaitPoints[stateNumber - 1]) {
-      const prevAwait = analysis.awaitPoints[stateNumber - 1];
+      const prevAwait = analysis.awaitPoints[stateNumber - 1]!;
       const prevFutureFieldName = getFutureFieldName(prevAwait, analysis);
 
       if (prevAwait && !isUnitType(prevAwait.resultType)) {
@@ -204,19 +185,17 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(``);
       }
 
-      // If the awaited Future was a temporary stored in await_future_X, dispose it now.
+      // If the awaited Future was a temporary stored in await_future_X, drop it now.
       // (Captured Future variables may outlive the await and are handled by normal drops.)
+      // Since Futures are ref-counted, we use __yo_decr_rc instead of direct dispose.
       if (!prevAwait.futureVariableId) {
         const awaitExpr = prevAwait.expr;
         if (awaitExpr.tag === ExprTag.FuncCall) {
           const futureArg = awaitExpr.args[0];
           const futureType = futureArg?.$?.type;
           if (futureType && (isSomeType(futureType) || isDynType(futureType))) {
-            const disposeFnName = getFutureDisposeFnName(
-              futureType as SomeType | DynType
-            );
             emitter.emitLine(
-              `      if (sm->${prevFutureFieldName} != NULL) { ${disposeFnName}((void*)sm->${prevFutureFieldName}); sm->${prevFutureFieldName} = NULL; }`
+              `      if (sm->${prevFutureFieldName} != NULL) { __yo_decr_rc((void*)sm->${prevFutureFieldName}); sm->${prevFutureFieldName} = NULL; }`
             );
             emitter.emitLine(``);
           }
@@ -608,11 +587,12 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(``);
 
         emitter.emitLine(
-          `      // Value-type Futures don't need detached handling`
+          `      // Release event loop's reference now that task is complete`
         );
         emitter.emitLine(
-          `      // The state machine is owned by whoever holds the struct`
+          `      // This balances the __yo_incr_rc in yo_async_spawn_task`
         );
+        emitter.emitLine(`      __yo_decr_rc((void*)sm);`);
 
         emitter.emitLine(``);
         emitter.emitLine(`      // Stay in terminal state (-1)`);

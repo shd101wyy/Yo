@@ -25,6 +25,12 @@ export function generateAsyncRuntime(
 // This implements a cooperative async runtime for single-threaded concurrency.
 // All async tasks run on the SAME thread - no parallelism, just interleaving.
 // Uses non-atomic reference counting (everything is thread-local).
+//
+// LIFETIME MODEL: Event loop holds references to running tasks
+// - When a task is spawned/queued, the event loop increments its refcount
+// - When a task completes, the event loop decrements its refcount
+// - Tasks stay alive as long as they're running, even if user code drops them
+// - Standard RC drop semantics: freed when refcount hits 0
 
 // Continuation - represents a suspended async task waiting to be resumed
 typedef struct yo_continuation_t {
@@ -60,6 +66,8 @@ static void __yo_async_scheduler_init(void) {
 }
 
 // Enqueue a continuation to be executed on the current thread's event loop
+// NOTE: This is a low-level function that does NOT manage refcounts.
+// Use yo_async_spawn_task for spawning tasks with proper lifetime management.
 static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Enqueueing continuation: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   
@@ -82,6 +90,10 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
 
 // Spawn an async task by enqueueing it to the current thread's event loop
 // This is for EAGER execution - task starts running immediately until first await
+// NOTE: This does NOT increment refcount. The task lifetime is managed by:
+// - Constructor: starts with refcount = 2 (user ref + running task ref)
+// - Completion: decrements refcount (releases running task ref)
+// - User drop: decrements refcount (releases user ref)
 void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Spawning task: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   yo_async_enqueue_continuation(resume_fn, state_machine);

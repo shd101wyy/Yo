@@ -569,23 +569,11 @@ function generateFuncCall(
     }
     const argType = selfArg.$?.type;
 
-    // Impl(Future(T)) is heap-backed: dispose the state machine.
+    // Impl(Future(T)) is heap-backed and ref-counted: decrement refcount
+    // The state machine will be freed when refcount hits 0
     if (argType && isSomeType(argType) && typeImplementsFuture(argType)) {
-      const futureModule = extractFutureModuleFromType(argType);
-      const structName = futureModule
-        ? context.types[futureModule.id]?.cName
-        : undefined;
-      if (!structName) {
-        throw new Error(
-          `Internal error: missing C name for Future type ${typeToString(argType)}`
-        );
-      }
-      const baseName = structName.endsWith("_state_t")
-        ? structName.slice(0, -"_state_t".length)
-        : structName;
-      const disposeFnName = `${baseName}_state_dispose`;
       const selfCode = generateExpr(selfArg, indent, context);
-      return `if (${selfCode} != NULL) { ${disposeFnName}((void*)${selfCode}); }`;
+      return `if (${selfCode} != NULL) { __yo_decr_rc((void*)${selfCode}); }`;
     }
 
     if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
@@ -618,6 +606,13 @@ function generateFuncCall(
       return `// Error: __yo_sometype_dup requires exactly 1 argument`;
     }
     const argType = selfArg.$?.type;
+
+    // Impl(Future(T)) is heap-backed and ref-counted: increment refcount
+    if (argType && isSomeType(argType) && typeImplementsFuture(argType)) {
+      const selfCode = generateExpr(selfArg, indent, context);
+      return `__yo_incr_rc((void*)${selfCode})`;
+    }
+
     if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
       // Dispatch to concrete type's ___dup
       const concreteType = argType.resolvedConcreteType;
@@ -931,8 +926,13 @@ function generateFuncCall(
         );
         context.emitter.emitLine(``);
         context.emitter.emitLine(
-          `${indent}// State machine will be freed when Future is disposed (RC reaches 0)`
+          `${indent}// Release the "running task" reference now that task is complete`
         );
+        context.emitter.emitLine(
+          `${indent}// This balances the __yo_incr_rc in the constructor`
+        );
+        context.emitter.emitLine(`${indent}__yo_decr_rc((void*)sm);`);
+        context.emitter.emitLine(``);
         // Return from the void resume function
         context.emitter.emitLine(`${indent}return;`);
         // Return empty string so no additional code is generated
@@ -3193,6 +3193,12 @@ function emitAsyncBlockStructDefinition(
     `// State machine for async block ${asyncBlockId} - implements Future(${typeToString(resultType)})`
   );
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
+
+  // Reference counting header - must be first for yo_ref_header_t* casting
+  emitter.emitDeclarationLine(
+    `  yo_ref_header_t header;  // Reference counting header (must be first)`
+  );
+
   emitter.emitDeclarationLine(
     `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
   );
@@ -3432,6 +3438,9 @@ function emitDeferredAsyncBlockStructDefinitions(
 /**
  * Generate the state machine dispose function for an async block.
  * This drops the capture struct before freeing the state machine.
+ *
+ * NOTE: This is the dispose function, called by __yo_decr_rc when refcount hits 0.
+ * It should NOT call __yo_free - that's handled by __yo_decr_rc.
  */
 function generateAsyncBlockStateDisposeFunction(
   asyncBlockId: string,
@@ -3445,6 +3454,9 @@ function generateAsyncBlockStateDisposeFunction(
 
   emitter.emitLine(
     `// Dispose function for async block ${asyncBlockId} state machine`
+  );
+  emitter.emitLine(
+    `// Called by __yo_decr_rc when refcount hits 0 - do NOT call __yo_free here`
   );
   emitter.emitLine(`void ${disposeFunctionName}(void* sm_ptr) {`);
   emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
@@ -3492,12 +3504,12 @@ function generateAsyncBlockStateDisposeFunction(
 
   // NOTE: Local variables are ALWAYS handled by deferred drop expressions
   // that run in the final state before completion. The state machine dispose
-  // function only needs to clean up outer captured variables and free the
-  // state machine struct itself.
+  // function only needs to clean up outer captured variables.
+  // Memory is freed by __yo_decr_rc after this function returns.
 
-  // Free the state machine itself
-  emitter.emitLine(`  // Free the state machine`);
-  emitter.emitLine(`  __yo_free(sm);`);
+  emitter.emitLine(
+    `  // Memory freed by __yo_decr_rc after this function returns`
+  );
   emitter.emitLine(`}`);
 }
 
@@ -3508,7 +3520,14 @@ function generateAsyncBlockStateDisposeFunction(
 /**
  * Generate the constructor function for an async block.
  * The constructor allocates the state machine and Future, initializes captured variables,
- * and spawns the task to a worker thread.
+ * and starts eager execution.
+ *
+ * LIFETIME MODEL:
+ * - State machine starts with refcount = 1 (owned by caller)
+ * - Event loop increments refcount when task is queued
+ * - Event loop decrements refcount when task completes
+ * - User code decrements refcount when dropping the Future
+ * - State machine is freed when refcount hits 0
  */
 function generateAsyncBlockConstructor(
   asyncBlockId: string,
@@ -3542,11 +3561,32 @@ function generateAsyncBlockConstructor(
   }
 
   // Allocate + initialize async block state machine
-  emitter.emitLine(`  // Allocate async block state machine (heap-backed)`);
+  emitter.emitLine(
+    `  // Allocate async block state machine (heap-backed, ref-counted)`
+  );
   emitter.emitLine(
     `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`
   );
   emitter.emitLine(`  memset(sm, 0, sizeof(${structName}));`);
+  emitter.emitLine(``);
+
+  // Initialize reference counting header
+  emitter.emitLine(`  // Initialize reference counting header`);
+  emitter.emitLine(
+    `  sm->header.ref_count = 1;  // Caller owns initial reference`
+  );
+  emitter.emitLine(`  sm->header.gc_flags = 0;`);
+  emitter.emitLine(`  sm->header.gc_mark = YO_GC_UNMARKED;`);
+  emitter.emitLine(`  sm->header.gc_next = NULL;`);
+  emitter.emitLine(`  sm->header.gc_prev = NULL;`);
+  emitter.emitLine(
+    `  sm->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
+  );
+  emitter.emitLine(
+    `  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed`
+  );
+  emitter.emitLine(``);
+
   emitter.emitLine(`  atomic_init(&sm->state, 0);`);
   emitter.emitLine(`  atomic_init(&sm->continuation_fn, NULL);`);
   emitter.emitLine(`  atomic_init(&sm->continuation_sm, NULL);`);
@@ -3576,6 +3616,13 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(
     `  // Eager execution: start running immediately (C#/C++ style)`
   );
+  emitter.emitLine(
+    `  // Before running, increment refcount for the "running task" reference`
+  );
+  emitter.emitLine(
+    `  // This ensures the task stays alive until completion, even if user drops early`
+  );
+  emitter.emitLine(`  __yo_incr_rc((void*)sm);  // refcount: 1 -> 2`);
   emitter.emitLine(`  ${resumeFunctionName}(sm);`);
   emitter.emitLine(``);
 

@@ -18,6 +18,7 @@ import {
   typeContainsGcType,
   typeContainsSelfTypeForDynamicDispatchCheck,
   typeContainsSomeType,
+  typeImplementsFuture,
   typeToString,
 } from "./types";
 import { generateVarialeId, isTempVariableName } from "./utils";
@@ -912,9 +913,11 @@ export function getMethodsByNameFromEnv(
   // Check if the dereferencedReceiverType itself has method that can be called
   // NOTE: Skip DynType here since DynType has specialized handling below
   // NOTE: Skip SomeType with resolvedConcreteType since it has specialized handling below
+  // EXCEPTION: For Future types, DO check SomeType's module methods (they use __yo_sometype_drop)
   const skipSomeTypeWithResolvedConcreteType =
     isSomeType(dereferencedReceiverType) &&
-    dereferencedReceiverType.resolvedConcreteType;
+    dereferencedReceiverType.resolvedConcreteType &&
+    !typeImplementsFuture(dereferencedReceiverType);
   if (
     dereferencedReceiverType.module &&
     !isDynType(dereferencedReceiverType) &&
@@ -1026,7 +1029,12 @@ export function getMethodsByNameFromEnv(
   if (isSomeType(dereferencedReceiverType)) {
     // First, if SomeType has resolvedConcreteType (like async block's capture struct),
     // look for methods there (e.g., ___drop, ___dup from capture struct)
-    if (dereferencedReceiverType.resolvedConcreteType?.module) {
+    // EXCEPTION: For Future types, do NOT use resolvedConcreteType methods
+    // Future state machines are ref-counted and use __yo_sometype_drop
+    if (
+      dereferencedReceiverType.resolvedConcreteType?.module &&
+      !typeImplementsFuture(dereferencedReceiverType)
+    ) {
       const concreteModule =
         dereferencedReceiverType.resolvedConcreteType.module;
       const concreteMethod = concreteModule.fields.find(

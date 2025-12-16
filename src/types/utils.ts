@@ -369,12 +369,12 @@ export function typeContainsGcType(
     case TypeTag.Function: {
       return false; // Regular functions are not reference types
     }
-    case TypeTag.SomeType: {
-      // SomeType conservatively returns true because we don't know at
-      // generation time whether the concrete type will contain GC types.
-      // This ensures Box(SomeType_V) generates proper ___dispose code.
-      return true;
-    }
+    // case TypeTag.SomeType: { // NOTE: SomeType is now handled in isGcType
+    //   // SomeType conservatively returns true because we don't know at
+    //   // generation time whether the concrete type will contain GC types.
+    //   // This ensures Box(SomeType_V) generates proper ___dispose code.
+    //   return true;
+    // }
     // No need to consider ptr/ref types, as they are not owning types
     default:
       return false; // For other types, no references are present
@@ -1686,6 +1686,11 @@ function typeCanFormCyclicGcReference(
         }
       }
     }
+  }
+
+  // The Impl(Future(T)) is regarded as GC-tracked.
+  if (isSomeType(type) && typeImplementsFuture(type)) {
+    return true;
   }
 
   if (isSomeType(type) && type.resolvedConcreteType) {
