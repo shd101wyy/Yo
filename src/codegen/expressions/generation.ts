@@ -568,6 +568,26 @@ function generateFuncCall(
       return `// Error: __yo_sometype_drop requires exactly 1 argument`;
     }
     const argType = selfArg.$?.type;
+
+    // Impl(Future(T)) is heap-backed: dispose the state machine.
+    if (argType && isSomeType(argType) && typeImplementsFuture(argType)) {
+      const futureModule = extractFutureModuleFromType(argType);
+      const structName = futureModule
+        ? context.types[futureModule.id]?.cName
+        : undefined;
+      if (!structName) {
+        throw new Error(
+          `Internal error: missing C name for Future type ${typeToString(argType)}`
+        );
+      }
+      const baseName = structName.endsWith("_state_t")
+        ? structName.slice(0, -"_state_t".length)
+        : structName;
+      const disposeFnName = `${baseName}_state_dispose`;
+      const selfCode = generateExpr(selfArg, indent, context);
+      return `if (${selfCode} != NULL) { ${disposeFnName}((void*)${selfCode}); }`;
+    }
+
     if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
       // Dispatch to concrete type's ___drop
       const concreteType = argType.resolvedConcreteType;
@@ -3000,142 +3020,7 @@ function generateAsyncBlock(
   const resultType = futureModuleType.isFuture.outputType;
   const resultTypeCName = getTypeString(resultType, context);
 
-  // Generate the state machine struct declaration
-  // This struct IS the Future implementation (value type)
   const emitter = context.emitter;
-  emitter.emitDeclarationLine(
-    `// State machine for async block ${asyncBlockId} - implements Future(${typeToString(resultType)})`
-  );
-  emitter.emitDeclarationLine(`typedef struct ${structName}_struct {`);
-  emitter.emitDeclarationLine(
-    `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
-  );
-
-  // For unit type, we don't generate a result field (would be `void result;` which is invalid C)
-  if (!isUnitType(resultType)) {
-    emitter.emitDeclarationLine(
-      `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`
-    );
-  }
-
-  // Add continuation tracking fields for await chaining
-  emitter.emitDeclarationLine(
-    `  _Atomic(void (*)(void*)) continuation_fn;  // Resume function of awaiting task`
-  );
-  emitter.emitDeclarationLine(
-    `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`
-  );
-  emitter.emitDeclarationLine(``);
-
-  // Add capture struct as a single field if there are captured variables
-  if (expr.$?.captureType) {
-    const captureType = expr.$.captureType;
-    const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType
-    );
-    const captureStructName = existingCaptureTypeEntry
-      ? existingCaptureTypeEntry.cName
-      : `async_capture_${captureType.id}`;
-    emitter.emitDeclarationLine(`  // Captured variables from outer scope`);
-    emitter.emitDeclarationLine(`  ${captureStructName} __capture;`);
-    emitter.emitDeclarationLine(``);
-  }
-
-  // Add local variables as fields
-  if (analysis.capturedVariables.length > 0) {
-    emitter.emitDeclarationLine(`  // Local variables`);
-    for (const variable of analysis.capturedVariables) {
-      const varTypeCName = getTypeString(variable.type, context);
-      const fieldName = getStateMachineFieldName(variable.id, "local");
-      emitter.emitDeclarationLine(
-        `  ${varTypeCName} ${fieldName};  // ${variable.name}`
-      );
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  // Add await result temporaries
-  if (analysis.awaitPoints.length > 0) {
-    emitter.emitDeclarationLine(`  // Await result temporaries`);
-    for (const awaitPoint of analysis.awaitPoints) {
-      if (!isUnitType(awaitPoint.resultType)) {
-        const resultTypeCName = getTypeString(awaitPoint.resultType, context);
-        emitter.emitDeclarationLine(
-          `  ${resultTypeCName} await_result_${awaitPoint.index};`
-        );
-      }
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  // Add await_future_X fields for await points without captured Future variables
-  // This happens when awaiting pattern-matched variables (e.g., .Some(task) => await task)
-  if (analysis.awaitPoints.length > 0) {
-    const needsFutureFields = analysis.awaitPoints.some(
-      (awaitPoint) => awaitPoint.futureVariableId === undefined
-    );
-    if (needsFutureFields) {
-      emitter.emitDeclarationLine(
-        `  // Future references for pattern-matched awaits`
-      );
-      for (const awaitPoint of analysis.awaitPoints) {
-        if (awaitPoint.futureVariableId === undefined) {
-          // Get the Future type from the await expression's argument
-          const awaitExpr = awaitPoint.expr;
-          if (awaitExpr.tag === ExprTag.FuncCall && awaitExpr.args[0]) {
-            // FIXME: OUTDATED
-            /// const futureExpr = awaitExpr.args[0];
-            /// const futureType = futureExpr.$?.type;
-            /// if (futureType && futureType.tag === TypeTag.Future) {
-            ///   const awaitedFutureTypeCName = getTypeString(futureType, context);
-            ///   emitter.emitDeclarationLine(
-            ///     `  ${awaitedFutureTypeCName} await_future_${awaitPoint.index};`
-            ///   );
-            /// }
-          }
-        }
-      }
-      emitter.emitDeclarationLine(``);
-    }
-  }
-
-  // Add cond_branch_X fields for cond expressions with await
-  // These track which branch was taken at each cond expression
-  const condAwaitPoints = analysis.awaitPoints.filter((ap) => ap.isInsideCond);
-  if (condAwaitPoints.length > 0) {
-    emitter.emitDeclarationLine(
-      `  // Branch tracking for cond expressions with await`
-    );
-    for (const awaitPoint of condAwaitPoints) {
-      emitter.emitDeclarationLine(
-        `  int cond_branch_${awaitPoint.index};  // Which branch was taken in cond with await ${awaitPoint.index}`
-      );
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  // Add while_loop_X_active fields for while loops with await
-  // These track whether the loop is still active (should continue iterating)
-  const whileAwaitPoints = analysis.awaitPoints.filter(
-    (ap) => ap.isInsideWhile
-  );
-  if (whileAwaitPoints.length > 0) {
-    emitter.emitDeclarationLine(
-      `  // Loop state tracking for while loops with await`
-    );
-    for (const awaitPoint of whileAwaitPoints) {
-      emitter.emitDeclarationLine(
-        `  _Bool while_loop_${awaitPoint.index}_active;  // Whether while loop ${awaitPoint.index} should continue`
-      );
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  emitter.emitDeclarationLine(`} ${structName}_struct;`);
-  emitter.emitDeclarationLine(
-    `typedef struct ${structName}_struct ${structName};`
-  );
-  emitter.emitDeclarationLine(``);
 
   // Generate forward declaration for state machine dispose function
   emitter.emitDeclarationLine(
@@ -3158,10 +3043,10 @@ function generateAsyncBlock(
       ? existingCaptureTypeEntry.cName
       : `async_capture_${captureType.id}`;
     emitter.emitDeclarationLine(
-      `${structName} ${constructorName}(${captureStructName} __capture);`
+      `${structName}* ${constructorName}(${captureStructName} __capture);`
     );
   } else {
-    emitter.emitDeclarationLine(`${structName} ${constructorName}();`);
+    emitter.emitDeclarationLine(`${structName}* ${constructorName}();`);
   }
   emitter.emitDeclarationLine(``);
 
@@ -3283,6 +3168,263 @@ function generateAsyncBlock(
   }
 }
 
+function emitAsyncBlockStructDefinition(
+  asyncBlockInfo: {
+    asyncBlockId: string;
+    structName: string;
+    resultType: Type;
+    resultTypeCName: string;
+    captureType: StructType | undefined;
+    analysis: AwaitAnalysisResult;
+  },
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  const {
+    asyncBlockId,
+    structName,
+    resultType,
+    resultTypeCName,
+    captureType,
+    analysis,
+  } = asyncBlockInfo;
+
+  emitter.emitDeclarationLine(
+    `// State machine for async block ${asyncBlockId} - implements Future(${typeToString(resultType)})`
+  );
+  emitter.emitDeclarationLine(`struct ${structName}_struct {`);
+  emitter.emitDeclarationLine(
+    `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
+  );
+
+  // For unit type, we don't generate a result field (would be `void result;` which is invalid C)
+  if (!isUnitType(resultType)) {
+    emitter.emitDeclarationLine(
+      `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`
+    );
+  }
+
+  // Continuation tracking fields for await chaining
+  emitter.emitDeclarationLine(
+    `  _Atomic(void (*)(void*)) continuation_fn;  // Resume function of awaiting task`
+  );
+  emitter.emitDeclarationLine(
+    `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`
+  );
+  emitter.emitDeclarationLine(``);
+
+  // Capture struct field
+  if (captureType) {
+    const existingCaptureTypeEntry = Object.values(context.types).find(
+      (entry) => entry.type === captureType
+    );
+    const captureStructName = existingCaptureTypeEntry
+      ? existingCaptureTypeEntry.cName
+      : `async_capture_${captureType.id}`;
+    emitter.emitDeclarationLine(`  // Captured variables from outer scope`);
+    emitter.emitDeclarationLine(`  ${captureStructName} __capture;`);
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Local variables
+  if (analysis.capturedVariables.length > 0) {
+    emitter.emitDeclarationLine(`  // Local variables`);
+    for (const variable of analysis.capturedVariables) {
+      const varTypeCName = getTypeString(variable.type, context);
+      const fieldName = getStateMachineFieldName(variable.id, "local");
+      emitter.emitDeclarationLine(
+        `  ${varTypeCName} ${fieldName};  // ${variable.name}`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Await result temporaries
+  if (analysis.awaitPoints.length > 0) {
+    emitter.emitDeclarationLine(`  // Await result temporaries`);
+    for (const awaitPoint of analysis.awaitPoints) {
+      if (!isUnitType(awaitPoint.resultType)) {
+        const awaitResultTypeCName = getTypeString(
+          awaitPoint.resultType,
+          context
+        );
+        emitter.emitDeclarationLine(
+          `  ${awaitResultTypeCName} await_result_${awaitPoint.index};`
+        );
+      }
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // await_future_X fields (used when awaiting an expression that isn't a captured Future variable)
+  if (analysis.awaitPoints.length > 0) {
+    const awaitPointsNeedingFutureStorage = analysis.awaitPoints.filter(
+      (ap) => ap.futureVariableId === undefined
+    );
+    if (awaitPointsNeedingFutureStorage.length > 0) {
+      emitter.emitDeclarationLine(`  // Future references for awaits`);
+      for (const awaitPoint of awaitPointsNeedingFutureStorage) {
+        const awaitExpr = awaitPoint.expr;
+        if (awaitExpr.tag !== ExprTag.FuncCall) {
+          continue;
+        }
+        const futureExpr = awaitExpr.args[0];
+        const futureType = futureExpr?.$?.type;
+        if (!futureType) {
+          throw new Error(
+            `Internal error: await expression missing type info for future argument in async block ${asyncBlockId}`
+          );
+        }
+        const awaitedFutureTypeCName = getTypeString(futureType, context);
+        emitter.emitDeclarationLine(
+          `  ${awaitedFutureTypeCName} await_future_${awaitPoint.index};`
+        );
+      }
+      emitter.emitDeclarationLine(``);
+    }
+  }
+
+  // cond_branch_X fields
+  const condAwaitPoints = analysis.awaitPoints.filter((ap) => ap.isInsideCond);
+  if (condAwaitPoints.length > 0) {
+    emitter.emitDeclarationLine(
+      `  // Branch tracking for cond expressions with await`
+    );
+    for (const awaitPoint of condAwaitPoints) {
+      emitter.emitDeclarationLine(
+        `  int cond_branch_${awaitPoint.index};  // Which branch was taken in cond with await ${awaitPoint.index}`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // while_loop_X_active fields
+  const whileAwaitPoints = analysis.awaitPoints.filter(
+    (ap) => ap.isInsideWhile
+  );
+  if (whileAwaitPoints.length > 0) {
+    emitter.emitDeclarationLine(
+      `  // Loop state tracking for while loops with await`
+    );
+    for (const awaitPoint of whileAwaitPoints) {
+      emitter.emitDeclarationLine(
+        `  _Bool while_loop_${awaitPoint.index}_active;  // Whether while loop ${awaitPoint.index} should continue`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  emitter.emitDeclarationLine(`};`);
+  emitter.emitDeclarationLine(``);
+}
+
+function emitDeferredAsyncBlockStructDefinitions(
+  context: FunctionGenerationContext
+): void {
+  if (
+    !context.deferredAsyncBlocks ||
+    context.deferredAsyncBlocks.length === 0
+  ) {
+    return;
+  }
+
+  const blocks = context.deferredAsyncBlocks;
+  const byStructName = new Map<string, (typeof blocks)[number]>();
+  for (const b of blocks) {
+    byStructName.set(b.structName, b);
+  }
+
+  // Build dependency graph: A depends on B if A's struct embeds B by value.
+  // For Kahn's algorithm we store reverse edges: B -> {A...}.
+  const dependents = new Map<string, Set<string>>();
+  const indegree = new Map<string, number>();
+  for (const b of blocks) {
+    dependents.set(b.structName, new Set());
+    indegree.set(b.structName, 0);
+  }
+
+  for (const b of blocks) {
+    const addDep = (depStructName: string) => {
+      // depStructName must be emitted before b.structName
+      const ds = dependents.get(depStructName)!;
+      if (ds.has(b.structName)) {
+        return;
+      }
+      ds.add(b.structName);
+      indegree.set(b.structName, (indegree.get(b.structName) ?? 0) + 1);
+    };
+
+    // Local variable fields
+    for (const v of b.analysis.capturedVariables) {
+      const t = getTypeString(v.type, context);
+      const target = byStructName.get(t);
+      if (target && target.structName !== b.structName) {
+        addDep(target.structName);
+      }
+    }
+
+    // await_future_X fields
+    for (const ap of b.analysis.awaitPoints) {
+      if (ap.futureVariableId !== undefined) {
+        continue;
+      }
+      const awaitExpr = ap.expr;
+      if (awaitExpr.tag !== ExprTag.FuncCall) {
+        continue;
+      }
+      const futureExpr = awaitExpr.args[0];
+      const futureType = futureExpr?.$?.type;
+      if (!futureType) {
+        continue;
+      }
+      const t = getTypeString(futureType, context);
+      const target = byStructName.get(t);
+      if (target && target.structName !== b.structName) {
+        addDep(target.structName);
+      }
+    }
+  }
+
+  // Kahn's algorithm
+  const queue: string[] = [];
+  for (const [name, deg] of indegree.entries()) {
+    if (deg === 0) queue.push(name);
+  }
+
+  const ordered: string[] = [];
+  while (queue.length > 0) {
+    const n = queue.shift()!;
+    ordered.push(n);
+    const ds = dependents.get(n);
+    if (!ds) continue;
+    for (const m of ds) {
+      const next = (indegree.get(m) ?? 0) - 1;
+      indegree.set(m, next);
+      if (next === 0) queue.push(m);
+    }
+  }
+
+  // If there are cycles (shouldn't happen), fall back to input order
+  const orderedBlocks =
+    ordered.length === blocks.length
+      ? ordered.map((n) => byStructName.get(n)!).filter(Boolean)
+      : blocks;
+
+  for (const b of orderedBlocks) {
+    emitAsyncBlockStructDefinition(
+      {
+        asyncBlockId: b.asyncBlockId,
+        structName: b.structName,
+        resultType: b.resultType,
+        resultTypeCName: b.resultTypeCName,
+        captureType: b.captureType,
+        analysis: b.analysis,
+      },
+      context
+    );
+  }
+}
+
 /**
  * Generate the state machine struct, resume function, and constructor for an async block.
  * This reuses the async function state machine infrastructure.
@@ -3382,7 +3524,9 @@ function generateAsyncBlockConstructor(
 ): void {
   const emitter = context.emitter;
 
-  // Generate constructor signature - returns struct by value
+  // Ensure Future/state-machine struct has a stable address: allocate on heap and return pointer.
+
+  // Generate constructor signature - returns pointer
   if (captureType) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
@@ -3391,22 +3535,27 @@ function generateAsyncBlockConstructor(
       ? existingCaptureTypeEntry.cName
       : `async_capture_${captureType.id}`;
     emitter.emitLine(
-      `${structName} ${constructorName}(${captureStructName} __capture) {`
+      `${structName}* ${constructorName}(${captureStructName} __capture) {`
     );
   } else {
-    emitter.emitLine(`${structName} ${constructorName}() {`);
+    emitter.emitLine(`${structName}* ${constructorName}() {`);
   }
 
-  // Initialize state machine as a value type (not heap-allocated)
-  emitter.emitLine(`  // Initialize async block state machine (value type)`);
-  emitter.emitLine(`  ${structName} sm;`);
-  emitter.emitLine(`  sm.state = 0;`);
+  // Allocate + initialize async block state machine
+  emitter.emitLine(`  // Allocate async block state machine (heap-backed)`);
+  emitter.emitLine(
+    `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`
+  );
+  emitter.emitLine(`  memset(sm, 0, sizeof(${structName}));`);
+  emitter.emitLine(`  atomic_init(&sm->state, 0);`);
+  emitter.emitLine(`  atomic_init(&sm->continuation_fn, NULL);`);
+  emitter.emitLine(`  atomic_init(&sm->continuation_sm, NULL);`);
   emitter.emitLine(``);
 
   // Initialize capture struct
   if (captureType) {
     emitter.emitLine(`  // Initialize captured variables`);
-    emitter.emitLine(`  sm.__capture = __capture;`);
+    emitter.emitLine(`  sm->__capture = __capture;`);
     emitter.emitLine(``);
   }
 
@@ -3418,7 +3567,7 @@ function generateAsyncBlockConstructor(
   if (isUnitType(resultType)) {
     emitter.emitLine(`  // Result is unit type, no initialization needed`);
   } else {
-    emitter.emitLine(`  memset(&sm.result, 0, sizeof(${resultTypeCName}));`);
+    emitter.emitLine(`  memset(&sm->result, 0, sizeof(${resultTypeCName}));`);
   }
   emitter.emitLine(``);
 
@@ -3427,7 +3576,7 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(
     `  // Eager execution: start running immediately (C#/C++ style)`
   );
-  emitter.emitLine(`  ${resumeFunctionName}(&sm);`);
+  emitter.emitLine(`  ${resumeFunctionName}(sm);`);
   emitter.emitLine(``);
 
   emitter.emitLine(`  return sm;`);
@@ -5495,6 +5644,11 @@ export function generateDeferredAsyncBlocks(
   }
 
   const emitter = context.emitter;
+
+  // Emit all async block struct definitions in a dependency-safe order.
+  // This avoids incomplete-type errors when one state machine embeds another by value.
+  emitDeferredAsyncBlockStructDefinitions(context);
+
   emitter.emitLine(`// Deferred async block implementations`);
 
   for (const asyncBlockInfo of context.deferredAsyncBlocks) {

@@ -97,8 +97,8 @@ void __yo_async_run_until_complete(void* future_ptr) {
   
   ASYNC_DEBUG("[ASYNC] Starting event loop for future=%p\\n", future_ptr);
   
-  // The future_ptr points to a state machine struct with:
-  // - _Atomic int state at offset 0 (0 = initial, -1 = completed)
+  // future_ptr points to a heap-backed Future/state-machine struct.
+  // It must have _Atomic int state at offset 0.
   typedef struct { _Atomic int state; } generic_future_t;
   generic_future_t* future = (generic_future_t*)future_ptr;
   
@@ -173,17 +173,28 @@ void yo_async_register_continuation(
   ASYNC_DEBUG("[ASYNC] Registering continuation for future=%p: resume_fn=%p, sm=%p\\n",
               future_ptr, (void*)resume_fn, state_machine);
   
-  // For value-type Futures, the continuation info is stored in the Future struct itself
-  // The Future struct has continuation_fn and continuation_sm fields
+  // All generated Future/state-machine structs start with:
+  //   _Atomic int state;
+  //   _Atomic(void (*)(void*)) continuation_fn;
+  //   _Atomic(void*) continuation_sm;
   typedef struct {
     _Atomic int state;
-    // result field (type varies)
-    // ...then continuation fields at known offsets
-  } generic_future_with_cont_t;
-  
-  // For now, we just enqueue the continuation to run when the Future completes
-  // The state machine's poll function will check for completion
-  yo_async_enqueue_continuation(resume_fn, state_machine);
+    _Atomic(void (*)(void*)) continuation_fn;
+    _Atomic(void*) continuation_sm;
+  } yo_future_cont_base_t;
+
+  yo_future_cont_base_t* f = (yo_future_cont_base_t*)future_ptr;
+
+  // If already completed, schedule the continuation immediately.
+  int st = atomic_load_explicit(&f->state, memory_order_acquire);
+  if (st == -1) {
+    yo_async_enqueue_continuation(resume_fn, state_machine);
+    return;
+  }
+
+  // Store continuation; it will be spawned when the future reaches completion.
+  atomic_store_explicit(&f->continuation_fn, (void (*)(void*))resume_fn, memory_order_release);
+  atomic_store_explicit(&f->continuation_sm, state_machine, memory_order_release);
 }
 
 // ============================================================================

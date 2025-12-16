@@ -177,16 +177,26 @@ async {
 ### Future Type
 
 ```yo
-// Built-in Future type (compiler-generated struct)
-// Future(T) has these fields:
-// - state: enum { PENDING, READY }
-// - state_machine: pointer to state machine
-// - continuation: function pointer (resume function)
-// - result: T (the result value when ready)
+// Built-in Future type (compiler-generated state machine)
+// Current implementation detail:
+// - `Impl(Future(T))` is represented as a pointer to a heap-allocated state machine.
+// - The state machine stores:
+//   - state: int (0..N, -1 = completed)
+//   - continuation_fn / continuation_sm (who to resume on completion)
+//   - result: T (when completed; omitted for unit)
+//   - captured vars + locals that cross await
+// - Dropping/disposing the Future frees the state machine.
 
 // Async function signature
 fetch :: (fn(url: String) -> Impl Future(String));
 ```
+
+Why heap allocation?
+
+- A Future can suspend at an `await` and resume later; the state machine must have a stable address after the current C stack frame returns.
+- The runtime queues continuations as `(resume_fn, state_machine_ptr)`, so the state machine must outlive the scheduling point.
+
+This is an implementation choice, not a semantic requirement; alternate designs exist (see `ASYNC_AWAIT_MIGRATION.md`).
 
 ## State Machine Transformation
 

@@ -4,10 +4,12 @@
  * Generates C code for async function state machines.
  */
 
-import { Expr, exprIsFunctionCallOf } from "../../expr";
+import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
 import {
   DynType,
   extractFutureModuleFromType,
+  isDynType,
+  isSomeType,
   isUnitType,
   SomeType,
   StructType,
@@ -15,7 +17,7 @@ import {
 import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
-import { sanitizeForCIdentifier } from "../utils";
+import { getTypeString, sanitizeForCIdentifier } from "../utils";
 import {
   AwaitAnalysisResult,
   AwaitPoint,
@@ -126,6 +128,25 @@ export function generateAsyncBlockResumeFunction(
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
+  const getFutureDisposeFnName = (futureType: SomeType | DynType): string => {
+    const futureModule = extractFutureModuleFromType(futureType);
+    if (!futureModule) {
+      throw new Error(
+        `Internal error: missing Future module for type ${getTypeString(futureType, context)}`
+      );
+    }
+    const concreteStructName = context.types[futureModule.id]?.cName;
+    if (!concreteStructName) {
+      throw new Error(
+        `Internal error: missing C name for Future module id=${futureModule.id}`
+      );
+    }
+    const baseName = concreteStructName.endsWith("_state_t")
+      ? concreteStructName.slice(0, -"_state_t".length)
+      : concreteStructName;
+    return `${baseName}_state_dispose`;
+  };
+
   emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
   emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
   emitter.emitLine(
@@ -153,19 +174,20 @@ export function generateAsyncBlockResumeFunction(
     // If this is not the first state, extract the result from the previous await
     if (stateNumber > 0 && analysis.awaitPoints[stateNumber - 1]) {
       const prevAwait = analysis.awaitPoints[stateNumber - 1];
+      const prevFutureFieldName = getFutureFieldName(prevAwait, analysis);
+
       if (prevAwait && !isUnitType(prevAwait.resultType)) {
-        const prevFutureFieldName = getFutureFieldName(prevAwait, analysis);
         emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
         );
         emitter.emitLine(
-          `      int state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}.state, memory_order_acquire);`
+          `      int state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire);`
         );
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
         emitter.emitLine(
-          `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}.result;`
+          `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
         );
 
         // If this await has a target variable, assign the result to it
@@ -180,6 +202,25 @@ export function generateAsyncBlockResumeFunction(
         }
 
         emitter.emitLine(``);
+      }
+
+      // If the awaited Future was a temporary stored in await_future_X, dispose it now.
+      // (Captured Future variables may outlive the await and are handled by normal drops.)
+      if (!prevAwait.futureVariableId) {
+        const awaitExpr = prevAwait.expr;
+        if (awaitExpr.tag === ExprTag.FuncCall) {
+          const futureArg = awaitExpr.args[0];
+          const futureType = futureArg?.$?.type;
+          if (futureType && (isSomeType(futureType) || isDynType(futureType))) {
+            const disposeFnName = getFutureDisposeFnName(
+              futureType as SomeType | DynType
+            );
+            emitter.emitLine(
+              `      if (sm->${prevFutureFieldName} != NULL) { ${disposeFnName}((void*)sm->${prevFutureFieldName}); sm->${prevFutureFieldName} = NULL; }`
+            );
+            emitter.emitLine(``);
+          }
+        }
       }
 
       // Check if this await was part of a cond expression
@@ -483,15 +524,19 @@ export function generateAsyncBlockResumeFunction(
       emitter.emitLine(``);
       emitter.emitLine(`      // Check if future is ready`);
       emitter.emitLine(
-        `      int future_state = atomic_load_explicit(&sm->${futureFieldName}.state, memory_order_acquire);`
+        `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
       );
       emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
       emitter.emitLine(
-        `        goto state_${nextState};  // Continue immediately`
+        `        // Yield once even when ready (microtask semantics), then resume in next tick`
       );
+      emitter.emitLine(
+        `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+      );
+      emitter.emitLine(`        return;`);
       emitter.emitLine(`      } else {`);
       emitter.emitLine(
-        `        yo_async_register_continuation(&sm->${futureFieldName}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        `        yo_async_register_continuation(sm->${futureFieldName}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
       );
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      }`);

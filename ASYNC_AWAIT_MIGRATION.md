@@ -1,14 +1,14 @@
-# Async/Await Value-Type Migration Plan
+# Async/Await Representation Notes (and Migration Ideas)
 
 ## Overview
 
-This document describes the migration from reference-counted pointer-based Futures to value-type Futures as described in `ASYNC_AWAIT.md`.
+This document tracks implementation details and possible future migrations for Yo async/await.
 
-**Current State**: Futures are heap-allocated with `yo_ref_header_t` and passed as pointers. ❌
+**Current State**: `Impl(Future(T))` is a heap-allocated async state machine, represented as a pointer. ✅
 
-**Target State**: Futures are value-type structs (state machines) that implement the `Future(T)` trait. ✅
+**Possible Future Direction**: value-type Futures (state machines stored by value) with a “stable address” story (pinning / handles / arenas). (Optional)
 
-**Migration Status**: ✅ **COMPLETE** - Architecture is correct, ready for testing.
+**Migration Status**: 🚧 In flux - we currently use heap-backed state machines for correctness and simplicity.
 
 ## Key Questions & Answers (December 16, 2024)
 
@@ -81,21 +81,13 @@ The codegen correctly:
 1. `resolvedConcreteType` (capture struct) → For drop/dup of captures
 2. `context.types[futureModuleType.id]` (state machine) → For declarations
 
-## Key Design Decisions
+## Key Design Decisions (Current)
 
-### 1. Future as Value Type
+### 1. Future as Heap-Backed State Machine Pointer
 
 ```c
-// OLD: Reference-counted pointer
-typedef struct {
-  yo_ref_header_t header;           // Reference counting
-  _Atomic(yo_future_state_t) state;
-  void* state_machine;              // Separate allocation
-  void (*resume_fn)(void*);
-  // ...
-} yo_future_generic_t;
-
-// NEW: Value-type state machine (IS the Future)
+// Current: The state machine IS the Future, and it lives on the heap.
+// `Impl(Future(T))` is a pointer to this struct.
 typedef struct task1_state_t_struct {
   int state;                        // State machine state
   i32 result;                       // Result value of type T
@@ -105,27 +97,23 @@ typedef struct task1_state_t_struct {
 } task1_state_t;
 ```
 
-### 2. Async Block Returns Value
+### 2. Async Block Returns a Future Pointer (Eager)
 
 ```yo
-// The async block returns Impl(Future(i32)) - a value type
+// The async block returns Impl(Future(i32))
 task1 := async {
   printf("Task 1 started\n");
   return 1;
 };
-// task1 is a value-type struct, not a pointer
+// Current implementation: task1 is a pointer to a heap-allocated state machine
 ```
 
-### 3. Await Works with Value Types
+### 3. Await Works with Stable-Address Futures
 
 ```c
-// OLD: await on pointer
-i32 x = yo_await(task1_future_ptr);
-
-// NEW: await on value (passes pointer to stack-allocated value)
-task1_state_t task1 = __yo_new_task1(__capture);
-// ... later ...
-i32 x = yo_await_value(&task1);  // Pass address of value
+// Current: await registers a continuation on the awaited Future.
+// This requires the awaited Future to have a stable address across suspension.
+// Heap-backed pointers provide that stable address.
 ```
 
 ### 4. Runtime Changes - Dual Model: Event Loop + Thread Pool
@@ -223,12 +211,11 @@ void yo_await(Future* future) {
 4. ✅ Register struct name in context.types under FutureModuleType's ID
 5. ✅ Generate proper `___drop`, `___dup`, `___dispose` methods for capture struct
 
-### Phase 3: Constructor Generation ✅ (Completed)
+### Phase 3: Constructor/Allocation (Current)
 
-1. ✅ Return struct by value instead of pointer
-2. ✅ Spawn task immediately - eager evaluation (JavaScript/Python style)
-3. ✅ Initialize state to 0 (running)
-4. ✅ Copy captured variables into struct
+1. ✅ Allocate state machine on heap and return pointer
+2. ✅ Start execution eagerly (run until first await)
+3. ✅ Initialize `state`, continuation slots, captures
 
 ### Phase 4: Resume Function Updates ✅ (Completed)
 
@@ -239,14 +226,11 @@ void yo_await(Future* future) {
 5. ✅ Update continuation tracking to use `sm->continuation_fn` and `sm->continuation_sm`
 6. ✅ Remove detached Future handling (value types don't need it)
 
-### Phase 5: Await Codegen Updates ✅ (Mostly Completed)
+### Phase 5: Await Codegen Notes (Current)
 
-1. ✅ Pass address of Future value to await functions
-2. ✅ Access state with `.state` instead of `->state` for value types
-3. ✅ Extract result from `sm.result` after completion
-4. ✅ Updated await result extraction to use value access (`.` not `->`)
-5. ✅ Await expressions return empty string in state machine context (handled by state transitions)
-6. ⚠️ **ISSUE**: Await state transitions not working - all code generated in state 0
+1. ✅ State machines store awaited temporary futures as fields (e.g. `await_future_0`)
+2. ✅ Await checks completion, otherwise registers continuation and returns
+3. ✅ When resuming after an await, code extracts result and disposes temporary awaited futures
 
 ### Phase 6: Drop/Dispose Functions ✅ (Completed)
 
@@ -254,7 +238,15 @@ void yo_await(Future* future) {
 2. ✅ Drop captured variables properly
 3. ✅ Handle partial completion (state machine dispose function)
 
-### Phase 7: Runtime Updates (TODO)
+## Optional Future Direction: Value-Type Futures
+
+Value-type futures are still possible, but they require a clear “stable address” rule:
+
+- You can return a future by value only if the caller owns storage for it and does not move it after it is scheduled/awaited (a pinning-like rule).
+- Or you use handles/arenas so the runtime queues an integer handle instead of a raw pointer.
+- Or you do stack-to-heap promotion at the first suspension point (more complex codegen/runtime).
+
+Lazy async (Rust-style) does not automatically remove the need for stable storage. It mostly changes *when* the state machine starts executing (on poll/await), not whether it must survive suspension.
 
 **Event Loop (for `async`):**
 1. ⬜ Implement `yo_async_task()` to queue to event loop (single-threaded)

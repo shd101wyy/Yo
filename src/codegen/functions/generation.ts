@@ -218,7 +218,7 @@ export function generateFunctionDeclaration(
   if (functionBody && typeImplementsFuture(functionType.return.type)) {
     const asyncBlock = findReturnedAsyncBlock(functionBody);
     if (asyncBlock?.$.asyncStateMachineStructName) {
-      overrideReturnType = asyncBlock.$.asyncStateMachineStructName;
+      overrideReturnType = `${asyncBlock.$.asyncStateMachineStructName}*`;
     }
   }
 
@@ -373,8 +373,25 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
       );
     }
 
-    // Async main - call it to get a Future, then run event loop on it
-    const mainReturnTypeCName = getTypeString(returnType, context);
+    // Async main - call it to get a Future, then run event loop on it.
+    // IMPORTANT: multiple async blocks can implement the same Future(T) module.
+    // `getTypeString(Impl(Future(T)))` uses `context.types[futureModuleType.id]`,
+    // which can be overwritten by later async blocks. For main specifically we
+    // need the *concrete* state machine type produced by yo_user_main's body.
+    let mainReturnTypeCName = getTypeString(returnType, context);
+    if (mainFunctionValue.body) {
+      const asyncBlock = findReturnedAsyncBlock(mainFunctionValue.body);
+      if (asyncBlock?.$.asyncStateMachineStructName) {
+        mainReturnTypeCName = `${asyncBlock.$.asyncStateMachineStructName}*`;
+      }
+    }
+
+    const concreteStructName = mainReturnTypeCName.trim().endsWith("*")
+      ? mainReturnTypeCName.trim().slice(0, -1).trim()
+      : mainReturnTypeCName.trim();
+    const rootDisposeFnName = concreteStructName.endsWith("_state_t")
+      ? `${concreteStructName.slice(0, -"_state_t".length)}_state_dispose`
+      : `${concreteStructName}_state_dispose`;
     emitter.emitLine(`
 // Forward declaration for yo_user_main
 ${mainReturnTypeCName} yo_user_main(void);
@@ -389,10 +406,14 @@ int main(void) {
   
   // Run event loop on the root task until completion
   // The event loop will process all queued async tasks
-  __yo_async_run_until_complete(&root_task);
+  __yo_async_run_until_complete(root_task);
+
+  // Dispose the root future (heap-backed state machine)
+  if (root_task != NULL) {
+    ${rootDisposeFnName}((void*)root_task);
+  }
   
-  // NOTE: root_task is a value type (state machine struct) that will be automatically
-  // cleaned up when it goes out of scope. No explicit drop needed.
+  // NOTE: root_task is heap-backed; disposed above.
   
   return 0;
 }
@@ -439,7 +460,7 @@ export function generateFunction(
   if (functionValue.body && typeImplementsFuture(functionType.return.type)) {
     const asyncBlock = findReturnedAsyncBlock(functionValue.body);
     if (asyncBlock?.$.asyncStateMachineStructName) {
-      overrideReturnType = asyncBlock.$.asyncStateMachineStructName;
+      overrideReturnType = `${asyncBlock.$.asyncStateMachineStructName}*`;
     }
   }
 

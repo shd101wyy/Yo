@@ -405,9 +405,9 @@ export function getTypeString(
         if (futureModule) {
           const cTypeName = context.types[futureModule.id]?.cName;
           if (cTypeName) {
-            // Impl futures are VALUE types (state machines)
-            // They are stack-allocated structs, not heap-allocated with ref counting
-            return cTypeName;
+            // Impl futures are heap-backed state machines.
+            // Use pointer type so the address is stable across suspension and returns.
+            return `${cTypeName}*`;
           }
         }
       }
