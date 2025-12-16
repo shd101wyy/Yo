@@ -1,9 +1,9 @@
 open import "std/libc/stdio";
 Concurrency :: import "std/concurrency";
 
-main :: (fn() -> unit) {
+main :: (fn() -> Impl(Future(unit))) {
   // Simple test without captured variables
-  async {
+  task := async {
     task1 := async {
       printf("Task 1\n");
       return 1;
@@ -12,8 +12,7 @@ main :: (fn() -> unit) {
     x := await task1;
     printf("Result: %d\n", x);
   };
-
-  return ();
+  return task;
 };
 
 export main;

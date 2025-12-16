@@ -22,7 +22,11 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import { canRefStructFormCycles } from "../../types/utils";
+import {
+  canRefStructFormCycles,
+  extractFutureModuleFromType,
+  typeImplementsFuture,
+} from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -302,19 +306,51 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     return; // No main function, nothing to wrap
   }
 
-  // REQUIREMENT: main must return unit (or Future(unit) for async)
+  // REQUIREMENT: main must return unit or Impl(Future(unit))
   const returnType = mainFunctionValue.type.return.type;
   const returnsUnit = isUnitType(returnType);
+  const returnsFuture = typeImplementsFuture(returnType);
 
-  if (!returnsUnit) {
+  if (!returnsUnit && !returnsFuture) {
     throw new Error(
-      `main function must return unit, but it returns ${typeToString(returnType)}. ` +
-        `Use 'main :: (fn() -> unit)' instead. ` +
+      `main function must return unit or Impl(Future(unit)), but it returns ${typeToString(returnType)}. ` +
+        `Use 'main :: (fn() -> unit)' or 'main :: (fn() -> Impl(Future(unit)))' instead. ` +
         `For exit codes, use 'exit(code)' from std/libc/stdlib.yo`
     );
   }
 
-  {
+  if (returnsFuture) {
+    // If main returns Future(unit), verify it's actually Future(unit), not Future(i32) etc.
+    const futureModule = extractFutureModuleFromType(returnType);
+    if (futureModule && !isUnitType(futureModule.isFuture.outputType)) {
+      throw new Error(
+        `main function returning a Future must return Impl(Future(unit)), not ${typeToString(returnType)}. ` +
+          `The async main task must have unit result type.`
+      );
+    }
+
+    // Async main - call it to get a Future, then run event loop on it
+    const mainReturnTypeCName = getTypeString(returnType, context);
+    emitter.emitLine(`
+// Main wrapper - calls async yo_user_main and runs event loop
+int main(void) {
+  // Initialize async runtime
+  __yo_async_scheduler_init();
+  
+  // Call async main to get the root Future task
+  ${mainReturnTypeCName} root_task = yo_user_main();
+  
+  // Run event loop on the root task until completion
+  // The event loop will process all queued async tasks
+  __yo_async_run_until_complete(&root_task);
+  
+  // Drop the root task
+  ${mainReturnTypeCName}___drop(&root_task);
+  
+  return 0;
+}
+`);
+  } else {
     // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
 // Main wrapper - calls yo_user_main directly

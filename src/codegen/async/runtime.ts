@@ -380,6 +380,56 @@ void __yo_async_wait_all(void) {
   }
 }
 
+// Run event loop until a specific Future completes (for async main)
+// This is a generic function that works with any Future state machine struct
+// The Future must have an 'int state' field (checked via macro in the state machine)
+void __yo_async_run_until_complete(void* future_ptr) {
+  if (!yo_async_scheduler_initialized) {
+    return;
+  }
+  
+  ASYNC_DEBUG("[RUN_UNTIL_COMPLETE] Starting event loop for future=%p\\n", future_ptr);
+  
+  // The future_ptr points to a state machine struct that has:
+  // - _Atomic int state  (0 = initial, -1 = completed)
+  // We need to check if it's completed
+  // Since all state machines have this field at the same offset, we can cast
+  typedef struct { _Atomic int state; } generic_future_t;
+  generic_future_t* future = (generic_future_t*)future_ptr;
+  
+  // Run the event loop until the future completes
+  while (atomic_load(&future->state) != -1) {
+    // Process one task from the queue
+    yo_continuation_t* cont = yo_thread_async_queue.head;
+    
+    if (cont) {
+      // Dequeue
+      yo_thread_async_queue.head = cont->next;
+      if (!yo_thread_async_queue.head) {
+        yo_thread_async_queue.tail = NULL;
+      }
+      yo_thread_async_queue.count--;
+      
+      ASYNC_DEBUG("[EVENT_LOOP] Executing continuation: resume_fn=%p, sm=%p (queue_count=%zu)\\n",
+                  (void*)cont->resume_fn, cont->state_machine, yo_thread_async_queue.count);
+      
+      // Execute the continuation
+      cont->resume_fn(cont->state_machine);
+      
+      // Free the continuation
+      __yo_free(cont);
+    } else {
+      // No tasks in queue and future not complete - this shouldn't happen
+      // The future should have queued itself or completed
+      ASYNC_DEBUG("[EVENT_LOOP] WARNING: Queue empty but future not complete (state=%d)\\n",
+                  atomic_load(&future->state));
+      break;
+    }
+  }
+  
+  ASYNC_DEBUG("[RUN_UNTIL_COMPLETE] Future completed (state=%d)\\n", atomic_load(&future->state));
+}
+
 // Per-thread async task queue
 typedef struct {
   yo_continuation_t* head;  // Head of continuation queue

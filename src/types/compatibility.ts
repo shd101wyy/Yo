@@ -3,8 +3,8 @@ import {
   canAssignTypeHierarchy,
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
-import { areValuesEqual, isTypeValue } from "../value";
-import { FunctionType, ModuleField, ModuleType, Type } from "./definitions";
+import { areValuesEqual } from "../value";
+import { FunctionType, ModuleField, Type } from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
@@ -540,24 +540,9 @@ export function areTypesCompatible(
       // Given type must implement ALL modules required by expected type
       // Example: expected `Impl(Send)` is compatible with given `Impl(Send, Copy)`
 
-      // Extract module types from assignedValue fields
-      const extractModuleTypes = (fields: ModuleField[]): ModuleType[] => {
-        const modules: ModuleType[] = [];
-        for (const f of fields) {
-          if (
-            isTypeValue(f.assignedValue) &&
-            isModuleType(f.assignedValue.value)
-          ) {
-            modules.push(f.assignedValue.value);
-          }
-        }
-        return modules;
-      };
-
-      const expectedModules = extractModuleTypes(
-        expected.type.module?.fields ?? []
-      );
-      const givenModules = extractModuleTypes(given.type.module?.fields ?? []);
+      // Use the requiredModules field directly (not module.fields)
+      const expectedModules = expected.type.requiredModules ?? [];
+      const givenModules = given.type.requiredModules ?? [];
 
       // Check that all expected modules are present in given modules
       for (const expectedModule of expectedModules) {
@@ -605,24 +590,16 @@ export function areTypesCompatible(
           return false;
         }
       }
+      // If only one has resolvedConcreteType, that's OK
+      // The one without resolvedConcreteType is more abstract
+      // Example: main signature doesn't have concrete type, but return value does
 
       // If we got here, the required modules are compatible
-      const expectedType_ = getValueOfSomeTypeFromEnv(
-        expected.env,
-        expected.type
-      );
-      const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
-      if (isSomeType(expectedType_) && isSomeType(givenType_)) {
-        // QUESTION: Should compare name instead?
-        return expectedType_.id === givenType_.id;
-      } else {
-        // QUESTION: Is this correct?
-        // return false;
-        return areTypesCompatible(
-          { type: expectedType_, env: expected.env },
-          { type: givenType_, env: given.env }
-        );
-      }
+      // The types are compatible if:
+      // 1. They implement the same modules (checked above)
+      // 2. resolvedConcreteType is compatible (checked above)
+      // 3. No negative module violations (checked above)
+      return true;
     } else {
       const expectedType_ = getValueOfSomeTypeFromEnv(
         expected.env,
