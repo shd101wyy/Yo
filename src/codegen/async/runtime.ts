@@ -193,7 +193,7 @@ void yo_async_register_continuation(
 // Note: These are for future parallelism support (spawn), not for async/await.
 
 // Get the number of hardware threads (CPU cores)
-size_t __yo_concurrency_get_hardware_threads(void) {
+size_t __yo_thread_get_hardware_threads(void) {
 #ifdef _WIN32
   SYSTEM_INFO sysinfo;
   GetSystemInfo(&sysinfo);
@@ -213,7 +213,7 @@ size_t __yo_concurrency_get_hardware_threads(void) {
 
 // Set maximum threads (placeholder for future spawn support)
 // Currently a no-op since async/await is single-threaded
-void __yo_concurrency_set_maximum_threads(size_t num) {
+void __yo_thread_set_maximum_threads(size_t num) {
   ASYNC_DEBUG("[CONCURRENCY] set_maximum_threads(%zu) - currently no-op for async/await\\n", num);
   (void)num; // Unused for now
 }
@@ -232,12 +232,31 @@ size_t __yo_get_thread_id(void) {
 }
 
 // Yield execution (allows other tasks to run)
-void __yo_concurrency_yield(void) {
+void __yo_thread_yield(void) {
 #ifdef _WIN32
   SwitchToThread();
 #else
   sched_yield();
 #endif
+}
+
+// Async yield - creates an immediately-ready Future for cooperative yielding
+// This allows the current async task to suspend and give other tasks a chance to run
+// Usage: await Concurrency.yield();
+typedef struct __yo_yield_future_t {
+  _Atomic int state;                            // Future state (0 = running, -1 = completed)
+  _Atomic(void (*)(void*)) continuation_fn;     // Continuation (if awaited)
+  _Atomic(void*) continuation_sm;               // Continuation state machine
+} __yo_yield_future_t;
+
+__yo_yield_future_t __yo_async_yield(void) {
+  __yo_yield_future_t future;
+  // Initialize as completed (state = -1) so await will not actually suspend
+  // The suspension happens because await checks the queue and processes other tasks
+  atomic_init(&future.state, -1);
+  atomic_init(&future.continuation_fn, NULL);
+  atomic_init(&future.continuation_sm, NULL);
+  return future;
 }
 `);
 }

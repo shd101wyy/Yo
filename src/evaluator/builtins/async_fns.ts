@@ -1,11 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import {
-  attachTempVariableToExpr,
-  BuiltinFunctions,
-  expectExprToBeFunctionCallOf,
-  FuncCallExpr,
-} from "../../expr";
+import { attachTempVariableToExpr, FuncCallExpr } from "../../expr";
 import {
   convertComptTypeToRuntimeType,
   createFutureModuleType,
@@ -16,7 +11,6 @@ import {
   SomeType,
   Type,
 } from "../../types";
-import { VUnit } from "../../unit-value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import {
@@ -201,62 +195,5 @@ export function evaluateAsync({
   };
 
   attachTempVariableToExpr(expr, true);
-  return expr;
-}
-
-/**
- * Evaluates the __yo_concurrency_set_maximum_threads builtin function.
- *
- * __yo_concurrency_set_maximum_threads takes a usize argument specifying the maximum
- * number of threads that should be used to run tasks.
- *
- * Examples:
- * - __yo_concurrency_set_maximum_threads(1) -> unit
- * - __yo_concurrency_set_maximum_threads(4) -> unit
- *
- * @param params - The evaluation parameters
- * @returns The expression with unit type
- */
-export function evaluateTaskSetMaximumThreads({
-  expr,
-  env,
-  context,
-}: {
-  expr: FuncCallExpr;
-  env: Environment;
-  context: EvaluatorContext;
-}): FuncCallExpr {
-  expectExprToBeFunctionCallOf(
-    expr,
-    BuiltinFunctions.__yo_concurrency_set_maximum_threads,
-    1
-  );
-
-  const argExpr = expr.args[0]!;
-
-  // Evaluate the argument expression
-  const evaluatedExpr = evaluateExpression({
-    expr: argExpr,
-    env,
-    context: { ...context },
-  });
-
-  if (!evaluatedExpr.$) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Failed to evaluate expression.`,
-    });
-  }
-
-  env = evaluatedExpr.$.env;
-
-  // Return unit type
-  expr.$ = {
-    env,
-    type: VUnit.type,
-    value: undefined, // Runtime value, not compile-time
-    pathCollection: [],
-  };
-
   return expr;
 }

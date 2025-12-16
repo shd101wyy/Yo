@@ -695,19 +695,16 @@ function generateFuncCall(
     return `/* test declaration skipped */`;
   }
 
-  // __yo_concurrency_set_maximum_threads - set maxmium number of threads for coroutine schedular
+  // __yo_thread_set_maximum_threads - set maxmium number of threads for coroutine schedular
   if (
-    exprIsFunctionCallOf(
-      expr,
-      BuiltinFunctions.__yo_concurrency_set_maximum_threads
-    )
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_set_maximum_threads)
   ) {
     const numArg = expr.args[0];
     if (!numArg) {
-      return `// Error: __yo_concurrency_set_maximum_threads requires exactly 1 argument`;
+      return `// Error: __yo_thread_set_maximum_threads requires exactly 1 argument`;
     }
     const numCode = generateExpr(numArg, indent, context);
-    return `__yo_concurrency_set_maximum_threads(${numCode})`;
+    return `__yo_thread_set_maximum_threads(${numCode})`;
   }
 
   // op_and - && operator with short-circuit evaluation

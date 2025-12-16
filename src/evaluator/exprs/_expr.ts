@@ -24,6 +24,7 @@ import {
   evaluateYoSomeTypeDrop,
   evaluateYoSomeTypeDup,
 } from "../builtins/arc_fns";
+import { evaluateAsync } from "../builtins/async_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "../builtins/compt_expect_error";
@@ -37,10 +38,6 @@ import {
 } from "../builtins/compt_list_fns";
 import { evaluateComptPrint } from "../builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "../builtins/compt_string_fns";
-import {
-  evaluateAsync,
-  evaluateTaskSetMaximumThreads,
-} from "../builtins/concurrency_fns";
 import { evaluateConsume } from "../builtins/consume";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
@@ -360,18 +357,6 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
       // await
       return evaluateAwait({ expr, env, context: { ...context } });
-    } else if (
-      exprIsFunctionCallOf(
-        expr,
-        BuiltinFunctions.__yo_concurrency_set_maximum_threads
-      )
-    ) {
-      // __yo_concurrency_set_maximum_threads
-      return evaluateTaskSetMaximumThreads({
-        expr,
-        env,
-        context: { ...context },
-      });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
       // import
       return evaluateImport({
