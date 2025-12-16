@@ -38,6 +38,11 @@ export interface AsyncBlockEvaluationContext {
   evaluationEnv: Environment;
 }
 
+export interface TestBlockEvaluationContext {
+  kind: "test-block";
+  evaluationEnv: Environment;
+}
+
 export interface EvaluatorContext {
   /**
    * Whether we are currently executing code (true) or just analyzing/type-checking it (false).
@@ -72,7 +77,8 @@ export interface EvaluatorContext {
    */
   isEvaluatingFunctionBodyOrAsyncBlock?:
     | FunctionEvaluationContext
-    | AsyncBlockEvaluationContext;
+    | AsyncBlockEvaluationContext
+    | TestBlockEvaluationContext;
 
   /**
    * For closures and async blocks, track variables captured from outer scopes.

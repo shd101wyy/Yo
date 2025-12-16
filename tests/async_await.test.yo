@@ -1,42 +1,29 @@
-
-/*
 open import "std/libc/stdio";
+Async :: import "std/async";
 
-StaticAsync :: Impl(Future(i32));
-DynamicAsync :: Dyn(Future(i32));
+// Expected to print:
+//
+// Task started
+// Running main...
+// Task completed
+//
+//
+test "Test eager async", {
+  b := Box(i32)(0);
 
-main :: (fn() -> unit) {
-  async {
-    b := Box(i32)(0);
+  // Simple test without nested async blocks
+  task := async {
+    printf("Task started %d\n", b.*);
+    assert(b.* == 0);
 
-    task1 := async {
-      printf("Task 1 started\n");
-      counter := 1;
-      b.* = (b.* + counter);
-      return counter;
-    };
-    task2 := async {
-      printf("Task 2 started\n");
-      counter := 2;
-      b.* = (b.* + counter);
-      return counter;
-    };
-    task3 := async {
-      printf("Task 3 started\n");
-      counter := 3;
-      b.* = (b.* + counter);
-      return counter;
-    };
-
-    x := await task1;
-    y := await task2;
-    z := await task3;
-
-    assert(b.* == ((x + y) + z));
+    b.* = (b.* + 1);
+    await Async.yield();
+    
+    printf("Task completed %d\n", b.*);
+    assert(b.* == 2);
   };
-
-  return ();
+  
+  printf("Running main... %d\n", b.*);
+  assert(b.* == 1);
+  b.* = (b.* + 1);
 };
-
-export main;
-*/

@@ -247,6 +247,8 @@ export function isDynType(type?: Type): type is DynType {
 export function isGcType(type?: Type): boolean {
   return (
     isObjectType(type) ||
+    // We assume all the SomeType is reference-counted
+    isSomeType(type) ||
     // The DynType is a struct that contains a pointer to data where the data must be an ObjectType
     isDynType(type)
   );
