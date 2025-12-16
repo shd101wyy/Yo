@@ -194,13 +194,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
     return;
   }
 
-  // Handle SomeType (Impl) that implements Future - collect the FutureModuleType for async state machine generation
-  // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped
+  // Handle SomeType (Impl) that implements Future - DON'T register the FutureModuleType here.
+  // The async block generation will register it with the correct state machine struct name.
+  // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped.
   if (isSomeType(type) && typeImplementsFuture(type)) {
     const futureModule = extractFutureModuleFromType(type);
     if (futureModule) {
-      // Collect the FutureModuleType - this generates the state machine struct
-      collectType(futureModule, context);
+      // Only collect the output type (T in Future(T)), not the FutureModuleType itself.
+      // The FutureModuleType will be registered by generateAsyncBlock with the state machine struct name.
+      collectType(futureModule.isFuture.outputType, context);
     }
     return;
   }

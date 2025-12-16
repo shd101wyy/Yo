@@ -398,25 +398,8 @@ export function getTypeString(
     case TypeTag.SomeType: {
       const someType = type as SomeType;
 
-      // If this SomeType has a resolved concrete type (e.g., Impl(Fn(...)) closures),
-      // codegen should use that concrete representation for true static dispatch.
-      if (someType.resolvedConcreteType) {
-        return getTypeString(someType.resolvedConcreteType, context);
-      }
-
-      // For Impl(Fn(...)), use the FnModuleType's C name
-      if (typeImplementsFn(someType)) {
-        const fnModule = extractFnModuleFromType(someType);
-        if (fnModule) {
-          const cTypeName = context.types[fnModule.id]?.cName;
-          if (cTypeName) {
-            // Impl closures are now VALUE types (like Rust closures)
-            // They are stack-allocated, not heap-allocated with ref counting
-            return cTypeName;
-          }
-        }
-      }
-      // For Impl(Future(...)), use the FutureModuleType's C name
+      // For Impl(Future(...)), use the FutureModuleType's C name (state machine struct)
+      // Check this BEFORE resolvedConcreteType because the capture struct is an implementation detail
       if (typeImplementsFuture(someType)) {
         const futureModule = extractFutureModuleFromType(someType);
         if (futureModule) {
@@ -428,6 +411,27 @@ export function getTypeString(
           }
         }
       }
+
+      // For Impl(Fn(...)), use the FnModuleType's C name
+      // Check this BEFORE resolvedConcreteType to use the function pointer type
+      if (typeImplementsFn(someType)) {
+        const fnModule = extractFnModuleFromType(someType);
+        if (fnModule) {
+          const cTypeName = context.types[fnModule.id]?.cName;
+          if (cTypeName) {
+            // Impl closures are now VALUE types (like Rust closures)
+            // They are stack-allocated, not heap-allocated with ref counting
+            return cTypeName;
+          }
+        }
+      }
+
+      // If this SomeType has a resolved concrete type, use it
+      // (for types that don't have special handling above)
+      if (someType.resolvedConcreteType) {
+        return getTypeString(someType.resolvedConcreteType, context);
+      }
+
       // Fallback for generic Self references in dynamic dispatch contexts
       return "void*";
     }

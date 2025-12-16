@@ -347,8 +347,8 @@ int main(void) {
   // The event loop will process all queued async tasks
   __yo_async_run_until_complete(&root_task);
   
-  // Drop the root task
-  ${mainReturnTypeCName}___drop(&root_task);
+  // NOTE: root_task is a value type (state machine struct) that will be automatically
+  // cleaned up when it goes out of scope. No explicit drop needed.
   
   return 0;
 }

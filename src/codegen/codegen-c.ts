@@ -4,7 +4,10 @@ import { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
 
 // Import the modular components
-import { generateDeferredAsyncBlocks } from "./expressions/generation";
+import {
+  generateDeferredAsyncBlocks,
+  preRegisterAsyncBlockTypes,
+} from "./expressions/generation";
 import { collectRequiredFunctions } from "./functions/collection";
 import { FunctionGenerationContext } from "./functions/context";
 import {
@@ -113,6 +116,10 @@ typedef enum {
 
     // Generate dyn box types
     generateDynBoxTypes(context);
+
+    // Pre-register async block state machine types before generating function declarations
+    // This ensures function prototypes use the correct state machine struct names
+    preRegisterAsyncBlockTypes(context);
 
     // Third pass: Generate function declarations (prototypes) for regular functions
     generateFunctionDeclarations(context);

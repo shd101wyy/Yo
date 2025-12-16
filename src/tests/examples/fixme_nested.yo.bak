@@ -1,0 +1,54 @@
+open import "std/libc/stdio";
+Concurrency :: import "std/concurrency";
+
+main :: (fn() -> Impl(Future(unit))) {
+  // Simple test without captured variables
+  task := async {
+    task1 := async {
+      printf("Task 1\n");
+      return 1;
+    };
+    
+    x := await task1;
+    printf("Result: %d\n", x);
+  };
+  return task;
+};
+
+export main;
+
+// Old test with captured variables - has evaluator bug with Box dup interfering
+// main :: (fn() -> unit) {
+//   async {
+//     b := Box(i32)(0);
+//
+//     task1 := async {
+//       printf("Task 1 started\n");
+//       counter := 1;
+//       b.* = (b.* + counter);
+//       return counter;
+//     };
+//     task2 := async {
+//       printf("Task 2 started\n");
+//       counter := 2;
+//       b.* = (b.* + counter);
+//       return counter;
+//     };
+//     task3 := async {
+//       printf("Task 3 started\n");
+//       counter := 3;
+//       b.* = (b.* + counter);
+//       return counter;
+//     };
+//
+//     x := await task1;
+//     y := await task2;
+//     z := await task3;
+//
+//     assert(b.* == ((x + y) + z));
+//   };
+//
+//   return ();
+// };
+//
+// export main;

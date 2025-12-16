@@ -2990,12 +2990,11 @@ function generateAsyncBlock(
 
   // Register this state machine struct as the concrete type for the FutureModuleType
   // This allows getTypeString to find the struct name when generating code
-  if (!context.types[futureModuleType.id]) {
-    context.types[futureModuleType.id] = {
-      type: futureModuleType,
-      cName: structName,
-    };
-  }
+  // Always update (not just if missing) because collectType no longer registers FutureModuleType
+  context.types[futureModuleType.id] = {
+    type: futureModuleType,
+    cName: structName,
+  };
 
   // Analyze the body for await points
   const analysis = analyzeAwaitPoints(bodyExpr);
@@ -3424,6 +3423,14 @@ function generateAsyncBlockConstructor(
   } else {
     emitter.emitLine(`  memset(&sm.result, 0, sizeof(${resultTypeCName}));`);
   }
+  emitter.emitLine(``);
+
+  // Eager execution: start running the async block immediately
+  // Execute until the first await point or completion
+  emitter.emitLine(
+    `  // Eager execution: start running immediately (C#/C++ style)`
+  );
+  emitter.emitLine(`  ${resumeFunctionName}(&sm);`);
   emitter.emitLine(``);
 
   emitter.emitLine(`  return sm;`);
@@ -5401,6 +5408,68 @@ export function generateDeferredDupExpressions(
           emitter.emitLine(`${indent}${dupCode};`);
         }
       }
+    }
+  }
+}
+
+/**
+ * Pre-register async block state machine types before generating function declarations.
+ * This ensures that when function prototypes are generated, the correct state machine
+ * struct names are already registered in context.types.
+ */
+export function preRegisterAsyncBlockTypes(
+  context: FunctionGenerationContext
+): void {
+  // Iterate through all functions and find async blocks
+  for (const funcId in context.functions) {
+    const { value: functionValue } = context.functions[funcId]!;
+    if (functionValue.body) {
+      preRegisterAsyncBlocksInExpr(functionValue.body, context);
+    }
+  }
+}
+
+/**
+ * Recursively search for async blocks in an expression and pre-register their types.
+ */
+function preRegisterAsyncBlocksInExpr(
+  expr: Expr,
+  context: FunctionGenerationContext
+): void {
+  if (!expr) return;
+
+  if (exprIsFunctionCall(expr)) {
+    const funcCallExpr = expr as FuncCallExpr;
+
+    // Check if this is an async block
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+      // Found an async block - extract info and pre-register type
+      const futureType = expr.$?.type;
+      if (futureType && typeImplementsFuture(futureType)) {
+        const futureModuleType = extractFutureModuleFromType(futureType);
+        if (futureModuleType) {
+          const asyncBlockId =
+            expr.$?.variableName || `async_block_${Date.now()}`;
+          const structName = `${asyncBlockId}_state_t`;
+
+          // Pre-register the state machine struct name for this FutureModuleType
+          context.types[futureModuleType.id] = {
+            type: futureModuleType,
+            cName: structName,
+          };
+
+          // Emit forward declaration for the state machine struct
+          // The full struct definition will be emitted later during generateAsyncBlock
+          context.emitter.emitDeclarationLine(
+            `typedef struct ${structName}_struct ${structName}; // Forward declaration for async state machine`
+          );
+        }
+      }
+    }
+
+    // Recursively search in arguments
+    for (const arg of funcCallExpr.args) {
+      preRegisterAsyncBlocksInExpr(arg, context);
     }
   }
 }

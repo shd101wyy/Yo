@@ -75,6 +75,10 @@ export function evaluateFutureType({
   // Set the isFuture field to the child type
   futureModuleType.isFuture = { outputType };
 
+  // Use canonical ID format to match createFutureModuleType
+  // This ensures Future(unit) from type annotations and async blocks have the same ID
+  futureModuleType.id = `future_module_${outputType.id}`;
+
   expr.$ = {
     env,
     type: typeOfType(futureModuleType),
