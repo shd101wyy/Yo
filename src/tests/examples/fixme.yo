@@ -1,15 +1,32 @@
 open import "std/libc/stdio";
-Async :: import "std/async";
+
+// Async yield - suspends current task and allows other tasks to run
+// Implemented as an immediately-completing async block that forces a suspension point
+yield :: (fn() -> Impl(Future(unit)))
+  async {
+    // Empty async block that just completes immediately
+    // The act of awaiting this will cause the current task to suspend and re-enqueue
+    return ();
+  }
+;
 
 main :: (fn() -> Impl(Future(unit))) {
   // Simple test without nested async blocks
   task := async {
     printf("Task started\n");
-    await Async.yield();
+    await yield();
     printf("Task completed\n");
   };
   printf("Running main...\n");
   return task;
 };
+
+// Expected to print:
+//
+// Task started
+// Running main...
+// Task completed
+//
+//
 
 export main;

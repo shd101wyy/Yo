@@ -115,7 +115,7 @@ export function generateFunctionDeclarations(
     ) {
       continue;
     }
-    generateFunctionDeclaration(value.type, cName, false, context);
+    generateFunctionDeclaration(value.type, cName, false, context, value.body);
   }
 
   // Generate vtable instance declarations for closures (after function declarations)
@@ -130,10 +130,12 @@ export function generateFunctionDeclarations(
 export function generateFunctionPrototype(
   functionType: FunctionType,
   cFunctionName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
+  overrideReturnType?: string
 ): string {
   // For non-main functions, generate based on function type
-  const returnTypeStr = getTypeString(functionType.return.type, context);
+  const returnTypeStr =
+    overrideReturnType || getTypeString(functionType.return.type, context);
 
   // Generate parameter list (excluding compile-time parameters)
   const runtimeParams = functionType.parameters.filter(
@@ -174,19 +176,61 @@ export function generateFunctionPrototype(
 }
 
 /**
+ * Find async blocks in an expression that might be returned.
+ * Returns the first async block found in the function body.
+ * For functions returning Impl(Future(T)), any async block in the body
+ * could potentially be the return value, so we return the first one we find.
+ */
+function findReturnedAsyncBlock(expr: Expr | undefined): Expr | undefined {
+  if (!expr) return undefined;
+
+  // If this is an async block itself, return it
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    return expr;
+  }
+
+  // Recursively search in function call arguments
+  if (exprIsFunctionCall(expr)) {
+    const funcCallExpr = expr as FuncCallExpr;
+    for (const arg of funcCallExpr.args) {
+      const found = findReturnedAsyncBlock(arg);
+      if (found) return found;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Generate a function declaration (prototype)
  */
 export function generateFunctionDeclaration(
   functionType: FunctionType,
   cFunctionName: string,
   isExtern: boolean,
-  context: CodeGenContext
+  context: CodeGenContext,
+  functionBody?: Expr
 ): void {
-  const functionPrototype = generateFunctionPrototype(
-    functionType,
-    cFunctionName,
-    context
-  );
+  // For functions returning Impl(Future(T)), find the async block that produces the return value
+  // and use its state machine struct name as the return type
+  let overrideReturnType: string | undefined;
+
+  if (functionBody && typeImplementsFuture(functionType.return.type)) {
+    const asyncBlock = findReturnedAsyncBlock(functionBody);
+    if (asyncBlock?.$.asyncStateMachineStructName) {
+      overrideReturnType = asyncBlock.$.asyncStateMachineStructName;
+    }
+  }
+
+  const functionPrototype = overrideReturnType
+    ? generateFunctionPrototype(
+        functionType,
+        cFunctionName,
+        context,
+        overrideReturnType
+      )
+    : generateFunctionPrototype(functionType, cFunctionName, context);
+
   const yoTypeStr = typeToString(functionType);
   context.emitter.emitDeclarationLine(
     `${isExtern ? "extern " : ""}${functionPrototype}; // ${yoTypeStr}`
@@ -388,12 +432,27 @@ export function generateFunction(
   const functionName = cFunctionName;
   const functionType = functionValue.specializedType ?? functionValue.type;
 
+  // For functions returning Impl(Future(T)), find the async block that produces the return value
+  // and use its state machine struct name as the return type
+  let overrideReturnType: string | undefined;
+
+  if (functionValue.body && typeImplementsFuture(functionType.return.type)) {
+    const asyncBlock = findReturnedAsyncBlock(functionValue.body);
+    if (asyncBlock?.$.asyncStateMachineStructName) {
+      overrideReturnType = asyncBlock.$.asyncStateMachineStructName;
+    }
+  }
+
   // Regular function generation (async blocks within the function handle their own state machines)
-  const functionPrototype = generateFunctionPrototype(
-    functionType,
-    cFunctionName,
-    context
-  );
+  const functionPrototype = overrideReturnType
+    ? generateFunctionPrototype(
+        functionType,
+        cFunctionName,
+        context,
+        overrideReturnType
+      )
+    : generateFunctionPrototype(functionType, cFunctionName, context);
+
   emitter.emitLine(`${functionPrototype} {`);
 
   // Set current function name and type for recur support and async handling

@@ -964,11 +964,17 @@ export function createFnModuleType(
  * Creates a FutureModuleType (future/async type).
  * This is a ModuleType with isFuture set to the child type.
  */
+// Global counter for unique FutureModuleType IDs
+// Each async block gets its own FutureModuleType with a unique ID
+let futureModuleCounter = 0;
+
 export function createFutureModuleType(
   outputType: Type,
   env: Environment
 ): FutureModuleType {
-  const futureModuleId = `future_module_${outputType.id}`;
+  // Create a unique ID for each async block's FutureModuleType
+  // This ensures different async blocks with the same output type don't share the same FutureModuleType
+  const futureModuleId = `future_module_${outputType.id}_${futureModuleCounter++}`;
   const module = createModuleType(env);
 
   // Set the isFuture field to make this a FutureModuleType

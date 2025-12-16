@@ -220,6 +220,14 @@ export interface EvaluatedExprData {
   asyncStackSize?: Expr;
 
   /**
+   * For async block expressions, this contains the C struct name for the state machine.
+   * Used during C codegen to generate the correct type for functions returning Impl(Future(T)).
+   *
+   * Example: For an async block `async { return 42; }`, this would contain `_yof4ca7ba3_temp_7455_state_t`
+   */
+  asyncStateMachineStructName?: string;
+
+  /**
    * For closure and async block expressions, this contains the capture struct type that holds all
    * captured variables from outer scope.
    * The capture struct has Gc functions (___drop, ___dup, ___dispose) auto-generated.

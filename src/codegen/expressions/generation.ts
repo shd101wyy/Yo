@@ -5449,7 +5449,15 @@ function preRegisterAsyncBlocksInExpr(
             expr.$?.variableName || `async_block_${Date.now()}`;
           const structName = `${asyncBlockId}_state_t`;
 
-          // Pre-register the state machine struct name for this FutureModuleType
+          // Store the struct name directly on the expression for later lookup
+          // This is more reliable than context.types which can be overwritten
+          if (expr.$) {
+            expr.$.asyncStateMachineStructName = structName;
+          }
+
+          // Also register in context.types for backward compatibility with getTypeString
+          // Note: this may be overwritten by later async blocks with the same output type,
+          // which is why we also store on the expression itself
           context.types[futureModuleType.id] = {
             type: futureModuleType,
             cName: structName,

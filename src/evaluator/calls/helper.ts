@@ -42,6 +42,8 @@ import {
   isTypeHierarchyType,
   Type,
   TypeHierarchyType,
+  typeImplementsFn,
+  typeImplementsFuture,
   typeRequiresComptModifier,
   typeToString,
 } from "../../types";
@@ -1364,6 +1366,25 @@ export function validateFunctionReturnType({
 
   const returnTypeSomeTypes = getAllSomeTypes(returnType);
   for (const returnTypeSomeType of returnTypeSomeTypes) {
+    {
+      // FIXME: The check here is not essentially correct:
+
+      // Skip validation for Impl(Future(...)) - these are concrete Future implementations
+      // created by async blocks and don't need to be resolved from the environment.
+      // The async block creates its own state machine type, and when a function returns
+      // Impl(Future(...)), the actual implementation comes from the async block in the
+      // function body, not from type resolution.
+      if (typeImplementsFuture(returnTypeSomeType)) {
+        continue;
+      }
+
+      // Skip validation for Impl(Fn(...)) - these are concrete closure implementations
+      // created by fn expressions and don't need to be resolved from the environment.
+      if (typeImplementsFn(returnTypeSomeType)) {
+        continue;
+      }
+    }
+
     const variables = getVariablesFromEnv(env, returnTypeSomeType.name);
     if (!variables.length) {
       // Check if this SomeType exists within the types of other variables

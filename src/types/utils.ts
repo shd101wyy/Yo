@@ -204,7 +204,7 @@ export function typeImplementsSend(
 
 export function typeImplementsFn(
   type: Type | undefined
-): type is SomeType | DynType {
+): type is (SomeType | DynType) & { isFn: true } {
   if (!type) {
     return false;
   }
@@ -251,7 +251,7 @@ export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
 
 export function typeImplementsFuture(
   type: Type | undefined
-): type is SomeType | DynType {
+): type is (SomeType | DynType) & { isFuture: true } {
   if (!type) {
     return false;
   }
@@ -414,16 +414,20 @@ export function typeContainsSomeType(
       return typeContainsSomeType(type.resolvedConcreteType, checkedTypes);
     }
 
-    // Treat Impl(Fn(...)) as concrete at codegen time.
-    // Codegen lowers such SomeType to the corresponding FnModuleType.
-    if (typeImplementsFn(type)) {
-      return false;
-    }
+    {
+      // FIXME: The check here is essentially wrong
 
-    // Treat Impl(Future(...)) as concrete at codegen time.
-    // Codegen generates state machine structs for Futures.
-    if (typeImplementsFuture(type)) {
-      return false;
+      // Treat Impl(Fn(...)) as concrete at codegen time.
+      // Codegen lowers such SomeType to the corresponding FnModuleType.
+      if (typeImplementsFn(type)) {
+        return false;
+      }
+
+      // Treat Impl(Future(...)) as concrete at codegen time.
+      // Codegen generates state machine structs for Futures.
+      if (typeImplementsFuture(type)) {
+        return false;
+      }
     }
 
     return true;
@@ -495,7 +499,9 @@ export function getAllSomeTypes(type: Type): Set<SomeType> {
       if (result.has(t)) {
         return; // Already checked
       }
-      result.add(t);
+      if (!t.resolvedConcreteType) {
+        result.add(t);
+      }
     }
 
     switch (t.tag) {
