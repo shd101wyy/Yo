@@ -232,8 +232,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     generateFunction(value, cName, context);
   }
 
-  // Generate main wrapper if user defined a main function
-  generateMainWrapper(context);
+  // NOTE: Main wrapper is generated after deferred async blocks
+  // since async main returns a Future type that's defined in the deferred blocks
 }
 
 /**
@@ -287,7 +287,7 @@ export function generateDynDupDrop(context: FunctionGenerationContext): void {
  * This ensures all async tasks complete before the program exits
  * REQUIREMENT: main function must return unit (void)
  */
-function generateMainWrapper(context: FunctionGenerationContext): void {
+export function generateMainWrapper(context: FunctionGenerationContext): void {
   const emitter = context.emitter;
 
   // Check if user defined a main function
@@ -332,6 +332,9 @@ function generateMainWrapper(context: FunctionGenerationContext): void {
     // Async main - call it to get a Future, then run event loop on it
     const mainReturnTypeCName = getTypeString(returnType, context);
     emitter.emitLine(`
+// Forward declaration for yo_user_main
+${mainReturnTypeCName} yo_user_main(void);
+
 // Main wrapper - calls async yo_user_main and runs event loop
 int main(void) {
   // Initialize async runtime

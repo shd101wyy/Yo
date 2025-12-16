@@ -15,6 +15,7 @@ import {
   generateDynVtables,
   generateDynWrapperFunctions,
   generateFunctionDeclarations,
+  generateMainWrapper,
   generateSpecializedFunctionDeclarations,
   generateSpecializedFunctions,
 } from "./functions/generation";
@@ -134,6 +135,10 @@ typedef enum {
     // Generate deferred async block implementations
     // This must happen after all regular functions are generated to avoid nesting
     generateDeferredAsyncBlocks(context);
+
+    // Generate main wrapper after deferred async blocks
+    // since async main returns a Future type defined in deferred blocks
+    generateMainWrapper(context);
 
     // Generate closure dispose functions after async blocks
     // (async blocks can create closures, so we need to generate after deferred blocks)

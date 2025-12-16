@@ -420,6 +420,12 @@ export function typeContainsSomeType(
       return false;
     }
 
+    // Treat Impl(Future(...)) as concrete at codegen time.
+    // Codegen generates state machine structs for Futures.
+    if (typeImplementsFuture(type)) {
+      return false;
+    }
+
     return true;
   }
 
