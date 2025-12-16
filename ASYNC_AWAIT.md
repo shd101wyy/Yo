@@ -22,10 +22,10 @@ main :: (fn() -> unit) {
 
 ## Concurrency vs Parallelism
 
-| Concept | Mechanism | Description |
-|---------|-----------|-------------|
-| **Concurrency** | `async/await` | Multiple tasks interleaved on ONE thread |
-| **Parallelism** | `spawn` | Multiple tasks running on SEPARATE threads |
+| Concept         | Mechanism     | Description                                |
+| --------------- | ------------- | ------------------------------------------ |
+| **Concurrency** | `async/await` | Multiple tasks interleaved on ONE thread   |
+| **Parallelism** | `spawn`       | Multiple tasks running on SEPARATE threads |
 
 ```yo
 // Concurrency: Same thread, interleaved execution
@@ -43,6 +43,35 @@ task := Task(i32, boolean).spawn((parent) -> {
 });
 ```
 
+## Execution Model: Eager Start
+
+Yo's async functions use **eager execution** (like C# and C++):
+
+- Async functions start executing **immediately** when called
+- Execution continues until the **first `await`** point
+- If there's no `await`, the function runs to completion synchronously
+- This makes side effects predictable and errors immediate
+
+```yo
+fetch :: (fn(url: String) -> Impl Future(String)) async {
+  println("Starting fetch");  // Prints IMMEDIATELY when called
+  validate_url(url);          // Runs synchronously - errors throw now!
+  response := await http_get(url);  // First await - suspends here
+  return response;
+};
+
+// Calling an async function:
+future := fetch("http://example.com");  // "Starting fetch" prints NOW
+                                        // Runs until first await
+// ... do other work ...
+result := await future;  // Resume and wait for completion
+```
+
+**Key Difference from Lazy Models (Rust, Haskell):**
+
+- Lazy: `let f = async_fn()` does nothing until awaited
+- Eager: `f := async_fn()` runs immediately until first `await`
+
 ## Motivation
 
 ### Why Single-Threaded Async?
@@ -52,12 +81,14 @@ task := Task(i32, boolean).spawn((parent) -> {
 3. **Memory Efficiency**: State machines only need ~100-500 bytes per task
 4. **Massive Concurrency**: Can handle millions of concurrent tasks
 5. **Zero-Cost Abstraction**: State machine transformation at compile time
-6. **Familiar Model**: Same as JavaScript, Python asyncio - proven and intuitive
+6. **Familiar Model**: Same as C#, C++, JavaScript - proven and intuitive
 7. **No Atomics Needed**: Reference counting doesn't need atomic operations
+8. **Eager Execution**: Predictable side effects and immediate error detection
 
 ### Why Not Multi-Threaded Async?
 
 Multi-threaded async (like Rust's tokio) adds complexity:
+
 - Need `Send` trait to verify thread safety
 - Need atomic reference counting
 - Need cross-thread synchronization
@@ -84,16 +115,20 @@ process :: (fn() -> Impl Future(unit)) async {
 // Main entry point - async block starts event loop
 main :: (fn() -> unit) {
   async {
+    // fetch starts executing IMMEDIATELY (eager)
     future := fetch("http://example.com");
+    // ... future is already running until first await ...
     result := await future;
     println(result);
   };
 };
 
-// Async blocks - create inline async tasks
+// Async blocks - also eager execution
 compute :: (fn() -> Impl Future(i32)) {
   return async {
-    x := await fetch_data("http://example.com");
+    // This code runs IMMEDIATELY when compute() is called
+    println("Starting computation");
+    x := await fetch_data("http://example.com");  // First await - suspends
     y := await process_data(x);
     return y;
   };
@@ -108,30 +143,34 @@ await expr       // Suspend until Future ready (only in async context)
 ```
 
 **Important Rules**:
-1. Async blocks `async { ... }` return `Impl Future(T)` where T is the block's result type
-2. `await` can **only** be used inside async functions or `async { ... }` blocks
-3. All async code runs on the **same thread** - no thread spawning
-4. `await` suspends the current coroutine and yields to other ready tasks
+
+1. Async functions execute **eagerly** - they start running immediately when called
+2. Execution continues until the **first `await`** or completion (if no await)
+3. Async blocks `async { ... }` return `Impl Future(T)` where T is the block's result type
+4. `await` can **only** be used inside async functions or `async { ... }` blocks
+5. All async code runs on the **same thread** - no thread spawning
+6. `await` suspends the current coroutine and yields to other ready tasks
 
 ### Execution Model
 
 ```yo
 // All three tasks run on the SAME thread
 async {
-  t1 := task1();  // Start task1, returns Future
-  t2 := task2();  // Start task2, returns Future  
-  t3 := task3();  // Start task3, returns Future
-  
+  // EAGER execution - each task runs immediately until first await!
+  t1 := task1();  // Runs NOW until first await, returns suspended Future
+  t2 := task2();  // Runs NOW until first await, returns suspended Future
+  t3 := task3();  // Runs NOW until first await, returns suspended Future
+
   // Interleaved execution:
-  // - t1 runs until await, yields
-  // - t2 runs until await, yields
-  // - t3 runs until await, yields
+  // - t1 ran until its first await, now suspended
+  // - t2 ran until its first await, now suspended
+  // - t3 ran until its first await, now suspended
   // - When t1's IO completes, resumes t1
   // - etc.
-  
-  await t1;
-  await t2;
-  await t3;
+
+  await t1;  // Wait for t1 to complete
+  await t2;  // Wait for t2 to complete
+  await t3;  // Wait for t3 to complete
 };
 ```
 
@@ -156,6 +195,7 @@ The compiler transforms async functions into state machines at each `await` poin
 ### Example Transformation
 
 **Input Yo code:**
+
 ```yo
 fetch_data :: (fn(url: String) -> Impl Future(Data)) async {
   response := await http_get(url);
@@ -167,23 +207,27 @@ fetch_data :: (fn(url: String) -> Impl Future(Data)) async {
 **Conceptual transformation:**
 
 1. **State Machine Struct**:
+
    - Tracks current state (0, 1, 2...)
    - Captures function parameters (url)
    - Stores local variables used across await points (response, data)
    - Holds pending futures
 
 2. **Poll Function**:
+
    - Switch statement with one case per state
    - State 0: Call http_get, check if ready
    - State 1: Extract response result, call read, check if ready
    - State 2: Extract data result, return Ready(data)
 
-3. **Async Function Entry**:
-   - Allocates state machine on heap
+3. **Async Function Entry (Eager Execution)**:
+   - Runs synchronously until first `await` point
+   - At first `await`: allocates state machine on heap
    - Creates Future pointing to state machine
-   - Returns Future immediately (does NOT block)
+   - Returns suspended Future (does NOT block on IO)
 
 ### Key Points
+
 - Each `await` becomes a state transition
 - Local variables used across `await` are captured in state struct
 - Poll function is a switch statement advancing through states
@@ -239,6 +283,7 @@ The async runtime uses a simple **single-threaded event loop**:
 ### Non-Atomic Reference Counting
 
 Since all async code runs on one thread:
+
 - No atomic operations needed for RC
 - Simple increment/decrement
 - No synchronization overhead
@@ -284,6 +329,7 @@ future->result = final_value;
 ### State Machine Memory
 
 State machines are small (~32-500 bytes):
+
 - State ID: 4 bytes
 - Captured parameters: varies
 - Captured locals: varies
@@ -294,10 +340,12 @@ State machines are small (~32-500 bytes):
 ### Memory Usage
 
 **10,000 concurrent async operations:**
+
 - State machines: 10,000 × ~200 bytes = 2MB
 - No thread stacks needed!
 
 **Comparison:**
+
 - 10,000 OS threads × 1MB stack = 10GB ❌
 - 10,000 Go goroutines × 2KB = 20MB
 - 10,000 Yo async tasks × 200 bytes = 2MB ✅
@@ -336,14 +384,15 @@ fetch :: (fn(url: String) -> Impl Future(String)) async {
 
 // Async function with multiple awaits
 fetch_both :: (fn(url1: String, url2: String) -> Impl Future(String)) async {
-  // Start both fetches (neither blocks!)
-  f1 := fetch(url1);
-  f2 := fetch(url2);
-  
+  // EAGER: Each fetch() runs immediately until its first await!
+  f1 := fetch(url1);  // Executes fetch synchronously until await http_get
+  f2 := fetch(url2);  // Executes fetch synchronously until await http_get
+
+  // Both are now suspended waiting for IO
   // Await results (interleaved on same thread)
   r1 := await f1;
   r2 := await f2;
-  
+
   return r1 ++ r2;
 };
 
@@ -358,16 +407,17 @@ main :: (fn() -> unit) {
 
 ## Comparison with Other Languages
 
-| Language | Model | Threading | Memory/Task | Max Concurrency |
-|----------|-------|-----------|-------------|-----------------|
-| **Yo** | Stackless state machines | **Single-threaded** | ~200 bytes | Millions |
-| **JavaScript** | Stackless promises | **Single-threaded** | ~100 bytes | Millions |
-| **Python (asyncio)** | Stackless coroutines | **Single-threaded** | ~200 bytes | Millions |
-| **Rust (single-threaded executor)** | Stackless futures | **Single-threaded** | ~100 bytes | Millions |
-| **Rust (tokio multi-threaded)** | Stackless futures | Multi-threaded | ~100 bytes | Millions |
-| **Go** | Stackful goroutines | Multi-threaded | 2KB+ | 100K-1M |
+| Language                            | Model                    | Threading           | Memory/Task | Max Concurrency |
+| ----------------------------------- | ------------------------ | ------------------- | ----------- | --------------- |
+| **Yo**                              | Stackless state machines | **Single-threaded** | ~200 bytes  | Millions        |
+| **JavaScript**                      | Stackless promises       | **Single-threaded** | ~100 bytes  | Millions        |
+| **Python (asyncio)**                | Stackless coroutines     | **Single-threaded** | ~200 bytes  | Millions        |
+| **Rust (single-threaded executor)** | Stackless futures        | **Single-threaded** | ~100 bytes  | Millions        |
+| **Rust (tokio multi-threaded)**     | Stackless futures        | Multi-threaded      | ~100 bytes  | Millions        |
+| **Go**                              | Stackful goroutines      | Multi-threaded      | 2KB+        | 100K-1M         |
 
 **Note**: Yo's single-threaded async is most similar to JavaScript and Python asyncio:
+
 - ✅ Simple mental model (no thread safety)
 - ✅ No Send/Sync traits needed
 - ✅ No atomic RC overhead
@@ -379,14 +429,16 @@ For parallelism, use `spawn` (see `PARALLELISM.md`).
 
 Yo's async/await provides:
 
-1. ✅ **Single-threaded concurrency** - all async runs on one thread
-2. ✅ **No thread safety concerns** - no data races possible
-3. ✅ **Familiar syntax** - like JavaScript, Python, C#
-4. ✅ **State machine transformation** - zero-cost abstraction
-5. ✅ **Non-atomic RC** - no synchronization overhead
-6. ✅ **Memory efficient** - millions of concurrent tasks (~200 bytes each)
-7. ✅ **Simple mental model** - no Send trait, no work stealing
-8. ✅ **Zero-cost** - compiled to efficient C code
+1. ✅ **Eager execution** - async functions run immediately until first `await` (like C#/C++)
+2. ✅ **Single-threaded concurrency** - all async runs on one thread
+3. ✅ **No thread safety concerns** - no data races possible
+4. ✅ **Familiar syntax** - like C#, C++, JavaScript, Python
+5. ✅ **State machine transformation** - zero-cost abstraction
+6. ✅ **Non-atomic RC** - no synchronization overhead
+7. ✅ **Memory efficient** - millions of concurrent tasks (~200 bytes each)
+8. ✅ **Simple mental model** - no Send trait, no work stealing
+9. ✅ **Predictable side effects** - setup code runs immediately
+10. ✅ **Zero-cost** - compiled to efficient C code
 
 ### Quick Reference
 
@@ -408,10 +460,10 @@ main :: (fn() -> unit) {
 
 // Multiple concurrent tasks (same thread!)
 async {
-  task1 := fetch(url1);  // Returns immediately
-  task2 := fetch(url2);  // Returns immediately
-  result1 := await task1;  // Suspend until ready
-  result2 := await task2;  // Suspend until ready
+  task1 := fetch(url1);  // Runs eagerly until first await
+  task2 := fetch(url2);  // Runs eagerly until first await
+  result1 := await task1;  // Wait for completion
+  result2 := await task2;  // Wait for completion
 };
 
 // Async blocks
@@ -426,21 +478,22 @@ compute :: (fn() -> Impl Future(i32)) {
 
 ### Key Principles
 
-1. **`async { ... }` blocks** - start event loop, return `Impl Future(T)`
-2. **Single-threaded** - all async code runs on the calling thread
-3. **`await` yields** - suspends coroutine, yields to other ready tasks
-4. **State machines** - compiler transforms each `await` into state transition
-5. **No thread safety** - no Send trait, no atomics, no data races
-6. **Non-atomic RC** - simple reference counting (no synchronization)
-7. **Event loop** - polls ready tasks, checks IO completion
-8. **Zero-cost** - compiled to efficient C code
+1. **Eager execution** - async functions run immediately until first `await`
+2. **`async { ... }` blocks** - start event loop, return `Impl Future(T)`
+3. **Single-threaded** - all async code runs on the calling thread
+4. **`await` yields** - suspends coroutine, yields to other ready tasks
+5. **State machines** - compiler transforms each `await` into state transition
+6. **No thread safety** - no Send trait, no atomics, no data races
+7. **Non-atomic RC** - simple reference counting (no synchronization)
+8. **Event loop** - polls ready tasks, checks IO completion
+9. **Zero-cost** - compiled to efficient C code
 
 ### When to Use What
 
-| Use Case | Mechanism |
-|----------|-----------|
-| IO-bound concurrent tasks | `async/await` |
+| Use Case                       | Mechanism                    |
+| ------------------------------ | ---------------------------- |
+| IO-bound concurrent tasks      | `async/await`                |
 | CPU-bound parallel computation | `spawn` (see PARALLELISM.md) |
-| Background processing | `spawn` (see PARALLELISM.md) |
-| Waiting for multiple IOs | `async/await` |
-| Utilizing multiple CPU cores | `spawn` (see PARALLELISM.md) |
+| Background processing          | `spawn` (see PARALLELISM.md) |
+| Waiting for multiple IOs       | `async/await`                |
+| Utilizing multiple CPU cores   | `spawn` (see PARALLELISM.md) |
