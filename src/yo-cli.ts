@@ -189,9 +189,16 @@ yo run <script>                  Run a script defined in 'yo.json'
         .option("test-name-pattern", {
           describe: "Only run tests with names matching this regex pattern",
           type: "string",
+        })
+        .option("parallel", {
+          alias: "p",
+          describe:
+            "Number of tests to run in parallel (0 = auto/max CPUs, 1 = sequential)",
+          type: "number",
+          default: 0,
         });
     },
-    (argv) => {
+    async (argv) => {
       const targetPath = argv.path as string;
       const testFiles = findTestFiles(targetPath);
 
@@ -200,11 +207,18 @@ yo run <script>                  Run a script defined in 'yo.json'
         process.exit(0);
       }
 
-      const summary = runTests(testFiles, {
+      const parallel = argv.parallel as number;
+      if (parallel < 0) {
+        console.error("Error: --parallel value cannot be negative");
+        process.exit(1);
+      }
+
+      const summary = await runTests(testFiles, {
         cCompiler: argv.cc,
         verbose: argv.verbose as boolean,
         bail: argv.bail as boolean,
         testNamePattern: argv.testNamePattern as string | undefined,
+        parallel,
       });
 
       // Exit with non-zero code if any tests failed

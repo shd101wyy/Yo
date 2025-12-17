@@ -1,5 +1,6 @@
 import { spawnSync } from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { clearEnvContainingPrelude } from "./env";
 import { YoError } from "./error";
@@ -373,70 +374,41 @@ function runSingleTest(
 }
 
 /**
- * Run all tests in the specified files
+ * Information about a test to run (including pre-extracted content)
  */
-export function runTests(
-  testFiles: string[],
+interface TestToRun {
+  test: TestDeclaration;
+  originalContent: string;
+  relativePath: string;
+}
+
+/**
+ * Run tests with a concurrency limit using a simple async pool pattern
+ */
+async function runTestsWithConcurrency(
+  testsToRun: TestToRun[],
+  cCompiler: string,
+  concurrency: number,
   options: {
-    cCompiler?: string;
     verbose?: boolean;
     bail?: boolean;
-    testNamePattern?: string;
-  } = {}
-): TestRunSummary {
-  const startTime = Date.now();
-  const cCompiler = options.cCompiler ?? "cc";
+  }
+): Promise<{
+  results: TestResult[];
+  passedTests: number;
+  failedTests: number;
+  bailed: boolean;
+}> {
   const results: TestResult[] = [];
-
-  let testNameRegex: RegExp | undefined;
-  if (options.testNamePattern) {
-    try {
-      testNameRegex = new RegExp(options.testNamePattern);
-    } catch (e) {
-      console.error(
-        `${colors.red}Error: Invalid regex pattern: ${options.testNamePattern}${colors.reset}`
-      );
-      return {
-        totalTests: 0,
-        passed: 0,
-        failed: 0,
-        results: [],
-        duration: 0,
-      };
-    }
-  }
-
-  console.log(
-    `\n${colors.bold}${colors.cyan}Running Yo Tests${colors.reset}\n`
-  );
-  if (testNameRegex) {
-    console.log(
-      `${colors.dim}Filtering tests matching: ${options.testNamePattern}${colors.reset}\n`
-    );
-  }
-
-  let totalTests = 0;
   let passedTests = 0;
   let failedTests = 0;
+  let bailed = false;
 
-  for (const filePath of testFiles) {
-    const relativePath = path.relative(process.cwd(), filePath);
-    console.log(`${colors.dim}${relativePath}${colors.reset}`);
+  if (concurrency === 1) {
+    // Sequential execution - original behavior with immediate output
+    for (const { test, originalContent, relativePath } of testsToRun) {
+      if (bailed) break;
 
-    const originalContent = fs.readFileSync(filePath, "utf-8");
-    let tests = extractTests(filePath);
-
-    if (testNameRegex) {
-      tests = tests.filter((test) => testNameRegex.test(test.name));
-    }
-
-    if (tests.length === 0) {
-      console.log(`  ${colors.yellow}(no tests found)${colors.reset}`);
-      continue;
-    }
-
-    for (const test of tests) {
-      totalTests++;
       const result = runSingleTest(test, originalContent, cCompiler);
       results.push(result);
 
@@ -457,36 +429,198 @@ export function runTests(
             .join("\n");
           console.log(`${colors.red}${indentedError}${colors.reset}`);
         } else if (result.errorMessage) {
-          // Show a brief error message
           const firstLine = result.errorMessage.split("\n")[0];
           console.log(`    ${colors.red}${firstLine}${colors.reset}`);
         }
 
-        // Bail out early if --bail flag is set
         if (options.bail) {
-          console.log(
-            `\n${colors.yellow}Bailing out early due to test failure (--bail)${colors.reset}\n`
-          );
-          const totalDuration = Date.now() - startTime;
-          console.log(`${colors.bold}Test Summary${colors.reset}`);
-          console.log(`─────────────────────────────────`);
-          if (passedTests > 0) {
-            console.log(`${colors.green}${passedTests} passed${colors.reset}`);
-          }
-          console.log(`${colors.red}${failedTests} failed${colors.reset}`);
-          console.log(
-            `${colors.dim}${totalTests} total (${totalDuration}ms)${colors.reset}`
-          );
-          console.log();
-          return {
-            totalTests,
-            passed: passedTests,
-            failed: failedTests,
-            results,
-            duration: totalDuration,
-          };
+          bailed = true;
         }
       }
+    }
+  } else {
+    // Parallel execution
+    let currentIndex = 0;
+    const inFlight: Promise<void>[] = [];
+    const testResultsMap = new Map<number, TestResult>();
+
+    const runNext = async (): Promise<void> => {
+      while (currentIndex < testsToRun.length && !bailed) {
+        const index = currentIndex++;
+        const { test, originalContent } = testsToRun[index]!;
+
+        // Run test synchronously in this "worker"
+        const result = runSingleTest(test, originalContent, cCompiler);
+        testResultsMap.set(index, result);
+
+        if (result.passed) {
+          passedTests++;
+        } else {
+          failedTests++;
+          if (options.bail) {
+            bailed = true;
+          }
+        }
+      }
+    };
+
+    // Start workers up to concurrency limit
+    for (let i = 0; i < concurrency && i < testsToRun.length; i++) {
+      inFlight.push(runNext());
+    }
+
+    await Promise.all(inFlight);
+
+    // Collect results in order and print them
+    for (let i = 0; i < testsToRun.length; i++) {
+      const result = testResultsMap.get(i);
+      if (!result) break; // Bailed before this test ran
+
+      const { test } = testsToRun[i]!;
+      results.push(result);
+
+      if (result.passed) {
+        console.log(
+          `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
+        );
+      } else {
+        console.log(
+          `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
+        );
+        if (result.errorMessage && options.verbose) {
+          const indentedError = result.errorMessage
+            .split("\n")
+            .map((l) => `    ${l}`)
+            .join("\n");
+          console.log(`${colors.red}${indentedError}${colors.reset}`);
+        } else if (result.errorMessage) {
+          const firstLine = result.errorMessage.split("\n")[0];
+          console.log(`    ${colors.red}${firstLine}${colors.reset}`);
+        }
+      }
+    }
+  }
+
+  return { results, passedTests, failedTests, bailed };
+}
+
+/**
+ * Run all tests in the specified files
+ */
+export async function runTests(
+  testFiles: string[],
+  options: {
+    cCompiler?: string;
+    verbose?: boolean;
+    bail?: boolean;
+    testNamePattern?: string;
+    parallel?: number;
+  } = {}
+): Promise<TestRunSummary> {
+  const startTime = Date.now();
+  const cCompiler = options.cCompiler ?? "cc";
+
+  // Determine concurrency level
+  const maxCpus = os.cpus().length;
+  let concurrency: number;
+  if (options.parallel === undefined || options.parallel === 0) {
+    // Auto: use all available CPUs
+    concurrency = maxCpus;
+  } else if (options.parallel === 1) {
+    // Sequential
+    concurrency = 1;
+  } else {
+    // User specified, cap at max CPUs
+    concurrency = Math.min(options.parallel, maxCpus);
+  }
+
+  let testNameRegex: RegExp | undefined;
+  if (options.testNamePattern) {
+    try {
+      testNameRegex = new RegExp(options.testNamePattern);
+    } catch (e) {
+      console.error(
+        `${colors.red}Error: Invalid regex pattern: ${options.testNamePattern}${colors.reset}`
+      );
+      return {
+        totalTests: 0,
+        passed: 0,
+        failed: 0,
+        results: [],
+        duration: 0,
+      };
+    }
+  }
+
+  console.log(
+    `\n${colors.bold}${colors.cyan}Running Yo Tests${colors.reset}${concurrency > 1 ? ` ${colors.dim}(${concurrency} workers)${colors.reset}` : ""}\n`
+  );
+  if (testNameRegex) {
+    console.log(
+      `${colors.dim}Filtering tests matching: ${options.testNamePattern}${colors.reset}\n`
+    );
+  }
+
+  // Collect all tests to run, grouped by file
+  const testsByFile: Map<string, TestToRun[]> = new Map();
+  let totalTests = 0;
+
+  for (const filePath of testFiles) {
+    const relativePath = path.relative(process.cwd(), filePath);
+    const originalContent = fs.readFileSync(filePath, "utf-8");
+    let tests = extractTests(filePath);
+
+    if (testNameRegex) {
+      tests = tests.filter((test) => testNameRegex.test(test.name));
+    }
+
+    if (tests.length > 0) {
+      const testsToRun = tests.map((test) => ({
+        test,
+        originalContent,
+        relativePath,
+      }));
+      testsByFile.set(relativePath, testsToRun);
+      totalTests += tests.length;
+    }
+  }
+
+  // Run tests file by file (parallel within each file if concurrency > 1)
+  const allResults: TestResult[] = [];
+  let passedTests = 0;
+  let failedTests = 0;
+  let bailed = false;
+
+  for (const [relativePath, testsToRun] of testsByFile) {
+    if (bailed) break;
+
+    console.log(`${colors.dim}${relativePath}${colors.reset}`);
+
+    if (testsToRun.length === 0) {
+      console.log(`  ${colors.yellow}(no tests found)${colors.reset}`);
+      console.log();
+      continue;
+    }
+
+    const result = await runTestsWithConcurrency(
+      testsToRun,
+      cCompiler,
+      concurrency,
+      {
+        verbose: options.verbose,
+        bail: options.bail,
+      }
+    );
+
+    allResults.push(...result.results);
+    passedTests += result.passedTests;
+    failedTests += result.failedTests;
+    bailed = result.bailed;
+
+    if (bailed) {
+      console.log(
+        `\n${colors.yellow}Bailing out early due to test failure (--bail)${colors.reset}\n`
+      );
     }
 
     console.log();
@@ -504,15 +638,15 @@ export function runTests(
     console.log(`${colors.red}${failedTests} failed${colors.reset}`);
   }
   console.log(
-    `${colors.dim}${totalTests} total (${totalDuration}ms)${colors.reset}`
+    `${colors.dim}${passedTests + failedTests} total (${totalDuration}ms)${colors.reset}`
   );
   console.log();
 
   return {
-    totalTests,
+    totalTests: passedTests + failedTests,
     passed: passedTests,
     failed: failedTests,
-    results,
+    results: allResults,
     duration: totalDuration,
   };
 }
