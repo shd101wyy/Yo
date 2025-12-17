@@ -4,6 +4,7 @@ import { cloneExpr, Expr } from "../../expr";
 import { CalledComptFunctionCache, FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
+  areTypesCompatible,
   FunctionType,
   isEnumType,
   isModuleType,
@@ -72,18 +73,21 @@ export function evaluateComptFunctionCall({
         // - Point(i32)
         // given T = i32 in env, areValuesEqual returns true.
         // We don't want to use the cache there.
+        // For caching purposes, we need EXACT equality, not just compatibility.
+        // Use requireExactMatch=true to ensure types match exactly.
         if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
           if (isSomeType(argValue.value)) {
             if (!isSomeType(givenArgValue.value)) {
               return false;
             }
           }
-          // For caching purposes, type values must have exactly the same type tag.
-          // This prevents compt_int from matching i8, u8, etc. due to implicit conversions
-          // in areTypesCompatible.
-          if (argValue.value.tag !== givenArgValue.value.tag) {
-            return false;
-          }
+
+          // Direct type comparison with exact matching
+          return areTypesCompatible(
+            { type: argValue.value, env: cache.env },
+            { type: givenArgValue.value, env: callerEnv },
+            true // requireExactMatch for cache comparison
+          );
         }
 
         return areValuesEqual(

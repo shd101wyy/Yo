@@ -937,8 +937,8 @@ function functionTypeToString(
   const typeParams =
     func.forallParameters.length > 0
       ? `forall(${func.forallParameters
-          .map((param) => functionParameterToString(param, visited))
-          .join(", ")})`
+        .map((param) => functionParameterToString(param, visited))
+        .join(", ")})`
       : "";
 
   let variadicParam = "";
@@ -1126,27 +1126,24 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         const enumName = enumType.typeName;
 
         if (enumType.requiredVariantNames ?? enumType.selectedVariantName) {
-          return `${enumName} (${
-            enumType.requiredVariantNames
-              ? `${enumType.requiredVariantNames.map((name) => `.${name}`).join(" | ")} required`
-              : `.${enumType.selectedVariantName} selected`
-          })`;
+          return `${enumName} (${enumType.requiredVariantNames
+            ? `${enumType.requiredVariantNames.map((name) => `.${name}`).join(" | ")} required`
+            : `.${enumType.selectedVariantName} selected`
+            })`;
         }
 
         return enumName;
       }
 
-      return `${
-        enumType.typeName ? `(${enumType.typeName}) ` : ""
-      }enum(${enumType.variants
-        .map((variant) => {
-          return `${variant.name}${
-            variant.fields
+      return `${enumType.typeName ? `(${enumType.typeName}) ` : ""
+        }enum(${enumType.variants
+          .map((variant) => {
+            return `${variant.name}${variant.fields
               ? `(${variant.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`
               : ""
-          }`;
-        })
-        .join(", ")})`;
+              }`;
+          })
+          .join(", ")})`;
     }
 
     case TypeTag.Union: {
@@ -1156,9 +1153,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }
 
       const fields = unionType.fields;
-      return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
-        unionType.typeName ? "union" : unionType.id
-      }(${fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
+      return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${unionType.typeName ? "union" : unionType.id
+        }(${fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
     }
 
     case TypeTag.Module: {
@@ -1179,9 +1175,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (moduleType.typeName) {
         moduleTypeString = moduleType.typeName;
       } else {
-        moduleTypeString = `${
-          moduleType.typeName ? `(${moduleType.typeName}) ` : ""
-        }module(${moduleType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
+        moduleTypeString = `${moduleType.typeName ? `(${moduleType.typeName}) ` : ""
+          }module(${moduleType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
       }
 
       if (moduleType.receiverType) {
@@ -1688,17 +1683,17 @@ function typeCanFormCyclicGcReference(
     }
   }
 
-  // The Impl(Future(T)) is regarded as GC-tracked.
-  if (isSomeType(type) && typeImplementsFuture(type)) {
-    return true;
-  }
 
-  if (isSomeType(type) && type.resolvedConcreteType) {
-    return typeCanFormCyclicGcReference(
-      type.resolvedConcreteType,
-      originalRefStruct,
-      visitedTypes
-    );
+  if (isSomeType(type)) {
+    if (type.resolvedConcreteType) {
+      return typeCanFormCyclicGcReference(
+        type.resolvedConcreteType,
+        originalRefStruct,
+        visitedTypes
+      );
+    } else {
+      return true; // Be conservative
+    }
   }
 
   // Check through arrays

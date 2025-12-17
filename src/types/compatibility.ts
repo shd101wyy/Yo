@@ -35,6 +35,8 @@ import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
 
 /**
  * Check if two types are compatible.
+ * @param requireExactMatch If true, requires exact type equality rather than compatibility.
+ *                          Used for method receivers and compile-time function cache comparisons.
  */
 export function areTypesCompatible(
   expected: {
@@ -45,7 +47,7 @@ export function areTypesCompatible(
     type: Type;
     env: Environment;
   },
-  isMethodReceiver = false
+  requireExactMatch = false
 ): boolean {
   if (isPrimitiveType(expected.type) && isPrimitiveType(given.type)) {
     return expected.type.tag === given.type.tag;
@@ -78,7 +80,7 @@ export function areTypesCompatible(
       isCCompatibleType(expected.type)) &&
     isComptIntType(given.type)
   ) {
-    if (isMethodReceiver && !isComptIntType(expected.type)) {
+    if (requireExactMatch && !isComptIntType(expected.type)) {
       // If exact match is required, compt_int cannot be converted to other numeric types
       return false;
     }
@@ -96,7 +98,7 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.F64) &&
     isComptFloatType(given.type)
   ) {
-    if (isMethodReceiver && !isComptFloatType(expected.type)) {
+    if (requireExactMatch && !isComptFloatType(expected.type)) {
       // If exact match is required, compt_float cannot be converted to other numeric types
       return false;
     }
@@ -348,7 +350,7 @@ export function areTypesCompatible(
           !areFunctionTypesCompatible(
             { type: expected.type.isFn.callType, env: expected.env },
             { type: given.type.isFn.callType, env: given.env },
-            isMethodReceiver
+            requireExactMatch
           )
         ) {
           return false;
@@ -419,7 +421,7 @@ export function areTypesCompatible(
           !areTypesCompatible(
             { type: expectedFields.type, env: expected.env },
             { type: givenFields.type, env: given.env },
-            true // isMethodReceiver
+            true // requireExactMatch for method receivers
           )
         ) {
           return false;
@@ -450,7 +452,7 @@ export function areTypesCompatible(
     return areFunctionTypesCompatible(
       { type: expected.type, env: expected.env },
       { type: given.type, env: given.env },
-      isMethodReceiver
+      requireExactMatch
     );
   }
 
@@ -539,10 +541,16 @@ export function areTypesCompatible(
       // Check required modules compatibility:
       // Given type must implement ALL modules required by expected type
       // Example: expected `Impl(Send)` is compatible with given `Impl(Send, Copy)`
+      // However, if requireExactMatch is true, the modules must match exactly (same count and types)
 
       // Use the requiredModules field directly (not module.fields)
       const expectedModules = expected.type.requiredModules ?? [];
       const givenModules = given.type.requiredModules ?? [];
+
+      // For exact matching (e.g., cache comparisons), require same number of modules
+      if (requireExactMatch && expectedModules.length !== givenModules.length) {
+        return false;
+      }
 
       // Check that all expected modules are present in given modules
       for (const expectedModule of expectedModules) {
@@ -622,7 +630,7 @@ export function areTypesCompatible(
       areTypesCompatible(
         expected,
         { type: given.type.resolvedConcreteType, env: given.env },
-        isMethodReceiver
+        requireExactMatch
       )
     ) {
       return true;
@@ -642,7 +650,7 @@ export function areTypesCompatible(
  * Check if two function types are compatible.
  * @param expectedType The expected function type.
  * @param givenType The given function type.
- * @param env
+ * @param requireExactMatch If true, requires exact type equality rather than compatibility.
  * @returns
  */
 export function areFunctionTypesCompatible(
@@ -654,7 +662,7 @@ export function areFunctionTypesCompatible(
     type: FunctionType;
     env: Environment;
   },
-  isMethodReceiver = false
+  requireExactMatch = false
 ): boolean {
   if (expected.type === given.type) {
     return true;
@@ -706,7 +714,7 @@ export function areFunctionTypesCompatible(
       !areTypesCompatible(
         { type: expectedTypeParam.type, env: expected.env },
         { type: givenTypeParam.type, env: given.env },
-        isMethodReceiver
+        requireExactMatch
       )
     ) {
       return false;
@@ -732,7 +740,7 @@ export function areFunctionTypesCompatible(
           type: givenParam.type,
           env: given.env,
         },
-        isMethodReceiver
+        requireExactMatch
       )
     ) {
       return false;
@@ -742,7 +750,7 @@ export function areFunctionTypesCompatible(
   const returnTypesMatch = areTypesCompatible(
     { type: expected.type.return.type, env: expected.env },
     { type: given.type.return.type, env: given.env },
-    isMethodReceiver
+    requireExactMatch
   );
   return returnTypesMatch;
 }

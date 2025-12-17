@@ -1,74 +1,47 @@
 open import "std/libc/stdio";
 
-TestDyn :: module(
-  print : (fn(self : *(Self)) -> unit),
-  return_i32 : (fn(self : *(Self)) -> i32)
-);
-
-use_test_dyn :: (fn(
-  value : Dyn(TestDyn)
-) -> i32) {
-  value.print();
-  return value.return_i32();
-};
-
-MyBox :: object(
-  x : i32,
-
-  dispose :: ((fn(self : Self)-> unit) {
-    printf("Disposing Boxed i32 with value: %d\n", self.x);
-  })
-);
-
-impl(i32, TestDyn(
-  print : ((self) -> {
-    printf("i32 value: %d\n", self.*);
-  }),
-  return_i32 : ((self) -> {
-    return self.*;
-  })
-));
-
-impl(boolean, TestDyn(
-  print : ((self) -> {
-    cond(
-      self.* => printf("boolean value: true\n"),
-      true => printf("boolean value: false\n")
-    );
-  }),
-  return_i32 : ((self) ->
-    cond(
-      self.* => 1,
-      true => return 0
-    )
-  )
-));
-
-impl(MyBox, TestDyn(
-  print : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.x);   // Test auto-dereference
-    printf("Boxed i32 value: %d\n", self.*.x); // Test manual dereference
-  }),
-  // Let's x2 here
-  return_i32 : ((self) -> {
-    return self.x + (self.*.x);
-  })
-));
-
 main :: (fn() -> unit) {
   {
-    assert(use_test_dyn(dyn box i32(42)) == 42);
-    assert(use_test_dyn(dyn box true) == 1);
-    bi := MyBox(100);
-    assert(use_test_dyn(dyn bi) == 200);
+    x := 1;
+
+    (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
+      x = (x + y);
+      return x;
+    });
+
+    closure2 := closure;  // Test dup on closure
+
+    closure(1); // 2
+    closure2(1); // 3
+
+    result := closure(2); // 5
+    printf("Final result: %d\n", result);
+    assert(x == 1, "Captured variable x should remain unchanged outside closure");
+    assert(result == 5, "Expected final result to be 5");
   };
 
+  // Expect below to work as well:
+  // `dyn` without `box`
+  /*
   {
-    assert(use_test_dyn(dyn i32(42)) == 42); // FIXME: Automatic `box` should work here
-    assert(use_test_dyn(dyn true) == 1);     // FIXME: Automatic `box` should work here
-    bi := MyBox(100);
-    assert(use_test_dyn(dyn bi) == 200);
+    x := 1;
+
+    (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => {
+      x = (x + y);
+      return x;
+    });
+
+    closure2 := closure;  // Test dup on closure
+
+    closure(1); // 2
+    closure2(1); // 3
+
+    result := closure(2); // 5
+    printf("Final result: %d\n", result);
+    assert(x == 1, "Captured variable x should remain unchanged outside closure");
+    assert(result == 5, "Expected final result to be 5");
   };
+  */
 };
 
 export main;

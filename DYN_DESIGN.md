@@ -121,7 +121,7 @@ The constraint is **enforced at method call time**, not at module definition. Yo
 
 ## Object Type Requirement for dyn(...)
 
-**Rule**: `dyn(value)` requires `value` to have an **object type** (pointer to RC'd data).
+**Rule**: `dyn(value)` requires `value` to have an **object type** (pointer to RC'd data). If it's a value type then it will be auto `box`ed.
 
 **Rationale**: The `data` field in `Dyn` must point to reference-counted memory. This ensures safe memory management without adding a ref_header to `Dyn` itself.
 
@@ -135,8 +135,9 @@ dyn(box(true));         // OK: box(true) returns Box(boolean)
 point := Point(3, 4);   // point : Point, Point is object type
 dyn(point);             // OK: point is an object type
 
-// Direct values NOT allowed
-dyn(42);                // ERROR: 42 is i32 (value type), not object type
+// Direct value will be automatically boxed
+dyn(42);                // 42 becomes box(42) automatically
+dyn(true);              // true becomes box(true) automatically
 ```
 
 ### 4. Static Vtables and Wrappers
