@@ -1028,30 +1028,74 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a SomeType with required modules
   if (isSomeType(dereferencedReceiverType)) {
-    // First, if SomeType has resolvedConcreteType (like async block's capture struct),
-    // look for methods there (e.g., ___drop, ___dup from capture struct)
-    // EXCEPTION: For Future types, do NOT use resolvedConcreteType methods
-    // Future state machines are ref-counted and use __yo_sometype_drop
+    // If SomeType has resolvedConcreteType, prefer resolving methods against the concrete type's
+    // impl modules (static dispatch). This is used for `fn() -> Impl(Module)` return values.
+    // EXCEPTION: For Future types, do NOT use resolvedConcreteType methods.
     if (
       dereferencedReceiverType.resolvedConcreteType?.module &&
       !typeImplementsFuture(dereferencedReceiverType)
     ) {
-      const concreteModule =
-        dereferencedReceiverType.resolvedConcreteType.module;
-      const concreteMethod = concreteModule.fields.find(
+      const concreteType = dereferencedReceiverType.resolvedConcreteType;
+      const concreteModule = concreteType.module;
+
+      // 1) Direct methods on the concrete type
+      const directConcreteMethod = concreteModule.fields.find(
         (f) => f.label === methodName && isFunctionType(f.type)
       );
-      if (concreteMethod && isFunctionType(concreteMethod.type)) {
+      if (directConcreteMethod && isFunctionType(directConcreteMethod.type)) {
         const value =
-          concreteMethod.assignedValue ||
-          createUnknownValue(concreteMethod.type, concreteMethod.label);
-        methods.push({ type: concreteMethod.type, value });
+          directConcreteMethod.assignedValue ||
+          createUnknownValue(
+            directConcreteMethod.type,
+            directConcreteMethod.label
+          );
+        methods.push({ type: directConcreteMethod.type, value });
+      }
+
+      // 2) Impl module methods stored as ModuleValue with empty label ""
+      // This is where `impl(concreteType, Module(...))` attaches concrete method bodies.
+      if (methods.length === 0) {
+        for (const field of concreteModule.fields) {
+          if (
+            field.label === "" &&
+            field.assignedValue &&
+            isModuleValue(field.assignedValue)
+          ) {
+            const implModuleValue = field.assignedValue;
+            const implModuleType = implModuleValue.type;
+            const methodIndex = implModuleType.fields.findIndex(
+              (f) => f.label === methodName && isFunctionType(f.type)
+            );
+            if (methodIndex >= 0) {
+              const method = implModuleType.fields[methodIndex]!;
+              if (isFunctionType(method.type)) {
+                const value = implModuleValue.fields[methodIndex];
+                let methodType = method.type;
+                if (isFunctionValue(value) && value.specializedType) {
+                  methodType = value.specializedType;
+                }
+                methods.push({ type: methodType, value });
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // 3) Generic impl registry for the concrete type
+      if (methods.length === 0) {
+        const genericMethods = findMethodsFromGenericImpls({
+          concreteType,
+          methodName,
+          env,
+        });
+        methods.push(...genericMethods);
       }
     }
 
     // Look for methods in the requiredModules array (from Impl(Module1, Module2, ...))
     // This handles cases like `Impl(Id)` where we need to find the `id` method
-    if (dereferencedReceiverType.requiredModules) {
+    if (methods.length === 0 && dereferencedReceiverType.requiredModules) {
       for (const requiredModuleType of dereferencedReceiverType.requiredModules) {
         // Search for the method in the required module
         const method = requiredModuleType.fields.find(
@@ -1075,24 +1119,26 @@ export function getMethodsByNameFromEnv(
 
     // Look for methods in the required modules stored in the SomeType's module
     // Only consider modules with empty label "" (from where clauses)
-    for (const field of dereferencedReceiverType.module.fields) {
-      // Required modules are stored as TypeValue containing ModuleType
-      // Only allow modules with empty label (where clause constraints)
-      if (
-        field.label === "" &&
-        field.assignedValue &&
-        isTypeValue(field.assignedValue) &&
-        isModuleType(field.assignedValue.value)
-      ) {
-        const requiredModuleType = field.assignedValue.value;
-        // Search for the method in the required module
-        const method = requiredModuleType.fields.find(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (method && isFunctionType(method.type)) {
-          // Create an unknown value since the actual implementation is not known
-          const value = createUnknownValue(method.type, method.label);
-          methods.push({ type: method.type, value });
+    if (methods.length === 0) {
+      for (const field of dereferencedReceiverType.module.fields) {
+        // Required modules are stored as TypeValue containing ModuleType
+        // Only allow modules with empty label (where clause constraints)
+        if (
+          field.label === "" &&
+          field.assignedValue &&
+          isTypeValue(field.assignedValue) &&
+          isModuleType(field.assignedValue.value)
+        ) {
+          const requiredModuleType = field.assignedValue.value;
+          // Search for the method in the required module
+          const method = requiredModuleType.fields.find(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (method && isFunctionType(method.type)) {
+            // Create an unknown value since the actual implementation is not known
+            const value = createUnknownValue(method.type, method.label);
+            methods.push({ type: method.type, value });
+          }
         }
       }
     }

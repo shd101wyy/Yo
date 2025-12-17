@@ -1,4 +1,5 @@
 import { Environment, getVariablesFromEnv } from "../../env";
+import { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
 import {
   AtomExpr,
   BuiltinFunctions,
@@ -2221,7 +2222,7 @@ function generateFuncCall(
               const tempVar = expr.$?.variableName;
               if (tempVar) {
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(functionValue.specializedType?.return.type ?? functionType.return.type, context)} ${tempVar} = ${cFuncName}(${argsList});`
+                  `${indent}${getTypeString(expr.$?.type ?? functionValue.specializedType?.return.type ?? functionType.return.type, context)} ${tempVar} = ${cFuncName}(${argsList});`
                 );
 
                 // Handle deferred drop expressions if they exist
@@ -2266,7 +2267,7 @@ function generateFuncCall(
               const tempVar = expr.$?.variableName;
               if (tempVar) {
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(functionType.return.type, context)} ${tempVar} = ${funcCode}(${argsList});`
+                  `${indent}${getTypeString(expr.$?.type ?? functionType.return.type, context)} ${tempVar} = ${funcCode}(${argsList});`
                 );
 
                 // Handle deferred drop expressions if they exist
@@ -3272,7 +3273,7 @@ function emitAsyncBlockStructDefinition(
     if (awaitPointsNeedingFutureStorage.length > 0) {
       emitter.emitDeclarationLine(`  // Future references for awaits`);
       for (const awaitPoint of awaitPointsNeedingFutureStorage) {
-        const awaitExpr = awaitPoint.expr;
+        const awaitExpr = awaitPoint.expr as Expr;
         if (awaitExpr.tag !== ExprTag.FuncCall) {
           continue;
         }
@@ -3376,7 +3377,7 @@ function emitDeferredAsyncBlockStructDefinitions(
       if (ap.futureVariableId !== undefined) {
         continue;
       }
-      const awaitExpr = ap.expr;
+      const awaitExpr = ap.expr as Expr;
       if (awaitExpr.tag !== ExprTag.FuncCall) {
         continue;
       }

@@ -31,6 +31,7 @@ import {
   isSomeType,
   isStructType,
   isUnionType,
+  SomeType,
   Type,
   typeOfType,
   typeToString,
@@ -1180,7 +1181,7 @@ ${functionsWithMatchingTypes
           finalReturnType = {
             ...returnType,
             resolvedConcreteType: functionBody.$.type,
-          };
+          } as SomeType;
         }
       }
 
