@@ -4,6 +4,7 @@ import { Token } from "./token";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
+  FunctionType,
   isComptFloatType,
   isComptIntType,
   isComptStringType,
@@ -1045,6 +1046,30 @@ export function getMethodsByNameFromEnv(
           concreteMethod.assignedValue ||
           createUnknownValue(concreteMethod.type, concreteMethod.label);
         methods.push({ type: concreteMethod.type, value });
+      }
+    }
+
+    // Look for methods in the requiredModules array (from Impl(Module1, Module2, ...))
+    // This handles cases like `Impl(Id)` where we need to find the `id` method
+    if (dereferencedReceiverType.requiredModules) {
+      for (const requiredModuleType of dereferencedReceiverType.requiredModules) {
+        // Search for the method in the required module
+        const method = requiredModuleType.fields.find(
+          (f) => f.label === methodName && isFunctionType(f.type)
+        );
+        if (method && isFunctionType(method.type)) {
+          // Create a specialized method type with SelfType set to the receiver type
+          // This allows `Self` in the method signature to resolve to `Impl(Id)`
+          const specializedMethodType: FunctionType = {
+            ...method.type,
+            SelfType: dereferencedReceiverType,
+          };
+
+          // Create an unknown value since the actual implementation is not known
+          // The actual dispatch will happen at runtime based on the concrete type
+          const value = createUnknownValue(specializedMethodType, method.label);
+          methods.push({ type: specializedMethodType, value });
+        }
       }
     }
 

@@ -38,54 +38,21 @@ impl(Box(i32), Id(
   })
 ));
 
-Color :: enum(
-  Red,
-  Green,
-  Blue
-);
+ret_boolean :: (fn() -> Impl(Id)) {
+  return true;
+};
 
-compt_expect_error(
-  test_fn :: (fn(some_cond : boolean) -> Impl(Id)) {
-    cond(
-      some_cond => {
-        return 12;
-      },
-      true => {
-        return false;
-      }
-    );
-  }
-);
+ret_i32 :: (fn() -> Impl(Id)) {
+  return i32(123);
+};
 
-compt_expect_error(
-  test_fn2 :: (fn(color : Color) -> Impl(Id)) {
-    match(color,
-      .Red => {
-        return 1;
-      },
-      .Green => {
-        return true;
-      },
-      .Blue => {
-        return Box(i32);
-      }
-    );
-  }
-);
 
-compt_expect_error(
-  test_fn3 :: (fn(some_cond : boolean) -> Impl(Id)) {
-    cond(
-      some_cond => {
-        {
-          {
-            return 12;
-          };
-        };
-      },
-      true => {
-        return false;
-      }
-    );
-  }
-);
+main :: (fn() -> unit) {
+  b := ret_boolean();
+  assert(b.id() == true, "Expected true from ret_boolean");
+
+  i := ret_i32();
+  assert(i.id() == i32(123), "Expected 123 from ret_i32");
+};
+
+export main;

@@ -31,7 +31,11 @@ import {
   isUnionType,
 } from "./guards";
 import { TypeTag } from "./tags";
-import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
+import {
+  getValueOfSomeTypeFromEnv,
+  typeContainsSomeType,
+  typeImplementsModuleInternal,
+} from "./utils";
 
 /**
  * Check if two types are compatible.
@@ -609,6 +613,63 @@ export function areTypesCompatible(
       // 3. No negative module violations (checked above)
       return true;
     } else {
+      // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
+      // Check if given implements all required modules of expected
+      const requiredModules = expected.type.requiredModules ?? [];
+      if (requiredModules.length > 0) {
+        // Check that given implements all required modules
+        for (const requiredModule of requiredModules) {
+          if (
+            !typeImplementsModuleInternal({
+              targetType: given.type,
+              moduleType: requiredModule,
+              env: expected.env,
+            })
+          ) {
+            // Given doesn't implement this required module
+            // Fall through to try getValueOfSomeTypeFromEnv as fallback
+            break;
+          }
+        }
+        // All required modules are implemented
+        // Check negative modules if any
+        if (
+          expected.type.negativeModules &&
+          expected.type.negativeModules.length > 0
+        ) {
+          for (const negativeModule of expected.type.negativeModules) {
+            if (
+              typeImplementsModuleInternal({
+                targetType: given.type,
+                moduleType: negativeModule,
+                env: expected.env,
+              })
+            ) {
+              return false; // Given implements a forbidden module
+            }
+          }
+        }
+        // All checks passed - given type implements all required modules
+        // and doesn't implement any forbidden modules
+        let allModulesImplemented = true;
+        for (const requiredModule of requiredModules) {
+          if (
+            !typeImplementsModuleInternal({
+              targetType: given.type,
+              moduleType: requiredModule,
+              env: expected.env,
+            })
+          ) {
+            allModulesImplemented = false;
+            break;
+          }
+        }
+        if (allModulesImplemented) {
+          return true;
+        }
+      }
+
+      // Fallback: try to resolve SomeType from env (for generic type parameters)
       const expectedType_ = getValueOfSomeTypeFromEnv(
         expected.env,
         expected.type

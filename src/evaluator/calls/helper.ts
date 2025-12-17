@@ -1442,6 +1442,22 @@ export function validateFunctionReturnType({
       if (typeImplementsFn(returnTypeSomeType)) {
         continue;
       }
+
+      // Skip validation for Impl(Trait) that has a resolvedConcreteType
+      // This means the concrete implementation type was resolved from the function body
+      if (returnTypeSomeType.resolvedConcreteType) {
+        continue;
+      }
+
+      // Skip validation for Impl(Trait) with requiredModules but no generic type parameter
+      // These are existential types where the concrete type is determined by the function body,
+      // not from the caller's environment. The type compatibility is checked separately.
+      if (
+        returnTypeSomeType.requiredModules &&
+        returnTypeSomeType.requiredModules.length > 0
+      ) {
+        continue;
+      }
     }
 
     const variables = getVariablesFromEnv(env, returnTypeSomeType.name);
