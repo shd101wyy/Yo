@@ -393,7 +393,7 @@ function generateFuncCall(
         // Record mapping for call-site generation.
         context.implClosureCallMap.set(captureType.id, {
           functionCName,
-          fnModuleId: fnModule.id,
+          callTypeId: fnModule.isFn.callType.id,
         });
 
         // Return the capture struct variable (value type).
@@ -416,7 +416,7 @@ function generateFuncCall(
           if (someType.resolvedConcreteType) {
             context.implClosureCallMap.set(someType.resolvedConcreteType.id, {
               functionCName,
-              fnModuleId: fnModule.id,
+              callTypeId: fnModule.isFn.callType.id,
             });
 
             // Represent as an empty literal for the concrete capture struct.

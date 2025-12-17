@@ -1622,9 +1622,26 @@ export function generateDynWrapperFunctions(
             ? boxedValueType.resolvedConcreteType
             : boxedValueType;
         const closureInfo = context.implClosureCallMap.get(captureType.id);
+        const discoveredClosureCName = (() => {
+          if (closureInfo) {
+            return closureInfo.functionCName;
+          }
+
+          // Fallback discovery: find a generated closure impl function whose capture type matches.
+          // This avoids relying on FnModuleType/FunctionType IDs being stable across instantiations
+          // (e.g. when `test` blocks add extra evaluation paths).
+          for (const [, entry] of Object.entries(context.functions)) {
+            const fv = entry.value;
+            const ci = fv.closureInfo;
+            if (ci?.captureType?.id === captureType.id) {
+              return entry.cName;
+            }
+          }
+          return undefined;
+        })();
 
         const callArgs: string[] = [];
-        if (closureInfo && closureInfo.fnModuleId === requiredModule.id) {
+        if (discoveredClosureCName) {
           callArgs.push(`(void*)&box->${fieldName}`);
           for (let i = 0; i < callType.parameters.length; i++) {
             callArgs.push(`arg${i + 1}`);
@@ -1632,11 +1649,11 @@ export function generateDynWrapperFunctions(
 
           if (isVoidType(callType.return.type)) {
             emitter.emitDeclarationLine(
-              `  ${closureInfo.functionCName}(${callArgs.join(", ")});`
+              `  ${discoveredClosureCName}(${callArgs.join(", ")});`
             );
           } else {
             emitter.emitDeclarationLine(
-              `  return ${closureInfo.functionCName}(${callArgs.join(", ")});`
+              `  return ${discoveredClosureCName}(${callArgs.join(", ")});`
             );
           }
         } else {

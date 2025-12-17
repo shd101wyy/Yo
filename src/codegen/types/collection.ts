@@ -1,4 +1,9 @@
-import { Expr, ExprTag } from "../../expr";
+import {
+  BuiltinKeywords,
+  Expr,
+  exprIsFunctionCallOf,
+  ExprTag,
+} from "../../expr";
 import {
   ArrayType,
   DynType,
@@ -148,6 +153,11 @@ export function collectTypesFromExpr(
 
   switch (expr.tag) {
     case ExprTag.FuncCall:
+      // Skip test blocks - they should not generate code
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.test)) {
+        break;
+      }
+
       // Collect types from the function expression itself (for chained calls)
       collectTypesFromExpr(expr.func, context);
 

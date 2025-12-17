@@ -97,7 +97,7 @@ export interface CodeGenContext {
     TypeId,
     {
       functionCName: string;
-      fnModuleId: TypeId;
+      callTypeId: TypeId;
     }
   >;
 

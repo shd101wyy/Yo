@@ -1,4 +1,10 @@
-import { Expr, exprIsAtom, exprIsFunctionCall } from "../../expr";
+import {
+  BuiltinKeywords,
+  Expr,
+  exprIsAtom,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+} from "../../expr";
 import {
   isBoxedType,
   isDynType,
@@ -125,6 +131,14 @@ export function findFunctionCallsInExpr(
   expr: Expr,
   context: CodeGenContext
 ): void {
+  // Skip test blocks - they should not generate code
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.test)
+  ) {
+    return;
+  }
+
   // If this is a macro expansion, recursively collect from the expanded expression
   if (expr.$ && expr.$.macroExpansion) {
     findFunctionCallsInExpr(expr.$.macroExpansion, context);
