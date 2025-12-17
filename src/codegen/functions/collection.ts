@@ -8,11 +8,11 @@ import {
 import {
   isBoxedType,
   isDynType,
+  isFunctionSpecializable,
   isFunctionType,
   isObjectType,
   isUnitType,
   Type,
-  typeContainsSomeType,
 } from "../../types";
 import {
   isFunctionValue,
@@ -200,19 +200,23 @@ export function findFunctionCallsInExpr(
 
     if (isFunctionType(functionType)) {
       if (isFunctionValue(functionValue)) {
-        // Skip collecting functions that have generic types
+        // Skip collecting functions that are generic and haven't been specialized.
+        // A function is generic if it has forallParameters or compile-time only parameters.
+        // Note: typeContainsSomeType is too broad - it would skip functions with Impl(Module)
+        // return types even though they don't need specialization.
         if (
-          typeContainsSomeType(functionValue.type) &&
+          isFunctionSpecializable(functionValue.type) &&
           !functionValue.specializedType
         ) {
+          // This is a generic function that hasn't been specialized - skip it
           return;
         }
 
-        // Also skip if the specialized type still contains SomeType
+        // Also skip if the specialized type still has unresolved type parameters
         // This can happen when type substitution is incomplete
         if (
           functionValue.specializedType &&
-          typeContainsSomeType(functionValue.specializedType)
+          isFunctionSpecializable(functionValue.specializedType)
         ) {
           return;
         }
@@ -262,9 +266,9 @@ export function findFunctionCallsInExpr(
   const functionValue = expr.$?.value;
   if (isFunctionType(functionType)) {
     if (isFunctionValue(functionValue)) {
-      // Skip collecting functions that have generic types
+      // Skip collecting generic functions that haven't been specialized
       if (
-        typeContainsSomeType(functionValue.type) &&
+        isFunctionSpecializable(functionValue.type) &&
         !functionValue.specializedFunctionCaches
       ) {
         return;

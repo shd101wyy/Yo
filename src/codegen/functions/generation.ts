@@ -110,11 +110,20 @@ export function generateFunctionDeclarations(
     if (
       isGenericFunction(value) ||
       isComptFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
-      typeContainsSomeType(value.type)
+      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
       continue;
     }
+
+    // Skip functions with SomeType in parameters (truly generic)
+    // But allow functions with SomeType only in return type (Impl(Module) return types)
+    const hasGenericParams =
+      value.type.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      value.type.forallParameters.length > 0;
+    if (hasGenericParams) {
+      continue;
+    }
+
     generateFunctionDeclaration(value.type, cName, false, context, value.body);
   }
 
@@ -222,6 +231,19 @@ export function generateFunctionDeclaration(
     }
   }
 
+  // For functions returning Impl(Module) (SomeType), use the concrete type from the body
+  // This is for static dispatch - the body's actual return type is the function's return type
+  if (
+    functionBody &&
+    isSomeType(functionType.return.type) &&
+    !typeImplementsFuture(functionType.return.type)
+  ) {
+    // The body should have the concrete return type
+    if (functionBody.$?.type) {
+      overrideReturnType = getTypeString(functionBody.$.type, context);
+    }
+  }
+
   const functionPrototype = overrideReturnType
     ? generateFunctionPrototype(
         functionType,
@@ -266,9 +288,17 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     if (
       isGenericFunction(value) ||
       isComptFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
-      typeContainsSomeType(value.type)
+      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
+      continue;
+    }
+
+    // Skip functions with SomeType in parameters (truly generic)
+    // But allow functions with SomeType only in return type (Impl(Module) return types)
+    const hasGenericParams =
+      value.type.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      value.type.forallParameters.length > 0;
+    if (hasGenericParams) {
       continue;
     }
 
@@ -405,6 +435,19 @@ export function generateFunction(
     const asyncBlock = findReturnedAsyncBlock(functionValue.body);
     if (asyncBlock?.$?.asyncStateMachineStructName) {
       overrideReturnType = `${asyncBlock.$.asyncStateMachineStructName}*`;
+    }
+  }
+
+  // For functions returning Impl(Module) (SomeType), use the concrete type from the body
+  // This is for static dispatch - the body's actual return type is the function's return type
+  if (
+    functionValue.body &&
+    isSomeType(functionType.return.type) &&
+    !typeImplementsFuture(functionType.return.type)
+  ) {
+    // The body should have the concrete return type
+    if (functionValue.body.$?.type) {
+      overrideReturnType = getTypeString(functionValue.body.$.type, context);
     }
   }
 

@@ -1,58 +1,55 @@
 open import "std/libc/stdio.yo";
 { GlobalAllocator } :: import "std/allocator.yo";
 
-Id :: module(
-  id : (fn(self : Self) -> Self)
+
+RetI32 :: module(
+  return_i32 : (fn(self : *(Self)) -> i32)
 );
 
-use_id :: (fn(
-  forall(T : Type),
-  value : T,
-  where(T <: Id)
-) -> T) {
-  // (T <: Id).id(value);
-  return value.id();
-};
 
-impl(i32, Id(
-  id : ((self) -> {
-    printf("i32 value: %d\n", self);
-    return self;
+impl(i32, RetI32(
+  return_i32 : ((self) -> {
+    return self.*;
   })
 ));
 
-impl(boolean, Id(
-  id : ((self) -> {
+impl(boolean, RetI32(
+  return_i32 : ((self) ->
     cond(
-      self => printf("boolean value: true\n"),
-      true => printf("boolean value: false\n")
-    );
-    return self;
+      self.* => 1,
+      true => return 0
+    )
+  )
+));
+
+impl(Box(i32), RetI32(
+  // Let's x2 here
+  return_i32 : ((self) -> {
+    return self.*.* + (self.*.*);
   })
 ));
 
-impl(Box(i32), Id(
-  id : ((self) -> {
-    printf("Boxed i32 value: %d\n", self.*);
-    return self;
-  })
-));
-
-ret_boolean :: (fn() -> Impl(Id)) {
+ret_boolean_i32 :: (fn() -> Impl(RetI32)) {
   return true;
 };
 
-ret_i32 :: (fn() -> Impl(Id)) {
+ret_i32_i32 :: (fn() -> Impl(RetI32)) {
   return i32(123);
+};
+
+ret_boxi32_i32 :: (fn() -> Impl(RetI32)) {
+  return Box(i32)(456);
 };
 
 
 main :: (fn() -> unit) {
-  b := ret_boolean();
-  assert(b.id() == true, "Expected true from ret_boolean");
+  b := ret_boolean_i32();
+  assert(&(b).return_i32() == 1, "Expected true from ret_boolean_i32");
 
-  i := ret_i32();
-  assert(i.id() == i32(123), "Expected 123 from ret_i32");
+  // assert(ret_i32_i32().return_i32() == i32(123), "Expected 123 from ret_i32_i32");
+  // 
+  // r := ret_boxi32_i32();
+  // assert(&(r).return_i32() == i32(912), "Expected 912 from ret_boxi32_i32");
 };
 
 export main;

@@ -41,6 +41,7 @@ import {
   createStructValue,
   createTypeValue,
   isExprValue,
+  isFunctionValue,
   isTupleValue,
   isTypeValue,
   Value,
@@ -1164,11 +1165,30 @@ ${functionsWithMatchingTypes
       // Preserve the variableName if it was already set (e.g., from a previous overload attempt)
       const previousVariableName = expr.$?.variableName;
 
+      // For functions returning Impl(Module) (SomeType), set resolvedConcreteType
+      // to the concrete type from the function body.  This enables static dispatch
+      // for method calls on the return value.
+      let finalReturnType = returnType;
+      if (
+        isSomeType(returnType) &&
+        functionToCall.value &&
+        isFunctionValue(functionToCall.value)
+      ) {
+        const functionBody = functionToCall.value.body;
+        if (functionBody.$?.type) {
+          // Clone the SomeType and set its resolvedConcreteType
+          finalReturnType = {
+            ...returnType,
+            resolvedConcreteType: functionBody.$.type,
+          };
+        }
+      }
+
       expr.$ = {
         env,
-        type: returnType,
+        type: finalReturnType,
         value: returnValue,
-        originType: returnType, // Function call result's origin type is its return type
+        originType: finalReturnType, // Function call result's origin type is its return type
         pathCollection: pathCollection,
         runtimeArgExprsInOrder,
         deferredDropExpressions,
