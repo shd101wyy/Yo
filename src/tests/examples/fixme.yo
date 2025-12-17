@@ -1,31 +1,74 @@
 open import "std/libc/stdio";
-Async :: import "std/async";
 
-// Expected to print:
-//
-// Task started
-// Running main...
-// Task completed
-//
-//
+TestDyn :: module(
+  print : (fn(self : *(Self)) -> unit),
+  return_i32 : (fn(self : *(Self)) -> i32)
+);
+
+use_test_dyn :: (fn(
+  value : Dyn(TestDyn)
+) -> i32) {
+  value.print();
+  return value.return_i32();
+};
+
+MyBox :: object(
+  x : i32,
+
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing Boxed i32 with value: %d\n", self.x);
+  })
+);
+
+impl(i32, TestDyn(
+  print : ((self) -> {
+    printf("i32 value: %d\n", self.*);
+  }),
+  return_i32 : ((self) -> {
+    return self.*;
+  })
+));
+
+impl(boolean, TestDyn(
+  print : ((self) -> {
+    cond(
+      self.* => printf("boolean value: true\n"),
+      true => printf("boolean value: false\n")
+    );
+  }),
+  return_i32 : ((self) ->
+    cond(
+      self.* => 1,
+      true => return 0
+    )
+  )
+));
+
+impl(MyBox, TestDyn(
+  print : ((self) -> {
+    printf("Boxed i32 value: %d\n", self.x);   // Test auto-dereference
+    printf("Boxed i32 value: %d\n", self.*.x); // Test manual dereference
+  }),
+  // Let's x2 here
+  return_i32 : ((self) -> {
+    return self.x + (self.*.x);
+  })
+));
+
 main :: (fn() -> unit) {
-  b := Box(i32)(0);
-
-  // Simple test without nested async blocks
-  task := async {
-    printf("Task started %d\n", b.*);
-    assert(b.* == 0);
-
-    b.* = (b.* + 1);
-    await Async.yield();
-    
-    printf("Task completed %d\n", b.*);
-    assert(b.* == 2);
+  {
+    assert(use_test_dyn(dyn box i32(42)) == 42);
+    assert(use_test_dyn(dyn box true) == 1);
+    bi := MyBox(100);
+    assert(use_test_dyn(dyn bi) == 200);
   };
-  
-  printf("Running main... %d\n", b.*);
-  assert(b.* == 1);
-  b.* = (b.* + 1);
+
+  {
+    assert(use_test_dyn(dyn i32(42)) == 42); // FIXME: Automatic `box` should work here
+    assert(use_test_dyn(dyn true) == 1);     // FIXME: Automatic `box` should work here
+    bi := MyBox(100);
+    assert(use_test_dyn(dyn bi) == 200);
+  };
 };
 
 export main;

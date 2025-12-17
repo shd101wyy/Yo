@@ -6,17 +6,19 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  AtomExpr,
   attachTempVariableToExpr,
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   Expr,
+  ExprTag,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import { PlaceholderToken } from "../../token";
+import { PlaceholderToken, TokenType } from "../../token";
 import {
   areTypesCompatible,
   createDynType,
@@ -236,13 +238,54 @@ export function evaluateDynValue({
   }
   env = evaluatedValueExpr.$.env;
 
-  const valueType = evaluatedValueExpr.$.type;
+  let valueType = evaluatedValueExpr.$.type;
+  let finalValueExpr: FuncCallExpr = evaluatedValueExpr;
 
+  // Auto-box non-object types so users don't need to call box() explicitly
   if (!isObjectType(valueType)) {
-    throw formatErrorMessage({
+    // Create a synthetic box(evaluatedValueExpr) expression
+    const boxAtom: AtomExpr = {
+      tag: ExprTag.Atom,
+      token: {
+        ...valueExpr.token,
+        value: "box",
+        type: TokenType.Identifier,
+      },
+      $: undefined,
+    };
+
+    const boxCallExpr: FuncCallExpr = {
+      tag: ExprTag.FuncCall,
+      func: boxAtom,
+      args: [evaluatedValueExpr],
       token: valueExpr.token,
-      errorMessage: `'${BuiltinKeywords.dyn}' expects an 'object' value. Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
-    });
+      $: undefined,
+    };
+
+    // Evaluate the box call
+    const boxedExpr = evaluateExpression({
+      expr: boxCallExpr,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+      },
+    }) as FuncCallExpr;
+
+    if (!boxedExpr.$) {
+      throw formatErrorMessage({
+        token: valueExpr.token,
+        errorMessage: `Failed to auto-box value for 'dyn':\n${exprToString(valueExpr)}`,
+      });
+    }
+
+    env = boxedExpr.$.env;
+    valueType = boxedExpr.$.type;
+    finalValueExpr = boxedExpr;
+
+    // Update the original dyn expression's args to point to the boxed expression
+    // This is important for C codegen to generate the correct code
+    expr.args[0] = boxedExpr;
   }
 
   // Validate that the value type can be converted to Dyn
@@ -254,8 +297,8 @@ export function evaluateDynValue({
   ///   });
   /// }
 
-  setExprAsNeedsToCallDup(evaluatedValueExpr, context);
-  env = evaluatedValueExpr.$!.env!;
+  setExprAsNeedsToCallDup(finalValueExpr, context);
+  env = finalValueExpr.$!.env!;
 
   const moduleTypes: ModuleType[] = [];
   const moduleValues: ModuleValue[] = [];
@@ -320,7 +363,7 @@ export function evaluateDynValue({
   // Check negativeModules - ensure required modules are not in the negative list
   const negativeModules: ModuleType[] = [];
   // Check if it's Box(T) case
-  if (valueType.fields.length === 1 && valueType.fields[0]?.label === "*") {
+  if (isBoxedType(valueType)) {
     const boxedFieldType = valueType.fields[0]!.type;
     if (isSomeType(boxedFieldType) || isDynType(boxedFieldType)) {
       negativeModules.push(...(boxedFieldType.negativeModules ?? []));
