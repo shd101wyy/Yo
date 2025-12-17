@@ -6,7 +6,6 @@ import {
   DynType,
   EnumType,
   EnumVariant,
-  extractFnModuleFromType,
   extractFutureModuleFromType,
   FunctionType,
   isEnumType,
@@ -412,17 +411,12 @@ export function getTypeString(
         }
       }
 
-      // For Impl(Fn(...)), use the FnModuleType's C name
-      // Check this BEFORE resolvedConcreteType to use the function pointer type
+      // For Impl(Fn(...)), use the resolvedConcreteType (the capture struct)
+      // The FnModuleType is the interface, but the runtime representation is the capture struct
       if (typeImplementsFn(someType)) {
-        const fnModule = extractFnModuleFromType(someType);
-        if (fnModule) {
-          const cTypeName = context.types[fnModule.id]?.cName;
-          if (cTypeName) {
-            // Impl closures are now VALUE types (like Rust closures)
-            // They are stack-allocated, not heap-allocated with ref counting
-            return cTypeName;
-          }
+        if (someType.resolvedConcreteType) {
+          // Impl closures are VALUE types - use the capture struct directly
+          return getTypeString(someType.resolvedConcreteType, context);
         }
       }
 
