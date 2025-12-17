@@ -7,7 +7,7 @@ You are a programming language and compiler expert.
 To test the Yo evaluator, you can run the command `bun test src/tests/fixme.test.ts` to test the `fixme.yo` file which contains the Yo language code.  
 Usually don't modify the `fixme.yo` unless I tell you to do so.
 
-Do not create new `.yo` or TypeScript files unless I tell you to do so.
+Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so.
 
 Do not use `npm` command, only use `bun` command.
 

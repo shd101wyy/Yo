@@ -21,6 +21,7 @@ import {
   typeContainsGcType,
   typeToString,
 } from "./types";
+import { VUnit } from "./unit-value";
 import {
   generateNewTempVariableName,
   generateVarialeId,
@@ -1723,6 +1724,101 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   }
 
   return env;
+}
+
+/**
+ * Validates that all branches returning Impl(...) types have the same concrete type.
+ * Impl uses static dispatch, so different concrete types across branches are not allowed.
+ *
+ * @param returnType - The return type of the function/expression
+ * @param returnBodies - Array of evaluated body expressions with return control flow
+ * @param exprToken - Token of the cond/match expression for error reporting
+ */
+export function validateImplReturnTypesAcrossBranches(
+  returnType: Type,
+  returnBodies: Expr[],
+  exprToken: Token
+): void {
+  // Only validate when return type is SomeType (Impl) and we have multiple branches
+  if (!isSomeType(returnType) || returnBodies.length <= 1) {
+    return;
+  }
+
+  // Collect return value expressions from return statements
+  const returnValueExprs: Expr[] = [];
+  for (const returnBody of returnBodies) {
+    // returnBody should be a begin expression that ends with a return statement
+    if (
+      exprIsFunctionCall(returnBody) &&
+      exprIsFunctionCallOf(returnBody, BuiltinKeywords.begin)
+    ) {
+      const args = returnBody.args;
+      // Search backwards for return statement, skipping unit expressions
+      // (semicolons cause unit expressions to be inserted)
+      for (let i = args.length - 1; i >= 0; i--) {
+        const arg = args[i]!;
+
+        // Skip unit expressions
+        if (arg.$ && arg.$.type === VUnit.type) {
+          continue;
+        }
+
+        // Found non-unit expression - should be the return statement
+        if (
+          exprIsFunctionCall(arg) &&
+          exprIsFunctionCallOf(arg, BuiltinKeywords.return, 1)
+        ) {
+          const returnValue = arg.args[0]!;
+          returnValueExprs.push(returnValue);
+          break; // Stop after finding the first non-unit expression
+        }
+      }
+    }
+  }
+
+  // Check that all return value expressions have the SAME concrete type
+  // When returning Impl(...), each branch returns its concrete type (e.g., i32, boolean)
+  // which must be the same across all branches
+  if (returnValueExprs.length > 1) {
+    const firstReturnValueExpr = returnValueExprs[0]!;
+    if (firstReturnValueExpr.$) {
+      const firstType = firstReturnValueExpr.$.type;
+      const firstCaseEnv = firstReturnValueExpr.$.env;
+
+      for (let i = 1; i < returnValueExprs.length; i++) {
+        const currentReturnValueExpr = returnValueExprs[i]!;
+        if (currentReturnValueExpr.$) {
+          const currentType = currentReturnValueExpr.$.type;
+          const currentCaseEnv = currentReturnValueExpr.$.env;
+
+          const compatible = areTypesCompatible(
+            { type: firstType, env: firstCaseEnv },
+            { type: currentType, env: currentCaseEnv }
+          );
+
+          // Check if the concrete types are compatible
+          if (!compatible) {
+            throw formatErrorMessages([
+              {
+                token: exprToken,
+                errorMessage: `All branches return Impl(...) but with different concrete types.
+Impl(...) uses static dispatch and requires the same concrete type in all branches.
+Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`,
+              },
+              {
+                token: firstReturnValueExpr.token,
+                errorMessage: `First branch returns concrete type: ${typeToString(firstType)}`,
+              },
+              {
+                token: currentReturnValueExpr.token,
+                errorMessage: `Conflicting branch returns concrete type: ${typeToString(currentType)}`,
+              },
+            ]);
+          }
+        }
+      }
+    }
+  }
 }
 
 /**

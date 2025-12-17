@@ -1,30 +1,73 @@
 open import "std/libc/stdio.yo";
-Async :: import "std/async";
+{ GlobalAllocator } :: import "std/allocator.yo";
 
-main :: (fn() -> unit) {
-  b := Box(i32)(0);
+Id :: module(
+  id : (fn(self : Self) -> Self)
+);
 
-  // Simple test without nested async blocks
-  task := async {
-    printf("Task started %d\n", b.*);
-    assert(b.* == 0);
-
-    l := Box(i32)(0);
-
-    b.* = (b.* + 1);
-    await Async.yield();
-
-    l.* = (l.* + b.*); // l.* should be 2 here
-    printf("Inner value l: %d\n", l.*);
-    assert(l.* == 2);
-
-    printf("Task completed %d\n", b.*);
-    assert(b.* == 2);
-  };
-  
-  printf("Running main... %d\n", b.*);
-  assert(b.* == 1);
-  b.* = (b.* + 1);
+use_id :: (fn(
+  forall(T : Type),
+  value : T,
+  where(T <: Id)
+) -> T) {
+  // (T <: Id).id(value);
+  return value.id();
 };
 
-export main;
+impl(i32, Id(
+  id : ((self) -> {
+    printf("i32 value: %d\n", self);
+    return self;
+  })
+));
+
+impl(boolean, Id(
+  id : ((self) -> {
+    cond(
+      self => printf("boolean value: true\n"),
+      true => printf("boolean value: false\n")
+    );
+    return self;
+  })
+));
+
+impl(Box(i32), Id(
+  id : ((self) -> {
+    printf("Boxed i32 value: %d\n", self.*);
+    return self;
+  })
+));
+
+Color :: enum(
+  Red,
+  Green,
+  Blue
+);
+compt_expect_error(
+  test_fn :: (fn(some_cond : boolean) -> Impl(Id)) {
+    cond(
+      some_cond => {
+        return 12;
+      },
+      true => {
+        return false;
+      }
+    );
+  }
+);
+
+compt_expect_error(
+  test_fn2 :: (fn(color : Color) -> Impl(Id)) {
+    match(color,
+      .Red => {
+        return 1;
+      },
+      .Green => {
+        return true;
+      },
+      .Blue => {
+        return Box(i32);
+      }
+    );
+  }
+);

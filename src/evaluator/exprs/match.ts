@@ -18,6 +18,7 @@ import {
   exprToString,
   FuncCallExpr,
   mergeAndCheckEnvs,
+  validateImplReturnTypesAcrossBranches,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -142,6 +143,7 @@ export function evaluateMatch({
   let hasCaseThatDoesntHaveControlFlowSet = false;
   let usedWildcardPattern = false;
   const controlFlows: string[] = []; // Track control flows from all cases
+  const returnBodies: Expr[] = []; // Track bodies with return control flow for validation
 
   for (let i = 0; i < patterns.length; i++) {
     const pattern = patterns[i]!;
@@ -329,6 +331,10 @@ export function evaluateMatch({
       // Check if the the evaluatedBody has "return"/"break"/"continue" expression
       if (evaluatedBody.$.controlFlow) {
         controlFlows.push(evaluatedBody.$.controlFlow);
+        // Collect bodies with return control flow for validation
+        if (evaluatedBody.$.controlFlow === "return") {
+          returnBodies.push(evaluatedBody);
+        }
         // Check if we have a scrutinee value
         // If so, then this is the matched arm.
         if (scrutineeValue && isEnumValue(scrutineeValue)) {
@@ -716,6 +722,10 @@ export function evaluateMatch({
       // Handle control flow
       if (evaluatedBody.$.controlFlow) {
         controlFlows.push(evaluatedBody.$.controlFlow);
+        // Collect bodies with return control flow for validation
+        if (evaluatedBody.$.controlFlow === "return") {
+          returnBodies.push(evaluatedBody);
+        }
         if (scrutineeValue && isEnumValue(scrutineeValue)) {
           expr.$ = {
             env: evaluatedBody.$.env,
@@ -899,6 +909,15 @@ Supported patterns:
           errorMessage: `Failed to determine the return type for match statement.`,
         });
       }
+
+      // Validate that for Impl(...) types, all branches must return the same concrete type
+      // Impl uses static dispatch, so different concrete types are not allowed
+      // Validate that all branches returning Impl(...) have the same concrete type
+      validateImplReturnTypesAcrossBranches(
+        returnType,
+        returnBodies,
+        expr.token
+      );
 
       expr.$ = {
         env,

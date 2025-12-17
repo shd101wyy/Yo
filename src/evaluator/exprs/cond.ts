@@ -10,6 +10,7 @@ import {
   exprToString,
   FuncCallExpr,
   mergeAndCheckEnvs,
+  validateImplReturnTypesAcrossBranches,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -241,6 +242,7 @@ export function evaluateCond({
   } else {
     let hasCaseThatDoesntHaveControlFlowSet = false;
     const controlFlows: ControlFlowKind[] = []; // Track control flows from all cases
+    const returnBodies: Expr[] = []; // Track bodies with return control flow for validation
 
     // No compile-time true condition found, evaluate all bodies except compile-time false ones
     for (const {
@@ -271,6 +273,10 @@ export function evaluateCond({
 
       if (evaluatedCaseBodyExpr.$?.controlFlow) {
         controlFlows.push(evaluatedCaseBodyExpr.$.controlFlow);
+        // Collect bodies with return control flow for validation
+        if (evaluatedCaseBodyExpr.$.controlFlow === "return") {
+          returnBodies.push(evaluatedCaseBodyExpr);
+        }
         continue; // No need to evaluate further if a control flow was encountered
       } else {
         hasCaseThatDoesntHaveControlFlowSet = true;
@@ -449,6 +455,14 @@ export function evaluateCond({
             errorMessage: `Failed to determine the return type for cond statement.`,
           });
         }
+
+        // Validate that for Impl(...) types, all branches must return the same concrete type
+        // Validate that all branches returning Impl(...) have the same concrete type
+        validateImplReturnTypesAcrossBranches(
+          returnType,
+          returnBodies,
+          expr.token
+        );
 
         expr.$ = {
           env,
