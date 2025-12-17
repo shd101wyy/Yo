@@ -34,6 +34,7 @@ import {
   SomeType,
   StructType,
   Type,
+  typeImplementsFuture,
   typeToString,
 } from "../../types";
 import {
@@ -136,31 +137,35 @@ function isBoxFunctionCall(
   env: Environment,
   context: EvaluatorContext
 ): boolean {
-  // Evaluate the function expression to get its value
-  const evaluatedFuncExpr = evaluateExpression({
-    expr: funcExpr,
-    env,
-    context,
-  }) as FuncCallExpr;
+  try {
+    // Evaluate the function expression to get its value
+    const evaluatedFuncExpr = evaluateExpression({
+      expr: funcExpr,
+      env,
+      context,
+    }) as FuncCallExpr;
 
-  if (!evaluatedFuncExpr.$) {
-    return false;
-  }
+    if (!evaluatedFuncExpr.$) {
+      return false;
+    }
 
-  const funcValue = evaluatedFuncExpr.$.value;
+    const funcValue = evaluatedFuncExpr.$.value;
 
-  if (isFunctionValue(funcValue)) {
-    // Check if the funcValue matches the `box` function in the env
-    const boxVariables = getVariablesFromEnv(env, "box");
-    const findBoxFunction = boxVariables.find(
-      (v) => v.value && isFunctionValue(v.value) && v.value === funcValue
-    );
-    return Boolean(findBoxFunction);
-  } else if (isTypeValue(funcValue)) {
-    const typeValue = funcValue;
-    const type = typeValue.value;
-    return Boolean(type?.typeName?.startsWith("Box("));
-  } else {
+    if (isFunctionValue(funcValue)) {
+      // Check if the funcValue matches the `box` function in the env
+      const boxVariables = getVariablesFromEnv(env, "box");
+      const findBoxFunction = boxVariables.find(
+        (v) => v.value && isFunctionValue(v.value) && v.value === funcValue
+      );
+      return Boolean(findBoxFunction);
+    } else if (isTypeValue(funcValue)) {
+      const typeValue = funcValue;
+      const type = typeValue.value;
+      return Boolean(type?.typeName?.startsWith("Box("));
+    } else {
+      return false;
+    }
+  } catch (error) {
     return false;
   }
 }
@@ -174,14 +179,7 @@ export function evaluateDynValue({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.dyn);
-
-  if (expr.args.length !== 1) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `'${BuiltinKeywords.dyn}' expects exactly 1 argument, but got ${expr.args.length}.`,
-    });
-  }
+  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.dyn, 1);
 
   const valueExpr = expr.args[0]!;
 
@@ -242,7 +240,16 @@ export function evaluateDynValue({
   let finalValueExpr: FuncCallExpr = evaluatedValueExpr;
 
   // Auto-box non-object types so users don't need to call box() explicitly
-  if (!isObjectType(valueType)) {
+  if (
+    !isObjectType(valueType) &&
+    !(isSomeType(valueType) && typeImplementsFuture(valueType))
+  ) {
+    // Create boxed type
+    const { boxType, env: nextEnv } = createBoxedType(valueType, env, {
+      ...context,
+    });
+    env = nextEnv;
+
     // Create a synthetic box(evaluatedValueExpr) expression
     const boxAtom: AtomExpr = {
       tag: ExprTag.Atom,
@@ -268,7 +275,10 @@ export function evaluateDynValue({
       env,
       context: {
         ...context,
-        expectedType: undefined,
+        expectedType: {
+          type: boxType,
+          env,
+        },
       },
     }) as FuncCallExpr;
 
