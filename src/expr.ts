@@ -21,7 +21,6 @@ import {
   typeContainsGcType,
   typeToString,
 } from "./types";
-import { VUnit } from "./unit-value";
 import {
   generateNewTempVariableName,
   generateVarialeId,
@@ -1744,78 +1743,55 @@ export function validateImplReturnTypesAcrossBranches(
     return;
   }
 
-  // Collect return value expressions from return statements
-  const returnValueExprs: Expr[] = [];
+  // Collect return types from branches that have return control flow
+  // The type of the branch expression is the type of the returned value
+  const returnBranchData: Array<{
+    type: Type;
+    env: Environment;
+    token: Token;
+  }> = [];
   for (const returnBody of returnBodies) {
-    // returnBody should be a begin expression that ends with a return statement
-    if (
-      exprIsFunctionCall(returnBody) &&
-      exprIsFunctionCallOf(returnBody, BuiltinKeywords.begin)
-    ) {
-      const args = returnBody.args;
-      // Search backwards for return statement, skipping unit expressions
-      // (semicolons cause unit expressions to be inserted)
-      for (let i = args.length - 1; i >= 0; i--) {
-        const arg = args[i]!;
-
-        // Skip unit expressions
-        if (arg.$ && arg.$.type === VUnit.type) {
-          continue;
-        }
-
-        // Found non-unit expression - should be the return statement
-        if (
-          exprIsFunctionCall(arg) &&
-          exprIsFunctionCallOf(arg, BuiltinKeywords.return, 1)
-        ) {
-          const returnValue = arg.args[0]!;
-          returnValueExprs.push(returnValue);
-          break; // Stop after finding the first non-unit expression
-        }
-      }
+    if (returnBody.$ && returnBody.$.controlFlow === "return") {
+      returnBranchData.push({
+        type: returnBody.$.type,
+        env: returnBody.$.env,
+        token: returnBody.token,
+      });
     }
   }
 
-  // Check that all return value expressions have the SAME concrete type
+  // Check that all return branches have the SAME concrete type
   // When returning Impl(...), each branch returns its concrete type (e.g., i32, boolean)
   // which must be the same across all branches
-  if (returnValueExprs.length > 1) {
-    const firstReturnValueExpr = returnValueExprs[0]!;
-    if (firstReturnValueExpr.$) {
-      const firstType = firstReturnValueExpr.$.type;
-      const firstCaseEnv = firstReturnValueExpr.$.env;
+  if (returnBranchData.length > 1) {
+    const firstBranch = returnBranchData[0]!;
 
-      for (let i = 1; i < returnValueExprs.length; i++) {
-        const currentReturnValueExpr = returnValueExprs[i]!;
-        if (currentReturnValueExpr.$) {
-          const currentType = currentReturnValueExpr.$.type;
-          const currentCaseEnv = currentReturnValueExpr.$.env;
+    for (let i = 1; i < returnBranchData.length; i++) {
+      const currentBranch = returnBranchData[i]!;
 
-          const compatible = areTypesCompatible(
-            { type: firstType, env: firstCaseEnv },
-            { type: currentType, env: currentCaseEnv }
-          );
+      const compatible = areTypesCompatible(
+        { type: firstBranch.type, env: firstBranch.env },
+        { type: currentBranch.type, env: currentBranch.env }
+      );
 
-          // Check if the concrete types are compatible
-          if (!compatible) {
-            throw formatErrorMessages([
-              {
-                token: exprToken,
-                errorMessage: `All branches return Impl(...) but with different concrete types.
+      // Check if the concrete types are compatible
+      if (!compatible) {
+        throw formatErrorMessages([
+          {
+            token: exprToken,
+            errorMessage: `All branches return Impl(...) but with different concrete types.
 Impl(...) uses static dispatch and requires the same concrete type in all branches.
 Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`,
-              },
-              {
-                token: firstReturnValueExpr.token,
-                errorMessage: `First branch returns concrete type: ${typeToString(firstType)}`,
-              },
-              {
-                token: currentReturnValueExpr.token,
-                errorMessage: `Conflicting branch returns concrete type: ${typeToString(currentType)}`,
-              },
-            ]);
-          }
-        }
+          },
+          {
+            token: firstBranch.token,
+            errorMessage: `First branch returns concrete type: ${typeToString(firstBranch.type)}`,
+          },
+          {
+            token: currentBranch.token,
+            errorMessage: `Conflicting branch returns concrete type: ${typeToString(currentBranch.type)}`,
+          },
+        ]);
       }
     }
   }

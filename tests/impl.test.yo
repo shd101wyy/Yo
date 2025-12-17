@@ -54,3 +54,51 @@ test "Test impl for i32, boolean, Box(i32)", {
 
   assert(use_id(bi).* == bi.*, "use_id should return the same Boxed i32 value");
 };
+
+test "Test fn return Impl that expects error", {
+  compt_expect_error(
+    test_fn :: (fn(some_cond : boolean) -> Impl(Id)) {
+      cond(
+        some_cond => {
+          return 12;
+        },
+        true => {
+          return false;
+        }
+      );
+    }
+  );
+
+  compt_expect_error(
+    test_fn2 :: (fn(color : Color) -> Impl(Id)) {
+      match(color,
+        .Red => {
+          return 1;
+        },
+        .Green => {
+          return true;
+        },
+        .Blue => {
+          return Box(i32);
+        }
+      );
+    }
+  );
+
+  compt_expect_error(
+    test_fn3 :: (fn(some_cond : boolean) -> Impl(Id)) {
+      cond(
+        some_cond => {
+          {
+            {
+              return 12;
+            };
+          };
+        },
+        true => {
+          return false;
+        }
+      );
+    }
+  );
+};
