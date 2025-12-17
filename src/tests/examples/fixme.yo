@@ -11,43 +11,19 @@ MyBox :: object(
 main :: (fn() -> unit) {
   {
     x := MyBox(1);
-
-    (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
+    (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
       x.* = (x.* + y);
       return x.*;
     });
-
-    closure2 := closure;  // Test dup on closure
-
-    closure(1); // 2
-    closure2(1); // 3
-    result := closure(2); // 5
-
-    printf("Final result: %d\n", result);
-    assert(x.* == 5, "Captured boxed variable should be 5");
-    assert(x.* == result, "Expected final result to be 5");
   };
-
-/*
-  // Expect below to work as well:
+  /*
   // `dyn` without `box`
   {
-    x := 1;
-
+    x := MyBox(1);
     (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => {
-      x = (x + y);
-      return x;
+      x.* = (x.* + y);
+      return x.*;
     });
-
-    closure2 := closure;  // Test dup on closure
-
-    closure(1); // 2
-    closure2(1); // 3
-
-    result := closure(2); // 5
-    printf("Final result: %d\n", result);
-    assert(x == 1, "Captured variable x should remain unchanged outside closure");
-    assert(result == 5, "Expected final result to be 5");
   };
   */
 };

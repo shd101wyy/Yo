@@ -234,7 +234,6 @@ export function evaluateDynValue({
       errorMessage: `Failed to evaluate the value expression for 'dyn':\n${exprToString(valueExpr)}`,
     });
   }
-  env = evaluatedValueExpr.$.env;
 
   let valueType = evaluatedValueExpr.$.type;
   let finalValueExpr: FuncCallExpr = evaluatedValueExpr;
@@ -296,6 +295,9 @@ export function evaluateDynValue({
     // Update the original dyn expression's args to point to the boxed expression
     // This is important for C codegen to generate the correct code
     expr.args[0] = boxedExpr;
+  } else {
+    // NOTE: We don't set `env` in the `if` block above because we will re-evaluate them in `box`. Updating the `env` there will cause issues.
+    env = evaluatedValueExpr.$.env;
   }
 
   // Validate that the value type can be converted to Dyn
