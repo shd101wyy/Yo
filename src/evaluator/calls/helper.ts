@@ -1257,12 +1257,24 @@ function createSpecializedFunctionInline({
   const compileTimeSignatureParts: string[] = [];
 
   // Include forall type arguments
+  // Helper function to convert a value to a string for signature, including type IDs for anonymous types
+  const valueToSignatureString = (value: Value): string => {
+    if (isTypeValue(value)) {
+      const type = value.value;
+      // For anonymous types (no typeName), include the type ID to ensure uniqueness
+      if (!type.typeName && type.id) {
+        return `${valueToString(value)}_id${type.id}`;
+      }
+    }
+    return valueToString(value);
+  };
+
   // In theory all the forallArgs should be compile-time arguments
   functionType.forallParameters.forEach((param, index) => {
     if (index < argValues.forallArgs.length) {
       const arg = argValues.forallArgs[index]!;
       compileTimeSignatureParts.push(
-        sanitizeForCIdentifier(valueToString(arg.value))
+        sanitizeForCIdentifier(valueToSignatureString(arg.value))
       );
     } else {
       const label = param.label;
@@ -1272,7 +1284,7 @@ function createSpecializedFunctionInline({
       if (variables.length > 0 && variables[variables.length - 1]?.value) {
         compileTimeSignatureParts.push(
           sanitizeForCIdentifier(
-            valueToString(variables[variables.length - 1]!.value)
+            valueToSignatureString(variables[variables.length - 1]!.value)
           )
         );
       } else {
@@ -1287,7 +1299,7 @@ function createSpecializedFunctionInline({
       const arg = argValues.args[index];
       if (arg) {
         compileTimeSignatureParts.push(
-          sanitizeForCIdentifier(valueToString(arg.value))
+          sanitizeForCIdentifier(valueToSignatureString(arg.value))
         );
       } else {
         compileTimeSignatureParts.push("unknown");
