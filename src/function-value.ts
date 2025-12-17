@@ -38,6 +38,12 @@ export interface SpecializedFunctionCache {
    */
   compileTimeArgValues: Value[];
   /**
+   * The runtime parameter types that were used to specialize the function.
+   * This is used to differentiate specializations that have the same compile-time
+   * arguments but different concrete runtime types (e.g., different closure capture structs).
+   */
+  runtimeParameterTypes: Type[];
+  /**
    * The specialized function with evaluated body.
    */
   specializedFunction: FunctionValue;

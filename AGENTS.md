@@ -7,7 +7,7 @@ You are a programming language and compiler expert.
 To test the Yo evaluator, you can run the command `bun test src/tests/fixme.test.ts` to test the `fixme.yo` file which contains the Yo language code.  
 Usually don't modify the `fixme.yo` unless I tell you to do so.
 
-Do not create new `.yo` files unless I tell you to do so.
+Do not create new `.yo` or TypeScript files unless I tell you to do so.
 
 Do not use `npm` command, only use `bun` command.
 
@@ -22,16 +22,19 @@ Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --rele
 For debugging running command, always use `| head` or `| tail` to limit the output.
 
 **Memory Allocator Options:**
+
 - `--allocator mimalloc` (default) - Use mimalloc for high-performance allocation
 - `--allocator libc` - Use standard libc malloc (faster compilation, useful for debugging)
 
 **Memory Leak Detection:**
+
 - `--sanitize address` - Enable AddressSanitizer for memory error and leak detection
 - `--sanitize leak` - Enable LeakSanitizer for leak detection only
 - Example: `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
 
 **Running Tests:**
-- `bun run src/yo-cli.ts test` - Run all *.test.yo files
+
+- `bun run src/yo-cli.ts test` - Run all \*.test.yo files
 - `bun run src/yo-cli.ts test path/to/file.yo` - Run tests in a specific file
 - `--bail` or `-b` - Stop immediately after first test failure
 - `-v` or `--verbose` - Show detailed error messages
@@ -44,17 +47,19 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 **CRITICAL SYNTAX RULES:**
 
 1. **Curly braces `{...}` behave differently based on separators:**
+
    - `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
    - `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
    - **Rule:** If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
-   - **Example:** 
+   - **Example:**
+
      ```yo
      // WRONG - creates a struct:
      result := { .Ok(()) }
-     
+
      // CORRECT - just the expression:
      result := .Ok(())
-     
+
      // CORRECT - begin block with statements:
      result := { x := 1; y := 2; .Ok(()) }
      ```
@@ -82,7 +87,7 @@ When you are working on the C codegen. Do not call `emitter.emitLine` multiple t
 
 Don't add unnecessary comments to the code.
 
-For understanding the compile-time reference counting ownership model, please read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` document. 
+For understanding the compile-time reference counting ownership model, please read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` document.
 For understanding the async/await concurrency design, please read `ASYNC_AWAIT.md` document.
 For understanding the parallelism design, please read `PARALLELISM.md` document.
 For understanding the async IO, please read `ASYNC_IO.md` document.
@@ -95,32 +100,38 @@ While implementing the evaluate or codegen, no shortcuts or simplcations!
 **IMPORTANT DESIGN DECISIONS:**
 
 1. **Use `rune` for Unicode characters, not `Char`:**
+
    - `char` is the C character type (8-bit)
    - `rune` represents Unicode code points (32-bit, like Go's rune)
    - File: `std/data/rune.yo`
    - This avoids confusion with C's `char` type
 
 2. **Type naming conventions:**
+
    - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `boolean`
    - Use `struct(...)` for value types
    - Use `object(...)` for reference-counted types
 
 3. **No operator precedence:**
+
    - Always use parentheses to group operations: `((a + b) * c)` not `a + b * c`
    - Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
 4. **Method definitions in struct:**
+
    - Use double parentheses: `method :: ((fn(self: Self) -> ReturnType) body)`
    - Use `Self` instead of the type name in method signatures
    - Constants and methods are all part of the struct definition
 
 5. **Use `cond(...)` not `if`:**
+
    - Always write `cond(condition => result, true => default)`
    - Parentheses are required around `cond(...)`
 
 6. **Use `boolean` not `bool`:**
    - The boolean type is spelled `boolean` in Yo
 
+The `begin.ts` performs the reference counting optimization that cancels out the dup/drop pairs when possible.
 
 If you meet error like:
 

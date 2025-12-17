@@ -41,6 +41,7 @@ import {
   isFunctionSpecializable,
   isTypeHierarchyType,
   Type,
+  typeContainsSomeType,
   TypeHierarchyType,
   typeImplementsFn,
   typeImplementsFuture,
@@ -1179,28 +1180,58 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      runtimeParameters.push({ ...param, type: arg.parameterType });
+      // Use argType (the actual concrete argument type) for cache comparison,
+      // not parameterType (which might be a SomeType like Impl(...))
+      runtimeParameters.push({ ...param, type: arg.argType });
     }
   });
 
-  // Check if we already have a specialized version in cache
-  const existingCache = originalFunction.specializedFunctionCaches.find(
-    (cache) =>
-      cache.compileTimeArgValues.length === compileTimeArgValues.length &&
-      cache.compileTimeArgValues.every((cachedValue, index) => {
-        const currentValue = compileTimeArgValues[index]!;
+  // Extract runtime parameter types for cache comparison
+  // This is important for differentiating specializations with the same compile-time
+  // type arguments but different concrete types (e.g., different closure capture structs)
+  const runtimeParameterTypes: Type[] = runtimeParameters.map((p) => p.type);
 
-        // Use areValuesEqual for robust comparison
-        return areValuesEqual(
-          { value: cachedValue, env: cache.env },
-          { value: currentValue, env: callerEnv }
-        );
-      })
+  // Check if we already have a specialized version in cache
+  // Must match both compile-time args AND runtime parameter types
+  const existingCache = originalFunction.specializedFunctionCaches.find(
+    (cache) => {
+      // Check compile-time argument values match
+      const compileTimeMatch =
+        cache.compileTimeArgValues.length === compileTimeArgValues.length &&
+        cache.compileTimeArgValues.every((cachedValue, index) => {
+          const currentValue = compileTimeArgValues[index]!;
+          return areValuesEqual(
+            { value: cachedValue, env: cache.env },
+            { value: currentValue, env: callerEnv }
+          );
+        });
+
+      if (!compileTimeMatch) {
+        return false;
+      }
+
+      // Check runtime parameter types match
+      // This ensures different concrete types (e.g., different closure capture structs)
+      // get different specializations even if they have the same compile-time type argument
+      const runtimeMatch =
+        cache.runtimeParameterTypes.length === runtimeParameterTypes.length &&
+        cache.runtimeParameterTypes.every((cachedType, index) => {
+          const currentType = runtimeParameterTypes[index]!;
+          return areTypesCompatible(
+            { type: cachedType, env: cache.env },
+            { type: currentType, env: callerEnv },
+            true // requireExactMatch: use strict type ID comparison
+          );
+        });
+
+      return runtimeMatch;
+    }
   );
 
   if (existingCache) {
     return existingCache.specializedFunction;
   }
+
   // Create specialized environment with compile-time arguments bound
   let specializedEnv = calleeEnv;
 
@@ -1284,7 +1315,7 @@ function createSpecializedFunctionInline({
       if (variables.length > 0 && variables[variables.length - 1]?.value) {
         compileTimeSignatureParts.push(
           sanitizeForCIdentifier(
-            valueToSignatureString(variables[variables.length - 1]!.value)
+            valueToSignatureString(variables[variables.length - 1]!.value!)
           )
         );
       } else {
@@ -1299,11 +1330,26 @@ function createSpecializedFunctionInline({
       const arg = argValues.args[index];
       if (arg) {
         compileTimeSignatureParts.push(
-          sanitizeForCIdentifier(valueToSignatureString(arg.value))
+          sanitizeForCIdentifier(valueToSignatureString(arg.value!))
         );
       } else {
         compileTimeSignatureParts.push("unknown");
       }
+    }
+  });
+
+  // Include runtime parameter types if they contain anonymous types
+  // This ensures different concrete types get different specializations
+  runtimeParameters.forEach((param, index) => {
+    const paramType = param.type;
+    // If the parameter type is anonymous (no typeName) or is/contains SomeType
+    if (
+      (!paramType.typeName && paramType.id) ||
+      typeContainsSomeType(paramType)
+    ) {
+      compileTimeSignatureParts.push(
+        `rtparam${index}_${sanitizeForCIdentifier(typeToString(paramType))}_id${paramType.id}`
+      );
     }
   });
 
@@ -1345,6 +1391,7 @@ function createSpecializedFunctionInline({
   const newCache: SpecializedFunctionCache = {
     funcId: originalFunction.funcId,
     compileTimeArgValues,
+    runtimeParameterTypes,
     specializedFunction,
     env: specializedBody.$.env,
   };

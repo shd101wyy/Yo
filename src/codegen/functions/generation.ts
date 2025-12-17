@@ -1546,9 +1546,26 @@ export function generateDynBoxFunctions(
     emitter.emitLine(`void __yo_dispose_${boxTypeName}(void* ptr) {`);
     emitter.emitLine(`  ${boxTypeName}* box = (${boxTypeName}*)ptr;`);
 
-    // TODO: Check if value type is a reference type that needs RC decrement
-    // For now, just handle reference-counted types (pointers)
-    emitter.emitLine(`  // TODO: Drop box->value if it's a reference type`);
+    // Drop box->value if it has a drop function
+    // For SomeType, we need to use the resolved concrete type
+    const concreteType =
+      isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
+        ? impl.concreteType.resolvedConcreteType
+        : impl.concreteType;
+
+    const dropFn = concreteType.module?.fields.find(
+      (field) => field.label === BuiltinFunctions.___drop[0]
+    );
+    if (
+      dropFn &&
+      dropFn.assignedValue &&
+      isFunctionValue(dropFn.assignedValue)
+    ) {
+      const dropFnCName = context.functions[dropFn.assignedValue.funcId]?.cName;
+      if (dropFnCName) {
+        emitter.emitLine(`  ${dropFnCName}(box->value);`);
+      }
+    }
 
     emitter.emitLine(`}`);
     emitter.emitLine("");
