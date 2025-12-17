@@ -91,10 +91,10 @@ yo run <script>                  Run a script defined in 'yo.json'
     default: false,
   })
   .option("allocator", {
-    describe: "Memory allocator to use: 'mimalloc' (default) or 'libc'.",
+    describe: "Memory allocator to use: 'libc' (default) or 'mimalloc'.",
     type: "string",
     demandOption: false,
-    default: "mimalloc",
+    default: "libc",
     choices: ["mimalloc", "libc"],
   })
   .option("release", {
