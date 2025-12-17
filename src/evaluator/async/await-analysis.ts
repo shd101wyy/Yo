@@ -14,109 +14,23 @@ import {
   ExprTag,
 } from "../../expr";
 import { TokenType } from "../../token";
-import { Type } from "../../types";
 import {
   extractFutureModuleFromType,
   typeImplementsFuture,
 } from "../../types/utils";
 
-/**
- * Information about a single await expression found in an async function.
- */
-export interface AwaitPoint {
-  /**
-   * The index of this await point (0-based)
-   */
-  index: number;
+// Re-export types from the types file
+export type {
+  AwaitAnalysisResult,
+  AwaitPoint,
+  CapturedVariable,
+} from "./await-analysis-types";
 
-  /**
-   * The await expression itself
-   */
-  expr: Expr;
-
-  /**
-   * The type of the value being awaited (the T in Future(T))
-   */
-  resultType: Type;
-
-  /**
-   * The variable that should receive the await result (if any)
-   * This is the variable ID from the captured variables
-   */
-  targetVariableId?: string;
-
-  /**
-   * The variable ID of the Future being awaited
-   * This is used to reference the captured Future variable instead of creating a separate await_future_X field
-   */
-  futureVariableId?: string;
-
-  /**
-   * Whether this await is inside a cond expression
-   * If true, the state machine needs a cond_branch_X field to track which branch was taken
-   */
-  isInsideCond?: boolean;
-
-  /**
-   * Whether this await is inside a while loop
-   * If true, the state machine needs a while_loop_X_active field to track loop state
-   */
-  isInsideWhile?: boolean;
-}
-
-/**
- * Information about a local variable that needs to persist across await points.
- */
-export interface CapturedVariable {
-  /**
-   * The unique ID of the variable
-   */
-  id: string;
-
-  /**
-   * The name of the variable
-   */
-  name: string;
-
-  /**
-   * The type of the variable
-   */
-  type: Type;
-
-  /**
-   * The kind of variable being captured
-   * - "local": A variable defined in the async function body (uses var_{id} field naming)
-   * - "outer": A variable captured from outer scope (uses variable name as field name)
-   */
-  kind: "local" | "outer";
-
-  /**
-   * If this variable is borrowing an Gc value from another variable,
-   * this field holds a reference to the owner variable.
-   * This is used to resolve temporary variable names in deferred drops.
-   */
-  isOwningTheSameGcValueAs: CapturedVariable | undefined;
-}
-
-/**
- * Result of analyzing an async function for await points.
- */
-export interface AwaitAnalysisResult {
-  /**
-   * All await points found in the function, in order of appearance
-   */
-  awaitPoints: AwaitPoint[];
-
-  /**
-   * All local variables that need to be captured in the state machine
-   */
-  capturedVariables: CapturedVariable[];
-
-  /**
-   * Whether this function contains any await expressions
-   */
-  hasAwaits: boolean;
-}
+import type {
+  AwaitAnalysisResult,
+  AwaitPoint,
+  CapturedVariable,
+} from "./await-analysis-types";
 
 /**
  * Analyzes an async function body to find all await expressions.

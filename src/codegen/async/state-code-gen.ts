@@ -6,6 +6,7 @@
  */
 
 import { getVariablesFromEnv } from "../../env";
+import { AwaitPoint } from "../../evaluator/async/await-analysis";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -25,7 +26,6 @@ import {
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
-import { AwaitPoint } from "./await-analysis";
 
 /**
  * Represents a code segment between await points.

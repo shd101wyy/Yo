@@ -4,6 +4,11 @@
  * Generates C code for async function state machines.
  */
 
+import {
+  AwaitAnalysisResult,
+  AwaitPoint,
+  CapturedVariable,
+} from "../../evaluator/async/await-analysis";
 import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
 import {
   DynType,
@@ -18,11 +23,6 @@ import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
-import {
-  AwaitAnalysisResult,
-  AwaitPoint,
-  CapturedVariable,
-} from "./await-analysis";
 import {
   generateStateSegmentCode,
   splitIntoStateSegments,

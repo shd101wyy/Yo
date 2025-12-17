@@ -11,6 +11,7 @@ import {
   SomeType,
   Type,
 } from "../../types";
+import { analyzeAwaitPoints } from "../async/await-analysis";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import {
@@ -157,6 +158,10 @@ export function evaluateAsync({
     });
   env = updatedEnv;
 
+  // Analyze the body for await points and captured variables
+  // This is done in the evaluator to avoid redundant analysis during codegen
+  const awaitAnalysis = analyzeAwaitPoints(evaluatedBody);
+
   // Determine the final type - always SomeType (Impl(Future(T))) for static dispatch
   // Use `dyn async { ... }` to get Dyn(Future(T)) for dynamic dispatch
   let finalType: SomeType;
@@ -192,6 +197,7 @@ export function evaluateAsync({
       capturedVariableDupExpressions.length > 0
         ? capturedVariableDupExpressions
         : undefined,
+    awaitAnalysis, // Store the await analysis result for codegen
   };
 
   attachTempVariableToExpr(expr, true);

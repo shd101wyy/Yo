@@ -1,3 +1,7 @@
+import {
+  AwaitAnalysisResult,
+  CapturedVariable,
+} from "../../evaluator/async/await-analysis";
 import { Expr } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
@@ -8,7 +12,6 @@ import {
   Type,
   TypeId,
 } from "../../types";
-import { AwaitAnalysisResult, CapturedVariable } from "../async/await-analysis";
 import { CodeGenContext } from "../utils";
 
 export interface FunctionGenerationContext extends CodeGenContext {

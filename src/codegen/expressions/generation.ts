@@ -56,10 +56,6 @@ import {
   valueToString,
 } from "../../value";
 import {
-  analyzeAwaitPoints,
-  AwaitAnalysisResult,
-} from "../async/await-analysis";
-import {
   generateAsyncBlockResumeFunction,
   getStateMachineFieldName,
 } from "../async/state-machine";
@@ -3013,8 +3009,14 @@ function generateAsyncBlock(
     cName: structName,
   };
 
-  // Analyze the body for await points
-  const analysis = analyzeAwaitPoints(bodyExpr);
+  // Get the await analysis result that was computed during evaluation
+  // This avoids redundant tree walking and ensures consistency
+  const analysis = expr.$?.awaitAnalysis;
+  if (!analysis) {
+    throw new Error(
+      `Missing await analysis for async block. This should have been computed during evaluation.`
+    );
+  }
 
   // Get the result type (T in Future(T))
   const resultType = futureModuleType.isFuture.outputType;

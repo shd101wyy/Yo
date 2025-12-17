@@ -8,6 +8,7 @@ import {
   Variable,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
+import type { AwaitAnalysisResult } from "./evaluator/async/await-analysis-types";
 import { EvaluatorContext } from "./evaluator/context";
 import { evaluateExpression } from "./evaluator/exprs/expr";
 import { generateExprFromCode } from "./parser";
@@ -238,6 +239,18 @@ export interface EvaluatedExprData {
    * For closures without captures, this is undefined.
    */
   captureType?: StructType;
+
+  /**
+   * For async block expressions, this contains the await analysis result computed during
+   * evaluation. This includes all await points and captured variables needed by the state machine.
+   *
+   * This is computed once in the evaluator and reused by the codegen stage to avoid redundant
+   * tree walking and ensure consistency.
+   *
+   * Example: For `async { x := await(task1); y := await(task2); }`, this would contain
+   * information about both await points and the variables x and y.
+   */
+  awaitAnalysis?: AwaitAnalysisResult;
 
   /**
    * For closure construction expressions (calling a closure type with a body),
