@@ -18,7 +18,6 @@ import {
   exprToString,
   FuncCallExpr,
   mergeAndCheckEnvs,
-  validateImplReturnTypesAcrossBranches,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -909,15 +908,6 @@ Supported patterns:
           errorMessage: `Failed to determine the return type for match statement.`,
         });
       }
-
-      // Validate that for Impl(...) types, all branches must return the same concrete type
-      // Impl uses static dispatch, so different concrete types are not allowed
-      // Validate that all branches returning Impl(...) have the same concrete type
-      validateImplReturnTypesAcrossBranches(
-        returnType,
-        returnBodies,
-        expr.token
-      );
 
       expr.$ = {
         env,

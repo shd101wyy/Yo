@@ -1,6 +1,4 @@
 open import "std/libc/stdio.yo";
-{ GlobalAllocator } :: import "std/allocator.yo";
-
 
 RetI32 :: module(
   return_i32 : (fn(self : *(Self)) -> i32)
@@ -22,34 +20,14 @@ impl(boolean, RetI32(
   )
 ));
 
-impl(Box(i32), RetI32(
-  // Let's x2 here
-  return_i32 : ((self) -> {
-    return self.*.* + (self.*.*);
-  })
-));
-
-ret_boolean_i32 :: (fn() -> Impl(RetI32)) {
-  return true;
+test_fn :: (fn(flag : boolean) -> Impl(RetI32)) {
+  cond(
+    flag => {
+      return i32(100);
+    },
+    true => {
+      return true;
+    }
+  );
+  return i32(5);
 };
-
-ret_i32_i32 :: (fn() -> Impl(RetI32)) {
-  return i32(123);
-};
-
-ret_boxi32_i32 :: (fn() -> Impl(RetI32)) {
-  return Box(i32)(456);
-};
-
-
-main :: (fn() -> unit) {
-  b := ret_boolean_i32();
-  assert(b.return_i32() == 1, "Expected true from ret_boolean_i32");
-
-  assert(ret_i32_i32().return_i32() == i32(123), "Expected 123 from ret_i32_i32");
-   
-  r := ret_boxi32_i32();
-  assert(&(r).return_i32() == i32(912), "Expected 912 from ret_boxi32_i32");
-};
-
-export main;

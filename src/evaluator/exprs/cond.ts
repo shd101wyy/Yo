@@ -10,7 +10,6 @@ import {
   exprToString,
   FuncCallExpr,
   mergeAndCheckEnvs,
-  validateImplReturnTypesAcrossBranches,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -455,14 +454,6 @@ export function evaluateCond({
             errorMessage: `Failed to determine the return type for cond statement.`,
           });
         }
-
-        // Validate that for Impl(...) types, all branches must return the same concrete type
-        // Validate that all branches returning Impl(...) have the same concrete type
-        validateImplReturnTypesAcrossBranches(
-          returnType,
-          returnBodies,
-          expr.token
-        );
 
         expr.$ = {
           env,

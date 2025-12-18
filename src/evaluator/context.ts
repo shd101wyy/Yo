@@ -161,6 +161,19 @@ export interface EvaluatorContext {
    * not moving out of them.
    */
   isLhsOfAssignment?: boolean;
+
+  /**
+   * Track the concrete type of Impl(...) returns across all return statements in a function.
+   * When a function returns Impl(...) (SomeType), all return statements must return
+   * values of the SAME concrete type due to static dispatch.
+   * This is a mutable container (array with 0 or 1 element) that can be shared across
+   * context copies to preserve mutations.
+   */
+  functionReturnImplConcreteType?: Array<{
+    concreteType: Type;
+    env: Environment;
+    token: Token;
+  }>;
 }
 
 /**

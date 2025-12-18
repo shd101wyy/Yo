@@ -58,6 +58,7 @@ export function createFunctionBodyEvaluationContext(
       type: functionType.return.type,
       env: env,
     },
+    functionReturnImplConcreteType: [], // Empty array for each function
   };
 
   return { evaluationContext, functionBodyContext };

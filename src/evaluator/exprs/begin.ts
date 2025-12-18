@@ -8,7 +8,7 @@ import {
   updateExistingVariable,
   Variable,
 } from "../../env";
-import { formatErrorMessage } from "../../error";
+import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinFunctions,
@@ -28,7 +28,7 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { areTypesCompatible, typeToString } from "../../types";
+import { areTypesCompatible, isSomeType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -464,6 +464,53 @@ export function evaluateBeginExpression({
             token: returnArg.token,
             errorMessage: `Return expression is not evaluated correctly:\n${exprToString(returnArg)}`,
           });
+        }
+
+        // Validate Impl return types across multiple return statements
+        if (
+          context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+            "function-body" &&
+          isSomeType(
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+          ) &&
+          context.functionReturnImplConcreteType
+        ) {
+          const returnedConcreteType = evaluatedReturnArgExpr.$.type;
+
+          if (context.functionReturnImplConcreteType.length > 0) {
+            // We've seen a return before - check that the concrete types match
+            const firstReturn = context.functionReturnImplConcreteType[0]!;
+            const compatible = areTypesCompatible(
+              { type: firstReturn.concreteType, env: firstReturn.env },
+              { type: returnedConcreteType, env }
+            );
+
+            if (!compatible) {
+              throw formatErrorMessages([
+                {
+                  token: exprToEvaluate.token,
+                  errorMessage: `All return statements must return the same concrete type for Impl(...).
+Impl(...) uses static dispatch and requires the same concrete type across all returns.
+Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`,
+                },
+                {
+                  token: firstReturn.token,
+                  errorMessage: `First return has concrete type: ${typeToString(firstReturn.concreteType)}`,
+                },
+                {
+                  token: exprToEvaluate.token,
+                  errorMessage: `Conflicting return has concrete type: ${typeToString(returnedConcreteType)}`,
+                },
+              ]);
+            }
+          } else {
+            // This is the first return - record its concrete type by mutating the array
+            context.functionReturnImplConcreteType.push({
+              concreteType: returnedConcreteType,
+              env,
+              token: exprToEvaluate.token,
+            });
+          }
         }
 
         // Attach temp variable to return value expression if it's non-unit
