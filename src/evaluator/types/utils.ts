@@ -16,6 +16,7 @@ import {
   SomeType,
   StructType,
   typeContainsGcType,
+  typeContainsSomeType,
   typeImplementsSend,
   typeOfType,
   typeToString,
@@ -37,6 +38,10 @@ function parseAndEvaluateExprCode(
   const expr = generateExprFromCode(code);
 
   // Evaluate the expression with the struct as the SelfType
+  // Clear isEvaluatingFunctionBodyOrAsyncBlock because we're defining new functions,
+  // not continuing the evaluation of an outer function body
+  // Set isValidatingFunctionDefinition=true to prevent full evaluation of function bodies
+  // during recursive type construction (avoids infinite loops for recursive types)
   const evaluatedExpr = evaluateExpression({
     expr,
     env,
@@ -387,6 +392,10 @@ export function addARCFunctionsToStructType({
 }): Environment {
   typeOfType(structType); // Ensure no invalid recursive type
 
+  // Check if struct contains SomeType fields - if so, skip full evaluation to avoid
+  // infinite recursion during recursive type construction
+  const containsSomeType = typeContainsSomeType(structType);
+
   // Auto-generate ___drop and ___dup function if it's needed
   const { code: disposeFunctionCode } =
     generateDisposeFunctionCodeForStructType(structType);
@@ -400,6 +409,13 @@ export function addARCFunctionsToStructType({
   /// console.log("struct dup: ", dupFunctionCode);
 
   addARCFunctionSignaturesToStructType({ structType, env, context });
+
+  // For structs containing SomeType fields, skip full function body evaluation
+  // to avoid infinite recursion during recursive type construction.
+  // The signatures are already added, and codegen will handle the implementation.
+  if (containsSomeType) {
+    return env;
+  }
 
   // Add ___dispose function
   env = addFunctionCodeToSelfTypeModule({
@@ -677,6 +693,10 @@ export function addARCFunctionsToEnumType({
 }): Environment {
   typeOfType(enumType); // Ensure no invalid recursive type
 
+  // Check if struct contains SomeType fields - if so, skip full evaluation to avoid
+  // infinite recursion during recursive type construction
+  const containsSomeType = typeContainsSomeType(enumType);
+
   // Auto-generate ___drop, ___dup, and ___dispose functions if needed
   // const { code: disposeFunctionCode } =
   //   generateDisposeFunctionCodeForEnumType(enumType);
@@ -699,6 +719,13 @@ export function addARCFunctionsToEnumType({
   //   env,
   //   context,
   // });
+
+  // For structs containing SomeType fields, skip full function body evaluation
+  // to avoid infinite recursion during recursive type construction.
+  // The signatures are already added, and codegen will handle the implementation.
+  if (containsSomeType) {
+    return env;
+  }
 
   // Add ___drop function to the enum type module fields
   env = addFunctionCodeToSelfTypeModule({
