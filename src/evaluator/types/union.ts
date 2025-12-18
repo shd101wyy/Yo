@@ -7,7 +7,12 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createUnionType, ModuleField, TypeField } from "../../types";
+import {
+  createUnionType,
+  ModuleField,
+  typeContainsGcType,
+  TypeField,
+} from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -63,6 +68,13 @@ export function evaluateUnionType({
       throw formatErrorMessage({
         token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
         errorMessage: `Union type cannot have default value for its fields.`,
+      });
+    }
+
+    if (typeContainsGcType(field.type)) {
+      throw formatErrorMessage({
+        token: field.exprs.expr.token,
+        errorMessage: `Union type cannot have field with garbage-collected type.`,
       });
     }
 
