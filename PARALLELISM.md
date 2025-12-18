@@ -17,15 +17,29 @@ This is similar to:
 - **No atomic RC for thread-local objects**: Reference-counted objects that remain thread-local continue to use non-atomic RC and a thread-local cycle collector.
 - **Simpler ownership analysis**: `Send` checks combined with message passing keep cross-thread ownership reasoning straightforward.
 
-```yo
-// Spawn runs on a DIFFERENT thread, completely isolated
-worker := Worker(i32, boolean).spawn((parent) -> async {
-  msg := await parent.recv();  // Receive from parent
-  await parent.send(true);     // Send to parent
+```rust
+// Spawn runs on a DIFFERENT thread, returns Worker handle immediately
+worker := Worker(i32, boolean).spawn((child) -> async {
+  match(await child.try_recv(),
+    .Some(msg) => {
+      // Received message from parent
+      await child.try_send(true);  // Send back to parent
+    },
+    .None => /* Parent closed */,
+  );
 });
 
-await worker.send(42);           // Send to child
-result := await worker.recv();   // Receive from child (true)
+// Communicate with child
+match(await worker.try_send(42),
+  .Some(()) => {
+    // Sent successfully
+    match(await worker.try_recv(),
+      .Some(result) => /* Got result from child */,
+      .None => /* Child closed */,
+    );
+  },
+  .None => /* Child closed */,
+);
 ```
 
 ## Concurrency vs Parallelism
@@ -54,16 +68,19 @@ Each spawned Worker:
 x := 42;
 obj := SomeObject();
 
-worker := Worker(i32, unit).spawn((parent) -> async {
+worker := Worker(i32, unit).spawn((child) -> async {
   // ❌ CANNOT access parent's stack variables or non-Send objects here
   // (GC-managed `object`/`Dyn` values are not Send and remain thread-local)
 
   // ✅ Can receive/send Sendable values
-  value := await parent.recv();  // Receive copy/move of a Sendable value
+  match(await child.try_recv(),
+    .Some(value) => /* Received copy/move of a Sendable value */,
+    .None => /* Parent closed */,
+  );
 });
 
-await worker.send(x);  // Sending `x` (primitive `i32`) is allowed because it's Send
-// await worker.send(obj);  // ❌ ERROR: Cannot send reference type `obj` (not Send)
+await worker.try_send(x);  // Sending `x` (primitive `i32`) is allowed because it's Send
+// await worker.try_send(obj);  // ❌ ERROR: Cannot send reference type `obj` (not Send)
 ```
 
 ### 2. Sendable Types
@@ -80,9 +97,14 @@ Example:
 Point :: struct(x: i32, y: i32);
 Color :: enum(Red, Green, Blue);
 
-worker := Worker(Point, Color).spawn((parent) -> async {
-  point := await parent.recv();  // Receives a Sendable Point
-  await parent.send(.Blue);      // Sends Color value
+worker := Worker(Point, Color).spawn((child) -> async {
+  match(await child.try_recv(),
+    .Some(point) => {
+      // Received a Sendable Point
+      await child.try_send(.Blue);  // Send Color value back
+    },
+    .None => /* Parent closed */,
+  );
 });
 
 // ❌ Non-Sendable (GC-managed) reference types
@@ -133,41 +155,45 @@ Why thread affinity?
 
 ### Worker Type
 
-```yo
+```rust
 // Worker is a generic type with SendType and ReceiveType
-// SendType: Type of messages parent sends TO child
-// ReceiveType: Type of messages parent receives FROM child
+// The same Worker type is used by both parent and child (with flipped type parameters)
+// For parent: Worker(SendType, ReceiveType) - sends SendType, receives ReceiveType
+// For child: receives Worker(ReceiveType, SendType) as parameter - sends ReceiveType, receives SendType
 Worker :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
   return object(
     // Internal fields (not directly accessible)
     // - thread_handle: OS thread handle
     // - send_channel: Channel(SendType)
     // - recv_channel: Channel(ReceiveType)
-    // - is_alive: boolean
+    // - other_alive: _Atomic bool (tracks if the other end is alive)
+    //   * Parent tracks child's liveness (updated by child on exit)
+    //   * Child tracks parent's liveness (updated by parent on exit/kill)
 
-    // Spawn a new isolated worker
-    // This is a regular function, not closure, so no captured variables.
-    spawn :: (fn(body: Fn(Worker(ReceiveType, SendType)) -> Future(unit)) -> Future(Self)),
+    // Spawn a new isolated worker (returns immediately, no await needed)
+    // The child function receives a Worker with flipped type parameters
+    spawn :: (fn(child: fn(Worker(ReceiveType, SendType)) -> Future(unit)) -> Self),
 
-    // Spawn a dedicated local worker (not from thread pool)
-    spawn_local :: (fn(body: Fn(Worker(ReceiveType, SendType)) -> unit) -> Future(Self)),
+    // Spawn a new worker on a dedicated OS thread (not from thread pool) and not shared with others
+    spawn_local :: (fn(child: fn(Worker(ReceiveType, SendType)) -> Future(unit)) -> Self),
 
-    // Send a message to the other end (blocks if buffer full)
-    send :: (fn(self: Self, msg: SendType) -> Future(unit)),
+    // Try to send a message to the other end
+    // Blocks until: (1) message sent, OR (2) other end closed
+    // Returns Some(()) if sent, None if other end closed
+    try_send :: (fn(self: Self, msg: SendType) -> Future(Option(unit))),
 
-    // Receive a message from the other end (blocks if buffer empty)
-    recv :: (fn(self: Self) -> Future(ReceiveType)),
-
-    // Try to receive without blocking
+    // Try to receive a message from the other end
+    // Blocks until: (1) message received, OR (2) other end closed
+    // Returns Some(value) if received, None if other end closed
     try_recv :: (fn(self: Self) -> Future(Option(ReceiveType))),
 
-    // Check if the other end is still alive
+    // Check if the other end is still alive (non-blocking)
     is_alive :: (fn(self: Self) -> boolean),
 
-    // Wait for the worker to complete
+    // Wait for the worker to complete (blocks until child exits)
     join :: (fn(self: Self) -> Future(unit)),
 
-    // Kill the worker (if still running)
+    // Kill the worker (updates child's parent_alive flag)
     kill :: (fn(self: Self) -> unit),
   );
 };
@@ -175,24 +201,35 @@ Worker :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
 
 ### Basic Usage
 
-```yo
+```rust
 main :: (fn() -> unit) {
   async {
-    // Spawn a worker that receives i32 and sends boolean
-    worker := await Worker(i32, boolean).spawn(
-      (parent) -> async {
+    // Spawn a worker that receives i32 and sends boolean (returns immediately)
+    worker := Worker(i32, boolean).spawn(
+      (child) -> async {
         // Child's perspective: receives i32, sends boolean
-        value := await parent.recv();  // Blocks until message arrives
-        printf("Child received: %d\n", value);
-
-        await parent.send(value > 0);  // Send result back
+        match(await child.try_recv(),
+          .Some(value) => {
+            printf("Child received: %d\n", value);
+            await child.try_send(value > 0);  // Send result back
+          },
+          .None => printf("Parent closed\n"),
+        );
       }
     );
 
     // Parent sends i32, receives boolean
-    await worker.send(42);
-    result := await worker.recv();  // Blocks until child sends
-    printf("Parent received: %s\n", cond(result => "true", true => "false"));
+    match(await worker.try_send(42),
+      .Some(()) => {
+        match(await worker.try_recv(),
+          .Some(result) => {
+            printf("Parent received: %s\n", cond(result => "true", true => "false"));
+          },
+          .None => printf("Child closed\n"),
+        );
+      },
+      .None => printf("Child closed\n"),
+    );
 
     await worker.join();  // Wait for worker to finish
   };
@@ -201,20 +238,20 @@ main :: (fn() -> unit) {
 
 ### Multiple Messages
 
-```yo
+```rust
 // Worker that processes multiple requests
 worker_task :: (fn() -> Future(unit)) async {
-  worker := await Worker(Request, Response).spawn(
-    (parent) -> async {
+  worker := Worker(Request, Response).spawn(
+    (child) -> async {
       // Process requests until parent closes
       while runtval(true), {
-        match(await parent.try_recv(),
+        match(await child.try_recv(),
           .Some(request) => {
             response := process_request(request);
-            await parent.send(response);
+            await child.try_send(response);
           },
           .None => {
-            // Channel closed, exit
+            // Parent closed, exit
             return ();
           },
         );
@@ -223,11 +260,25 @@ worker_task :: (fn() -> Future(unit)) async {
   );
 
   // Send multiple requests
-  await worker.send(Request("query1"));
-  r1 := await worker.recv();
+  match(await worker.try_send(Request("query1")),
+    .Some(()) => {
+      match(await worker.try_recv(),
+        .Some(r1) => /* Process r1 */,
+        .None => /* Child closed */,
+      );
+    },
+    .None => /* Child closed */,
+  );
 
-  await worker.send(Request("query2"));
-  r2 := await worker.recv();
+  match(await worker.try_send(Request("query2")),
+    .Some(()) => {
+      match(await worker.try_recv(),
+        .Some(r2) => /* Process r2 */,
+        .None => /* Child closed */,
+      );
+    },
+    .None => /* Child closed */,
+  );
 
   worker.kill();  // Done with worker
 };
@@ -235,27 +286,34 @@ worker_task :: (fn() -> Future(unit)) async {
 
 ### Bidirectional Streaming
 
-```yo
+```rust
 // Example: Pipeline processing
 pipeline :: (fn() -> Future(unit)) async {
   // Stage 1: Generate numbers
-  stage1 := await Worker(unit, i32).spawn(
-    (parent) -> async {
+  stage1 := Worker(unit, i32).spawn(
+    (child) -> async {
       i := 0;
       while i < 100, {
-        await parent.send(i);
-        i = i + 1;
+        match(await child.try_send(i),
+          .Some(()) => i = i + 1,
+          .None => return (),  // Parent closed
+        );
       };
     }
   );
 
   // Stage 2: Double numbers
-  stage2 := await Worker(i32, i32).spawn(
-    fn(parent) -> async {
+  stage2 := Worker(i32, i32).spawn(
+    (child) -> async {
       loop {
-        match(await parent.try_recv(),
-          .Some(n) => await parent.send(n * 2),
-          .None => return (),
+        match(await child.try_recv(),
+          .Some(n) => {
+            match(await child.try_send(n * 2),
+              .Some(()) => (),
+              .None => return (),  // Parent closed
+            );
+          },
+          .None => return (),  // Parent closed
         );
       };
     }
@@ -265,9 +323,15 @@ pipeline :: (fn() -> Future(unit)) async {
   while runtval(true), {
     match(await stage1.try_recv(),
       .Some(n) => {
-        await stage2.send(n);
-        result := await stage2.recv();
-        printf("Result: %d\n", result);
+        match(await stage2.try_send(n),
+          .Some(()) => {
+            match(await stage2.try_recv(),
+              .Some(result) => printf("Result: %d\n", result),
+              .None => break,
+            );
+          },
+          .None => break,
+        );
       },
       .None => break,
     );
@@ -415,32 +479,38 @@ void* yo_os_thread_loop(void* arg) {
 
 Each spawned Worker has:
 
-- **Separate heap**: All allocations are thread-local
-- **Non-atomic RC**: No need for atomic operations
-- **Thread-local GC**: Cycle collection happens independently
-- **No shared state**: Only message passing
+- **Separate heap for GC values**: All `object`/`Dyn` allocations are thread-local
+- **Non-atomic RC**: Reference-counted objects use non-atomic operations
+- **Thread-local GC**: Cycle collection happens independently per thread
+- **Send-based sharing**: Only `Send` types can cross thread boundaries
 
 This means:
 
-- No data races (nothing shared)
-- No need for `Send`/`Sync` traits (values are copied)
-- No atomic overhead (single-threaded within each Worker)
+- No data races on GC-managed values (they cannot be shared)
+- `Send` trait determines what crosses threads (checked at compile time)
+- No atomic overhead for thread-local objects
 - No cross-thread GC coordination
 
 ### Value Serialization
 
 When sending values between threads, they are **copied**:
 
-```yo
+```rust
 Point :: struct(x: i32, y: i32);
 
-worker := await Worker(Point, unit).spawn((parent) -> async {
-  p := await parent.recv();  // Receives COPY of Point
-  p.x = 999;  // Modifies the copy, not the original
+worker := Worker(Point, unit).spawn((child) -> async {
+  match(await child.try_recv(),
+    .Some(p) => {
+      // Receives COPY of Point (mutated here for child)
+      mut_p := p;
+      mut_p.x = 999;  // Modifies the copy, not the original
+    },
+    .None => (),
+  );
 });
 
 original := Point(x: 1, y: 2);
-await worker.send(original);  // Sends COPY
+await worker.try_send(original);  // Sends COPY
 // original.x is still 1
 ```
 
@@ -454,42 +524,15 @@ For large value types, consider:
 
 ### Parallelism Control
 
-```yo
-// Set the number of worker threads (default: hardware thread count)
-Parallelism.set_num_workers :: (fn(n: usize) -> unit);
+```rust
+// Set the number of threads in pool
+Thread.set_maximum_threads :: (fn(n: usize) -> unit);
 
-// Get the current number of worker threads
-Parallelism.get_num_workers :: (fn() -> usize);
+// Get the number of hardware threads available
+Thread.get_hardware_threads :: (fn() -> usize);
 
-// Get current worker ID (0 to num_workers-1)
-Parallelism.get_worker_id :: (fn() -> usize);
-```
-
-### Worker Methods
-
-```yo
-Worker(SendType, ReceiveType) :: object(
-  // Spawn a new worker (returns Future that resolves to Worker handle)
-  spawn :: (fn(body: Fn(Worker(ReceiveType, SendType)) -> Future(unit)) -> Future(Self)),
-
-  // Send message to child (blocks if channel full)
-  send :: (fn(self: Self, msg: SendType) -> Future(unit)),
-
-  // Receive message from child (blocks if channel empty)
-  recv :: (fn(self: Self) -> Future(ReceiveType)),
-
-  // Try to receive without blocking
-  try_recv :: (fn(self: Self) -> Future(Option(ReceiveType))),
-
-  // Check if child is still running
-  is_alive :: (fn(self: Self) -> boolean),
-
-  // Wait for child to complete
-  join :: (fn(self: Self) -> Future(unit)),
-
-  // Terminate child (if running)
-  kill :: (fn(self: Self) -> unit),
-);
+// Get current thread ID
+Thread.get_thread_id :: (fn() -> usize);
 ```
 
 ## Performance Characteristics
@@ -520,11 +563,11 @@ Worker(SendType, ReceiveType) :: object(
 
 ### Parallel Map
 
-```yo
+```rust
 // Parallel map over array
-parallel_map :: (fn(arr: Array(i32), f: Fn(i32) -> i32) -> Future(Array(i32))) async {
+parallel_map :: (fn(arr: Array(i32), f: fn(i32) -> i32) -> Future(Array(i32))) async {
   n := arr.len();
-  num_workers := Parallelism.get_num_workers();
+  num_workers := Thread.get_hardware_threads();
   chunk_size := (n + num_workers - 1) / num_workers;
 
   // Spawn workers
@@ -535,16 +578,20 @@ parallel_map :: (fn(arr: Array(i32), f: Fn(i32) -> i32) -> Future(Array(i32))) a
     end := min(start + chunk_size, n);
 
     // Each worker receives array chunk, returns processed chunk
-    worker := await Worker(Array(i32), Array(i32)).spawn(
-      (parent) -> async {
-        chunk := await parent.recv();
-        result := chunk.map(f);  // f is captured by value
-        await parent.send(result);
+    worker := Worker(Array(i32), Array(i32)).spawn(
+      (child) -> async {
+        match(await child.try_recv(),
+          .Some(chunk) => {
+            result := chunk.map(f);  // f is captured by value
+            await child.try_send(result);
+          },
+          .None => (),
+        );
       }
     );
 
     // Send chunk to worker
-    await worker.send(arr.slice(start, end));
+    await worker.try_send(arr.slice(start, end));
     workers.push(worker);
     i = i + 1;
   };
@@ -553,8 +600,10 @@ parallel_map :: (fn(arr: Array(i32), f: Fn(i32) -> i32) -> Future(Array(i32))) a
   result := [];
   i := 0;
   while i < workers.len(), {
-    chunk := await workers[i].recv();
-    result = result.concat(chunk);
+    match(await workers[i].try_recv(),
+      .Some(chunk) => result = result.concat(chunk),
+      .None => (),
+    );
     i = i + 1;
   };
 
@@ -564,24 +613,24 @@ parallel_map :: (fn(arr: Array(i32), f: Fn(i32) -> i32) -> Future(Array(i32))) a
 
 ### Worker Pool Pattern
 
-```yo
+```rust
 // Reusable worker pool
 WorkerPool :: (fn(compt(Request): Type, compt(Response): Type) -> compt(Type)) {
   return object(
     workers: Array(Worker(Request, Response)),
     next: usize,
 
-    create :: (fn(n: usize, handler: Fn(Request) -> Response) -> Future(Self)) async {
+    create :: (fn(n: usize, handler: fn(Request) -> Response) -> Self) {
       workers := [];
       i := 0;
       while i < n, {
-        worker := await Worker(Request, Response).spawn(
-          (parent) -> async {
+        worker := Worker(Request, Response).spawn(
+          (child) -> async {
             loop {
-              match(await parent.try_recv(),
+              match(await child.try_recv(),
                 .Some(req) => {
                   resp := handler(req);
-                  await parent.send(resp);
+                  await child.try_send(resp);
                 },
                 .None => return (),
               );
@@ -594,11 +643,13 @@ WorkerPool :: (fn(compt(Request): Type, compt(Response): Type) -> compt(Type)) {
       return Self(workers: workers, next: 0);
     },
 
-    submit :: (fn(self: mut Self, req: Request) -> Future(Response)) async {
+    submit :: (fn(self: mut Self, req: Request) -> Future(Option(Response))) async {
       worker := self.workers[self.next];
       self.next = (self.next + 1) % self.workers.len();
-      await worker.send(req);
-      return await worker.recv();
+      match(await worker.try_send(req),
+        .Some(()) => await worker.try_recv(),
+        .None => .None,
+      )
     },
 
     shutdown :: (fn(self: Self) -> unit) {
@@ -649,14 +700,16 @@ main :: (fn() -> unit) {
       match(event,
         .ButtonClick => {
           // Spawn heavy work on background thread (from pool)
-          worker := Worker(unit, String).spawn((parent) -> async {
+          worker := Worker(unit, String).spawn((child) -> async {
             result := expensive_computation();
-            await parent.send(result);
+            await child.try_send(result);
           });
 
           // Wait for result and update UI (we're on main thread!)
-          result := await worker.recv();
-          label.set_text(result);  // Safe - we're on main thread
+          match(await worker.try_recv(),
+            .Some(result) => label.set_text(result),  // Safe - we're on main thread
+            .None => (),
+          );
         },
         .Close => window.close(),
       );
@@ -671,14 +724,14 @@ When background tasks need to update UI, they send messages back:
 
 ```yo
 // Background worker sends result via channel
-worker := Worker(unit, UIUpdate).spawn((parent) -> async {
+worker := Worker(unit, UIUpdate).spawn((child) -> async {
   data := await fetch_from_network();
-  await parent.send(UIUpdate.SetLabel(data));  // Send to main thread
+  await child.try_send(UIUpdate.SetLabel(data));  // Send to main thread
 });
 
 // Main thread receives and updates UI
 async {
-  while runtval(true), {
+  loop {
     match(await worker.try_recv(),
       .Some(UIUpdate.SetLabel(text)) => label.set_text(text),
       .None => break,
@@ -698,30 +751,40 @@ async {
 
 Yo's parallelism model provides:
 
-1. ✅ **Complete isolation** - no shared memory between threads
-2. ✅ **No data races** - impossible by design
-3. ✅ **Simple mental model** - just message passing
-4. ✅ **No Send/Sync traits** - values are copied
-5. ✅ **Non-atomic RC** - each thread has its own heap
+1. ✅ **Send-based isolation** - GC-managed values cannot cross threads
+2. ✅ **No data races on GC values** - enforced by type system
+3. ✅ **Simple mental model** - message passing with `try_send`/`try_recv`
+4. ✅ **`Send` trait** - compile-time check for thread safety
+5. ✅ **Non-atomic RC** - thread-local objects use non-atomic operations
 6. ✅ **Thread-local GC** - no stop-the-world pauses
 7. ✅ **Thread pool** - efficient thread reuse
 8. ✅ **CPU affinity** - optimal cache locality
+9. ✅ **Cross-thread status tracking** - parent and child track each other's liveness
 
 ### Quick Reference
 
 ```yo
-// Spawn isolated worker
-worker := await Worker(SendType, RecvType).spawn(
-  (parent) -> async {
+// Spawn isolated worker (returns immediately, no await)
+worker := Worker(SendType, RecvType).spawn(
+  (child) -> async {
     // Runs on separate thread
-    msg := await parent.recv();
-    await parent.send(result);
+    match(await child.try_recv(),
+      .Some(msg) => await child.try_send(result),
+      .None => (),
+    );
   }
 );
 
 // Communicate with worker
-await worker.send(value);
-result := await worker.recv();
+match(await worker.try_send(value),
+  .Some(()) => {
+    match(await worker.try_recv(),
+      .Some(result) => /* Use result */,
+      .None => /* Child closed */,
+    );
+  },
+  .None => /* Child closed */,
+);
 
 // Wait for completion
 await worker.join();
@@ -732,10 +795,11 @@ Parallelism.set_num_workers(8);
 
 ### Key Principles
 
-1. **Isolation** - each Worker has its own heap, no sharing
-2. **Message passing** - only way to communicate between Workers
-3. **Value types only** - reference types cannot be sent
+1. **Send-based sharing** - only `Send` types can cross thread boundaries
+2. **Message passing** - primary way to communicate between Workers via `try_send`/`try_recv`
+3. **GC values are thread-local** - `object`/`Dyn` types cannot be sent
 4. **Thread pool** - fixed OS threads, Workers assigned round-robin
 5. **Thread affinity** - Workers never move between OS threads
-6. **Non-atomic** - no atomic operations needed within a Worker
+6. **Non-atomic RC** - no atomic operations for thread-local objects
 7. **Thread-local GC** - each worker collects independently
+8. **Cross-thread status** - parent and child track each other's liveness
