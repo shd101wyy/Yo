@@ -1,33 +1,34 @@
 open import "std/libc/stdio.yo";
+Thread :: import "std/thread";
 
-RetI32 :: module(
-  return_i32 : (fn(self : *(Self)) -> i32)
-);
+Worker :: (fn(compt(SendType) : Type,
+              compt(ReceiveType) : Type)
+          -> compt(Type)) {
+  return object(
 
+    spawn :: ((fn(
+      callback : 
+        (fn(child : recur(ReceiveType, SendType))-> Impl(Future(unit)))
+    ) -> Self) {
+      return panic("Not implemented yet");
+    }),
 
-impl(i32, RetI32(
-  return_i32 : ((self) -> {
-    return self.*;
-  })
-));
+    send :: ((fn(self: Self, msg: SendType) -> Impl(Future(Result(unit, SendType)))) {
+      return panic("Not implemented yet");
+    }),
 
-impl(boolean, RetI32(
-  return_i32 : ((self) ->
-    cond(
-      self.* => 1,
-      true => return 0
-    )
-  )
-));
-
-test_fn :: (fn(flag : boolean) -> Impl(RetI32)) {
-  cond(
-    flag => {
-      return i32(100);
-    },
-    true => {
-      return true;
-    }
+    recv :: ((fn(self: Self) -> Impl(Future(Result(ReceiveType, unit)))) {
+      return panic("Not implemented yet");
+    })
   );
-  return i32(5);
 };
+
+main :: (fn() -> unit) {
+  hardware_threads := Thread.get_hardware_threads();
+  printf("Hardware threads available: %u\n", hardware_threads);
+
+  thread_id := Thread.get_thread_id();
+  printf("Current thread ID: %u\n", thread_id);
+};
+
+export main;

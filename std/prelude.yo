@@ -2755,12 +2755,12 @@ export
 Result :: (fn(compt(OkType): Type, compt(ErrorType): Type) -> compt(Type))
   enum
     Ok(value: OkType),
-    Error(error: ErrorType),
+    Err(error: ErrorType),
 
     unwrap :: ((fn(self : Self) -> OkType)
       match(self,
         .Ok(value) => value,
-        .Error(_) => panic("Called unwrap on an Error value")
+        .Err(_) => panic("Called unwrap on an Error value")
       )
     )
 ;
@@ -2880,7 +2880,7 @@ try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
     unquote(temp) := unquote(expr_to_try);
     match(unquote(temp),
       .Ok => unquote(temp).value,
-      .Error => {
+      .Err => {
         return unquote(temp).error;
       }
     )
