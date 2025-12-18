@@ -76,8 +76,8 @@ Insert some indirection (e.g., a pointer '*' or reference '&') to break the cycl
     }
 
     // For non-universe types, recursively check their type
-    checkedTupleElements.push(element);
-    const typeOfSubType = typeOfType(type, checkedTupleElements);
+    const newCheckedElements = [...checkedTupleElements, element];
+    const typeOfSubType = typeOfType(type, newCheckedElements);
 
     if (isTypeHierarchyType(typeOfSubType)) {
       maxTypeLevel = Math.max(maxTypeLevel, typeOfSubType.level);

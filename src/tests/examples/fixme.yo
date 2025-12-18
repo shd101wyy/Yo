@@ -1,36 +1,15 @@
-Worker ::  (fn(compt(A) : Type,
+Result :: (fn(compt(OkType): Type, compt(ErrorType): Type) -> compt(Type))
+  enum
+    Ok(value: OkType),
+    Err(error: ErrorType)
+;
+
+Worker :: (fn(compt(A) : Type,
               compt(B) : Type)
           -> compt(Type)) {
   return struct(
-    spawn : recur(A, B),
-    send : A,
-    recv: B
+    spawn : recur(B, A),
+    send : Result(A, B)  // ,
+    // recv : Result(B, unit)
   );
 };
-
-/*
-open import "std/libc/stdio.yo";
-Thread :: import "std/thread";
-
-Worker :: (fn(compt(SendType) : Type,
-              compt(ReceiveType) : Type)
-          -> compt(Type)) {
-  return object(
-
-    spawn :: ((fn(
-      callback : 
-        (fn(child : recur(ReceiveType, SendType))-> Impl(Future(unit)))
-    ) -> Self) {
-      return panic("Not implemented yet");
-    }),
-
-    send :: ((fn(self: Self, msg: SendType) -> Impl(Future(Result(unit, SendType)))) {
-      return panic("Not implemented yet");
-    }),
-
-    recv :: ((fn(self: Self) -> Impl(Future(Result(ReceiveType, unit)))) {
-      return panic("Not implemented yet");
-    })
-  );
-};
-*/
