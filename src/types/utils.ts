@@ -627,7 +627,16 @@ export function getValueOfSomeTypeFromEnv(
   someType: SomeType
 ): Type {
   let someTypeValue: TypeValue | undefined = undefined;
+  // Track visited SomeTypes to detect cycles (e.g., A -> B -> A)
+  const visited = new Set<SomeType>();
+
   do {
+    // If we've already visited this SomeType, we have a cycle - return it as-is
+    if (visited.has(someType)) {
+      return someType;
+    }
+    visited.add(someType);
+
     const variables = getVariablesFromEnv(env, someType.name, (variable) => {
       return variable.value?.tag === ValueTag.Type;
       // cannot use "isTypeValue" function here due to circular dependency
@@ -636,14 +645,13 @@ export function getValueOfSomeTypeFromEnv(
       // NOTE: This might be SomeType defined from "forall"
       // So it doesn't exist in the env.
       return someType; // Return itself
-      // return undefined;
     }
 
     someTypeValue = variables[variables.length - 1]!.value as TypeValue;
 
-    // This if condition is used to prevent the infinite loop
+    // If the resolved value is the same object as current someType, return it
     if (someTypeValue.value === someType) {
-      return someType; // Returned itself actually
+      return someType;
     }
     if (isSomeType(someTypeValue.value)) {
       someType = someTypeValue.value;
@@ -937,8 +945,8 @@ function functionTypeToString(
   const typeParams =
     func.forallParameters.length > 0
       ? `forall(${func.forallParameters
-        .map((param) => functionParameterToString(param, visited))
-        .join(", ")})`
+          .map((param) => functionParameterToString(param, visited))
+          .join(", ")})`
       : "";
 
   let variadicParam = "";
@@ -1126,24 +1134,27 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         const enumName = enumType.typeName;
 
         if (enumType.requiredVariantNames ?? enumType.selectedVariantName) {
-          return `${enumName} (${enumType.requiredVariantNames
-            ? `${enumType.requiredVariantNames.map((name) => `.${name}`).join(" | ")} required`
-            : `.${enumType.selectedVariantName} selected`
-            })`;
+          return `${enumName} (${
+            enumType.requiredVariantNames
+              ? `${enumType.requiredVariantNames.map((name) => `.${name}`).join(" | ")} required`
+              : `.${enumType.selectedVariantName} selected`
+          })`;
         }
 
         return enumName;
       }
 
-      return `${enumType.typeName ? `(${enumType.typeName}) ` : ""
-        }enum(${enumType.variants
-          .map((variant) => {
-            return `${variant.name}${variant.fields
+      return `${
+        enumType.typeName ? `(${enumType.typeName}) ` : ""
+      }enum(${enumType.variants
+        .map((variant) => {
+          return `${variant.name}${
+            variant.fields
               ? `(${variant.fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`
               : ""
-              }`;
-          })
-          .join(", ")})`;
+          }`;
+        })
+        .join(", ")})`;
     }
 
     case TypeTag.Union: {
@@ -1153,8 +1164,9 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }
 
       const fields = unionType.fields;
-      return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${unionType.typeName ? "union" : unionType.id
-        }(${fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
+      return `${unionType.typeName ? `(${unionType.typeName}) ` : ""}${
+        unionType.typeName ? "union" : unionType.id
+      }(${fields.map((field) => tupleFieldToString(field, visited)).join(", ")})`;
     }
 
     case TypeTag.Module: {
@@ -1175,8 +1187,9 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (moduleType.typeName) {
         moduleTypeString = moduleType.typeName;
       } else {
-        moduleTypeString = `${moduleType.typeName ? `(${moduleType.typeName}) ` : ""
-          }module(${moduleType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
+        moduleTypeString = `${
+          moduleType.typeName ? `(${moduleType.typeName}) ` : ""
+        }module(${moduleType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
       }
 
       if (moduleType.receiverType) {
@@ -1682,7 +1695,6 @@ function typeCanFormCyclicGcReference(
       }
     }
   }
-
 
   if (isSomeType(type)) {
     if (type.resolvedConcreteType) {
