@@ -17,11 +17,11 @@ Yo aims to be **Simple** and **Fast** (around 0% - 20% slower than C).
 - First-class types.
 - Compile-time evaluation.
 - Homoiconicity and metaprogramming (**Yo** is just a combination of **Lisp** and **C**).
-- Closure
+- Closure.
 - [Async/await](./ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking).
 - `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
-- [Thread-per-core with selective work-stealing concurrency model](./CONCURRENCY.md).
+- Thread-per-core concurrency model (see [PARALLEL.md](./PARALLEL.md)).
 - Modular implicits.
 - **C** interop.  
 - etc
@@ -60,6 +60,12 @@ Test some local yo-cli:
 ```bash
 $ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
 ```
+
+## Editor support
+
+- Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
+    See `vscode-extension/syntaxes/README.md` for installation steps, `ftdetect` examples and `home-manager` snippets.
+
 
 ## License
 
