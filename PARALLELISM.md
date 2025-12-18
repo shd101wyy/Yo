@@ -2,20 +2,20 @@
 
 ## Philosophy
 
-Yo uses **isolated spawn** for parallel execution across multiple CPU cores. Each spawned Worker runs on its own thread with **no shared memory** - communication happens exclusively through typed message passing.
+Yo uses **isolated spawn** for parallel execution across multiple CPU cores. Each spawned Worker runs on its own thread. Shared memory is allowed, but only for values that the type system marks as `Send` (see "Sendable Types" below). GC-managed reference values (for example `object` and `Dyn`, which use non-atomic reference counting) and any value types that contain them are **not** `Send` and therefore cannot be shared across threads. Message passing remains the recommended and safest communication mechanism.
 
 This is similar to:
 
 - **JavaScript Web Workers** - isolated threads, postMessage communication
 - **Erlang/Elixir Processes** - actor model with message passing
-- **Go Goroutines with Channels** - but with enforced isolation
+- **Go Goroutines with Channels** - but with enforced isolation for GC values
 
-**Key Insight**: By eliminating shared memory, we eliminate:
+**Key Insight**: By restricting cross-thread sharing to values that are provably `Send`, Yo keeps the model simple while allowing efficient sharing where safe:
 
-- Data races
-- Need for `Send`/`Sync` traits
-- Atomic reference counting
-- Complex ownership analysis for threading
+- **Reduced data races**: GC-managed reference values are not `Send`, so they cannot be shared across threads and therefore cannot introduce cross-thread data races.
+- **Type-level sendability**: The `Send` module/trait determines which types may cross thread boundaries; only `Send` types may be shared or moved between Workers.
+- **No atomic RC for thread-local objects**: Reference-counted objects that remain thread-local continue to use non-atomic RC and a thread-local cycle collector.
+- **Simpler ownership analysis**: `Send` checks combined with message passing keep cross-thread ownership reasoning straightforward.
 
 ```yo
 // Spawn runs on a DIFFERENT thread, completely isolated
@@ -44,10 +44,10 @@ See `ASYNC_AWAIT.md` for single-threaded concurrency.
 Each spawned Worker:
 
 - Runs on its own OS thread (from thread pool)
-- Has its own heap and memory
-- Has its own reference counting (non-atomic)
+- Has its own heap for GC-managed values
+- Has its own reference counting for objects (non-atomic)
 - Has its own cycle collector
-- **Cannot access parent's variables directly**
+- Cannot directly access the parent's stack variables; cross-thread interaction happens via message passing or by sharing values that are `Send`.
 
 ```yo
 // Parent thread
@@ -55,46 +55,48 @@ x := 42;
 obj := SomeObject();
 
 worker := Worker(i32, unit).spawn((parent) -> async {
-  // ❌ CANNOT access x or obj here!
-  // This is a completely isolated thread
+  // ❌ CANNOT access parent's stack variables or non-Send objects here
+  // (GC-managed `object`/`Dyn` values are not Send and remain thread-local)
 
-  // ✅ Can only communicate via messages
-  value := await parent.recv();  // Receive copy of value
+  // ✅ Can receive/send Sendable values
+  value := await parent.recv();  // Receive copy/move of a Sendable value
 });
 
-await worker.send(x);  // Send COPY of x (value type)
-// await worker.send(obj);  // ❌ ERROR: Cannot send reference type!
+await worker.send(x);  // Sending `x` (primitive `i32`) is allowed because it's Send
+// await worker.send(obj);  // ❌ ERROR: Cannot send reference type `obj` (not Send)
 ```
 
-### 2. Value Types Only
+### 2. Sendable Types
 
-Only value types can be sent between threads:
+Only types that implement the `Send` contract may be shared or sent between threads. In practice this means:
 
-- Primitives: `i32`, `u64`, `f32`, `boolean`, etc.
-- Value structs: `struct(...)` with only value fields
-- Tuples of value types
-- Enums with value payloads
+- **Sendable**: primitives (`i32`, `u64`, `boolean`, etc.), value structs/tuples/enums composed entirely of `Send` fields, and other types explicitly marked `Send`.
+- **Not Sendable**: GC-managed reference types like `object(...)` and `Dyn`, closures that capture non-Send references, and any value type that contains non-Send fields.
 
-Reference types **cannot** be sent:
-
-- `object(...)` - reference counted
-- Closures capturing references
-- Any type with internal pointers
+Example:
 
 ```yo
-// ✅ Value types - can be sent
+// ✅ Sendable value types
 Point :: struct(x: i32, y: i32);
 Color :: enum(Red, Green, Blue);
 
 worker := Worker(Point, Color).spawn((parent) -> async {
-  point := await parent.recv();  // Receives copy of Point
+  point := await parent.recv();  // Receives a Sendable Point
   await parent.send(.Blue);      // Sends Color value
 });
 
-// ❌ Reference types - cannot be sent
+// ❌ Non-Sendable (GC-managed) reference types
 Node :: object(value: i32, next: Option(Node));
-// Worker(Node, unit)  // ERROR: Node is reference type!
+// Worker(Node, unit)  // ERROR: Node is not Send
 ```
+
+The language uses a `Send` module/trait to decide sendability. For example the pointer type is declared `Send` only when its pointee is `Send`:
+
+```
+impl(forall(T : Type), where(T <: Send), *(T), Send());
+```
+
+This means `*(i32)` is `Send` (because `i32` is `Send`), but `*(Box(i32))` is not `Send` if `Box(i32)` is not `Send`.
 
 ### 3. Thread Pool with Affinity
 
