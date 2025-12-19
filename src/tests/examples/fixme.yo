@@ -2,32 +2,32 @@ open import "std/libc/stdio";
 Thread :: import "std/thread";
 
 // Runtime types and functions for workers
-// yo_worker_t is used by BOTH parent and child (symmetric design)
+// __yo_worker_t is used by BOTH parent and child (symmetric design)
 // - Parent's worker: send_channel -> child, recv_channel <- child
 // - Child's worker: send_channel -> parent, recv_channel <- parent (flipped)
 extern "Yo",
-  yo_worker_t : Type,
+  __yo_worker_t : Type,
   
   // Spawn a local worker on a dedicated OS thread
   // Returns parent's worker handle
   __yo_worker_spawn_local : (fn(
-    callback : (fn(self : *(yo_worker_t), closure: *(void)) -> unit),
+    callback : (fn(self : *(__yo_worker_t), closure: *(void)) -> unit),
     closure : ?*(void)
-  ) -> *(yo_worker_t)),
+  ) -> *(__yo_worker_t)),
   
   // Wait for the worker to complete
-  __yo_worker_join : (fn(worker : *(yo_worker_t)) -> unit),
+  __yo_worker_join : (fn(worker : *(__yo_worker_t)) -> unit),
   
   // Check if the other side is still alive
-  __yo_worker_is_other_alive : (fn(worker : *(yo_worker_t)) -> boolean),
+  __yo_worker_is_other_alive : (fn(worker : *(__yo_worker_t)) -> boolean),
   
   // Reference counting
-  __yo_worker_dup : (fn(worker : *(yo_worker_t)) -> unit),
-  __yo_worker_drop : (fn(worker : *(yo_worker_t)) -> unit)
+  __yo_worker_dup : (fn(worker : *(__yo_worker_t)) -> unit),
+  __yo_worker_drop : (fn(worker : *(__yo_worker_t)) -> unit)
 ;
 
 // Simple worker callback that prints thread info
-worker_callback :: (fn(self : *(yo_worker_t), closure: *(void)) -> unit) {
+worker_callback :: (fn(self : *(__yo_worker_t), closure: *(void)) -> unit) {
   printf("Child: spawned at thread id %zu\n", Thread.get_thread_id());
   printf("Child: parent alive = %d\n", __yo_worker_is_other_alive(self));
   printf("Child: exiting\n");

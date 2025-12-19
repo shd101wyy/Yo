@@ -209,10 +209,10 @@ typedef struct {
 } yo_future_generic_t;
 
 // Forward declaration for parallelism runtime types
-// yo_worker_t is defined in the parallelism runtime but may be referenced
+// __yo_worker_t is defined in the parallelism runtime but may be referenced
 // in function declarations before the runtime is fully generated
-typedef struct yo_worker_t yo_worker_t;
-typedef struct yo_channel_t yo_channel_t;
+typedef struct __yo_worker_t __yo_worker_t;
+typedef struct __yo_channel_t __yo_channel_t;
 `);
 
   // Forward declarations - generate struct and enum forward declarations first
