@@ -637,6 +637,24 @@ export interface FunctionType extends Type {
   SelfType?: Type;
 
   /**
+   * The parent function type in which this function type was defined.
+   * This is used for `recur` to reference the correct function when evaluating
+   * nested function types. For example:
+   *
+   *   Worker :: (fn(compt(T): Type) -> compt(Type)) {
+   *     return object(
+   *       spawn_local :: (fn(
+   *         callback : (fn(child : recur(T)) -> unit)  // <-- This function type
+   *       ) -> Self)
+   *     );
+   *   };
+   *
+   * The callback function type's ParentFunctionType would be Worker's function type,
+   * so `recur(T)` can resolve to `Worker(T)` instead of the callback's function type.
+   */
+  ParentFunctionType?: FunctionType;
+
+  /**
    * The module that contains this function's methods (like ___drop, ___dup for closures).
    */
   module: ModuleType;

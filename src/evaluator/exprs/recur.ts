@@ -36,14 +36,15 @@ export function evaluateRecur({
     });
   }
 
-  return evaluateFunctionCall({
+  const evaluatedRecurExpr = evaluateFunctionCall({
     expr: expr,
     env,
     givenFunc: {
       type: isEvaluatingFunctionBodyOfType,
       value: context.isEvaluatingFunctionBodyOrAsyncBlock.value ?? undefined,
-      // createTypeValue(isEvaluatingFunctionBodyOfType),
     },
     context: { ...context },
   });
+
+  return evaluatedRecurExpr;
 }

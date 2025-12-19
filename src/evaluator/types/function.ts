@@ -277,10 +277,6 @@ export function evaluateFunctionParameter({
         context: { ...context },
       });
       if (!evaluatedRhs.$) {
-        console.log(
-          context.SelfType ? typeToString(context.SelfType) : undefined,
-          exprToString(typeExpr)
-        );
         throw formatErrorMessage({
           token: typeExpr.token,
           errorMessage: `(3) Failed to evaluate type expression: ${exprToString(typeExpr)}`,
@@ -1117,6 +1113,10 @@ ${typeToString(returnType)}`,
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
+    ParentFunctionType:
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+        : undefined,
   });
 
   // Pop the environment frame
@@ -1154,6 +1154,16 @@ export function evaluateFunctionParameterTypeAgain({
         ...context,
         expectedType: undefined,
         SelfType: functionType.SelfType,
+
+        isEvaluatingFunctionBodyOrAsyncBlock: functionType.ParentFunctionType
+          ? {
+              kind: "function-body",
+              type: functionType.ParentFunctionType,
+              evaluationEnv: calleeEnv,
+              // QUESTION: Is this evaluationEnv correct?
+              // QUESTION: Should we also set `value`?
+            }
+          : undefined,
       },
     });
     if (!isTypeValue(evaluatedTypeExpr.$?.value)) {

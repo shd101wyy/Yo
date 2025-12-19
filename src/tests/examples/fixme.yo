@@ -1,23 +1,46 @@
+open import "std/libc/stdio";
+Thread :: import "std/thread";
+
+// Place holder types and functions
+// extern "Yo",
+//   __yo_Worker : Type,
+//   __yo_worker_spawn_local : (fn() -> unit),
+//   __yo_worker_send : (fn() -> unit),
+//   __yo_worker_recv : (fn() -> unit)
+// ;
 
 Worker :: (fn(compt(SendType) : Type,
               compt(ReceiveType) : Type)
           -> compt(Type)) {
   return object(
-    id :: "Worker",
+    // worker :: __yo_Worker,
 
-    spawn_local :: ((fn(
+    spawn_local :: (fn(
       callback : 
         (fn(child : recur(ReceiveType, SendType))-> unit)
-    ) -> Self) {
+    ) -> Self)({
+      // __yo_worker_spawn_local();
+      return panic("Not implemented yet");
+    }) // ,
+    /*
+    send :: (fn(self: Self, msg: SendType) -> Impl(Future(Result(unit, SendType))))({
+      __yo_worker_send();
       return panic("Not implemented yet");
     }),
 
-    send :: ((fn(self: Self, msg: SendType) -> Impl(Future(Result(unit, SendType)))) {
-      return panic("Not implemented yet");
-    }),
-
-    recv :: ((fn(self: Self) -> Impl(Future(Result(ReceiveType, unit)))) {
+    recv :: (fn(self: Self) -> Impl(Future(Result(ReceiveType, unit))))({
+      __yo_worker_recv();
       return panic("Not implemented yet");
     })
+    */
   );
 };
+
+main :: (fn() -> unit) {
+  worker := Worker(i32, boolean).spawn_local((child) -> {
+    printf("Spawned workder at %u\n", Thread.get_thread_id());
+  });
+  printf("Main thread id: %u\n", Thread.get_thread_id());
+};
+
+export main;
