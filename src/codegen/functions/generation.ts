@@ -35,6 +35,7 @@ import {
   generateExpr,
   generateReturnStatement,
 } from "../expressions";
+import { generateParallelismRuntime } from "../parallelism/runtime";
 import {
   canOptimizeAsNullablePointer,
   CodeGenContext,
@@ -267,6 +268,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
   // Generate async/await runtime first (defines yo_continuation_t used by worker threads)
   generateAsyncRuntime(context.emitter, context.debugAsyncAwait);
+
+  // Generate parallelism runtime (Worker, Channel for multi-threaded execution)
+  generateParallelismRuntime(context.emitter, context.debugParallelism);
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
@@ -801,6 +805,9 @@ export function generateObjectConstructorDeclarations(
     `void __yo_gc_collect(); // Trigger garbage collection`
   );
   emitter.emitDeclarationLine(
+    `void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`
+  );
+  emitter.emitDeclarationLine(
     `void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
   );
   emitter.emitDeclarationLine(
@@ -982,6 +989,11 @@ static void yo_init_thread_gc() {
   }
   yo_all_thread_gcs = yo_current_thread_gc;
   yo_mutex_unlock(&yo_thread_list_mutex);
+}
+
+// Public function to initialize thread-local GC (for worker threads)
+void __yo_gc_init_thread() {
+  yo_init_thread_gc();
 }`);
 
   // Generate __yo_gc_register and __yo_gc_unregister functions

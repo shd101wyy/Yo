@@ -1,46 +1,56 @@
 open import "std/libc/stdio";
 Thread :: import "std/thread";
 
-// Place holder types and functions
-// extern "Yo",
-//   __yo_Worker : Type,
-//   __yo_worker_spawn_local : (fn() -> unit),
-//   __yo_worker_send : (fn() -> unit),
-//   __yo_worker_recv : (fn() -> unit)
-// ;
+// Runtime types and functions for workers
+// yo_worker_t is used by BOTH parent and child (symmetric design)
+// - Parent's worker: send_channel -> child, recv_channel <- child
+// - Child's worker: send_channel -> parent, recv_channel <- parent (flipped)
+extern "Yo",
+  yo_worker_t : Type,
+  
+  // Spawn a local worker on a dedicated OS thread
+  // Returns parent's worker handle
+  __yo_worker_spawn_local : (fn(
+    callback : (fn(self : *(yo_worker_t), closure: *(void)) -> unit),
+    closure : ?*(void)
+  ) -> *(yo_worker_t)),
+  
+  // Wait for the worker to complete
+  __yo_worker_join : (fn(worker : *(yo_worker_t)) -> unit),
+  
+  // Check if the other side is still alive
+  __yo_worker_is_other_alive : (fn(worker : *(yo_worker_t)) -> boolean),
+  
+  // Reference counting
+  __yo_worker_dup : (fn(worker : *(yo_worker_t)) -> unit),
+  __yo_worker_drop : (fn(worker : *(yo_worker_t)) -> unit)
+;
 
-Worker :: (fn(compt(SendType) : Type,
-              compt(ReceiveType) : Type)
-          -> compt(Type)) {
-  return object(
-    // worker :: __yo_Worker,
-
-    spawn_local :: (fn(
-      callback : 
-        (fn(child : recur(ReceiveType, SendType))-> unit)
-    ) -> Self)({
-      // __yo_worker_spawn_local();
-      return panic("Not implemented yet");
-    }) // ,
-    /*
-    send :: (fn(self: Self, msg: SendType) -> Impl(Future(Result(unit, SendType))))({
-      __yo_worker_send();
-      return panic("Not implemented yet");
-    }),
-
-    recv :: (fn(self: Self) -> Impl(Future(Result(ReceiveType, unit))))({
-      __yo_worker_recv();
-      return panic("Not implemented yet");
-    })
-    */
-  );
+// Simple worker callback that prints thread info
+worker_callback :: (fn(self : *(yo_worker_t), closure: *(void)) -> unit) {
+  printf("Child: spawned at thread id %zu\n", Thread.get_thread_id());
+  printf("Child: parent alive = %d\n", __yo_worker_is_other_alive(self));
+  printf("Child: exiting\n");
 };
 
 main :: (fn() -> unit) {
-  worker := Worker(i32, boolean).spawn_local((child) -> {
-    printf("Spawned workder at %u\n", Thread.get_thread_id());
-  });
-  printf("Main thread id: %u\n", Thread.get_thread_id());
+  printf("Main: thread id %zu\n", Thread.get_thread_id());
+  
+  // Spawn a worker with our callback
+  // Pass null as closure since we don't capture anything
+  worker := __yo_worker_spawn_local(worker_callback, .None);
+  
+  printf("Main: worker spawned, joining...\n");
+  
+  // Wait for child to complete
+  __yo_worker_join(worker);
+  
+  printf("Main: child alive after join = %d\n", __yo_worker_is_other_alive(worker));
+  
+  // Clean up
+  __yo_worker_drop(worker);
+  
+  printf("Main: done\n");
 };
 
 export main;
