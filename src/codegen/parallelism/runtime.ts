@@ -242,13 +242,13 @@ struct __yo_worker_t {
   bool owns_thread;                // Does this worker own the thread? (parent: yes, child: no)
 };
 
-// Worker callback function type
+// Worker callback function type (receives raw worker and optional closure data)
 typedef void (*__yo_worker_callback_fn)(__yo_worker_t* self, void* closure);
 
 // Thread entry point argument
 typedef struct __yo_worker_spawn_args_t {
   __yo_worker_callback_fn callback;  // User's callback function
-  void* closure;                     // Captured environment for callback
+  void* closure;                     // Optional closure data for callback
   __yo_worker_t* child_worker;       // Child's worker handle (already allocated)
 } __yo_worker_spawn_args_t;
 
@@ -306,7 +306,7 @@ static void* __yo_worker_thread_entry(void* arg) {
   // Get the child's worker handle
   __yo_worker_t* child_worker = args->child_worker;
   
-  // Call the user's callback with the child's worker handle
+  // Call the user's callback with the child's worker handle and closure
   args->callback(child_worker, args->closure);
   
   PARALLELISM_DEBUG("[WORKER] Child callback completed\\n");
@@ -334,6 +334,8 @@ static void* __yo_worker_thread_entry(void* arg) {
 
 // Spawn a worker on a dedicated OS thread (spawn_local)
 // Returns the parent's worker handle
+// callback: function that receives (child_worker, closure)
+// closure: optional data to pass to callback (can be NULL)
 __yo_worker_t* __yo_worker_spawn_local(__yo_worker_callback_fn callback, void* closure) {
   PARALLELISM_DEBUG("[WORKER] Spawning local worker\\n");
   
@@ -429,6 +431,29 @@ void __yo_worker_join(__yo_worker_t* worker) {
 bool __yo_worker_is_other_alive(__yo_worker_t* worker) {
   if (!worker || !worker->other_alive) return false;
   return atomic_load(worker->other_alive);
+}
+
+// Dispose of a worker (for use by GC dispose_fn)
+void __yo_worker_dispose(__yo_worker_t* worker) {
+  if (!worker) return;
+  
+  PARALLELISM_DEBUG("[WORKER] Disposing worker %p\\n", (void*)worker);
+  
+  // Mark self as no longer alive
+  atomic_store(&worker->self_alive, false);
+  
+  // Close channels
+  if (worker->send_channel) {
+    __yo_channel_close(worker->send_channel);
+    __yo_channel_destroy(worker->send_channel);
+  }
+  if (worker->recv_channel) {
+    __yo_channel_close(worker->recv_channel);
+    __yo_channel_destroy(worker->recv_channel);
+  }
+  
+  // Free the worker struct
+  __yo_free(worker);
 }
 
 // ============================================================================

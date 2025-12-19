@@ -84,9 +84,10 @@ import { tryToCallTypeWithArguments } from "./type";
  * a SomeType with recursiveTypeRef is returned. This function looks up the
  * actual resolved type from the function's cache.
  *
- * If the cache hasn't been populated yet (recursive type being evaluated),
- * we can use the context's SelfType as a template since all recursive instantiations
- * will have the same structure.
+ * Resolution strategy (in order of preference):
+ * 1. Look up the exact matching cache entry with resolved type
+ * 2. Use context.SelfType if available (when inside struct/object definition)
+ * 3. Use ANY resolved cache entry from the same function (same structure)
  */
 function resolveRecursiveTypeRef(
   someType: SomeType,
@@ -99,8 +100,8 @@ function resolveRecursiveTypeRef(
 
   const { functionValue, argValues } = someType.recursiveTypeRef;
 
-  // Look for a matching cache entry with the actual resolved type
-  const cache = functionValue.calledComptFunctionCaches.find((cache) => {
+  // Strategy 1: Look for the exact matching cache entry with resolved type
+  const exactCache = functionValue.calledComptFunctionCaches.find((cache) => {
     return (
       cache.argValues.length === argValues.length &&
       cache.argValues.every((argValue, index) => {
@@ -122,31 +123,42 @@ function resolveRecursiveTypeRef(
     );
   });
 
-  if (cache && isTypeValue(cache.value)) {
-    // Don't return if it's still a SomeType placeholder (to avoid infinite loop)
-    if (isSomeType(cache.value.value) && cache.value.value.recursiveTypeRef) {
-      // If the cache has a placeholder, check if we can use the context's SelfType.
-      // This works because recursive instantiations of type-generating functions
-      // (like Worker(A, B) and Worker(B, A)) produce the same type structure.
-      // The SelfType represents the type being defined in the current context.
-      if (context?.SelfType && isObjectType(context.SelfType)) {
-        return context.SelfType;
-      }
-      if (context?.SelfType && isStructType(context.SelfType)) {
-        return context.SelfType;
-      }
-      return undefined;
+  if (exactCache && isTypeValue(exactCache.value)) {
+    // Check if it's not still a placeholder
+    if (
+      !(
+        isSomeType(exactCache.value.value) &&
+        exactCache.value.value.recursiveTypeRef
+      )
+    ) {
+      return exactCache.value.value;
     }
-    return cache.value.value;
   }
 
-  // If not found in cache but we have a SelfType that's a struct/object type,
-  // use it since recursive type functions produce the same structure
+  // Strategy 2: Use context.SelfType if available
   if (context?.SelfType && isObjectType(context.SelfType)) {
     return context.SelfType;
   }
   if (context?.SelfType && isStructType(context.SelfType)) {
     return context.SelfType;
+  }
+
+  // Strategy 3: Look for ANY resolved cache entry from the same function
+  // All instantiations of the same type-generating function produce the same structure
+  const anyResolvedCache = functionValue.calledComptFunctionCaches.find(
+    (cache) => {
+      if (!isTypeValue(cache.value)) return false;
+      // Skip if still a placeholder
+      if (isSomeType(cache.value.value) && cache.value.value.recursiveTypeRef) {
+        return false;
+      }
+      // Found a resolved type
+      return true;
+    }
+  );
+
+  if (anyResolvedCache && isTypeValue(anyResolvedCache.value)) {
+    return anyResolvedCache.value.value;
   }
 
   return undefined;
@@ -830,19 +842,49 @@ export function evaluateFunctionCall({
             };
           }
         } else if (isSomeType(wrapperType) && wrapperType.recursiveTypeRef) {
-          // This is a recursive type reference that couldn't be resolved yet
-          // This happens during initial evaluation before the cache is populated
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: formatErrorMessage({
-                token: func.token,
-                errorMessage: `Cannot call recursive type reference before it's resolved:
-${typeToString(wrapperType)}`,
-              }),
-            },
-          };
+          // This is a recursive type reference that couldn't be resolved yet.
+          // Allow it to be used as a constructor - the type will be resolved later.
+          // We treat this as if calling an object constructor with no field validation.
+          try {
+            // Evaluate the arguments to type-check them
+            const runtimeArgExprsInOrder: Expr[] = [];
+            for (const argExpr of argsToUse) {
+              const evaluatedArg = evaluateExpression({
+                expr: argExpr,
+                env: env,
+                context: { ...context },
+              });
+              if (!evaluatedArg.$) {
+                throw formatErrorMessage({
+                  token: argExpr.token,
+                  errorMessage: `Failed to evaluate argument`,
+                });
+              }
+              env = evaluatedArg.$.env;
+              runtimeArgExprsInOrder.push(evaluatedArg);
+            }
+
+            return {
+              ...functionToCall,
+              result: {
+                kind: "type",
+                result: {
+                  values: runtimeArgExprsInOrder.map((e) => e.$.value),
+                  pathCollection: [],
+                  runtimeArgExprsInOrder,
+                  callerEnv: env,
+                },
+              },
+            };
+          } catch (error) {
+            return {
+              ...functionToCall,
+              result: {
+                kind: "error",
+                error: error,
+              },
+            };
+          }
         } else {
           return {
             ...functionToCall,
@@ -1589,12 +1631,46 @@ ${functionsWithMatchingTypes
       // This should already be evaluated by tryToImplementComptListByComptListType
       return expr;
     }
-    // SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
+    // SomeType or DynType - check if it was called as a constructor (has "type" result)
     else if (
       isTypeValue(value) &&
       (isSomeType(value.value) || isDynType(value.value))
     ) {
-      // This should already be evaluated in the first pass
+      // Check if this was a constructor call (has "type" result with recursiveTypeRef)
+      if (
+        functionToCall.result.kind === "type" &&
+        isSomeType(value.value) &&
+        value.value.recursiveTypeRef
+      ) {
+        const someType = value.value;
+        expr.$ = {
+          env,
+          type: someType,
+          originType: someType,
+          pathCollection: [],
+        };
+
+        const { pathCollection, callerEnv, runtimeArgExprsInOrder } =
+          getTypeCallResult(functionToCall);
+        env = callerEnv;
+        expr.$.value = undefined; // Runtime value only
+        expr.$.pathCollection = pathCollection;
+        expr.$.env = env;
+        expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
+
+        // Set temp variable which holds the result of the function call
+        attachTempVariableToExpr(expr, true);
+
+        // Attach necessary info to the func
+        func.$ = {
+          env,
+          type: value.type,
+          value: value,
+          pathCollection: [],
+        };
+        return expr;
+      }
+      // Otherwise it was already evaluated in the first pass (e.g., closure call)
       return expr;
     }
     // numeric type conversion (i32, u8, f64, etc.)

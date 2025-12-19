@@ -8,13 +8,25 @@ When a compile-time function that returns `compt(Type)` uses `recur` to create r
 Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
   Child :: recur(B, A);  // Child = Worker(B, A)
   
+  // Case 1: Using Child INSIDE object definition (has SelfType)
   object(
-    ptr : *(void),
+    raw : *(void),
     _test :: (fn(v : *(void)) -> unit)({
       Self(v);   // OK: Self is available via context.SelfType
-      Child(v);  // ERROR: Child is a SomeType placeholder
+      Child(v);  // Was ERROR, now OK with SelfType resolution
     })
   )
+};
+
+// Case 2: Using Child OUTSIDE object definition (no SelfType)
+Worker2 :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
+  Child :: recur(B, A);
+  
+  internal_wrapper :: (fn(raw : *(void)) -> unit) {
+    Child(raw);  // Was ERROR, now OK with deferred constructor call
+  };
+  
+  object(raw : *(void))
 };
 ```
 
@@ -28,7 +40,7 @@ Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
    - Inside `Worker(u32, i32)`, `recur(A, B)` calls `Worker(i32, u32)`
    - Finds temp cache from step 2, returns SomeType placeholder
    - `Child` is bound to this SomeType
-   - Tries to evaluate `_test` function body (for type-checking)
+   - Tries to evaluate function body (for type-checking)
    - `Child(v)` fails: SomeType is not callable as a constructor
 
 ### Root Cause
@@ -37,7 +49,18 @@ The temp cache mechanism (in `evaluateComptFunctionCall`) prevents infinite recu
 
 ## Solution
 
-We resolve recursive type references by using the `context.SelfType` as a template. Key insight: all instantiations of the same type-generating function produce the same type structure, just with different type parameter bindings.
+Two complementary strategies handle recursive type references:
+
+### Strategy 1: Resolve via SelfType (inside object/struct definition)
+
+When inside an object/struct definition, use `context.SelfType` as a template. Key insight: all instantiations of the same type-generating function produce the same type structure.
+
+### Strategy 2: Deferred Constructor Call (outside object definition)
+
+When outside an object definition (no SelfType available), allow the SomeType to be used as a constructor by:
+1. Evaluating the arguments for type-checking
+2. Setting the expression's type to the SomeType
+3. Letting the actual type resolution happen later
 
 ### Implementation
 
@@ -61,32 +84,54 @@ We resolve recursive type references by using the `context.SelfType` as a templa
 3. **Resolve before type-checking** (`src/evaluator/calls/function.ts`):
    ```typescript
    function resolveRecursiveTypeRef(someType, callerEnv, context) {
-     // Try to find resolved type in cache
-     const cache = functionValue.calledComptFunctionCaches.find(...);
-     
-     if (cache && isTypeValue(cache.value)) {
-       if (isSomeType(cache.value.value) && cache.value.value.recursiveTypeRef) {
-         // Cache still has placeholder - use SelfType as template
-         if (context?.SelfType && isObjectType(context.SelfType)) {
-           return context.SelfType;
-         }
-       }
-       return cache.value.value;
+     // Strategy 1: Look for exact matching cache entry with resolved type
+     const exactCache = functionValue.calledComptFunctionCaches.find(...);
+     if (exactCache && !isSomeType(exactCache.value.value)) {
+       return exactCache.value.value;
      }
      
-     // Not in cache yet - use SelfType if available
+     // Strategy 2: Use context.SelfType if available
      if (context?.SelfType && isObjectType(context.SelfType)) {
        return context.SelfType;
      }
+     
+     // Strategy 3: Look for ANY resolved cache entry (same structure)
+     const anyResolvedCache = functionValue.calledComptFunctionCaches.find(...);
+     if (anyResolvedCache) {
+       return anyResolvedCache.value.value;
+     }
+     
+     return undefined;  // Will use deferred constructor call
+   }
+   ```
+
+4. **Handle unresolved SomeType as deferred constructor** (`src/evaluator/calls/function.ts`):
+   ```typescript
+   // When SomeType has recursiveTypeRef and can't be resolved yet:
+   // - Evaluate arguments to type-check them
+   // - Return a "type" result with the SomeType
+   // - Set expr.$.type to the SomeType for the constructed value
+   if (isSomeType(wrapperType) && wrapperType.recursiveTypeRef) {
+     // Evaluate arguments for type-checking
+     for (const argExpr of argsToUse) {
+       const evaluatedArg = evaluateExpression({ expr: argExpr, env, context });
+       runtimeArgExprsInOrder.push(evaluatedArg);
+     }
+     return { kind: "type", result: { values, pathCollection, runtimeArgExprsInOrder, callerEnv } };
    }
    ```
 
 ### Why This Works
 
-- `Worker(A, B)` and `Worker(B, A)` produce the same type structure: `object(ptr : *(void), _test :: ...)`
+**For Strategy 1 (SelfType resolution):**
+- `Worker(A, B)` and `Worker(B, A)` produce the same type structure
 - Type parameters only affect the *bindings* within that structure, not the structure itself
-- When evaluating `Worker(u32, i32)` and encountering `Child` (which is `Worker(i32, u32)`), we can use the current `SelfType` (the object type being defined) as the resolved type
 - The actual type parameter bindings are handled correctly because each instantiation has its own evaluation environment
+
+**For Strategy 2 (Deferred constructor):**
+- The SomeType placeholder carries enough information (recursiveTypeRef) to identify what type it will become
+- During function body validation, we only need to know the type structure for type-checking
+- The actual type resolution happens when the enclosing compt function completes and updates the cache
 
 ## Comparison with Other Languages
 
@@ -100,11 +145,6 @@ struct Node { child: Node }
 struct Node { child: Box<Node> }
 ```
 
-Type aliases with swapped parameters are allowed:
-```rust
-type Swap<A, B> = (A, Swap<B, A>);  // OK in type aliases
-```
-
 ### Zig
 Zig has comptime functions that can generate types, but uses a different evaluation model that doesn't have this issue.
 
@@ -116,14 +156,23 @@ type Worker<A, B> = {
 }
 ```
 
-## Limitations
+## Current Status
 
-This solution works because:
-1. The recursive type has the same structure across all instantiations
-2. We're in a context where `SelfType` is available (inside struct/object definition)
+✅ **Implemented and working:**
+- Recursive type references inside object/struct definitions (SelfType resolution)
+- Recursive type references outside object definitions (deferred constructor call)
+- Type-checking of arguments when calling recursive type as constructor
 
-It wouldn't work for cases where:
-- The type structure fundamentally changes based on type parameters
-- We're outside a type definition context (no `SelfType`)
+## Test Case
 
-For those cases, additional mechanisms would be needed (e.g., lazy type evaluation, suspension points).
+```yo
+Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
+  Child :: recur(B, A);
+  
+  internal_wrapper :: (fn(raw : *(void)) -> unit) {
+    Child(raw);  // ✅ Now works with deferred constructor call
+  };
+  
+  object(raw : *(void))
+};
+```

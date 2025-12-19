@@ -1,4 +1,17 @@
 Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
+  // The child's view has flipped types
+  Child :: recur(B, A);
+  
+  internal :: (fn(raw : *(void)) -> unit) {
+    Child(raw);
+  };
+  
+  return object(
+    raw : *(void)
+  );
+};
+
+Worker2 :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
   Child :: recur(B, A);
 
   object(

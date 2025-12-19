@@ -176,3 +176,92 @@ main :: (fn() -> unit) {
 };
 
 export main;
+
+// ======
+
+
+open import "std/libc/stdio";
+Thread :: import "std/thread";
+
+// Low-level runtime types and functions
+extern "Yo",
+  __yo_worker_t : Type,
+  
+  __yo_worker_spawn_local : (fn(
+    callback : (fn(self : *(__yo_worker_t), closure : *(void)) -> unit),
+    closure : ?*(void)
+  ) -> *(__yo_worker_t)),
+  
+  __yo_worker_join : (fn(worker : *(__yo_worker_t)) -> unit),
+  __yo_worker_is_other_alive : (fn(worker : *(__yo_worker_t)) -> boolean),
+  __yo_worker_dispose : (fn(worker : *(__yo_worker_t)) -> unit)
+;
+
+// High-level typed Worker abstraction
+// Worker(SendType, ReceiveType) - parent sends SendType, receives ReceiveType
+// Child gets Worker(ReceiveType, SendType) - types are flipped
+Worker :: (fn(compt(SendType) : Type, compt(ReceiveType) : Type) -> compt(Type)) {
+  // The child's view has flipped types
+  Child :: recur(ReceiveType, SendType);
+  
+  // Type for the user's callback function
+  UserCallback :: (fn(child : Child) -> unit);
+  
+  // Internal wrapper that receives raw worker and calls user's callback
+  // closure contains a pointer to the user's callback function
+  internal_wrapper :: (fn(raw : *(__yo_worker_t), closure : *(void)) -> unit) {
+    // Cast closure back to user callback type and call it
+    user_cb := (*(UserCallback))(closure);
+    child := Child(raw);
+    user_cb(child);
+  };
+  
+  object(
+    raw : *(__yo_worker_t),
+    
+    is_other_alive :: (fn(self : *(Self)) -> boolean)(
+      __yo_worker_is_other_alive(self.raw)
+    ),
+    
+    join :: (fn(self : Self) -> unit)(
+      __yo_worker_join(self.raw)
+    ),
+    
+    // Spawn a local worker on a dedicated OS thread
+    // callback must be a non-capturing function
+    spawn_local :: (fn(callback : UserCallback) -> Self)({
+      // Pass wrapper and pointer to callback as closure
+      raw := __yo_worker_spawn_local(internal_wrapper, .Some(*(void)(&(callback))));
+      Self(raw)
+    }),
+    
+    dispose :: (fn(self : Self) -> unit)(
+      __yo_worker_dispose(self.raw)
+    )
+  )
+};
+
+// User's worker function - non-capturing
+my_worker_fn :: (fn(child : Worker(boolean, i32)) -> unit) {
+  printf("Child: spawned at thread id %zu\n", Thread.get_thread_id());
+  printf("Child: parent alive = %d\n", child.is_other_alive());
+  printf("Child: exiting\n");
+};
+
+main :: (fn() -> unit) {
+  printf("Main: thread id %zu\n", Thread.get_thread_id());
+  
+  // Spawn a typed worker
+  // Parent: sends i32, receives boolean
+  // Child: sends boolean, receives i32 (flipped)
+  worker := Worker(i32, boolean).spawn_local(my_worker_fn);
+  
+  printf("Main: worker spawned, joining...\n");
+  worker.join();
+  
+  printf("Main: child alive after join = %d\n", worker.is_other_alive());
+  
+  printf("Main: done\n");
+};
+
+export main;
