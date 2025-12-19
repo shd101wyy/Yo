@@ -183,6 +183,17 @@ export interface SomeType extends Type {
    * This is separate from requiredModules which are the explicit modules in Impl(...).
    */
   module: ModuleType;
+
+  /**
+   * For recursive type references created by `recur` during compile-time evaluation,
+   * stores the function and arguments needed to resolve the actual type later.
+   * When this SomeType is used as a constructor, we look up the actual type from
+   * the function's cache using these values.
+   */
+  recursiveTypeRef?: {
+    functionValue: FunctionValue;
+    argValues: Value[];
+  };
 }
 
 // Extended Type interface for compound types

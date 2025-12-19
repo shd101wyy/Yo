@@ -115,7 +115,9 @@ export function evaluateComptFunctionCall({
     argValues,
     value: createUnknownValue(
       functionType.return.type,
-      functionType.return.label
+      functionType.return.label,
+      // Store recursive type reference so we can resolve it later
+      { functionValue, argValues }
     ),
     env: calleeEnv,
     body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary

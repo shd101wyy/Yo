@@ -16,6 +16,7 @@ import { FunctionValue } from "../../function-value";
 import { stringIsOperator, TokenType } from "../../token";
 import { TypeValue } from "../../type-value";
 import {
+  areTypesCompatible,
   ArrayType,
   createExprType,
   extractFnModuleFromType,
@@ -37,6 +38,7 @@ import {
   typeToString,
 } from "../../types";
 import {
+  areValuesEqual,
   ArrayValue,
   createEnumValue,
   createStructValue,
@@ -75,6 +77,80 @@ import {
 } from "./numeric_type";
 import { tryToConvertToPointerType } from "./pointer_type";
 import { tryToCallTypeWithArguments } from "./type";
+
+/**
+ * Resolves a SomeType that was created as a placeholder for a recursive type.
+ * When recur is called during compile-time evaluation and hits the temp cache,
+ * a SomeType with recursiveTypeRef is returned. This function looks up the
+ * actual resolved type from the function's cache.
+ *
+ * If the cache hasn't been populated yet (recursive type being evaluated),
+ * we can use the context's SelfType as a template since all recursive instantiations
+ * will have the same structure.
+ */
+function resolveRecursiveTypeRef(
+  someType: SomeType,
+  callerEnv: Environment,
+  context?: EvaluatorContext
+): Type | undefined {
+  if (!someType.recursiveTypeRef) {
+    return undefined;
+  }
+
+  const { functionValue, argValues } = someType.recursiveTypeRef;
+
+  // Look for a matching cache entry with the actual resolved type
+  const cache = functionValue.calledComptFunctionCaches.find((cache) => {
+    return (
+      cache.argValues.length === argValues.length &&
+      cache.argValues.every((argValue, index) => {
+        const givenArgValue = argValues[index];
+
+        if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
+          return areTypesCompatible(
+            { type: argValue.value, env: cache.env },
+            { type: givenArgValue.value, env: callerEnv },
+            true // requireExactMatch
+          );
+        }
+
+        return areValuesEqual(
+          { value: argValue, env: cache.env },
+          { value: givenArgValue, env: callerEnv }
+        );
+      })
+    );
+  });
+
+  if (cache && isTypeValue(cache.value)) {
+    // Don't return if it's still a SomeType placeholder (to avoid infinite loop)
+    if (isSomeType(cache.value.value) && cache.value.value.recursiveTypeRef) {
+      // If the cache has a placeholder, check if we can use the context's SelfType.
+      // This works because recursive instantiations of type-generating functions
+      // (like Worker(A, B) and Worker(B, A)) produce the same type structure.
+      // The SelfType represents the type being defined in the current context.
+      if (context?.SelfType && isObjectType(context.SelfType)) {
+        return context.SelfType;
+      }
+      if (context?.SelfType && isStructType(context.SelfType)) {
+        return context.SelfType;
+      }
+      return undefined;
+    }
+    return cache.value.value;
+  }
+
+  // If not found in cache but we have a SelfType that's a struct/object type,
+  // use it since recursive type functions produce the same structure
+  if (context?.SelfType && isObjectType(context.SelfType)) {
+    return context.SelfType;
+  }
+  if (context?.SelfType && isStructType(context.SelfType)) {
+    return context.SelfType;
+  }
+
+  return undefined;
+}
 
 export function evaluateFunctionCall({
   expr,
@@ -499,7 +575,21 @@ export function evaluateFunctionCall({
         };
       }
     } else {
-      const value = functionToCall.value;
+      let value = functionToCall.value;
+
+      // Resolve recursive type references before type checking
+      if (
+        isTypeValue(value) &&
+        isSomeType(value.value) &&
+        value.value.recursiveTypeRef
+      ) {
+        const resolvedType = resolveRecursiveTypeRef(value.value, env, context);
+        if (resolvedType) {
+          value = createTypeValue(resolvedType);
+          functionToCall.value = value;
+          functionToCall.type = value.type;
+        }
+      }
 
       // struct value
       if (isTypeValue(value) && isStructType(value.value)) {
@@ -739,6 +829,20 @@ export function evaluateFunctionCall({
               },
             };
           }
+        } else if (isSomeType(wrapperType) && wrapperType.recursiveTypeRef) {
+          // This is a recursive type reference that couldn't be resolved yet
+          // This happens during initial evaluation before the cache is populated
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: formatErrorMessage({
+                token: func.token,
+                errorMessage: `Cannot call recursive type reference before it's resolved:
+${typeToString(wrapperType)}`,
+              }),
+            },
+          };
         } else {
           return {
             ...functionToCall,
@@ -894,6 +998,17 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
           };
         }
       } else {
+        // DEBUG: Log what we're trying to call
+        console.log("=== DEBUG Invalid function call ===");
+        console.log("value:", value);
+        console.log("isTypeValue:", isTypeValue(value));
+        if (isTypeValue(value)) {
+          console.log("value.value:", typeToString(value.value));
+          console.log("value.value.tag:", value.value?.tag);
+          console.log("isStructType:", isStructType(value.value));
+        }
+        console.log("functionToCall.type:", typeToString(functionToCall.type));
+        console.log("=== END DEBUG ===");
         return {
           ...functionToCall,
           result: {

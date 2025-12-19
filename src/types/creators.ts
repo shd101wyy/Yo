@@ -1,6 +1,7 @@
 import { createEmptyEnv, Environment, Frame } from "../env";
 import { addARCFunctionsToSomeType } from "../evaluator/types/utils";
 import { Expr } from "../expr";
+import { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
 import { Value, valueToString } from "../value";
 import {
@@ -829,7 +830,11 @@ export function createSomeType(
   variableName: string,
   id?: string,
   requiredModules?: ModuleType[],
-  negativeModules?: ModuleType[]
+  negativeModules?: ModuleType[],
+  recursiveTypeRef?: {
+    functionValue: FunctionValue;
+    argValues: Value[];
+  }
 ): SomeType {
   if (type.level !== 0) {
     console.trace();
@@ -856,6 +861,7 @@ export function createSomeType(
     // Necessary to inherit, like extern types from extern "yo"
     isExtern: type.isExtern,
     externName: type.externName,
+    recursiveTypeRef,
   };
   module.receiverType = someType;
 
