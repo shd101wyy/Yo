@@ -369,6 +369,18 @@ export function typeContainsGcType(
     case TypeTag.Function: {
       return false; // Regular functions are not reference types
     }
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      if (typeImplementsFuture(someType)) {
+        return true; // All Future types are reference counted
+      }
+      if (someType.resolvedConcreteType) {
+        return typeContainsGcType(someType.resolvedConcreteType, checkedTypes);
+      } else {
+        // Conservatively return true because we don't know at
+        return true;
+      }
+    }
     // case TypeTag.SomeType: { // NOTE: SomeType is now handled in isGcType
     //   // SomeType conservatively returns true because we don't know at
     //   // generation time whether the concrete type will contain GC types.

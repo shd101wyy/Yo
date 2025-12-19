@@ -19,14 +19,16 @@ This is similar to:
 
 ```rust
 // Spawn runs on a DIFFERENT thread, returns Worker handle immediately
-worker := Worker(i32, boolean).spawn((child) -> async {
-  match(await child.recv(),
-    .Ok(msg) => {
-      // Received message from parent
-      await child.send(true);  // Send back to parent
-    },
-    _ => /* Parent closed */,
-  );
+worker := Worker(i32, boolean).spawn((child) -> {
+  async {
+    match(await child.recv(),
+      .Ok(msg) => {
+        // Received message from parent
+        await child.send(true);  // Send back to parent
+      },
+      _ => /* Parent closed */,
+    );
+  };
 });
 
 // Communicate with child
@@ -68,15 +70,17 @@ Each spawned Worker:
 x := 42;
 obj := SomeObject();
 
-worker := Worker(i32, unit).spawn((child) -> async {
-  // ❌ CANNOT access parent's stack variables or non-Send objects here
-  // (GC-managed `object`/`Dyn` values are not Send and remain thread-local)
+worker := Worker(i32, unit).spawn((child) -> {
+  async {
+    // ❌ CANNOT access parent's stack variables or non-Send objects here
+    // (GC-managed `object`/`Dyn` values are not Send and remain thread-local)
 
-  // ✅ Can receive/send Sendable values
-  match(await child.recv(),
-    .Ok(value) => /* Received copy/move of a Sendable value */,
-    _ => /* Parent closed */,
-  );
+    // ✅ Can receive/send Sendable values
+    match(await child.recv(),
+      .Ok(value) => /* Received copy/move of a Sendable value */,
+      _ => /* Parent closed */,
+    );
+  };
 });
 
 await worker.send(x);  // Sending `x` (primitive `i32`) is allowed because it's Send
@@ -97,14 +101,16 @@ Example:
 Point :: struct(x: i32, y: i32);
 Color :: enum(Red, Green, Blue);
 
-worker := Worker(Point, Color).spawn((child) -> async {
-  match(await child.recv(),
-    .Ok(point) => {
-      // Received a Sendable Point
-      await child.send(.Blue);  // Send Color value back
-    },
-    .Err(_) => /* Parent closed */,
-  );
+worker := Worker(Point, Color).spawn((child) -> {
+  async {
+    match(await child.recv(),
+      .Ok(point) => {
+        // Received a Sendable Point
+        await child.send(.Blue);  // Send Color value back
+      },
+      .Err(_) => /* Parent closed */,
+    );
+  };
 });
 
 // ❌ Non-Sendable (GC-managed) reference types
@@ -174,14 +180,14 @@ Worker :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
     // The child function receives a Worker with flipped type parameters
     spawn :: ((fn(
       callback :
-        (fn(child : recur(ReceiveType, SendType))-> Impl(Future(unit)))
+        (fn(child : recur(ReceiveType, SendType))-> unit)
     ) -> Self) {
       // ...
     }),
 
     // Spawn a new worker on a dedicated OS thread (not from thread pool) and not shared with others
     spawn_local :: ((fn(callback:
-      (fn(child : recur(ReceiveType, SendType)) -> Impl(Future(unit)))
+      (fn(child : recur(ReceiveType, SendType)) -> unit)
     ) -> Self) {
       // ...
     }),
@@ -219,16 +225,18 @@ main :: (fn() -> unit) {
   async {
     // Spawn a worker that receives i32 and sends boolean (returns immediately)
     worker := Worker(i32, boolean).spawn(
-      (child) -> async {
-        // Child's perspective: receives i32, sends boolean
-        match(await child.recv(),
-          .Ok(value) => {
-            printf("Child received: %d\n", value);
-            await child.send(value > 0);  // Send result back
-          },
-          _ => printf("Parent closed\n"),
-        );
-      }
+      (child) -> {
+        async {
+          // Child's perspective: receives i32, sends boolean
+          match(await child.recv(),
+            .Ok(value) => {
+              printf("Child received: %d\n", value);
+              await child.send(value > 0);  // Send result back
+            },
+            _ => printf("Parent closed\n"),
+          );
+        };
+      };
     );
 
     // Parent sends i32, receives boolean
@@ -255,21 +263,23 @@ main :: (fn() -> unit) {
 // Worker that processes multiple requests
 worker_task :: (fn() -> Future(unit)) async {
   worker := Worker(Request, Response).spawn(
-    (child) -> async {
-      // Process requests until parent closes
-      while runtval(true), {
-        match(await child.recv(),
-          .Ok(request) => {
-            response := process_request(request);
-            await child.send(response);
-          },
-          _ => {
-            // Parent closed, exit
-            return ();
-          },
-        );
+    (child) -> {
+      async {
+        // Process requests until parent closes
+        while runtval(true), {
+          match(await child.recv(),
+            .Ok(request) => {
+              response := process_request(request);
+              await child.send(response);
+            },
+            _ => {
+              // Parent closed, exit
+              return ();
+            },
+          );
+        };
       };
-    }
+    };
   );
 
   // Send multiple requests
@@ -304,32 +314,36 @@ worker_task :: (fn() -> Future(unit)) async {
 pipeline :: (fn() -> Future(unit)) async {
   // Stage 1: Generate numbers
   stage1 := Worker(unit, i32).spawn(
-    (child) -> async {
-      i := 0;
-      while i < 100, {
-        match(await child.send(i),
-          .Ok(()) => i = i + 1,
-          _ => return (),  // Parent closed
-        );
+    (child) -> {
+      async {
+        i := 0;
+        while i < 100, {
+          match(await child.send(i),
+            .Ok(()) => i = i + 1,
+            _ => return (),  // Parent closed
+          );
+        };
       };
-    }
+    };
   );
 
   // Stage 2: Double numbers
   stage2 := Worker(i32, i32).spawn(
-    (child) -> async {
-      loop {
-        match(await child.recv(),
-          .Ok(n) => {
-            match(await child.send(n * 2),
-              .Ok(()) => (),
-              _ => return (),  // Parent closed
-            );
-          },
-          _ => return (),  // Parent closed
-        );
+    (child) -> {
+      async {
+        while runtval(true), {
+          match(await child.recv(),
+            .Ok(n) => {
+              match(await child.send(n * 2),
+                .Ok(()) => (),
+                _ => return (),  // Parent closed
+              );
+            },
+            _ => return (),  // Parent closed
+          );
+        };
       };
-    }
+    };
   );
 
   // Connect pipeline
@@ -511,16 +525,18 @@ When sending values between threads, they are **copied**:
 ```rust
 Point :: struct(x: i32, y: i32);
 
-worker := Worker(Point, unit).spawn((child) -> async {
-  match(await child.recv(),
-    .Ok(p) => {
-      // Receives COPY of Point (mutated here for child)
-      mut_p := p;
-      mut_p.x = 999;  // Modifies the copy, not the original
-    },
-    _ => (),
-  );
-});
+worker := Worker(Point, unit).spawn((child) -> {
+  async {
+    match(await child.recv(),
+      .Ok(p) => {
+        // Receives COPY of Point (mutated here for child)
+        mut_p := p;
+        mut_p.x = 999;  // Modifies the copy, not the original
+      },
+      _ => (),
+    );
+  }
+};);
 
 original := Point(x: 1, y: 2);
 await worker.send(original);  // Sends COPY
@@ -622,13 +638,15 @@ Yo's parallelism model provides:
 ```rust
 // Spawn isolated worker (returns immediately, no await)
 worker := Worker(SendType, RecvType).spawn(
-  (child) -> async {
-    // Runs on separate thread
-    match(await child.recv(),
-      .Ok(msg) => await child.send(result),
-      _ => (),
-    );
-  }
+  (child) -> {
+    async {
+      // Runs on separate thread
+      match(await child.recv(),
+        .Ok(msg) => await child.send(result),
+        _ => (),
+      );
+    };
+  };
 );
 
 // Communicate with worker

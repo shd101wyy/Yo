@@ -403,25 +403,6 @@ export function collectType(type: Type, context: CodeGenContext): void {
       cName: getTypeString(type, context),
     };
   }
-  /*
-    // NOTE: No need to collect pointer/reference types here,
-    // Check if it's pointer/reference types
-    else if (
-      isPtrType(type) ||
-      isPtrType(type) ||
-      isGcType(type) ||
-      isMutRefType(type)
-    ) {
-      // Use the base type's C name
-      const baseType = type.type;
-      const baseCName = this.getTypeString(baseType);
-      const cName = `${baseCName}*`; // Pointer type in C
-      this.types[type.id] = {
-        type,
-        cName,
-      };
-    }
-    */
 
   // For other types (struct/enum/union/etc), collect types and functions from their .module property
   if (type.module) {

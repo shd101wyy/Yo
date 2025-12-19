@@ -1,28 +1,13 @@
-Result :: (fn(compt(OkType): Type, compt(ErrorType): Type) -> compt(Type))
-  enum
-    Ok(value: OkType),
-    Err(error: ErrorType)
-;
 
-Worker :: (fn(compt(A) : Type,
-              compt(B) : Type)
-          -> compt(Type)) {
-  return struct(
-    spawn : recur(B, A),
-    send : Result(unit, A),
-    recv : Result(B, unit)
-  );
-};
-
-/*
 Worker :: (fn(compt(SendType) : Type,
               compt(ReceiveType) : Type)
           -> compt(Type)) {
   return object(
+    id :: "Worker",
 
-    spawn :: ((fn(
+    spawn_local :: ((fn(
       callback : 
-        (fn(child : recur(ReceiveType, SendType))-> Impl(Future(unit)))
+        (fn(child : recur(ReceiveType, SendType))-> unit)
     ) -> Self) {
       return panic("Not implemented yet");
     }),
@@ -36,4 +21,3 @@ Worker :: (fn(compt(SendType) : Type,
     })
   );
 };
-*/
