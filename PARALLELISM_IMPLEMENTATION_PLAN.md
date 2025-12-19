@@ -6,12 +6,12 @@ This document outlines the implementation plan for Yo's parallelism features bas
 
 ## Key Design Decisions
 
-### 1. Single `yo_worker_t` Type (Symmetric Design)
+### 1. Single `__yo_worker_t` Type (Symmetric Design)
 
-Both parent and child use the **same** `yo_worker_t` type. This simplifies the design:
+Both parent and child use the **same** `__yo_worker_t` type. This simplifies the design:
 
 ```
-Parent's yo_worker_t:              Child's yo_worker_t:
+Parent's __yo_worker_t:              Child's __yo_worker_t:
 ┌─────────────────────┐            ┌─────────────────────┐
 │ send_channel ───────┼────────────┼─► recv_channel      │
 │ recv_channel ◄──────┼────────────┼── send_channel      │
@@ -59,54 +59,54 @@ However, we provide `__yo_worker_join` for convenience during development.
 
 ```c
 // Channel for inter-thread communication
-typedef struct yo_channel_t {
+typedef struct __yo_channel_t {
   YO_THREAD_SYNC_TYPE mutex;
   YO_COND_TYPE not_empty, not_full;
   void** buffer;
   size_t capacity, head, tail, count;
   _Atomic bool closed;
-} yo_channel_t;
+} __yo_channel_t;
 
 // Worker handle - same type for parent and child
-typedef struct yo_worker_t {
+typedef struct __yo_worker_t {
   size_t ref_count;                // Reference count
-  yo_channel_t* send_channel;      // Send TO the other side
-  yo_channel_t* recv_channel;      // Receive FROM the other side
+  __yo_channel_t* send_channel;      // Send TO the other side
+  __yo_channel_t* recv_channel;      // Receive FROM the other side
   _Atomic bool self_alive;         // Am I alive? (other reads)
   _Atomic bool* other_alive;       // Is other alive? (points to other's self_alive)
   YO_THREAD_TYPE thread;           // OS thread handle
   bool owns_thread;                // Parent owns, child doesn't
-} yo_worker_t;
+} __yo_worker_t;
 ```
 
 #### Runtime Functions
 
 ```c
 // Channel
-yo_channel_t* yo_channel_create(size_t capacity);
-void yo_channel_destroy(yo_channel_t* ch);
-bool yo_channel_send(yo_channel_t* ch, void* msg);
-void* yo_channel_recv(yo_channel_t* ch);
-void yo_channel_close(yo_channel_t* ch);
+__yo_channel_t* yo_channel_create(size_t capacity);
+void __yo_channel_destroy(__yo_channel_t* ch);
+bool __yo_channel_send(__yo_channel_t* ch, void* msg);
+void* __yo_channel_recv(__yo_channel_t* ch);
+void __yo_channel_close(__yo_channel_t* ch);
 
 // Worker
-yo_worker_t* __yo_worker_spawn_local(callback, closure);
-void __yo_worker_join(yo_worker_t* worker);
-bool __yo_worker_is_other_alive(yo_worker_t* worker);
-void __yo_worker_dup(yo_worker_t* worker);
-void __yo_worker_drop(yo_worker_t* worker);
+__yo_worker_t* __yo_worker_spawn_local(callback, closure);
+void __yo_worker_join(__yo_worker_t* worker);
+bool __yo_worker_is_other_alive(__yo_worker_t* worker);
+void __yo_worker_dup(__yo_worker_t* worker);
+void __yo_worker_drop(__yo_worker_t* worker);
 ```
 
 #### Yo Interface
 
 ```yo
 extern "Yo",
-  yo_worker_t : Type,
-  __yo_worker_spawn_local : (fn(callback, closure) -> *(yo_worker_t)),
-  __yo_worker_join : (fn(worker : *(yo_worker_t)) -> unit),
-  __yo_worker_is_other_alive : (fn(worker : *(yo_worker_t)) -> boolean),
-  __yo_worker_dup : (fn(worker : *(yo_worker_t)) -> unit),
-  __yo_worker_drop : (fn(worker : *(yo_worker_t)) -> unit)
+  __yo_worker_t : Type,
+  __yo_worker_spawn_local : (fn(callback, closure) -> *(__yo_worker_t)),
+  __yo_worker_join : (fn(worker : *(__yo_worker_t)) -> unit),
+  __yo_worker_is_other_alive : (fn(worker : *(__yo_worker_t)) -> boolean),
+  __yo_worker_dup : (fn(worker : *(__yo_worker_t)) -> unit),
+  __yo_worker_drop : (fn(worker : *(__yo_worker_t)) -> unit)
 ;
 ```
 
@@ -123,8 +123,8 @@ extern "Yo",
 #### Runtime Functions (Per-Type)
 
 ```c
-bool __yo_worker_send_i32(yo_worker_t* worker, int32_t value);
-int32_t __yo_worker_recv_i32(yo_worker_t* worker, bool* ok);
+bool __yo_worker_send_i32(__yo_worker_t* worker, int32_t value);
+int32_t __yo_worker_recv_i32(__yo_worker_t* worker, bool* ok);
 // ... for each primitive type
 ```
 
@@ -132,8 +132,8 @@ int32_t __yo_worker_recv_i32(yo_worker_t* worker, bool* ok);
 
 For structs composed entirely of sendable fields, generate:
 ```c
-bool __yo_worker_send_MyStruct(yo_worker_t* worker, MyStruct value);
-MyStruct __yo_worker_recv_MyStruct(yo_worker_t* worker, bool* ok);
+bool __yo_worker_send_MyStruct(__yo_worker_t* worker, MyStruct value);
+MyStruct __yo_worker_recv_MyStruct(__yo_worker_t* worker, bool* ok);
 ```
 
 ### Phase 3: Thread Pool (Future)

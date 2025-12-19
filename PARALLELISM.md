@@ -439,10 +439,10 @@ typedef struct {
   pthread_cond_t not_empty;
   pthread_cond_t not_full;
   bool closed;
-} yo_channel_t;
+} __yo_channel_t;
 
 // Send message (blocks if full)
-void yo_channel_send(yo_channel_t* ch, void* msg) {
+void yo_channel_send(__yo_channel_t* ch, void* msg) {
   pthread_mutex_lock(&ch->mutex);
   while (channel_is_full(ch) && !ch->closed) {
     pthread_cond_wait(&ch->not_full, &ch->mutex);
@@ -456,7 +456,7 @@ void yo_channel_send(yo_channel_t* ch, void* msg) {
 }
 
 // Receive message (blocks if empty)
-void* yo_channel_recv(yo_channel_t* ch) {
+void* yo_channel_recv(__yo_channel_t* ch) {
   pthread_mutex_lock(&ch->mutex);
   while (channel_is_empty(ch) && !ch->closed) {
     pthread_cond_wait(&ch->not_empty, &ch->mutex);

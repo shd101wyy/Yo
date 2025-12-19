@@ -1,56 +1,11 @@
-open import "std/libc/stdio";
-Thread :: import "std/thread";
+Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
+  Child :: recur(B, A);
 
-// Runtime types and functions for workers
-// __yo_worker_t is used by BOTH parent and child (symmetric design)
-// - Parent's worker: send_channel -> child, recv_channel <- child
-// - Child's worker: send_channel -> parent, recv_channel <- parent (flipped)
-extern "Yo",
-  __yo_worker_t : Type,
-  
-  // Spawn a local worker on a dedicated OS thread
-  // Returns parent's worker handle
-  __yo_worker_spawn_local : (fn(
-    callback : (fn(self : *(__yo_worker_t), closure: *(void)) -> unit),
-    closure : ?*(void)
-  ) -> *(__yo_worker_t)),
-  
-  // Wait for the worker to complete
-  __yo_worker_join : (fn(worker : *(__yo_worker_t)) -> unit),
-  
-  // Check if the other side is still alive
-  __yo_worker_is_other_alive : (fn(worker : *(__yo_worker_t)) -> boolean),
-  
-  // Reference counting
-  __yo_worker_dup : (fn(worker : *(__yo_worker_t)) -> unit),
-  __yo_worker_drop : (fn(worker : *(__yo_worker_t)) -> unit)
-;
-
-// Simple worker callback that prints thread info
-worker_callback :: (fn(self : *(__yo_worker_t), closure: *(void)) -> unit) {
-  printf("Child: spawned at thread id %zu\n", Thread.get_thread_id());
-  printf("Child: parent alive = %d\n", __yo_worker_is_other_alive(self));
-  printf("Child: exiting\n");
+  object(
+    ptr : *(void),
+    _test :: (fn(v : *(void)) -> unit)({
+      Self(v);
+      Child(v);
+    })
+  )
 };
-
-main :: (fn() -> unit) {
-  printf("Main: thread id %zu\n", Thread.get_thread_id());
-  
-  // Spawn a worker with our callback
-  // Pass null as closure since we don't capture anything
-  worker := __yo_worker_spawn_local(worker_callback, .None);
-  
-  printf("Main: worker spawned, joining...\n");
-  
-  // Wait for child to complete
-  __yo_worker_join(worker);
-  
-  printf("Main: child alive after join = %d\n", __yo_worker_is_other_alive(worker));
-  
-  // Clean up
-  __yo_worker_drop(worker);
-  
-  printf("Main: done\n");
-};
-
-export main;

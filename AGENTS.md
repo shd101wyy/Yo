@@ -69,6 +69,10 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
    - `match(...)` - NOT `match ...`
    - The parentheses are **required** and must not be omitted.
 
+3. Define a function like this:
+   - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
+   - NOTE, no space between `(fn() -> ReturnType)` and `({ body; })`
+
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
 Ignore the `DESIGN.md` and other markdown files because they are out of date.
