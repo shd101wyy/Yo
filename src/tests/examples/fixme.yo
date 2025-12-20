@@ -1,24 +1,13 @@
-Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
-  // The child's view has flipped types
-  Child :: recur(B, A);
-  
-  internal :: (fn(raw : *(void)) -> unit) {
-    Child(raw);
-  };
-  
-  return object(
-    raw : *(void)
-  );
+use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32) {
+  return cb(v);
 };
 
-Worker2 :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
-  Child :: recur(B, A);
+main :: (fn() -> unit) {
+  x := use_cb(10, (u)-> (u + 1));
+  assert(x == 11);
 
-  object(
-    ptr : *(void),
-    _test :: (fn(v : *(void)) -> unit)({
-      Self(v);
-      Child(v);
-    })
-  )
+  y := use_cb(20, (u)-> (u * 2));
+  assert(y == 40);
 };
+
+export main;

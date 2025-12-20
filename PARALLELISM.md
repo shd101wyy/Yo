@@ -19,7 +19,7 @@ This is similar to:
 
 ```rust
 // Spawn runs on a DIFFERENT thread, returns Worker handle immediately
-worker := Worker(i32, boolean).spawn((child) -> {
+worker := Worker(i32, boolean).spawn((child) => {
   async {
     match(await child.recv(),
       .Ok(msg) => {
@@ -70,7 +70,7 @@ Each spawned Worker:
 x := 42;
 obj := SomeObject();
 
-worker := Worker(i32, unit).spawn((child) -> {
+worker := Worker(i32, unit).spawn((child) => {
   async {
     // ❌ CANNOT access parent's stack variables or non-Send objects here
     // (GC-managed `object`/`Dyn` values are not Send and remain thread-local)
@@ -101,7 +101,7 @@ Example:
 Point :: struct(x: i32, y: i32);
 Color :: enum(Red, Green, Blue);
 
-worker := Worker(Point, Color).spawn((child) -> {
+worker := Worker(Point, Color).spawn((child) => {
   async {
     match(await child.recv(),
       .Ok(point) => {
@@ -167,6 +167,8 @@ Why thread affinity?
 // For parent: Worker(SendType, ReceiveType) - sends SendType, receives ReceiveType
 // For child: receives Worker(ReceiveType, SendType) as parameter - sends ReceiveType, receives SendType
 Worker :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
+  Child :: recur(ReceiveType, SendType);
+
   return object(
     // Internal fields (not directly accessible)
     // - thread_handle: OS thread handle
@@ -180,14 +182,14 @@ Worker :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
     // The child function receives a Worker with flipped type parameters
     spawn :: ((fn(
       callback :
-        (fn(child : recur(ReceiveType, SendType))-> unit)
+        Impl(Fn(child : Child)-> unit, Send)
     ) -> Self) {
       // ...
     }),
 
     // Spawn a new worker on a dedicated OS thread (not from thread pool) and not shared with others
     spawn_local :: ((fn(callback:
-      (fn(child : recur(ReceiveType, SendType)) -> unit)
+      Impl(Fn(child : Child) -> unit, Send)
     ) -> Self) {
       // ...
     }),
@@ -225,7 +227,7 @@ main :: (fn() -> unit) {
   async {
     // Spawn a worker that receives i32 and sends boolean (returns immediately)
     worker := Worker(i32, boolean).spawn(
-      (child) -> {
+      (child) => {
         async {
           // Child's perspective: receives i32, sends boolean
           match(await child.recv(),
@@ -263,7 +265,7 @@ main :: (fn() -> unit) {
 // Worker that processes multiple requests
 worker_task :: (fn() -> Future(unit)) async {
   worker := Worker(Request, Response).spawn(
-    (child) -> {
+    (child) => {
       async {
         // Process requests until parent closes
         while runtval(true), {
@@ -314,7 +316,7 @@ worker_task :: (fn() -> Future(unit)) async {
 pipeline :: (fn() -> Future(unit)) async {
   // Stage 1: Generate numbers
   stage1 := Worker(unit, i32).spawn(
-    (child) -> {
+    (child) => {
       async {
         i := 0;
         while i < 100, {
@@ -329,7 +331,7 @@ pipeline :: (fn() -> Future(unit)) async {
 
   // Stage 2: Double numbers
   stage2 := Worker(i32, i32).spawn(
-    (child) -> {
+    (child) => {
       async {
         while runtval(true), {
           match(await child.recv(),
@@ -525,7 +527,7 @@ When sending values between threads, they are **copied**:
 ```rust
 Point :: struct(x: i32, y: i32);
 
-worker := Worker(Point, unit).spawn((child) -> {
+worker := Worker(Point, unit).spawn((child) => {
   async {
     match(await child.recv(),
       .Ok(p) => {
@@ -638,7 +640,7 @@ Yo's parallelism model provides:
 ```rust
 // Spawn isolated worker (returns immediately, no await)
 worker := Worker(SendType, RecvType).spawn(
-  (child) -> {
+  (child) => {
     async {
       // Runs on separate thread
       match(await child.recv(),
