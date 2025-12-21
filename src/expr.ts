@@ -281,6 +281,12 @@ export interface EvaluatedExprData {
    * the frame with the variable `x` before it was popped.
    */
   poppedEnvFrame?: Frame;
+
+  /**
+   * This is the orignal expr before evaluation. It shouldn't contain any $ data.
+   * This is only used for `test` function for generating test function code in `main` function.
+   */
+  originalExpr?: Expr;
 }
 
 export type AtomExpr = {

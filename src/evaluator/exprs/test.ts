@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  cloneExpr,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
@@ -77,6 +78,8 @@ export function evaluateTest({
     });
   }
 
+  const originalTestBodyExpr = cloneExpr(testBodyExpr);
+
   // Evaluate the test body to catch any compile-time errors
   // We evaluate it but don't execute it during normal compilation
   const evaluatedTestBodyExpr = evaluateExpression({
@@ -103,6 +106,7 @@ export function evaluateTest({
       errorMessage: `Test body must have 'unit' type, got ${typeToString(evaluatedTestBodyExpr.$.type)}`,
     });
   }
+  evaluatedTestBodyExpr.$.originalExpr = originalTestBodyExpr;
 
   env = evaluatedTestBodyExpr.$.env;
 

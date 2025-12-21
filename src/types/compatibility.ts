@@ -596,15 +596,22 @@ export function areTypesCompatible(
         if (
           !areTypesCompatible(
             { type: expected.type.resolvedConcreteType, env: expected.env },
-            { type: given.type.resolvedConcreteType, env: given.env }
+            { type: given.type.resolvedConcreteType, env: given.env },
+            requireExactMatch // Pass through requireExactMatch for cache comparisons
           )
         ) {
           return false;
         }
+      } else if (requireExactMatch) {
+        // For exact matching (cache comparisons), both must have resolvedConcreteType
+        // or neither should have it
+        if (
+          expected.type.resolvedConcreteType ||
+          given.type.resolvedConcreteType
+        ) {
+          return false;
+        }
       }
-      // If only one has resolvedConcreteType, that's OK
-      // The one without resolvedConcreteType is more abstract
-      // Example: main signature doesn't have concrete type, but return value does
 
       // If we got here, the required modules are compatible
       // The types are compatible if:

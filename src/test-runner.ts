@@ -200,7 +200,9 @@ function generateTestProgram(
   originalFileContent: string
 ): string {
   // The test body is a begin block, so we wrap it in a main function
-  const testBodyString = exprToString(test.bodyExpr);
+  const testBodyString = exprToString(
+    test.bodyExpr.$?.originalExpr ?? test.bodyExpr
+  );
 
   // Append main function to the original file content
   // The original file already has all imports and definitions
