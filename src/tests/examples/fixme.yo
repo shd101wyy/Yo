@@ -1,13 +1,11 @@
-use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32) {
-  return cb(v);
-};
+List :: object(
+  value : i32,
+  next : Option(Self)
+);
 
-main :: (fn() -> unit) {
-  x := use_cb(10, (u)-> (u + 1));
-  assert(x == 11);
+Data :: object(
+  value : i32
+);
 
-  y := use_cb(20, (u)-> (u * 2));
-  assert(y == 40);
-};
-
-export main;
+compt_print(Type.can_form_gc_cycle(List));
+compt_print(Type.can_form_gc_cycle(Data));

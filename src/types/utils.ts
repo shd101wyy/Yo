@@ -1640,13 +1640,12 @@ Please consider use 'unit' type instead.
  *
  * This uses a depth-first search with cycle detection to avoid infinite recursion.
  */
-export function canRefStructFormCycles(
-  type: StructType,
+export function canTypeFormGcCycle(
+  type: Type,
   visitedTypes = new Set<string>()
 ): boolean {
-  // Only objects can form cycles through reference counting
-  if (!type.isReferenceSemantics) {
-    return false;
+  if (!isObjectType(type)) {
+    return false; // Only objects can form cycles through reference counting
   }
 
   // Avoid infinite recursion by tracking visited types
@@ -1686,7 +1685,7 @@ function typeCanFormCyclicGcReference(
 
   // If this is a different object, check if it could form cycles with the original
   if (isStructType(type) && type.isReferenceSemantics) {
-    return canRefStructFormCycles(type, new Set(visitedTypes));
+    return canTypeFormGcCycle(type, new Set(visitedTypes));
   }
 
   // Check through enum variants

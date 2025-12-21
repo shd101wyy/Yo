@@ -859,7 +859,8 @@ export const BuiltinFunctions = {
   // Type related functions
   __yo_type_to_string: ["__yo_type_to_string"],
   // __yo_type_is_type0: ["__yo_type_is_type0"],
-  __yo_type_contains_arc_type: ["__yo_type_contains_arc_type"],
+  __yo_type_contains_gc_type: ["__yo_type_contains_gc_type"],
+  __yo_type_can_form_gc_cycle: ["__yo_type_can_form_gc_cycle"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
   __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a module (e.g., Copy, Send)
 

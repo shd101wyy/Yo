@@ -62,7 +62,8 @@ import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
   evaluateYoAreTypesCompatible,
-  evaluateYoTypeContainsArcType,
+  evaluateYoTypeCanFormGcCycle,
+  evaluateYoTypeContainsGcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
@@ -734,14 +735,23 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_contains_gc_type, 1)
+    ) {
+      // __yo_type_contains_gc_type
+      return evaluateYoTypeContainsGcType({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_type_contains_arc_type,
+        BuiltinFunctions.__yo_type_can_form_gc_cycle,
         1
       )
     ) {
-      // __yo_type_contains_arc_type
-      return evaluateYoTypeContainsArcType({
+      // __yo_type_can_form_gc_cycle
+      return evaluateYoTypeCanFormGcCycle({
         expr,
         env,
         context: { ...context },

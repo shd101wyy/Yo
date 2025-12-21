@@ -23,10 +23,7 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import {
-  canRefStructFormCycles,
-  typeImplementsFuture,
-} from "../../types/utils";
+import { canTypeFormGcCycle, typeImplementsFuture } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -1432,7 +1429,7 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
-      if (canRefStructFormCycles(type)) {
+      if (canTypeFormGcCycle(type)) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 
