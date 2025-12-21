@@ -22,6 +22,7 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
+  isGcType,
   isNewtypeType,
   isObjectType,
   isPtrType,
@@ -659,6 +660,28 @@ function generateFuncCall(
       return `// Error: __yo_gc_collect requires exactly 0 arguments`;
     }
     return `__yo_gc_collect()`;
+  }
+
+  // rc - get the reference count of a value
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.rc)) {
+    if (expr.args.length !== 1) {
+      return `// Error: rc requires exactly 1 argument`;
+    }
+    const argExpr = expr.args[0]!;
+    const argType = argExpr.$?.type;
+    if (!argType) {
+      return `// Error: rc argument missing type information`;
+    }
+
+    const argCode = generateExpr(argExpr, indent, context);
+
+    // For GC types (reference-counted objects), return the actual ref_count
+    if (isGcType(argType)) {
+      return `((yo_ref_header_t*)(${argCode}))->ref_count`;
+    } else {
+      // For value types, always return 1
+      return `1`;
+    }
   }
 
   // panic - print error message and abort execution

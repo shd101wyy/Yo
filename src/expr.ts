@@ -562,6 +562,7 @@ export const BuiltinFunctions = {
   as: ["as"],
   the: ["the"],
   do: ["do"],
+  rc: "rc", // Get the reference count of a Gc type
 
   // Async/await functions
   async: ["async"],

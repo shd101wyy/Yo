@@ -1,12 +1,57 @@
-List :: object(
-  value : i32,
-  next : Option(Self)
-);
+open import "std/libc/stdio";
 
-Data :: object(
-  value : i32,
-  flag  : bool
-);
+Point :: struct(x : i32, y : i32);
+Wrapper :: struct(v : Box(i32));
 
-compt_print(Type.can_form_gc_cycle(List));
-compt_print(Type.can_form_gc_cycle(Data));
+main :: (fn() -> unit) {
+  // Value type
+  {
+    p1 := Point(3, 4);
+    assert(rc(p1) == 1, "rc(p1) == 1");
+
+    p2 := p1;
+    assert(rc(p1) == 1, "rc(p1) == 1"); // Should be no change.
+    assert(rc(p2) == 1, "rc(p2) == 1");
+  };
+
+  // Reference type
+  {
+    b1 := Box(i32)(3);
+    assert(rc(b1) == 1, "rc(b1) == 1");
+
+    {
+      b2 := b1; // Yo performs dup/drop cancellation here.
+                // So rc(b1) should remain 1.
+      assert(rc(b1) == 1, "rc(b1) == 1");
+      assert(rc(b2) == 1, "rc(b2) == 1");
+
+      {
+        b3 := b2;
+        assert(rc(b1) == 1, "rc(b1) == 1");
+        assert(rc(b2) == 1, "rc(b2) == 1");
+        assert(rc(b3) == 1, "rc(b3) == 1");
+      };
+
+      assert(rc(b1) == 1, "rc(b1) == 1");
+      assert(rc(b2) == 1, "rc(b2) == 1");
+    }
+  };
+
+  // Value type containing reference type
+  {
+    w1 := Wrapper(Box(i32)(5));
+    assert(rc(w1) == 1, "rc(w1) == 1");
+    assert(rc(w1.v) == 1, "rc(w1.v) == 1");
+
+    w2 := w1;
+    assert(rc(w1) == 1, "rc(w1) == 1"); // Should be no change.
+    assert(rc(w2) == 1, "rc(w2) == 1");
+
+    printf("rc(w1.v): %u\n", rc(w1.v));
+    printf("rc(w2.v): %u\n", rc(w2.v));
+    assert(rc(w1.v) == 2, "rc(w1.v) == 2");
+    assert(rc(w2.v) == 2, "rc(w2.v) == 2");
+  };
+};
+
+export main;

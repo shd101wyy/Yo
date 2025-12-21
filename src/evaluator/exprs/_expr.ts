@@ -58,6 +58,7 @@ import { evaluateYoNumericFunctions } from "../builtins/numeric_fns";
 import { evaluatePanic } from "../builtins/panic";
 import { evaluateAddressCall } from "../builtins/ptr_fns";
 import { evaluateQuote } from "../builtins/quote";
+import { evaluateRc } from "../builtins/rc";
 import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
@@ -346,6 +347,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.alignof)) {
       // alignof
       return evaluateAlignOf({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.rc)) {
+      // rc
+      return evaluateRc({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, "<:")) {
       // <: subtype_of
       return evaluateSubtypeOf({ expr, env, context: { ...context } });

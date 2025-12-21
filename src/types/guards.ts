@@ -18,6 +18,7 @@ import {
   VoidType,
 } from "./definitions";
 import { TypeTag } from "./tags";
+import { typeImplementsFuture } from "./utils";
 
 // Basic type guards
 export function isPrimitiveType(type: Type): boolean {
@@ -245,6 +246,17 @@ export function isDynType(type?: Type): type is DynType {
  * @returns
  */
 export function isGcType(type?: Type): boolean {
+  if (isSomeType(type)) {
+    const someType = type as SomeType;
+
+    if (typeImplementsFuture(someType)) {
+      return true;
+    }
+    if (someType.resolvedConcreteType) {
+      return isGcType(someType.resolvedConcreteType);
+    }
+  }
+
   return (
     isObjectType(type) ||
     // We assume all the SomeType is reference-counted
