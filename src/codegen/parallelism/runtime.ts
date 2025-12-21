@@ -29,16 +29,8 @@ export function generateParallelismRuntime(
 // - spawn: create new OS thread with closure (returns by value)
 // - join: wait for thread to complete
 //
-// Note: __yo_thread_t is returned by value (stack allocated)
-// The pthread handle is stored directly in the struct
-
-// Thread handle (value type, not pointer)
-typedef struct __yo_thread_t {
-  YO_THREAD_TYPE handle;        // OS thread handle (pthread_t or HANDLE)
-} __yo_thread_t;
-
-// Thread callback type - function pointer with closure
-typedef void (*__yo_thread_fn)(void* closure);
+// Note: __yo_thread_t and __yo_thread_fn are defined in the GC runtime types section
+// to ensure they're available before user struct types that depend on them.
 
 // Thread entry point wrapper
 typedef struct __yo_thread_entry_args_t {
@@ -62,6 +54,11 @@ static void* __yo_thread_entry(void* arg) {
   
   // Cleanup thread-local GC
   __yo_gc_collect();
+  
+  // Free the closure data (heap-allocated by codegen)
+  if (args->closure) {
+    __yo_free(args->closure);
+  }
   
   // Free args
   __yo_free(args);

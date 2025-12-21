@@ -5,8 +5,32 @@ extern "Yo",
   __yo_get_thread_id : (fn() -> usize)
 ;
 
+// Low-level runtime types and functions for Thread
+extern "Yo",
+  __yo_thread_t : Type,
+  __yo_thread_spawn : (fn(cb : Impl(Fn() -> unit, Send)) -> __yo_thread_t),
+  __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
+;
+
+// High-level Thread wrapper - a simple struct (stack allocated)
+Thread :: struct(
+  handle : __yo_thread_t,
+  
+  // Spawn a new OS thread running the given closure
+  spawn :: (fn(cb : Impl(Fn() -> unit, Send)) -> Self)({
+    raw := __yo_thread_spawn(cb);
+    Self(raw)
+  }),
+  
+  // Wait for the thread to complete (blocking)
+  join :: (fn(self : *(Self)) -> unit)(
+    __yo_thread_join(self.handle)
+  )
+);
+
 export
   set_maximum_threads : __yo_thread_set_maximum_threads,
   get_hardware_threads : __yo_thread_get_hardware_threads,
-  get_thread_id : __yo_get_thread_id
+  get_thread_id : __yo_get_thread_id,
+  Thread
 ;

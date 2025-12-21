@@ -9,7 +9,6 @@ This document outlines the implementation plan for Yo's parallelism features bas
 **Thread** = Dedicated OS thread wrapper
 - `Thread.spawn(fn)` → spawns a dedicated OS thread  
 - `Thread.join()` → wait for completion
-- `Thread.kill()` → cooperative termination
 
 **Worker** = Thread pool task (fire-and-forget)
 - `Worker.spawn(fn)` → runs on thread pool with thread affinity
@@ -146,4 +145,3 @@ Separate implementation, not tied to Thread/Worker.
 2. **Thread uses struct** - Simple value type with handle
 3. **Worker is fire-and-forget** - No handle, just spawn and forget
 4. **Kill is cooperative** - Sets flag, thread must check and exit
-5. **Non-async join/kill** - Blocking operations, not async

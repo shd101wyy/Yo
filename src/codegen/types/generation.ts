@@ -142,6 +142,15 @@ typedef enum {
 #endif
 #endif
 
+// Thread handle type for parallelism - value type, stack allocated
+// Contains the OS thread handle (pthread_t or HANDLE)
+typedef struct __yo_thread_t {
+  YO_THREAD_TYPE handle;
+} __yo_thread_t;
+
+// Thread callback type for spawn
+typedef void (*__yo_thread_fn)(void* closure);
+
 YO_THREAD_SYNC_TYPE yo_mutex_create(void);
 YO_COND_TYPE yo_cond_create(void);
 /**

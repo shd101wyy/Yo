@@ -1,44 +1,38 @@
 open import "std/libc/stdio";
-{ get_thread_id } :: import "std/thread";
+{ get_thread_id, Thread } :: import "std/thread";
 
-// Low-level runtime types and functions for Thread
-extern "Yo",
-  __yo_thread_t : Type,
-  __yo_thread_spawn : (fn(cb : Impl(Fn() -> unit, Send)) -> __yo_thread_t),
-  __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
-;
-
-// High-level Thread wrapper - a simple struct (stack allocated)
-Thread :: struct(
-  handle : __yo_thread_t,
-  
-  // Spawn a new OS thread running the given closure
-  spawn :: (fn(cb : Impl(Fn() -> unit, Send)) -> Self)({
-    raw := __yo_thread_spawn(cb);
-    Self(raw)
-  }),
-  
-  // Wait for the thread to complete (blocking)
-  join :: (fn(self : Self) -> unit)(
-    __yo_thread_join(self.handle)
-  )
-);
-
-main :: (fn() -> unit) {
-  printf("Main thread: %zu\n", get_thread_id());
-  
-  // Spawn a dedicated OS thread with closure syntax
-  thread := Thread.spawn(() => {
-    printf("Hello from thread %zu!\n", get_thread_id());
-  });
-  
-  printf("Main: spawned thread, waiting...\n");
-  
-  // Wait for thread to complete (also frees handle)
+test "Thread spawn and join without captures", {
+  thread := Thread.spawn(
+    () => ()     // Thread runs with no captures
+  );
   thread.join();
-  
-  printf("Main: thread completed\n");
-  printf("Main: done\n");
 };
 
-export main;
+test "Thread spawn and join with i32 capture", {
+  value := 42;
+  thread := Thread.spawn(() => {
+    // Use captured value
+    assert(value == 42);
+  });
+  thread.join();
+};
+
+test "Thread spawn and join with multiple captures", {
+  x := 100;
+  y := 200;
+  thread := Thread.spawn(() => {
+    // Use captured values
+    assert((x + y) == 300);
+  });
+  thread.join();
+};
+
+test "Thread spawn and join with multiple boxed captures", {
+  x := box(100);
+  y := box(200);
+  thread := Thread.spawn(() => {
+    // Use captured values
+    assert((x.* + y.*) == 300);
+  });
+  thread.join();
+};
