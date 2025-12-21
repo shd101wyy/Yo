@@ -406,7 +406,7 @@ async function runTestsWithConcurrency(
 
   if (concurrency === 1) {
     // Sequential execution - original behavior with immediate output
-    for (const { test, originalContent, relativePath } of testsToRun) {
+    for (const { test, originalContent } of testsToRun) {
       if (bailed) break;
 
       const result = runSingleTest(test, originalContent, cCompiler);
@@ -563,7 +563,7 @@ export async function runTests(
 
   // Collect all tests to run, grouped by file
   const testsByFile: Map<string, TestToRun[]> = new Map();
-  let totalTests = 0;
+  let _totalTests = 0;
 
   for (const filePath of testFiles) {
     const relativePath = path.relative(process.cwd(), filePath);
@@ -581,7 +581,7 @@ export async function runTests(
         relativePath,
       }));
       testsByFile.set(relativePath, testsToRun);
-      totalTests += tests.length;
+      _totalTests += tests.length;
     }
   }
 

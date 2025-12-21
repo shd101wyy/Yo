@@ -189,7 +189,7 @@ export function generateAsyncBlockResumeFunction(
       // (Captured Future variables may outlive the await and are handled by normal drops.)
       // Since Futures are ref-counted, we use __yo_decr_rc instead of direct dispose.
       if (!prevAwait.futureVariableId) {
-        const awaitExpr = prevAwait.expr;
+        const awaitExpr = prevAwait.expr as Expr;
         if (awaitExpr.tag === ExprTag.FuncCall) {
           const futureArg = awaitExpr.args[0];
           const futureType = futureArg?.$?.type;

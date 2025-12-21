@@ -1039,7 +1039,7 @@ export function getMethodsByNameFromEnv(
       const concreteModule = concreteType.module;
 
       // 1) Direct methods on the concrete type
-      const directConcreteMethod = concreteModule.fields.find(
+      const directConcreteMethod = concreteModule?.fields.find(
         (f) => f.label === methodName && isFunctionType(f.type)
       );
       if (directConcreteMethod && isFunctionType(directConcreteMethod.type)) {
@@ -1055,7 +1055,7 @@ export function getMethodsByNameFromEnv(
       // 2) Impl module methods stored as ModuleValue with empty label ""
       // This is where `impl(concreteType, Module(...))` attaches concrete method bodies.
       if (methods.length === 0) {
-        for (const field of concreteModule.fields) {
+        for (const field of concreteModule?.fields ?? []) {
           if (
             field.label === "" &&
             field.assignedValue &&

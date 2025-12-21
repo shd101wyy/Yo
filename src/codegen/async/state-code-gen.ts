@@ -140,7 +140,7 @@ export function splitIntoStateSegments(
  */
 function findAwaitInExpr(expr: Expr, awaitPoints: AwaitPoint[]): number {
   for (let i = 0; i < awaitPoints.length; i++) {
-    if (containsAwaitExpr(expr, awaitPoints[i]!.expr)) {
+    if (containsAwaitExpr(expr, awaitPoints[i]!.expr as Expr)) {
       return i;
     }
   }
@@ -191,7 +191,8 @@ export function generateStateSegmentCode(
 
     // Check if this expression contains the await for this segment
     const isAwaitExpr =
-      segment.awaitPoint && containsAwaitExpr(expr, segment.awaitPoint.expr);
+      segment.awaitPoint &&
+      containsAwaitExpr(expr, segment.awaitPoint.expr as Expr);
 
     // Also check if this is a while/cond that contains await (even if it's not THE await expr)
     const isWhileOrCondWithAwait =

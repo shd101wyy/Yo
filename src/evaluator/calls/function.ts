@@ -869,7 +869,7 @@ export function evaluateFunctionCall({
               result: {
                 kind: "type",
                 result: {
-                  values: runtimeArgExprsInOrder.map((e) => e.$.value),
+                  values: runtimeArgExprsInOrder.map((e) => e.$!.value),
                   pathCollection: [],
                   runtimeArgExprsInOrder,
                   callerEnv: env,
