@@ -29,6 +29,7 @@ import {
   VoidType,
 } from "./definitions";
 import { TypeTag } from "./tags";
+import { typeToString } from "./utils";
 
 let cachedComptIntType: Type | null = null;
 export function createComptIntType(): Type {
@@ -995,6 +996,26 @@ export function createFutureModuleType(
   return module as FutureModuleType;
 }
 
+/**
+ * Create a canonical signature for a module type based on its structure, not its unique ID.
+ * This ensures that Dyn types with the same module structure get the same ID.
+ */
+function createModuleSignature(moduleType: ModuleType): string {
+  const fieldSignatures = moduleType.fields.map((field) => {
+    // For function types, create a canonical signature
+    if (field.type.tag === TypeTag.Function) {
+      const fnType = field.type as FunctionType;
+      const paramSigs = fnType.parameters
+        .map((p) => `${p.label}:${typeToString(p.type)}`)
+        .join(",");
+      const returnSig = typeToString(fnType.return.type);
+      return `${field.label}:(${paramSigs})->${returnSig}`;
+    }
+    return `${field.label}:${typeToString(field.type)}`;
+  });
+  return fieldSignatures.join(";");
+}
+
 export function createDynType(
   requiredModules: ModuleType[],
   env: Environment,
@@ -1002,8 +1023,17 @@ export function createDynType(
 ): DynType {
   const module = createModuleType(env);
 
+  // Create a canonical ID based on module structure, not unique IDs
+  const moduleSignatures = requiredModules
+    .map((m) => createModuleSignature(m))
+    .join("__");
+  const negativeSignatures = negativeModules
+    ? negativeModules.map((m) => createModuleSignature(m)).join("__")
+    : "";
+  const canonicalId = `dyn_${hashString(moduleSignatures + (negativeSignatures ? `_neg_${negativeSignatures}` : ""))}`;
+
   const dynType: DynType = {
-    id: `dyn_${requiredModules.map((m) => m.id).join("_")}`,
+    id: canonicalId,
     tag: TypeTag.Dyn,
     requiredModules: [...requiredModules],
     negativeModules:

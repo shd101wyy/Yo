@@ -1,21 +1,19 @@
-use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
+use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
   return cb(v);
 };
 
 main :: (fn() -> unit) {
   a := 2;
 
-  x := use_cb(10, (u) => ((u + 1) + a)); // capture variable 'a'
+  x := use_cb(10, dyn (u) => ((u + 1) + a)); // capture variable 'a'
   assert(x == 13);
 
-  y := use_cb(20, (u) => (u * 2)); // capture nothing
+  y := use_cb(20, dyn (u) => (u * 2)); // capture nothing
   assert(y == 40);
 
   b := Box(i32)(5);
-  z := use_cb(10, (u) => ((u + 1) + b.*)); // capture variable 'a'
-  assert(x == 16);
+  z := use_cb(10, dyn (u) => ((u + 1) + b.*)); // capture variable 'b'
+  assert(z == 16);
 };
 
 export main;
-
-// TODO: Also test dyn closure
