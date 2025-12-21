@@ -39,6 +39,7 @@ import {
   isExprListType,
   isExprType,
   isFunctionSpecializable,
+  isSomeType,
   isTypeHierarchyType,
   Type,
   typeContainsSomeType,
@@ -1182,7 +1183,13 @@ function createSpecializedFunctionInline({
     } else {
       // Use argType (the actual concrete argument type) for cache comparison,
       // not parameterType (which might be a SomeType like Impl(...))
-      runtimeParameters.push({ ...param, type: arg.argType });
+      // If argType is a SomeType with resolvedConcreteType, use the concrete type
+      // so that the specialized function's parameters are fully resolved
+      const concreteType =
+        isSomeType(arg.argType) && arg.argType.resolvedConcreteType
+          ? arg.argType.resolvedConcreteType
+          : arg.argType;
+      runtimeParameters.push({ ...param, type: concreteType });
     }
   });
 

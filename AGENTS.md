@@ -15,9 +15,9 @@ Never hardcode any typescript or yo when you are trying to solve a problem.
 
 Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
-To test the Yo codegen transpiler, you can run the command `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --release` to compile the `fixme.yo`. Or run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
+To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/examples/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/examples/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
-Or you can run `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
+Or you can run `./yo-cli compile src/tests/examples/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
 
 For debugging running command, always use `| head` or `| tail` to limit the output.
 
@@ -30,12 +30,12 @@ For debugging running command, always use `| head` or `| tail` to limit the outp
 
 - `--sanitize address` - Enable AddressSanitizer for memory error and leak detection
 - `--sanitize leak` - Enable LeakSanitizer for leak detection only
-- Example: `bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
+- Example: `./yo-cli compile src/tests/examples/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
 
 **Running Tests:**
 
-- `bun run src/yo-cli.ts test` - Run all \*.test.yo files
-- `bun run src/yo-cli.ts test path/to/file.yo` - Run tests in a specific file
+- `./yo-cli test` - Run all \*.test.yo files
+- `./yo-cli test path/to/file.yo` - Run tests in a specific file
 - `--bail` or `-b` - Stop immediately after first test failure
 - `-v` or `--verbose` - Show detailed error messages
 - Tests automatically use AddressSanitizer for memory leak detection
@@ -85,7 +85,7 @@ Read `LEARN_YO_IN_10_MINUTES.yo` to understand the syntax.
 
 If you havent changed the code, don't ask me to run `bun test ...`
 
-To run the full C codegen tests, run: `$ bun run src/yo-cli.ts test ./tests`. Add `-v` if you need verbose output.
+To run the full C codegen tests, run: `$ ./yo-cli test ./tests`. Add `-v` if you need verbose output.
 
 When you are working on the C codegen. Do not call `emitter.emitLine` multiple times when you can just use `emitter.emitLine( multi-line string )`
 

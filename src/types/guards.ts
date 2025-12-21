@@ -378,6 +378,7 @@ export function isCCompatibleType(type?: Type): boolean {
  * - Compile-time only parameters
  * - Type parameters
  * - Compile-time only implicit parameters
+ * - Parameters with SomeType (Impl(...)) that need monomorphization
  * And its return type is not compile-time only.
  */
 export function isFunctionSpecializable(functionType: FunctionType): boolean {
@@ -396,7 +397,13 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
     functionType.forallParameters.length > 0;
 
-  return hasCompileTimeParams;
+  // Check if this function has SomeType parameters (like Impl(Fn(...)))
+  // that need monomorphization for different concrete types
+  const hasSomeTypeParams = functionType.parameters.some(
+    (p) => !p.isCompileTimeOnly && isSomeType(p.type)
+  );
+
+  return hasCompileTimeParams || hasSomeTypeParams;
 }
 
 /**

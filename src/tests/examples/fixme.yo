@@ -1,44 +1,21 @@
-open import "std/libc/stdio";
-{ get_thread_id } :: import "std/thread";
-
-// Low-level runtime types and functions for Thread
-extern "Yo",
-  __yo_thread_t : Type,
-  __yo_thread_spawn : (fn(cb : Impl(Fn() -> unit, Send)) -> __yo_thread_t),
-  __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
-;
-
-// High-level Thread wrapper - a simple struct (stack allocated)
-Thread :: struct(
-  handle : __yo_thread_t,
-  
-  // Spawn a new OS thread running the given closure
-  spawn :: (fn(cb : Impl(Fn() -> unit, Send)) -> Self)({
-    raw := __yo_thread_spawn(cb);
-    Self(raw)
-  }),
-  
-  // Wait for the thread to complete (blocking)
-  join :: (fn(self : Self) -> unit)(
-    __yo_thread_join(self.handle)
-  )
-);
+use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
+  return cb(v);
+};
 
 main :: (fn() -> unit) {
-  printf("Main thread: %zu\n", get_thread_id());
-  
-  // Spawn a dedicated OS thread with closure syntax
-  thread := Thread.spawn(() => {
-    printf("Hello from thread %zu!\n", get_thread_id());
-  });
-  
-  printf("Main: spawned thread, waiting...\n");
-  
-  // Wait for thread to complete (also frees handle)
-  thread.join();
-  
-  printf("Main: thread completed\n");
-  printf("Main: done\n");
+  a := 2;
+
+  x := use_cb(10, (u) => ((u + 1) + a)); // capture variable 'a'
+  assert(x == 13);
+
+  y := use_cb(20, (u) => (u * 2)); // capture nothing
+  assert(y == 40);
+
+  b := Box(i32)(5);
+  z := use_cb(10, (u) => ((u + 1) + b.*)); // capture variable 'a'
+  assert(x == 16);
 };
 
 export main;
+
+// TODO: Also test dyn closure
