@@ -2,186 +2,148 @@
 
 ## Overview
 
-This document outlines the implementation plan for Yo's parallelism features based on `PARALLELISM.md`. The goal is to enable isolated multi-threaded execution using the `Worker` type with message passing.
+This document outlines the implementation plan for Yo's parallelism features based on the simplified `PARALLELISM.md`.
 
-## Key Design Decisions
+## New Design (Simplified)
 
-### 1. Single `__yo_worker_t` Type (Symmetric Design)
+**Thread** = Dedicated OS thread wrapper
+- `Thread.spawn(fn)` → spawns a dedicated OS thread  
+- `Thread.join()` → wait for completion
+- `Thread.kill()` → cooperative termination
 
-Both parent and child use the **same** `__yo_worker_t` type. This simplifies the design:
+**Worker** = Thread pool task (fire-and-forget)
+- `Worker.spawn(fn)` → runs on thread pool with thread affinity
+- No handle returned
 
-```
-Parent's __yo_worker_t:              Child's __yo_worker_t:
-┌─────────────────────┐            ┌─────────────────────┐
-│ send_channel ───────┼────────────┼─► recv_channel      │
-│ recv_channel ◄──────┼────────────┼── send_channel      │
-│ self_alive ─────────┼──► child   │ self_alive ─────────┼──► parent reads
-│ other_alive ◄───────┼── child    │ other_alive ◄───────┼── parent sets
-└─────────────────────┘            └─────────────────────┘
-```
-
-- Channels are "flipped" between parent and child
-- Each worker tracks its own liveness (`self_alive`)
-- Each worker has a pointer to the other's liveness (`other_alive`)
-
-### 2. Reference Counted Workers
-
-Workers are reference counted for proper lifecycle management:
-- `__yo_worker_dup(worker)` - increment ref count
-- `__yo_worker_drop(worker)` - decrement ref count, free if zero
-
-When a worker is dropped:
-- Sets `self_alive = false` (other side can detect this)
-- Closes channels (wakes up any blocked operations)
-
-### 3. No `join` and `kill` as First-Class Operations
-
-**`join`**: Can be achieved via message passing:
-```yo
-// Child sends completion message
-child.send(.Done);
-
-// Parent waits
-match(worker.recv(), .Ok(.Done) => /* done */, _ => /* error */);
-```
-
-**`kill`**: Too dangerous (memory leaks, dangling refs). Use cooperative cancellation instead.
-
-However, we provide `__yo_worker_join` for convenience during development.
+**Channel** = Separate abstraction (future)
+- Not part of Thread/Worker, implemented separately
 
 ## Implementation Phases
 
-### Phase 1: `spawn_local` - Dedicated OS Thread
+### Phase 1: Thread (Dedicated OS Thread) ✅ In Progress
 
-**Goal:** Spawn a worker on a dedicated OS thread (not from thread pool).
+**Goal:** Simple pthread wrapper with spawn and join.
 
-#### Runtime Data Structures
+#### C Runtime Types
 
 ```c
-// Channel for inter-thread communication
-typedef struct __yo_channel_t {
-  YO_THREAD_SYNC_TYPE mutex;
-  YO_COND_TYPE not_empty, not_full;
-  void** buffer;
-  size_t capacity, head, tail, count;
-  _Atomic bool closed;
-} __yo_channel_t;
+// Thread handle (value type, stack allocated)
+typedef struct __yo_thread_t {
+  YO_THREAD_TYPE handle;  // OS thread handle (pthread_t)
+} __yo_thread_t;
 
-// Worker handle - same type for parent and child
-typedef struct __yo_worker_t {
-  size_t ref_count;                // Reference count
-  __yo_channel_t* send_channel;      // Send TO the other side
-  __yo_channel_t* recv_channel;      // Receive FROM the other side
-  _Atomic bool self_alive;         // Am I alive? (other reads)
-  _Atomic bool* other_alive;       // Is other alive? (points to other's self_alive)
-  YO_THREAD_TYPE thread;           // OS thread handle
-  bool owns_thread;                // Parent owns, child doesn't
-} __yo_worker_t;
+// Thread callback type (function + closure)
+typedef void (*__yo_thread_fn)(void* closure);
 ```
 
-#### Runtime Functions
+#### C Runtime Functions
 
 ```c
-// Channel
-__yo_channel_t* yo_channel_create(size_t capacity);
-void __yo_channel_destroy(__yo_channel_t* ch);
-bool __yo_channel_send(__yo_channel_t* ch, void* msg);
-void* __yo_channel_recv(__yo_channel_t* ch);
-void __yo_channel_close(__yo_channel_t* ch);
+// Spawn a new OS thread (returns by value)
+__yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure);
 
-// Worker
-__yo_worker_t* __yo_worker_spawn_local(callback, closure);
-void __yo_worker_join(__yo_worker_t* worker);
-bool __yo_worker_is_other_alive(__yo_worker_t* worker);
-void __yo_worker_dup(__yo_worker_t* worker);
-void __yo_worker_drop(__yo_worker_t* worker);
+// Wait for thread to complete
+void __yo_thread_join(__yo_thread_t thread);
 ```
 
 #### Yo Interface
 
 ```yo
+// Low-level extern declarations
 extern "Yo",
-  __yo_worker_t : Type,
-  __yo_worker_spawn_local : (fn(callback, closure) -> *(__yo_worker_t)),
-  __yo_worker_join : (fn(worker : *(__yo_worker_t)) -> unit),
-  __yo_worker_is_other_alive : (fn(worker : *(__yo_worker_t)) -> bool),
-  __yo_worker_dup : (fn(worker : *(__yo_worker_t)) -> unit),
-  __yo_worker_drop : (fn(worker : *(__yo_worker_t)) -> unit)
+  __yo_thread_t : Type,
+  __yo_thread_spawn : (fn(f : Impl(Fn() -> unit, Send)) -> __yo_thread_t),
+  __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
 ;
+
+// High-level wrapper
+Thread :: struct(
+  handle : __yo_thread_t,
+  
+  spawn :: (fn(f : Impl(Fn() -> unit, Send)) -> Self)({
+    Self(__yo_thread_spawn(f))
+  }),
+  
+  join :: (fn(self : Self) -> unit)(
+    __yo_thread_join(self.handle)
+  )
+);
 ```
 
-### Phase 2: `send` and `recv` - Message Passing
+### Phase 2: Worker (Thread Pool)
 
-**Goal:** Enable bidirectional type-safe communication.
+**Goal:** Thread pool with thread-per-core and thread affinity.
 
-#### Sendable Types (Phase 2a: Primitives Only)
-
-- `i32`, `i64`, `u32`, `u64`, `f32`, `f64`
-- `bool`, `rune`
-- `usize`, `isize`
-
-#### Runtime Functions (Per-Type)
+#### C Runtime
 
 ```c
-bool __yo_worker_send_i32(__yo_worker_t* worker, int32_t value);
-int32_t __yo_worker_recv_i32(__yo_worker_t* worker, bool* ok);
-// ... for each primitive type
+// Thread pool (global singleton)
+typedef struct __yo_thread_pool_t {
+  YO_THREAD_TYPE* threads;     // Array of OS threads
+  size_t num_threads;          // Number of threads (= CPU cores)
+  __yo_task_queue_t* queues;   // Per-thread task queues
+  _Atomic bool shutdown;       // Shutdown flag
+} __yo_thread_pool_t;
+
+// Initialize thread pool (called once at startup)
+void __yo_thread_pool_init(void);
+
+// Spawn task on thread pool
+void __yo_worker_spawn(__yo_thread_fn fn);
 ```
 
-#### Phase 2b: Value Structs
+#### Yo Interface
 
-For structs composed entirely of sendable fields, generate:
-```c
-bool __yo_worker_send_MyStruct(__yo_worker_t* worker, MyStruct value);
-MyStruct __yo_worker_recv_MyStruct(__yo_worker_t* worker, bool* ok);
+```yo
+Worker :: module(
+  spawn :: (fn(f : (fn() -> unit)) -> unit)(
+    __yo_worker_spawn(f)
+  )
+);
 ```
 
-### Phase 3: Thread Pool (Future)
+### Phase 3: Channel (Future)
 
-**Goal:** Implement `spawn` (vs `spawn_local`) with thread-per-core affinity.
+**Goal:** Type-safe inter-thread communication.
 
-- Fixed number of OS threads (= CPU cores)
-- Workers assigned round-robin
-- Thread affinity for cache locality
-- No work stealing (workers stay on assigned thread)
+Separate implementation, not tied to Thread/Worker.
 
 ## Implementation Order
 
-1. **Phase 1a: Basic Infrastructure** ✅
-   - [x] Channel data structure and operations
-   - [x] Worker type with ref counting
-   - [x] `__yo_worker_spawn_local` runtime function
-   - [x] Thread-local GC initialization in worker
+1. **Phase 1a: Thread Runtime** ✅
+   - [x] `__yo_thread_t` structure (value type)
+   - [x] `__yo_thread_spawn` function (with closure support)
+   - [x] `__yo_thread_join` function
+   - [x] Thread-local GC initialization
+   - [ ] Codegen support for `Impl(Fn() -> unit, Send)` parameters
 
-2. **Phase 1b: Testing**
-   - [ ] Test spawn_local with simple callback
-   - [ ] Verify thread IDs are different
-   - [ ] Verify `other_alive` tracking works
-   - [ ] Verify worker cleanup on drop
+2. **Phase 1b: Thread Yo Wrapper**
+   - [ ] `Thread` struct in fixme.yo
+   - [ ] Test spawn/join
 
-3. **Phase 2a: Primitive Send/Recv**
-   - [ ] Implement `__yo_worker_send_i32` etc.
-   - [ ] Test bidirectional i32 communication
-   - [ ] Add Result type returns
+3. **Phase 2: Worker Runtime**
+   - [ ] Thread pool initialization
+   - [ ] Per-thread task queues
+   - [ ] Round-robin task assignment
+   - [ ] `__yo_worker_spawn` function
 
-4. **Phase 2b: Yo Worker Module**
-   - [ ] Create `std/worker.yo` with Worker type
-   - [ ] Wrap extern functions in nice API
-   - [ ] Support generic `Worker(SendType, RecvType)`
+4. **Phase 3: Channel (Future)**
+   - [ ] `Channel(T)` type
+   - [ ] `send`/`recv`/`close`
 
-## Files Modified
+## Files
 
-- `src/codegen/parallelism/runtime.ts` - Runtime C code generation
-- `src/codegen/functions/generation.ts` - Include parallelism runtime
+- `src/codegen/parallelism/runtime.ts` - C runtime generation
+- `src/codegen/functions/generation.ts` - Include runtime
 - `src/tests/examples/fixme.yo` - Test file
+- `std/thread.yo` - High-level Thread API (future)
+- `std/worker.yo` - High-level Worker API (future)
+- `std/channel.yo` - Channel API (future)
 
-## Files to Create
+## Design Decisions
 
-- `std/worker.yo` - High-level Worker API
-- `std/channel.yo` - Optional: expose Channel separately
-
-## Open Questions
-
-1. **Channel buffer size**: Fixed 16 for now, configurable later?
-2. **Blocking vs async**: Phase 2 is blocking, future may integrate with async/await
-3. **Memory for messages**: Currently malloc/free per message, could optimize with arena
+1. **No channels in Thread/Worker** - Channels are separate, can be used with either
+2. **Thread uses struct** - Simple value type with handle
+3. **Worker is fire-and-forget** - No handle, just spawn and forget
+4. **Kill is cooperative** - Sets flag, thread must check and exit
+5. **Non-async join/kill** - Blocking operations, not async

@@ -208,11 +208,7 @@ typedef struct {
   // Note: concrete Future types may have additional fields (e.g., result) after this
 } yo_future_generic_t;
 
-// Forward declaration for parallelism runtime types
-// __yo_worker_t is defined in the parallelism runtime but may be referenced
-// in function declarations before the runtime is fully generated
-typedef struct __yo_worker_t __yo_worker_t;
-typedef struct __yo_channel_t __yo_channel_t;
+// Forward declarations will be added here if needed
 `);
 
   // Forward declarations - generate struct and enum forward declarations first
