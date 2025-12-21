@@ -20,7 +20,7 @@ export enum TokenType {
   Identifier = "identifier",
   Integer = "integer",
   Float = "float",
-  Boolean = "boolean",
+  Bool = "bool",
 
   // punctuation
   Semicolon = ";",

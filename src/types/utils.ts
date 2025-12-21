@@ -1056,8 +1056,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     case TypeTag.Unit: {
       return "unit";
     }
-    case TypeTag.Boolean: {
-      return "boolean";
+    case TypeTag.Bool: {
+      return "bool";
     }
     /*
     case TypeTag.Char: {
@@ -1469,7 +1469,7 @@ export function getAlignmentOfType(type: Type): number | null {
   ) {
     return 1; // Minimal alignment for compile-time only types
   } else if (isBooleanType(type)) {
-    return 1; // Boolean is 1 byte aligned
+    return 1; // Bool is 1 byte aligned
   } else if (isUsizeType(type) || isIsizeType(type)) {
     return getTargetPointerSizeBytes(); // Pointer-sized integers are pointer-aligned
   } else if (isU8Type(type) || isI8Type(type)) {

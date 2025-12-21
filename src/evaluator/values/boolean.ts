@@ -8,7 +8,7 @@ export function evaluateBooleanLiteral(
   expr: AtomExpr,
   env: Environment
 ): AtomExpr {
-  if (expr.token.type === TokenType.Boolean) {
+  if (expr.token.type === TokenType.Bool) {
     const booleanValue = expr.token.value === "true";
     const value: Value = createBooleanValue(booleanValue);
     expr.$ = {
@@ -21,7 +21,7 @@ export function evaluateBooleanLiteral(
   } else {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected boolean literal, got ${expr.tag}`,
+      errorMessage: `Expected bool literal, got ${expr.tag}`,
     });
   }
 }

@@ -2,7 +2,7 @@
 
 (compt(LinearI32) : Type) = i32;
 
-some_condition :: (fn() -> boolean) 
+some_condition :: (fn() -> bool) 
   true
 ;
 
@@ -123,7 +123,7 @@ test_while_drop_with_mixed_2 :: (fn() -> i32) {
 
 
 // Test 1: Break in while loop
-test_while_with_break :: (fn(flag: boolean) -> i32) {
+test_while_with_break :: (fn(flag: bool) -> i32) {
   (x : LinearI32) = 42;
   while flag, 
     cond
@@ -137,7 +137,7 @@ test_while_with_break :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 2: Continue in while loop  
-test_while_with_continue :: (fn(flag: boolean) -> i32) {
+test_while_with_continue :: (fn(flag: bool) -> i32) {
   while flag, 
     cond
       some_condition() => {
@@ -151,7 +151,7 @@ test_while_with_continue :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 3: Return in while loop
-test_while_with_return :: (fn(flag: boolean) -> i32) {
+test_while_with_return :: (fn(flag: bool) -> i32) {
   (x : LinearI32) = 42;
   while flag,
     cond
@@ -165,7 +165,7 @@ test_while_with_return :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 4: All cases break
-test_cond_all_break :: (fn(flag: boolean) -> i32) {
+test_cond_all_break :: (fn(flag: bool) -> i32) {
   while flag,
     cond
       false => { break; },
@@ -175,7 +175,7 @@ test_cond_all_break :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 5: All cases continue
-test_cond_all_continue :: (fn(flag: boolean) -> i32) {
+test_cond_all_continue :: (fn(flag: bool) -> i32) {
   while flag,
     cond
       false => { continue; },
@@ -185,7 +185,7 @@ test_cond_all_continue :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 6: Mixed cases with one normal return
-test_cond_mixed :: (fn(flag: boolean) -> i32)
+test_cond_mixed :: (fn(flag: bool) -> i32)
   cond
     some_condition() => { return 30; },
     true => 35
@@ -226,7 +226,7 @@ test_match_all_return :: (fn(shape: Shape) -> i32)
 // ===========================================
 
 // Test 10: Nested cond inside while
-test_nested_cond_in_while :: (fn(flag: boolean) -> i32) {
+test_nested_cond_in_while :: (fn(flag: bool) -> i32) {
   (x : LinearI32) = 42;
   while flag,
     cond
@@ -245,7 +245,7 @@ test_nested_cond_in_while :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 11: Nested while inside cond - fixed version
-test_nested_while_in_cond :: (fn(flag: boolean) -> i32) {
+test_nested_while_in_cond :: (fn(flag: bool) -> i32) {
   (result: i32) = cond
     some_condition() => {
       while some_condition(), {
@@ -259,7 +259,7 @@ test_nested_while_in_cond :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 12: Nested match inside while
-test_nested_match_in_while :: (fn(flag: boolean, shape: Shape) -> i32) {
+test_nested_match_in_while :: (fn(flag: bool, shape: Shape) -> i32) {
   while flag,
     match shape,
       .Circle => {
@@ -278,7 +278,7 @@ test_nested_match_in_while :: (fn(flag: boolean, shape: Shape) -> i32) {
 // ===========================================
 
 // Test 13: Cond returning values assigned to variable
-test_cond_value_assignment :: (fn(flag: boolean) -> i32) {
+test_cond_value_assignment :: (fn(flag: bool) -> i32) {
   (result: i32) = cond
     some_condition() => 100,
     true => 200
@@ -296,7 +296,7 @@ test_match_value_assignment :: (fn(shape: Shape) -> i32) {
 };
 
 // Test 15: Nested cond with values only (no early returns)
-test_nested_cond_mixed :: (fn(flag: boolean) -> i32) {
+test_nested_cond_mixed :: (fn(flag: bool) -> i32) {
   (result: i32) = cond(
     some_condition() => cond(
       some_condition() => 500,
@@ -308,7 +308,7 @@ test_nested_cond_mixed :: (fn(flag: boolean) -> i32) {
 };
 
 // Test 16: Complex nested structure with linear values
-test_complex_nested :: (fn(flag: boolean, shape: Shape) -> i32) {
+test_complex_nested :: (fn(flag: bool, shape: Shape) -> i32) {
   (x : LinearI32) = 42;
   (y : LinearI32) = 24;
   
@@ -341,7 +341,7 @@ test_complex_nested :: (fn(flag: boolean, shape: Shape) -> i32) {
 };
 
 // Test 17: Multiple assignment with control flow
-test_multiple_assignment :: (fn(flag: boolean) -> i32) {
+test_multiple_assignment :: (fn(flag: bool) -> i32) {
   (a: i32) = cond
     some_condition() => 10,
     true => 20
@@ -375,7 +375,7 @@ test_continue_outside_loop :: (fn() -> unit)
 
 // NOTE: Mixed control flows are now allowed in cond/match expressions
 // Test: Mixed control flows in cond should work
-test_mixed_control_flows :: (fn(flag: boolean) -> i32) {
+test_mixed_control_flows :: (fn(flag: bool) -> i32) {
   while flag,
     cond(
       some_condition() => {

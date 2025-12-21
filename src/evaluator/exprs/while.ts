@@ -61,7 +61,7 @@ export function evaluateWhile({
   if (!isBooleanType(evaluatedConditionExpr.$.type)) {
     throw formatErrorMessage({
       token: conditionExpr.token,
-      errorMessage: `Expected boolean type for condition expression, got:\n${exprToString(
+      errorMessage: `Expected bool type for condition expression, got:\n${exprToString(
         conditionExpr
       )}`,
     });

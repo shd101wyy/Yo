@@ -225,14 +225,14 @@ A type can have the following **Kind**:
 
 - Type
   - i32
-  - boolean
+  - bool
   - ...
 
 ### Type
 
 #### Primitive Types
 
-- `boolean` (true or false)
+- `bool` (true or false)
 - `u8` (8-bit unsigned integer)
 - `u16` (16-bit unsigned integer)
 - `u32` (32-bit unsigned integer)
@@ -253,7 +253,7 @@ A type can have the following **Kind**:
 
 **Value Types** (stack-allocated, copied on assignment):
 
-- Primitive types: `i32`, `boolean`, `f32`, etc.
+- Primitive types: `i32`, `bool`, `f32`, etc.
 - Structs defined with `struct(...)`
 - Fixed-size arrays: `Array(T, N)`
 - Tuples: `Tuple(T1, T2, ...)`
@@ -534,7 +534,7 @@ identity :: (fn(forall(T: Type), arg: T) -> T)
 ;
 
 x := identity(12);     // Type inferred: x: i32
-y := identity(true);   // Type inferred: y: boolean
+y := identity(true);   // Type inferred: y: bool
 
 // Type constraints
 add :: (fn(forall(T: Type), x: T, y: T, using(AddT) : (T <: Add(T))) -> T)
@@ -767,9 +767,9 @@ my_i32_tuple := (12,); // my_i32_tuple: (i32,). Free type
 
 (i32_tuple: (i32, i32, i32)) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
 
-mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32, boolean, *u8[6,'\0']). Free type
+mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32, bool, *u8[6,'\0']). Free type
 
-(a, b, c) := mixed_tuple; // a: i32, b: boolean, c: *u8[6,'\0']. Free type
+(a, b, c) := mixed_tuple; // a: i32, b: bool, c: *u8[6,'\0']. Free type
 
 a := mixed_tuple.0;
 b := mixed_tuple.1;
@@ -896,7 +896,7 @@ Type constraints are achieved using the `<:` operator.
 
 ```rust
 // Type constraints
-three_are_equal :: (fn(forall((T: Type) <: Eq), x: T, y: T, z: T) -> boolean)
+three_are_equal :: (fn(forall((T: Type) <: Eq), x: T, y: T, z: T) -> bool)
   ((x == y) && (y == z))
 ;
 // (T: Type) <: Eq is equivalent to (T: Type) <: Eq(T)
@@ -958,7 +958,7 @@ show :: (fn(forall((T: Type) <: Show, size: compt(usize)), x: Array(T, size)) ->
 
 
 { Show } := import "./show.yo";
-less_than :: (fn(forall((T: Type) <: (Ord & Show)), x: T, y: T) -> boolean) {
+less_than :: (fn(forall((T: Type) <: (Ord & Show)), x: T, y: T) -> bool) {
   println(x.show());
   return (x < y);
 };
@@ -1083,7 +1083,7 @@ IntoIterator :: (fn(compt(Self): Type) -> compt(Module))
 ```rust
 // Record
 (User: Linear) = {
-  active: boolean;
+  active: bool;
   username: String;
   email: String;
   age: i32;
@@ -1264,17 +1264,17 @@ UserId :: newtype(
   
   // Module implementations
   Eq :: impl(Self, Eq(Self)(
-    (==) : ((fn(a: Self, b: Self) -> boolean)
+    (==) : ((fn(a: Self, b: Self) -> bool)
       (a.value == b.value)
     ),
     
-    (!=) : ((fn(a: Self, b: Self) -> boolean)
+    (!=) : ((fn(a: Self, b: Self) -> bool)
       (a.value != b.value)
     )
   )),
   
   Ord :: impl(Self, Ord(Self)(
-    (<) : ((fn(a: Self, b: Self) -> boolean)
+    (<) : ((fn(a: Self, b: Self) -> bool)
       (a.value < b.value)
     )
   ))
@@ -1309,7 +1309,7 @@ rune :: newtype(
 
   to_u32 :: ((fn(self: Self) -> u32) self.c),
 
-  is_ascii :: ((fn(self: Self) -> boolean) (self.c <= 0x7F)),
+  is_ascii :: ((fn(self: Self) -> bool) (self.c <= 0x7F)),
 
   // Constants
   NUL        :: Self(c: 0x00),
@@ -1319,8 +1319,8 @@ rune :: newtype(
 
   // Module implementations
   Eq :: impl(Self, Eq(Self)(
-    (==) : ((fn(a: Self, b: Self) -> boolean) (a.c == b.c)),
-    (!=) : ((fn(a: Self, b: Self) -> boolean) (a.c != b.c))
+    (==) : ((fn(a: Self, b: Self) -> bool) (a.c == b.c)),
+    (!=) : ((fn(a: Self, b: Self) -> bool) (a.c != b.c))
   ))
 );
 ```
@@ -1467,8 +1467,8 @@ Option :: (fn(compt(T): Type) -> Type)
 MyExpr :: (fn(compt(T): Type) -> Type)
   enum(
     IntExpr(i : i32), // MyExpr(i32)
-    BoolExpr(b : boolean), // MyExpr(boolean)
-    EqExpr(a : MyExpr(i32), b : MyExpr(i32)) // MyExpr(boolean)
+    BoolExpr(b : bool), // MyExpr(bool)
+    EqExpr(a : MyExpr(i32), b : MyExpr(i32)) // MyExpr(bool)
   )
 ;
 
@@ -1480,7 +1480,7 @@ eval :: (fn(forall(T: Type), expr: MyExpr(T)) -> T)
   )
 ;
 
-expr1 := MyExpr.EqExpr(MyExpr.IntExpr(1), MyExpr.IntExpr(2)); // expr1: MyExpr(boolean)
+expr1 := MyExpr.EqExpr(MyExpr.IntExpr(1), MyExpr.IntExpr(2)); // expr1: MyExpr(bool)
 eval(expr1); // false
 ```
 
@@ -1579,7 +1579,7 @@ Contains :: (fn(compt(Self): Type) -> compt(Module))
     A: Type,
     B: Type,
 
-    contains: (fn(self: *(Self), a: A, b: B) -> boolean)
+    contains: (fn(self: *(Self), a: A, b: B) -> bool)
     // Note: A and B are associated types defined in this module
     // They will be specified when implementing this module for a type
 ;

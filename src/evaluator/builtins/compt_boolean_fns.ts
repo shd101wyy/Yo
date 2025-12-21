@@ -45,7 +45,7 @@ export function evaluateYoComptBooleanFunctions({
     if (!arg.$ || !isBooleanType(arg.$.type) || !arg.$.value) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Expected boolean type for "${expr.func.token.value}" argument, got:\n${exprToString(
+        errorMessage: `Expected bool type for "${expr.func.token.value}" argument, got:\n${exprToString(
           arg
         )}`,
       });
@@ -94,7 +94,7 @@ export function evaluateYoComptBooleanFunctions({
     if (!lhs.$ || !isBooleanType(lhs.$.type) || !lhs.$.value) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Expected boolean type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+        errorMessage: `Expected bool type for "${expr.func.token.value}" first argument, got:\n${exprToString(
           lhs
         )}`,
       });
@@ -112,7 +112,7 @@ export function evaluateYoComptBooleanFunctions({
     if (!rhs.$ || !isBooleanType(rhs.$.type) || !rhs.$.value) {
       throw formatErrorMessage({
         token: rhs.token,
-        errorMessage: `Expected boolean type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+        errorMessage: `Expected bool type for "${expr.func.token.value}" second argument, got:\n${exprToString(
           rhs
         )}`,
       });

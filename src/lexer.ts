@@ -567,11 +567,11 @@ export function tokenize(input: string, modulePath: string): Token[] {
             */
             {
               switch (value) {
-                // boolean
+                // bool
                 case "true":
                 case "false":
                   tokens.push({
-                    type: TokenType.Boolean,
+                    type: TokenType.Bool,
                     value,
                     position: {
                       row: line,

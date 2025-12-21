@@ -146,8 +146,8 @@ export function createBooleanType(): Type {
   const module = createModuleType(emptyEnv);
 
   const type: Type = {
-    id: TypeTag.Boolean,
-    tag: TypeTag.Boolean,
+    id: TypeTag.Bool,
+    tag: TypeTag.Bool,
     module,
   };
   module.receiverType = type;

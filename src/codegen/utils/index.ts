@@ -208,7 +208,7 @@ export function getTypeString(
       // Void is an opaque/DST type in Yo - it can only exist behind a pointer
       // When used directly (which shouldn't happen), we'll use void for C
       return "void";
-    case TypeTag.Boolean:
+    case TypeTag.Bool:
       return "bool";
     case TypeTag.Usize:
       return "size_t"; // C size type

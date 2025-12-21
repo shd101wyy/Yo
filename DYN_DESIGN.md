@@ -10,7 +10,7 @@
 Id :: module(id : (fn(self : *(Self)) -> i32));
 
 impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self.*); return self.*; })));
-impl(boolean, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
+impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
 
 use_id :: (fn(value : Dyn(Id)) -> unit) { x := value.id(); };
 
@@ -129,7 +129,7 @@ The constraint is **enforced at method call time**, not at module definition. Yo
 ```yo
 // Value types must be boxed
 dyn(box(42));           // OK: box(42) returns Box(i32), which is an object type
-dyn(box(true));         // OK: box(true) returns Box(boolean)
+dyn(box(true));         // OK: box(true) returns Box(bool)
 
 // Object types can be used directly
 point := Point(3, 4);   // point : Point, Point is object type

@@ -23,7 +23,7 @@ import { TypeTag } from "./tags";
 export function isPrimitiveType(type: Type): boolean {
   return (
     type.tag === TypeTag.Unit ||
-    type.tag === TypeTag.Boolean ||
+    type.tag === TypeTag.Bool ||
     // type.tag === TypeTag.Char ||
     type.tag === TypeTag.Usize ||
     type.tag === TypeTag.Isize ||
@@ -76,7 +76,7 @@ export function isExprListType(type?: Type): boolean {
 }
 
 export function isBooleanType(type?: Type): boolean {
-  return type?.tag === TypeTag.Boolean;
+  return type?.tag === TypeTag.Bool;
 }
 
 export function isUsizeType(type?: Type): boolean {

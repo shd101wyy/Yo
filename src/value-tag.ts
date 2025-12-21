@@ -16,7 +16,7 @@ export enum ValueTag {
   Usize = "Usize",
   Isize = "Isize",
   Unit = "Unit",
-  Boolean = "Boolean",
+  Bool = "Bool",
   Array = "Array",
   Function = "Function",
   Tuple = "Tuple",

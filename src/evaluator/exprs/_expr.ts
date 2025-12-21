@@ -148,7 +148,7 @@ export function _evaluateExpression({
       case TokenType.Char: {
         return evaluateCharLiteral(expr, env);
       }
-      case TokenType.Boolean: {
+      case TokenType.Bool: {
         return evaluateBooleanLiteral(expr, env);
       }
       default: {

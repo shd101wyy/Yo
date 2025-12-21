@@ -19,7 +19,7 @@ This is similar to:
 
 ```rust
 // Spawn runs on a DIFFERENT thread, returns Worker handle immediately
-worker := Worker(i32, boolean).spawn((child) => {
+worker := Worker(i32, bool).spawn((child) => {
   async {
     match(await child.recv(),
       .Ok(msg) => {
@@ -91,7 +91,7 @@ await worker.send(x);  // Sending `x` (primitive `i32`) is allowed because it's 
 
 Only types that implement the `Send` contract may be shared or sent between threads. In practice this means:
 
-- **Sendable**: primitives (`i32`, `u64`, `boolean`, etc.), value structs/tuples/enums composed entirely of `Send` fields, and other types explicitly marked `Send`.
+- **Sendable**: primitives (`i32`, `u64`, `bool`, etc.), value structs/tuples/enums composed entirely of `Send` fields, and other types explicitly marked `Send`.
 - **Not Sendable**: GC-managed reference types like `object(...)` and `Dyn`, closures that capture non-Send references, and any value type that contains non-Send fields.
 
 Example:
@@ -209,7 +209,7 @@ Worker :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
     }),
 
     // Check if the other end is still alive (non-blocking)
-    is_alive :: (fn(self: Self) -> boolean),
+    is_alive :: (fn(self: Self) -> bool),
 
     // Wait for the worker to complete (blocks until child exits)
     join :: (fn(self: Self) -> Impl(Future(unit))),
@@ -225,11 +225,11 @@ Worker :: (fn(compt(SendType): Type, compt(ReceiveType): Type) -> compt(Type)) {
 ```rust
 main :: (fn() -> unit) {
   async {
-    // Spawn a worker that receives i32 and sends boolean (returns immediately)
-    worker := Worker(i32, boolean).spawn(
+    // Spawn a worker that receives i32 and sends bool (returns immediately)
+    worker := Worker(i32, bool).spawn(
       (child) => {
         async {
-          // Child's perspective: receives i32, sends boolean
+          // Child's perspective: receives i32, sends bool
           match(await child.recv(),
             .Ok(value) => {
               printf("Child received: %d\n", value);
@@ -241,7 +241,7 @@ main :: (fn() -> unit) {
       };
     );
 
-    // Parent sends i32, receives boolean
+    // Parent sends i32, receives bool
     match(await worker.send(42),
       .Ok(()) => {
         match(await worker.recv(),

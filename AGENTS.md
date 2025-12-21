@@ -112,7 +112,7 @@ While implementing the evaluate or codegen, no shortcuts or simplcations!
 
 2. **Type naming conventions:**
 
-   - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `boolean`
+   - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `bool`
    - Use `struct(...)` for value types
    - Use `object(...)` for reference-counted types
 
@@ -132,8 +132,6 @@ While implementing the evaluate or codegen, no shortcuts or simplcations!
    - Always write `cond(condition => result, true => default)`
    - Parentheses are required around `cond(...)`
 
-6. **Use `boolean` not `bool`:**
-   - The boolean type is spelled `boolean` in Yo
 
 The `begin.ts` performs the reference counting optimization that cancels out the dup/drop pairs when possible.
 

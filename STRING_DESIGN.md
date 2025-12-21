@@ -150,7 +150,7 @@ The name `rune` is chosen to:
 rune :: struct(c: u32)
 
 rune.from_u32 :: fn(value: u32) -> Option(rune)  // Validates 0x0 to 0x10FFFF, excluding surrogates
-rune.is_valid :: fn(value: u32) -> boolean
+rune.is_valid :: fn(value: u32) -> bool
 // ... other methods
 
 // String uses rune
@@ -195,7 +195,7 @@ String.repeat :: fn(r: rune, count: usize) -> String   // Repeat a character n t
 concat :: fn(self: Self, other: Self) -> String        // Concatenate two strings
 at :: fn(self: Self, index: usize) -> Option(rune)    // Get rune at character index (currently O(n))
 as_bytes :: fn(self: Self) -> ArrayList(u8)            // Get internal byte array
-is_empty :: fn(self: Self) -> boolean                  // Check if empty
+is_empty :: fn(self: Self) -> bool                  // Check if empty
 length :: fn(self: Self) -> usize                      // Character count (scans UTF-8 start bytes)
 
 // 🚧 PLANNED
@@ -268,12 +268,12 @@ uint32_t yo_string_char_at(String* s, size_t char_index) {
 ```yo
 // ✅ IMPLEMENTED
 length :: fn(self: Self) -> usize                      // O(n) - counts UTF-8 start bytes
-is_empty :: fn(self: Self) -> boolean
+is_empty :: fn(self: Self) -> bool
 
 // 🚧 PLANNED
-starts_with :: fn(self: Self, prefix: String) -> boolean
-ends_with :: fn(self: Self, suffix: String) -> boolean
-contains :: fn(self: Self, substring: String) -> boolean
+starts_with :: fn(self: Self, prefix: String) -> bool
+ends_with :: fn(self: Self, suffix: String) -> bool
+contains :: fn(self: Self, substring: String) -> bool
 find :: fn(self: Self, substring: String) -> Option(usize)  // Returns character index
 ```
 
@@ -294,7 +294,7 @@ to_ascii_uppercase :: fn(self: Self) -> String        // ASCII a-z only
 ```yo
 // Implement Eq trait for String
 StringEq :: Eq(String, String)(
-  (==) :: fn(a: String, b: String) -> boolean
+  (==) :: fn(a: String, b: String) -> bool
 )
 
 // Implement Ord trait for String (lexicographic)
@@ -354,16 +354,16 @@ chars :: fn(self: Self) -> CharIterator  // yields Char
 rune :: struct(c: u32)
 
 rune.from_u32 :: fn(value: u32) -> Option(rune)       // ✅ Validates Unicode range
-rune.is_valid :: fn(value: u32) -> boolean            // ✅ Check if valid codepoint
+rune.is_valid :: fn(value: u32) -> bool            // ✅ Check if valid codepoint
 
 // 🚧 PLANNED - Basic character queries
-is_ascii :: fn(self: rune) -> boolean
-is_digit :: fn(self: rune) -> boolean
+is_ascii :: fn(self: rune) -> bool
+is_digit :: fn(self: rune) -> bool
 to_string :: fn(self: rune) -> String
 
 // 🔮 FUTURE - Advanced queries (may use QuickJS Unicode tables)
-is_whitespace :: fn(self: rune) -> boolean
-is_alphabetic :: fn(self: rune) -> boolean
+is_whitespace :: fn(self: rune) -> bool
+is_alphabetic :: fn(self: rune) -> bool
 to_lowercase :: fn(self: rune) -> String              // Returns String (may expand to multiple chars)
 to_uppercase :: fn(self: rune) -> String
 ```

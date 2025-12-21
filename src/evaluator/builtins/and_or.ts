@@ -64,7 +64,7 @@ export function evaluateAndOr({
     if (!evaluatedArg.$ || !isBooleanType(evaluatedArg.$.type)) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Expected boolean type for "${kind}" argument, got:\n${exprToString(arg)}`,
+        errorMessage: `Expected bool type for "${kind}" argument, got:\n${exprToString(arg)}`,
       });
     }
 

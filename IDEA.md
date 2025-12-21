@@ -6,7 +6,7 @@ Type reflection
 TypeField :: struct(
   compt(type) : Type,
   compt(label) : compt_string,
-  compt(is_compt) : boolean
+  compt(is_compt) : bool
 );
 
 TypeInfo :: enum(
@@ -21,7 +21,7 @@ TypeInfo :: enum(
     compt(id) : compt_string,
     compt(module) : Self.Module
   ),
-  Boolean(
+  Bool(
     compt(id) : compt_string,
     compt(module) : Self.Module
   )

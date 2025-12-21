@@ -25,21 +25,21 @@ extern "Yo",
   
   // Relational Operators
   /// ==
-  __yo_op_eq : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  __yo_op_eq : (fn(forall(T : Type), x : T, y : T) -> bool),
   /// !=
-  __yo_op_neq : (fn(forall(T : Type), x : T, y: T) -> boolean),
+  __yo_op_neq : (fn(forall(T : Type), x : T, y: T) -> bool),
   /// <
-  __yo_op_lt : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  __yo_op_lt : (fn(forall(T : Type), x : T, y : T) -> bool),
   /// <=
-  __yo_op_lte : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  __yo_op_lte : (fn(forall(T : Type), x : T, y : T) -> bool),
   /// >
-  __yo_op_gt : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  __yo_op_gt : (fn(forall(T : Type), x : T, y : T) -> bool),
   /// >=
-  __yo_op_gte : (fn(forall(T : Type), x : T, y : T) -> boolean),
+  __yo_op_gte : (fn(forall(T : Type), x : T, y : T) -> bool),
 
   // Logical Operators
   /// !
-  __yo_op_not : (fn(forall(T : Type), x : T) -> boolean),
+  __yo_op_not : (fn(forall(T : Type), x : T) -> bool),
 
   // Bitwise Operators
   /// &
@@ -63,21 +63,21 @@ extern "Yo",
   __yo_ptr_diff :
     fn(forall(T: Type), ptr1 : T, ptr2 : T) -> isize,
   __yo_ptr_eq :
-    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_neq :
-    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_lt :
-    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_lte :
-    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_gt :
-    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean,
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_gte :
-    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> boolean
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool
 ;
 export __yo_as;
 
-assert :: (fn(flag : boolean, (compt(msg) : compt_string) ?= "Assertion failed.") -> unit)
+assert :: (fn(flag : bool, (compt(msg) : compt_string) ?= "Assertion failed.") -> unit)
   cond(
     flag => (),
     true => panic(msg)
@@ -221,12 +221,12 @@ export ComptNegate;
 
 /// === Logic ===
 LogicalNot :: module
-  (!)  : (fn(self: Self)-> boolean)
+  (!)  : (fn(self: Self)-> bool)
 ;
 export LogicalNot;
 
 ComptLogicalNot :: module
-  (!)  : (fn(compt(self): Self) -> compt(boolean))
+  (!)  : (fn(compt(self): Self) -> compt(bool))
 ;
 export ComptLogicalNot;
 
@@ -290,14 +290,14 @@ export ComptBitXor;
   (not) :: (fn(forall(_Self : Type),
             self : _Self,
             where(_Self <: LogicalNot)
-          ) -> boolean)
+          ) -> bool)
     self.(!)()
   ;
 
   (compt_not) :: (fn(forall(_Self : Type), 
           compt(self) : _Self,
           where(_Self <: ComptLogicalNot)
-        ) -> compt(boolean))
+        ) -> compt(bool))
     self.(!)()
   ;
 
@@ -338,16 +338,16 @@ export not, (!);
 export (-);
 
 /**
- * logic for boolean
+ * logic for bool
  * No need to export them. For internal use only
  */
-impl(boolean, LogicalNot(
+impl(bool, LogicalNot(
   (!): ((a) ->
     __yo_op_not(a)
   )
 ));
-impl(boolean, ComptLogicalNot(
-  (!) : ((fn(compt(self): boolean) -> compt(boolean))
+impl(bool, ComptLogicalNot(
+  (!) : ((fn(compt(self): bool) -> compt(bool))
     __yo_compt_boolean_not(self)
   )
 ));
@@ -356,9 +356,9 @@ impl(boolean, ComptLogicalNot(
 Eq ::
   (fn(compt(Rhs) : Type) -> compt(Module))
   module(
-    (==) : (fn(lhs: Self, rhs: Rhs) -> boolean),
+    (==) : (fn(lhs: Self, rhs: Rhs) -> bool),
 
-    ((!=) : (fn(lhs: Self, rhs: Rhs) -> boolean)) ?= 
+    ((!=) : (fn(lhs: Self, rhs: Rhs) -> bool)) ?= 
       ((lhs, rhs) ->
         not(Self.(==)(lhs, rhs))
       )
@@ -368,9 +368,9 @@ export Eq;
 ComptEq ::
   (fn(compt(Rhs) : Type) -> compt(Module))
   module(
-    (==) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean)),
+    (==) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool)),
 
-    ((!=) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean))) ?= 
+    ((!=) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool))) ?= 
       ((lhs, rhs) ->
         not(Self.(==)(lhs, rhs))
       )
@@ -394,13 +394,13 @@ Ord :: (
     where(Self <: Eq(Rhs)),
 
     (<) :
-      fn(lhs: Self, rhs: Rhs) -> boolean,
+      fn(lhs: Self, rhs: Rhs) -> bool,
     (<=) :
-      fn(lhs: Self, rhs: Rhs) -> boolean,
+      fn(lhs: Self, rhs: Rhs) -> bool,
     (>) :
-      fn(lhs: Self, rhs: Rhs) -> boolean,
+      fn(lhs: Self, rhs: Rhs) -> bool,
     (>=) :
-      fn(lhs: Self, rhs: Rhs) -> boolean
+      fn(lhs: Self, rhs: Rhs) -> bool
   )
 ;
 export Ord;
@@ -413,13 +413,13 @@ ComptOrd :: (
     where(Self <: ComptEq(Rhs)),
 
     (<) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool),
     (<=) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool),
     (>) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean),
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool),
     (>=) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(boolean)
+      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool)
   )
 ;
 
@@ -456,31 +456,31 @@ Clone :: (fn(compt(Output) : Type) -> compt(Module))
 ;
 
 // === Builtin types ===
-/// boolean
-impl(boolean, Send());
-impl(boolean, Eq(boolean)(
+/// bool
+impl(bool, Send());
+impl(bool, Eq(bool)(
   (==): ((a, b) ->
     __yo_op_eq(a, b)
   )
 ));
-impl(boolean, Clone(boolean)(
+impl(bool, Clone(bool)(
   clone: ((self) ->
     __yo_return_self(self)
   )
 ));
-impl(boolean, ComptEq(boolean)(
-  (==) : ((fn(compt(lhs): boolean, compt(rhs): boolean) -> compt(boolean))
+impl(bool, ComptEq(bool)(
+  (==) : ((fn(compt(lhs): bool, compt(rhs): bool) -> compt(bool))
     __yo_compt_boolean_eq(lhs, rhs)
   )
 ));
-impl(boolean, {
-  (to_string) :: (fn(compt(self): boolean) -> compt(compt_string))
+impl(bool, {
+  (to_string) :: (fn(compt(self): bool) -> compt(compt_string))
     __yo_compt_boolean_to_string(self)
   ;
   export to_string;
 });
-_boolean :: boolean;
-export boolean : _boolean;
+_boolean :: bool;
+export bool : _boolean;
 
 /// i8
 impl(i8, Send());
@@ -570,24 +570,24 @@ impl(i8, ComptNegate(i8)(
   )
 ));
 impl(i8, ComptEq(i8)(
-  (==) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+  (==) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))
     __yo_i8_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))
     __yo_i8_neq(lhs, rhs)
   )
 ));
 impl(i8, ComptOrd(i8)(
-  (<) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+  (<) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))
     __yo_i8_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))
     __yo_i8_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+  (>) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))
     __yo_i8_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))
     __yo_i8_gte(lhs, rhs)
   )
 ));
@@ -688,24 +688,24 @@ impl(i16, ComptNegate(i16)(
   )
 ));
 impl(i16, ComptEq(i16)(
-  (==) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+  (==) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))
     __yo_i16_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))
     __yo_i16_neq(lhs, rhs)
   )
 ));
 impl(i16, ComptOrd(i16)(
-  (<) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+  (<) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))
     __yo_i16_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))
     __yo_i16_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+  (>) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))
     __yo_i16_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))
     __yo_i16_gte(lhs, rhs)
   )
 ));
@@ -808,24 +808,24 @@ impl(i32, ComptNegate(i32)(
   )
 ));
 impl(i32, ComptEq(i32)(
-  (==) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+  (==) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))
     __yo_i32_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))
     __yo_i32_neq(lhs, rhs)
   )
 ));
 impl(i32, ComptOrd(i32)(
-  (<) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+  (<) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))
     __yo_i32_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))
     __yo_i32_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+  (>) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))
     __yo_i32_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))
     __yo_i32_gte(lhs, rhs)
   )
 ));
@@ -926,24 +926,24 @@ impl(i64, ComptNegate(i64)(
   )
 ));
 impl(i64, ComptEq(i64)(
-  (==) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+  (==) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))
     __yo_i64_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))
     __yo_i64_neq(lhs, rhs)
   )
 ));
 impl(i64, ComptOrd(i64)(
-  (<) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+  (<) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))
     __yo_i64_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))
     __yo_i64_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+  (>) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))
     __yo_i64_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))
     __yo_i64_gte(lhs, rhs)
   )
 ));
@@ -1039,24 +1039,24 @@ impl(u8, ComptMod(u8)(
   )
 ));
 impl(u8, ComptEq(u8)(
-  (==) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+  (==) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))
     __yo_u8_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))
     __yo_u8_neq(lhs, rhs)
   )
 ));
 impl(u8, ComptOrd(u8)(
-  (<) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+  (<) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))
     __yo_u8_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))
     __yo_u8_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+  (>) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))
     __yo_u8_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))
     __yo_u8_gte(lhs, rhs)
   )
 ));
@@ -1152,24 +1152,24 @@ impl(u16, ComptMod(u16)(
   )
 ));
 impl(u16, ComptEq(u16)(
-  (==) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+  (==) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))
     __yo_u16_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))
     __yo_u16_neq(lhs, rhs)
   )
 ));
 impl(u16, ComptOrd(u16)(
-  (<) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+  (<) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))
     __yo_u16_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))
     __yo_u16_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+  (>) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))
     __yo_u16_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))
     __yo_u16_gte(lhs, rhs)
   )
 ));
@@ -1265,24 +1265,24 @@ impl(u32, ComptMod(u32)(
   )
 ));
 impl(u32, ComptEq(u32)(
-  (==) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+  (==) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))
     __yo_u32_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))
     __yo_u32_neq(lhs, rhs)
   )
 ));
 impl(u32, ComptOrd(u32)(
-  (<) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+  (<) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))
     __yo_u32_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))
     __yo_u32_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+  (>) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))
     __yo_u32_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))
     __yo_u32_gte(lhs, rhs)
   )
 ));
@@ -1378,24 +1378,24 @@ impl(u64, ComptMod(u64)(
   )
 ));
 impl(u64, ComptEq(u64)(
-  (==) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+  (==) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))
     __yo_u64_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))
     __yo_u64_neq(lhs, rhs)
   )
 ));
 impl(u64, ComptOrd(u64)(
-  (<) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+  (<) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))
     __yo_u64_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))
     __yo_u64_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+  (>) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))
     __yo_u64_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))
     __yo_u64_gte(lhs, rhs)
   )
 ));
@@ -1485,24 +1485,24 @@ impl(f32, ComptNegate(f32)(
   )
 ));
 impl(f32, ComptEq(f32)(
-  (==) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+  (==) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))
     __yo_f32_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))
     __yo_f32_neq(lhs, rhs)
   )
 ));
 impl(f32, ComptOrd(f32)(
-  (<) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+  (<) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))
     __yo_f32_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))
     __yo_f32_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+  (>) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))
     __yo_f32_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))
     __yo_f32_gte(lhs, rhs)
   )
 ));
@@ -1592,24 +1592,24 @@ impl(f64, ComptNegate(f64)(
   )
 ));
 impl(f64, ComptEq(f64)(
-  (==) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+  (==) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))
     __yo_f64_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))
     __yo_f64_neq(lhs, rhs)
   )
 ));
 impl(f64, ComptOrd(f64)(
-  (<) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+  (<) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))
     __yo_f64_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))
     __yo_f64_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+  (>) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))
     __yo_f64_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))
     __yo_f64_gte(lhs, rhs)
   )
 ));
@@ -1710,24 +1710,24 @@ impl(isize, ComptNegate(isize)(
   )
 ));
 impl(isize, ComptEq(isize)(
-  (==) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+  (==) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))
     __yo_isize_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))
     __yo_isize_neq(lhs, rhs)
   )
 ));
 impl(isize, ComptOrd(isize)(
-  (<) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+  (<) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))
     __yo_isize_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))
     __yo_isize_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+  (>) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))
     __yo_isize_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))
     __yo_isize_gte(lhs, rhs)
   )
 ));
@@ -1823,24 +1823,24 @@ impl(usize, ComptMod(usize)(
   )
 ));
 impl(usize, ComptEq(usize)(
-  (==) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+  (==) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))
     __yo_usize_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))
     __yo_usize_neq(lhs, rhs)
   )
 ));
 impl(usize, ComptOrd(usize)(
-  (<) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+  (<) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))
     __yo_usize_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))
     __yo_usize_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+  (>) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))
     __yo_usize_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))
     __yo_usize_gte(lhs, rhs)
   )
 ));
@@ -2427,24 +2427,24 @@ impl(compt_int, ComptNegate(compt_int)(
   )
 ));
 impl(compt_int, ComptEq(compt_int)(
-  (==) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+  (==) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))
     __yo_compt_int_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))
     __yo_compt_int_neq(lhs, rhs)
   )
 ));
 impl(compt_int, ComptOrd(compt_int)(
-  (<) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+  (<) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))
     __yo_compt_int_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))
     __yo_compt_int_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+  (>) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))
     __yo_compt_int_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))
     __yo_compt_int_gte(lhs, rhs)
   )
 ));
@@ -2484,24 +2484,24 @@ impl(compt_float, ComptNegate(compt_float)(
   )
 ));
 impl(compt_float, ComptEq(compt_float)(
-  (==) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+  (==) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))
     __yo_compt_float_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))
     __yo_compt_float_neq(lhs, rhs)
   )
 ));
 impl(compt_float, ComptOrd(compt_float)(
-  (<) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+  (<) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))
     __yo_compt_float_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))
     __yo_compt_float_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+  (>) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))
     __yo_compt_float_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))
     __yo_compt_float_gte(lhs, rhs)
   )
 ));
@@ -2521,24 +2521,24 @@ impl(compt_string, ComptAdd(compt_string)(
   )
 ));
 impl(compt_string, ComptEq(compt_string)(
-  (==) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+  (==) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))
     __yo_compt_string_eq(lhs, rhs)
   ),
-  (!=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+  (!=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))
     __yo_compt_string_neq(lhs, rhs)
   )
 ));
 impl(compt_string, ComptOrd(compt_string)(
-  (<) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+  (<) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))
     __yo_compt_string_lt(lhs, rhs)
   ),
-  (<=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+  (<=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))
     __yo_compt_string_lte(lhs, rhs)
   ),
-  (>) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+  (>) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))
     __yo_compt_string_gt(lhs, rhs)
   ),
-  (>=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(boolean))
+  (>=) : ((fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))
     __yo_compt_string_gte(lhs, rhs)
   )
 ));
@@ -2602,22 +2602,22 @@ impl(forall(T : Type), *(T), {
   (&-) :: (fn(self : Self, offset : usize) -> Self)
     __yo_ptr_sub(self, offset)
   ;
-  (&==) :: (fn(self : Self, another : Self) -> boolean)
+  (&==) :: (fn(self : Self, another : Self) -> bool)
     __yo_ptr_eq(self, another)
   ;
-  (&!=) :: (fn(self : Self, another : Self) -> boolean)
+  (&!=) :: (fn(self : Self, another : Self) -> bool)
     __yo_ptr_neq(self, another)
   ;
-  (&<) :: (fn(self : Self, another : Self) -> boolean)
+  (&<) :: (fn(self : Self, another : Self) -> bool)
     __yo_ptr_lt(self, another)
   ;
-  (&<=) :: (fn(self : Self, another : Self) -> boolean)
+  (&<=) :: (fn(self : Self, another : Self) -> bool)
     __yo_ptr_lte(self, another)
   ;
-  (&>) :: (fn(self : Self, another : Self) -> boolean)
+  (&>) :: (fn(self : Self, another : Self) -> bool)
     __yo_ptr_gt(self, another)
   ;
-  (&>=) :: (fn(self : Self, another : Self) -> boolean)
+  (&>=) :: (fn(self : Self, another : Self) -> bool)
     __yo_ptr_gte(self, another)
   ;
   (&/) :: (fn(self : Self, another : Self) -> isize)
@@ -2660,17 +2660,17 @@ export ExprList;
 
 /// Expr
 impl(Expr, ComptEq(Expr)(
-  (==) : ((fn(compt(lhs): Expr, compt(rhs): Expr) -> compt(boolean))
+  (==) : ((fn(compt(lhs): Expr, compt(rhs): Expr) -> compt(bool))
     __yo_expr_eq(lhs, rhs)
   )
 ));
 impl(Expr, {
-  is_atom :: ((fn(compt(self): Expr) -> compt(boolean))
+  is_atom :: ((fn(compt(self): Expr) -> compt(bool))
     __yo_expr_is_atom(self)
   );
   export is_atom;
 
-  is_fn_call :: ((fn(compt(self): Expr) -> compt(boolean))
+  is_fn_call :: ((fn(compt(self): Expr) -> compt(bool))
     __yo_expr_is_fn_call(self)
   );
   export is_fn_call;
@@ -2705,22 +2705,22 @@ impl(Type, {
   });
   export to_string;
 
-  is_compatible_with :: ((fn(compt(self): Type, compt(expected_type): Type) -> compt(boolean)) {
+  is_compatible_with :: ((fn(compt(self): Type, compt(expected_type): Type) -> compt(bool)) {
      return __yo_are_types_compatible(expected_type, self);
   });
   export is_compatible_with;
 
-  contains_gc_type :: ((fn(compt(self): Type) -> compt(boolean)) {
+  contains_gc_type :: ((fn(compt(self): Type) -> compt(bool)) {
     return __yo_type_contains_gc_type(self);
   });
   export contains_gc_type;
 
-  can_form_gc_cycle :: ((fn(compt(self): Type) -> compt(boolean)) {
+  can_form_gc_cycle :: ((fn(compt(self): Type) -> compt(bool)) {
     return __yo_type_can_form_gc_cycle(self);
   });
   export can_form_gc_cycle;
 
-  impls :: ((fn(compt(self): Type, compt(marker): Module) -> compt(boolean)) {
+  impls :: ((fn(compt(self): Type, compt(marker): Module) -> compt(bool)) {
     return __yo_type_impls(self, marker);
   });
   export impls;

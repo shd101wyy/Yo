@@ -15,7 +15,7 @@ The `Isolate` module provides function to check if a type can isolate.
 
 ```rust
 Isolate :: module(
-  can_isolate : (fn(self : Self) -> boolean)
+  can_isolate : (fn(self : Self) -> bool)
 );
 ```
 

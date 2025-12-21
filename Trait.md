@@ -75,7 +75,7 @@ Container :: (fn(compt(T) : Type,
         println("{}", self.value);
       }),
 
-      compare :: ((fn(self : *(Self), other: *(T)) -> boolean) {
+      compare :: ((fn(self : *(Self), other: *(T)) -> bool) {
         return self.value < other.*;
       })
     );

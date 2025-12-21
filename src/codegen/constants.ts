@@ -50,7 +50,7 @@ export const BuiltinYoInlineFunctions = [
 ];
 
 export const PrimitiveTypeTags = new Set([
-  TypeTag.Boolean,
+  TypeTag.Bool,
   TypeTag.Usize,
   TypeTag.Isize,
   TypeTag.U8,

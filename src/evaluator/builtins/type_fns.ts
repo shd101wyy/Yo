@@ -282,7 +282,7 @@ export function evaluateYoTypeCanFormGcCycle({
 /**
  * Check if a type implements a module.
  * Usage: __yo_type_impls(SomeType, SomeModule)
- * Returns: compt(boolean)
+ * Returns: compt(bool)
  *
  * This checks if the type's module has a field whose assignedValue is a ModuleValue
  * that structurally matches the given module (with the type as the receiver).
@@ -353,7 +353,7 @@ export function evaluateYoTypeImpls({
 
   // The module argument should be a type value containing a module type
   // Or it could be the module type directly (when passed as a compt parameter)
-  // If the argument is a compile-time unknown (Type hierarchy), return unknown boolean
+  // If the argument is a compile-time unknown (Type hierarchy), return unknown bool
   let expectedModuleType: ModuleType;
 
   if (isTypeValue(moduleArg.$.value)) {
@@ -370,7 +370,7 @@ export function evaluateYoTypeImpls({
     expectedModuleType = moduleArg.$.type;
   } else if (isTypeHierarchyType(moduleArg.$.type)) {
     // The argument is a compile-time unknown (e.g., a generic parameter like `marker: Module`)
-    // Return an unknown boolean value - the actual check will happen when called with concrete types
+    // Return an unknown bool value - the actual check will happen when called with concrete types
     expr.$ = {
       env: moduleArg.$.env,
       type: createBooleanType(),

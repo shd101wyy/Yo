@@ -254,7 +254,7 @@ HashSet :: (fn(
     /**
      * Check if HashSet needs resizing based on load factor
      */
-    _needs_resize :: ((fn(self: Self) -> boolean)
+    _needs_resize :: ((fn(self: Self) -> bool)
       {
         threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
         (self.size >= threshold)
@@ -315,7 +315,7 @@ HashSet :: (fn(
      * Insert an element into the set
      * Returns Ok(true) if element was newly inserted, Ok(false) if already present
      */
-    add :: ((fn(self: Self, element: T) -> Result(boolean, HashSetError))
+    add :: ((fn(self: Self, element: T) -> Result(bool, HashSetError))
       {
         hash := ElementHash.(hash)(element);
         slot_opt := self._find_slot(element, hash);
@@ -354,7 +354,7 @@ HashSet :: (fn(
     /**
      * Check if an element exists in the set
      */
-    has :: ((fn(self: Self, element: T) -> boolean)
+    has :: ((fn(self: Self, element: T) -> bool)
       {
         hash := ElementHash.(hash)(element);
         slot_opt := self._find_slot(element, hash);
@@ -369,7 +369,7 @@ HashSet :: (fn(
      * Remove an element from the set
      * Returns true if the element was present and removed, false otherwise
      */
-    remove :: ((fn(self: Self, element: T) -> boolean)
+    remove :: ((fn(self: Self, element: T) -> bool)
       {
         hash := ElementHash.(hash)(element);
         slot_opt := self._find_slot(element, hash);
@@ -395,7 +395,7 @@ HashSet :: (fn(
     /**
      * Check if the set is empty
      */
-    is_empty :: ((fn(self: Self) -> boolean)
+    is_empty :: ((fn(self: Self) -> bool)
       (self.size == usize(0))
     ),
 
@@ -418,7 +418,7 @@ HashSet :: (fn(
      * Check if this set is a subset of another set
      * Returns true if all elements in self are also in other
      */
-    is_subset :: ((fn(self: Self, other: Self) -> boolean)
+    is_subset :: ((fn(self: Self, other: Self) -> bool)
       cond(
         (self.size > other.size) => false,
         true => {
@@ -453,7 +453,7 @@ HashSet :: (fn(
      * Check if this set is a superset of another set
      * Returns true if all elements in other are also in self
      */
-    is_superset :: ((fn(self: Self, other: Self) -> boolean)
+    is_superset :: ((fn(self: Self, other: Self) -> bool)
       other.is_subset(self)
     ),
 
@@ -461,7 +461,7 @@ HashSet :: (fn(
      * Check if this set is disjoint from another set
      * Returns true if the sets have no elements in common
      */
-    is_disjoint :: ((fn(self: Self, other: Self) -> boolean)
+    is_disjoint :: ((fn(self: Self, other: Self) -> bool)
       {
         smaller := cond((self.size <= other.size) => self, true => other);
         larger := cond((self.size <= other.size) => other, true => self);

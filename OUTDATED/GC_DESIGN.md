@@ -156,7 +156,7 @@ This document describes a garbage collection system for Yo that replaces the bia
 i8, i16, i32, i64, isize
 u8, u16, u32, u64, usize
 f32, f64
-boolean
+bool
 rune
 unit
 
@@ -1816,7 +1816,7 @@ yo_gc_unpin(node);            // Allow collection again
 
 ```yo
 // For complex GC objects, copy to value type
-NodeData :: struct(value: i32, has_next: boolean);
+NodeData :: struct(value: i32, has_next: bool);
 
 fn node_to_data(node: Node) -> NodeData {
   NodeData(

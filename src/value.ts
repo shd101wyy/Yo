@@ -67,7 +67,7 @@ export type NumberValue = {
 };
 
 export type BooleanValue = {
-  tag: ValueTag.Boolean;
+  tag: ValueTag.Bool;
   type: Type;
   value: boolean;
 };
@@ -183,7 +183,7 @@ export function valueToString(value?: Value): string {
     case ValueTag.Isize: {
       return value.value.toString();
     }
-    case ValueTag.Boolean: {
+    case ValueTag.Bool: {
       return value.value.toString();
     }
     case ValueTag.Array: {
@@ -325,7 +325,7 @@ export function isNumberValue(value?: Value): value is NumberValue {
 }
 
 export function isBooleanValue(value?: Value): value is BooleanValue {
-  return value?.tag === ValueTag.Boolean;
+  return value?.tag === ValueTag.Bool;
 }
 
 export function isFunctionValue(value?: Value): value is FunctionValue {
@@ -443,7 +443,7 @@ export function createComptFloatValue(value: number): NumberValue {
 
 export function createBooleanValue(value: boolean): BooleanValue {
   return {
-    tag: ValueTag.Boolean,
+    tag: ValueTag.Bool,
     type: createBooleanType(),
     value,
   };

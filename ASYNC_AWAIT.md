@@ -37,7 +37,7 @@ async {
 };
 
 // Parallelism: Different threads, true simultaneous execution
-task := Task(i32, boolean).spawn((parent) -> {
+task := Task(i32, bool).spawn((parent) -> {
   // Runs on a DIFFERENT thread!
   // Completely isolated - no shared memory
 });

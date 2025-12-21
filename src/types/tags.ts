@@ -4,7 +4,7 @@
 export enum TypeTag {
   // Primitive types
   Unit = "unit",
-  Boolean = "boolean",
+  Bool = "bool",
   Usize = "usize",
   Isize = "isize",
   U8 = "u8",

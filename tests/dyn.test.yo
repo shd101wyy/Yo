@@ -29,11 +29,11 @@ impl(i32, TestDyn(
   })
 ));
 
-impl(boolean, TestDyn(
+impl(bool, TestDyn(
   print : ((self) -> {
     cond(
-      self.* => printf("boolean value: true\n"),
-      true => printf("boolean value: false\n")
+      self.* => printf("bool value: true\n"),
+      true => printf("bool value: false\n")
     );
   }),
   return_i32 : ((self) ->
@@ -68,7 +68,7 @@ test "Test simple dynamic dispatch with `box`", {
 
 test "Test simple dynamic dispatch with `Box(T)`", {
   assert(use_test_dyn(dyn Box(i32) i32(42)) == 42);
-  assert(use_test_dyn(dyn Box(boolean) true) == 1);
+  assert(use_test_dyn(dyn Box(bool) true) == 1);
   bi := MyBox(100);
   assert(use_test_dyn(dyn bi) == 200);
 };

@@ -239,7 +239,7 @@ await task.send(x);  // Send COPY of x (value type)
 
 | Type                                | Can Send? | Reason                          |
 | ----------------------------------- | --------- | ------------------------------- |
-| Primitives (`i32`, `boolean`, etc.) | ✅ Yes    | Value type, copied              |
+| Primitives (`i32`, `bool`, etc.) | ✅ Yes    | Value type, copied              |
 | Value structs (`struct(...)`)       | ✅ Yes    | Value type, copied              |
 | Tuples of value types               | ✅ Yes    | Value type, copied              |
 | Enums with value payloads           | ✅ Yes    | Value type, copied              |

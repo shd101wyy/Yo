@@ -229,7 +229,7 @@ add =
 
 // If no function type is given, the the function implementation needs to define explicit function type
 compt(get_value) :
-  fn(condition: boolean) -> Option(i32);
+  fn(condition: bool) -> Option(i32);
 get_value =
   (condition)->
     if condition,
@@ -405,7 +405,7 @@ p := { x : 3, y : 4 }; // Create an anonymous struct value.
 // "_" here means to be a placeholder for the type that could be inferred later
 (p: struct(x : i32, y : i32)) := _(3, 4);
 (p : Point) := _(x: 3, y: 4);
-(p: struct(a: i32, b: boolean)) := _(b: true, a: 3); // Valid!
+(p: struct(a: i32, b: bool)) := _(b: true, a: 3); // Valid!
 
 // ADT (tagged union)
 Color ::
@@ -434,7 +434,7 @@ Result ::
   union 
     int: i64,
     float: f64,
-    bool: boolean;
+    bool: bool;
 
 result := Result(int:12);
 result.float = 3.14;
@@ -471,9 +471,9 @@ MyExpr :: (fn(compt(T): Type)-> compt(Type))
     IntExpr:
       (i32)=> recur(i32),
     BoolExpr:
-      (boolean)=> recur(boolean),
+      (bool)=> recur(bool),
     EqExpr:
-      (recur(i32), recur(i32))=> recur(boolean)
+      (recur(i32), recur(i32))=> recur(bool)
   ;
 my_eval :: (fn(compt(T): Type, expr: MyExpr(T))-> T)
   match expr,
@@ -552,7 +552,7 @@ id :: (fn(compt(T): Type, x: T)-> T) {
 };
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
-id(boolean, 12); // true
+id(bool, 12); // true
 // e.g. with `forall`:
 id ::
   fn(forall(T: Type), x: T)-> T {
@@ -593,7 +593,7 @@ s2 := s; // s2 and s point to the same object.
 // - Type 2
 // - Type 1
 // - Type (or Type(0))
-// - symbol | boolean | i32 | f64 | 
+// - symbol | bool | i32 | f64 | 
 //   Union | Intersection | Variant |
 //   1 | 2 | 3 | 4 | ...
 //    ^ Singleton Type
@@ -794,11 +794,11 @@ x :: 10; // x : compt_int
 // Below is another example
 max :: (fn(compt(T): Type, a: T, b: T)-> T)
   cond // implicit compile-time evaluate the condition if it's known at the compile-time, and skip the branch not taken.
-    (T == boolean) => (a || b),
+    (T == bool) => (a || b),
     (a > b)        => a,
     true           => b;
-max(boolean, false, true); // compiles to:
-max :: (fn(a: boolean, b: boolean)-> boolean) {
+max(bool, false, true); // compiles to:
+max :: (fn(a: bool, b: bool)-> bool) {
   {
     return (a || b);
   }

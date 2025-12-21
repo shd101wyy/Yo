@@ -11,14 +11,14 @@ RetI32 :: module(
   return_i32 : (fn(self : *(Self)) -> i32)
 );
 
-impl(boolean, RetI32(...));
+impl(bool, RetI32(...));
 
 ret_boolean_i32 :: (fn() -> Impl(RetI32)) {
-  return true;  // Returns boolean which implements RetI32
+  return true;  // Returns bool which implements RetI32
 };
 
 main :: (fn() -> unit) {
-  b := ret_boolean_i32();           // b has type Impl(RetI32), concrete type is boolean
+  b := ret_boolean_i32();           // b has type Impl(RetI32), concrete type is bool
   assert(&(b).return_i32() == 1);   // Should call fn_id33365_return_i32(bool*)
 };
 ```
@@ -50,8 +50,8 @@ int32_t result = fn_id33365_return_i32(&b);
 1. **Variable Declaration**: When `b := ret_boolean_i32()` is evaluated, the type of `b` is `SomeType` (from `Impl(RetI32)`). The codegen's `getTypeString` should use `resolvedConcreteType` but may not be seeing it.
 
 2. **Method Resolution**: When `.return_i32()` is called on `b`, the evaluator needs to:
-   - Detect that `b` has type `SomeType` with `resolvedConcreteType = boolean`
-   - Find the `return_i32` implementation for `boolean`
+   - Detect that `b` has type `SomeType` with `resolvedConcreteType = bool`
+   - Find the `return_i32` implementation for `bool`
    - Generate a direct function call, not vtable lookup
 
 ## Implementation Steps

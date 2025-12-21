@@ -104,7 +104,7 @@ extern "Yo",
   __yo_worker_t : Type,
   __yo_worker_spawn_local : (fn(callback, closure) -> *(__yo_worker_t)),
   __yo_worker_join : (fn(worker : *(__yo_worker_t)) -> unit),
-  __yo_worker_is_other_alive : (fn(worker : *(__yo_worker_t)) -> boolean),
+  __yo_worker_is_other_alive : (fn(worker : *(__yo_worker_t)) -> bool),
   __yo_worker_dup : (fn(worker : *(__yo_worker_t)) -> unit),
   __yo_worker_drop : (fn(worker : *(__yo_worker_t)) -> unit)
 ;
@@ -117,7 +117,7 @@ extern "Yo",
 #### Sendable Types (Phase 2a: Primitives Only)
 
 - `i32`, `i64`, `u32`, `u64`, `f32`, `f64`
-- `boolean`, `rune`
+- `bool`, `rune`
 - `usize`, `isize`
 
 #### Runtime Functions (Per-Type)

@@ -494,7 +494,7 @@ export default class Parser {
     switch (token.type) {
       case TokenType.Identifier: // Symbol
       case TokenType.Operator:
-      case TokenType.Boolean: // Literal
+      case TokenType.Bool: // Literal
       case TokenType.Integer:
       case TokenType.Float:
       case TokenType.String:

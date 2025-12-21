@@ -129,7 +129,7 @@ export function evaluateIdentifierAndOperator({
     return expr;
   }
   // boolean
-  else if (identifier === TypeTag.Boolean) {
+  else if (identifier === TypeTag.Bool) {
     const value = createTypeValue(createBooleanType());
     expr.$ = {
       env,

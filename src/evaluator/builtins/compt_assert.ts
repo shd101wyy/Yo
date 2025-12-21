@@ -40,7 +40,7 @@ export function evaluateComptAssert({
   if (!evaluatedArgExpr.$ || !isBooleanValue(evaluatedArgExpr.$.value)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected boolean value for "compt_assert", got:\n${exprToString(argExpr)}`,
+      errorMessage: `Expected bool value for "compt_assert", got:\n${exprToString(argExpr)}`,
       isAssertionError: true,
     });
   }
