@@ -1,36 +1,42 @@
-open import "std/libc/stdio";
-{ get_thread_id, Thread } :: import "std/thread";
+// foldl and foldr macro examples
+// foldl(op, a, b, c, ...) => op(op(op(a, b), c), ...)
+// foldr(op, a, b, c, ...) => op(a, op(b, op(c, ...)))
 
-main :: (fn() -> unit) {
-  printf("Main thread: %zu\n", get_thread_id());
-  
-  // Test 1: Thread with no captures
-  thread1 := Thread.spawn(() => {
-    printf("Thread 1: Hello from thread %zu (no captures)\n", get_thread_id());
-  });
-  
-  // Test 2: Thread with i32 capture
-  message := 42;
-  thread2 := Thread.spawn(() => {
-    printf("Thread 2: Hello from thread %zu with message %d\n", get_thread_id(), message);
-  });
-  
-  // Test 3: Thread with multiple captures
-  x := 100;
-  y := 200;
-  thread3 := Thread.spawn(() => {
-    printf("Thread 3: Hello from thread %zu with x=%d, y=%d\n", get_thread_id(), x, y);
-  });
-  
-  printf("Main: spawned 3 threads, waiting...\n");
-  
-  // Wait for all threads to complete
-  thread1.join();
-  thread2.join();
-  thread3.join();
-  
-  printf("Main: all threads completed\n");
-  printf("Main: done\n");
-};
+(foldl) :: (fn(
+          quote(op): Expr,
+          quote(arg1): Expr,
+          quote(arg2): Expr,
+          ...(quote(rest))
+        ) -> unquote(Expr))
+  cond
+    (rest.length() == 0) =>
+      quote(unquote(op)(unquote(arg1), unquote(arg2))),
+    true =>
+      quote(foldl(unquote(op), unquote(op)(unquote(arg1), unquote(arg2)), unquote_splicing(rest)))
+;
 
-export main;
+(foldr) :: (fn(
+          quote(op): Expr,
+          quote(arg1): Expr,
+          quote(arg2): Expr,
+          ...(quote(rest))
+        ) -> unquote(Expr))
+  cond
+    (rest.length() == 0) =>
+      quote(unquote(op)(unquote(arg1), unquote(arg2))),
+    true =>
+      quote(unquote(op)(unquote(arg1), unquote(foldr(unquote(op), unquote(arg2), unquote_splicing(rest)))))
+;
+
+// Tests: show macro expansion results (use macro_expand like macro_3.yo)
+x :: macro_expand(quote(foldl(+, 1, 2, 3, 4)));
+compt_print("foldl full expansion:");
+compt_print(x);
+
+y :: macro_expand(quote(foldl(+, 1, 2, 3, 4)), 1);
+compt_print("foldl level 1 expansion:");
+compt_print(y);
+
+z :: macro_expand(quote(foldr(+, 1, 2, 3, 4)));
+compt_print("foldr full expansion:");
+compt_print(z);

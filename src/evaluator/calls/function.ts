@@ -1040,17 +1040,6 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
           };
         }
       } else {
-        // DEBUG: Log what we're trying to call
-        console.log("=== DEBUG Invalid function call ===");
-        console.log("value:", value);
-        console.log("isTypeValue:", isTypeValue(value));
-        if (isTypeValue(value)) {
-          console.log("value.value:", typeToString(value.value));
-          console.log("value.value.tag:", value.value?.tag);
-          console.log("isStructType:", isStructType(value.value));
-        }
-        console.log("functionToCall.type:", typeToString(functionToCall.type));
-        console.log("=== END DEBUG ===");
         return {
           ...functionToCall,
           result: {
