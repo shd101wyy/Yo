@@ -104,6 +104,34 @@ export function collectTypesFromExpr(
     collectType(expr.$.type, context);
   }
 
+  // If the expression evaluates to a function value, collect the function
+  // This handles cases like method lookups (e.g., temp.___drop)
+  if (expr.$ && expr.$.value && isFunctionValue(expr.$.value)) {
+    const functionValue = expr.$.value;
+    if (!context.functions[functionValue.funcId]) {
+      context.functions[functionValue.funcId] = {
+        value: functionValue,
+        cName: functionValue.funcId,
+      };
+      // Collect types from the function signature
+      collectTypesFromFunctionType(functionValue.type, context);
+      // Recursively collect functions called by this function
+      findFunctionCallsInExpr(functionValue.body, context);
+    }
+  }
+
+  // Collect types from deferred drop expressions
+  // These are drop calls that are deferred to scope exit
+  if (
+    expr.$ &&
+    expr.$.deferredDropExpressions &&
+    expr.$.deferredDropExpressions.length > 0
+  ) {
+    for (const dropExpr of expr.$.deferredDropExpressions) {
+      collectTypesFromExpr(dropExpr, context);
+    }
+  }
+
   // If this is a macro expansion, recursively collect from the expanded expression
   if (expr.$ && expr.$.macroExpansion) {
     collectTypesFromExpr(expr.$.macroExpansion, context);
@@ -214,6 +242,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
       // The FutureModuleType will be registered by generateAsyncBlock with the state machine struct name.
       collectType(futureModule.isFuture.outputType, context);
     }
+
     return;
   }
 

@@ -1184,11 +1184,16 @@ function createSpecializedFunctionInline({
       // Use argType (the actual concrete argument type) for cache comparison,
       // not parameterType (which might be a SomeType like Impl(...))
       // If argType is a SomeType with resolvedConcreteType, use the concrete type
-      // so that the specialized function's parameters are fully resolved
-      const concreteType =
-        isSomeType(arg.argType) && arg.argType.resolvedConcreteType
-          ? arg.argType.resolvedConcreteType
-          : arg.argType;
+      // so that the specialized function's parameters are fully resolved.
+      // EXCEPTION: For Future types, do NOT unwrap to concrete type because
+      // Futures are heap-backed ref-counted and need SomeType-level ARC methods.
+      const shouldUseConcreteType =
+        isSomeType(arg.argType) &&
+        arg.argType.resolvedConcreteType &&
+        !typeImplementsFuture(arg.argType);
+      const concreteType = shouldUseConcreteType
+        ? arg.argType.resolvedConcreteType!
+        : arg.argType;
       runtimeParameters.push({ ...param, type: concreteType });
     }
   });

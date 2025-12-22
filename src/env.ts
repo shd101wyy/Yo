@@ -740,10 +740,13 @@ export function getMethodsByNameFromEnv(
 
         // Special case: if receiverType is a SomeType with resolvedConcreteType,
         // and the method's first parameter matches the resolvedConcreteType,
-        // accept it (e.g., ___drop from capture struct for Future value types)
+        // accept it (e.g., ___drop from capture struct for NON-Future value types).
+        // EXCEPTION: For Future types, do NOT accept methods from resolvedConcreteType,
+        // because Futures are heap-backed ref-counted and use SomeType's own ARC methods.
         if (
           isSomeType(receiverType) &&
           receiverType.resolvedConcreteType &&
+          !typeImplementsFuture(receiverType) &&
           !typeContainsSomeType(methodFirstParamType) &&
           areTypesCompatible(
             {

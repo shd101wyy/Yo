@@ -7,7 +7,6 @@ import {
   createSomeType,
   createType0,
   extractFutureModuleFromType,
-  isSomeType,
   SomeType,
   Type,
 } from "../../types";
@@ -71,7 +70,7 @@ export function evaluateAsync({
   // Determine the expected return type for the body
   // If context expects Impl(Future(T)), extract T for the body
   let unwrappedFutureExpectedType: Type | undefined = undefined;
-  let wrapperType: SomeType | undefined;
+  // let wrapperType: SomeType | undefined;
 
   if (context.expectedType) {
     const expectedType = context.expectedType.type;
@@ -79,9 +78,9 @@ export function evaluateAsync({
     if (futureModuleFromExpected) {
       unwrappedFutureExpectedType =
         futureModuleFromExpected.isFuture.outputType;
-      if (isSomeType(expectedType)) {
-        wrapperType = expectedType;
-      }
+      // if (isSomeType(expectedType)) {
+      //   wrapperType = expectedType;
+      // }
     }
   }
 
@@ -162,8 +161,8 @@ export function evaluateAsync({
   // This is done in the evaluator to avoid redundant analysis during codegen
   const awaitAnalysis = analyzeAwaitPoints(evaluatedBody);
 
-  // Determine the final type - always SomeType (Impl(Future(T))) for static dispatch
-  // Use `dyn async { ... }` to get Dyn(Future(T)) for dynamic dispatch
+  // original code:
+  /*
   let finalType: SomeType;
 
   if (wrapperType) {
@@ -183,6 +182,22 @@ export function evaluateAsync({
     );
     finalType.resolvedConcreteType = captureType;
   }
+  */
+
+  // Determine the final type - always SomeType (Impl(Future(T))) for static dispatch
+  // Use `dyn async { ... }` to get Dyn(Future(T)) for dynamic dispatch
+  // IMPORTANT: Always create a fresh SomeType with its own module containing ARC functions.
+  // We cannot reuse `wrapperType` because its module contains ARC functions specialized for
+  // a different resolvedConcreteType. Each async block has its own capture struct type and
+  // needs its own specialized ARC functions.
+  const finalType: SomeType = createSomeType(
+    createType0(),
+    "", // Name for the SomeType
+    undefined,
+    [futureModuleType], // requiredModules
+    undefined // negativeModules
+  );
+  finalType.resolvedConcreteType = captureType;
 
   // Store the captured variables for codegen (bodyExpr already has evaluated data)
   expr.$ = {
