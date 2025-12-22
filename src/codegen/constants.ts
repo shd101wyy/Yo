@@ -40,6 +40,9 @@ export const BuiltinYoInlineFunctions = [
   ...BuiltinFunctions.__yo_ptr_gt, // __yo_ptr_gt
   ...BuiltinFunctions.__yo_ptr_gte, // __yo_ptr_gte
 
+  // Slice operations
+  ...BuiltinFunctions.__yo_slice_len, // __yo_slice_len
+
   // Type casting
   ...BuiltinFunctions.__yo_as, // __yo_as (generic primitive type cast)
 

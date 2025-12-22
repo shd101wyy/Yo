@@ -5552,6 +5552,10 @@ usleep((${args[0]!}) * 1000)
   else if (BuiltinFunctions.__yo_ptr_gte.includes(functionName)) {
     return `(${args[0]!} >= ${args[1]!})`;
   }
+  // __yo_slice_len - access the length field of a slice fat pointer
+  else if (BuiltinFunctions.__yo_slice_len.includes(functionName)) {
+    return `(${args[0]!}.length)`;
+  }
   // Handle other operators that are not defined in Yo
   else {
     return `/* Unhandled operator ${functionName} */`;

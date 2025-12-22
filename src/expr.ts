@@ -590,6 +590,9 @@ export const BuiltinFunctions = {
   __yo_ptr_deref: ["__yo_ptr_deref"],
   __yo_ptr_set: ["__yo_ptr_set"],
 
+  // Slice related functions
+  __yo_slice_len: ["__yo_slice_len"],
+
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
   // __yo_expr_is_expr: ["__yo_expr_is_expr"],
