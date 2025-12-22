@@ -9,6 +9,7 @@ import {
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  cloneExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -53,8 +54,10 @@ import {
   ModuleValue,
   UnknownValue,
   Value,
+  valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
@@ -226,10 +229,94 @@ export function findMethodsFromGenericImpls({
             match.valueSubstitutions
           );
 
-          // If it's a function value, create a copy with specializedType set
-          // This ensures tryToCallFunctionWithArguments uses the correct type
+          // If it's a function value, we need to:
+          // 1. Clone the function body
+          // 2. Create an environment with value substitutions bound (like U=3)
+          // 3. Re-evaluate the body to replace UnknownValues with concrete values
+          // 4. Create the specialized function value with the re-evaluated body
           let value: Value | undefined = originalValue;
-          if (isFunctionValue(originalValue)) {
+          if (
+            isFunctionValue(originalValue) &&
+            match.valueSubstitutions.size > 0
+          ) {
+            // Clone the function body for re-evaluation
+            const clonedBody = cloneExpr(originalValue.body);
+
+            // Create a specialized environment with value substitutions bound
+            let specializedEnv = pushEnvFrame(env);
+            for (const [paramName, paramValue] of match.valueSubstitutions) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: specializedEnv,
+                variable: {
+                  name: paramName,
+                  type: paramValue.type,
+                  isCompileTimeOnly: true,
+                  value: paramValue,
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheGcValue: false,
+                },
+              });
+              specializedEnv = nextEnv;
+            }
+
+            // Also add type substitutions to the environment
+            for (const [paramName, paramType] of match.substitutions) {
+              if (paramName !== "Self") {
+                const { env: nextEnv } = addVariableToEnv({
+                  env: specializedEnv,
+                  variable: {
+                    name: paramName,
+                    type: createType0(),
+                    isCompileTimeOnly: true,
+                    value: createTypeValue(paramType),
+                    token: PlaceholderToken,
+                    initializedAtToken: PlaceholderToken,
+                    consumedAtToken: undefined,
+                    isOwningTheGcValue: false,
+                  },
+                });
+                specializedEnv = nextEnv;
+              }
+            }
+
+            // Re-evaluate the function body with the concrete values
+            const specializedBody = evaluateBeginExpression({
+              expr: clonedBody,
+              env: specializedEnv,
+              context: {
+                isEvaluatingGenericImplSpecialization: true,
+                expectedType: {
+                  type: specializedType.return.type,
+                  env: specializedEnv,
+                },
+                stdPath: "",
+                isEvaluatingFunctionBodyOrAsyncBlock: {
+                  kind: "function-body",
+                  type: specializedType,
+                  value: originalValue,
+                  evaluationEnv: specializedEnv,
+                },
+              } as EvaluatorContext,
+              variablesToAdd: [],
+              isEvaluatingFunctionBodyBeginBlock: true,
+            });
+
+            // Create a specialized function value with the re-evaluated body
+            const specializedFunctionValue: FunctionValue = {
+              ...originalValue,
+              specializedType: specializedType,
+              body: specializedBody,
+              // Create a unique funcId for this specialization
+              funcId: `${originalValue.funcId}_specialized_${[...match.valueSubstitutions.entries()].map(([k, v]) => `${k}_${valueToString(v)}`).join("_")}`,
+              funcName: originalValue.funcName
+                ? `${originalValue.funcName}_specialized`
+                : undefined,
+            };
+            value = specializedFunctionValue;
+          } else if (isFunctionValue(originalValue)) {
+            // No value substitutions needed, just set the specialized type
             const specializedFunctionValue: FunctionValue = {
               ...originalValue,
               specializedType: specializedType,
@@ -492,6 +579,7 @@ function substituteInFunctionType(
 
   return {
     ...functionType,
+    forallParameters: [], // Clear forall parameters since we've specialized them
     parameters: newParameters,
     return: returnChanged
       ? { ...functionType.return, type: newReturnType, expr: undefined }

@@ -105,6 +105,7 @@ export function generateFunctionDeclarations(
   emitter.emitDeclarationLine(`/// Regular functions`);
   for (const funcId in context.functions) {
     const { cName, value } = context.functions[funcId]!;
+
     if (
       isGenericFunction(value) ||
       isComptFunction(value) ||
@@ -115,14 +116,22 @@ export function generateFunctionDeclarations(
 
     // Skip functions with SomeType in parameters (truly generic)
     // But allow functions with SomeType only in return type (Impl(Module) return types)
+    // Use specializedType if available, otherwise use type
+    const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
-      value.type.parameters.some((p) => typeContainsSomeType(p.type)) ||
-      value.type.forallParameters.length > 0;
+      functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      functionType.forallParameters.length > 0;
     if (hasGenericParams) {
       continue;
     }
 
-    generateFunctionDeclaration(value.type, cName, false, context, value.body);
+    generateFunctionDeclaration(
+      functionType,
+      cName,
+      false,
+      context,
+      value.body
+    );
   }
 
   // Generate vtable instance declarations for closures (after function declarations)
@@ -296,9 +305,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
     // Skip functions with SomeType in parameters (truly generic)
     // But allow functions with SomeType only in return type (Impl(Module) return types)
+    // Use specializedType if available, otherwise use type
+    const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
-      value.type.parameters.some((p) => typeContainsSomeType(p.type)) ||
-      value.type.forallParameters.length > 0;
+      functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      functionType.forallParameters.length > 0;
     if (hasGenericParams) {
       continue;
     }
