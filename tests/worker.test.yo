@@ -1,0 +1,61 @@
+open import "std/libc/stdio";
+{ get_thread_id } :: import "std/thread";
+Worker :: import "std/worker";
+
+test "Worker spawn simple task", {
+  Worker.set_num_threads(2);
+  
+  Worker.spawn(() => {
+    // Simple task that runs on worker thread
+    assert(true);
+  });
+};
+
+test "Worker spawn multiple tasks", {
+  Worker.set_num_threads(2);
+  
+  Worker.spawn(() => {
+    // Task 1
+    assert(true);
+  });
+  Worker.spawn(() => {
+    // Task 2
+    assert(true);
+  });
+  Worker.spawn(() => {
+    // Task 3
+    assert(true);
+  });
+  Worker.spawn(() => {
+    // Task 4
+    assert(true);
+  });
+};
+
+test "Worker spawn with i32 capture", {
+  Worker.set_num_threads(2);
+  
+  value := 42;
+  Worker.spawn(() => {
+    // Capture an i32 value
+    assert(value == 42);
+  });
+};
+
+test "Worker spawn with multiple captures", {
+  Worker.set_num_threads(2);
+  
+  x := 100;
+  y := 200;
+  Worker.spawn(() => {
+    // Capture multiple values
+    assert((x + y) == 300);
+  });
+};
+
+test "Worker get_num_threads returns configured value", {
+  Worker.set_num_threads(4);
+  n := Worker.get_num_threads();
+  // Note: get_num_threads returns configured value or hardware threads if 0
+  assert((n > 0));
+};

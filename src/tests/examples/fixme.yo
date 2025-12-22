@@ -1,42 +1,22 @@
-// foldl and foldr macro examples
-// foldl(op, a, b, c, ...) => op(op(op(a, b), c), ...)
-// foldr(op, a, b, c, ...) => op(a, op(b, op(c, ...)))
+open import "std/libc/stdio";
+{ get_thread_id } :: import "std/thread";
+Worker :: import "std/worker";
 
-(foldl) :: (fn(
-          quote(op): Expr,
-          quote(arg1): Expr,
-          quote(arg2): Expr,
-          ...(quote(rest))
-        ) -> unquote(Expr))
-  cond
-    (rest.length() == 0) =>
-      quote(unquote(op)(unquote(arg1), unquote(arg2))),
-    true =>
-      quote(foldl(unquote(op), unquote(op)(unquote(arg1), unquote(arg2)), unquote_splicing(rest)))
-;
+main :: (fn() -> unit) {
+  Worker.set_num_threads(2);
+  
+  Worker.spawn(() => {
+    printf("Worker on thread id: %u\n", get_thread_id());
+  });
+  Worker.spawn(() => {
+    printf("Worker on thread id: %u\n", get_thread_id());
+  });
+  Worker.spawn(() => { // thread_id should repeat
+    printf("Worker on thread id: %u\n", get_thread_id());
+  });
+  Worker.spawn(() => { // thread_id should repeat
+    printf("Worker on thread id: %u\n", get_thread_id());
+  });
+};
 
-(foldr) :: (fn(
-          quote(op): Expr,
-          quote(arg1): Expr,
-          quote(arg2): Expr,
-          ...(quote(rest))
-        ) -> unquote(Expr))
-  cond
-    (rest.length() == 0) =>
-      quote(unquote(op)(unquote(arg1), unquote(arg2))),
-    true =>
-      quote(unquote(op)(unquote(arg1), unquote(foldr(unquote(op), unquote(arg2), unquote_splicing(rest)))))
-;
-
-// Tests: show macro expansion results (use macro_expand like macro_3.yo)
-x :: macro_expand(quote(foldl(+, 1, 2, 3, 4)));
-compt_print("foldl full expansion:");
-compt_print(x);
-
-y :: macro_expand(quote(foldl(+, 1, 2, 3, 4)), 1);
-compt_print("foldl level 1 expansion:");
-compt_print(y);
-
-z :: macro_expand(quote(foldr(+, 1, 2, 3, 4)));
-compt_print("foldr full expansion:");
-compt_print(z);
+export main;

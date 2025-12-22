@@ -1,0 +1,36 @@
+// Worker - Thread Pool with Thread Affinity
+// ==========================================
+// Worker spawns tasks on a thread pool. Each task has thread affinity:
+// tasks are distributed round-robin to worker threads and stay on their
+// assigned thread (no work stealing).
+//
+// Thread-per-core: By default, one worker thread per CPU core.
+// Thread affinity: Each task runs on a specific worker thread.
+// Thread-local GC: Each worker thread has its own GC heap.
+
+extern "Yo",
+  __yo_worker_spawn : (fn(cb : Impl(Fn() -> unit, Send)) -> unit),
+  __yo_worker_get_num_threads : (fn() -> usize),
+  __yo_worker_set_num_threads : (fn(num: usize) -> unit)
+;
+
+// Spawn a task on the thread pool.
+// Returns immediately, task runs in background.
+// Tasks are distributed round-robin to worker threads.
+spawn :: (fn(cb : Impl(Fn() -> unit, Send)) -> unit)({
+  __yo_worker_spawn(cb);
+});
+
+// Get number of threads in pool.
+// Default: number of hardware threads (CPU cores).
+get_num_threads :: (fn() -> usize)(
+  __yo_worker_get_num_threads()
+);
+
+// Configure thread pool size.
+// Must be called before first spawn to take effect.
+set_num_threads :: (fn(num: usize) -> unit)(
+  __yo_worker_set_num_threads(num)
+);
+
+export spawn, get_num_threads, set_num_threads;
