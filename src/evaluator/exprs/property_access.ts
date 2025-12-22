@@ -3,7 +3,6 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   exprIsAtom,
-  exprIsAtomOf,
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
@@ -11,14 +10,11 @@ import {
 import { TokenType } from "../../token";
 import {
   areTypesCompatible,
-  createUsizeType,
   EnumType,
-  isArrayType,
   isEnumType,
   isFunctionType,
   isModuleType,
   isPtrType,
-  isSliceType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -738,39 +734,6 @@ export function evaluatePropertyAccess({
         // It could be enum method call, so we ignore here.
       }
     }
-  }
-  // Getting the length of array
-  else if (
-    isArrayType(objectType) &&
-    exprIsAtom(propertyExpr) &&
-    exprIsAtomOf(propertyExpr, "length")
-  ) {
-    const lengthValue = objectType.length;
-    expr.$ = {
-      env,
-      type: lengthValue.type,
-      value: lengthValue,
-      pathCollection: [],
-      isAccessingProperty: true,
-    };
-    propertyExpr.$ = expr.$;
-    return expr;
-  }
-  // Getting the length of slice
-  else if (
-    isSliceType(objectType) &&
-    exprIsAtom(propertyExpr) &&
-    exprIsAtomOf(propertyExpr, "length")
-  ) {
-    expr.$ = {
-      env,
-      type: createUsizeType(),
-      value: undefined,
-      pathCollection: [],
-      isAccessingProperty: true,
-    };
-    propertyExpr.$ = expr.$;
-    return expr;
   }
 
   // TODO: Evaluate the module method call

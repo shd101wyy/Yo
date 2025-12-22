@@ -56,14 +56,14 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      * Get the number of elements in the list
      */
     len :: ((fn(self: Self) -> usize)
-      self.length
+      self.len
     ),
 
     /**
      * Check if the list is empty
      */
     is_empty :: ((fn(self: Self) -> bool)
-      (self.length == usize(0))
+      (self.len == usize(0))
     ),
 
     /**
@@ -88,7 +88,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         );
         
         self.head = .Some(new_node);
-        self.length = (self.length + usize(1));
+        self.len = (self.len + usize(1));
       }
     ),
 
@@ -114,7 +114,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         );
         
         self.tail = .Some(new_node);
-        self.length = (self.length + usize(1));
+        self.len = (self.len + usize(1));
       }
     ),
 
@@ -140,7 +140,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
             }
           );
           
-          self.length = (self.length - usize(1));
+          self.len = (self.len - usize(1));
           .Some(value)
         }
       )
@@ -168,7 +168,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
             }
           );
           
-          self.length = (self.length - usize(1));
+          self.len = (self.len - usize(1));
           .Some(value)
         }
       )
@@ -200,7 +200,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     get :: ((fn(self: Self, index: usize) -> Option(T))
       cond(
-        (index >= self.length) => .None,
+        (index >= self.len) => .None,
         true => {
           current_opt := self.head;
           i := usize(0);
@@ -231,12 +231,12 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     insert :: ((fn(self: Self, index: usize, value: T) -> Result(unit, LinkedListError))
       cond(
-        (index > self.length) => .Error(.IndexOutOfBounds(index: index, length: self.length)),
+        (index > self.len) => .Error(.IndexOutOfBounds(index: index, length: self.len)),
         (index == usize(0)) => {
           self.push_front(value);
           .Ok(())
         },
-        (index == self.length) => {
+        (index == self.len) => {
           self.push_back(value);
           .Ok(())
         },
@@ -247,7 +247,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
           while(i < index, i = (i + usize(1)), {
             match(current_opt,
               .None => {
-                return .Error(.IndexOutOfBounds(index: index, length: self.length));
+                return .Error(.IndexOutOfBounds(index: index, length: self.len));
               },
               .Some(current) => {
                 current_opt = current.next;
@@ -256,7 +256,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
           });
           
           match(current_opt,
-            .None => .Error(.IndexOutOfBounds(index: index, length: self.length)),
+            .None => .Error(.IndexOutOfBounds(index: index, length: self.len)),
             .Some(current) => {
               prev_opt := current.prev;
               
@@ -277,7 +277,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
                 }
               );
               
-              self.length = (self.length + usize(1));
+              self.len = (self.len + usize(1));
               .Ok(())
             }
           )
@@ -291,13 +291,13 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     remove :: ((fn(self: Self, index: usize) -> Result(T, LinkedListError))
       cond(
-        (index >= self.length) => .Error(.IndexOutOfBounds(index: index, length: self.length)),
+        (index >= self.len) => .Error(.IndexOutOfBounds(index: index, length: self.len)),
         (index == usize(0)) =>
           match(self.pop_front(),
             .Some(value) => .Ok(value),
             .None => .Error(.EmptyList)
           ),
-        (index == (self.length - usize(1))) =>
+        (index == (self.len - usize(1))) =>
           match(self.pop_back(),
             .Some(value) => .Ok(value),
             .None => .Error(.EmptyList)
@@ -309,7 +309,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
           while(i < index, i = (i + usize(1)), {
             match(current_opt,
               .None => {
-                return .Error(.IndexOutOfBounds(index: index, length: self.length));
+                return .Error(.IndexOutOfBounds(index: index, length: self.len));
               },
               .Some(current) => {
                 current_opt = current.next;
@@ -318,7 +318,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
           });
           
           match(current_opt,
-            .None => .Error(.IndexOutOfBounds(index: index, length: self.length)),
+            .None => .Error(.IndexOutOfBounds(index: index, length: self.len)),
             .Some(node_to_remove) => {
               value := node_to_remove.value;
               prev_opt := node_to_remove.prev;
@@ -342,7 +342,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
                 }
               );
               
-              self.length = (self.length - usize(1));
+              self.len = (self.len - usize(1));
               .Ok(value)
             }
           )
@@ -355,7 +355,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
      */
     clear :: ((fn(self: Self) -> unit)
       {
-        while((self.length > usize(0)), {
+        while((self.len > usize(0)), {
           _ := self.pop_front();
         });
       }
@@ -374,7 +374,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         current_opt := self.head;
         i := usize(0);
         
-        while(i < self.length, i = (i + usize(1)), {
+        while(i < self.len, i = (i + usize(1)), {
           match(current_opt,
             .None => {
               return false;
@@ -405,7 +405,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))
         current_opt := self.head;
         i := usize(0);
         
-        while(i < self.length, i = (i + usize(1)), {
+        while(i < self.len, i = (i + usize(1)), {
           match(current_opt,
             .None => {
               return;

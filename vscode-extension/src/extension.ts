@@ -1043,14 +1043,14 @@ export function activate(context: vscode.ExtensionContext) {
         if (isArrayType(fieldAccessType)) {
           // For array types, show the length field
           methods.push({
-            name: "length",
+            name: "len",
             detail: "compt(usize)",
             documentation: `Get the compile-time known length of the array`,
           });
         } else if (isSliceType(fieldAccessType)) {
           // For slice types, show the length field
           methods.push({
-            name: "length",
+            name: "len",
             detail: "usize",
             documentation: `Get the runtime length of the slice`,
           });
@@ -1098,7 +1098,7 @@ export function activate(context: vscode.ExtensionContext) {
             "map",
             "filter",
             "fold",
-            "length",
+            "len",
             "head",
             "tail",
           ];

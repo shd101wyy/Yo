@@ -39,10 +39,10 @@ String :: object(
    */
   from :: ((fn(slice: [u8]) -> Self) {
     // Create a new ArrayList and copy bytes from the slice
-    bytes := ArrayList(u8).with_capacity(slice.length);
+    bytes := ArrayList(u8).with_capacity(slice.len);
     
     i := usize(0);
-    while ((i < slice.length)),
+    while ((i < slice.len)),
           (i = (i + usize(1))),
     {
       byte := slice(i);
@@ -88,10 +88,10 @@ String :: object(
    * Get the length of the string in Unicode characters (runes)
    * For "你好世界", this returns 4
    */
-  length :: ((fn(self: Self) -> usize) {
+  len :: ((fn(self: Self) -> usize) {
     count := usize(0);
     byte_index := usize(0);
-    total_bytes := self._bytes.length();
+    total_bytes := self._bytes.len();
     
     while ((byte_index < total_bytes)),
           (byte_index = (byte_index + usize(1))),
@@ -119,7 +119,7 @@ String :: object(
    * Check if the string is empty
    */
   is_empty :: ((fn(self: Self) -> bool)
-    (self._bytes.length() == usize(0))
+    (self._bytes.len() == usize(0))
   ),
 
   /**
@@ -209,7 +209,7 @@ String :: object(
   at :: ((fn(self: Self, index: usize) -> Option(rune)) {
     char_count := usize(0);
     byte_index := usize(0);
-    total_bytes := self._bytes.length();
+    total_bytes := self._bytes.len();
     
     // Find the byte position of the character at the given index
     while ((byte_index < total_bytes)),
@@ -249,11 +249,11 @@ String :: object(
    * Concatenate two strings (like JavaScript +)
    */
   concat :: ((fn(self: Self, other: Self) -> Self) {
-    new_bytes := ArrayList(u8).with_capacity((self.as_bytes().length() + other.as_bytes().length()));
+    new_bytes := ArrayList(u8).with_capacity((self.as_bytes().len() + other.as_bytes().len()));
     
     // Copy bytes from self
     i := usize(0);
-    while ((i < self.as_bytes().length())),
+    while ((i < self.as_bytes().len())),
           (i = (i + usize(1))),
     {
       byte_opt := self._bytes.get(i);
@@ -265,7 +265,7 @@ String :: object(
     
     // Copy bytes from other
     j := usize(0);
-    while ((j < other.as_bytes().length())),
+    while ((j < other.as_bytes().len())),
           (j = (j + usize(1))),
     {
       byte_opt := other._bytes.get(j);

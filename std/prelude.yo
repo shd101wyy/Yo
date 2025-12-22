@@ -73,7 +73,11 @@ extern "Yo",
   __yo_ptr_gt :
     fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool,
   __yo_ptr_gte :
-    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool
+    fn(forall(T: Type), ptr1 : T, ptr2 : T) -> bool,
+
+  // slice related
+  __yo_slice_len :
+    fn(forall(T: Type), slice: Slice(T)) -> usize
 ;
 export __yo_as;
 
@@ -2543,10 +2547,10 @@ impl(compt_string, ComptOrd(compt_string)(
   )
 ));
 impl(compt_string, {
-  length :: ((fn(compt(self): compt_string) -> compt(compt_int))
+  len :: ((fn(compt(self): compt_string) -> compt(compt_int))
     __yo_compt_string_length(self)
   );
-  export length;
+  export len;
 
   (to_upper) :: ((fn(compt(self): compt_string) -> compt(compt_string))
     __yo_compt_string_to_upper(self)
@@ -2630,9 +2634,20 @@ impl(forall(T : Type), *(T), {
 /// Array
 impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
 impl(forall(T : Type, U : usize), Array(T, U), {
-  length :: U;
+  len :: (fn(self : *(Self)) -> usize) {
+    return U;
+  };
 
-  export length;
+  export len;
+});
+
+/// Slice
+impl(forall(T : Type), Slice(T), {
+  len :: (fn(self : Self) -> usize) {
+    return __yo_slice_len(self);
+  };
+
+  export len;
 });
 
 /// ComptList
@@ -2648,10 +2663,10 @@ impl(forall(T : Type), ComptList(T), {
   append :: ((fn(compt(self): Self, compt(another): Self) -> compt(Self))
     __yo_compt_list_append(self, another)
   );
-  length :: ((fn(compt(self): Self) -> compt(usize))
+  len :: ((fn(compt(self): Self) -> compt(usize))
     __yo_compt_list_length(self)
   );
-  export car, cdr, first, rest, append, length;
+  export car, cdr, first, rest, append, len;
 });
 
 /// ExprList
@@ -2924,7 +2939,7 @@ for :: (fn(
       cond(
         (callee.is_atom() && (callee == quote(=>))) => {
           args :: handle.get_args();
-          compt_assert(args.length() == 2, "'for' macro requires 2 arguments in the function handle");
+          compt_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
           variable :: args.car();
           body :: args.cdr().car();
 

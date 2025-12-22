@@ -14,7 +14,7 @@ main :: (fn() -> unit) {
   list1.push(i32(40));
   list1.push(i32(50));
   
-  printf("Initial list: [10, 20, 30, 40, 50], length: %zu\n", list1.length());
+  printf("Initial list: [10, 20, 30, 40, 50], length: %zu\n", list1.len());
   
   // Remove 2 elements starting from index 1 (remove 20 and 30)
   remove_result1 := list1.remove(usize(1), usize(2));
@@ -25,14 +25,14 @@ main :: (fn() -> unit) {
   
   printf("After removing 2 elements from index 1: ");
   i := usize(0);
-  while(i < list1.length(), i = (i + usize(1)), {
+  while(i < list1.len(), i = (i + usize(1)), {
     elem := list1.get(i);
     match(elem,
       .Some(val) => { printf("%d ", val); },
       .None => ()
     );
   });
-  printf("(length: %zu)\n\n", list1.length());
+  printf("(length: %zu)\n\n", list1.len());
   
   // Test 2: Remove from beginning
   printf("Test 2: Remove from beginning\n");
@@ -51,7 +51,7 @@ main :: (fn() -> unit) {
   
   printf("After removal: ");
   i2 := usize(0);
-  while(i2 < list2.length(), i2 = (i2 + usize(1)), {
+  while(i2 < list2.len(), i2 = (i2 + usize(1)), {
     elem := list2.get(i2);
     match(elem,
       .Some(val) => { printf("%d ", val); },
@@ -78,7 +78,7 @@ main :: (fn() -> unit) {
   
   printf("After removal: ");
   i3 := usize(0);
-  while(i3 < list3.length(), i3 = (i3 + usize(1)), {
+  while(i3 < list3.len(), i3 = (i3 + usize(1)), {
     elem := list3.get(i3);
     match(elem,
       .Some(val) => { printf("%d ", val); },
@@ -116,21 +116,21 @@ main :: (fn() -> unit) {
     .Ok(sliced) => {
       printf("Sliced [1:4]: ");
       i5 := usize(0);
-      while(i5 < sliced.length(), i5 = (i5 + usize(1)), {
+      while(i5 < sliced.len(), i5 = (i5 + usize(1)), {
         elem := sliced.get(i5);
         match(elem,
           .Some(val) => { printf("%d ", val); },
           .None => ()
         );
       });
-      printf("(length: %zu)\n", sliced.length());
+      printf("(length: %zu)\n", sliced.len());
     },
     .Error(err) => { printf("Error slicing\n"); }
   );
   
   printf("Original list unchanged: ");
   i5_check := usize(0);
-  while(i5_check < list5.length(), i5_check = (i5_check + usize(1)), {
+  while(i5_check < list5.len(), i5_check = (i5_check + usize(1)), {
     elem := list5.get(i5_check);
     match(elem,
       .Some(val) => { printf("%d ", val); },
@@ -146,7 +146,7 @@ main :: (fn() -> unit) {
     .Ok(sliced) => {
       printf("Sliced [0:3]: ");
       i6 := usize(0);
-      while(i6 < sliced.length(), i6 = (i6 + usize(1)), {
+      while(i6 < sliced.len(), i6 = (i6 + usize(1)), {
         elem := sliced.get(i6);
         match(elem,
           .Some(val) => { printf("%d ", val); },
@@ -166,7 +166,7 @@ main :: (fn() -> unit) {
     .Ok(sliced) => {
       printf("Sliced [2:5]: ");
       i7 := usize(0);
-      while(i7 < sliced.length(), i7 = (i7 + usize(1)), {
+      while(i7 < sliced.len(), i7 = (i7 + usize(1)), {
         elem := sliced.get(i7);
         match(elem,
           .Some(val) => { printf("%d ", val); },
@@ -183,7 +183,7 @@ main :: (fn() -> unit) {
   printf("Test 8: Empty slice\n");
   empty_slice := list5.slice(usize(2), usize(2));
   match(empty_slice,
-    .Ok(sliced) => printf("Empty slice [2:2] length: %zu\n", sliced.length()),
+    .Ok(sliced) => printf("Empty slice [2:2] length: %zu\n", sliced.len()),
     .Error(err) => printf("Error\n")
   );
   printf("\n");
@@ -221,7 +221,7 @@ main :: (fn() -> unit) {
     .Ok(sliced) => {
       printf("After slice [1:5]: ");
       ic := usize(0);
-      while(ic < sliced.length(), ic = (ic + usize(1)), {
+      while(ic < sliced.len(), ic = (ic + usize(1)), {
         elem := sliced.get(ic);
         match(elem,
           .Some(val) => { printf("%d ", val); },
@@ -234,7 +234,7 @@ main :: (fn() -> unit) {
       sliced.remove(usize(1), usize(2));
       printf("After remove(1, 2): ");
       ic2 := usize(0);
-      while(ic2 < sliced.length(), ic2 = (ic2 + usize(1)), {
+      while(ic2 < sliced.len(), ic2 = (ic2 + usize(1)), {
         elem := sliced.get(ic2);
         match(elem,
           .Some(val) => { printf("%d ", val); },

@@ -50,7 +50,7 @@ test_insert_duplicate :: (fn() -> unit) {
     .Error(_) => panic("Insert failed")
   );
   
-  assert((set.length() == usize(1)), "Length should be 1");
+  assert((set.len() == usize(1)), "Length should be 1");
   printf("✓ Length is still 1\n");
   
   printf("✓ Insert duplicate works\n");
@@ -90,7 +90,7 @@ test_length_and_empty :: (fn() -> unit) {
   set := HashSet(i32, i32.Eq, i32.Hash).new();
   
   assert(set.is_empty(), "New set should be empty");
-  assert((set.length() == usize(0)), "New set length should be 0");
+  assert((set.len() == usize(0)), "New set length should be 0");
   printf("✓ New set is empty\n");
   
   set.add(i32(1));
@@ -98,13 +98,13 @@ test_length_and_empty :: (fn() -> unit) {
   set.add(i32(3));
   
   assert((set.is_empty() == false), "Set should not be empty");
-  assert((set.length() == usize(3)), "Length should be 3");
+  assert((set.len() == usize(3)), "Length should be 3");
   printf("✓ Set has 3 elements\n");
   
   set.clear();
   
   assert(set.is_empty(), "Cleared set should be empty");
-  assert((set.length() == usize(0)), "Cleared set length should be 0");
+  assert((set.len() == usize(0)), "Cleared set length should be 0");
   printf("✓ Set is empty after clear\n");
   
   printf("✓ Length and empty work\n");
@@ -122,7 +122,7 @@ test_resize :: (fn() -> unit) {
   
   printf("✓ Inserted 20 elements (triggers resize)\n");
   
-  assert((set.length() == usize(20)), "Length should be 20");
+  assert((set.len() == usize(20)), "Length should be 20");
   printf("✓ Length is 20\n");
   
   j := i32(0);
@@ -235,7 +235,7 @@ test_union :: (fn() -> unit) {
   result := set1.union(set2);
   match(result,
     .Ok(union_set) => {
-      assert((union_set.length() == usize(5)), "Union should have 5 elements");
+      assert((union_set.len() == usize(5)), "Union should have 5 elements");
       printf("✓ Union has 5 elements\n");
       
       assert(union_set.has(i32(1)), "Union should contain 1");
@@ -268,7 +268,7 @@ test_intersection :: (fn() -> unit) {
   result := set1.intersection(set2);
   match(result,
     .Ok(inter_set) => {
-      assert((inter_set.length() == usize(2)), "Intersection should have 2 elements");
+      assert((inter_set.len() == usize(2)), "Intersection should have 2 elements");
       printf("✓ Intersection has 2 elements\n");
       
       assert(inter_set.has(i32(2)), "Intersection should contain 2");
@@ -300,7 +300,7 @@ test_difference :: (fn() -> unit) {
   result := set1.difference(set2);
   match(result,
     .Ok(diff_set) => {
-      assert((diff_set.length() == usize(1)), "Difference should have 1 element");
+      assert((diff_set.len() == usize(1)), "Difference should have 1 element");
       printf("✓ Difference has 1 element\n");
       
       assert(diff_set.has(i32(1)), "Difference should contain 1");
@@ -333,7 +333,7 @@ test_symmetric_difference :: (fn() -> unit) {
   result := set1.symmetric_difference(set2);
   match(result,
     .Ok(sym_diff_set) => {
-      assert((sym_diff_set.length() == usize(3)), "Symmetric difference should have 3 elements");
+      assert((sym_diff_set.len() == usize(3)), "Symmetric difference should have 3 elements");
       printf("✓ Symmetric difference has 3 elements\n");
       
       assert(sym_diff_set.has(i32(1)), "Symmetric difference should contain 1");
@@ -363,7 +363,7 @@ test_collision_handling :: (fn() -> unit) {
   assert(set.has(i32(48)), "Set should contain 48");
   printf("✓ All colliding keys present\n");
   
-  assert((set.length() == usize(3)), "Length should be 3");
+  assert((set.len() == usize(3)), "Length should be 3");
   printf("✓ Correct length with collisions\n");
   
   printf("✓ Collision handling works\n");
