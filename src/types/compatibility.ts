@@ -538,7 +538,14 @@ export function areTypesCompatible(
     }
 
     if (isSomeType(given.type)) {
+      // Check reference equality first
       if (expected.type === given.type) {
+        return true;
+      }
+
+      // Check ID equality - SomeTypes with same ID are the same type
+      // even if they're different object references
+      if (expected.type.id === given.type.id) {
         return true;
       }
 
