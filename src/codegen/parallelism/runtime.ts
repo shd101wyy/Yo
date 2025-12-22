@@ -290,6 +290,27 @@ static size_t __yo_get_hardware_threads(void) {
 #endif
 }
 
+// Get CPU ID that the current thread is running on
+// Returns -1 if CPU affinity information is not available
+int __yo_get_cpu_id(void) {
+#if defined(__linux__)
+  // On Linux, use sched_getcpu() to get the current CPU
+  int cpu = sched_getcpu();
+  return cpu;
+#elif defined(__APPLE__)
+  // On macOS, there's no direct equivalent to sched_getcpu()
+  // We could use thread_info but it's more complex
+  // For now, return -1 to indicate "not available"
+  return -1;
+#elif defined(_WIN32)
+  // On Windows, use GetCurrentProcessorNumber()
+  return (int)GetCurrentProcessorNumber();
+#else
+  // Unknown platform
+  return -1;
+#endif
+}
+
 // Set the number of worker threads (must be called before first spawn)
 void __yo_worker_set_num_threads(size_t num) {
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);

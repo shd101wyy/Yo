@@ -1,21 +1,21 @@
 open import "std/libc/stdio";
-{ get_thread_id } :: import "std/thread";
+{ get_thread_id, get_cpu_id } :: import "std/thread";
 Worker :: import "std/worker";
 
 main :: (fn() -> unit) {
   Worker.set_num_threads(2);
   
   Worker.spawn(() => {
-    printf("Worker on thread id: %u\n", get_thread_id());
+    printf("Worker 1: thread_id=%u, cpu_id=%d\n", get_thread_id(), get_cpu_id());
   });
   Worker.spawn(() => {
-    printf("Worker on thread id: %u\n", get_thread_id());
+    printf("Worker 2: thread_id=%u, cpu_id=%d\n", get_thread_id(), get_cpu_id());
   });
-  Worker.spawn(() => { // thread_id should repeat
-    printf("Worker on thread id: %u\n", get_thread_id());
+  Worker.spawn(() => { // thread_id and cpu_id should repeat
+    printf("Worker 3: thread_id=%u, cpu_id=%d\n", get_thread_id(), get_cpu_id());
   });
-  Worker.spawn(() => { // thread_id should repeat
-    printf("Worker on thread id: %u\n", get_thread_id());
+  Worker.spawn(() => { // thread_id and cpu_id should repeat
+    printf("Worker 4: thread_id=%u, cpu_id=%d\n", get_thread_id(), get_cpu_id());
   });
 };
 

@@ -29,6 +29,9 @@ export function emitCIncludes(context: CodeGenContext): void {
   // Enable POSIX extensions for usleep and other functions
   context.emitter.emitHeaderLine(`#ifndef _WIN32`);
   context.emitter.emitHeaderLine(`#define _DEFAULT_SOURCE`);
+  context.emitter.emitHeaderLine(
+    `#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux`
+  );
   context.emitter.emitHeaderLine(`#endif`);
   context.emitter.emitHeaderLine(``);
 
