@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   Environment,
+  getVariablesFromEnv,
   isEvaluatingPreludeModule,
   popEnvFrame,
   pushEnvFrame,
@@ -48,6 +49,7 @@ import {
   isFunctionValue,
   isModuleValue,
   isTypeValue,
+  isUnknownValue,
   ModuleValue,
   UnknownValue,
   Value,
@@ -220,7 +222,8 @@ export function findMethodsFromGenericImpls({
           // Substitute Self and type parameters with concrete types
           const specializedType = substituteInFunctionType(
             method.type,
-            match.substitutions
+            match.substitutions,
+            match.valueSubstitutions
           );
 
           // If it's a function value, create a copy with specializedType set
@@ -248,13 +251,20 @@ interface GenericImplMatchResult {
   matched: boolean;
   /** Map from SomeType name to the concrete type it was bound to */
   substitutions: Map<string, Type>;
+  /** Map from value parameter name to the concrete value it was bound to */
+  valueSubstitutions: Map<string, Value>;
 }
 
 /**
  * Apply type substitutions to a Type recursively.
  * Substitutes SomeTypes whose name matches a key in the substitutions map.
+ * Also substitutes value parameters (for array lengths, etc.).
  */
-function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
+function substituteInType(
+  type: Type,
+  substitutions: Map<string, Type>,
+  valueSubstitutions: Map<string, Value> = new Map()
+): Type {
   if (isSomeType(type)) {
     const substitute = substitutions.get(type.name);
     if (substitute) {
@@ -264,7 +274,11 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   }
 
   if (isPtrType(type)) {
-    const newChildType = substituteInType(type.childType, substitutions);
+    const newChildType = substituteInType(
+      type.childType,
+      substitutions,
+      valueSubstitutions
+    );
     if (newChildType === type.childType) {
       return type;
     }
@@ -272,15 +286,31 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   }
 
   if (isArrayType(type)) {
-    const newChildType = substituteInType(type.childType, substitutions);
-    if (newChildType === type.childType) {
+    const newChildType = substituteInType(
+      type.childType,
+      substitutions,
+      valueSubstitutions
+    );
+    // Also substitute the array length if it's an UnknownValue with a variable name
+    let newLength = type.length;
+    if (isUnknownValue(type.length) && type.length.variableName) {
+      const substituteLength = valueSubstitutions.get(type.length.variableName);
+      if (substituteLength) {
+        newLength = substituteLength;
+      }
+    }
+    if (newChildType === type.childType && newLength === type.length) {
       return type;
     }
-    return { ...type, childType: newChildType } as Type;
+    return { ...type, childType: newChildType, length: newLength } as Type;
   }
 
   if (isSliceType(type)) {
-    const newChildType = substituteInType(type.childType, substitutions);
+    const newChildType = substituteInType(
+      type.childType,
+      substitutions,
+      valueSubstitutions
+    );
     if (newChildType === type.childType) {
       return type;
     }
@@ -288,7 +318,11 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   }
 
   if (isComptListType(type)) {
-    const newChildType = substituteInType(type.childType, substitutions);
+    const newChildType = substituteInType(
+      type.childType,
+      substitutions,
+      valueSubstitutions
+    );
     if (newChildType === type.childType) {
       return type;
     }
@@ -298,7 +332,11 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   if (isTupleType(type)) {
     let changed = false;
     const newFields = type.fields.map((f) => {
-      const newType = substituteInType(f.type, substitutions);
+      const newType = substituteInType(
+        f.type,
+        substitutions,
+        valueSubstitutions
+      );
       if (newType !== f.type) {
         changed = true;
         return { ...f, type: newType };
@@ -314,7 +352,11 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   if (isStructType(type)) {
     let changed = false;
     const newFields = type.fields.map((f) => {
-      const newType = substituteInType(f.type, substitutions);
+      const newType = substituteInType(
+        f.type,
+        substitutions,
+        valueSubstitutions
+      );
       if (newType !== f.type) {
         changed = true;
         return { ...f, type: newType };
@@ -334,7 +376,11 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
         return v;
       }
       const newFields = v.fields.map((f) => {
-        const newType = substituteInType(f.type, substitutions);
+        const newType = substituteInType(
+          f.type,
+          substitutions,
+          valueSubstitutions
+        );
         if (newType !== f.type) {
           changed = true;
           return { ...f, type: newType };
@@ -355,7 +401,11 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   if (isUnionType(type)) {
     let changed = false;
     const newFields = type.fields.map((f) => {
-      const newType = substituteInType(f.type, substitutions);
+      const newType = substituteInType(
+        f.type,
+        substitutions,
+        valueSubstitutions
+      );
       if (newType !== f.type) {
         changed = true;
         return { ...f, type: newType };
@@ -371,7 +421,8 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   if (isFutureModuleType(type)) {
     const newChildType = substituteInType(
       type.isFuture.outputType,
-      substitutions
+      substitutions,
+      valueSubstitutions
     );
     if (newChildType === type.isFuture.outputType) {
       return type;
@@ -380,7 +431,7 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
   }
 
   if (isFunctionType(type)) {
-    return substituteInFunctionType(type, substitutions);
+    return substituteInFunctionType(type, substitutions, valueSubstitutions);
   }
 
   return type;
@@ -389,17 +440,23 @@ function substituteInType(type: Type, substitutions: Map<string, Type>): Type {
 /**
  * Apply type substitutions to a FunctionType.
  * This substitutes SomeTypes in parameters and return type.
+ * Also substitutes value parameters (for array lengths, etc.).
  */
 function substituteInFunctionType(
   functionType: FunctionType,
-  substitutions: Map<string, Type>
+  substitutions: Map<string, Type>,
+  valueSubstitutions: Map<string, Value> = new Map()
 ): FunctionType {
   let changed = false;
 
   // Substitute in parameters
   const newParameters: FunctionParameter[] = functionType.parameters.map(
     (p) => {
-      const newType = substituteInType(p.type, substitutions);
+      const newType = substituteInType(
+        p.type,
+        substitutions,
+        valueSubstitutions
+      );
       if (newType !== p.type) {
         changed = true;
         return { ...p, type: newType };
@@ -411,14 +468,19 @@ function substituteInFunctionType(
   // Substitute in return type
   const newReturnType = substituteInType(
     functionType.return.type,
-    substitutions
+    substitutions,
+    valueSubstitutions
   );
   const returnChanged = newReturnType !== functionType.return.type;
 
   // Substitute in SelfType if present
   let newSelfType = functionType.SelfType;
   if (functionType.SelfType) {
-    newSelfType = substituteInType(functionType.SelfType, substitutions);
+    newSelfType = substituteInType(
+      functionType.SelfType,
+      substitutions,
+      valueSubstitutions
+    );
     if (newSelfType !== functionType.SelfType) {
       changed = true;
     }
@@ -454,6 +516,7 @@ function tryMatchGenericImpl({
   const noMatch: GenericImplMatchResult = {
     matched: false,
     substitutions: new Map(),
+    valueSubstitutions: new Map(),
   };
 
   // Create a fresh env with the forall parameters in scope for unification
@@ -561,8 +624,9 @@ function tryMatchGenericImpl({
       }
     }
 
-    // Extract substitutions from the unified environment
+    // Extract type substitutions from the unified environment
     const substitutions = new Map<string, Type>();
+    const valueSubstitutions = new Map<string, Value>();
     for (const param of impl.forallParameters) {
       if (param.kind === "type") {
         const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
@@ -572,13 +636,20 @@ function tryMatchGenericImpl({
         if (boundType && !isSomeType(boundType)) {
           substitutions.set(param.name, boundType);
         }
+      } else {
+        // Value parameter: extract the bound value from the environment
+        const variables = getVariablesFromEnv(expectedEnv, param.name);
+        const variable = variables[variables.length - 1];
+        if (variable && variable.value && !isUnknownValue(variable.value)) {
+          valueSubstitutions.set(param.name, variable.value);
+        }
       }
     }
 
     // Also add Self -> concreteType substitution
     substitutions.set("Self", concreteType);
 
-    return { matched: true, substitutions };
+    return { matched: true, substitutions, valueSubstitutions };
   } catch {
     // Unification failed
     return noMatch;
