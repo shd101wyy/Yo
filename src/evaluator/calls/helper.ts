@@ -22,6 +22,8 @@ import {
   exprToString,
   FuncCallExpr,
   PathCollection,
+  requireExprNotConsumed,
+  setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
@@ -286,12 +288,19 @@ export function checkIfFunctionParameterMatchesArgument({
         runtimeArgExprsInOrder.push(evaluatedArgExpr);
       }
 
+      // Check if the argument variable has been consumed (moved)
+      requireExprNotConsumed(evaluatedArgExpr, callerEnv);
+
       // If parameter takes ownership, call ___dup on borrowed ARC values
+      // and mark the argument as consumed at the call site
       if (parameter.isOwningTheGcValue && !parameter.isCompileTimeOnly) {
         setExprAsNeedsToCallDup(evaluatedArgExpr, context);
         if (evaluatedArgExpr.$?.env) {
           callerEnv = evaluatedArgExpr.$?.env;
         }
+
+        // Mark the argument as consumed (moved) at the call site
+        callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
       }
     }
   }

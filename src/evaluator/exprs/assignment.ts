@@ -15,6 +15,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
@@ -223,6 +224,9 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       });
     }
     env = rhs.$.env;
+
+    // Check if the RHS variable has been consumed (moved)
+    requireExprNotConsumed(rhs, env);
 
     // Under the new ownership model, all assignments transfer ownership
     // so we always need to call dup on the RHS
@@ -683,6 +687,9 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       });
     }
     env = rhs.$.env;
+
+    // Check if the RHS variable has been consumed (moved)
+    requireExprNotConsumed(rhs, env);
 
     setExprAsNeedsToCallDup(rhs, context);
     env = rhs.$.env;

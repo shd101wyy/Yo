@@ -6,6 +6,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   FuncCallExpr,
+  requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
@@ -108,6 +109,9 @@ export function evaluateInitializationAssignment({
   }
 
   if (exprIsAtom(lhs)) {
+    // Check if the RHS variable has been consumed (moved)
+    requireExprNotConsumed(rhs, env);
+
     // Insert dup
     // NOTE: For destructuring in `else` block, we don't insert dup there.
     //       Because for simplicity destructuring uses borrowing, not owning.

@@ -1849,7 +1849,7 @@ export function setExprAsConsumed(
   const variableToConsume = variables[variables.length - 1]!;
   // Check if the variable is already consumed
   if (variableToConsume.consumedAtToken && !allowConsumeAgain) {
-    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (1).`;
+    const errorMessage = `use of moved value: \`${nameOfVariableToConsume}\``;
     throw formatErrorMessages([
       {
         token: expr.token,
@@ -1857,7 +1857,7 @@ export function setExprAsConsumed(
       },
       {
         token: variableToConsume.consumedAtToken,
-        errorMessage: `Previously consumed here:`,
+        errorMessage: `value moved here`,
       },
     ]);
   } else {
@@ -1993,7 +1993,7 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
     // isLinearOrType0Type(typeOfType(variableToConsume.type)) &&
     variableToConsume.consumedAtToken
   ) {
-    const errorMessage = `Variable "${nameOfVariableToConsume}" is already consumed and cannot be used again (2).`;
+    const errorMessage = `use of moved value: \`${nameOfVariableToConsume}\``;
     throw formatErrorMessages([
       {
         token: expr.token,
@@ -2001,7 +2001,7 @@ export function requireExprNotConsumed(expr: Expr, env: Environment): void {
       },
       {
         token: variableToConsume.consumedAtToken,
-        errorMessage: `Previously consumed here:`,
+        errorMessage: `value moved here`,
       },
     ]);
   }
