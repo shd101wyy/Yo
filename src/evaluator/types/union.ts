@@ -37,6 +37,12 @@ export function evaluateUnionType({
   // Create unionType with empty fields
   const unionType = createUnionType(env);
 
+  // Set the definedInModulePath for orphan rule checks
+  if (context.currentModulePath) {
+    unionType.definedInModulePath = context.currentModulePath;
+    unionType.module.definedInModulePath = context.currentModulePath;
+  }
+
   const fields: TypeField[] = [];
   unionType.fields = fields;
 

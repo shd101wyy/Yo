@@ -423,6 +423,11 @@ export function evaluateModuleType({
   const fields: ModuleField[] = [];
   moduleType.fields = fields;
 
+  // Set the definedInModulePath for orphan rule checks
+  if (context.currentModulePath) {
+    moduleType.definedInModulePath = context.currentModulePath;
+  }
+
   // Don't push env frame - module fields shouldn't be in env
 
   const args = expr.args;

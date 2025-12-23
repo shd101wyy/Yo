@@ -4,7 +4,7 @@ import {
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import { FunctionType, ModuleField, Type } from "./definitions";
+import { FunctionType, Type } from "./definitions";
 import {
   isArrayType,
   isCCompatibleType,
@@ -335,16 +335,12 @@ export function areTypesCompatible(
     return true;
   }
 
-  // NOTE: Module type is a structural type.
+  // NOTE: Module type is now a NOMINAL type (compared by id).
+  // Special cases: FnModuleType and FutureModuleType use structural comparison
+  // because they are parameterized (e.g., Fn(x: i32) -> i32 vs Fn(y: string) -> string).
   if (isModuleType(expected.type)) {
-    let givenElements: ModuleField[] | undefined = undefined;
-    let givenReceiverType: Type | undefined = undefined;
-
     if (isModuleType(given.type)) {
-      givenElements = given.type.fields;
-      givenReceiverType = given.type.receiverType;
-
-      // If expected is a FnModuleType (has isFn), given must also be a FnModuleType with compatible isFn
+      // Special case: FnModuleType uses structural comparison (function signature)
       if (isFnModuleType(expected.type)) {
         if (!isFnModuleType(given.type)) {
           return false; // Expected is callable but given is not
@@ -359,8 +355,11 @@ export function areTypesCompatible(
         ) {
           return false;
         }
+        // FnModuleType matched structurally
+        return true;
       }
 
+      // Special case: FutureModuleType uses structural comparison (output type)
       if (isFutureModuleType(expected.type)) {
         if (!isFutureModuleType(given.type)) {
           return false; // Expected is Future but given is not
@@ -377,79 +376,36 @@ export function areTypesCompatible(
         ) {
           return false;
         }
+        // FutureModuleType matched structurally
+        return true;
       }
-    } else if (
+
+      // Nominal comparison: modules are the same if they have the same id
+      if (expected.type.id === given.type.id) {
+        return true;
+      }
+
+      // Different ids = different modules (nominal typing)
+      return false;
+    }
+
+    // QUESTION: Should we remove the check below?
+    // Handle TypeHierarchyType with module
+    if (
       isTypeHierarchyType(given.type) &&
       given.type.baseType &&
-      given.type.baseType.module
+      given.type.baseType.module &&
+      isModuleType(expected.type)
     ) {
-      givenElements = given.type.baseType.module.fields;
-      givenReceiverType = given.type.baseType.module.receiverType;
+      // Compare the module from TypeHierarchyType with expected module
+      return areTypesCompatible(
+        { type: expected.type, env: expected.env },
+        { type: given.type.baseType.module, env: given.env },
+        requireExactMatch
+      );
     }
 
-    if (givenElements) {
-      // Check receiverType constraint if present (e.g., for (i32 <: Eq(i32)))
-      if (expected.type.receiverType && givenReceiverType) {
-        // Both have receiverType, they must be compatible
-        if (
-          !areTypesCompatible(
-            { type: expected.type.receiverType, env: expected.env },
-            { type: givenReceiverType, env: given.env }
-          )
-        ) {
-          return false;
-        }
-      } else if (expected.type.receiverType && !givenReceiverType) {
-        // Expected has receiverType constraint but given doesn't
-        // This means we're checking if a type implements a subtype constraint
-        // The given type should satisfy the receiverType constraint
-        // For now, we'll only check the module fields, not the receiverType
-        // The receiverType constraint should be checked elsewhere when implementing
-      } else if (!expected.type.receiverType && givenReceiverType) {
-        // Expected doesn't have receiverType but given does
-        // This is OK - the given type is more specific
-      }
-
-      // Modules must have same fields and compatible types
-      for (let i = 0; i < expected.type.fields.length; i++) {
-        const expectedFields = expected.type.fields[i]!;
-
-        const givenFields = givenElements.find(
-          (field) => field.label === expectedFields.label
-        );
-        if (!givenFields) {
-          return false;
-        }
-
-        if (
-          !areTypesCompatible(
-            { type: expectedFields.type, env: expected.env },
-            { type: givenFields.type, env: given.env },
-            true // requireExactMatch for method receivers
-          )
-        ) {
-          return false;
-        }
-
-        if (expectedFields.assignedValue && givenFields.assignedValue) {
-          if (
-            !areValuesEqual(
-              {
-                value: expectedFields.assignedValue,
-                env: expected.env,
-              },
-              {
-                value: givenFields.assignedValue,
-                env: given.env,
-              }
-            )
-          ) {
-            return false;
-          }
-        }
-      }
-      return true;
-    }
+    return false;
   }
 
   if (isFunctionType(expected.type) && isFunctionType(given.type)) {

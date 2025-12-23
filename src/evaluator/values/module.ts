@@ -105,6 +105,19 @@ export interface GenericImpl {
 const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
 
 /**
+ * Registry tracking which modules are implemented for which types.
+ * Maps from type id to an array of impl records.
+ * Used for duplicate impl detection.
+ */
+interface ImplRecord {
+  moduleTypeId: string;
+  moduleTypeName?: string;
+  modulePath: string;
+  expr: Expr;
+}
+const typeImplRegistry: Map<string, ImplRecord[]> = new Map();
+
+/**
  * Clear all generic impls from the registry that were added by the specified module.
  * Call this before re-evaluating a module to prevent duplicate impls.
  */
@@ -128,6 +141,7 @@ export function clearGenericImplsFromModule(modulePath: string): void {
 export function clearAllGlobalImplState(): void {
   implRegistry.clear();
   genericImplRegistry.clear();
+  typeImplRegistry.clear();
 }
 
 /**
@@ -143,6 +157,113 @@ function registerGenericImpl(
     genericImplRegistry.set(moduleTypeName, impls);
   }
   impls.push(genericImpl);
+}
+
+/**
+ * Check if a module is already implemented for a type.
+ * Throws an error if duplicate impl is detected.
+ */
+function checkDuplicateImpl({
+  receiverType,
+  moduleType,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  currentModulePath,
+  expr,
+}: {
+  receiverType: Type;
+  moduleType: ModuleType;
+  currentModulePath: string | undefined;
+  expr: Expr;
+}): void {
+  const typeId = receiverType.id;
+  const impls = typeImplRegistry.get(typeId) || [];
+
+  const existing = impls.find((impl) => impl.moduleTypeId === moduleType.id);
+  if (existing) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage:
+        `Module "${moduleType.typeName ?? moduleType.id}" is already implemented for type "${typeToString(receiverType)}".\n` +
+        `First implementation was in: ${existing.modulePath || "unknown"}`,
+    });
+  }
+}
+
+/**
+ * Register that a module has been implemented for a type.
+ */
+function registerImplForType({
+  receiverType,
+  moduleType,
+  currentModulePath,
+  expr,
+}: {
+  receiverType: Type;
+  moduleType: ModuleType;
+  currentModulePath: string | undefined;
+  expr: Expr;
+}): void {
+  const typeId = receiverType.id;
+  let impls = typeImplRegistry.get(typeId);
+  if (!impls) {
+    impls = [];
+    typeImplRegistry.set(typeId, impls);
+  }
+
+  impls.push({
+    moduleTypeId: moduleType.id,
+    moduleTypeName: moduleType.typeName,
+    modulePath: currentModulePath || "unknown",
+    expr,
+  });
+}
+
+/**
+ * Check orphan rule: at least one of the module or the type must be defined in the current module.
+ * Throws an error if the orphan rule is violated.
+ */
+function checkOrphanRule({
+  receiverType,
+  moduleType,
+  currentModulePath,
+  expr,
+}: {
+  receiverType: Type;
+  moduleType: ModuleType;
+  currentModulePath: string | undefined;
+  expr: Expr;
+}): void {
+  // If we don't have a current module path, we can't check the orphan rule
+  // This happens for top-level code or tests - allow it
+  if (!currentModulePath) {
+    return;
+  }
+
+  const moduleDefinedHere =
+    moduleType.definedInModulePath === currentModulePath;
+  const typeDefinedHere =
+    receiverType.definedInModulePath === currentModulePath;
+
+  // Prelude is special - allow prelude to impl any module for any type
+  // This is necessary for built-in impls
+  if (
+    currentModulePath.includes("prelude.yo") ||
+    currentModulePath.includes("std/")
+  ) {
+    return;
+  }
+
+  if (!moduleDefinedHere && !typeDefinedHere) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage:
+        `Orphan impl: Cannot implement foreign module "${moduleType.typeName ?? moduleType.id}" for foreign type "${typeToString(receiverType)}".\n` +
+        `At least one of the module or the type must be defined in this module.\n` +
+        `Module defined in: ${moduleType.definedInModulePath || "unknown"}\n` +
+        `Type defined in: ${receiverType.definedInModulePath || "unknown"}\n` +
+        `Current module: ${currentModulePath}`,
+    });
+  }
 }
 
 /**
@@ -971,6 +1092,33 @@ function attachModuleToReceiverType(
   const receiverType = moduleValue.type.receiverType;
   if (!receiverType || !receiverType.module) {
     return;
+  }
+
+  // Check for duplicate impl (only for named modules, not anonymous ones)
+  if (moduleValue.type.typeName) {
+    // Check orphan rule
+    checkOrphanRule({
+      receiverType,
+      moduleType: moduleValue.type,
+      currentModulePath: sourceModulePath,
+      expr,
+    });
+
+    // Check for duplicate impl
+    checkDuplicateImpl({
+      receiverType,
+      moduleType: moduleValue.type,
+      currentModulePath: sourceModulePath,
+      expr,
+    });
+
+    // Register this impl for duplicate detection
+    registerImplForType({
+      receiverType,
+      moduleType: moduleValue.type,
+      currentModulePath: sourceModulePath,
+      expr,
+    });
   }
 
   // Register this impl for cleanup on re-evaluation

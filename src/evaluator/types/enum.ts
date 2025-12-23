@@ -44,6 +44,12 @@ export function evaluateEnumType({
   const enumType = createEnumType(env);
   addARCFunctionSignaturesToEnumType({ enumType, env, context });
 
+  // Set the definedInModulePath for orphan rule checks
+  if (context.currentModulePath) {
+    enumType.definedInModulePath = context.currentModulePath;
+    enumType.module.definedInModulePath = context.currentModulePath;
+  }
+
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;
   const moduleFields: ModuleField[] = enumType.module.fields;

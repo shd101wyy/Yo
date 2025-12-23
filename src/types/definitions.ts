@@ -68,6 +68,12 @@ export interface Type {
    * the compile-time methods, properties, etc.
    */
   module?: ModuleType;
+
+  /**
+   * The module path where this type was defined.
+   * Used for orphan rule checks to ensure coherence.
+   */
+  definedInModulePath?: string;
 }
 
 /*
@@ -389,7 +395,9 @@ export interface ModuleField {
 }
 
 /**
- * ModuleType is a structural type that represents a module. It's not a nominal type like Struct/Enum/Union.
+ * ModuleType is a nominal type that represents a module.
+ * Modules are compared by their unique id, not by their structure.
+ * FnModuleType and FutureModuleType are exceptions that use structural comparison.
  */
 export interface ModuleType extends Type {
   tag: TypeTag.Module;
@@ -477,6 +485,13 @@ export interface ModuleType extends Type {
    * Set for modules created via `Future(T)` syntax.
    */
   isFuture?: { outputType: Type };
+
+  /**
+   * The module path where this module was defined.
+   * Used for orphan rule checks to ensure coherence.
+   * Inherited from Type.definedInModulePath.
+   */
+  definedInModulePath?: string;
 }
 
 /**

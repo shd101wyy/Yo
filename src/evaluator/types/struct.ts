@@ -48,6 +48,12 @@ export function evaluateStructType({
   const structType = createStructType(env, isReferenceSemantics, isNewtype);
   addARCFunctionSignaturesToStructType({ structType, env, context });
 
+  // Set the definedInModulePath for orphan rule checks
+  if (context.currentModulePath) {
+    structType.definedInModulePath = context.currentModulePath;
+    structType.module.definedInModulePath = context.currentModulePath;
+  }
+
   // Evaluate the fields
   const fields = structType.fields;
   for (let i = 0; i < expr.args.length; i++) {
