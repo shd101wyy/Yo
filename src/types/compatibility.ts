@@ -543,10 +543,21 @@ export function areTypesCompatible(
         return true;
       }
 
-      // Check ID equality - SomeTypes with same ID are the same type
-      // even if they're different object references
       if (expected.type.id === given.type.id) {
-        return true;
+        if (!expected.type.resolvedConcreteType) {
+          // given might or might not have resolvedConcreteType
+          return true;
+        } else {
+          if (given.type.resolvedConcreteType) {
+            return areTypesCompatible(
+              { type: expected.type.resolvedConcreteType, env: expected.env },
+              { type: given.type.resolvedConcreteType, env: given.env },
+              requireExactMatch // Pass through requireExactMatch for cache comparisons
+            );
+          } else {
+            return false;
+          }
+        }
       }
 
       // Check required modules compatibility:
