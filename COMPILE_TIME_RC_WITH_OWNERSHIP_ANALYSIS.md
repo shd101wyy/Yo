@@ -22,7 +22,7 @@ z = y;              // ___dup(y), ___drop(old z), z owns, RC = 4
 
 ### 2. Function Parameters: Borrow by Default
 
-Function parameters **borrow** by default (no reference count change).
+Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
 
 ```yo
 fn print_point(p : Point) -> unit {
@@ -33,8 +33,7 @@ point := Point(3, 4);
 print_point(point);  // No ___dup at call site, p borrows point
 ```
 
-~~**Rule:** Parameters borrow unless explicitly marked with `own()`. Not having `own()` means borrow.~~
-NOTE: We deprecate the `own` keyword, as it might cause problem with dynamic dispatch when handling passing arguments.
+**Rule:** Parameters borrow unless explicitly marked with `own()`. Not having `own()` means borrow.
 
 **Destructuring also borrows:**
 
@@ -65,6 +64,23 @@ fn broken(p : Point) -> unit {
 ```
 
 **Rule:** Parameters are **not reassignable** to prevent ownership state changes.
+
+### 4. Explicit Ownership Transfer: `own()` keyword
+
+Use `own()` to transfer ownership to a function parameter. The caller must call `___dup` at the call site:
+
+```rust
+fn consume(own(box): Box(i32)) -> unit {
+  printf("value: %d\n", box.(*));
+  // box is dropped at end of function
+}
+
+b := box(42);      // b owns
+consume(b);        // ___dup(b) at call site, ownership transferred to function
+                   // b still owns its reference after the call
+```
+
+**Rule:** `own()` parameters take ownership via `___dup` at call site. The caller's variable remains valid.
 
 ## Basic Model
 
@@ -233,6 +249,21 @@ fn create() -> Point {
   return p;          // ___dup(p), return value owns a copy
   // ___drop(p) after return
 }
+```
+
+### Rule 4: The `own()` Keyword
+
+**`own()` parameters take ownership, caller must dup:**
+
+```rust
+fn consume(own(box): Box(i32)) -> unit {
+  printf("value: %d\n", box.(*));
+  // box is dropped at end of function
+}
+
+b := box(42);      // b owns
+consume(b);        // ___dup(b) at call site, b is consumed
+// b cannot be used after this point
 ```
 
 ### Exception: Function Parameters (Borrow by Default)

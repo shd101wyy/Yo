@@ -73,6 +73,7 @@ export function evaluateFunctionParameter({
   let label: string | undefined = undefined;
   let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
+  let isOwningTheGcValue: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -170,6 +171,17 @@ export function evaluateFunctionParameter({
         throw formatErrorMessage({
           token: lhsExpr.token,
           errorMessage: `Expected one argument for "compt" , got ${lhsExpr.args.length}`,
+        });
+      }
+      lhsExpr = lhsExpr.args[0]!;
+    }
+
+    if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "own")) {
+      isOwningTheGcValue = true;
+      if (lhsExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected one argument for "own", got ${lhsExpr.args.length}`,
         });
       }
       lhsExpr = lhsExpr.args[0]!;
@@ -454,7 +466,7 @@ use_id :: (fn(forall(T : Type),
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
-      isOwningTheGcValue: false, // Parameters don't own GC values
+      isOwningTheGcValue: isOwningTheGcValue,
       isOwningTheSameGcValueAs: undefined, // Parameters don't borrow from other variables
       isReassignable: false, // Mark as not reassigable
     },
@@ -499,6 +511,7 @@ use_id :: (fn(forall(T : Type),
       }),
       isCompileTimeOnly,
       isQuote,
+      isOwningTheGcValue,
       assignedValue,
     },
     env,
@@ -721,6 +734,7 @@ export function evaluateFunctionParameters({
         isQuote,
         label: parameterName,
         type: parameterType,
+        isOwningTheGcValue: false,
       };
 
       if (parameterName !== "...") {
@@ -737,9 +751,9 @@ export function evaluateFunctionParameters({
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
+            isOwningTheGcValue: variadicParameter.isOwningTheGcValue,
             isOwningTheSameGcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
-            isOwningTheGcValue: false,
           },
         });
         env = nextEnv;

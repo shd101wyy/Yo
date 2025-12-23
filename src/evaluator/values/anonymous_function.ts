@@ -260,7 +260,7 @@ Got:      "${paramName}"`,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
-        isOwningTheGcValue: false, // Parameters borrow by default
+        isOwningTheGcValue: expectedParam.isOwningTheGcValue, // Parameters borrow by default
         // If anonymous function uses different parameter name than expected,
         // store the expected name as alias for C codegen
         parameterAlias:
