@@ -97,6 +97,8 @@ export interface GenericImpl {
   expr: Expr;
   /** The source module path for cleanup on re-evaluation */
   sourceModulePath?: string;
+  /** The environment where the impl was defined (for accessing non-exported variables like extern functions) */
+  definitionEnv: Environment;
 }
 
 /**
@@ -368,10 +370,15 @@ export function findMethodsFromGenericImpls({
             // Clone the function body for re-evaluation
             const clonedBody = cloneExpr(originalValue.body);
 
+            // Use the environment where the impl was originally defined
+            // This ensures access to non-exported variables (like extern "Yo" functions)
+            // that were available when the impl was created
+            let baseEnv = impl.definitionEnv;
+
             // Create a specialized environment with the specialized function parameters
             // Push the parametersFrame which contains the function parameters (like `self`)
             let specializedEnv = pushEnvFrame(
-              env,
+              baseEnv,
               specializedType.parametersFrame
             );
 
@@ -1705,6 +1712,7 @@ export function evaluateModuleValue({
       moduleValue,
       expr,
       sourceModulePath: context.currentModulePath,
+      definitionEnv: env, // Store the environment where the impl was defined
     };
 
     registerGenericImpl(moduleTypeKey, genericImpl);

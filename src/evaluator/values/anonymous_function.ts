@@ -42,7 +42,6 @@ import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
-  consumeCapturedVariables,
   createCaptureTypeAndValue,
   enrichCapturedVariables,
   generateCapturedVariableDupExpressions,
@@ -388,16 +387,8 @@ Got:      "${paramName}"`,
   // Restore the env frame
   env = popEnvFrame(env, true);
 
-  // For closures, consume the captured variables from outer scopes
-  if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
-    env = consumeCapturedVariables({
-      capturedVariables,
-      env,
-      closureToken: expr.token,
-    });
-  }
-
   // For closures, prepare captured variables with values and types for the function value
+  // NOTE: This must happen BEFORE consuming the variables, using the current env
   let capturedVariablesWithValues:
     | Map<string, FunctionCapturedVariableInfo>
     | undefined;
@@ -430,6 +421,7 @@ Got:      "${paramName}"`,
     const closureType = createFnModuleType(newFunctionType, env);
 
     // Generate ___dup expressions for captured ARC variables
+    // NOTE: This must happen BEFORE consuming the variables
     const { capturedVariableDupExpressions: dupExpressions, env: updatedEnv } =
       generateCapturedVariableDupExpressions({
         capturedVariablesWithValues,

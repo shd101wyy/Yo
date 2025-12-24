@@ -19,7 +19,6 @@ import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
-  consumeCapturedVariables,
   createCaptureTypeAndValue,
   enrichCapturedVariables,
   generateCapturedVariableDupExpressions,
@@ -132,21 +131,23 @@ export function tryToImplementClosureByFnModuleType({
   //       The check should be handled when evaluating the begin expression.
   env = popEnvFrame(env, true);
 
-  // For closures, consume the captured variables from outer scopes
-  let finalCallerEnv = callerEnv;
-  if (capturedVariables && capturedVariables.size > 0) {
-    finalCallerEnv = consumeCapturedVariables({
-      capturedVariables,
-      env: callerEnv,
-      closureToken: expr.token,
-    });
-  }
-
   // Update the function value with captured variables (if any)
+  // NOTE: Use callerEnv (BEFORE consumption) so we can access the variables
   const capturedVariablesWithValues =
     capturedVariables && capturedVariables.size > 0
-      ? enrichCapturedVariables({ capturedVariables, env: finalCallerEnv })
+      ? enrichCapturedVariables({ capturedVariables, env: callerEnv })
       : undefined;
+
+  // Generate ___dup expressions for captured ARC variables
+  // The closure gets its own copy through the dup, the original variable remains usable
+  let finalCallerEnv = callerEnv;
+  const { capturedVariableDupExpressions, env: updatedEnv } =
+    generateCapturedVariableDupExpressions({
+      capturedVariablesWithValues,
+      env: callerEnv,
+      context,
+    });
+  finalCallerEnv = updatedEnv;
 
   // Create the proper capture type based on captured variables using helper function
   // We don't need the captureValue since closures are runtime-only
@@ -157,15 +158,6 @@ export function tryToImplementClosureByFnModuleType({
     closureToken: expr.token,
     context: { ...context },
   });
-
-  // Generate ___dup expressions for captured ARC variables
-  const { capturedVariableDupExpressions, env: updatedEnv } =
-    generateCapturedVariableDupExpressions({
-      capturedVariablesWithValues,
-      env: finalCallerEnv,
-      context,
-    });
-  finalCallerEnv = updatedEnv;
 
   // Set the closure info on the function value for easy codegen access
   functionValue.closureInfo = {
