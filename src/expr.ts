@@ -1485,6 +1485,7 @@ export function mergeAndCheckEnvs(
       const variableName = frameVariables[i]!.name;
       const initializedAtTokens: (Token | undefined)[] = [];
       const isOwningTheRefValueAtTokens: (Token | undefined)[] = [];
+      const consumedAtTokens: (Token | undefined)[] = [];
       const types: Type[] = [];
       for (let j = 1; j < rows; j++) {
         const caseEnv = caseEnvs[j - 1]!;
@@ -1495,6 +1496,7 @@ export function mergeAndCheckEnvs(
             ? caseEnvFrameVariables[i]!.token
             : undefined
         );
+        consumedAtTokens.push(matrix[j]![i]!.consumedAtToken);
         types.push(matrix[j]![i]!.type);
       }
 
@@ -1633,6 +1635,54 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
                   (token
                     ? "Might be initialized here:"
                     : "Not initialized here:"),
+                token: token ?? bodies[index]!.token,
+              };
+            })
+          );
+        }
+      }
+
+      // Check consumedAtToken
+      // case 1: If there is only one case and the variable is consumed in that case but not before,
+      // it's an error because the variable is consumed in only one case.
+      if (consumedAtTokens.length === 1) {
+        if (!!consumedAtTokens[0] && !frameVariables[i]!.consumedAtToken) {
+          throw formatErrorMessages([
+            {
+              token: frameVariables[i]!.token,
+              errorMessage: `Variable "${frameVariables[i]!.name}" might be consumed in some cases but not in all cases.`,
+            },
+            {
+              token: consumedAtTokens[0]!,
+              errorMessage: `Consumed here:`,
+            },
+          ]);
+        }
+      }
+      // case 2: Variable is not consumed before, but consumed in all cases
+      else if (
+        !frameVariables[i]!.consumedAtToken &&
+        consumedAtTokens.every((u) => u)
+      ) {
+        const newVariable: Variable = {
+          ...frameVariables[i]!,
+          consumedAtToken: consumedAtTokens[0]!,
+        };
+        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+        frameVariables[i] = newVariable;
+      }
+      // case 3: Some cases consume, some don't
+      else {
+        const consumed = consumedAtTokens.filter((u) => !!u);
+        const notConsumed = consumedAtTokens.filter((u) => !u);
+        if (consumed.length > 0 && notConsumed.length > 0) {
+          throw formatErrorMessages(
+            consumedAtTokens.map((token, index) => {
+              return {
+                errorMessage:
+                  (index === 0
+                    ? `Variable "${variableName}" is consumed in some cases but not in other cases:\n`
+                    : "") + (token ? "Consumed here:" : "Not consumed here:"),
                 token: token ?? bodies[index]!.token,
               };
             })

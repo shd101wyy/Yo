@@ -1,28 +1,108 @@
 open import "std/libc/stdio";
-Async :: import "std/async";
+
+Data :: object(v : i32);
+impl(Data, Isolation(
+  can_isolate : ((self) -> (rc(self) == 1))
+));
+
+(^) :: (fn(quote(v) : Expr) -> unquote(Expr))({
+  temp :: cond(
+    v.is_atom() => v, 
+    true => gensym("iso_extract_temp")
+  );
+  temp_type :: gensym("iso_extract_temp_type");
+  assignment :: cond(
+    v.is_atom() => quote(()),
+    true => quote(unquote(temp) := unquote(v))
+  );
+  return quote {
+    unquote(assignment);
+    unquote(temp_type) :: typeof(unquote(temp));
+    cond(
+      Type.contains_gc_type(unquote(temp_type)) => 
+        cond(
+          Type.can_form_gc_cycle(unquote(temp_type)) => { // compile-time check
+            consume(unquote(temp));
+            compt_assert(false, "Cannot isolate value of type containing GC type that can form cycles");
+            Option(Iso(unquote(temp_type))).None
+          },
+          !(Var.is_owning_the_gc_value(unquote(temp))) => { // compile-time check
+            consume(unquote(temp));
+            compt_assert(false, "Cannot isolate value of type that is not owned");
+            Option(Iso(unquote(temp_type))).None
+          },
+          (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
+            Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
+          true => { // run-time check
+            consume(unquote(temp));
+            Option(Iso(unquote(temp_type))).None
+          }
+        ),
+      true => {
+        compt_assert(false, "Cannot isolate value type that does not contain GC type");
+        Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
+      }
+    )
+  };
+});
+
+expanded :: macro_expand(quote(^(x)));
+
+// expanded should equal to:
+// quote(
+//   begin(
+//     (),
+//     iso_extract_temp_typeid287678 :: typeof(x),
+//     cond(
+//       (Type.contains_gc_type)(iso_extract_temp_typeid287678) =>
+//         cond(
+//           ((Type.can_form_gc_cycle)(iso_extract_temp_typeid287678) || !((Var.is_owning_the_gc_value)(x))) =>
+//             (Option(Iso(iso_extract_temp_typeid287678)).None),
+//           ((iso_extract_temp_typeid287678 <: Isolation).can_isolate)(x) =>
+//             (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)),
+//           true => (Option(Iso(iso_extract_temp_typeid287678)).None)
+//         ),
+//       true => (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)))
+//   )
+// );
 
 main :: (fn() -> unit)({
-  b := Box(i32)(0);
-
-  // Simple test without nested async blocks
-  task := async {
-    printf("Task started %d\n", b.*);
-    assert(b.* == 0);
-
-    c := Box(i32)(10);
-
-    b.* = (b.* + 1);
-    await Async.yield();
-    
-    printf("Task completed %d\n", b.*);
-    assert(b.* == 2);
+  x := Data(12);
   
-    assert(c.* == 10);
-  };
+  begin(
+    (),
+    iso_extract_temp_typeid287678 :: typeof(x),
+    cond(
+      (Type.contains_gc_type)(iso_extract_temp_typeid287678) =>
+        cond(
+          ((Type.can_form_gc_cycle)(iso_extract_temp_typeid287678) || !((Var.is_owning_the_gc_value)(x))) =>
+            {
+              ();
+              consume(x);
+              (Option(Iso(iso_extract_temp_typeid287678)).None)
+            },
+          ((iso_extract_temp_typeid287678 <: Isolation).can_isolate)(x) =>
+            (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)),
+          true => {
+            ();
+            consume(x);
+            (Option(Iso(iso_extract_temp_typeid287678)).None)
+          }
+        ),
+      true => (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)))
+  );
+  y := x;
   
-  printf("Running main... %d\n", b.*);
-  assert(b.* == 1);
-  b.* = (b.* + 1);
+  // match(isolated,
+  //   .Some(_) => {
+  //     assert(true);
+  //   },
+  //   .None => {
+  //     assert(false, "Expected Some, got None");
+  //   }
+  // );
+  
+  return ();
 });
 
 export main;
