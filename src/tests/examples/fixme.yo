@@ -69,38 +69,17 @@ expanded :: macro_expand(quote(^(x)));
 main :: (fn() -> unit)({
   x := Data(12);
   
-  begin(
-    (),
-    iso_extract_temp_typeid287678 :: typeof(x),
-    cond(
-      (Type.contains_gc_type)(iso_extract_temp_typeid287678) =>
-        cond(
-          ((Type.can_form_gc_cycle)(iso_extract_temp_typeid287678) || !((Var.is_owning_the_gc_value)(x))) =>
-            {
-              ();
-              consume(x);
-              (Option(Iso(iso_extract_temp_typeid287678)).None)
-            },
-          ((iso_extract_temp_typeid287678 <: Isolation).can_isolate)(x) =>
-            (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)),
-          true => {
-            ();
-            consume(x);
-            (Option(Iso(iso_extract_temp_typeid287678)).None)
-          }
-        ),
-      true => (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)))
+  isolated := Option(Iso(Data)).Some Iso(Data)(x);
+  // isolated := ^(x);
+
+  match(isolated,
+    .Some(_) => {
+      assert(true);
+    },
+    .None => {
+      assert(false, "Expected Some, got None");
+    }
   );
-  y := x;
-  
-  // match(isolated,
-  //   .Some(_) => {
-  //     assert(true);
-  //   },
-  //   .None => {
-  //     assert(false, "Expected Some, got None");
-  //   }
-  // );
   
   return ();
 });

@@ -1644,19 +1644,17 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
       // Check consumedAtToken
       // case 1: If there is only one case and the variable is consumed in that case but not before,
-      // it's an error because the variable is consumed in only one case.
+      // mark it as consumed. This handles compile-time eliminated branches where only one path exists.
+      // (Previously this was an error, but that was wrong - if there's only one branch,
+      // the variable IS definitely consumed, there's no ambiguity)
       if (consumedAtTokens.length === 1) {
         if (!!consumedAtTokens[0] && !frameVariables[i]!.consumedAtToken) {
-          throw formatErrorMessages([
-            {
-              token: frameVariables[i]!.token,
-              errorMessage: `Variable "${frameVariables[i]!.name}" might be consumed in some cases but not in all cases.`,
-            },
-            {
-              token: consumedAtTokens[0]!,
-              errorMessage: `Consumed here:`,
-            },
-          ]);
+          const newVariable: Variable = {
+            ...frameVariables[i]!,
+            consumedAtToken: consumedAtTokens[0]!,
+          };
+          env = updateExistingVariable(env, frameVariables[i]!, newVariable);
+          frameVariables[i] = newVariable;
         }
       }
       // case 2: Variable is not consumed before, but consumed in all cases

@@ -1,7 +1,7 @@
 import { Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
-import { createIsoType } from "../../types";
+import { createIsoType, IsoType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -98,7 +98,7 @@ export function evaluateIsoValueCall({
   expr: FuncCallExpr;
   env: Environment;
   context: EvaluatorContext;
-  isoType: ReturnType<typeof createIsoType>;
+  isoType: IsoType;
 }): FuncCallExpr {
   const argExpr = expr.args[0]!;
 
@@ -155,7 +155,7 @@ Iso requires unique ownership (no aliases). Drop other aliases first.`,
   expr.$ = {
     env,
     type: isoType,
-    value: evaluatedArgExpr.$.value, // The inner value, but type is now IsoType
+    value: undefined, // iso value should be runtime only
     pathCollection: evaluatedArgExpr.$.pathCollection || [],
   };
 
