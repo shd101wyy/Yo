@@ -409,7 +409,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       } as SomeType;
     }
     let isMutatingDefinedVariable = false;
-    const oldVariableIsOwningTheSameARCValueAs =
+    const oldVariableIsOwningTheSameGcValueAs =
       variable.isOwningTheSameGcValueAs;
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
@@ -609,11 +609,11 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         expr,
         true,
 
-        // Check if the oldVariableIsOwningTheSameARCValueAs is located on the same frame level
+        // Check if the oldVariableIsOwningTheSameGcValueAs is located on the same frame level
         // If not, we can't track the relationship as the old variable is out of scope
-        oldVariableIsOwningTheSameARCValueAs?.frameLevel ===
+        oldVariableIsOwningTheSameGcValueAs?.frameLevel ===
           env.frames.length - 1
-          ? oldVariableIsOwningTheSameARCValueAs
+          ? oldVariableIsOwningTheSameGcValueAs
           : undefined
       );
     }

@@ -368,13 +368,13 @@ z := y;            // ___dup(y), z owns
 
 We've implemented a **same-value ownership tracking** optimization that eliminates redundant dup/drop pairs when variables share the same ARC value:
 
-**Technique: `isOwningTheSameARCValueAs` Tracking**
+**Technique: `isOwningTheSameGcValueAs` Tracking**
 
 When a variable is assigned from another variable, we track the ownership relationship:
 
 ```yo
 x := Point(3, 4);   // x owns Point(3, 4)
-y := x;             // y owns Point(3, 4), y.isOwningTheSameARCValueAs = x
+y := x;             // y owns Point(3, 4), y.isOwningTheSameGcValueAs = x
 
 // Before optimization:
 // ___dup(x), ___drop(y), ___drop(x)
@@ -386,7 +386,7 @@ y := x;             // y owns Point(3, 4), y.isOwningTheSameARCValueAs = x
 
 **How it works:**
 
-1. **Track shared ownership**: When `y := x`, mark `y.isOwningTheSameARCValueAs = x`
+1. **Track shared ownership**: When `y := x`, mark `y.isOwningTheSameGcValueAs = x`
 2. **Find base variable**: Follow the chain to find the root owner
 3. **Match dup/drop pairs**: Group dup calls by base variable ID, match with drop calls
 4. **Cancel pairs**: Remove one dup/drop pair per match
@@ -404,13 +404,13 @@ cond(
   some_cond() => { x = MyBox(100); },  // Creates temp for old value
   true => { x = MyBox(200); }          // Creates temp for old value
 );
-// Temps are tracked with isOwningTheSameARCValueAs = x
+// Temps are tracked with isOwningTheSameGcValueAs = x
 // Dup/drop pairs for temps are optimized away
 ```
 
 **Implementation details:**
 
-- `getBaseVariableId(variable)`: Follows `isOwningTheSameARCValueAs` chain to root
+- `getBaseVariableId(variable)`: Follows `isOwningTheSameGcValueAs` chain to root
 - `collectDupCallsConservatively(expr)`: Recursively finds all dup calls
 - `removeDupCalls(expr)`: Removes optimized dup calls from AST
 - Optimization runs at begin block scope exit
@@ -446,7 +446,7 @@ Yo's compile-time reference counting uses a **simple ownership model** with **pr
 
 **Phase 1.5 - Basic Dup/Drop Optimization (Implemented ✅):**
 
-- **Shared ownership tracking**: `isOwningTheSameARCValueAs` field tracks when variables own the same ARC value
+- **Shared ownership tracking**: `isOwningTheSameGcValueAs` field tracks when variables own the same ARC value
 - **Dup/drop cancellation**: Matching dup/drop pairs for the same base variable are eliminated
 - **Scope-local optimization**: Works within begin blocks and branch bodies
 - **Reassignment temps**: Optimizes temporary variables created during reassignments in branches

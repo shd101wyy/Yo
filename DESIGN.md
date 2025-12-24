@@ -159,6 +159,7 @@ The **Yo** language is heavily inspired by:
   - [Meta-programming (Macros)](https://hexdocs.pm/elixir/quote-and-unquote.html)
 - [Nim](https://nim-lang.org/)
   - Pragmatic design
+  - `Isolated` type concept
 - [Io](https://iolanguage.org/)
   - Minimal syntax and semantic
 
@@ -177,6 +178,7 @@ Other languages that are worth mentioning that have influenced **Yo**:
 - [dyon](https://github.com/PistonDevelopers/dyon)
 - [Vale](https://vale.dev/)
 - [hylo](https://www.hylo-lang.org/)
+- [pony](https://www.ponylang.io/)
 
 ## Hello World
 
