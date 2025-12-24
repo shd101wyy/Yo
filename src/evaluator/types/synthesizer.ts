@@ -13,6 +13,7 @@ import {
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
+  isIsoType,
   isModuleType,
   isPtrType,
   isSliceType,
@@ -75,6 +76,10 @@ function occursCheck(someTypeId: string, type: Type): boolean {
     // This prevents false positives like trying to bind X to *(X)
     // This is a valid indirection.
     return false;
+  }
+
+  if (isIsoType(type)) {
+    return occursCheck(someTypeId, type.childType);
   }
 
   if (isFunctionType(type)) {
@@ -490,6 +495,21 @@ export function synthesizeTypes(
       }
     }
   } else if (isPtrType(expected.type) && isPtrType(given.type)) {
+    const { expectedEnv, givenEnv } = synthesizeTypes(
+      {
+        type: expected.type.childType,
+        env: expected.env,
+      },
+      {
+        type: given.type.childType,
+        env: given.env,
+      },
+      checkedTypePairs
+    );
+    expected.env = expectedEnv;
+    given.env = givenEnv;
+  } else if (isIsoType(expected.type) && isIsoType(given.type)) {
+    // Synthesize the child types of the Iso types
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
         type: expected.type.childType,

@@ -30,6 +30,7 @@ import {
   isEnumType,
   isFunctionType,
   isFutureModuleType,
+  isIsoType,
   isModuleType,
   isPtrType,
   isSliceType,
@@ -355,6 +356,9 @@ export function findMethodsFromGenericImpls({
           // 2. Create an environment with value substitutions bound (like U=3)
           // 3. Re-evaluate the body to replace UnknownValues with concrete values
           // 4. Create the specialized function value with the re-evaluated body
+          //
+          // NOTE: We only re-evaluate when there are VALUE substitutions, not type substitutions.
+          // Type substitutions are handled at code generation time via specializedType.
           let value: Value | undefined = originalValue;
           if (
             isFunctionValue(originalValue) &&
@@ -636,6 +640,18 @@ function substituteInType(
       return type;
     }
     return { ...type, isFuture: { childType: newChildType } } as Type;
+  }
+
+  if (isIsoType(type)) {
+    const newChildType = substituteInType(
+      type.childType,
+      substitutions,
+      valueSubstitutions
+    );
+    if (newChildType === type.childType) {
+      return type;
+    }
+    return { ...type, childType: newChildType } as Type;
   }
 
   if (isFunctionType(type)) {
