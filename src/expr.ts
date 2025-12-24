@@ -876,6 +876,8 @@ export const BuiltinFunctions = {
 
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],
+  __yo_var_is_owning_the_gc_value: ["__yo_var_is_owning_the_gc_value"],
+  __yo_var_has_other_aliases: ["__yo_var_has_other_aliases"],
 
   // Operator related functions
   /// Arithemtic

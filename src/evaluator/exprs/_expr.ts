@@ -69,7 +69,11 @@ import {
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
 import { evaluateVaStart } from "../builtins/va_start";
-import { evaluateYoVarPrintInfo } from "../builtins/var_fns";
+import {
+  evaluateYoVarHasOtherAliases,
+  evaluateYoVarIsOwningTheGcValue,
+  evaluateYoVarPrintInfo,
+} from "../builtins/var_fns";
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateRawPointerCall } from "../calls/pointer";
 import { EvaluatorContext } from "../context";
@@ -777,6 +781,27 @@ ${exprToString(expr)}`,
     ) {
       // __yo_var_print_info
       return evaluateYoVarPrintInfo({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_var_is_owning_the_gc_value
+      )
+    ) {
+      // __yo_var_is_owning_the_gc_value
+      return evaluateYoVarIsOwningTheGcValue({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases)
+    ) {
+      // __yo_var_has_other_aliases
+      return evaluateYoVarHasOtherAliases({
         expr,
         env,
         context: { ...context },
