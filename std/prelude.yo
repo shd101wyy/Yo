@@ -2776,6 +2776,13 @@ Option :: (fn(compt(T) : Type) -> compt(Type))
         .Some(value) => value,
         .None => panic("Called unwrap on a None value")
       )
+    ),
+
+    is_none :: ((fn(self : Self) -> bool)
+      match(self,
+        .None => true,
+        .Some(_) => false
+      )
     )
   )
 ;
@@ -2826,6 +2833,12 @@ export
 
 /// === Iso ===
 impl(forall(T : Type), Iso(T), Send());
+impl(forall(T : Type), Iso(T), {
+  extract :: (fn(self : Self) -> Option(T))(
+    __yo_iso_extract(self)
+  );
+  export extract;
+});
 
 /// === MaybeUninit ===
 extern "Yo",

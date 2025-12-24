@@ -11,7 +11,6 @@ import {
   Expr,
   exprToString,
   FuncCallExpr,
-  setExprAsConsumed,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
 import {
@@ -541,8 +540,10 @@ export function evaluateYoIsoExtract({
   }
   env = evaluatedArgExpr.$.env;
 
+  // NOTE: Don't consume the argument. We should allow to extract multiple times,
+  // returning .None on subsequent attempts.
   // Consume the argument expression
-  env = setExprAsConsumed(evaluatedArgExpr, env);
+  // env = setExprAsConsumed(evaluatedArgExpr, env);
 
   const argType = evaluatedArgExpr.$.type;
 

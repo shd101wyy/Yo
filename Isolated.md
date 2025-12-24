@@ -80,32 +80,33 @@ iso2 := iso;               // Atomic dup - safe!
 
 ## `extract` method
 
-The `extract` method extracts the inner value from an `Iso(T)` **exactly once**.
+The `__yo_iso_extract` builtin extracts the inner value from an `Iso(T)`, returning `Option(T)`.
 
 ```yo
-fn some_func(iso : Iso(T)) -> unit {
-  val_opt := iso.extract();    // val_opt : Option(T)
+iso := Iso(Box(i32))(box(42));
+val_opt := __yo_iso_extract(iso);    // val_opt : Option(Box(i32))
 
-  match(val_opt,
-    .Some(val) => {
-      // First extract succeeds
-      // val now uses non-atomic RC, keep it in this thread!
-      printf("Got value\n");
-    },
-    .None => {
-      // Already extracted, or extraction failed
-      printf("Already extracted\n");
-    }
-  );
-}
+match(val_opt,
+  .Some(val) => {
+    // Extract succeeds
+    // val now uses non-atomic RC, keep it in this thread!
+    printf("Got value: %d\n", val.(*));
+  },
+  .None => {
+    // Extraction can potentially return None for stateful extraction
+    printf("No value\n");
+  }
+);
 ```
 
-**Important:** `extract()` returns `Option(T)` and can only succeed once:
+**Implementation:** `__yo_iso_extract(iso)` returns the wrapped value of type `Option(T)`:
 
-- First call: Returns `.Some(inner_value)`, inner value is moved out
-- Subsequent calls: Return `.None`, the value has already been extracted
+- Returns `.Some(inner_value)` with the inner value
+- Can potentially return `.None` for stateful extraction semantics (not yet implemented)
 
-**Why?** The inner `T` uses non-atomic RC. Once extracted, it cannot be safely shared across threads. By ensuring single extraction, we prevent data races on the inner value's non-atomic reference counter.
+**Important:** Once extracted, the inner `T` uses non-atomic RC. The value should remain in the extracting thread to avoid data races on its non-atomic reference counter.
+
+**Note:** Currently, the extraction doesn't consume the `Iso(T)` argument to allow the reference counting drop logic to work correctly. Multiple extractions may be possible (returns the same value), but this behavior may change in future implementations to enforce single extraction.
 
 ## Atomic Reference Counting Implementation
 
@@ -114,71 +115,79 @@ fn some_func(iso : Iso(T)) -> unit {
 ```c
 // Regular object: non-atomic RC
 typedef struct {
-  size_t rc;        // Non-atomic counter
+  size_t ref_count;        // Non-atomic counter
+  void (*dispose_fn)(void*);
   T value;
 } Object_T;
 
 // Isolated object: atomic RC
 typedef struct {
-  _Atomic size_t arc;      // Atomic counter (thread-safe)
-  _Atomic bool extracted;  // Has value been extracted?
-  T value;                 // Inner value (non-atomic RC!)
+  _Atomic size_t ref_count;  // Atomic counter (thread-safe)
+  void (*dispose_fn)(void*);
+  T value;                   // Inner value (non-atomic RC!)
 } Iso_T;
 
-// Operations use atomic instructions
-void ___dup_iso(Iso_T* iso) {
-  atomic_fetch_add(&iso->arc, 1);  // Thread-safe increment
+// Constructor: Creates with ref_count = 1
+Iso_T* __yo_create_iso_T(T inner_value) {
+  Iso_T* iso = (Iso_T*)__yo_alloc(sizeof(Iso_T));
+  atomic_init(&iso->ref_count, 1);
+  iso->dispose_fn = NULL;  // No dispose function needed
+  iso->value = inner_value;
+  return iso;
 }
 
-void ___drop_iso(Iso_T* iso) {
-  if (atomic_fetch_sub(&iso->arc, 1) == 1) {
+// Dup uses atomic increment
+void __yo_incr_rc_atomic(Iso_T* iso) {
+  atomic_fetch_add(&iso->ref_count, 1);  // Thread-safe increment
+}
+
+// Drop uses atomic decrement
+void __yo_decr_rc_atomic(Iso_T* iso) {
+  size_t old_count = atomic_fetch_sub(&iso->ref_count, 1);
+  if (old_count == 1) {
     // Last reference, free memory
-    if (!atomic_load(&iso->extracted)) {
-      // Value not extracted yet, drop it
-      ___drop(&iso->value);
+    if (iso->dispose_fn) {
+      iso->dispose_fn(iso);  // Clean up inner value if needed
     }
-    free(iso);
+    __yo_free(iso);
   }
 }
 
-Option_T extract_iso(Iso_T* iso) {
-  // Atomically check and set extracted flag
-  bool already_extracted = atomic_exchange(&iso->extracted, true);
-
-  if (already_extracted) {
-    return Option_None();  // Already extracted
-  } else {
-    return Option_Some(iso->value);  // First extraction, return value
-  }
+// Extract: Returns Option(T) with inner value
+Option_T __yo_iso_extract_T(Iso_T* iso) {
+  // Currently returns Some(value) 
+  // Future: Could add atomic extracted flag for single-extraction semantics
+  return Option_Some_T(iso->value);
 }
 ```
 
-\*\*Patch(iso3.extract(), // Only one thread can extract!
-.Some(msg) => printf("%s\n", msg),
-.None => printf("Already extracted\n")
-);
-});
+## Example: Thread-Safe Usage
 
-// Original might fail if other thread extracted first
-match(iso.extract(),
-.Some(msg) => printf("%s\n", msg),
-.None => printf("Already extracted by other thread\n")
-ello");
-iso := Iso(String)(s); // s has no aliases, OK
+```yo
+// Create isolated string
+s := String("Hello");
+iso := Iso(String)(s);    // s has no aliases, OK
 
 // Can freely copy (atomic RC)
-iso2 := iso; // Atomic dup
+iso2 := iso;              // Atomic dup
 
 // Send to thread safely
 spawn(() => {
-iso3 := iso2; // Atomic dup across threads - safe!
-msg := iso3.extract(); // Extract String
-printf("%s\n", msg);
+  iso3 := iso2;           // Atomic dup across threads - safe!
+  msg_opt := __yo_iso_extract(iso3);  // Extract String
+  match(msg_opt,
+    .Some(msg) => printf("%s\n", msg),
+    .None => printf("No value\n")
+  );
 });
 
 // Can still use original (atomic RC handles safety)
-msg2 := iso.extract();
-printf("%s\n", msg2);
+msg2_opt := __yo_iso_extract(iso);
+match(msg2_opt,
+  .Some(msg2) => printf("%s\n", msg2),
+  .None => printf("No value\n")
+);
+```
 
 ````
 

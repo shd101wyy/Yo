@@ -1,0 +1,14 @@
+test "Test basic Iso related functions", {
+  x := Box(i32)(42);
+
+  i1 := Iso(Box(i32))(x);
+  i2 := i1;
+
+  // f :: Type.impls(typeof(i1), Send);
+
+  e1 := __yo_iso_extract(i2).unwrap();
+  assert(e1.* == 42);
+
+  e2 := __yo_iso_extract(i1);
+  assert(e2.is_none());
+};
