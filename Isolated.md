@@ -108,6 +108,27 @@ match(val_opt,
 
 **Note:** Currently, the extraction doesn't consume the `Iso(T)` argument to allow the reference counting drop logic to work correctly. Multiple extractions may be possible (returns the same value), but this behavior may change in future implementations to enforce single extraction.
 
+## The `^` Macro
+
+For convenience, use the `^` macro to isolate values with automatic type inference:
+
+### Basic Usage
+
+```yo
+x := Data(12);
+iso_opt := ^(x);  // Returns Option(Iso(Data))
+
+match(iso_opt,
+  .Some(iso) => {
+    // Successfully isolated
+    spawn(() => { /* use iso */ });
+  },
+  .None => {
+    // Isolation failed (aliased or rc > 1)
+  }
+);
+```
+
 ## Atomic Reference Counting Implementation
 
 `Iso(T)` uses atomic operations for all reference counting:
@@ -155,7 +176,7 @@ void __yo_decr_rc_atomic(Iso_T* iso) {
 
 // Extract: Returns Option(T) with inner value
 Option_T __yo_iso_extract_T(Iso_T* iso) {
-  // Currently returns Some(value) 
+  // Currently returns Some(value)
   // Future: Could add atomic extracted flag for single-extraction semantics
   return Option_Some_T(iso->value);
 }

@@ -2859,7 +2859,7 @@ impl(forall(T : Type), Iso(T), {
     unquote(assignment);
     unquote(temp_type) :: typeof(unquote(temp));
     cond(
-      Type.contains_gc_type(unquote(temp_type)) => 
+      Type.contains_gc_type(unquote(temp_type)) =>  // compile-time check
         cond(
           Type.can_form_gc_cycle(unquote(temp_type)) => { // compile-time check
             consume(unquote(temp));
@@ -2871,6 +2871,11 @@ impl(forall(T : Type), Iso(T), {
             compt_assert(false, "Cannot isolate value of type that is not owned");
             Option(Iso(unquote(temp_type))).None
           },
+          (Var.has_other_aliases(unquote(temp)) => { // compile-time check
+            consume(unquote(temp));
+            compt_assert(false, "Cannot isolate value of type that has other aliases");
+            Option(Iso(unquote(temp_type))).None
+          }),
           (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
             Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
           true => { // run-time check
@@ -2878,7 +2883,7 @@ impl(forall(T : Type), Iso(T), {
             Option(Iso(unquote(temp_type))).None
           }
         ),
-      true => {
+      true => { // compile-time check
         compt_assert(false, "Cannot isolate value type that does not contain GC type");
         Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
       }
