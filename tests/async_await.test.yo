@@ -16,11 +16,14 @@ test "Test eager async", {
     printf("Task started %d\n", b.*);
     assert(b.* == 0);
 
+    c := Box(i32)(10);
+
     b.* = (b.* + 1);
     await Async.yield();
     
     printf("Task completed %d\n", b.*);
     assert(b.* == 2);
+    assert(c.* == 10);
   };
   
   printf("Running main... %d\n", b.*);

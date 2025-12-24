@@ -1,11 +1,28 @@
-use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
-  return cb(v);
-};
+open import "std/libc/stdio";
+Async :: import "std/async";
 
 main :: (fn() -> unit)({
-  b := Box(i32)(5);
-  z := use_cb(10, (u) => ((u + 1) + b.*)); // capture variable 'a'
-  assert(z == 16);
+  b := Box(i32)(0);
+
+  // Simple test without nested async blocks
+  task := async {
+    printf("Task started %d\n", b.*);
+    assert(b.* == 0);
+
+    c := Box(i32)(10);
+
+    b.* = (b.* + 1);
+    await Async.yield();
+    
+    printf("Task completed %d\n", b.*);
+    assert(b.* == 2);
+  
+    assert(c.* == 10);
+  };
+  
+  printf("Running main... %d\n", b.*);
+  assert(b.* == 1);
+  b.* = (b.* + 1);
 });
 
 export main;

@@ -161,6 +161,16 @@ export function evaluateAsync({
   // This is done in the evaluator to avoid redundant analysis during codegen
   const awaitAnalysis = analyzeAwaitPoints(evaluatedBody);
 
+  // Filter out outer captured variables from awaitAnalysis.capturedVariables
+  // These variables are already in the captureType struct and should be accessed
+  // via sm->__capture.varName, not as separate sm->var_xxx fields
+  if (captureType) {
+    const outerVarNames = new Set(captureType.fields.map((f) => f.label));
+    awaitAnalysis.capturedVariables = awaitAnalysis.capturedVariables.filter(
+      (v) => !outerVarNames.has(v.name)
+    );
+  }
+
   // original code:
   /*
   let finalType: SomeType;
