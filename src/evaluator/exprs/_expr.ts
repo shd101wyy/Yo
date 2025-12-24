@@ -69,6 +69,7 @@ import {
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
 import { evaluateVaStart } from "../builtins/va_start";
+import { evaluateYoVarPrintInfo } from "../builtins/var_fns";
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateRawPointerCall } from "../calls/pointer";
 import { EvaluatorContext } from "../context";
@@ -765,6 +766,17 @@ ${exprToString(expr)}`,
     ) {
       // __yo_type_impls - check if a type implements a marker module
       return evaluateYoTypeImpls({
+        expr,
+        env,
+        context: { ...context },
+      });
+    }
+    // Variable related functions
+    else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info, 1)
+    ) {
+      // __yo_var_print_info
+      return evaluateYoVarPrintInfo({
         expr,
         env,
         context: { ...context },

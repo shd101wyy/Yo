@@ -874,6 +874,9 @@ export const BuiltinFunctions = {
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
   __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a module (e.g., Copy, Send)
 
+  // Variale related functions
+  __yo_var_print_info: ["__yo_var_print_info"],
+
   // Operator related functions
   /// Arithemtic
   __yo_op_add: ["__yo_op_add"], // +

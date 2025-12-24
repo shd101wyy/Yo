@@ -521,39 +521,29 @@ export function updateExistingVariable(
 export function printEnvVarNames(env: Environment) {
   console.log(
     env.frames.map((frame) => {
-      return frame.variables.map((variable) => ({
-        id: variable.id,
-        name: variable.name,
-        type: typeToString(variable.type),
-        typeId: variable.type.id,
-        value: valueToString(variable.value),
-        isCompileTimeOnly: variable.isCompileTimeOnly,
-        isUndefined: !variable.initializedAtToken,
-        isOwningTheGcValue: !!variable.isOwningTheGcValue,
-        isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
-        isReassignable: !!variable.isReassignable,
-        isConsumed: !!variable.consumedAtToken,
-      }));
+      return frame.variables.map(getVariableInfo);
     })
   );
 }
 
 export function printEnvFrame(frame: Frame) {
-  console.log(
-    frame.variables.map((variable) => ({
-      id: variable.id,
-      name: variable.name,
-      type: typeToString(variable.type),
-      typeId: variable.type.id,
-      value: valueToString(variable.value),
-      isCompileTimeOnly: variable.isCompileTimeOnly,
-      isUndefined: !variable.initializedAtToken,
-      isOwningTheGcValue: !!variable.isOwningTheGcValue,
-      isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
-      isReassignable: !!variable.isReassignable,
-      isConsumed: !!variable.consumedAtToken,
-    }))
-  );
+  console.log(frame.variables.map(getVariableInfo));
+}
+
+export function getVariableInfo(variable: Variable) {
+  return {
+    id: variable.id,
+    name: variable.name,
+    type: typeToString(variable.type),
+    typeId: variable.type.id,
+    value: valueToString(variable.value),
+    isCompileTimeOnly: variable.isCompileTimeOnly,
+    isUndefined: !variable.initializedAtToken,
+    isOwningTheGcValue: !!variable.isOwningTheGcValue,
+    isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
+    isReassignable: !!variable.isReassignable,
+    isConsumed: !!variable.consumedAtToken,
+  };
 }
 
 /**
