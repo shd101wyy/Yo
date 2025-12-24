@@ -130,11 +130,19 @@ export function evaluateYoVarHasOtherAliases({
       } else {
         const targetVariableId = variable.id;
         // Check if there exists any variable that has isOwningTheSameGcValueAs equal to targetVariableId
-        hasOtherAliases = variables.some(
-          (v) =>
-            v.isOwningTheSameGcValueAs &&
-            v.isOwningTheSameGcValueAs.id === targetVariableId
-        );
+        for (let i = env.frames.length - 1; i >= 0; i--) {
+          const frame = env.frames[i]!;
+          for (let j = 0; j < frame.variables.length; j++) {
+            const frameVariable = frame.variables[j]!;
+            if (
+              frameVariable.isOwningTheSameGcValueAs &&
+              frameVariable.isOwningTheSameGcValueAs.id === targetVariableId
+            ) {
+              hasOtherAliases = true;
+              break;
+            }
+          }
+        }
       }
     }
   }

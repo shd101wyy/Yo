@@ -58,7 +58,7 @@ import {
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findARCValueOwnerRelationship } from "../utils";
+import { findGcValueOwnerRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -469,11 +469,17 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       // But we track shared ownership for dup/drop optimization
 
       // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findARCValueOwnerRelationship(
+      const rhsOwningVariable = findGcValueOwnerRelationship(
         rhs,
         env,
         env.modulePath
       );
+
+      // If the RHS owning variable was consumed (moved), LHS becomes the primary owner
+      let isOwningTheSameGcValueAs = rhsOwningVariable;
+      if (rhsOwningVariable?.consumedAtToken) {
+        isOwningTheSameGcValueAs = undefined;
+      }
 
       env = updateExistingVariable(env, variable, {
         ...variable,
@@ -481,7 +487,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         value: valueToStore,
         type: variableType,
         isOwningTheGcValue: typeContainsGcType(variableType),
-        isOwningTheSameGcValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isOwningTheSameGcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
     } else {
       // Disallow reassignment of SomeType (Impl(...)) variables.
@@ -557,11 +563,17 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       const newVariableId = generateVarialeId(env.modulePath, variableName);
 
       // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findARCValueOwnerRelationship(
+      const rhsOwningVariable = findGcValueOwnerRelationship(
         rhs,
         env,
         env.modulePath
       );
+
+      // If the RHS owning variable was consumed (moved), LHS becomes the primary owner
+      let isOwningTheSameGcValueAs = rhsOwningVariable;
+      if (rhsOwningVariable?.consumedAtToken) {
+        isOwningTheSameGcValueAs = undefined;
+      }
 
       // Under the new simplified ownership model:
       // Variables always own their values
@@ -572,7 +584,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         value: valueToStore,
         type: variableType,
         isOwningTheGcValue: typeContainsGcType(variableType),
-        isOwningTheSameGcValueAs: rhsOwningVariable, // Track shared ownership for optimization
+        isOwningTheSameGcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
       isMutatingDefinedVariable = true;
     }

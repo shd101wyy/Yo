@@ -633,27 +633,6 @@ function generateFuncCall(
     return `/* __yo_sometype_dup: no-op */`;
   }
 
-  // __yo_future_drop - call __yo_decr_rc on future with special running check
-  /// if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_drop)) {
-  ///   const selfArg = expr.args[0];
-  ///   if (!selfArg) {
-  ///     return `// Error: __yo_future_drop requires exactly 1 argument`;
-  ///   }
-  ///   const selfCode = generateExpr(selfArg, indent, context);
-  ///   // Use a special dispose function that checks is_running flag
-  ///   return `__yo_future_drop((void*)(${selfCode}))`;
-  /// }
-  ///
-  /// // __yo_future_dup - call __yo_incr_rc on future
-  /// if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_future_dup)) {
-  ///   const selfArg = expr.args[0];
-  ///   if (!selfArg) {
-  ///     return `// Error: __yo_future_dup requires exactly 1 argument`;
-  ///   }
-  ///   const selfCode = generateExpr(selfArg, indent, context);
-  ///   return `__yo_incr_rc((void*)(${selfCode}))`;
-  /// }
-
   // __yo_gc_collect - trigger garbage collection
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
     if (expr.args.length !== 0) {
@@ -979,6 +958,7 @@ function generateFuncCall(
     }
   }
 
+  // TODO: Remove this and move the logic to prelude.yo
   // Array.fill method call (macro-like expansion)
   if (isArrayFillMethodCall(expr)) {
     return generateArrayFillCall(expr, indent, context);
@@ -1981,9 +1961,17 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
     return generateExpr(expr.args[0]!, indent, context);
   }
-
+  // functions that should be skipped
   // compt_expect_error
-  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error)) {
+  else if (
+    exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info) ||
+    exprIsFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_var_is_owning_the_gc_value
+    ) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases)
+  ) {
     // no-op in C, just return empty string
     return "";
   }

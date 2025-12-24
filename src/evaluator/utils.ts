@@ -15,13 +15,13 @@ export function isValidVariableName(expr: Expr): boolean {
 }
 
 /**
- * Find the ultimate ARC-owning variable that a RHS expression borrows from.
+ * Find the ultimate Gc-owning variable that a RHS expression borrows from.
  * Handles chains like:
  *   temp := Box(...); // temp owns
  *   x := temp;        // x owns what temp owns
  *   y := x;           // y owns what x owns, which is what temp owns
  */
-export function findARCValueOwnerRelationship(
+export function findGcValueOwnerRelationship(
   rhs: Expr,
   env: Environment,
   _modulePath: string

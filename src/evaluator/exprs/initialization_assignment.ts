@@ -30,7 +30,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findARCValueOwnerRelationship, isValidVariableName } from "../utils";
+import { findGcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -287,12 +287,21 @@ ${exprToString(rhs)}`,
     // Under the new simplified ownership model:
     // All variables own their values
     // But we track shared ownership for dup/drop optimization
-    // Find if RHS is sharing ownership with another variabl
-    const rhsOwningVariable = findARCValueOwnerRelationship(
+    // Find if RHS is sharing ownership with another variable
+    const rhsOwningVariable = findGcValueOwnerRelationship(
       rhs,
       env,
       env.modulePath
     );
+
+    // If the RHS owning variable was consumed (moved), then the LHS should become
+    // the primary owner (isOwningTheSameGcValueAs: undefined), not a secondary reference.
+    // This ensures ownership transfers completely on move.
+    let isOwningTheSameGcValueAs = rhsOwningVariable;
+    if (rhsOwningVariable?.consumedAtToken) {
+      // The RHS was moved, so LHS becomes the new primary owner
+      isOwningTheSameGcValueAs = undefined;
+    }
 
     // Create new variable
     const { env: nextEnv } = addVariableToEnv({
@@ -308,7 +317,8 @@ ${exprToString(rhs)}`,
         // Under new ownership model: variables always own their values (or false for non-ARC types)
         isOwningTheGcValue: typeContainsGcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
-        isOwningTheSameGcValueAs: rhsOwningVariable,
+        // If RHS was moved, LHS becomes the primary owner
+        isOwningTheSameGcValueAs,
         isReassignable: true, // This is not a function parameter
       },
     });

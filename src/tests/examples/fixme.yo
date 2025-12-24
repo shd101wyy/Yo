@@ -3,13 +3,26 @@ use_box :: (fn(own(x) : Box(i32)) -> i32) {
 };
 
 main :: (fn() -> unit) {
-  x := Box(i32)(42);
-  y := x;
+  {
+    x := Box(i32)(42);
+    y := x;
 
-  Var.print_info(x);
-  f :: (Var.is_owning_the_gc_value(x)); // true
-  Var.print_info(y);
-  f2 :: (Var.has_other_aliases(y)); // true
+    Var.print_info(x);
+    Var.print_info(y);
+
+    f1 :: Var.is_owning_the_gc_value(x);
+    f2 :: Var.is_owning_the_gc_value(y);
+
+    a1 :: Var.has_other_aliases(x);
+    a2 :: Var.has_other_aliases(y);
+  };
+
+  {
+    x := Box(i32)(42);
+
+    f1 :: Var.is_owning_the_gc_value(x);
+    a1 :: Var.has_other_aliases(x);
+  };
 };
 
 export main;
