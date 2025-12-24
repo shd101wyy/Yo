@@ -35,9 +35,14 @@ main :: (fn() -> unit) {
 
 main :: (fn() -> unit) {
   x := Box(i32)(42);
-  i := Iso(Box(i32))(x);
 
-  f :: Type.impls(typeof(i), Send);
+  i1 := Iso(Box(i32))(x);
+  i2 := i1;
+
+  f :: Type.impls(typeof(i1), Send);
+
+  e := __yo_iso_extract(i2).unwrap();
+  assert(e.* == 42);
 
   return ();
 };

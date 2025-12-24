@@ -915,12 +915,12 @@ export const BuiltinFunctions = {
   panic: ["panic"],
 
   // Gc related
-  is_uniquely_owned: ["is_unique_owned"], // Check if the value is uniquely owned
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
   __yo_decr_rc_atomic: ["__yo_decr_rc_atomic"], // atomic decrement for Iso types
   __yo_incr_rc_atomic: ["__yo_incr_rc_atomic"], // atomic increment for Iso types
   __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheGcValue to be true. This is useful for implementing ___dup function.
+  __yo_iso_extract: ["__yo_iso_extract"], // extract inner value from Iso(T), returns Option(T)
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection

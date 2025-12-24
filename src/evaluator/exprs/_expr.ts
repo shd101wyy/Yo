@@ -15,13 +15,13 @@ import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
 import { evaluateAndOr } from "../builtins/and_or";
 import {
-  evaluateIsUniquelyOwned,
   evaluateYoDecrRc,
   evaluateYoDecrRcAtomic,
   evaluateYoDynVtableDrop,
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
   evaluateYoIncrRcAtomic,
+  evaluateYoIsoExtract,
   evaluateYoRcOwn,
   evaluateYoSomeTypeDrop,
   evaluateYoSomeTypeDup,
@@ -518,12 +518,12 @@ ${exprToString(expr)}`,
     ) {
       // __yo_incr_rc_atomic (for Iso types)
       return evaluateYoIncrRcAtomic({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_extract)) {
+      // __yo_iso_extract (extract inner value from Iso)
+      return evaluateYoIsoExtract({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
       // __yo_rc_own
       return evaluateYoRcOwn({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.is_uniquely_owned)) {
-      // is_uniquely_owned
-      return evaluateIsUniquelyOwned({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_drop)) {
       // __yo_dyn_drop
       return evaluateYoDynVtableDrop({ expr, env, context: { ...context } });
