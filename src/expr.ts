@@ -921,6 +921,7 @@ export const BuiltinFunctions = {
   __yo_incr_rc_atomic: ["__yo_incr_rc_atomic"], // atomic increment for Iso types
   __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheGcValue to be true. This is useful for implementing ___dup function.
   __yo_iso_extract: ["__yo_iso_extract"], // extract inner value from Iso(T), returns Option(T)
+  __yo_iso_dispose: ["__yo_iso_dispose"], // dispose inner value of Iso if not extracted
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection

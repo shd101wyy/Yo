@@ -909,6 +909,20 @@ export function addARCFunctionsToSomeType({
 }
 
 /**
+ * Generate ___dispose function code for an IsoType
+ * This is called when the Iso's ref count hits 0.
+ * It drops the inner value if it hasn't been extracted.
+ */
+function generateDisposeFunctionCodeForIsoType(_isoType: IsoType): string {
+  // The inner value needs to be dropped if not extracted
+  // We use __yo_iso_dispose which checks the extracted flag and drops the inner value
+  return `((fn(self : Self) -> unit) { // ___dispose for Iso
+  ${BuiltinFunctions.__yo_iso_dispose[0]!}(self);
+  return ();
+})`;
+}
+
+/**
  * Generate ___drop function code for an IsoType
  * Uses atomic operations for thread-safe reference counting
  */
@@ -931,7 +945,7 @@ function generateDupFunctionCodeForIsoType(_isoType: IsoType): string {
 }
 
 /**
- * Add ARC functions (___drop, ___dup) to an IsoType's module.
+ * Add ARC functions (___drop, ___dup, ___dispose) to an IsoType's module.
  * These functions use atomic operations for thread-safe reference counting.
  */
 export function addARCFunctionsToIsoType({
@@ -944,8 +958,18 @@ export function addARCFunctionsToIsoType({
   context: EvaluatorContext;
 }): Environment {
   // Generate ARC functions for IsoType using atomic operations
+  const disposeFunctionCode = generateDisposeFunctionCodeForIsoType(isoType);
   const dropFunctionCode = generateDropFunctionCodeForIsoType(isoType);
   const dupFunctionCode = generateDupFunctionCodeForIsoType(isoType);
+
+  // Add ___dispose function to the IsoType module fields
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___dispose[0]!,
+    functionCode: disposeFunctionCode,
+    SelfType: isoType,
+    env,
+    context,
+  });
 
   // Add ___drop function to the IsoType module fields
   env = addFunctionCodeToSelfTypeModule({

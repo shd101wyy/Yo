@@ -21,6 +21,7 @@ import {
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
   evaluateYoIncrRcAtomic,
+  evaluateYoIsoDispose,
   evaluateYoIsoExtract,
   evaluateYoRcOwn,
   evaluateYoSomeTypeDrop,
@@ -521,6 +522,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_extract)) {
       // __yo_iso_extract (extract inner value from Iso)
       return evaluateYoIsoExtract({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_dispose)) {
+      // __yo_iso_dispose (dispose inner value of Iso if not extracted)
+      return evaluateYoIsoDispose({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
       // __yo_rc_own
       return evaluateYoRcOwn({ expr, env, context: { ...context } });

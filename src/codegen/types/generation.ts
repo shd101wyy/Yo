@@ -544,6 +544,21 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     );
   }
 
+  // Generate dispose function declarations for Iso types
+  // __yo_iso_dispose_ is called from the evaluator-generated ___dispose function
+  // __yo_dispose_iso_ is the internal one called when RC hits 0 (via dispose_fn pointer)
+  for (const [isoTypeName, isoInfo] of context.isoTypes) {
+    const { structGenerated } = isoInfo;
+    if (!structGenerated) continue;
+
+    emitter.emitDeclarationLine(
+      `void __yo_iso_dispose_${isoTypeName}(${isoTypeName} iso);`
+    );
+    emitter.emitDeclarationLine(
+      `static void __yo_dispose_iso_${isoTypeName}(void* ptr);`
+    );
+  }
+
   // Generate constructor function implementations
   for (const [isoTypeName, isoInfo] of context.isoTypes) {
     const { childTypeCName, createGenerated } = isoInfo;
@@ -557,7 +572,7 @@ ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
   iso->header.ref_count = 1;
   iso->header.gc_mark = YO_GC_UNMARKED;
   iso->header.gc_flags = 0;
-  iso->header.dispose_fn = NULL;
+  iso->header.dispose_fn = __yo_dispose_iso_${isoTypeName};
   atomic_store(&iso->extracted, false);
   iso->value = value;
   return iso;
@@ -565,6 +580,56 @@ ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
 
     // Mark as generated
     isoInfo.createGenerated = true;
+  }
+
+  // Generate dispose function implementations for Iso types
+  // The dispose function drops the inner value if it hasn't been extracted
+  for (const [isoTypeName, isoInfo] of context.isoTypes) {
+    const { childTypeCName, isoType, createGenerated, disposeGenerated } =
+      isoInfo;
+    if (!createGenerated || !isoType || disposeGenerated) continue;
+
+    // Determine how to drop the inner value based on its type
+    const childType = isoType.childType;
+    let dropInnerCode: string;
+
+    // Check if the child type has a ___drop function we should call
+    const dropFn = childType.module?.fields.find(
+      (f) => f.label === BuiltinFunctions.___drop[0]
+    );
+
+    if (dropFn?.assignedValue && context.functions) {
+      // Find the C function name for the drop function
+      const funcId = (dropFn.assignedValue as { funcId: string }).funcId;
+      const funcEntry = context.functions[funcId];
+      if (funcEntry?.cName) {
+        dropInnerCode = `${funcEntry.cName}(iso->value);`;
+      } else {
+        // Fallback: use __yo_decr_rc for object types
+        dropInnerCode = `__yo_decr_rc((void*)iso->value);`;
+      }
+    } else {
+      // Default: use __yo_decr_rc for reference types
+      dropInnerCode = `__yo_decr_rc((void*)iso->value);`;
+    }
+
+    // Public dispose function - called from evaluator-generated ___dispose
+    emitter.emitLine(`
+void __yo_iso_dispose_${isoTypeName}(${isoTypeName} iso) {
+  // Only drop inner value if it wasn't extracted
+  if (!atomic_load(&iso->extracted)) {
+    ${dropInnerCode}
+  }
+}`);
+
+    // Internal dispose function - called when RC hits 0 via dispose_fn pointer
+    emitter.emitLine(`
+static void __yo_dispose_iso_${isoTypeName}(void* ptr) {
+  __yo_iso_dispose_${isoTypeName}((${isoTypeName})ptr);
+}`);
+
+    // Mark as generated
+    isoInfo.disposeGenerated = true;
   }
 
   // Generate extract function implementations (if Option type is known)

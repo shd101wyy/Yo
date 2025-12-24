@@ -71,6 +71,7 @@ export interface CodeGenContext {
       structGenerated?: boolean;
       createGenerated?: boolean;
       extractGenerated?: boolean;
+      disposeGenerated?: boolean;
     }
   >;
 

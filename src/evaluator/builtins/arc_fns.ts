@@ -577,3 +577,47 @@ export function evaluateYoIsoExtract({
 
   return expr;
 }
+
+/**
+ * Evaluates __yo_iso_dispose builtin function.
+ * Disposes the inner value of an Iso if it hasn't been extracted.
+ * Just evaluates the argument and returns unit - the actual disposal happens at runtime.
+ */
+export function evaluateYoIsoDispose({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_iso_dispose[0]!]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_iso_dispose[0]!}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+  return expr;
+}

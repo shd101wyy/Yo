@@ -491,6 +491,12 @@ function generateFuncCall(
       return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
     }
 
+    // Iso types use atomic reference counting
+    if (isIsoType(valueType)) {
+      const isoCName = getTypeString(valueType, context);
+      return `((${isoCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
+    }
+
     // Value types: no-op dup.
     return valueCode;
   }
@@ -514,6 +520,10 @@ function generateFuncCall(
     }
     if (isObjectType(valueType)) {
       return `__yo_decr_rc((void*)(${valueCode}))`;
+    }
+    // Iso types use atomic reference counting
+    if (isIsoType(valueType)) {
+      return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
     }
     // For SomeType with resolvedConcreteType, dispatch to the concrete type's ___drop
     if (isSomeType(valueType) && valueType.resolvedConcreteType) {
@@ -606,6 +616,23 @@ function generateFuncCall(
     }
 
     return `__yo_iso_extract_${isoTypeCName}(${selfCode})`;
+  }
+
+  // __yo_iso_dispose - dispose inner value of Iso if not extracted
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_dispose)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_iso_dispose requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    const selfType = selfArg.$?.type;
+
+    if (!selfType || !isIsoType(selfType)) {
+      return `// Error: __yo_iso_dispose requires an Iso type`;
+    }
+
+    const isoTypeCName = getTypeString(selfType, context);
+    return `__yo_iso_dispose_${isoTypeCName}(${selfCode})`;
   }
 
   // Iso(T)(value) - Iso value constructor
