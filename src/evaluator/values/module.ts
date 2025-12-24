@@ -353,22 +353,29 @@ export function findMethodsFromGenericImpls({
 
           // If it's a function value, we need to:
           // 1. Clone the function body
-          // 2. Create an environment with value substitutions bound (like U=3)
-          // 3. Re-evaluate the body to replace UnknownValues with concrete values
+          // 2. Create an environment with value/type substitutions bound
+          // 3. Re-evaluate the body to get correct type annotations
           // 4. Create the specialized function value with the re-evaluated body
           //
-          // NOTE: We only re-evaluate when there are VALUE substitutions, not type substitutions.
-          // Type substitutions are handled at code generation time via specializedType.
+          // NOTE: We re-evaluate when there are VALUE substitutions OR TYPE substitutions.
+          // Type substitutions need re-evaluation so that expressions like `__yo_iso_extract(self)`
+          // get the correct specialized types (e.g., Iso(Box(i32)) instead of Iso(T)).
           let value: Value | undefined = originalValue;
           if (
             isFunctionValue(originalValue) &&
-            match.valueSubstitutions.size > 0
+            (match.valueSubstitutions.size > 0 || match.substitutions.size > 0)
           ) {
             // Clone the function body for re-evaluation
             const clonedBody = cloneExpr(originalValue.body);
 
-            // Create a specialized environment with value substitutions bound
-            let specializedEnv = pushEnvFrame(env);
+            // Create a specialized environment with the specialized function parameters
+            // Push the parametersFrame which contains the function parameters (like `self`)
+            let specializedEnv = pushEnvFrame(
+              env,
+              specializedType.parametersFrame
+            );
+
+            // Add value substitutions (compile-time values like U=3)
             for (const [paramName, paramValue] of match.valueSubstitutions) {
               const { env: nextEnv } = addVariableToEnv({
                 env: specializedEnv,
@@ -386,7 +393,7 @@ export function findMethodsFromGenericImpls({
               specializedEnv = nextEnv;
             }
 
-            // Also add type substitutions to the environment
+            // Also add type substitutions to the environment (like T=Box(i32))
             for (const [paramName, paramType] of match.substitutions) {
               if (paramName !== "Self") {
                 const { env: nextEnv } = addVariableToEnv({
@@ -428,28 +435,46 @@ export function findMethodsFromGenericImpls({
               isEvaluatingFunctionBodyBeginBlock: true,
             });
 
+            // Update specializedType with the body's actual return type
+            // The re-evaluated body will have the correct concrete types from the type registry
+            // while substituteInFunctionType creates types with the wrong IDs
+            let finalSpecializedType = specializedType;
+            if (specializedBody.$?.type) {
+              finalSpecializedType = {
+                ...specializedType,
+                return: {
+                  ...specializedType.return,
+                  type: specializedBody.$.type,
+                },
+              };
+            }
+
             // Create a specialized function value with the re-evaluated body
             const specializedFunctionValue: FunctionValue = {
               ...originalValue,
-              specializedType: specializedType,
+              specializedType: finalSpecializedType,
               body: specializedBody,
-              // Create a unique funcId for this specialization
-              funcId: `${originalValue.funcId}_specialized_${[...match.valueSubstitutions.entries()].map(([k, v]) => `${k}_${valueToString(v)}`).join("_")}`,
+              // Create a unique funcId for this specialization (include both type and value substitutions)
+              funcId: `${originalValue.funcId}_specialized_${[...match.substitutions.entries()].map(([k, v]) => `${k}_${typeToString(v)}`).join("_")}_${[...match.valueSubstitutions.entries()].map(([k, v]) => `${k}_${valueToString(v)}`).join("_")}`,
               funcName: originalValue.funcName
                 ? `${originalValue.funcName}_specialized`
                 : undefined,
             };
             value = specializedFunctionValue;
+
+            // Also update the type pushed to methods
+            methods.push({ type: finalSpecializedType, value });
           } else if (isFunctionValue(originalValue)) {
-            // No value substitutions needed, just set the specialized type
+            // No substitutions needed, just set the specialized type
             const specializedFunctionValue: FunctionValue = {
               ...originalValue,
               specializedType: specializedType,
             };
             value = specializedFunctionValue;
+            methods.push({ type: specializedType, value });
+          } else {
+            methods.push({ type: specializedType, value });
           }
-
-          methods.push({ type: specializedType, value });
         }
       }
     }
@@ -714,10 +739,28 @@ function substituteInFunctionType(
     return functionType;
   }
 
+  // Also update the parametersFrame with substituted types
+  // This is critical for body re-evaluation where the frame variables need correct types
+  const newParametersFrame = {
+    ...functionType.parametersFrame,
+    variables: functionType.parametersFrame.variables.map((v) => {
+      const newType = substituteInType(
+        v.type,
+        substitutions,
+        valueSubstitutions
+      );
+      if (newType !== v.type) {
+        return { ...v, type: newType };
+      }
+      return v;
+    }),
+  };
+
   return {
     ...functionType,
     forallParameters: [], // Clear forall parameters since we've specialized them
     parameters: newParameters,
+    parametersFrame: newParametersFrame,
     return: returnChanged
       ? { ...functionType.return, type: newReturnType, expr: undefined }
       : functionType.return,

@@ -252,6 +252,25 @@ export function generateFunctionDeclaration(
     }
   }
 
+  // For specialized functions where the body's return type is more specific than the signature's
+  // (e.g., when generic type parameters have been substituted but the signature still uses generic types)
+  // Use the body's concrete return type
+  if (
+    !overrideReturnType &&
+    functionBody &&
+    functionBody.$?.type &&
+    !typeImplementsFuture(functionType.return.type)
+  ) {
+    const signatureReturnTypeCName = getTypeString(
+      functionType.return.type,
+      context
+    );
+    const bodyReturnTypeCName = getTypeString(functionBody.$.type, context);
+    if (signatureReturnTypeCName !== bodyReturnTypeCName) {
+      overrideReturnType = bodyReturnTypeCName;
+    }
+  }
+
   const functionPrototype = overrideReturnType
     ? generateFunctionPrototype(
         functionType,
@@ -464,6 +483,28 @@ export function generateFunction(
     // The body should have the concrete return type
     if (functionValue.body.$?.type) {
       overrideReturnType = getTypeString(functionValue.body.$.type, context);
+    }
+  }
+
+  // For specialized functions where the body's return type is more specific than the signature's
+  // (e.g., when generic type parameters have been substituted but the signature still uses generic types)
+  // Use the body's concrete return type
+  if (
+    !overrideReturnType &&
+    functionValue.body &&
+    functionValue.body.$?.type &&
+    functionValue.specializedType
+  ) {
+    const signatureReturnTypeCName = getTypeString(
+      functionType.return.type,
+      context
+    );
+    const bodyReturnTypeCName = getTypeString(
+      functionValue.body.$.type,
+      context
+    );
+    if (signatureReturnTypeCName !== bodyReturnTypeCName) {
+      overrideReturnType = bodyReturnTypeCName;
     }
   }
 
