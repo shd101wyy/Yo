@@ -262,6 +262,9 @@ typedef struct {
   // Generate slice struct types
   generateSliceStructDeclarations(context);
 
+  // Generate Iso types
+  generateIsoTypeDeclarations(context);
+
   // Generate types in dependency order
   // Complex dependency rules:
   // 1. Enums used by-value in structs must be defined before those structs
@@ -488,6 +491,124 @@ export function generateSliceStructDeclarations(context: CodeGenContext): void {
     emitter.emitDeclarationLine(`  size_t length;`);
     emitter.emitDeclarationLine(`} ${sliceTypeName};`);
     emitter.emitDeclarationLine("");
+  }
+}
+
+/**
+ * Generate Iso struct type declarations and helper functions
+ */
+export function generateIsoTypeDeclarations(context: CodeGenContext): void {
+  const emitter = context.emitter;
+  if (!context.isoTypes) return;
+
+  // Generate Iso struct types and constructor declarations
+  for (const [isoTypeName, isoInfo] of context.isoTypes) {
+    const { childTypeCName, structGenerated } = isoInfo;
+
+    // Skip if struct already generated
+    if (structGenerated) continue;
+
+    // Generate Iso struct type
+    emitter.emitDeclarationLine(`typedef struct { // Iso wrapper struct`);
+    emitter.emitDeclarationLine(
+      `  yo_ref_header_t header; // Atomic RC header`
+    );
+    emitter.emitDeclarationLine(`  _Atomic bool extracted; // Extraction flag`);
+    emitter.emitDeclarationLine(`  ${childTypeCName} value; // Inner value`);
+    emitter.emitDeclarationLine(`} ${isoTypeName}_struct;`);
+    emitter.emitDeclarationLine(
+      `typedef ${isoTypeName}_struct* ${isoTypeName};`
+    );
+    emitter.emitDeclarationLine("");
+
+    // Generate constructor function declaration
+    emitter.emitDeclarationLine(
+      `${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value);`
+    );
+    emitter.emitDeclarationLine("");
+
+    // Mark struct as generated
+    isoInfo.structGenerated = true;
+  }
+
+  // Generate extract function declarations (if Option type is known and not already generated)
+  for (const [isoTypeName, isoInfo] of context.isoTypes) {
+    const { optionTypeCName, extractGenerated } = isoInfo;
+
+    // Skip if already generated or no option type
+    if (extractGenerated || !optionTypeCName) continue;
+
+    // Generate extract function declaration
+    emitter.emitDeclarationLine(
+      `${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso);`
+    );
+  }
+
+  // Generate constructor function implementations
+  for (const [isoTypeName, isoInfo] of context.isoTypes) {
+    const { childTypeCName, createGenerated } = isoInfo;
+
+    // Skip if constructor already generated
+    if (createGenerated) continue;
+
+    emitter.emitLine(`
+${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
+  ${isoTypeName} iso = (${isoTypeName})__yo_malloc(sizeof(${isoTypeName}_struct));
+  iso->header.ref_count = 1;
+  iso->header.gc_mark = YO_GC_UNMARKED;
+  iso->header.gc_flags = 0;
+  iso->header.dispose_fn = NULL;
+  atomic_store(&iso->extracted, false);
+  iso->value = value;
+  return iso;
+}`);
+
+    // Mark as generated
+    isoInfo.createGenerated = true;
+  }
+
+  // Generate extract function implementations (if Option type is known)
+  for (const [isoTypeName, isoInfo] of context.isoTypes) {
+    const { optionTypeCName, isoType, extractGenerated } = isoInfo;
+
+    // Skip if already generated or no option type
+    if (extractGenerated || !optionTypeCName || !isoType) continue;
+
+    // Get the Option type's variant names from context.types
+    // We need to find the Option enum and get its Some/None variant tag names
+    const optionTypeEntry = Object.values(context.types).find(
+      (entry) => entry.cName === optionTypeCName
+    );
+
+    if (optionTypeEntry && isEnumType(optionTypeEntry.type)) {
+      const optionEnum = optionTypeEntry.type;
+      const someVariant = optionEnum.variants.find((v) => v.name === "Some");
+      const noneVariant = optionEnum.variants.find((v) => v.name === "None");
+
+      if (someVariant && noneVariant) {
+        const someTagName = `${optionTypeCName.toUpperCase()}_SOME`;
+        const noneTagName = `${optionTypeCName.toUpperCase()}_NONE`;
+
+        emitter.emitLine(`
+${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso) {
+  // Atomically check and set extracted flag
+  bool was_extracted = atomic_exchange(&iso->extracted, true);
+  ${optionTypeCName} result;
+  if (was_extracted) {
+    // Already extracted, return None
+    result.tag = ${noneTagName};
+  } else {
+    // First extraction, return Some(value)
+    result.tag = ${someTagName};
+    result.data.Some.value = iso->value;
+  }
+  return result;
+}`);
+      }
+
+      // Mark extract as generated
+      isoInfo.extractGenerated = true;
+    }
   }
 }
 

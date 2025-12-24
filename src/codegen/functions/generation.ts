@@ -33,6 +33,7 @@ import {
   generateReturnStatement,
 } from "../expressions";
 import { generateParallelismRuntime } from "../parallelism/runtime";
+import { generateIsoTypeDeclarations } from "../types";
 import {
   canOptimizeAsNullablePointer,
   CodeGenContext,
@@ -317,6 +318,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Generate the function body
     generateFunction(value, cName, context);
   }
+
+  // Generate Iso type declarations if any were collected during expression generation
+  generateIsoTypeDeclarations(context);
 
   // NOTE: Main wrapper is generated after deferred async blocks
   // since async main returns a Future type that's defined in the deferred blocks
@@ -923,6 +927,29 @@ void* __yo_incr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   header->ref_count++;
   return ptr;
+}`);
+
+  // Atomic reference counting functions for Iso types (thread-safe)
+  emitter.emitLine(`
+// Atomic reference counting functions for Iso types (thread-safe)
+void* __yo_incr_rc_atomic(void* ptr) {
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
+  return ptr;
+}
+
+void __yo_decr_rc_atomic(void* ptr) {
+  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
+  
+  if (old_count == 1) {
+    // Last reference - deallocate
+    // Note: No GC tracking needed for Iso types (they don't participate in cycles)
+    if (header->dispose_fn) {
+      header->dispose_fn(ptr);
+    }
+    __yo_free(ptr);
+  }
 }`);
 
   // Per-thread GC tracking state (simplified - no stop-the-world coordination needed for thread-local)

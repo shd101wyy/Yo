@@ -11,6 +11,7 @@ import {
   isEnumType,
   isFunctionSpecializable,
   isObjectType,
+  IsoType,
   isPtrType,
   isSliceType,
   isStructType,
@@ -56,6 +57,22 @@ export interface CodeGenContext {
    * Slice struct types that need to be generated
    */
   sliceStructTypes: Map<string, { childType: string }>;
+
+  /**
+   * Iso struct types that need to be generated
+   * Maps Iso type C name to info about the child type and option type
+   */
+  isoTypes?: Map<
+    string,
+    {
+      childTypeCName: string;
+      isoType: IsoType;
+      optionTypeCName?: string;
+      structGenerated?: boolean;
+      createGenerated?: boolean;
+      extractGenerated?: boolean;
+    }
+  >;
 
   /**
    * Spawned function signatures that need task wrapper generation for cooperative multitasking
@@ -488,6 +505,29 @@ export function getTypeString(
 
       // For value types, a borrow is a pointer to the value.
       return `${baseTypeStr}*`;
+    }
+
+    // Iso type (atomic reference-counted isolated value)
+    case TypeTag.Iso: {
+      const isoType = type as IsoType;
+      const childType = isoType.childType;
+      const childTypeCName = getTypeString(childType, context);
+
+      // Create a clean type name without pointer symbols
+      // For Box(i32) which is yo_struct_id31868*, we want Iso_yo_struct_id31868
+      const cleanChildTypeName = childTypeCName.replace(/\*/g, "").trim();
+      const isoTypeName = `Iso_${sanitizeForCIdentifier(cleanChildTypeName)}`;
+
+      // Register the Iso type for generation
+      if (!context.isoTypes) {
+        context.isoTypes = new Map();
+      }
+      if (!context.isoTypes.has(isoTypeName)) {
+        context.isoTypes.set(isoTypeName, { childTypeCName, isoType });
+      }
+
+      // Iso types are reference-counted pointers
+      return isoTypeName;
     }
   }
 

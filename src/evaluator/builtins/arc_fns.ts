@@ -11,6 +11,7 @@ import {
   Expr,
   exprToString,
   FuncCallExpr,
+  setExprAsConsumed,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
 import {
@@ -539,6 +540,9 @@ export function evaluateYoIsoExtract({
     });
   }
   env = evaluatedArgExpr.$.env;
+
+  // Consume the argument expression
+  env = setExprAsConsumed(evaluatedArgExpr, env);
 
   const argType = evaluatedArgExpr.$.type;
 

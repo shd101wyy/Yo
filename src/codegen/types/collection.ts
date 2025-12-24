@@ -13,7 +13,9 @@ import {
   isArrayType,
   isDynType,
   isEnumType,
+  isIsoType,
   isModuleType,
+  IsoType,
   isPtrType,
   isSliceType,
   isSomeType,
@@ -259,7 +261,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isTupleType(type) ||
     isDynType(type) ||
     isModuleType(type) ||
-    isSliceType(type)
+    isSliceType(type) ||
+    isIsoType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName =
@@ -317,6 +320,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
       for (const moduleType of dynType.requiredModules) {
         collectType(moduleType, context);
       }
+    }
+
+    // For Iso types, collect the child type and register the Iso type
+    if (isIsoType(type)) {
+      const isoType = type as IsoType;
+      collectType(isoType.childType, context);
+      // Register the Iso type in context.isoTypes by calling getTypeString
+      // This ensures Iso type declarations are generated before function declarations
+      getTypeString(isoType, context);
     }
 
     // For future types, collect the field type

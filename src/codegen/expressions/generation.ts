@@ -23,6 +23,7 @@ import {
   isEnumType,
   isFunctionType,
   isGcType,
+  isIsoType,
   isNewtypeType,
   isObjectType,
   isPtrType,
@@ -557,6 +558,89 @@ function generateFuncCall(
     const selfCode = generateExpr(selfArg, indent, context);
     // Dyn is a value type; ref-counting applies to its .data pointer.
     return `__yo_incr_rc((void*)(${selfCode}).data)`;
+  }
+
+  // __yo_incr_rc_atomic - atomic reference count increment for Iso types
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc_atomic)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_incr_rc_atomic requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `__yo_incr_rc_atomic(${selfCode})`;
+  }
+
+  // __yo_decr_rc_atomic - atomic reference count decrement for Iso types
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc_atomic)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_decr_rc_atomic requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    return `__yo_decr_rc_atomic(${selfCode})`;
+  }
+
+  // __yo_iso_extract - extract inner value from Iso type
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_extract)) {
+    const selfArg = expr.args[0];
+    if (!selfArg) {
+      return `// Error: __yo_iso_extract requires exactly 1 argument`;
+    }
+    const selfCode = generateExpr(selfArg, indent, context);
+    const selfType = selfArg.$?.type;
+
+    if (!selfType || !isIsoType(selfType)) {
+      return `// Error: __yo_iso_extract requires an Iso type`;
+    }
+
+    const isoTypeCName = getTypeString(selfType, context);
+
+    // Register the Option type C name for the extract function
+    // The return type of __yo_iso_extract is Option(ChildType)
+    const returnType = expr.$?.type;
+    if (returnType && context.isoTypes?.has(isoTypeCName)) {
+      const isoInfo = context.isoTypes.get(isoTypeCName)!;
+      if (!isoInfo.optionTypeCName) {
+        isoInfo.optionTypeCName = getTypeString(returnType, context);
+      }
+    }
+
+    return `__yo_iso_extract_${isoTypeCName}(${selfCode})`;
+  }
+
+  // Iso(T)(value) - Iso value constructor
+  // Check if this is a call to an Iso type constructor (not just any expression returning Iso type)
+  // The function being called must be a TypeValue containing an IsoType
+  const funcValue = expr.func.$?.value;
+  if (
+    isTypeValue(funcValue) &&
+    isIsoType(funcValue.value) &&
+    expr.args.length === 1
+  ) {
+    const isoType = funcValue.value;
+    const childType = isoType.childType;
+
+    const valueArg = expr.args[0]!;
+    const valueCode = generateExpr(valueArg, indent, context);
+
+    // Register the Iso type
+    const isoTypeCName = getTypeString(isoType, context);
+    const childTypeCName = getTypeString(childType, context);
+
+    if (!context.isoTypes) {
+      context.isoTypes = new Map();
+    }
+    if (!context.isoTypes.has(isoTypeCName)) {
+      context.isoTypes.set(isoTypeCName, { childTypeCName, isoType });
+    }
+
+    // Generate allocation and initialization
+    // Iso_T* iso = __yo_malloc(sizeof(Iso_T));
+    // iso->arc = 1;
+    // iso->extracted = false;
+    // iso->value = value;
+    // return iso;
+    return `__yo_create_iso_${isoTypeCName}(${valueCode})`;
   }
 
   // __yo_sometype_drop - dispatch to resolvedConcreteType's ___drop if available
