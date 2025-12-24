@@ -17,9 +17,11 @@ import { evaluateAndOr } from "../builtins/and_or";
 import {
   evaluateIsUniquelyOwned,
   evaluateYoDecrRc,
+  evaluateYoDecrRcAtomic,
   evaluateYoDynVtableDrop,
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
+  evaluateYoIncrRcAtomic,
   evaluateYoRcOwn,
   evaluateYoSomeTypeDrop,
   evaluateYoSomeTypeDup,
@@ -75,6 +77,7 @@ import {
   evaluateYoVarPrintInfo,
 } from "../builtins/var_fns";
 import { evaluateFunctionCall } from "../calls/function";
+import { evaluateIsoTypeCall } from "../calls/iso";
 import { evaluateRawPointerCall } from "../calls/pointer";
 import { EvaluatorContext } from "../context";
 import { evaluateArrayType } from "../types/array";
@@ -385,6 +388,13 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Iso, 1)) {
+      // Iso isolated type
+      return evaluateIsoTypeCall({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_address_of, 1)
     ) {
@@ -498,6 +508,16 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc)) {
       // __yo_incr_rc
       return evaluateYoIncrRc({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc_atomic)
+    ) {
+      // __yo_decr_rc_atomic (for Iso types)
+      return evaluateYoDecrRcAtomic({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc_atomic)
+    ) {
+      // __yo_incr_rc_atomic (for Iso types)
+      return evaluateYoIncrRcAtomic({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
       // __yo_rc_own
       return evaluateYoRcOwn({ expr, env, context: { ...context } });

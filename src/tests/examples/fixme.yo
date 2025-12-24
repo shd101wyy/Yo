@@ -1,4 +1,11 @@
+/*
 use_box :: (fn(own(x) : Box(i32)) -> i32) {
+  f :: Var.is_owning_the_gc_value(x);
+  return x.*;
+};
+
+use_box_ref :: (fn(x : Box(i32)) -> i32) {
+  f :: Var.is_owning_the_gc_value(x);
   return x.*;
 };
 
@@ -23,6 +30,16 @@ main :: (fn() -> unit) {
     f1 :: Var.is_owning_the_gc_value(x);
     a1 :: Var.has_other_aliases(x);
   };
+};
+*/
+
+main :: (fn() -> unit) {
+  x := Box(i32)(42);
+  i := Iso(Box(i32))(x);
+
+  f :: Type.impls(typeof(i), Send);
+
+  return ();
 };
 
 export main;

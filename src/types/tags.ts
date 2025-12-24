@@ -73,6 +73,9 @@ export enum TypeTag {
   // Pointer
   Ptr = "Ptr",
 
+  // Isolated Type (atomic reference counting for thread safety)
+  Iso = "Iso",
+
   // Dynamic Dispatch Type
   Dyn = "Dyn",
 

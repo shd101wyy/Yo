@@ -96,6 +96,94 @@ export function evaluateYoIncrRc({
   return expr;
 }
 
+/**
+ * Atomic increment for Iso types. Just evaluates the argument and returns unit.
+ */
+export function evaluateYoIncrRcAtomic({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [
+    BuiltinFunctions.__yo_incr_rc_atomic[0]!,
+  ]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_incr_rc_atomic[0]!}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
+ * Atomic decrement for Iso types. Just evaluates the argument and returns unit.
+ */
+export function evaluateYoDecrRcAtomic({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [
+    BuiltinFunctions.__yo_decr_rc_atomic[0]!,
+  ]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_decr_rc_atomic[0]!}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+  return expr;
+}
+
 export function evaluateIsUniquelyOwned({
   expr,
   env,

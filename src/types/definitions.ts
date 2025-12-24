@@ -713,6 +713,39 @@ export interface PtrType extends Type {
   module: ModuleType;
 }
 
+/**
+ * IsoType represents an isolated value with atomic reference counting.
+ * Used for safe sharing of data across threads.
+ *
+ * Example:
+ *   Iso(Box(i32))  // Type constructor
+ *   Iso(Box(i32))(x)  // Value constructor (consumes x)
+ *
+ * Properties:
+ * - Uses atomic reference counting (thread-safe)
+ * - Can be freely copied and shared across threads
+ * - Construction requires unique ownership (no aliases)
+ * - extract() method returns Option(T) and can only succeed once
+ */
+export interface IsoType extends Type {
+  tag: TypeTag.Iso;
+  /**
+   * The inner type that is isolated.
+   */
+  childType: Type;
+
+  /**
+   * The module of the Iso type, which contains
+   * the ARC methods (___dup_iso, ___drop_iso) using atomic operations.
+   */
+  module: ModuleType;
+
+  /**
+   * The env when the Iso type is created.
+   */
+  env: Environment;
+}
+
 /*
  *   eg:
  *   use_id :: (fn(value: Dyn(GiveInt)) -> unit) {

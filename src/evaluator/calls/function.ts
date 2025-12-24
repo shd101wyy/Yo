@@ -25,6 +25,7 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
+  isIsoType,
   isModuleType,
   isObjectType,
   isPtrType,
@@ -70,6 +71,7 @@ import { tryToImplementClosureByFnModuleType } from "./closure_type";
 import { tryToImplementComptListByComptListType } from "./compt_list_type";
 import { tryToImplementFunctionByFunctionType } from "./function_type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
+import { evaluateIsoValueCall } from "./iso";
 import { tryToImplementModuleWithArgumentsByModuleType } from "./module_type";
 import {
   isConvertibleNumericType,
@@ -1039,6 +1041,46 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             },
           };
         }
+      }
+      // Iso value constructor: Iso(T)(value)
+      else if (isTypeValue(value) && isIsoType(value.value)) {
+        const isoType = value.value;
+        // Iso value constructor expects exactly one argument
+        if (argsToUse.length !== 1) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: formatErrorMessage({
+                token: func.token,
+                errorMessage: `Iso value constructor expects exactly 1 argument, got ${argsToUse.length}`,
+              }),
+            },
+          };
+        }
+        try {
+          const result = evaluateIsoValueCall({
+            expr,
+            env,
+            context: { ...context },
+            isoType,
+          });
+          return {
+            ...functionToCall,
+            result: {
+              kind: "iso-value",
+              result,
+            },
+          };
+        } catch (error) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: error,
+            },
+          };
+        }
       } else {
         return {
           ...functionToCall,
@@ -1672,6 +1714,11 @@ ${functionsWithMatchingTypes
     else if (isTypeValue(value) && isPtrType(value.value)) {
       // This should already be evaluated by tryToConvertToPointerType
       // The expr has been transformed to __yo_as call if needed
+      return expr;
+    }
+    // Iso value constructor: Iso(T)(value)
+    else if (isTypeValue(value) && isIsoType(value.value)) {
+      // This should already be evaluated by evaluateIsoValueCall
       return expr;
     }
     // array & slice

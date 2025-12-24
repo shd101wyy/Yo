@@ -19,6 +19,7 @@ import {
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
+  isIsoType,
   isModuleType,
   isPrimitiveType,
   isPtrType,
@@ -429,6 +430,15 @@ export function areTypesCompatible(
     // }
 
     // Mut pointers must have the same type
+    return areTypesCompatible(
+      { type: expected.type.childType, env: expected.env },
+      { type: given.type.childType, env: given.env }
+    );
+  }
+
+  // Iso
+  if (isIsoType(expected.type) && isIsoType(given.type)) {
+    // Iso types must have compatible inner types
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
       { type: given.type.childType, env: given.env }

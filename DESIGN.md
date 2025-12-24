@@ -56,6 +56,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
   - [Type parameters for specific variant](#type-parameters-for-specific-variant)
 - [C struct](#c-struct)
+- [Newtype](#newtype)
 - [C union](#c-union)
 - [C enum](#c-enum)
 - [Advanced Types `In Design`](#advanced-types-in-design)
@@ -73,18 +74,14 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Pattern Matching](#pattern-matching)
   - [Using Range in `case`](#using-range-in-case)
 - [Guard](#guard)
-- [Pointers](#pointers-1)
-  - [Thin pointers](#thin-pointers)
-    - [Linear pointers](#linear-pointers)
-  - [Fat pointers](#fat-pointers)
 - [String](#string)
   - [C String](#c-string)
-  - [UTF-8 string literal](#utf-8-string-literal)
   - [String (Immutable String)](#string-immutable-string)
-- [Collections `In Design`](#collections-in-design)
-  - [ARC Collections](#arc-collections)
-    - [ArrayList](#arraylist)
-    - [Map](#map)
+- [Collections](#collections)
+  - [ArrayList](#arraylist)
+  - [HashMap](#hashmap)
+  - [HashSet](#hashset)
+  - [LinkedList](#linkedlist)
 - [Error handling](#error-handling)
   - [Error Propagation with match](#error-propagation-with-match)
 - [Type casting](#type-casting)
@@ -131,13 +128,10 @@ The **Yo** language is heavily inspired by:
 - [TypeScript](https://www.typescriptlang.org/)
   - Syntax and semantics
   - Module system
-- [Koka](https://koka-lang.github.io/)
-  - Dot notation (Uniform Function Call Syntax)
-  - Perceus and reuse analysis
-  - Type system design
 - [Rust](https://www.rust-lang.org/)
   - Pattern matching
   - Compile-time memory safety analysis
+  - Trait system
 - [Haskell](https://www.haskell.org/)
   - Type and typeclass
 - [OCaml](https://ocaml.org/)
@@ -158,6 +152,7 @@ The **Yo** language is heavily inspired by:
 - [Elixir](https://elixir-lang.org/)
   - [Meta-programming (Macros)](https://hexdocs.pm/elixir/quote-and-unquote.html)
 - [Nim](https://nim-lang.org/)
+  - ARC/ORC memory management
   - Pragmatic design
   - `Isolated` type concept
 - [Io](https://iolanguage.org/)
@@ -165,20 +160,22 @@ The **Yo** language is heavily inspired by:
 
 Other languages that are worth mentioning that have influenced **Yo**:
 
-- [Effekt](https://effekt-lang.org/)
-- [PureScript](https://www.purescript.org/)
-- [Clojure](https://clojure.org/)
+- [Ada](https://www.adacore.com/)
 - [Ante](https://antelang.org/)
 - [ATS](https://www.ats-lang.org/)
-- [Lean](https://leanprover.github.io/)
-- [Swift](https://swift.org/)
-- [Go](https://go.dev/)
-- [Ada](https://www.adacore.com/)
-- [Lobster](https://aardappel.github.io/lobster/README_FIRST.html)
+- [Austral](https://austral-lang.org/)
+- [Clojure](https://clojure.org/)
 - [dyon](https://github.com/PistonDevelopers/dyon)
-- [Vale](https://vale.dev/)
+- [Effekt](https://effekt-lang.org/)
+- [Go](https://go.dev/)
 - [hylo](https://www.hylo-lang.org/)
+- [Koka](https://koka-lang.github.io/)
+- [Lean](https://leanprover.github.io/)
+- [Lobster](https://aardappel.github.io/lobster/README_FIRST.html)
 - [pony](https://www.ponylang.io/)
+- [PureScript](https://www.purescript.org/)
+- [Swift](https://swift.org/)
+- [Vale](https://vale.dev/)
 
 ## Hello World
 

@@ -6,6 +6,7 @@ import {
   FnModuleType,
   FunctionType,
   FutureModuleType,
+  IsoType,
   ModuleType,
   PtrType,
   SliceType,
@@ -233,6 +234,10 @@ export function isPtrType(type?: Type): type is PtrType {
   return type?.tag === TypeTag.Ptr;
 }
 
+export function isIsoType(type?: Type): type is IsoType {
+  return type?.tag === TypeTag.Iso;
+}
+
 export function isDynType(type?: Type): type is DynType {
   return type?.tag === TypeTag.Dyn;
 }
@@ -262,7 +267,9 @@ export function isGcType(type?: Type): boolean {
     // We assume all the SomeType is reference-counted
     // isSomeType(type) ||
     // The DynType is a struct that contains a pointer to data where the data must be an ObjectType
-    isDynType(type)
+    isDynType(type) ||
+    // IsoType uses atomic reference counting
+    isIsoType(type)
   );
 }
 

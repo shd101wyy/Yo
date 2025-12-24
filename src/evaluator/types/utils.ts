@@ -12,6 +12,7 @@ import {
   EnumType,
   isFunctionType,
   isGcType,
+  IsoType,
   ModuleField,
   SomeType,
   StructType,
@@ -31,7 +32,7 @@ import { evaluateExpression } from "../exprs/expr";
  */
 function parseAndEvaluateExprCode(
   code: string,
-  SelfType: StructType | EnumType | DynType | SomeType,
+  SelfType: StructType | EnumType | DynType | SomeType | IsoType,
   env: Environment,
   context: EvaluatorContext
 ): { expr: Expr; env: Environment } {
@@ -75,7 +76,7 @@ export function addFunctionSignatureToSelfTypeModule({
    * Function code string, like (fn()-> unit)
    */
   functionSignature: string;
-  SelfType: StructType | EnumType | DynType | SomeType;
+  SelfType: StructType | EnumType | DynType | SomeType | IsoType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -141,7 +142,7 @@ export function addFunctionCodeToSelfTypeModule({
    * Function code string, like ((fn()-> unit) { return (); })
    */
   functionCode: string;
-  SelfType: StructType | EnumType | DynType | SomeType;
+  SelfType: StructType | EnumType | DynType | SomeType | IsoType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -900,6 +901,66 @@ export function addARCFunctionsToSomeType({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
     SelfType: someType,
+    env,
+    context,
+  });
+
+  return env;
+}
+
+/**
+ * Generate ___drop function code for an IsoType
+ * Uses atomic operations for thread-safe reference counting
+ */
+function generateDropFunctionCodeForIsoType(_isoType: IsoType): string {
+  return `((fn(self : Self) -> unit) { // ___drop for Iso
+  ${BuiltinFunctions.__yo_decr_rc_atomic[0]!}(self);
+  return ();
+})`;
+}
+
+/**
+ * Generate ___dup function code for an IsoType
+ * Uses atomic operations for thread-safe reference counting
+ */
+function generateDupFunctionCodeForIsoType(_isoType: IsoType): string {
+  return `((fn(self : Self) -> Self) {  // ___dup for Iso
+  ${BuiltinFunctions.__yo_incr_rc_atomic[0]!}(self);
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+})`;
+}
+
+/**
+ * Add ARC functions (___drop, ___dup) to an IsoType's module.
+ * These functions use atomic operations for thread-safe reference counting.
+ */
+export function addARCFunctionsToIsoType({
+  isoType,
+  env,
+  context,
+}: {
+  isoType: IsoType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Generate ARC functions for IsoType using atomic operations
+  const dropFunctionCode = generateDropFunctionCodeForIsoType(isoType);
+  const dupFunctionCode = generateDupFunctionCodeForIsoType(isoType);
+
+  // Add ___drop function to the IsoType module fields
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___drop[0]!,
+    functionCode: dropFunctionCode,
+    SelfType: isoType,
+    env,
+    context,
+  });
+
+  // Add ___dup function to the IsoType module fields
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___dup[0]!,
+    functionCode: dupFunctionCode,
+    SelfType: isoType,
     env,
     context,
   });

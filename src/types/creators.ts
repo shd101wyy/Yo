@@ -16,6 +16,7 @@ import {
   FunctionReturn,
   FunctionType,
   FutureModuleType,
+  IsoType,
   ModuleType,
   PtrType,
   SliceType,
@@ -823,6 +824,28 @@ export function createPtrType(childType: Type): PtrType {
   ptrCache.set(childType, ptrType);
 
   return ptrType;
+}
+
+const isoCache: Map<Type, IsoType> = new Map();
+export function createIsoType(childType: Type, env: Environment): IsoType {
+  // Check cache
+  if (isoCache.has(childType)) {
+    return isoCache.get(childType)!;
+  }
+
+  const module = createModuleType(env);
+  const isoType: IsoType = {
+    id: `iso_${childType.id}`,
+    tag: TypeTag.Iso,
+    childType,
+    module,
+    env,
+  };
+  module.receiverType = isoType;
+
+  isoCache.set(childType, isoType);
+
+  return isoType;
 }
 
 // NOTE: We shouldn't cache the SomeType creation because they can differ by ID and name

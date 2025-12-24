@@ -19,6 +19,7 @@ import {
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
+  isIsoType,
   isModuleType,
   isObjectType,
   isPrimitiveType,
@@ -187,6 +188,10 @@ export function typeOfType(
   } else if (isPtrType(type)) {
     // Pointer type hierarchy logic
     // Raw pointers are now level 0 types
+    return createType0(type);
+  } else if (isIsoType(type)) {
+    // Isolated type hierarchy logic
+    // Iso types use atomic RC, treated as level 0 types
     return createType0(type);
   } else if (isFutureModuleType(type)) {
     return createType0(type);

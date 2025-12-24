@@ -1,6 +1,6 @@
 import { Environment } from "../env";
 import { YoError } from "../error";
-import { Expr, PathCollection } from "../expr";
+import { Expr, FuncCallExpr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
 import { FunctionType, Type } from "../types";
@@ -350,6 +350,15 @@ export interface FunctionToCall {
          */
         kind: "pointer-type";
         result: PointerTypeCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
+         *   evaluateIsoValueCall
+         */
+        kind: "iso-value";
+        result: FuncCallExpr;
       }
     | {
         kind: "error";

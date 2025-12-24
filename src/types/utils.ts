@@ -28,6 +28,7 @@ import {
   FunctionParameter,
   FunctionType,
   FutureModuleType,
+  IsoType,
   ModuleField,
   ModuleType,
   PtrType,
@@ -364,6 +365,9 @@ export function typeContainsGcType(
           typeContainsGcType(param.type, checkedTypes)
         )
       );
+    case TypeTag.Iso:
+      // Iso itself is GC type (atomic RC), check inner type
+      return typeContainsGcType((type as IsoType).childType, checkedTypes);
     case TypeTag.Module:
       return false; // Modules do not own references
     case TypeTag.Function: {
@@ -1249,6 +1253,11 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     case TypeTag.Ptr: {
       const ptrType = type as PtrType;
       return `*(${typeToString(ptrType.childType, visited)})`;
+    }
+
+    case TypeTag.Iso: {
+      const isoType = type as IsoType;
+      return `Iso(${typeToString(isoType.childType, visited)})`;
     }
 
     case TypeTag.Expr: {
