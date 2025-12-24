@@ -16,3 +16,20 @@ test "Test basic Iso related functions", {
   e3 := Iso(Box(i32)).extract(i3);
   assert(e3.is_none());
 };
+
+test "Test Iso dispose inner value when not extracted", {
+  x := Box(i32)(12);
+  
+  isolated := Option(Iso(Box(i32))).Some Iso(Box(i32))(x);
+
+  match(isolated,
+    .Some(_) => {
+      assert(true);
+    },
+    .None => {
+      assert(false, "Expected Some, got None");
+    }
+  );
+  
+  return ();
+};

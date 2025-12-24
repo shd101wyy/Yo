@@ -1336,6 +1336,8 @@ ${functionsWithMatchingTypes
               expandedExpr.$?.originType || expandedExpr.$?.type || returnType,
             pathCollection: expandedExpr.$?.pathCollection || [],
             macroExpansion: expandedExpr,
+            // IMPORTANT: Copy variableName from expanded expression for ownership tracking
+            variableName: expandedExpr.$?.variableName,
           };
 
           return expr;

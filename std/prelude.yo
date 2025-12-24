@@ -2845,6 +2845,48 @@ impl(forall(T : Type), Iso(T), {
   export extract;
 });
 
+(^) :: (fn(quote(v) : Expr) -> unquote(Expr))({
+  temp :: cond(
+    v.is_atom() => v, 
+    true => gensym("iso_extract_temp")
+  );
+  temp_type :: gensym("iso_extract_temp_type");
+  assignment :: cond(
+    v.is_atom() => quote(()),
+    true => quote(unquote(temp) := unquote(v))
+  );
+  return quote {
+    unquote(assignment);
+    unquote(temp_type) :: typeof(unquote(temp));
+    cond(
+      Type.contains_gc_type(unquote(temp_type)) => 
+        cond(
+          Type.can_form_gc_cycle(unquote(temp_type)) => { // compile-time check
+            consume(unquote(temp));
+            compt_assert(false, "Cannot isolate value of type containing GC type that can form cycles");
+            Option(Iso(unquote(temp_type))).None
+          },
+          !(Var.is_owning_the_gc_value(unquote(temp))) => { // compile-time check
+            consume(unquote(temp));
+            compt_assert(false, "Cannot isolate value of type that is not owned");
+            Option(Iso(unquote(temp_type))).None
+          },
+          (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
+            Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
+          true => { // run-time check
+            consume(unquote(temp));
+            Option(Iso(unquote(temp_type))).None
+          }
+        ),
+      true => {
+        compt_assert(false, "Cannot isolate value type that does not contain GC type");
+        Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
+      }
+    )
+  };
+});
+export (^);
+
 /// === MaybeUninit ===
 extern "Yo",
   __yo_maybe_uninit_new : 

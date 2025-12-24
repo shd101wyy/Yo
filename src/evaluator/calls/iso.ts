@@ -1,6 +1,11 @@
 import { Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr, setExprAsConsumed } from "../../expr";
+import {
+  attachTempVariableToExpr,
+  exprToString,
+  FuncCallExpr,
+  setExprAsConsumed,
+} from "../../expr";
 import { createIsoType, IsoType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -158,6 +163,8 @@ Iso requires unique ownership (no aliases). Drop other aliases first.`,
     value: undefined, // iso value should be runtime only
     pathCollection: evaluatedArgExpr.$.pathCollection || [],
   };
+
+  attachTempVariableToExpr(expr, true);
 
   return expr;
 }
