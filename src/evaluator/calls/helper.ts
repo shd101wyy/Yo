@@ -1308,6 +1308,7 @@ function createSpecializedFunctionInline({
       capturedVariables: context.capturedVariables
         ? context.capturedVariables
         : undefined,
+      functionReturnImplConcreteType: [], // Fresh array for each specialization
     },
     variablesToAdd: [],
     isEvaluatingFunctionBodyBeginBlock: true,

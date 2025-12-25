@@ -373,7 +373,7 @@ export function findMethodsFromGenericImpls({
             // Use the environment where the impl was originally defined
             // This ensures access to non-exported variables (like extern "Yo" functions)
             // that were available when the impl was created
-            let baseEnv = impl.definitionEnv;
+            const baseEnv = impl.definitionEnv;
 
             // Create a specialized environment with the specialized function parameters
             // Push the parametersFrame which contains the function parameters (like `self`)
@@ -437,6 +437,7 @@ export function findMethodsFromGenericImpls({
                   value: originalValue,
                   evaluationEnv: specializedEnv,
                 },
+                functionReturnImplConcreteType: [], // Fresh array for each specialization
               } as EvaluatorContext,
               variablesToAdd: [],
               isEvaluatingFunctionBodyBeginBlock: true,
@@ -555,7 +556,7 @@ export function findMethodFromGenericImplForModule({
           const clonedBody = cloneExpr(originalValue.body);
 
           // Use the environment where the impl was originally defined
-          let baseEnv = impl.definitionEnv;
+          const baseEnv = impl.definitionEnv;
 
           // Create a specialized environment with the specialized function parameters
           let specializedEnv = pushEnvFrame(
@@ -618,6 +619,7 @@ export function findMethodFromGenericImplForModule({
                 value: originalValue,
                 evaluationEnv: specializedEnv,
               },
+              functionReturnImplConcreteType: [], // Fresh array for each specialization
             } as EvaluatorContext,
             variablesToAdd: [],
             isEvaluatingFunctionBodyBeginBlock: true,
