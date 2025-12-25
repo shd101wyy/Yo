@@ -116,13 +116,15 @@ export function generateFunctionDeclarations(
     }
 
     // Skip functions with SomeType in parameters (truly generic)
-    // But allow functions with SomeType only in return type (Impl(Module) return types)
+    // Or with SomeType in return type that isn't an Impl(Module) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
       functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
       functionType.forallParameters.length > 0;
-    if (hasGenericParams) {
+    const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
+
+    if (hasGenericParams || hasGenericReturnType) {
       continue;
     }
 
@@ -324,13 +326,15 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     }
 
     // Skip functions with SomeType in parameters (truly generic)
-    // But allow functions with SomeType only in return type (Impl(Module) return types)
+    // Or with SomeType in return type that isn't an Impl(Module) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
       functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
       functionType.forallParameters.length > 0;
-    if (hasGenericParams) {
+    const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
+
+    if (hasGenericParams || hasGenericReturnType) {
       continue;
     }
 
