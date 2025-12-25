@@ -4857,6 +4857,14 @@ function generateCondExpression(
             // Generate the final expression and assign it to temp variable
             if (beginArgs.length > 0) {
               const finalExpr = beginArgs[beginArgs.length - 1]!;
+              // Generate deferred dup expressions for the final expression (e.g., returning a borrowed value)
+              if (finalExpr.$?.deferredDupExpressions) {
+                generateDeferredDupExpressions(
+                  finalExpr,
+                  valueIndent,
+                  context as FunctionGenerationContext
+                );
+              }
               const finalExprCode = generateExpr(
                 finalExpr,
                 valueIndent,
@@ -4887,6 +4895,14 @@ function generateCondExpression(
               generateDeferredDropExpressions(value, valueIndent, context);
             }
           } else {
+            // Generate deferred dup expressions for non-begin value expressions
+            if (value.$?.deferredDupExpressions) {
+              generateDeferredDupExpressions(
+                value,
+                valueIndent,
+                context as FunctionGenerationContext
+              );
+            }
             // Generate the value expression INSIDE the conditional block
             const valueCode = generateExpr(value, valueIndent, context);
 
@@ -5780,6 +5796,14 @@ function generateCaseBody(
     let finalExprCode = "";
     if (beginArgs.length > 0) {
       const finalExpr = beginArgs[beginArgs.length - 1]!;
+      // Generate deferred dup expressions for the final expression (e.g., returning a borrowed value)
+      if (finalExpr.$?.deferredDupExpressions) {
+        generateDeferredDupExpressions(
+          finalExpr,
+          indent,
+          context as FunctionGenerationContext
+        );
+      }
       finalExprCode = generateExpr(finalExpr, indent, context);
     }
 
@@ -5790,7 +5814,14 @@ function generateCaseBody(
 
     return finalExprCode;
   } else {
-    // For non-begin expressions, generate normally
+    // For non-begin expressions, check for deferred dup expressions
+    if (bodyExpr.$?.deferredDupExpressions) {
+      generateDeferredDupExpressions(
+        bodyExpr,
+        indent,
+        context as FunctionGenerationContext
+      );
+    }
     return generateExpr(bodyExpr, indent, context);
   }
 }

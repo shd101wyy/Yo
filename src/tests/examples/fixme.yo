@@ -1,32 +1,64 @@
 open import "std/libc/stdio";
 
-Data :: object(v : i32);
+Data :: object((*) : i32);
 impl(Data, Isolation(
   can_isolate : ((self) -> (rc(self) == 1))
 ));
 
-expanded :: macro_expand(quote(^(x)));
-
+/*
+// FIXME: fix me later
 main :: (fn() -> unit)({
-  x := Data(12);  
+  x := Box(i32)(99);
   isolated := ^(x);
 
-  use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-  };
-  
-  {
-    a := 2;
-    x := use_cb(10, dyn (u) => ((u + 1) + a)); // capture variable 'a'
-    assert(x == 13);
-  };
+  // compt_expect_error(y := x, "use of moved value: x");
 
-  {
-    x := Box(i32)(99);
-    assert((Box(i32) <: Isolation).can_isolate(x));
-  };
+  match(isolated,
+    .Some(iso_val) => {
+      e := iso_val.extract().unwrap();
+      assert(e.* == 99);
+    },
+    .None => {
+      assert(false, "Expected Some, got None");
+    }
+  );
+});
+*/
 
-  return ();
+/*
+// This WORKS:
+main :: (fn() -> unit)({
+  x := Data(99);
+  isolated := ^(x);
+  match(isolated,
+    .Some(iso_val) => 
+      match(iso_val.extract(),
+        .Some(e) => {
+          assert(e.* == 99);
+        },
+        .None => {
+          assert(false, "Expected Some from extract, got None");
+        }
+      ),
+    .None => {
+      assert(false, "Expected Some, got None");
+    }
+  );
+});
+*/
+
+main :: (fn() -> unit)({
+  x := Data(99);
+  isolated := ^(x);
+  match(isolated,
+    .Some(iso_val) => {
+      e := iso_val.extract().unwrap();
+      assert(e.* == 99);
+    },
+    .None => {
+      assert(false, "Expected Some, got None");
+    }
+  );
 });
 
 export main;
