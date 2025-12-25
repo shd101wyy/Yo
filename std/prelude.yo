@@ -2830,6 +2830,9 @@ Box :: (fn(compt(V) : Type) -> compt(Type))
 box :: (fn(forall(V : Type), value : V) -> Box(V))
   Box(V)(value)
 ;
+impl(forall(T : Type), Box(T), Isolation(
+  can_isolate : ((self) -> (rc(self) == 1))
+));
 
 export
   Box,
@@ -2871,11 +2874,11 @@ impl(forall(T : Type), Iso(T), {
             compt_assert(false, "Cannot isolate value of type that is not owned");
             Option(Iso(unquote(temp_type))).None
           },
-          (Var.has_other_aliases(unquote(temp)) => { // compile-time check
+          (Var.has_other_aliases(unquote(temp))) => { // compile-time check
             consume(unquote(temp));
             compt_assert(false, "Cannot isolate value of type that has other aliases");
             Option(Iso(unquote(temp_type))).None
-          }),
+          },
           (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
             Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
           true => { // run-time check

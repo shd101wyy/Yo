@@ -7,39 +7,20 @@ impl(Data, Isolation(
 
 expanded :: macro_expand(quote(^(x)));
 
-// expanded should equal to:
-// quote(
-//   begin(
-//     (),
-//     iso_extract_temp_typeid287678 :: typeof(x),
-//     cond(
-//       (Type.contains_gc_type)(iso_extract_temp_typeid287678) =>
-//         cond(
-//           ((Type.can_form_gc_cycle)(iso_extract_temp_typeid287678) || !((Var.is_owning_the_gc_value)(x))) =>
-//             (Option(Iso(iso_extract_temp_typeid287678)).None),
-//           ((iso_extract_temp_typeid287678 <: Isolation).can_isolate)(x) =>
-//             (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)),
-//           true => (Option(Iso(iso_extract_temp_typeid287678)).None)
-//         ),
-//       true => (Option(Iso(iso_extract_temp_typeid287678)).Some)(Iso(iso_extract_temp_typeid287678)(x)))
-//   )
-// );
-
 main :: (fn() -> unit)({
-  x := Data(12);
-  
-  // isolated := Option(Iso(Data)).Some Iso(Data)(x);
+  x := Data(12);  
   isolated := ^(x);
 
-  // match(isolated,
-  //   .Some(_) => {
-  //     assert(true);
-  //   },
-  //   .None => {
-  //     assert(false, "Expected Some, got None");
-  //   }
-  // );
+  use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
+    return cb(v);
+  };
   
+  {
+    a := 2;
+    x := use_cb(10, dyn (u) => ((u + 1) + a)); // capture variable 'a'
+    assert(x == 13);
+  };
+
   return ();
 });
 
