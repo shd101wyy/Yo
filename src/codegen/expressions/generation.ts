@@ -2030,7 +2030,8 @@ function generateFuncCall(
   }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {
-    const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+    // NOTE: || expr.args is necessary to support function call like __yo_as(i, i32);
+    const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder || expr.args;
     if (runtimeArgExprs) {
       const functionContext = context as FunctionGenerationContext;
 
