@@ -941,7 +941,29 @@ function generateFuncCall(
         arg.$.variableName = savedVariableName;
         needsTempVarDeclaration = true;
       } else {
-        argCode = generateExpr(arg, indent, context);
+        // Check if arg has both a variableName and deferredDupExpressions
+        // This happens when we need to store the arg value in a temp var before duping it
+        if (
+          arg.$?.variableName &&
+          arg.$?.deferredDupExpressions &&
+          arg.$.deferredDupExpressions.length > 0
+        ) {
+          // Generate the arg value without the variableName to get the raw expression
+          const savedVariableName = arg.$.variableName;
+          arg.$.variableName = undefined;
+          const rawArgCode = generateExpr(arg, indent, context);
+          arg.$.variableName = savedVariableName;
+
+          // Declare and assign the temp variable
+          const argType = getTypeString(arg.$.type!, context);
+          const argTempVar = sanitizeForCIdentifier(savedVariableName);
+          context.emitter.emitLine(
+            `${indent}${argType} ${argTempVar} = ${rawArgCode};`
+          );
+          argCode = argTempVar;
+        } else {
+          argCode = generateExpr(arg, indent, context);
+        }
       }
 
       // Handle deferred dup expressions for the return argument.

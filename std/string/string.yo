@@ -20,7 +20,7 @@ String :: object(
   /**
    * Create a new empty string
    */
-  new :: ((fn() -> Self)
+  new :: (fn() -> Self)(
     Self(_bytes: ArrayList(u8).new())
   ),
 
@@ -28,7 +28,7 @@ String :: object(
    * Create a string from raw bytes (assumes valid UTF-8)
    * No validation is performed - the caller must ensure bytes are valid UTF-8
    */
-  from_bytes :: ((fn(bytes: ArrayList(u8)) -> Self)
+  from_bytes :: (fn(bytes: ArrayList(u8)) -> Self)(
     Self(_bytes: bytes)
   ),
 
@@ -37,7 +37,7 @@ String :: object(
    * The slice is a fat pointer containing data pointer and length
    * Example: String.from(slice) where slice is [u8]
    */
-  from :: ((fn(slice: [u8]) -> Self) {
+  from :: (fn(slice: [u8]) -> Self)({
     // Create a new ArrayList and copy bytes from the slice
     bytes := ArrayList(u8).with_capacity(slice.len());
     
@@ -59,7 +59,7 @@ String :: object(
    * 
    * Note: We manually search for the null terminator by iterating
    */
-  from_cstr :: ((fn(cstr: *(u8)) -> Result(Self, StringError)) {
+  from_cstr :: (fn(cstr: *(u8)) -> Result(Self, StringError))({
     // Create a new ArrayList to store the bytes
     bytes := ArrayList(u8).new();
     
@@ -86,7 +86,7 @@ String :: object(
    * Get the length of the string in Unicode characters (runes)
    * For "你好世界", this returns 4
    */
-  len :: ((fn(self: Self) -> usize) {
+  len :: (fn(self: Self) -> usize)({
     count := usize(0);
     byte_index := usize(0);
     total_bytes := self._bytes.len();
@@ -123,7 +123,7 @@ String :: object(
   /**
    * Get a reference to the internal byte array
    */
-  as_bytes :: ((fn(self: Self) -> ArrayList(u8))
+  as_bytes :: (fn(self: Self) -> ArrayList(u8))(
     self._bytes
   ),
 
@@ -131,7 +131,7 @@ String :: object(
    * Decode a UTF-8 encoded rune starting at the given byte index
    * Internal helper method
    */
-  _decode_rune_at :: ((fn(self: Self, byte_index: usize) -> Option(rune)) {
+  _decode_rune_at :: (fn(self: Self, byte_index: usize) -> Option(rune))({
     first_byte_opt := self._bytes.get(byte_index);
     match(first_byte_opt,
       .Some(first_byte) => {
@@ -204,7 +204,7 @@ String :: object(
    * Returns None if index is out of bounds
    * For "你好世界", at(0) returns '你', at(1) returns '好', etc.
    */
-  at :: ((fn(self: Self, index: usize) -> Option(rune)) {
+  at :: (fn(self: Self, index: usize) -> Option(rune))({
     char_count := usize(0);
     byte_index := usize(0);
     total_bytes := self._bytes.len();
@@ -246,7 +246,7 @@ String :: object(
   /**
    * Concatenate two strings (like JavaScript +)
    */
-  concat :: ((fn(self: Self, other: Self) -> Self) {
+  concat :: (fn(self: Self, other: Self) -> Self)({
     self_len := self._bytes.len();
     other_len := other._bytes.len();
     new_bytes := ArrayList(u8).with_capacity((self_len + other_len));
