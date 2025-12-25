@@ -5538,11 +5538,56 @@ export function generateReturnStatement(
       break;
     }
     case ExprTag.FuncCall: {
-      const funcCallCode = generateFuncCall(expr, indent, context);
-      if (!exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
-        context.emitter.emitLine(`${indent}return ${funcCallCode};`);
+      // Handle deferred dup expressions for function calls (e.g., field access that needs duping)
+      if (
+        expr.$?.deferredDupExpressions &&
+        expr.$.deferredDupExpressions.length > 0
+      ) {
+        // Check if expr has a variableName for storing the intermediate value
+        if (expr.$?.variableName) {
+          // Generate the expression value without the variableName to get the raw expression
+          const savedVariableName = expr.$.variableName;
+          expr.$.variableName = undefined;
+          const rawCode = generateFuncCall(expr, indent, context);
+          expr.$.variableName = savedVariableName;
+
+          // Declare and assign the temp variable
+          const exprType = getTypeString(expr.$.type!, context);
+          const exprTempVar = sanitizeForCIdentifier(savedVariableName);
+          context.emitter.emitLine(
+            `${indent}${exprType} ${exprTempVar} = ${rawCode};`
+          );
+        } else {
+          // No temp variable name, just generate the expression
+          const rawCode = generateFuncCall(expr, indent, context);
+          context.emitter.emitLine(`${indent}${rawCode};`);
+        }
+
+        // Generate the deferred dup expressions
+        generateDeferredDupExpressions(
+          expr,
+          indent,
+          context as FunctionGenerationContext
+        );
+
+        // Use the duped value's variable name for the return
+        const dupExpr = expr.$.deferredDupExpressions[0]!;
+        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+          const dupedValue = sanitizeForCIdentifier(dupExpr.$.variableName);
+          context.emitter.emitLine(`${indent}return ${dupedValue};`);
+        } else {
+          // Fallback: return the raw code
+          const funcCallCode = generateFuncCall(expr, indent, context);
+          context.emitter.emitLine(`${indent}return ${funcCallCode};`);
+        }
       } else {
-        context.emitter.emitLine(`${indent}${funcCallCode};`);
+        // No deferred dup expressions, generate normally
+        const funcCallCode = generateFuncCall(expr, indent, context);
+        if (!exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+          context.emitter.emitLine(`${indent}return ${funcCallCode};`);
+        } else {
+          context.emitter.emitLine(`${indent}${funcCallCode};`);
+        }
       }
       break;
     }
