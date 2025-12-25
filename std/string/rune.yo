@@ -60,38 +60,22 @@ rune :: newtype(
   UPPERCASE_A :: Self(c: 0x41),
   UPPERCASE_Z :: Self(c: 0x5A),
   LOWERCASE_A :: Self(c: 0x61),
-  LOWERCASE_Z :: Self(c: 0x7A),
-
-  // Eq
-  Eq :: impl(Self, Eq(Self)(
-    (==) : ((fn(a: Self, b: Self) -> bool)
-      (a.c == b.c)
-    ),
-
-    (!=) : ((fn(a: Self, b: Self) -> bool)
-      (a.c != b.c)
-    )
-  )),
-
-  // Ord
-  Ord :: impl(Self, Ord(Self)(
-    (<) : ((fn(a: Self, b: Self) -> bool)
-      (a.c < b.c)
-    ),
-
-    (<=) : ((fn(a: Self, b: Self) -> bool)
-      (a.c <= b.c)
-    ),
-
-    (>) : ((fn(a: Self, b: Self) -> bool)
-      (a.c > b.c)
-    ),
-
-    (>=) : ((fn(a: Self, b: Self) -> bool)
-      (a.c >= b.c)
-    )
-  ))
+  LOWERCASE_Z :: Self(c: 0x7A)
 );
+
+impl(rune, Eq(rune)(
+  (==) : ((a, b) -> (a.c == b.c)),
+  (!=) : ((a, b) -> (a.c != b.c))
+));
+
+impl(rune, Ord(rune)(
+  (<) : ((a, b) -> (a.c < b.c)),
+  (<=) : ((a, b) -> (a.c <= b.c)),
+  (>) : ((a, b) -> (a.c > b.c)),
+  (>=) : ((a, b) -> (a.c >= b.c))
+));
+
+impl(rune, Send());
 
 export
   rune

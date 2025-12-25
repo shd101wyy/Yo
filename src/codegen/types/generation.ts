@@ -359,6 +359,18 @@ typedef struct {
                 dependencies.get(typeId)!.add(depTypeId);
               }
             }
+            // Newtypes (value types) need to be defined first
+            else if (isStructType(field.type) && field.type.isNewtype) {
+              const depCName = getTypeString(field.type, context);
+              const depTypeId = cNameToTypeId.get(depCName);
+              if (
+                depTypeId &&
+                depTypeId !== typeId &&
+                typeIdToData.has(depTypeId)
+              ) {
+                dependencies.get(typeId)!.add(depTypeId);
+              }
+            }
             // Note: Structs by pointer (object types) don't create dependencies
             // because they use forward declarations
           }
