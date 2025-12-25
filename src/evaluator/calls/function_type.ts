@@ -1,4 +1,5 @@
 import {
+  addVariableToEnv,
   Environment,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
@@ -8,8 +9,14 @@ import { formatErrorMessage } from "../../error";
 import { Expr, FuncCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import { areTypesCompatible, FunctionType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  FunctionType,
+  isFunctionType,
+  typeToString,
+} from "../../types";
 import { randomId } from "../../utils";
+import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import {
   CapturedVariableInfo,
@@ -93,20 +100,113 @@ export function tryToImplementFunctionByFunctionType({
   // Add parameters to the env new frame
   // Check if we're in a closure context (caller already has capturedVariables set)
   const isInClosureContext = !!context.capturedVariables;
+
+  // Check if we need to set up parameter aliases
+  // This happens when implementing a module trait method where the function type
+  // has different parameter names than the expected type from the trait
+  const expectedType = context.expectedType?.type;
+  const needsParameterAliasing =
+    expectedType &&
+    isFunctionType(expectedType) &&
+    expectedType.parameters.length === functionType.parameters.length &&
+    expectedType.parameters.some(
+      (expectedParam, i) =>
+        expectedParam.label !== functionType.parameters[i]!.label
+    );
+
   let env = pushEnvFrame(
     // For closures, we keep the full caller environment to enable variable capturing
     // For regular functions, we only keep top-level frame and compile-time variables
     isInClosureContext
       ? callerEnv
-      : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
-    functionType.parametersFrame
+      : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv)
   );
+
+  // If we need parameter aliasing, manually add parameters with aliases
+  // Otherwise use the functionType.parametersFrame directly
+  if (needsParameterAliasing && expectedType && isFunctionType(expectedType)) {
+    // Add forall parameters first (they must match exactly)
+    for (const forallParam of functionType.forallParameters) {
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: forallParam.label,
+          type: forallParam.type,
+          isCompileTimeOnly: true,
+          value: createUnknownValue(forallParam.type, forallParam.label),
+          token: PlaceholderToken,
+          initializedAtToken: PlaceholderToken,
+          consumedAtToken: undefined,
+          isOwningTheGcValue: false,
+        },
+        skipCheckingFunctionOverloading: true,
+      });
+      env = nextEnv;
+    }
+
+    // Add regular parameters with aliases
+    for (let i = 0; i < functionType.parameters.length; i++) {
+      const anonymousParam = functionType.parameters[i]!;
+      const expectedParam = expectedType.parameters[i]!;
+      const anonymousParamName = anonymousParam.label;
+      const expectedParamName = expectedParam.label;
+
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: anonymousParamName,
+          type: anonymousParam.type,
+          isCompileTimeOnly: anonymousParam.isCompileTimeOnly,
+          value: anonymousParam.isCompileTimeOnly
+            ? createUnknownValue(anonymousParam.type, expectedParamName)
+            : undefined,
+          token: PlaceholderToken,
+          initializedAtToken: PlaceholderToken,
+          consumedAtToken: undefined,
+          isOwningTheGcValue: anonymousParam.isOwningTheGcValue,
+          // Set up parameter alias if names differ
+          parameterAlias:
+            anonymousParamName !== expectedParamName
+              ? expectedParamName
+              : undefined,
+        },
+        skipCheckingFunctionOverloading: true,
+      });
+      env = nextEnv;
+    }
+  } else {
+    // No aliasing needed, use the functionType.parametersFrame directly
+    env = pushEnvFrame(env, functionType.parametersFrame);
+  }
   // const originalEnv = env; // backup the env for later CPS transformation use.
+
+  // Get the parameters frame that was just created
+  const parametersFrame = env.frames[env.frames.length - 1]!;
+
+  // Create new function type with the correct parametersFrame
+  // If we did parameter aliasing, we need to update the function type to use
+  // the expected parameter names for proper codegen
+  const newFunctionType: FunctionType =
+    needsParameterAliasing && expectedType && isFunctionType(expectedType)
+      ? {
+          ...functionType,
+          parameters: expectedType.parameters.map((expectedParam, i) => ({
+            ...functionType.parameters[i]!,
+            label: expectedParam.label, // Use expected name for C codegen
+          })),
+          parametersFrame,
+          env: functionType.env,
+        }
+      : {
+          ...functionType,
+          parametersFrame,
+          env: functionType.env,
+        };
 
   // Create the function value
   const functionValue: FunctionValue = {
     tag: ValueTag.Function,
-    type: functionType,
+    type: newFunctionType,
     body: functionBodyExpr, // Use transformed body
     frameLevel: env.frames.length - 1,
     funcName: undefined,
@@ -118,7 +218,7 @@ export function tryToImplementFunctionByFunctionType({
   // Create a mutable context that we can check after evaluation
   const { evaluationContext } = createFunctionBodyEvaluationContext(
     context,
-    functionType,
+    newFunctionType,
     functionValue,
     env
   );
@@ -147,22 +247,25 @@ export function tryToImplementFunctionByFunctionType({
   // Regular function: body type must match return type exactly
   if (
     !areTypesCompatible(
-      { type: functionType.return.type, env },
+      { type: newFunctionType.return.type, env },
       { type: functionBodyReturnType, env }
     )
   ) {
     // console.trace();
     throw formatErrorMessage({
-      token: functionType.return.expr?.token ?? PlaceholderToken,
+      token: newFunctionType.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Incompatible function return type for:
-- Expected: ${typeToString(functionType.return.type)}
+- Expected: ${typeToString(newFunctionType.return.type)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
     });
   }
 
-  if (functionType.return.isCompileTimeOnly && !evaluatedFunctionBody.$.value) {
+  if (
+    newFunctionType.return.isCompileTimeOnly &&
+    !evaluatedFunctionBody.$.value
+  ) {
     throw formatErrorMessage({
-      token: functionType.return.expr?.token ?? PlaceholderToken,
+      token: newFunctionType.return.expr?.token ?? PlaceholderToken,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }
@@ -189,7 +292,7 @@ export function tryToImplementFunctionByFunctionType({
   expr.$ = {
     env: finalCallerEnv,
     value: functionValue,
-    type: functionType,
+    type: newFunctionType,
     pathCollection:
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)
