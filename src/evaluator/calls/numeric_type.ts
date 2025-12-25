@@ -23,7 +23,6 @@ import {
   createComptFloatValue,
   createComptIntValue,
   createNumberValue,
-  createUnknownValue,
   isComptFloatValue,
   isComptIntValue,
   isNumberValue,
@@ -143,9 +142,9 @@ function extractComptNumericValue(value?: Value): number | undefined {
 }
 
 /**
- * Check if a value is compile-time known.
+ * Check if a number value is compile-time known.
  */
-function isComptValue(value?: Value): boolean {
+function isComptNumberValue(value?: Value): boolean {
   return (
     isComptIntValue(value) || isComptFloatValue(value) || isNumberValue(value)
   );
@@ -282,7 +281,7 @@ export function tryToConvertToNumericType({
 
   // Case 3: Runtime conversion - transform to __yo_as(value, TargetType) call
   // For C compatible types or runtime values, we generate __yo_as call
-  if (isCCompatibleType(targetType) || !isComptValue(argValue)) {
+  if (isCCompatibleType(targetType) || !isComptNumberValue(argValue)) {
     // Create __yo_as(value, TargetType) call
     // We need to properly transform the expr
     const yoAsFuncExpr: FuncCallExpr = {
@@ -302,7 +301,7 @@ export function tryToConvertToNumericType({
       $: {
         env,
         type: targetType,
-        value: createUnknownValue(targetType),
+        value: undefined, // createUnknownValue(targetType),
         pathCollection: evaluatedArg.$.pathCollection,
       },
     };

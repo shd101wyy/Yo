@@ -3,10 +3,21 @@ open import "std/string";
 
 main :: (fn() -> unit)({
   bytes := ArrayList(u8).new();
-  bytes.push(u8(72));
-  bytes.push(u8(101));
+  bytes.push(u8(65));
+  bytes.push(u8(66));
+  bytes.push(u8(67));
+  bytes.push(u8(68));
+  bytes.push(u8(69));
+  
   str := String.from_bytes(bytes);
-  result_bytes := str.as_bytes();
+  
+  i := usize(0);
+  while(i < str.len(), i = (i + usize(1)), {
+    ch := str.at(i);
+    assert(ch.is_some());
+    expected := (u32(65) + u32(i));
+    assert(ch.unwrap().to_u32() == expected);
+  });
 });
 
 export main;
