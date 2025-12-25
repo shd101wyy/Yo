@@ -1,66 +1,10 @@
 open import "std/libc/stdio";
 
-Data :: object((*) : i32);
-impl(Data, Isolation(
-  can_isolate : ((self) -> (rc(self) == 1))
-));
-
-/*
-// FIXME: fix me later
 main :: (fn() -> unit)({
-  x := Box(i32)(99);
-  isolated := ^(x);
+  x := Box(i32)(42);
+  i1 := Iso(Box(i32))(x);
 
-  // compt_expect_error(y := x, "use of moved value: x");
-
-  match(isolated,
-    .Some(iso_val) => {
-      e := iso_val.extract().unwrap();
-      assert(e.* == 99);
-    },
-    .None => {
-      assert(false, "Expected Some, got None");
-    }
-  );
-});
-*/
-
-/*
-// This WORKS:
-main :: (fn() -> unit)({
-  x := Data(99);
-  isolated := ^(x);
-  match(isolated,
-    .Some(iso_val) => 
-      match(iso_val.extract(),
-        .Some(e) => {
-          assert(e.* == 99);
-        },
-        .None => {
-          assert(false, "Expected Some from extract, got None");
-        }
-      ),
-    .None => {
-      assert(false, "Expected Some, got None");
-    }
-  );
-});
-*/
-
-main :: (fn() -> unit)({
-  x := Data(99);
-  isolated := ^(x);
-  match(isolated,
-    .Some(iso_val) => {
-      e := iso_val.extract().unwrap();
-      assert(e.* == 99);
-    },
-    .None => {
-      assert(false, "Expected Some, got None");
-    }
-  );
+  __yo_iso_extract(i1);
 });
 
 export main;
-
-

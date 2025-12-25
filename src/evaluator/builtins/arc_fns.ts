@@ -6,6 +6,7 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
@@ -575,6 +576,7 @@ export function evaluateYoIsoExtract({
     pathCollection: evaluatedArgExpr.$.pathCollection || [],
   };
 
+  attachTempVariableToExpr(expr, true);
   return expr;
 }
 

@@ -615,7 +615,18 @@ function generateFuncCall(
       }
     }
 
-    return `__yo_iso_extract_${isoTypeCName}(${selfCode})`;
+    const extractCall = `__yo_iso_extract_${isoTypeCName}(${selfCode})`;
+
+    // If this expression has a temp variable (for cleanup), emit declaration + assignment
+    const tempVar = expr.$?.variableName;
+    if (tempVar && returnType) {
+      context.emitter.emitLine(
+        `${indent}${getTypeString(returnType, context)} ${tempVar} = ${extractCall};`
+      );
+      return tempVar;
+    }
+
+    return extractCall;
   }
 
   // __yo_iso_dispose - dispose inner value of Iso if not extracted
