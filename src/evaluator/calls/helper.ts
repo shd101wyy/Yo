@@ -796,10 +796,12 @@ Got:   ${argExprs.length} arguments`,
   // If we have an expected return type and forall parameters without explicit arguments,
   // try to do early synthesis to resolve forall parameters before processing regular arguments.
   // This is necessary when parameter types reference forall parameters (e.g., value : V in box).
+  // Skip for macro functions (isUnquote return type) as the actual return type is determined after expansion.
   if (
     context.expectedType &&
     !forallArgsExpr &&
-    functionType.forallParameters.length > 0
+    functionType.forallParameters.length > 0 &&
+    !functionType.return.isUnquote
   ) {
     try {
       const { returnType: tempReturnType, calleeEnv: tempCalleeEnv } =
@@ -892,7 +894,9 @@ Got:   ${argExprs.length} arguments`,
 
   // Synthesize the returnType if context.expectedType is giving
   // The context.expectedType is the expected function return type.
-  if (context.expectedType) {
+  // Skip synthesis for macro functions (isUnquote return type) because the actual
+  // return type will be determined after macro expansion.
+  if (context.expectedType && !functionType.return.isUnquote) {
     const { expectedEnv } = synthesizeTypes(
       { type: returnType, env: calleeEnv },
       { type: context.expectedType.type, env: context.expectedType.env }
