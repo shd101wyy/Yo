@@ -124,7 +124,13 @@ export function generateFunctionDeclarations(
       functionType.forallParameters.length > 0;
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 
-    if (hasGenericParams || hasGenericReturnType) {
+    // Allow functions returning plain Impl(Module) existential types (SomeType at top level)
+    // These are not truly generic - the concrete type is determined from the function body
+    const returnsPlainImpl =
+      isSomeType(functionType.return.type) &&
+      functionType.return.type.requiredModules.length > 0;
+
+    if (hasGenericParams || (hasGenericReturnType && !returnsPlainImpl)) {
       continue;
     }
 
@@ -334,7 +340,13 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       functionType.forallParameters.length > 0;
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 
-    if (hasGenericParams || hasGenericReturnType) {
+    // Allow functions returning plain Impl(Module) existential types (SomeType at top level)
+    // These are not truly generic - the concrete type is determined from the function body
+    const returnsPlainImpl =
+      isSomeType(functionType.return.type) &&
+      functionType.return.type.requiredModules.length > 0;
+
+    if (hasGenericParams || (hasGenericReturnType && !returnsPlainImpl)) {
       continue;
     }
 
