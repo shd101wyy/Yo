@@ -490,6 +490,182 @@ export function findMethodsFromGenericImpls({
   return methods;
 }
 
+/**
+ * Find a method from a generic impl for a specific module type and concrete receiver type.
+ * This is used when accessing methods on a `<:` expression like `(Box(i32) <: Isolation).can_isolate`.
+ * Returns the specialized method type and value if found.
+ */
+export function findMethodFromGenericImplForModule({
+  concreteType,
+  moduleType,
+  methodName,
+  env,
+}: {
+  concreteType: Type;
+  moduleType: ModuleType;
+  methodName: string;
+  env: Environment;
+}): { type: FunctionType; value: Value | undefined } | undefined {
+  // Use typeName if available, otherwise fall back to id for anonymous modules
+  const moduleTypeKey = moduleType.typeName || moduleType.id;
+
+  const impls = genericImplRegistry.get(moduleTypeKey);
+  if (!impls || impls.length === 0) {
+    return undefined;
+  }
+
+  for (const impl of impls) {
+    // Check if this impl matches the concrete type
+    const match = tryMatchGenericImpl({
+      concreteType,
+      impl,
+      env,
+    });
+    if (!match.matched) {
+      continue;
+    }
+
+    // Found a matching impl - look for the method
+    const implModuleType = impl.moduleType;
+    const implModuleValue = impl.moduleValue;
+
+    const methodIndex = implModuleType.fields.findIndex(
+      (f) => f.label === methodName && isFunctionType(f.type)
+    );
+
+    if (methodIndex >= 0) {
+      const method = implModuleType.fields[methodIndex]!;
+      if (isFunctionType(method.type)) {
+        // Get the actual function value from the module value
+        const originalValue = implModuleValue.fields[methodIndex];
+        // Substitute Self and type parameters with concrete types
+        const specializedType = substituteInFunctionType(
+          method.type,
+          match.substitutions,
+          match.valueSubstitutions
+        );
+
+        // If it's a function value, we need to re-evaluate with concrete substitutions
+        let value: Value | undefined = originalValue;
+        if (
+          isFunctionValue(originalValue) &&
+          (match.valueSubstitutions.size > 0 || match.substitutions.size > 0)
+        ) {
+          // Clone the function body for re-evaluation
+          const clonedBody = cloneExpr(originalValue.body);
+
+          // Use the environment where the impl was originally defined
+          let baseEnv = impl.definitionEnv;
+
+          // Create a specialized environment with the specialized function parameters
+          let specializedEnv = pushEnvFrame(
+            baseEnv,
+            specializedType.parametersFrame
+          );
+
+          // Add value substitutions (compile-time values like U=3)
+          for (const [paramName, paramValue] of match.valueSubstitutions) {
+            const { env: nextEnv } = addVariableToEnv({
+              env: specializedEnv,
+              variable: {
+                name: paramName,
+                type: paramValue.type,
+                isCompileTimeOnly: true,
+                value: paramValue,
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheGcValue: false,
+              },
+            });
+            specializedEnv = nextEnv;
+          }
+
+          // Also add type substitutions to the environment (like T=Box(i32))
+          for (const [paramName, paramType] of match.substitutions) {
+            if (paramName !== "Self") {
+              const { env: nextEnv } = addVariableToEnv({
+                env: specializedEnv,
+                variable: {
+                  name: paramName,
+                  type: createType0(),
+                  isCompileTimeOnly: true,
+                  value: createTypeValue(paramType),
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheGcValue: false,
+                },
+              });
+              specializedEnv = nextEnv;
+            }
+          }
+
+          // Re-evaluate the function body with the concrete values
+          const specializedBody = evaluateBeginExpression({
+            expr: clonedBody,
+            env: specializedEnv,
+            context: {
+              isEvaluatingGenericImplSpecialization: true,
+              expectedType: {
+                type: specializedType.return.type,
+                env: specializedEnv,
+              },
+              stdPath: "",
+              isEvaluatingFunctionBodyOrAsyncBlock: {
+                kind: "function-body",
+                type: specializedType,
+                value: originalValue,
+                evaluationEnv: specializedEnv,
+              },
+            } as EvaluatorContext,
+            variablesToAdd: [],
+            isEvaluatingFunctionBodyBeginBlock: true,
+          });
+
+          // Update specializedType with the body's actual return type
+          let finalSpecializedType = specializedType;
+          if (specializedBody.$?.type) {
+            finalSpecializedType = {
+              ...specializedType,
+              return: {
+                ...specializedType.return,
+                type: specializedBody.$.type,
+              },
+            };
+          }
+
+          // Create a specialized function value with the re-evaluated body
+          const specializedFunctionValue: FunctionValue = {
+            ...originalValue,
+            specializedType: finalSpecializedType,
+            body: specializedBody,
+            funcId: `${originalValue.funcId}_specialized_${[...match.substitutions.entries()].map(([k, v]) => `${k}_${typeToString(v)}`).join("_")}_${[...match.valueSubstitutions.entries()].map(([k, v]) => `${k}_${valueToString(v)}`).join("_")}`,
+            funcName: originalValue.funcName
+              ? `${originalValue.funcName}_specialized`
+              : undefined,
+          };
+          value = specializedFunctionValue;
+
+          return { type: finalSpecializedType, value };
+        } else if (isFunctionValue(originalValue)) {
+          // No substitutions needed, just set the specialized type
+          const specializedFunctionValue: FunctionValue = {
+            ...originalValue,
+            specializedType: specializedType,
+          };
+          value = specializedFunctionValue;
+          return { type: specializedType, value };
+        } else {
+          return { type: specializedType, value };
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /** Result from tryMatchGenericImpl */
 interface GenericImplMatchResult {
   matched: boolean;

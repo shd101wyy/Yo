@@ -1,47 +1,9 @@
 open import "std/libc/stdio";
 
-// EXPANDED :: macro_expand quote(^(x));
-// EXPANDED evaluates to:
-// quote(
-//   begin(
-//     (),
-//     iso_extract_temp_typeid126462 :: typeof(x),
-//     cond(
-//       (Type.contains_gc_type)(iso_extract_temp_typeid126462) =>
-//         cond(
-//           (Type.can_form_gc_cycle)(iso_extract_temp_typeid126462) =>
-//             begin(
-//               consume(x),
-//               compt_assert(false, "Cannot isolate value of type containing GC type that can form cycles"),
-//               (Option(Iso(iso_extract_temp_typeid126462)).None)
-//             ), 
-//           !((Var.is_owning_the_gc_value)(x)) =>
-//             begin(
-//               consume(x),
-//               compt_assert(false, "Cannot isolate value of type that is not owned"),
-//               (Option(Iso(iso_extract_temp_typeid126462)).None)
-//             ),
-//           (Var.has_other_aliases)(x) =>
-//             begin(
-//               consume(x),
-//               compt_assert(false, "Cannot isolate value of type that has other aliases"),
-//               (Option(Iso(iso_extract_temp_typeid126462)).None)
-//             ), 
-//           ((iso_extract_temp_typeid126462 <: Isolation).can_isolate)(x) =>
-//             (Option(Iso(iso_extract_temp_typeid126462)).Some)(Iso(iso_extract_temp_typeid126462)(x)), 
-//           true => begin(consume(x), (Option(Iso(iso_extract_temp_typeid126462)).None))
-//         ), 
-//       true => begin(
-//         compt_assert(false, "Cannot isolate value type that does not contain GC type"),
-//         (Option(Iso(iso_extract_temp_typeid126462)).Some)(Iso(iso_extract_temp_typeid126462)(x))
-//       )
-//     )
-//   )
-// );
-
 main :: (fn() -> unit)({
   x := Box(i32)(99);
-  isolated := ^(x);
+  assert((Box(i32) <: Isolation).can_isolate(x));
 });
 
 export main;
+

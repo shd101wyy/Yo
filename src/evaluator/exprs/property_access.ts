@@ -38,7 +38,10 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
-import { findMethodsFromGenericImpls } from "../values/module";
+import {
+  findMethodFromGenericImplForModule,
+  findMethodsFromGenericImpls,
+} from "../values/module";
 
 export function evaluatePropertyAccess({
   expr,
@@ -416,6 +419,26 @@ export function evaluatePropertyAccess({
               }
             }
           }
+        }
+
+        // Not found in receiverType.module.fields - try generic impl registry
+        // This handles cases like `impl(forall(T : Type), Box(T), Isolation(...))`
+        const genericMethod = findMethodFromGenericImplForModule({
+          concreteType: moduleType.receiverType,
+          moduleType,
+          methodName: propertyName,
+          env,
+        });
+        if (genericMethod) {
+          expr.$ = {
+            env,
+            type: genericMethod.type,
+            value: genericMethod.value,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+          propertyExpr.$ = expr.$;
+          return expr;
         }
       }
 

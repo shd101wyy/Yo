@@ -5,6 +5,8 @@ test "Test basic Iso related functions", {
   i2 := i1;
   i3 := i1;
 
+  compt_expect_error(y := x, "use of moved value: x");
+
   // f :: Type.impls(typeof(i1), Send);
 
   e1 := __yo_iso_extract(i2).unwrap();
@@ -22,6 +24,8 @@ test "Test Iso dispose inner value when not extracted", {
   
   isolated := Option(Iso(Box(i32))).Some Iso(Box(i32))(x);
 
+  compt_expect_error(y := x, "use of moved value: x");
+
   match(isolated,
     .Some(_) => {
       assert(true);
@@ -34,19 +38,19 @@ test "Test Iso dispose inner value when not extracted", {
   return ();
 };
 
-/*
 test "Test ^ operator for constructing Iso value", {
   x := Box(i32)(99);
   isolated := ^(x);
 
+  compt_expect_error(y := x, "use of moved value: x");
+
   match(isolated,
-    .Some(isoVal) => {
-      e := isoVal.extract();
-      assert(e.is_none());
+    .Some(iso_val) => {
+      e := iso_val.extract().unwrap();
+      assert(e.* == 99);
     },
     .None => {
       assert(false, "Expected Some, got None");
     }
   );
 };
-*/
