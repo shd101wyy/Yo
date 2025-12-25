@@ -39,10 +39,10 @@ String :: object(
    */
   from :: ((fn(slice: [u8]) -> Self) {
     // Create a new ArrayList and copy bytes from the slice
-    bytes := ArrayList(u8).with_capacity(slice.len);
+    bytes := ArrayList(u8).with_capacity(slice.len());
     
     i := usize(0);
-    while ((i < slice.len)),
+    while ((i < slice.len())),
           (i = (i + usize(1))),
     {
       byte := slice(i);
@@ -59,7 +59,6 @@ String :: object(
    * 
    * Note: We manually search for the null terminator by iterating
    */
-  /*
   from_cstr :: ((fn(cstr: *(u8)) -> Result(Self, StringError)) {
     // Create a new ArrayList to store the bytes
     bytes := ArrayList(u8).new();
@@ -70,7 +69,7 @@ String :: object(
     //        We need to check if the loop body has runtime expr, then we shouldn't consider it as infinite loop.
     while {f := true; f}, (i = (i + usize(1))), {
       // Access byte at index i using pointer arithmetic/
-      byte_ptr := (cstr + i);
+      byte_ptr := (cstr &+ i);
       byte := byte_ptr.*;
       
       // Stop when we find the null terminator
@@ -82,7 +81,6 @@ String :: object(
       
     return .Ok(Self(_bytes: bytes));
   }),
-  */
 
   /**
    * Get the length of the string in Unicode characters (runes)

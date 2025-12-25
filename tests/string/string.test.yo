@@ -1,0 +1,516 @@
+open import "std/string";
+open import "std/collections/array_list";
+
+// ===== Construction Tests =====
+
+test "String.new creates empty string", {
+  str := String.new();
+  assert(str.is_empty());
+  assert(str.len() == usize(0));
+};
+
+test "String.from_bytes creates string from byte array", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(72));
+  bytes.push(u8(101));
+  bytes.push(u8(108));
+  bytes.push(u8(108));
+  bytes.push(u8(111));
+  
+  str := String.from_bytes(bytes);
+  assert(not(str.is_empty()));
+  assert(str.len() == usize(5));
+};
+
+test "String.from creates string from byte slice", {
+  arr := [u8(72), u8(101), u8(108), u8(108), u8(111)];
+  slice := arr(:);
+  
+  str := String.from(slice);
+  assert(str.len() == usize(5));
+};
+
+// ===== ASCII String Tests =====
+
+test "String ASCII length", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(72));
+  bytes.push(u8(101));
+  bytes.push(u8(108));
+  bytes.push(u8(108));
+  bytes.push(u8(111));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(5));
+};
+
+test "String ASCII at() method", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  bytes.push(u8(66));
+  bytes.push(u8(67));
+  
+  str := String.from_bytes(bytes);
+  
+  first := str.at(usize(0));
+  assert(first.is_some());
+  assert(first.unwrap().to_u32() == u32(65));
+  
+  second := str.at(usize(1));
+  assert(second.is_some());
+  assert(second.unwrap().to_u32() == u32(66));
+  
+  third := str.at(usize(2));
+  assert(third.is_some());
+  assert(third.unwrap().to_u32() == u32(67));
+};
+
+test "String ASCII at() out of bounds", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  
+  str := String.from_bytes(bytes);
+  
+  result := str.at(usize(5));
+  assert(result.is_none());
+};
+
+// ===== UTF-8 2-byte Character Tests =====
+
+test "String UTF-8 2-byte character length", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xC2));
+  bytes.push(u8(0xA9));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(1));
+};
+
+test "String UTF-8 2-byte character decode", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xC2));
+  bytes.push(u8(0xA9));
+  
+  str := String.from_bytes(bytes);
+  
+  ch := str.at(usize(0));
+  assert(ch.is_some());
+  assert(ch.unwrap().to_u32() == u32(0xA9));
+};
+
+test "String UTF-8 2-byte multiple characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xC3));
+  bytes.push(u8(0xA9));
+  bytes.push(u8(0xC3));
+  bytes.push(u8(0xA7));
+  bytes.push(u8(0xC3));
+  bytes.push(u8(0xB1));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(3));
+  
+  first := str.at(usize(0));
+  assert(first.is_some());
+  assert(first.unwrap().to_u32() == u32(0xE9));
+  
+  second := str.at(usize(1));
+  assert(second.is_some());
+  assert(second.unwrap().to_u32() == u32(0xE7));
+  
+  third := str.at(usize(2));
+  assert(third.is_some());
+  assert(third.unwrap().to_u32() == u32(0xF1));
+};
+
+// ===== UTF-8 3-byte Character Tests =====
+
+test "String UTF-8 3-byte character length", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(1));
+};
+
+test "String UTF-8 3-byte character decode", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  
+  str := String.from_bytes(bytes);
+  
+  ch := str.at(usize(0));
+  assert(ch.is_some());
+  assert(ch.unwrap().to_u32() == u32(0x4E2D));
+};
+
+test "String UTF-8 3-byte multiple characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  bytes.push(u8(0xE6));
+  bytes.push(u8(0x96));
+  bytes.push(u8(0x87));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(2));
+  
+  first := str.at(usize(0));
+  assert(first.is_some());
+  assert(first.unwrap().to_u32() == u32(0x4E2D));
+  
+  second := str.at(usize(1));
+  assert(second.is_some());
+  assert(second.unwrap().to_u32() == u32(0x6587));
+};
+
+// ===== UTF-8 4-byte Character Tests =====
+
+test "String UTF-8 4-byte character length", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x98));
+  bytes.push(u8(0x80));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(1));
+};
+
+test "String UTF-8 4-byte character decode", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x98));
+  bytes.push(u8(0x80));
+  
+  str := String.from_bytes(bytes);
+  
+  ch := str.at(usize(0));
+  assert(ch.is_some());
+  assert(ch.unwrap().to_u32() == u32(0x1F600));
+};
+
+test "String UTF-8 4-byte multiple characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x98));
+  bytes.push(u8(0x80));
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x98));
+  bytes.push(u8(0x81));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(2));
+  
+  first := str.at(usize(0));
+  assert(first.is_some());
+  assert(first.unwrap().to_u32() == u32(0x1F600));
+  
+  second := str.at(usize(1));
+  assert(second.is_some());
+  assert(second.unwrap().to_u32() == u32(0x1F601));
+};
+
+// ===== Mixed UTF-8 Tests =====
+
+test "String mixed ASCII and UTF-8", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(72));
+  bytes.push(u8(101));
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  bytes.push(u8(0xE6));
+  bytes.push(u8(0x96));
+  bytes.push(u8(0x87));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(4));
+  
+  first := str.at(usize(0));
+  assert(first.unwrap().to_u32() == u32(72));
+  
+  second := str.at(usize(1));
+  assert(second.unwrap().to_u32() == u32(101));
+  
+  third := str.at(usize(2));
+  assert(third.unwrap().to_u32() == u32(0x4E2D));
+  
+  fourth := str.at(usize(3));
+  assert(fourth.unwrap().to_u32() == u32(0x6587));
+};
+
+test "String mixed 1,2,3,4 byte characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  bytes.push(u8(0xC2));
+  bytes.push(u8(0xA9));
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x98));
+  bytes.push(u8(0x80));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(4));
+  
+  char0 := str.at(usize(0));
+  assert(char0.unwrap().to_u32() == u32(65));
+  
+  char1 := str.at(usize(1));
+  assert(char1.unwrap().to_u32() == u32(0xA9));
+  
+  char2 := str.at(usize(2));
+  assert(char2.unwrap().to_u32() == u32(0x4E2D));
+  
+  char3 := str.at(usize(3));
+  assert(char3.unwrap().to_u32() == u32(0x1F600));
+};
+
+// ===== Concat Tests =====
+
+test "String concat two ASCII strings", {
+  bytes1 := ArrayList(u8).new();
+  bytes1.push(u8(72));
+  bytes1.push(u8(101));
+  
+  bytes2 := ArrayList(u8).new();
+  bytes2.push(u8(108));
+  bytes2.push(u8(111));
+  
+  str1 := String.from_bytes(bytes1);
+  str2 := String.from_bytes(bytes2);
+  
+  result := str1.concat(str2);
+  assert(result.len() == usize(4));
+  
+  assert(result.at(usize(0)).unwrap().to_u32() == u32(72));
+  assert(result.at(usize(1)).unwrap().to_u32() == u32(101));
+  assert(result.at(usize(2)).unwrap().to_u32() == u32(108));
+  assert(result.at(usize(3)).unwrap().to_u32() == u32(111));
+};
+
+test "String concat empty with non-empty", {
+  empty := String.new();
+  
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  bytes.push(u8(66));
+  
+  str := String.from_bytes(bytes);
+  
+  result := empty.concat(str);
+  assert(result.len() == usize(2));
+};
+
+test "String concat non-empty with empty", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  bytes.push(u8(66));
+  
+  str := String.from_bytes(bytes);
+  empty := String.new();
+  
+  result := str.concat(empty);
+  assert(result.len() == usize(2));
+};
+
+test "String concat two empty strings", {
+  empty1 := String.new();
+  empty2 := String.new();
+  
+  result := empty1.concat(empty2);
+  assert(result.is_empty());
+};
+
+test "String concat UTF-8 strings", {
+  bytes1 := ArrayList(u8).new();
+  bytes1.push(u8(0xE4));
+  bytes1.push(u8(0xB8));
+  bytes1.push(u8(0xAD));
+  
+  bytes2 := ArrayList(u8).new();
+  bytes2.push(u8(0xE6));
+  bytes2.push(u8(0x96));
+  bytes2.push(u8(0x87));
+  
+  str1 := String.from_bytes(bytes1);
+  str2 := String.from_bytes(bytes2);
+  
+  result := str1.concat(str2);
+  assert(result.len() == usize(2));
+  
+  assert(result.at(usize(0)).unwrap().to_u32() == u32(0x4E2D));
+  assert(result.at(usize(1)).unwrap().to_u32() == u32(0x6587));
+};
+
+test "String concat preserves original strings", {
+  bytes1 := ArrayList(u8).new();
+  bytes1.push(u8(65));
+  
+  bytes2 := ArrayList(u8).new();
+  bytes2.push(u8(66));
+  
+  str1 := String.from_bytes(bytes1);
+  str2 := String.from_bytes(bytes2);
+  
+  result := str1.concat(str2);
+  
+  assert(str1.len() == usize(1));
+  assert(str2.len() == usize(1));
+  assert(result.len() == usize(2));
+};
+
+// ===== Empty String Tests =====
+
+test "String is_empty on empty string", {
+  str := String.new();
+  assert(str.is_empty());
+};
+
+test "String is_empty on non-empty string", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  
+  str := String.from_bytes(bytes);
+  assert(not(str.is_empty()));
+};
+
+// ===== as_bytes Tests =====
+
+test "String as_bytes returns byte array", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(72));
+  bytes.push(u8(101));
+  
+  str := String.from_bytes(bytes);
+  
+  result_bytes := str.as_bytes();
+  assert(result_bytes.len() == usize(2));
+  assert(result_bytes.get(usize(0)).unwrap() == u8(72));
+  assert(result_bytes.get(usize(1)).unwrap() == u8(101));
+};
+
+test "String as_bytes on empty string", {
+  str := String.new();
+  
+  result_bytes := str.as_bytes();
+  assert(result_bytes.len() == usize(0));
+};
+
+// ===== Edge Cases =====
+
+test "String at() on single character", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  
+  str := String.from_bytes(bytes);
+  
+  ch := str.at(usize(0));
+  assert(ch.is_some());
+  assert(ch.unwrap().to_u32() == u32(65));
+  
+  invalid := str.at(usize(1));
+  assert(invalid.is_none());
+};
+
+test "String length with continuation bytes only counts starts", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  bytes.push(u8(0xE6));
+  bytes.push(u8(0x96));
+  bytes.push(u8(0x87));
+  
+  str := String.from_bytes(bytes);
+  byte_count := str.as_bytes().len();
+  char_count := str.len();
+  
+  assert(byte_count == usize(6));
+  assert(char_count == usize(2));
+};
+
+test "String multiple concat operations", {
+  bytes1 := ArrayList(u8).new();
+  bytes1.push(u8(65));
+  
+  bytes2 := ArrayList(u8).new();
+  bytes2.push(u8(66));
+  
+  bytes3 := ArrayList(u8).new();
+  bytes3.push(u8(67));
+  
+  str1 := String.from_bytes(bytes1);
+  str2 := String.from_bytes(bytes2);
+  str3 := String.from_bytes(bytes3);
+  
+  result := str1.concat(str2).concat(str3);
+  
+  assert(result.len() == usize(3));
+  assert(result.at(usize(0)).unwrap().to_u32() == u32(65));
+  assert(result.at(usize(1)).unwrap().to_u32() == u32(66));
+  assert(result.at(usize(2)).unwrap().to_u32() == u32(67));
+};
+
+test "String at() sequential access", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  bytes.push(u8(66));
+  bytes.push(u8(67));
+  bytes.push(u8(68));
+  bytes.push(u8(69));
+  
+  str := String.from_bytes(bytes);
+  
+  i := usize(0);
+  while(i < str.len(), i = (i + usize(1)), {
+    ch := str.at(i);
+    assert(ch.is_some());
+    expected := (u32(65) + u32(i));
+    assert(ch.unwrap().to_u32() == expected);
+  });
+};
+
+// ===== UTF-8 Validation Edge Cases =====
+
+test "String UTF-8 null byte in middle", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  bytes.push(u8(0));
+  bytes.push(u8(66));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(3));
+  
+  first := str.at(usize(0));
+  assert(first.unwrap().to_u32() == u32(65));
+  
+  second := str.at(usize(1));
+  assert(second.unwrap().to_u32() == u32(0));
+  
+  third := str.at(usize(2));
+  assert(third.unwrap().to_u32() == u32(66));
+};
+
+test "String UTF-8 all ASCII control characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0));
+  bytes.push(u8(9));
+  bytes.push(u8(10));
+  bytes.push(u8(13));
+  bytes.push(u8(32));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(5));
+};
