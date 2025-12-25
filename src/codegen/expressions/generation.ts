@@ -957,9 +957,11 @@ function generateFuncCall(
           // Declare and assign the temp variable
           const argType = getTypeString(arg.$.type!, context);
           const argTempVar = sanitizeForCIdentifier(savedVariableName);
-          context.emitter.emitLine(
-            `${indent}${argType} ${argTempVar} = ${rawArgCode};`
-          );
+          if (argTempVar !== rawArgCode) {
+            context.emitter.emitLine(
+              `${indent}${argType} ${argTempVar} = ${rawArgCode};`
+            );
+          }
           argCode = argTempVar;
         } else {
           argCode = generateExpr(arg, indent, context);
@@ -5554,9 +5556,11 @@ export function generateReturnStatement(
           // Declare and assign the temp variable
           const exprType = getTypeString(expr.$.type!, context);
           const exprTempVar = sanitizeForCIdentifier(savedVariableName);
-          context.emitter.emitLine(
-            `${indent}${exprType} ${exprTempVar} = ${rawCode};`
-          );
+          if (exprTempVar !== rawCode) {
+            context.emitter.emitLine(
+              `${indent}${exprType} ${exprTempVar} = ${rawCode};`
+            );
+          }
         } else {
           // No temp variable name, just generate the expression
           const rawCode = generateFuncCall(expr, indent, context);
