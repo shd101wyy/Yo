@@ -447,7 +447,6 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (foundExpr && exprIsAtom(foundExpr)) {
         const expr: AtomExpr = foundExpr as AtomExpr;
-
         // Create a MarkdownString for the hover content
         const markdownContent = new vscode.MarkdownString();
         markdownContent.supportHtml = true;
@@ -467,45 +466,46 @@ export function activate(context: vscode.ExtensionContext) {
           tokenText = tokenText.slice(1, -1);
         }
 
-        // Get variable from the env
-        let isUndefined = true;
+        // Get variable from the env - use it as the source of truth if available
+        let varType = expr.$?.type;
+        let varValue = expr.$?.value;
+        let isUndefined = false;
         let foundVariable = false;
+        let isCompileTimeOnly = false;
+
         if (expr.$?.env) {
           const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
           foundVariable = variables && variables.length > 0;
-          const isCompileTimeOnly =
-            variables &&
-            variables.length > 0 &&
-            variables[variables.length - 1]!.isCompileTimeOnly;
 
-          isUndefined =
-            variables &&
-            variables.length > 0 &&
-            !variables[variables.length - 1]!.initializedAtToken;
-
-          if (isCompileTimeOnly) {
-            tokenText = `compt(${tokenText})`;
+          if (foundVariable && variables) {
+            const selectedVar = variables[variables.length - 1]!;
+            // Use the variable's type and value from the environment
+            varType = selectedVar.type;
+            varValue = selectedVar.value;
+            isCompileTimeOnly = selectedVar.isCompileTimeOnly;
+            isUndefined = !selectedVar.initializedAtToken;
           }
+        }
+
+        if (isCompileTimeOnly) {
+          tokenText = `compt(${tokenText})`;
         }
 
         // Start with the token name in code format
         markdownContent.appendMarkdown(`\`\`\`\n${tokenText}`);
 
         // Add type if available
-        if (expr.$?.type) {
-          const typeString = typeToString(expr.$.type);
+        if (varType) {
+          const typeString = typeToString(varType);
           markdownContent.appendMarkdown(`\n: ${typeString}`);
-          // markdownContent.appendMarkdown(
-          //   `\n  : ${typeToString(typeOfType(expr.$.type))}`
-          // );
         }
 
         if (foundVariable && isUndefined) {
           markdownContent.appendMarkdown(`\nundefined`);
         } else {
           // Add value if available
-          const valueString = valueToString(expr.$?.value);
-          if (expr.$?.value?.tag === ValueTag.Type) {
+          const valueString = valueToString(varValue);
+          if (varValue?.tag === ValueTag.Type) {
             markdownContent.appendMarkdown(`\n= ${valueString}`);
           } else {
             markdownContent.appendMarkdown(`\n= ${valueString}`);
@@ -941,11 +941,33 @@ export function activate(context: vscode.ExtensionContext) {
       let variableType: Type | null = null;
       if (targetExpr) {
         if (exprIsAtom(targetExpr)) {
-          // TypeScript narrowing should work here, but let's be explicit
           const atomExpr = targetExpr as AtomExpr;
-          const evalInfo = atomExpr.$ as { type?: Type } | undefined;
+          const evalInfo = atomExpr.$ as
+            | { type?: Type; env?: unknown }
+            | undefined;
+
+          // First try to use the type from the expression's evaluation
           if (evalInfo?.type) {
             variableType = evalInfo.type;
+          }
+
+          // If no type, try looking up the variable in the expression's environment
+          if (!variableType && evalInfo?.env) {
+            try {
+              const variables = getVariablesFromEnv(
+                evalInfo.env as Parameters<typeof getVariablesFromEnv>[0],
+                atomExpr.token.value
+              );
+
+              if (variables && variables.length > 0) {
+                const selectedVar = variables[variables.length - 1];
+                if (selectedVar?.type) {
+                  variableType = selectedVar.type;
+                }
+              }
+            } catch (error) {
+              // Ignore errors
+            }
           }
         } else {
           // Must be a FuncCall since we only set targetExpr for these two types
@@ -1323,10 +1345,11 @@ export function activate(context: vscode.ExtensionContext) {
       if (foundExpr && exprIsAtom(foundExpr)) {
         const expr: AtomExpr = foundExpr as AtomExpr;
 
-        // Try to find the definition location
-        if (expr.$?.env) {
-          const env = expr.$?.env;
-          const tokenText = tokenAtPosition.value; // Look for the variable in the environment
+        // Try to find the definition location using the expression's environment
+        const env = expr.$?.env;
+
+        if (env) {
+          const tokenText = tokenAtPosition.value;
           const foundDefinition = findVariableDefinition(env, tokenText);
 
           if (foundDefinition) {
