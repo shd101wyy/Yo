@@ -251,7 +251,24 @@ fn create() -> Point {
 }
 ```
 
-### Rule 4: The `own()` Keyword
+### Rule 4: Scope Exit
+**Call `___dup` when a borrowed value leaves scope:**
+
+```yo
+optional := Option(Box(i32)).Some(box(42)); // optional owns
+x := match(optional,
+  .Some(value) => // `value` here is borrowed, not owned
+    value
+    // ___dup(value) inserted here
+  ,
+  .None => {
+    // Handle None case
+    box(0)
+  }
+)
+```
+
+### Rule 5: The `own()` Keyword
 
 **`own()` parameters take ownership, caller must dup:**
 

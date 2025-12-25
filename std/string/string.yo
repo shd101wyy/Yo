@@ -247,11 +247,13 @@ String :: object(
    * Concatenate two strings (like JavaScript +)
    */
   concat :: ((fn(self: Self, other: Self) -> Self) {
-    new_bytes := ArrayList(u8).with_capacity((self.as_bytes().len() + other.as_bytes().len()));
+    self_len := self._bytes.len();
+    other_len := other._bytes.len();
+    new_bytes := ArrayList(u8).with_capacity((self_len + other_len));
     
     // Copy bytes from self
     i := usize(0);
-    while ((i < self.as_bytes().len())),
+    while ((i < self_len)),
           (i = (i + usize(1))),
     {
       byte_opt := self._bytes.get(i);
@@ -263,7 +265,7 @@ String :: object(
     
     // Copy bytes from other
     j := usize(0);
-    while ((j < other.as_bytes().len())),
+    while ((j < other_len)),
           (j = (j + usize(1))),
     {
       byte_opt := other._bytes.get(j);
