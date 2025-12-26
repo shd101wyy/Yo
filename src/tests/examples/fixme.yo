@@ -1,33 +1,20 @@
-HashSet :: (fn(
-  compt(T): Type,
-  where(T <: (Eq(T), Hash))
-) -> compt(Type))
+Option :: (fn(compt(T): Type) -> compt(Type))
+  enum(
+    None,
+    Some(value: T)
+  )
+;
+
+Node :: (fn(compt(T): Type) -> compt(Type))
   object(
-    data : ?*(T),
+    value : T,
+    next : Option(Self)
+  )
+;
 
-    use_t :: (fn(v : T)-> unit)({
-      return ();
-    }),
-
-    /**
-     * Find slot index for a given element using quadratic probing
-     * Returns Some(index) if element is found, None otherwise
-     */
-    _find_slot :: (fn(self: Self, data_ptr2: *(T), element: T, element2: T) -> Option(usize))(
-      {
-        data_ptr := self.data.unwrap();
-        // data_ptr := data_ptr2;
-        
-        element == element2;
-
-        stored_element := data_ptr.*;
-
-        Self.use_t(stored_element);
-
-        stored_element == element;
-        
-        .None
-      }
-    )
-  );
-
+LinkedList :: (fn(compt(X): Type) -> compt(Type))
+  object(
+    head : Option(Node(X)),
+    length : usize
+  )
+;

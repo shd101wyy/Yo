@@ -42,6 +42,7 @@ import {
  * Check if two types are compatible.
  * @param requireExactMatch If true, requires exact type equality rather than compatibility.
  *                          Used for method receivers and compile-time function cache comparisons.
+ * @param visitedPairs Set of type ID pairs already being compared (for cycle detection)
  */
 export function areTypesCompatible(
   expected: {
@@ -52,8 +53,23 @@ export function areTypesCompatible(
     type: Type;
     env: Environment;
   },
-  requireExactMatch = false
+  requireExactMatch = false,
+  visitedPairs: Set<string> = new Set()
 ): boolean {
+  // Cycle detection: if we're already comparing this pair, assume compatible to break cycle
+  const expectedId = expected.type.id;
+  const givenId = given.type.id;
+  if (expectedId && givenId) {
+    const pairKey = `${expectedId}:${givenId}`;
+    if (visitedPairs.has(pairKey)) {
+      // We're in a recursive comparison - assume compatible to break the cycle
+      // This is safe because if the types were truly incompatible, we would have
+      // found that out in a previous non-cyclic comparison path
+      return true;
+    }
+    visitedPairs.add(pairKey);
+  }
+
   if (isPrimitiveType(expected.type) && isPrimitiveType(given.type)) {
     return expected.type.tag === given.type.tag;
   }
@@ -140,7 +156,9 @@ export function areTypesCompatible(
   if (isComptListType(expected.type) && isComptListType(given.type)) {
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env }
+      { type: given.type.childType, env: given.env },
+      requireExactMatch,
+      visitedPairs
     );
   }
 
@@ -156,7 +174,9 @@ export function areTypesCompatible(
           type: expected.type.childType,
           env: expected.env,
         },
-        { type: given.type.childType, env: given.env }
+        { type: given.type.childType, env: given.env },
+        requireExactMatch,
+        visitedPairs
       )
     );
   }
@@ -165,7 +185,9 @@ export function areTypesCompatible(
     // Slices must have compatible element types
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env }
+      { type: given.type.childType, env: given.env },
+      requireExactMatch,
+      visitedPairs
     );
   }
 
@@ -180,7 +202,9 @@ export function areTypesCompatible(
       if (
         !areTypesCompatible(
           { type: expectedTypeElement.type, env: expected.env },
-          { type: givenTypeElement.type, env: given.env }
+          { type: givenTypeElement.type, env: given.env },
+          requireExactMatch,
+          visitedPairs
         )
       ) {
         return false;
@@ -239,7 +263,9 @@ export function areTypesCompatible(
             type: expectedFields.type,
             env: expected.env,
           },
-          { type: givenFields.type, env: given.env }
+          { type: givenFields.type, env: given.env },
+          requireExactMatch,
+          visitedPairs
         )
       ) {
         return false;
@@ -279,7 +305,9 @@ export function areTypesCompatible(
             expectedFields.label !== givenFields.label ||
             !areTypesCompatible(
               { type: expectedFields.type, env: expected.env },
-              { type: givenFields.type, env: given.env }
+              { type: givenFields.type, env: given.env },
+              requireExactMatch,
+              visitedPairs
             )
           ) {
             return false;
@@ -327,7 +355,9 @@ export function areTypesCompatible(
         expectedFields.label !== givenFields.label ||
         !areTypesCompatible(
           { type: expectedFields.type, env: expected.env },
-          { type: givenFields.type, env: given.env }
+          { type: givenFields.type, env: given.env },
+          requireExactMatch,
+          visitedPairs
         )
       ) {
         return false;
@@ -372,7 +402,9 @@ export function areTypesCompatible(
               type: expected.type.isFuture.outputType,
               env: expected.env,
             },
-            { type: given.type.isFuture.outputType, env: given.env }
+            { type: given.type.isFuture.outputType, env: given.env },
+            requireExactMatch,
+            visitedPairs
           )
         ) {
           return false;
@@ -402,7 +434,8 @@ export function areTypesCompatible(
       return areTypesCompatible(
         { type: expected.type, env: expected.env },
         { type: given.type.baseType.module, env: given.env },
-        requireExactMatch
+        requireExactMatch,
+        visitedPairs
       );
     }
 
@@ -414,6 +447,7 @@ export function areTypesCompatible(
       { type: expected.type, env: expected.env },
       { type: given.type, env: given.env },
       requireExactMatch
+      // TODO: pass visitedPairs?
     );
   }
 
@@ -432,7 +466,9 @@ export function areTypesCompatible(
     // Mut pointers must have the same type
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env }
+      { type: given.type.childType, env: given.env },
+      requireExactMatch,
+      visitedPairs
     );
   }
 
@@ -441,7 +477,9 @@ export function areTypesCompatible(
     // Iso types must have compatible inner types
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
-      { type: given.type.childType, env: given.env }
+      { type: given.type.childType, env: given.env },
+      requireExactMatch,
+      visitedPairs
     );
   }
 
@@ -464,7 +502,9 @@ export function areTypesCompatible(
         (givenModule) =>
           areTypesCompatible(
             { type: expectedModule, env: expected.env },
-            { type: givenModule, env: given.env }
+            { type: givenModule, env: given.env },
+            requireExactMatch,
+            visitedPairs
           )
       );
       if (!matchingGivenModule) {
@@ -482,7 +522,9 @@ export function areTypesCompatible(
           (givenModule) =>
             areTypesCompatible(
               { type: negativeModule, env: expected.env },
-              { type: givenModule, env: given.env }
+              { type: givenModule, env: given.env },
+              requireExactMatch,
+              visitedPairs
             )
         );
         if (matchingGivenModule) {
@@ -518,7 +560,8 @@ export function areTypesCompatible(
             return areTypesCompatible(
               { type: expected.type.resolvedConcreteType, env: expected.env },
               { type: given.type.resolvedConcreteType, env: given.env },
-              requireExactMatch // Pass through requireExactMatch for cache comparisons
+              requireExactMatch, // Pass through requireExactMatch for cache comparisons
+              visitedPairs
             );
           } else {
             return false;
@@ -546,7 +589,9 @@ export function areTypesCompatible(
           // Compare by module type compatibility
           return areTypesCompatible(
             { type: expectedModule, env: expected.env },
-            { type: givenModule, env: given.env }
+            { type: givenModule, env: given.env },
+            requireExactMatch,
+            visitedPairs
           );
         });
         if (!matchingGivenModule) {
@@ -563,7 +608,9 @@ export function areTypesCompatible(
           const matchingGivenModule = givenModules.find((givenModule) =>
             areTypesCompatible(
               { type: negativeModule, env: expected.env },
-              { type: givenModule, env: given.env }
+              { type: givenModule, env: given.env },
+              requireExactMatch,
+              visitedPairs
             )
           );
           if (matchingGivenModule) {
@@ -581,7 +628,8 @@ export function areTypesCompatible(
           !areTypesCompatible(
             { type: expected.type.resolvedConcreteType, env: expected.env },
             { type: given.type.resolvedConcreteType, env: given.env },
-            requireExactMatch // Pass through requireExactMatch for cache comparisons
+            requireExactMatch, // Pass through requireExactMatch for cache comparisons
+            visitedPairs
           )
         ) {
           return false;
@@ -670,7 +718,9 @@ export function areTypesCompatible(
       }
       return areTypesCompatible(
         { type: expectedType_, env: expected.env },
-        given
+        given,
+        requireExactMatch,
+        visitedPairs
       );
     }
   } else if (isSomeType(given.type)) {
@@ -682,7 +732,8 @@ export function areTypesCompatible(
       areTypesCompatible(
         expected,
         { type: given.type.resolvedConcreteType, env: given.env },
-        requireExactMatch
+        requireExactMatch,
+        visitedPairs
       )
     ) {
       return true;
@@ -692,7 +743,12 @@ export function areTypesCompatible(
     if (given.type === givenType_) {
       return false;
     }
-    return areTypesCompatible(expected, { type: givenType_, env: given.env });
+    return areTypesCompatible(
+      expected,
+      { type: givenType_, env: given.env },
+      requireExactMatch,
+      visitedPairs
+    );
   }
 
   return false;
