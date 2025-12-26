@@ -36,6 +36,7 @@ import { VUnit } from "../../unit-value";
 import { createUnknownValue, isEnumValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
+import { evaluateExpression } from "./expr";
 
 /**
  *
@@ -75,14 +76,14 @@ export function evaluateMatch({
 
   // Evaluate any expression as scrutinee, not just atoms
 
-  const evaluatedScrutineeExpr = evaluateBeginExpression({
+  // NOTE: Use evaluateBeginExpression causes the problem. It inserts unnecessary `dup` function call.
+  const evaluatedScrutineeExpr = evaluateExpression({
     expr: scrutineeExpr,
     env,
     context: {
       ...context,
       expectedType: undefined,
     },
-    variablesToAdd: [],
   });
 
   if (!evaluatedScrutineeExpr.$) {

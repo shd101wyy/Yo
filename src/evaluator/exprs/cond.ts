@@ -29,8 +29,8 @@ import {
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
+import { evaluateExpression } from "./expr";
 
 export function evaluateCond({
   expr,
