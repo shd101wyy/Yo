@@ -407,7 +407,10 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
   // Check if this function has SomeType parameters (like Impl(Fn(...)))
   // that need monomorphization for different concrete types
   const hasSomeTypeParams = functionType.parameters.some(
-    (p) => !p.isCompileTimeOnly && isSomeType(p.type)
+    (p) =>
+      !p.isCompileTimeOnly &&
+      isSomeType(p.type) &&
+      !typeImplementsFuture(p.type)
   );
 
   return hasCompileTimeParams || hasSomeTypeParams;
