@@ -30,7 +30,6 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
-import { evaluateExpression } from "./expr";
 
 export function evaluateCond({
   expr,
@@ -94,7 +93,10 @@ export function evaluateCond({
   for (let i = 0; i < parsedStatements.length; i++) {
     const { condExpr, caseBodyExpr, caseEnv } = parsedStatements[i]!;
     // Evaluate condition
-    const evaluatedCondExpr = evaluateExpression({
+    // NOTE: It's necessary to use evaluateBeginExpression here,
+    // because the condition might contain Gc values that need to be properly managed by `begin` block.
+    // Evaluate the condition expression
+    const evaluatedCondExpr = evaluateBeginExpression({
       expr: condExpr,
       env: caseEnv,
       context: {
@@ -104,6 +106,7 @@ export function evaluateCond({
           env: caseEnv,
         },
       },
+      variablesToAdd: [],
     });
 
     if (!evaluatedCondExpr.$) {
