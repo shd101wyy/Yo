@@ -1,5 +1,9 @@
 import { Emitter } from "../../emitter";
-import { exprIsFunctionCall, exprIsFunctionCallOf } from "../../expr";
+import {
+  BuiltinFunctions,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+} from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   ArrayType,
@@ -582,11 +586,16 @@ export function isComptFunction(functionValue: FunctionValue): boolean {
  * Check if a function value only has body that calls the builtin
  * __yo_op_xxx functions, which are just wrappers around C operators,etc.
  * We can convert them to inline C operator calls directly
+ *
+ * NOTE: We exclude __yo_as (casts) from inlining because they may have complex
+ * argument expressions that need proper parameter substitution.
  */
 export function isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(
   functionValue: FunctionValue
 ): string | null {
   const body = functionValue.body;
+  let operatorName: string | null = null;
+
   if (
     exprIsFunctionCall(body) &&
     exprIsFunctionCallOf(body, "begin") &&
@@ -594,15 +603,20 @@ export function isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(
     exprIsFunctionCall(body.args[0]!) &&
     exprIsFunctionCallOf(body.args[0]!, BuiltinYoInlineFunctions)
   ) {
-    return body.args[0]!.func.token.value; // Return the operator name
+    operatorName = body.args[0]!.func.token.value;
   } else if (
     exprIsFunctionCall(body) &&
     exprIsFunctionCallOf(body, BuiltinYoInlineFunctions)
   ) {
-    return body.func.token.value; // Return the operator name
-  } else {
+    operatorName = body.func.token.value;
+  }
+
+  // Don't inline __yo_as - it needs proper function call handling for complex arguments
+  if (operatorName && BuiltinFunctions.__yo_as.includes(operatorName)) {
     return null;
   }
+
+  return operatorName;
 }
 
 /**
