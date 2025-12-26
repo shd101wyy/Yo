@@ -30,6 +30,7 @@ import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
 import {
   generateDeferredDropExpressions,
+  generateDeferredDupExpressions,
   generateExpr,
   generateReturnStatement,
 } from "../expressions";
@@ -615,6 +616,7 @@ export function generateFunctionBody(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
+
   if (
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
@@ -758,6 +760,40 @@ export function generateFunctionBody(
             emitter.emitLine(`${indent}${exprCode};`);
           }
         } else {
+          // Generate deferred dup expressions for the last expression (e.g., field access that needs duping)
+          if (
+            lastExpr.$?.deferredDupExpressions &&
+            lastExpr.$.deferredDupExpressions.length > 0
+          ) {
+            // First, generate the expression and store it in its temp variable
+            if (lastExpr.$?.variableName) {
+              const exprType = getTypeString(lastExpr.$.type!, context);
+              const exprTempVar = sanitizeForCIdentifier(
+                lastExpr.$.variableName
+              );
+              const rawCode = generateExpr(lastExpr, indent, context);
+              if (exprTempVar !== rawCode) {
+                emitter.emitLine(
+                  `${indent}${exprType} ${exprTempVar} = ${rawCode};`
+                );
+              }
+            }
+
+            // Then generate the deferred dup expressions
+            generateDeferredDupExpressions(lastExpr, indent, context);
+
+            // Use the duped value's variable name for the return
+            const dupExpr = lastExpr.$.deferredDupExpressions[0]!;
+            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+              const dupedValue = sanitizeForCIdentifier(dupExpr.$.variableName);
+              // Then generate deferred drop expressions for the begin block before the return
+              generateDeferredDropExpressions(expr, indent, context);
+              // Finally, emit the return statement
+              emitter.emitLine(`${indent}return ${dupedValue};`);
+              return;
+            }
+          }
+
           // For other functions, generate the expression first
           const exprCode = generateExpr(lastExpr, indent, context);
 

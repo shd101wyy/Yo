@@ -51,3 +51,29 @@ test "Test 'rc' function", {
     assert(rc(w2.v) == 1, "rc(w2.v) == 1");
   };
 };
+
+test "Test explicit return and implicit return", {
+  Foo :: object(
+    data: Box(i32),
+
+    new :: (fn(val: i32) -> Self)(
+      Self(data: box(val))
+    ),
+
+    // This should generate a dup call
+    get_data_implicit :: (fn(self: Self) -> Box(i32))(
+      self.data
+    ),
+
+    // THIS WORKS:
+    get_data_explicit :: (fn(self: Self) -> Box(i32))({
+      return self.data;
+    })
+  );
+
+  foo := Foo.new(42);
+  d1 := foo.get_data_implicit();
+  assert(d1.* == 42, "d1.* == 42");
+  d2 := foo.get_data_explicit();
+  assert(d2.* == 42, "d2.* == 42");
+};

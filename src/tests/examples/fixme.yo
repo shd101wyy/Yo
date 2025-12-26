@@ -1,27 +1,37 @@
-open import "std/collections/hash_map.yo";
-HM :: HashMap(i32, i32);
+/*
+open import "std/string";
 
-main :: (fn() -> unit)({
-  map := HashMap(i32, i32).new();
-
-  {
-    b := box(123);
-    {
-      ();
-      b
-    };
-  };
-  return ();
-});
+main :: (fn() -> unit) {
+  str := String.new();  
+  result_bytes := str.as_bytes();
+};
 
 export main;
-
-
-/*
-Data :: object(
-  (*) : i32,
-  len :: (fn(self : Self) -> i32)(self.*)
-);
-// TODO: pass it as fn arg.
-
 */
+
+// Test implicit return of RC field
+Foo :: object(
+  data: Box(i32),
+
+  new :: (fn(val: i32) -> Self)(
+    Self(data: box(val))
+  ),
+
+  // FIXME: This doesn't
+  // This should generate a dup call
+  get_data :: (fn(self: Self) -> Box(i32))(
+    self.data
+  )
+
+  // THIS WORKS:
+  // get_data :: (fn(self: Self) -> Box(i32))({
+  //   return self.data;
+  // })
+);
+
+main :: (fn() -> unit) {
+  foo := Foo.new(42);
+  d := foo.get_data();
+};
+
+export main;
