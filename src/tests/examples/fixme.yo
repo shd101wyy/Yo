@@ -1,29 +1,10 @@
-/**
- * Bucket - Internal structure to store key-value pairs
- */
-Bucket :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
-  struct(
-    key : K,
-    value : V
-  )
-;
+open import "std/collections/hash_map.yo";
 
-HashMap :: (fn(
-  compt(K): Type,
-  compt(V): Type,
-  where(K <: (Eq(K), Hash))
-) -> compt(Type))
-  object(
-    data : Bucket(K, V),
-
-    new :: (fn(k : K, v : V) -> Self)({
-      return Self(Bucket(K, V)(k, v)); 
-    })
-  )
-;
+HM :: HashMap(i32, i32);
 
 main :: (fn() -> unit) {
-  HashMap(i32, i32).new(3, 4);
+  map := HashMap(i32, i32).new();
+  return ();
 };
 
 export main;

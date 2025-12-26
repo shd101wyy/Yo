@@ -460,18 +460,16 @@ HashMap :: (fn(
     /**
      * RAII destructor - automatically called when HashMap goes out of scope
      */
-    dispose :: ((fn(self: Self) -> unit)
-      {
-        match(self.ctrl,
-          .Some(ptr) => free(.Some(*(void)(ptr))),
-          .None => ()
-        );
-        match(self.data,
-          .Some(ptr) => free(.Some(*(void)(ptr))),
-          .None => ()
-        );
-      }
-    )
+    dispose :: (fn(self: Self) -> unit)({
+      match(self.ctrl,
+        .Some(ptr) => free(.Some(*(void)(ptr))),
+        .None => ()
+      );
+      match(self.data,
+        .Some(ptr) => free(.Some(*(void)(ptr))),
+        .None => ()
+      );
+    })
   );
 
 export

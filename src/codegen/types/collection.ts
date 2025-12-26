@@ -71,6 +71,11 @@ export function collectRequiredTypes(
   for (const funcId in context.functions) {
     const func = context.functions[funcId]!;
     collectTypesFromFunctionType(func.value.type, context);
+    // For specialized generic functions, also collect types from the specialized type
+    // This ensures concrete types (after type substitution) are registered
+    if (func.value.specializedType) {
+      collectTypesFromFunctionType(func.value.specializedType, context);
+    }
     collectTypesFromExpr(func.value.body, context);
   }
 }

@@ -35,7 +35,6 @@ import {
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isEnumValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
 
 /**
@@ -76,13 +75,14 @@ export function evaluateMatch({
 
   // Evaluate any expression as scrutinee, not just atoms
 
-  const evaluatedScrutineeExpr = evaluateExpression({
+  const evaluatedScrutineeExpr = evaluateBeginExpression({
     expr: scrutineeExpr,
     env,
     context: {
       ...context,
       expectedType: undefined,
     },
+    variablesToAdd: [],
   });
 
   if (!evaluatedScrutineeExpr.$) {

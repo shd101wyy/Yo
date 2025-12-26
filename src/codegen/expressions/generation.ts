@@ -5503,6 +5503,13 @@ function generateMatchExpression(
   }
 
   context.emitter.emitLine(`${indent}}`);
+
+  // Generate deferred drop expressions for the match expression after the switch closes
+  // This ensures owned variables (like the matched enum) are cleaned up
+  if (expr.$?.deferredDropExpressions) {
+    generateDeferredDropExpressions(expr, indent, context);
+  }
+
   return isUnit ? "" : (tempVariableName ?? ""); // Return the temp variable name
 }
 
@@ -5880,14 +5887,25 @@ function generateCaseBody(
     if (beginArgs.length > 0) {
       const finalExpr = beginArgs[beginArgs.length - 1]!;
       // Generate deferred dup expressions for the final expression (e.g., returning a borrowed value)
-      if (finalExpr.$?.deferredDupExpressions) {
+      if (
+        finalExpr.$?.deferredDupExpressions &&
+        finalExpr.$.deferredDupExpressions.length > 0
+      ) {
         generateDeferredDupExpressions(
           finalExpr,
           indent,
           context as FunctionGenerationContext
         );
+        // Use the duped value's variable name instead of the original expression
+        const dupExpr = finalExpr.$.deferredDupExpressions[0]!;
+        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+          finalExprCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+        } else {
+          finalExprCode = generateExpr(finalExpr, indent, context);
+        }
+      } else {
+        finalExprCode = generateExpr(finalExpr, indent, context);
       }
-      finalExprCode = generateExpr(finalExpr, indent, context);
     }
 
     // Generate deferred drop expressions for the begin block

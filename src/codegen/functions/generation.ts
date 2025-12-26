@@ -13,6 +13,7 @@ import {
   isBoxedType,
   isEnumType,
   isFnModuleType,
+  isFunctionSpecializable,
   isFunctionType,
   isFutureModuleType,
   isPtrType,
@@ -755,14 +756,18 @@ export function generateFunctionBody(
             emitter.emitLine(`${indent}${exprCode};`);
           }
         } else {
-          // For other functions, return the last expression
-          generateReturnStatement(lastExpr, indent, context);
+          // For other functions, generate the expression first
+          const exprCode = generateExpr(lastExpr, indent, context);
+
+          // Then generate deferred drop expressions before the return
+          generateDeferredDropExpressions(expr, indent, context);
+
+          // Finally, emit the return statement
+          if (exprCode) {
+            emitter.emitLine(`${indent}return ${exprCode};`);
+          }
         }
       }
-
-      // Generate deferred drop expressions AFTER generating the last expression
-      // This ensures that variables used in the last expression are not dropped prematurely
-      generateDeferredDropExpressions(expr, indent, context);
     } else if (findReturn && args.length > 0) {
       // We found an explicit return statement, but there might be a trailing unit expression
       // that we should ignore (don't generate as a statement)
@@ -811,6 +816,13 @@ export function generateSpecializedFunctionDeclarations(
       continue; // Skip non-generic functions
     }
 
+    // Skip if the specialized type still has unresolved type parameters
+    // This can happen when type substitution is incomplete or when collecting
+    // methods from generic modules that weren't properly specialized
+    if (isFunctionSpecializable(specializedFunctionType)) {
+      continue;
+    }
+
     // Skip if already generated
     if (generated.has(funcId)) {
       continue;
@@ -839,6 +851,11 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 
     // Skip if not a generic function
     if (!functionValue.specializedType || !isGenericFunction(functionValue)) {
+      continue;
+    }
+
+    // Skip if the specialized type still has unresolved type parameters
+    if (isFunctionSpecializable(functionValue.specializedType)) {
       continue;
     }
 
