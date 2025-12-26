@@ -24,7 +24,6 @@ import {
   exprToString,
   FuncCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
-  setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
@@ -749,7 +748,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   }
   */
 
-  let returnVariable: Variable | undefined = undefined;
+  // Simplified ownership model for begin blocks:
+  // Always dup the last expression when returning a GC value from a begin block.
+  // This ensures clean ownership semantics without complex optimization logic.
   let returnValueExpr: Expr | undefined = lastExpr;
   if (
     exprIsFunctionCall(lastExpr) &&
@@ -757,55 +758,11 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   ) {
     returnValueExpr = lastExpr.args[0];
   }
-  const returnValueExprVariableName = returnValueExpr
-    ? returnValueExpr.$?.variableName
-    : undefined;
-  if (returnValueExprVariableName) {
-    const variables = getVariablesFromEnv(env, returnValueExprVariableName);
-    if (variables.length) {
-      const variable = variables[variables.length - 1]!;
-      returnVariable = variable;
-    }
-  }
 
-  // Optimization (Design: cancellation of ___dup + ___drop when returning a borrower):
-  // If we are returning a variable that owns the same ARC value as another variable in this frame,
-  // treat it as transferring ownership out of the frame.
-  // Mark the owning variable as consumed so it will not receive an auto ___drop,
-  // and skip adding a ___dup for the returned expression later.
-  // Likewise, if directly returning an owning variable from this frame, mark it consumed.
-  if (returnVariable?.isOwningTheSameGcValueAs && returnValueExpr) {
-    const ownerVariable = returnVariable.isOwningTheSameGcValueAs;
-    if (
-      ownerVariable.isOwningTheGcValue &&
-      ownerVariable.frameLevel === env.frames.length - 1 &&
-      !ownerVariable.consumedAtToken
-    ) {
-      env = updateExistingVariable(env, ownerVariable, {
-        ...ownerVariable,
-        consumedAtToken: lastExpr.token,
-      });
-    } else {
-      // Needs to call dup on the return value expression
-      setExprAsNeedsToCallDup(returnValueExpr, context);
-      env = returnValueExpr.$!.env!;
-    }
-  } else if (
-    returnVariable?.isOwningTheGcValue &&
-    returnVariable.frameLevel === env.frames.length - 1 &&
-    !returnVariable.consumedAtToken
-  ) {
-    env = updateExistingVariable(env, returnVariable, {
-      ...returnVariable,
-      consumedAtToken: lastExpr.token,
-    });
-  } else if (!returnVariable?.isOwningTheGcValue && returnValueExpr) {
+  // Always call dup on the return value expression to maintain clean ownership
+  if (returnValueExpr) {
     setExprAsNeedsToCallDup(returnValueExpr, context);
     env = returnValueExpr.$!.env!;
-  } else {
-    // Set the last expression as the return value
-    // and mark it as consumed.
-    env = setExprAsConsumed(lastExpr, env);
   }
 
   // Handle automatic drop insertion for RAII before popping the frame
@@ -813,6 +770,14 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // When evaluating function body begin block, also check the parameters frame (previous frame)
   let variablesNeedingDrop = getVariablesNeedingDrop(env);
   const variablesActuallyNeedingDrop: Variable[] = [];
+
+  // console.log(`\\n=== DEBUG: Begin Block Drop Optimization ===`);
+  // console.log(
+  //   `Variables needing drop before optimization:`,
+  //   variablesNeedingDrop
+  //     .map((v) => `${v.name} (id: ${v.id}, consumed: ${!!v.consumedAtToken})`)
+  //     .join(", ")
+  // );
 
   if (OPTIMIZE_DUP_AND_DROP_PAIRS) {
     if (isEvaluatingFunctionBodyBeginBlock && env.frames.length >= 2) {

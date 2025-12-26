@@ -733,6 +733,8 @@ export function generateFunctionBody(
         if (exprCode) {
           emitter.emitLine(`${indent}${exprCode};`);
         }
+        // Generate deferred drop expressions after the last statement
+        generateDeferredDropExpressions(expr, indent, context);
       } else if (lastExpr) {
         // Check if the last expression has control flow (like return statements)
         const hasControlFlow = lastExpr.$?.controlFlow;

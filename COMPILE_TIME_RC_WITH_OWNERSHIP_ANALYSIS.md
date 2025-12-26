@@ -252,8 +252,19 @@ fn create() -> Point {
 ```
 
 ### Rule 4: Scope Exit
-**Call `___dup` when a borrowed value leaves scope:**
+**Call `___dup` when a value leaves its scope:**
 
+**Begin blocks:**
+```yo
+x := box(1);
+y := {
+  ();
+  x  // ___dup(x) when returning from begin block
+};
+// y now owns a copy, x still owns its copy
+```
+
+**Match expressions:**
 ```yo
 optional := Option(Box(i32)).Some(box(42)); // optional owns
 x := match(optional,
@@ -267,6 +278,8 @@ x := match(optional,
   }
 )
 ```
+
+**Note:** The Phase 1.5 optimization often cancels these dup calls when they're paired with corresponding drop calls, effectively transferring ownership rather than creating unnecessary copies.
 
 ### Rule 5: The `own()` Keyword
 
