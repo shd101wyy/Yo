@@ -328,9 +328,25 @@ typedef struct {
     dependencies.set(typeId, new Set());
 
     if (kind === "struct" && isStructType(type)) {
-      // Check if struct contains enums by value
+      // Check if struct contains enums or value structs by value
       for (const field of type.fields) {
         if (isEnumType(field.type)) {
+          const depCName = getTypeString(field.type, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+        // Value structs (non-object, non-newtype) need to be defined first
+        else if (
+          isStructType(field.type) &&
+          !field.type.isObjectType &&
+          !field.type.isNewtype
+        ) {
           const depCName = getTypeString(field.type, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (

@@ -1,8 +1,29 @@
-open import "std/collections/array_list";
+/**
+ * Bucket - Internal structure to store key-value pairs
+ */
+Bucket :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+  struct(
+    key : K,
+    value : V
+  )
+;
+
+HashMap :: (fn(
+  compt(K): Type,
+  compt(V): Type,
+  where(K <: (Eq(K), Hash))
+) -> compt(Type))
+  object(
+    data : Bucket(K, V),
+
+    new :: (fn(k : K, v : V) -> Self)({
+      return Self(Bucket(K, V)(k, v)); 
+    })
+  )
+;
 
 main :: (fn() -> unit) {
-  arr := ArrayList(Box(i32)).new();
-  arr.push(box(1));
+  HashMap(i32, i32).new(3, 4);
 };
 
 export main;
