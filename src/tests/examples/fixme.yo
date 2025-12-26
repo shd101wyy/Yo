@@ -1,50 +1,33 @@
-open import "std/libc/stdio";
-open import "std/collections/hash_map";
+HashSet :: (fn(
+  compt(T): Type,
+  where(T <: (Eq(T), Hash))
+) -> compt(Type))
+  object(
+    data : ?*(T),
 
-main :: (fn() -> unit) {
-  map := HashMap(i32, i32).new();
-  
-  key := i32(-1);
-  value := i32(10);
-  hash1 := key.hash();
-  printf("hash of -1 is: %llu\n", hash1);
-  printf("key value: %d\n", key);
-  
-  set_result := map.set(key, value);
-  match(set_result,
-    .Ok(opt) => {
-      printf("set succeeded\n");
-      match(opt,
-        .Some(v) => printf("replaced old value: %d\n", v),
-        .None => printf("inserted new key\n")
-      );
-    },
-    .Err(err) => {
-      printf("set failed\n");
-    }
-  );
-  
-  hash2 := key.hash();
-  printf("hash of -1 again: %llu\n", hash2);
-  
-  equals := cond(
-    (key == key) => i32(1),
-    true => i32(0)
-  );
-  printf("key == key: %d\n", equals);
-  
-  get_result := map.get(key);
-  match(get_result,
-    .Some(v) => {
-      printf("get succeeded, value: %d\n", v);
-      assert(v == i32(10));
-    },
-    .None => {
-      printf("get failed - key not found!\n");
-      printf("map size: %zu\n", map.len());
-      printf("map capacity: %zu\n", map.capacity);
-    }
-  );
-};
+    use_t :: (fn(v : T)-> unit)({
+      return ();
+    }),
 
-export main;
+    /**
+     * Find slot index for a given element using quadratic probing
+     * Returns Some(index) if element is found, None otherwise
+     */
+    _find_slot :: (fn(self: Self, data_ptr2: *(T), element: T, element2: T) -> Option(usize))(
+      {
+        data_ptr := self.data.unwrap();
+        // data_ptr := data_ptr2;
+        
+        element == element2;
+
+        stored_element := data_ptr.*;
+
+        Self.use_t(stored_element);
+
+        stored_element == element;
+        
+        .None
+      }
+    )
+  );
+

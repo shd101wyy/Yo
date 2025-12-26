@@ -11,10 +11,12 @@ import { TokenType } from "../../token";
 import {
   areTypesCompatible,
   EnumType,
+  getValueOfSomeTypeFromEnv,
   isEnumType,
   isFunctionType,
   isModuleType,
   isPtrType,
+  isSomeType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -169,7 +171,17 @@ export function evaluatePropertyAccess({
   if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {
     if (isPtrType(objectExpr.$?.type)) {
       const pointerType = objectExpr.$.type;
-      const baseType = pointerType.childType;
+      let baseType = pointerType.childType;
+
+      // CRITICAL: If the child type is a SomeType, we need to resolve it from the environment
+      // to get the properly constrained version (e.g., with where clause module constraints).
+      // This is necessary because during function specialization, SomeTypes might be created
+      // that reference the type parameter name but don't carry over the module.fields from
+      // the original where clause constraints.
+      // QUESTION: Is this correct? This fix is related to hash_set.yo
+      if (isSomeType(baseType)) {
+        baseType = getValueOfSomeTypeFromEnv(env, baseType);
+      }
 
       expr.$ = {
         env,
