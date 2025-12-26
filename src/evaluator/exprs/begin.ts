@@ -146,22 +146,12 @@ function searchRecursively(
       const variable = variables[variables.length - 1]!;
 
       // Track dup calls for optimization:
-      // 1. If the variable owns the same ARC value as another variable (optimization tracking)
-      // 2. If the variable itself is owning (new pattern with assignments always own)
-      if (variable.isOwningTheSameGcValueAs) {
-        // Store the dup call mapped to the shared variable ID
-        const sharedVariableId = variable.isOwningTheSameGcValueAs.id;
-        if (!dupCalls.has(sharedVariableId)) {
-          dupCalls.set(sharedVariableId, []);
-        }
-        dupCalls.get(sharedVariableId)!.push(expr);
-      } else if (variable.isOwningTheGcValue) {
-        // For owning variables, track the dup call directly under the variable's ID
-        if (!dupCalls.has(variable.id)) {
-          dupCalls.set(variable.id, []);
-        }
-        dupCalls.get(variable.id)!.push(expr);
+      // Always add the dup call under the variable's ID
+      // During optimization, we use getBaseVariableId to find matches
+      if (!dupCalls.has(variable.id)) {
+        dupCalls.set(variable.id, []);
       }
+      dupCalls.get(variable.id)!.push(expr);
     }
     return;
   }
@@ -230,12 +220,17 @@ function searchRecursively(
     return;
   }
 
-  // Handle match expressions - only include dup calls that are present in ALL branches
+  // Handle match expressions - search scrutinee, then only include dup calls from branches that are present in ALL branches
   if (
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.match)
   ) {
-    handleBranchingExpression(expr, 1); // Skip the first argument (scrutinee)
+    // First, search through the scrutinee (first argument)
+    if (expr.args[0]) {
+      searchRecursively(expr.args[0], dupCalls);
+    }
+    // Then handle branches conservatively (only dup calls present in ALL branches)
+    handleBranchingExpression(expr, 1); // Skip the first argument (scrutinee) since we already handled it
     return;
   }
 
@@ -749,8 +744,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   */
 
   // Simplified ownership model for begin blocks:
-  // Always dup the last expression when returning a GC value from a begin block.
-  // This ensures clean ownership semantics without complex optimization logic.
+  // Call dup when returning a value from an outer scope.
+  // This ensures clean ownership semantics.
+  let returnVariable: Variable | undefined = undefined;
   let returnValueExpr: Expr | undefined = lastExpr;
   if (
     exprIsFunctionCall(lastExpr) &&
@@ -758,9 +754,31 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   ) {
     returnValueExpr = lastExpr.args[0];
   }
+  const returnValueExprVariableName = returnValueExpr
+    ? returnValueExpr.$?.variableName
+    : undefined;
+  if (returnValueExprVariableName) {
+    const variables = getVariablesFromEnv(env, returnValueExprVariableName);
+    if (variables.length) {
+      const variable = variables[variables.length - 1]!;
+      returnVariable = variable;
+    }
+  }
 
-  // Always call dup on the return value expression to maintain clean ownership
-  if (returnValueExpr) {
+  // When returning a variable from the current frame, mark it as consumed (ownership transfer)
+  // When returning from an outer frame, call dup (borrowing)
+  if (
+    returnVariable?.isOwningTheGcValue &&
+    returnVariable.frameLevel === env.frames.length - 1 &&
+    !returnVariable.consumedAtToken
+  ) {
+    // Variable from current frame - transfer ownership by marking as consumed
+    env = updateExistingVariable(env, returnVariable, {
+      ...returnVariable,
+      consumedAtToken: lastExpr.token,
+    });
+  } else if (returnVariable && returnValueExpr) {
+    // Variable from outer frame or non-owning - call dup
     setExprAsNeedsToCallDup(returnValueExpr, context);
     env = returnValueExpr.$!.env!;
   }
@@ -770,14 +788,6 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // When evaluating function body begin block, also check the parameters frame (previous frame)
   let variablesNeedingDrop = getVariablesNeedingDrop(env);
   const variablesActuallyNeedingDrop: Variable[] = [];
-
-  // console.log(`\\n=== DEBUG: Begin Block Drop Optimization ===`);
-  // console.log(
-  //   `Variables needing drop before optimization:`,
-  //   variablesNeedingDrop
-  //     .map((v) => `${v.name} (id: ${v.id}, consumed: ${!!v.consumedAtToken})`)
-  //     .join(", ")
-  // );
 
   if (OPTIMIZE_DUP_AND_DROP_PAIRS) {
     if (isEvaluatingFunctionBodyBeginBlock && env.frames.length >= 2) {
@@ -914,7 +924,20 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     poppedEnvFrame: currentFrame,
   };
 
-  attachTempVariableToExpr(expr, true);
+  // Attach temp variable for the begin block result
+  // If we're dupping a variable (borrowing from outer scope), track the ownership relationship
+  // so the optimization can cancel the dup/drop pair
+  if (
+    returnVariable &&
+    returnValueExpr?.$?.deferredDupExpressions &&
+    returnValueExpr.$.deferredDupExpressions.length > 0
+  ) {
+    attachTempVariableToExpr(expr, true, returnVariable);
+  } else if (returnVariable?.consumedAtToken) {
+    attachTempVariableToExpr(expr, true, returnVariable);
+  } else {
+    attachTempVariableToExpr(expr, true);
+  }
 
   return expr;
 }
