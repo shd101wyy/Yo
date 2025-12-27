@@ -1805,11 +1805,11 @@ export function generateDynWrapperFunctions(
     // Special-case Dyn(Fn(...)): the vtable uses a synthetic `call` slot derived from FnModuleType.isFn,
     // not from module fields. For boxed closures, we can dispatch directly to the embedded call pointer.
     for (const requiredModule of impl.dynType.requiredModules) {
-      if (!isFnModuleType(requiredModule)) {
+      if (!isFnModuleType(requiredModule.module)) {
         continue;
       }
 
-      const callType = requiredModule.isFn.callType;
+      const callType = requiredModule.module.isFn.callType;
       const returnTypeStr = getTypeString(callType.return.type, context);
       const wrapperName = `yo_wrap_${implKey}_call`;
 
@@ -2057,7 +2057,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     const vtableTypeName = `${dynTypeCName}_vtable`;
 
     emitter.emitDeclarationLine(
-      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.typeName || "?").join(" + ")})`
+      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.module.typeName || "?").join(" + ")})`
     );
     emitter.emitDeclarationLine(
       `static const ${vtableTypeName} ${vtableName} = {`
@@ -2072,7 +2072,8 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
       BuiltinFunctions.dispose[0]!,
     ]);
 
-    for (const moduleType of impl.dynType.requiredModules) {
+    for (const requiredModule of impl.dynType.requiredModules) {
+      const moduleType = requiredModule.module;
       if (isFnModuleType(moduleType)) {
         // Fn dyn has a synthetic `call` slot
         const wrapperName = `yo_wrap_${implKey}_call`;

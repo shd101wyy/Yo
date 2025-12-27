@@ -215,7 +215,7 @@ export function typeImplementsFn(
     const requiredModules = (type as SomeType | DynType).requiredModules;
     if (requiredModules) {
       for (const moduleType of requiredModules) {
-        if (isFnModuleType(moduleType)) {
+        if (isFnModuleType(moduleType.module)) {
           return true;
         }
       }
@@ -240,8 +240,8 @@ export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
     const requiredModules = (type as SomeType | DynType).requiredModules;
     if (requiredModules) {
       for (const moduleType of requiredModules) {
-        if (isFnModuleType(moduleType)) {
-          return moduleType;
+        if (isFnModuleType(moduleType.module)) {
+          return moduleType.module;
         }
       }
     }
@@ -262,7 +262,7 @@ export function typeImplementsFuture(
     const requiredModules = (type as SomeType | DynType).requiredModules;
     if (requiredModules) {
       for (const moduleType of requiredModules) {
-        if (isFutureModuleType(moduleType)) {
+        if (isFutureModuleType(moduleType.module)) {
           return true;
         }
       }
@@ -289,8 +289,8 @@ export function extractFutureModuleFromType(
     const requiredModules = (type as SomeType | DynType).requiredModules;
     if (requiredModules) {
       for (const moduleType of requiredModules) {
-        if (isFutureModuleType(moduleType)) {
-          return moduleType;
+        if (isFutureModuleType(moduleType.module)) {
+          return moduleType.module;
         }
       }
     }
@@ -1234,13 +1234,15 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }
       // Display as Impl(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
       const allModuleStrings: string[] = [];
-      if (someType.requiredModules && someType.requiredModules.length > 0) {
-        for (const mt of someType.requiredModules) {
+      const requiredModules = flattenRequiredModules(someType);
+      if (requiredModules && requiredModules.length > 0) {
+        for (const mt of requiredModules) {
           allModuleStrings.push(typeToString(mt, visited));
         }
       }
-      if (someType.negativeModules && someType.negativeModules.length > 0) {
-        for (const mt of someType.negativeModules) {
+      const negativeModules = flattenNegativeModules(someType);
+      if (negativeModules && negativeModules.length > 0) {
+        for (const mt of negativeModules) {
           allModuleStrings.push(`!(${typeToString(mt, visited)})`);
         }
       }
@@ -1276,11 +1278,13 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }
       // Display as Dyn(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
       const allModuleStrings: string[] = [];
-      for (const mt of dynType.requiredModules) {
+      const requiredModules = flattenRequiredModules(dynType);
+      for (const mt of requiredModules) {
         allModuleStrings.push(typeToString(mt, visited));
       }
-      if (dynType.negativeModules && dynType.negativeModules.length > 0) {
-        for (const mt of dynType.negativeModules) {
+      const negativeModules = flattenNegativeModules(dynType);
+      if (negativeModules && negativeModules.length > 0) {
+        for (const mt of negativeModules) {
           allModuleStrings.push(`!(${typeToString(mt, visited)})`);
         }
       }
@@ -1873,4 +1877,49 @@ export function typeContainsSelfTypeForDynamicDispatchCheck(
 
   // Other types (primitives, modules, etc.) don't contain Self
   return false;
+}
+
+/**
+ * Flatten the required modules from a SomeType or DynType.
+ * Extracts ModuleType array from {frameLevel, module}[] structure.
+ */
+export function flattenRequiredModules(type: SomeType | DynType): ModuleType[] {
+  return type.requiredModules.map((entry) => entry.module);
+}
+
+/**
+ * Flatten the negative modules from a SomeType or DynType.
+ * Extracts ModuleType array from {frameLevel, module}[] structure.
+ */
+export function flattenNegativeModules(
+  type: SomeType | DynType
+): ModuleType[] | undefined {
+  if (!type.negativeModules || type.negativeModules.length === 0) {
+    return undefined;
+  }
+  return type.negativeModules.map((entry) => entry.module);
+}
+
+/**
+ * Pop constraints from a type that were added at the given frame level.
+ * This is called when a frame is popped to clean up where clause constraints.
+ * Primarily used for SomeType; DynType uses frameLevel 0 and doesn't pop constraints.
+ */
+export function popConstraintsAtFrameLevel(
+  type: SomeType | DynType,
+  frameLevel: number
+): void {
+  // Remove all constraints that were added at this frame level
+  type.requiredModules = type.requiredModules.filter(
+    (entry) => entry.frameLevel !== frameLevel
+  );
+
+  if (type.negativeModules) {
+    type.negativeModules = type.negativeModules.filter(
+      (entry) => entry.frameLevel !== frameLevel
+    );
+    if (type.negativeModules.length === 0) {
+      type.negativeModules = undefined;
+    }
+  }
 }

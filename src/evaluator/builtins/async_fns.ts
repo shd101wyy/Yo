@@ -204,7 +204,7 @@ export function evaluateAsync({
     createType0(),
     "", // Name for the SomeType
     undefined,
-    [futureModuleType], // requiredModules
+    [{ module: futureModuleType, frameLevel: env.frames.length - 1 }], // requiredModules
     undefined // negativeModules
   );
   finalType.resolvedConcreteType = captureType;

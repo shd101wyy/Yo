@@ -33,6 +33,8 @@ import {
 } from "./guards";
 import { TypeTag } from "./tags";
 import {
+  flattenNegativeModules,
+  flattenRequiredModules,
   getValueOfSomeTypeFromEnv,
   typeContainsSomeType,
   typeImplementsModuleInternal,
@@ -497,15 +499,16 @@ export function areTypesCompatible(
   if (isDynType(expected.type) && isDynType(given.type)) {
     // Given type must implement ALL modules required by expected type
     // Example: expected `Dyn(Copy)` is compatible with given `Dyn(Copy, Send)`
-    for (const expectedModule of expected.type.requiredModules) {
-      const matchingGivenModule = given.type.requiredModules.find(
-        (givenModule) =>
-          areTypesCompatible(
-            { type: expectedModule, env: expected.env },
-            { type: givenModule, env: given.env },
-            requireExactMatch,
-            visitedPairs
-          )
+    const expectedModules = flattenRequiredModules(expected.type);
+    const givenModules = flattenRequiredModules(given.type);
+    for (const expectedModule of expectedModules) {
+      const matchingGivenModule = givenModules.find((givenModule) =>
+        areTypesCompatible(
+          { type: expectedModule, env: expected.env },
+          { type: givenModule, env: given.env },
+          requireExactMatch,
+          visitedPairs
+        )
       );
       if (!matchingGivenModule) {
         return false; // Expected module not found in given
@@ -513,19 +516,16 @@ export function areTypesCompatible(
     }
 
     // Check negative modules: given must NOT implement any of expected's negative modules
-    if (
-      expected.type.negativeModules &&
-      expected.type.negativeModules.length > 0
-    ) {
-      for (const negativeModule of expected.type.negativeModules) {
-        const matchingGivenModule = given.type.requiredModules.find(
-          (givenModule) =>
-            areTypesCompatible(
-              { type: negativeModule, env: expected.env },
-              { type: givenModule, env: given.env },
-              requireExactMatch,
-              visitedPairs
-            )
+    const expectedNegativeModules = flattenNegativeModules(expected.type);
+    if (expectedNegativeModules && expectedNegativeModules.length > 0) {
+      for (const negativeModule of expectedNegativeModules) {
+        const matchingGivenModule = givenModules.find((givenModule) =>
+          areTypesCompatible(
+            { type: negativeModule, env: expected.env },
+            { type: givenModule, env: given.env },
+            requireExactMatch,
+            visitedPairs
+          )
         );
         if (matchingGivenModule) {
           return false; // Given implements a module that expected forbids
@@ -584,8 +584,8 @@ export function areTypesCompatible(
       // However, if requireExactMatch is true, the modules must match exactly (same count and types)
 
       // Use the requiredModules field directly (not module.fields)
-      const expectedModules = expected.type.requiredModules ?? [];
-      const givenModules = given.type.requiredModules ?? [];
+      const expectedModules = flattenRequiredModules(expected.type);
+      const givenModules = flattenRequiredModules(given.type);
 
       // For exact matching (e.g., cache comparisons), require same number of modules
       if (requireExactMatch && expectedModules.length !== givenModules.length) {
@@ -616,7 +616,7 @@ export function areTypesCompatible(
         for (const negativeModule of expected.type.negativeModules) {
           const matchingGivenModule = givenModules.find((givenModule) =>
             areTypesCompatible(
-              { type: negativeModule, env: expected.env },
+              { type: negativeModule.module, env: expected.env },
               { type: givenModule, env: given.env },
               requireExactMatch,
               visitedPairs
@@ -663,7 +663,7 @@ export function areTypesCompatible(
     } else {
       // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
       // Check if given implements all required modules of expected
-      const requiredModules = expected.type.requiredModules ?? [];
+      const requiredModules = flattenRequiredModules(expected.type);
       if (requiredModules.length > 0) {
         // Check that given implements all required modules
         for (const requiredModule of requiredModules) {
@@ -689,7 +689,7 @@ export function areTypesCompatible(
             if (
               typeImplementsModuleInternal({
                 targetType: given.type,
-                moduleType: negativeModule,
+                moduleType: negativeModule.module,
                 env: expected.env,
               })
             ) {

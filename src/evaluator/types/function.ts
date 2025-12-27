@@ -26,6 +26,7 @@ import {
   FunctionForallParameter,
   FunctionParameter,
   FunctionType,
+  getAllSomeTypes,
   getFunctionParameterExprs,
   getFunctionParameterToken,
   getValueOfSomeTypeFromEnv,
@@ -34,6 +35,7 @@ import {
   isFnModuleType,
   isModuleType,
   isSomeType,
+  popConstraintsAtFrameLevel,
   prohibitVoidType,
   Type,
   typeOfType,
@@ -1132,6 +1134,14 @@ ${typeToString(returnType)}`,
         ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
         : undefined,
   });
+
+  // Before popping the frame, pop any where clause constraints that were added at this frame level
+  // This prevents where clause constraints from leaking to sibling functions
+  const frameLevelToCleanup = env.frames.length - 1;
+  const allSomeTypes = getAllSomeTypes(functionType);
+  for (const someType of allSomeTypes) {
+    popConstraintsAtFrameLevel(someType, frameLevelToCleanup);
+  }
 
   // Pop the environment frame
   env = popEnvFrame(env, true);

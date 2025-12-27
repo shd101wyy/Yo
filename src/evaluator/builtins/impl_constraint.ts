@@ -101,13 +101,23 @@ export function evaluateImplConstraint({
     }
   }
 
+  // Wrap modules with frameLevel 0 (base level, not from where clause)
+  const wrappedRequiredModules = requiredModules.map((m) => ({
+    frameLevel: 0,
+    module: m,
+  }));
+  const wrappedNegativeModules = negativeModules.map((m) => ({
+    frameLevel: 0,
+    module: m,
+  }));
+
   // Create a SomeType with the required and negative modules
   const someType = createSomeType(
     createType0(),
     "Impl", // Name for the SomeType
     undefined,
-    requiredModules,
-    negativeModules
+    wrappedRequiredModules,
+    wrappedNegativeModules.length > 0 ? wrappedNegativeModules : undefined
   );
 
   const typeValue = createTypeValue(someType);

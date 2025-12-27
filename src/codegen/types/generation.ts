@@ -344,7 +344,7 @@ typedef struct {
         // Value structs (non-object, non-newtype) need to be defined first
         else if (
           isStructType(field.type) &&
-          !field.type.isObjectType &&
+          !field.type.isReferenceSemantics &&
           !field.type.isNewtype
         ) {
           const depCName = getTypeString(field.type, context);
@@ -613,8 +613,7 @@ ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
   // Generate dispose function implementations for Iso types
   // The dispose function drops the inner value if it hasn't been extracted
   for (const [isoTypeName, isoInfo] of context.isoTypes) {
-    const { childTypeCName, isoType, createGenerated, disposeGenerated } =
-      isoInfo;
+    const { isoType, createGenerated, disposeGenerated } = isoInfo;
     if (!createGenerated || !isoType || disposeGenerated) continue;
 
     // Determine how to drop the inner value based on its type
@@ -1022,7 +1021,8 @@ export function generateDynDeclaration(
   ]);
 
   // Process modules in the order they appear in dynType.requiredModules
-  for (const moduleType of dynType.requiredModules) {
+  for (const requiredModule of dynType.requiredModules) {
+    const moduleType = requiredModule.module;
     // Handle FnModuleType specially - it has isFn which represents the "call" method
     if (isFnModuleType(moduleType)) {
       const functionType = moduleType.isFn.callType;

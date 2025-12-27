@@ -853,8 +853,8 @@ export function createSomeType(
   type: TypeHierarchyType,
   variableName: string,
   id?: string,
-  requiredModules?: ModuleType[],
-  negativeModules?: ModuleType[],
+  requiredModules?: { frameLevel: number; module: ModuleType }[],
+  negativeModules?: { frameLevel: number; module: ModuleType }[],
   recursiveTypeRef?: {
     functionValue: FunctionValue;
     argValues: Value[];
@@ -1055,13 +1055,23 @@ export function createDynType(
     : "";
   const canonicalId = `dyn_${hashString(moduleSignatures + (negativeSignatures ? `_neg_${negativeSignatures}` : ""))}`;
 
+  // Wrap modules with frameLevel 0 (base level, not from where clause)
+  const wrappedRequiredModules = requiredModules.map((m) => ({
+    frameLevel: 0,
+    module: m,
+  }));
+  const wrappedNegativeModules = negativeModules?.map((m) => ({
+    frameLevel: 0,
+    module: m,
+  }));
+
   const dynType: DynType = {
     id: canonicalId,
     tag: TypeTag.Dyn,
-    requiredModules: [...requiredModules],
+    requiredModules: wrappedRequiredModules,
     negativeModules:
-      negativeModules && negativeModules.length > 0
-        ? negativeModules
+      wrappedNegativeModules && wrappedNegativeModules.length > 0
+        ? wrappedNegativeModules
         : undefined,
     module,
     env,
