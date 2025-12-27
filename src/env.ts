@@ -1113,30 +1113,73 @@ export function getMethodsByNameFromEnv(
 
     // Look for methods in function-scoped where clause constraints
     // This checks currentFunctionType.whereClauseConstraints for the SomeType
-    if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
-      const constraints = currentFunctionType.whereClauseConstraints.get(
-        dereferencedReceiverType
-      );
-      if (constraints) {
-        for (const requiredModuleType of constraints.requiredModules) {
-          // Search for the method in the required module
-          const method = requiredModuleType.fields.find(
-            (f) => f.label === methodName && isFunctionType(f.type)
-          );
-          if (method && isFunctionType(method.type)) {
-            // Create a specialized method type with SelfType set to the receiver type
-            const specializedMethodType: FunctionType = {
-              ...method.type,
-              SelfType: dereferencedReceiverType,
-            };
-            // Create an unknown value since the actual implementation is not known
-            const value = createUnknownValue(
-              specializedMethodType,
-              method.label
-            );
-            methods.push({ type: specializedMethodType, value });
+    // Also checks parent function types (for nested functions like methods inside generic types)
+    if (methods.length === 0) {
+      // Helper function to find constraints from a function type
+      const findConstraintsInFunction = (
+        funcType: FunctionType | undefined
+      ): { requiredModules: ModuleType[] } | undefined => {
+        if (!funcType?.whereClauseConstraints) return undefined;
+
+        // First try direct lookup
+        let constraints = funcType.whereClauseConstraints.get(
+          dereferencedReceiverType
+        );
+
+        // If direct lookup fails and receiver is a SomeType, try to find a compatible
+        // constrained type parameter. This handles cases like:
+        //   - where(T <: Eq(T)) in has method
+        //   - current_opt.value has type X (from Node(X))
+        //   - X should match T because they're unified type parameters
+        if (!constraints && isSomeType(dereferencedReceiverType)) {
+          for (const [
+            constrainedType,
+            typeConstraints,
+          ] of funcType.whereClauseConstraints) {
+            if (
+              isSomeType(constrainedType) &&
+              areTypesCompatible(
+                { type: constrainedType, env },
+                { type: dereferencedReceiverType, env },
+                false // Allow type parameter unification
+              )
+            ) {
+              constraints = typeConstraints;
+              break;
+            }
           }
         }
+
+        return constraints;
+      };
+
+      // Check current function and all parent functions in the chain
+      let funcToCheck: FunctionType | undefined = currentFunctionType;
+      while (funcToCheck && methods.length === 0) {
+        const constraints = findConstraintsInFunction(funcToCheck);
+        if (constraints) {
+          for (const requiredModuleType of constraints.requiredModules) {
+            // Search for the method in the required module
+            const method = requiredModuleType.fields.find(
+              (f) => f.label === methodName && isFunctionType(f.type)
+            );
+            if (method && isFunctionType(method.type)) {
+              // Create a specialized method type with SelfType set to the receiver type
+              const specializedMethodType: FunctionType = {
+                ...method.type,
+                SelfType: dereferencedReceiverType,
+              };
+              // Create an unknown value since the actual implementation is not known
+              const value = createUnknownValue(
+                specializedMethodType,
+                method.label
+              );
+              methods.push({ type: specializedMethodType, value });
+            }
+          }
+        }
+        // Move to parent function
+        funcToCheck = funcToCheck.ParentFunctionType;
       }
     }
 

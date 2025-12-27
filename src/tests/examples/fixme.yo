@@ -1,4 +1,3 @@
-
 {
   use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
     return cb(v);
@@ -42,9 +41,27 @@
 };
 
 {
-  Node :: (fn(compt(T): Type) -> compt(Type))
+ArrayList :: (fn(compt(T): Type) -> compt(Type))
+  object(
+    _ptr : ?*(T),
+    _length : usize,
+    _capacity : usize,
+
+    /**
+     * Add an element to the end of the ArrayList
+     */
+    push :: (fn(self: Self, typed_ptr : *(T)) -> unit)({
+      target_ptr := (typed_ptr &+ self._length);
+      
+      return ();
+    })
+  );
+};
+
+{
+  Node :: (fn(compt(X): Type) -> compt(Type))
     object(
-      value : T,
+      value : X,
       next : Option(Self)
     )
   ;
@@ -62,15 +79,22 @@
         current_opt.value == value;
         false
       })
-
-      /*
-      // FIXME: This function should throw error
-      , test_without_where :: (fn(self : Self, value : T) -> bool)({
-        current_opt := self.head.unwrap();
-        compt_expect_error(current_opt.value == value);
-        false
-      })
-      */
     )
   )
+};
+
+{
+  HashMap :: (fn(
+    compt(K): Type,
+    compt(V): Type,
+    where(K <: (Eq(K), Hash))
+  ) -> compt(Type))
+    object(
+      _find_bucket :: (fn(self: Self, key: K) -> Option(usize))(
+        {
+          key == key;
+          .None
+        }
+      )
+    );
 };
