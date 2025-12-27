@@ -131,7 +131,7 @@ export function extractTests(filePath: string): TestDeclaration[] {
     const { moduleError } = moduleManager.loadModule(modulePath);
     if (moduleError) {
       console.error(
-        `${colors.red}Error evaluating ${filePath}: ${moduleError.message}${colors.reset}`
+        `${colors.red}Error evaluating ${filePath}: ${moduleError}${colors.reset}`
       );
       return tests;
     }
