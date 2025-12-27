@@ -572,7 +572,8 @@ export function areValuesEqual(
   if (value1.tag === ValueTag.Type && value2.tag === ValueTag.Type) {
     return areTypesCompatible(
       { type: value1.value, env: expected.env },
-      { type: value2.value, env: given.env }
+      { type: value2.value, env: given.env },
+      true
     );
   } else if (isComptStringValue(value1) && isComptStringValue(value2)) {
     return value1.value === (value2 as ComptStringValue).value;
@@ -630,7 +631,8 @@ export function areValuesEqual(
       value1.fields.length !== value2.fields.length ||
       !areTypesCompatible(
         { type: value1.type, env: expected.env },
-        { type: value2.type, env: given.env }
+        { type: value2.type, env: given.env },
+        true
       )
     ) {
       return false;
@@ -651,7 +653,8 @@ export function areValuesEqual(
       value1.fields.length !== (value2 as EnumValue).fields.length ||
       !areTypesCompatible(
         { type: value1.type, env: expected.env },
-        { type: value2.type, env: given.env }
+        { type: value2.type, env: given.env },
+        true
       ) ||
       value1.variantName !== (value2 as EnumValue).variantName
     ) {
@@ -673,7 +676,8 @@ export function areValuesEqual(
       value1.fields.length !== value2.fields.length ||
       !areTypesCompatible(
         { type: value1.type, env: expected.env },
-        { type: value2.type, env: given.env }
+        { type: value2.type, env: given.env },
+        true
       )
     ) {
       return false;
@@ -740,7 +744,8 @@ export function areValuesEqual(
     // recursively evalauting the `recur` function.
     return areTypesCompatible(
       { type: value1.type, env: expected.env },
-      { type: value2.type, env: given.env }
+      { type: value2.type, env: given.env },
+      true
     );
   }
   // Handle the case where only one value is unknown - try to resolve it

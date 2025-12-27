@@ -57,18 +57,18 @@ export function areTypesCompatible(
   visitedPairs: Set<string> = new Set()
 ): boolean {
   // Cycle detection: if we're already comparing this pair, assume compatible to break cycle
-  const expectedId = expected.type.id;
-  const givenId = given.type.id;
-  if (expectedId && givenId) {
-    const pairKey = `${expectedId}:${givenId}`;
-    if (visitedPairs.has(pairKey)) {
-      // We're in a recursive comparison - assume compatible to break the cycle
-      // This is safe because if the types were truly incompatible, we would have
-      // found that out in a previous non-cyclic comparison path
-      return true;
-    }
-    visitedPairs.add(pairKey);
-  }
+  /// const expectedId = expected.type.id;
+  /// const givenId = given.type.id;
+  /// if (expectedId && givenId) {
+  ///   const pairKey = `${expectedId}:${givenId}`;
+  ///   if (visitedPairs.has(pairKey)) {
+  ///     // We're in a recursive comparison - assume compatible to break the cycle
+  ///     // This is safe because if the types were truly incompatible, we would have
+  ///     // found that out in a previous non-cyclic comparison path
+  ///     return true;
+  ///   }
+  ///   visitedPairs.add(pairKey);
+  /// }
 
   if (isPrimitiveType(expected.type) && isPrimitiveType(given.type)) {
     return expected.type.tag === given.type.tag;
@@ -574,9 +574,9 @@ export function areTypesCompatible(
       // However, we only do this for SomeTypes with the SAME name (same type parameter from different scopes)
       // Different names (like Self vs _Self) are intentionally different and should be allowed to match
       // through constraint checking
-      if (requireExactMatch && expected.type.name === given.type.name) {
-        return false;
-      }
+      // if (requireExactMatch && expected.type.name === given.type.name) {
+      //   return false;
+      // }
 
       // Check required modules compatibility:
       // Given type must implement ALL modules required by expected type

@@ -1,29 +1,11 @@
-// Test to verify where clause constraints are properly scoped
-// and don't leak between functions
+use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
+    return cb(v);
+};
 
-Container :: (fn(compt(T): Type) -> compt(Type))(
-  object(
-    value : T,
+main :: (fn() -> unit) {
+  b := Box(i32)(5);
+  z := use_cb(10, dyn (u) => ((u + 1) + b.*)); // capture variable 'b'
+  assert(z == 16);
+};
 
-    // This function has where(T <: Eq(T))
-    equals :: (fn(
-      self: Self, 
-      other: T,
-      where(T <: Eq(T))
-    ) -> bool)(
-      self.value == other
-    ),
-
-    // This function should NOT have access to Eq(T) 
-    // because it doesn't declare where(T <: Eq(T))
-    try_equals_without_constraint :: (fn(
-      self: Self,
-      other: T
-    ) -> bool)(
-      // This line should fail: T doesn't have Eq(T) in this function's scope
-      self.value == other
-    )
-  )
-);
-
-export Container;
+export main;
