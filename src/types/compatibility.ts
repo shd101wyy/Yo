@@ -659,7 +659,28 @@ export function areTypesCompatible(
       // 1. They implement the same modules (checked above)
       // 2. resolvedConcreteType is compatible (checked above)
       // 3. No negative module violations (checked above)
-      return true;
+      // return true;
+
+      // Fallback: try to resolve SomeType from env (for generic type parameters)
+      const expectedType_ = getValueOfSomeTypeFromEnv(
+        expected.env,
+        expected.type
+      );
+      if (expected.type === expectedType_) {
+        return false;
+      }
+
+      const givenType_ = getValueOfSomeTypeFromEnv(given.env, given.type);
+      if (given.type === givenType_) {
+        return false;
+      }
+
+      return areTypesCompatible(
+        { type: expectedType_, env: expected.env },
+        { type: givenType_, env: given.env },
+        requireExactMatch,
+        visitedPairs
+      );
     } else {
       // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
       // Check if given implements all required modules of expected

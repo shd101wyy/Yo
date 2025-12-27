@@ -1,11 +1,20 @@
-use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-};
+Option :: (fn(compt(T): Type) -> compt(Type))
+  enum(
+    None,
+    Some(value: T)
+  )
+;
 
-main :: (fn() -> unit) {
-  b := Box(i32)(5);
-  z := use_cb(10, dyn (u) => ((u + 1) + b.*)); // capture variable 'b'
-  assert(z == 16);
-};
+Node :: (fn(compt(T): Type) -> compt(Type))
+  object(
+    value : T,
+    next : Option(Self)
+  )
+;
 
-export main;
+LinkedList :: (fn(compt(X): Type) -> compt(Type))
+  object(
+    head : Option(Node(X)),
+    length : usize
+  )
+;
