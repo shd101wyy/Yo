@@ -701,6 +701,21 @@ export interface FunctionType extends Type {
    *
    */
   isClosure?: boolean;
+
+  /**
+   * Constraints added via where clauses that apply to this function scope only.
+   * Maps from SomeType to the modules it must (or must not) implement within this function.
+   * Example: where(T <: Eq(T), T <: !(Copy)) adds:
+   *   T -> { requiredModules: [Eq(T)], negativeModules: [Copy] }
+   * These constraints don't mutate the original SomeType and don't leak to sibling functions.
+   */
+  whereClauseConstraints?: Map<
+    SomeType,
+    {
+      requiredModules: ModuleType[];
+      negativeModules: ModuleType[];
+    }
+  >;
 }
 
 export interface PtrType extends Type {
