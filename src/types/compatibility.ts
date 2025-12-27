@@ -569,6 +569,15 @@ export function areTypesCompatible(
         }
       }
 
+      // If requireExactMatch is true and IDs are different, return false immediately
+      // This is crucial for cache comparisons where we need exact type identity
+      // However, we only do this for SomeTypes with the SAME name (same type parameter from different scopes)
+      // Different names (like Self vs _Self) are intentionally different and should be allowed to match
+      // through constraint checking
+      if (requireExactMatch && expected.type.name === given.type.name) {
+        return false;
+      }
+
       // Check required modules compatibility:
       // Given type must implement ALL modules required by expected type
       // Example: expected `Impl(Send)` is compatible with given `Impl(Send, Copy)`

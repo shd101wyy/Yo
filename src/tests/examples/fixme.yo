@@ -1,10 +1,3 @@
-Option :: (fn(compt(T): Type) -> compt(Type))
-  enum(
-    None,
-    Some(value: T)
-  )
-;
-
 Node :: (fn(compt(T): Type) -> compt(Type))
   object(
     value : T,
@@ -12,9 +5,25 @@ Node :: (fn(compt(T): Type) -> compt(Type))
   )
 ;
 
-LinkedList :: (fn(compt(X): Type) -> compt(Type))
+LinkedList :: (fn(compt(T): Type) -> compt(Type))(
   object(
-    head : Option(Node(X)),
-    length : usize
+    head : Option(Node(T)),
+
+    has :: (fn(
+      self: Self, 
+      value: T,
+      where(T <: Eq(T))
+    ) -> bool)({
+      current_opt := self.head.unwrap();
+      current_opt.value == value;
+      false
+    }),
+
+    // FIXME: This function should throw error
+    test_without_where :: (fn(self : Self, value : T) -> bool)({
+      current_opt := self.head.unwrap();
+      current_opt.value == value;
+      false
+    })
   )
-;
+);
