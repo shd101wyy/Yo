@@ -178,7 +178,7 @@ export function evaluateSubtypeOf({
   if (context.isInsideWhereClause && !isSomeType(typeValue.value)) {
     throw formatErrorMessage({
       token: lhsExpr.token,
-      errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)}`,
+      errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)} of type ${typeToString(typeValue.value)}`,
     });
   }
 

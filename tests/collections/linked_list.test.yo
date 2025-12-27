@@ -1,0 +1,767 @@
+open import "std/collections/linked_list";
+
+// ===== Construction Tests =====
+
+test "LinkedList.new creates empty list", {
+  list := LinkedList(i32).new();
+  assert(list.len() == usize(0));
+  assert(list.is_empty());
+};
+
+// ===== Push Front Tests =====
+
+test "LinkedList.push_front adds single element", {
+  list := LinkedList(i32).new();
+  list.push_front(i32(42));
+  
+  assert(list.len() == usize(1));
+  assert(!list.is_empty());
+  assert(list.front().unwrap() == i32(42));
+  assert(list.back().unwrap() == i32(42));
+};
+
+test "LinkedList.push_front adds multiple elements in reverse order", {
+  list := LinkedList(i32).new();
+  list.push_front(i32(10));
+  list.push_front(i32(20));
+  list.push_front(i32(30));
+  
+  assert(list.len() == usize(3));
+  assert(list.front().unwrap() == i32(30));
+  assert(list.back().unwrap() == i32(10));
+};
+
+test "LinkedList.push_front updates head and tail", {
+  list := LinkedList(i32).new();
+  list.push_front(i32(1));
+  
+  first_front := list.front();
+  first_back := list.back();
+  assert(first_front.unwrap() == i32(1));
+  assert(first_back.unwrap() == i32(1));
+  
+  list.push_front(i32(2));
+  
+  second_front := list.front();
+  second_back := list.back();
+  assert(second_front.unwrap() == i32(2));
+  assert(second_back.unwrap() == i32(1));
+};
+
+// ===== Push Back Tests =====
+
+test "LinkedList.push_back adds single element", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(42));
+  
+  assert(list.len() == usize(1));
+  assert(!list.is_empty());
+  assert(list.front().unwrap() == i32(42));
+  assert(list.back().unwrap() == i32(42));
+};
+
+test "LinkedList.push_back adds multiple elements in order", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  assert(list.len() == usize(3));
+  assert(list.front().unwrap() == i32(10));
+  assert(list.back().unwrap() == i32(30));
+};
+
+test "LinkedList.push_back updates head and tail", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  
+  first_front := list.front();
+  first_back := list.back();
+  assert(first_front.unwrap() == i32(1));
+  assert(first_back.unwrap() == i32(1));
+  
+  list.push_back(i32(2));
+  
+  second_front := list.front();
+  second_back := list.back();
+  assert(second_front.unwrap() == i32(1));
+  assert(second_back.unwrap() == i32(2));
+};
+
+// ===== Mixed Push Tests =====
+
+test "LinkedList.push_front and push_back interleaved", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_front(i32(2));
+  list.push_back(i32(3));
+  list.push_front(i32(4));
+  
+  assert(list.len() == usize(4));
+  assert(list.front().unwrap() == i32(4));
+  assert(list.back().unwrap() == i32(3));
+};
+
+// ===== Pop Front Tests =====
+
+test "LinkedList.pop_front removes and returns front element", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  popped := list.pop_front();
+  assert(popped.is_some());
+  assert(popped.unwrap() == i32(10));
+  assert(list.len() == usize(2));
+  assert(list.front().unwrap() == i32(20));
+};
+
+test "LinkedList.pop_front on empty list returns None", {
+  list := LinkedList(i32).new();
+  popped := list.pop_front();
+  assert(popped.is_none());
+  assert(list.len() == usize(0));
+};
+
+test "LinkedList.pop_front until empty", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  
+  first_pop := list.pop_front();
+  assert(first_pop.unwrap() == i32(1));
+  assert(list.len() == usize(1));
+  
+  second_pop := list.pop_front();
+  assert(second_pop.unwrap() == i32(2));
+  assert(list.len() == usize(0));
+  assert(list.is_empty());
+  
+  third_pop := list.pop_front();
+  assert(third_pop.is_none());
+};
+
+test "LinkedList.pop_front updates head and tail correctly", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  
+  list.pop_front();
+  assert(list.len() == usize(0));
+  assert(list.front().is_none());
+  assert(list.back().is_none());
+};
+
+// ===== Pop Back Tests =====
+
+test "LinkedList.pop_back removes and returns back element", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  popped := list.pop_back();
+  assert(popped.is_some());
+  assert(popped.unwrap() == i32(30));
+  assert(list.len() == usize(2));
+  assert(list.back().unwrap() == i32(20));
+};
+
+test "LinkedList.pop_back on empty list returns None", {
+  list := LinkedList(i32).new();
+  popped := list.pop_back();
+  assert(popped.is_none());
+  assert(list.len() == usize(0));
+};
+
+test "LinkedList.pop_back until empty", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  
+  first_pop := list.pop_back();
+  assert(first_pop.unwrap() == i32(2));
+  assert(list.len() == usize(1));
+  
+  second_pop := list.pop_back();
+  assert(second_pop.unwrap() == i32(1));
+  assert(list.len() == usize(0));
+  assert(list.is_empty());
+  
+  third_pop := list.pop_back();
+  assert(third_pop.is_none());
+};
+
+test "LinkedList.pop_back updates head and tail correctly", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  
+  list.pop_back();
+  assert(list.len() == usize(0));
+  assert(list.front().is_none());
+  assert(list.back().is_none());
+};
+
+// ===== Mixed Pop Tests =====
+
+test "LinkedList.pop_front and pop_back interleaved", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  list.push_back(i32(4));
+  
+  front := list.pop_front();
+  assert(front.unwrap() == i32(1));
+  
+  back := list.pop_back();
+  assert(back.unwrap() == i32(4));
+  
+  assert(list.len() == usize(2));
+  assert(list.front().unwrap() == i32(2));
+  assert(list.back().unwrap() == i32(3));
+};
+
+// ===== Front and Back Tests =====
+
+test "LinkedList.front returns front element without removing", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  
+  front1 := list.front();
+  front2 := list.front();
+  
+  assert(front1.unwrap() == i32(10));
+  assert(front2.unwrap() == i32(10));
+  assert(list.len() == usize(2));
+};
+
+test "LinkedList.front on empty list returns None", {
+  list := LinkedList(i32).new();
+  front := list.front();
+  assert(front.is_none());
+};
+
+test "LinkedList.back returns back element without removing", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  
+  back1 := list.back();
+  back2 := list.back();
+  
+  assert(back1.unwrap() == i32(20));
+  assert(back2.unwrap() == i32(20));
+  assert(list.len() == usize(2));
+};
+
+test "LinkedList.back on empty list returns None", {
+  list := LinkedList(i32).new();
+  back := list.back();
+  assert(back.is_none());
+};
+
+// ===== Get Tests =====
+
+test "LinkedList.get returns element at valid index", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(100));
+  list.push_back(i32(200));
+  list.push_back(i32(300));
+  
+  first := list.get(usize(0));
+  assert(first.is_some());
+  assert(first.unwrap() == i32(100));
+  
+  second := list.get(usize(1));
+  assert(second.is_some());
+  assert(second.unwrap() == i32(200));
+  
+  third := list.get(usize(2));
+  assert(third.is_some());
+  assert(third.unwrap() == i32(300));
+};
+
+test "LinkedList.get returns None for out of bounds index", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  
+  result := list.get(usize(5));
+  assert(result.is_none());
+};
+
+test "LinkedList.get returns None for empty list", {
+  list := LinkedList(i32).new();
+  result := list.get(usize(0));
+  assert(result.is_none());
+};
+
+test "LinkedList.get at boundary indices", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  
+  first := list.get(usize(0));
+  assert(first.unwrap() == i32(1));
+  
+  last := list.get(usize(2));
+  assert(last.unwrap() == i32(3));
+  
+  out_of_bounds := list.get(usize(3));
+  assert(out_of_bounds.is_none());
+};
+
+// ===== Insert Tests =====
+
+test "LinkedList.insert at front (index 0)", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  
+  result := list.insert(usize(0), i32(5));
+  assert(result.is_ok());
+  assert(list.len() == usize(3));
+  assert(list.get(usize(0)).unwrap() == i32(5));
+  assert(list.get(usize(1)).unwrap() == i32(10));
+  assert(list.get(usize(2)).unwrap() == i32(20));
+};
+
+test "LinkedList.insert at back (index == length)", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  
+  result := list.insert(usize(2), i32(30));
+  assert(result.is_ok());
+  assert(list.len() == usize(3));
+  assert(list.get(usize(2)).unwrap() == i32(30));
+};
+
+test "LinkedList.insert in middle", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(30));
+  
+  result := list.insert(usize(1), i32(20));
+  assert(result.is_ok());
+  assert(list.len() == usize(3));
+  assert(list.get(usize(0)).unwrap() == i32(10));
+  assert(list.get(usize(1)).unwrap() == i32(20));
+  assert(list.get(usize(2)).unwrap() == i32(30));
+};
+
+test "LinkedList.insert into empty list at index 0", {
+  list := LinkedList(i32).new();
+  result := list.insert(usize(0), i32(42));
+  assert(result.is_ok());
+  assert(list.len() == usize(1));
+  assert(list.get(usize(0)).unwrap() == i32(42));
+};
+
+test "LinkedList.insert returns error for out of bounds index", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  
+  result := list.insert(usize(5), i32(99));
+  assert(result.is_err());
+  assert(list.len() == usize(1));
+};
+
+test "LinkedList.insert multiple elements in sequence", {
+  list := LinkedList(i32).new();
+  list.insert(usize(0), i32(1));
+  list.insert(usize(1), i32(2));
+  list.insert(usize(2), i32(3));
+  
+  assert(list.len() == usize(3));
+  assert(list.get(usize(0)).unwrap() == i32(1));
+  assert(list.get(usize(1)).unwrap() == i32(2));
+  assert(list.get(usize(2)).unwrap() == i32(3));
+};
+
+// ===== Remove Tests =====
+
+test "LinkedList.remove from front (index 0)", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  result := list.remove(usize(0));
+  assert(result.is_ok());
+  assert(result.unwrap() == i32(10));
+  assert(list.len() == usize(2));
+  assert(list.get(usize(0)).unwrap() == i32(20));
+};
+
+test "LinkedList.remove from back (last index)", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  result := list.remove(usize(2));
+  assert(result.is_ok());
+  assert(result.unwrap() == i32(30));
+  assert(list.len() == usize(2));
+  assert(list.back().unwrap() == i32(20));
+};
+
+test "LinkedList.remove from middle", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  result := list.remove(usize(1));
+  assert(result.is_ok());
+  assert(result.unwrap() == i32(20));
+  assert(list.len() == usize(2));
+  assert(list.get(usize(0)).unwrap() == i32(10));
+  assert(list.get(usize(1)).unwrap() == i32(30));
+};
+
+test "LinkedList.remove only element", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(42));
+  
+  result := list.remove(usize(0));
+  assert(result.is_ok());
+  assert(result.unwrap() == i32(42));
+  assert(list.len() == usize(0));
+  assert(list.is_empty());
+};
+
+test "LinkedList.remove returns error for out of bounds index", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  
+  result := list.remove(usize(5));
+  assert(result.is_err());
+  assert(list.len() == usize(1));
+};
+
+test "LinkedList.remove from empty list returns error", {
+  list := LinkedList(i32).new();
+  result := list.remove(usize(0));
+  assert(result.is_err());
+};
+
+test "LinkedList.remove all elements one by one", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  
+  list.remove(usize(0));
+  assert(list.len() == usize(2));
+  
+  list.remove(usize(0));
+  assert(list.len() == usize(1));
+  
+  list.remove(usize(0));
+  assert(list.len() == usize(0));
+  assert(list.is_empty());
+};
+
+// ===== Clear Tests =====
+
+test "LinkedList.clear removes all elements", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  
+  list.clear();
+  
+  assert(list.len() == usize(0));
+  assert(list.is_empty());
+  assert(list.front().is_none());
+  assert(list.back().is_none());
+};
+
+test "LinkedList.clear on empty list", {
+  list := LinkedList(i32).new();
+  list.clear();
+  assert(list.len() == usize(0));
+};
+
+test "LinkedList can be reused after clear", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.clear();
+  
+  list.push_back(i32(10));
+  assert(list.len() == usize(1));
+  assert(list.get(usize(0)).unwrap() == i32(10));
+};
+
+// ===== Has Tests =====
+
+test "LinkedList.has returns true for existing element", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  assert(list.has(i32(20)));
+};
+
+test "LinkedList.has returns false for non-existing element", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  
+  assert(!list.has(i32(99)));
+};
+
+test "LinkedList.has returns false for empty list", {
+  list := LinkedList(i32).new();
+  assert(!list.has(i32(42)));
+};
+
+test "LinkedList.has finds element at front", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  
+  assert(list.has(i32(1)));
+};
+
+test "LinkedList.has finds element at back", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  
+  assert(list.has(i32(3)));
+};
+
+test "LinkedList.has finds element in middle", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  
+  assert(list.has(i32(2)));
+};
+
+// ===== Reverse Tests =====
+
+test "LinkedList.reverse reverses empty list", {
+  list := LinkedList(i32).new();
+  list.reverse();
+  assert(list.len() == usize(0));
+};
+
+test "LinkedList.reverse reverses single element list", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(42));
+  list.reverse();
+  
+  assert(list.len() == usize(1));
+  assert(list.front().unwrap() == i32(42));
+};
+
+test "LinkedList.reverse reverses two element list", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.reverse();
+  
+  assert(list.len() == usize(2));
+  assert(list.front().unwrap() == i32(20));
+  assert(list.back().unwrap() == i32(10));
+};
+
+test "LinkedList.reverse reverses multiple element list", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  list.push_back(i32(4));
+  list.push_back(i32(5));
+  
+  list.reverse();
+  
+  assert(list.len() == usize(5));
+  assert(list.get(usize(0)).unwrap() == i32(5));
+  assert(list.get(usize(1)).unwrap() == i32(4));
+  assert(list.get(usize(2)).unwrap() == i32(3));
+  assert(list.get(usize(3)).unwrap() == i32(2));
+  assert(list.get(usize(4)).unwrap() == i32(1));
+};
+
+test "LinkedList.reverse twice returns to original order", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  
+  list.reverse();
+  list.reverse();
+  
+  assert(list.get(usize(0)).unwrap() == i32(1));
+  assert(list.get(usize(1)).unwrap() == i32(2));
+  assert(list.get(usize(2)).unwrap() == i32(3));
+};
+
+test "LinkedList.reverse updates head and tail correctly", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+  
+  list.reverse();
+  
+  assert(list.front().unwrap() == i32(30));
+  assert(list.back().unwrap() == i32(10));
+};
+
+// ===== Length and Empty Tests =====
+
+test "LinkedList.len returns correct length", {
+  list := LinkedList(i32).new();
+  assert(list.len() == usize(0));
+  
+  list.push_back(i32(1));
+  assert(list.len() == usize(1));
+  
+  list.push_back(i32(2));
+  assert(list.len() == usize(2));
+};
+
+test "LinkedList.is_empty returns true for empty list", {
+  list := LinkedList(i32).new();
+  assert(list.is_empty());
+};
+
+test "LinkedList.is_empty returns false for non-empty list", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  assert(!list.is_empty());
+};
+
+test "LinkedList.is_empty after operations", {
+  list := LinkedList(i32).new();
+  assert(list.is_empty());
+  
+  list.push_back(i32(1));
+  assert(!list.is_empty());
+  
+  list.pop_back();
+  assert(list.is_empty());
+};
+
+// ===== Integration Tests =====
+
+test "LinkedList queue behavior (FIFO)", {
+  queue := LinkedList(i32).new();
+  
+  // Enqueue
+  queue.push_back(i32(1));
+  queue.push_back(i32(2));
+  queue.push_back(i32(3));
+  
+  // Dequeue
+  first := queue.pop_front();
+  assert(first.unwrap() == i32(1));
+  
+  second := queue.pop_front();
+  assert(second.unwrap() == i32(2));
+  
+  third := queue.pop_front();
+  assert(third.unwrap() == i32(3));
+  
+  assert(queue.is_empty());
+};
+
+test "LinkedList stack behavior (LIFO)", {
+  stack := LinkedList(i32).new();
+  
+  // Push
+  stack.push_back(i32(1));
+  stack.push_back(i32(2));
+  stack.push_back(i32(3));
+  
+  // Pop
+  first := stack.pop_back();
+  assert(first.unwrap() == i32(3));
+  
+  second := stack.pop_back();
+  assert(second.unwrap() == i32(2));
+  
+  third := stack.pop_back();
+  assert(third.unwrap() == i32(1));
+  
+  assert(stack.is_empty());
+};
+
+test "LinkedList deque behavior (double-ended)", {
+  deque := LinkedList(i32).new();
+  
+  deque.push_back(i32(2));
+  deque.push_front(i32(1));
+  deque.push_back(i32(3));
+  deque.push_front(i32(0));
+  
+  assert(deque.len() == usize(4));
+  assert(deque.get(usize(0)).unwrap() == i32(0));
+  assert(deque.get(usize(1)).unwrap() == i32(1));
+  assert(deque.get(usize(2)).unwrap() == i32(2));
+  assert(deque.get(usize(3)).unwrap() == i32(3));
+};
+
+test "LinkedList complex operations sequence", {
+  list := LinkedList(i32).new();
+  
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_front(i32(0));
+  assert(list.len() == usize(3));
+  
+  list.insert(usize(2), i32(99));
+  assert(list.len() == usize(4));
+  assert(list.get(usize(2)).unwrap() == i32(99));
+  
+  list.remove(usize(1));
+  assert(list.len() == usize(3));
+  
+  list.reverse();
+  assert(list.front().unwrap() == i32(2));
+  assert(list.back().unwrap() == i32(0));
+};
+
+test "LinkedList large number of elements", {
+  list := LinkedList(i32).new();
+  
+  // Add 100 elements
+  i := usize(0);
+  while(i < usize(100), i = (i + usize(1)), {
+    list.push_back(i32(i));
+  });
+  
+  assert(list.len() == usize(100));
+  assert(list.get(usize(0)).unwrap() == i32(0));
+  assert(list.get(usize(50)).unwrap() == i32(50));
+  assert(list.get(usize(99)).unwrap() == i32(99));
+  
+  list.clear();
+  assert(list.is_empty());
+};
+
+test "LinkedList alternating push and pop", {
+  list := LinkedList(i32).new();
+  
+  list.push_back(i32(1));
+  list.pop_front();
+  list.push_back(i32(2));
+  list.pop_back();
+  list.push_front(i32(3));
+  
+  assert(list.len() == usize(1));
+  assert(list.front().unwrap() == i32(3));
+};

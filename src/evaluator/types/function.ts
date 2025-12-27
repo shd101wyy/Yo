@@ -54,6 +54,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsModule } from "../exprs/subtype_of";
 import { isValidVariableName } from "../utils";
 
 /**
@@ -584,12 +585,107 @@ function parseWhereClauseConstraints({
     env = evaluatedLhs.$.env;
 
     const lhsTypeValue = evaluatedLhs.$.value;
+
+    // Check if this is a SomeType (type parameter) or a concrete type
+    // If it's a concrete type, it means the type parameter has been specialized
+    // and we should validate the constraint immediately
     if (!isSomeType(lhsTypeValue.value)) {
-      throw formatErrorMessage({
-        token: lhsExpr.token,
-        errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)}`,
-      });
+      // The type parameter has been resolved to a concrete type during specialization
+      // We need to check if this concrete type satisfies the constraints
+      const concreteType = lhsTypeValue.value;
+
+      // Continue to parse and evaluate the RHS modules, then check if concreteType implements them
+      // We'll handle this after parsing all module expressions below
+      // For now, skip adding to whereClauseConstraints and just validate
+
+      // Parse RHS: can be Module, (Module1, Module2), !(Module), or (!(Module1), Module2)
+      const moduleExprs: { expr: Expr; isNegated: boolean }[] = [];
+      if (
+        exprIsFunctionCall(rhsExpr) &&
+        exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+      ) {
+        // Tuple form: (Module1, Module2, ...)
+        for (const moduleExpr of rhsExpr.args) {
+          if (
+            exprIsFunctionCall(moduleExpr) &&
+            exprIsFunctionCallOf(moduleExpr, "!") &&
+            moduleExpr.args.length === 1
+          ) {
+            moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
+          } else {
+            moduleExprs.push({ expr: moduleExpr, isNegated: false });
+          }
+        }
+      } else {
+        // Single module - check if negated
+        if (
+          exprIsFunctionCall(rhsExpr) &&
+          exprIsFunctionCallOf(rhsExpr, "!") &&
+          rhsExpr.args.length === 1
+        ) {
+          moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+        } else {
+          moduleExprs.push({ expr: rhsExpr, isNegated: false });
+        }
+      }
+
+      // Check each module constraint
+      for (const { expr: moduleExpr, isNegated } of moduleExprs) {
+        const evaluatedModule = evaluateExpression({
+          expr: moduleExpr,
+          env,
+          context: { ...context },
+        });
+        if (
+          !evaluatedModule.$ ||
+          !evaluatedModule.$.value ||
+          !isTypeValue(evaluatedModule.$.value)
+        ) {
+          throw formatErrorMessage({
+            token: moduleExpr.token,
+            errorMessage: `Expected module type for right-hand side of where clause constraint.`,
+          });
+        }
+        env = evaluatedModule.$.env;
+
+        const moduleTypeValue = evaluatedModule.$.value;
+        if (!isModuleType(moduleTypeValue.value)) {
+          throw formatErrorMessage({
+            token: moduleExpr.token,
+            errorMessage: `Expected module type for right-hand side of where clause constraint, got: ${typeToString(moduleTypeValue.value)}`,
+          });
+        }
+
+        const moduleType = moduleTypeValue.value;
+        const implemented = typeImplementsModule({
+          targetType: concreteType,
+          moduleType,
+          env,
+        });
+
+        if (isNegated) {
+          // Negative constraint: type must NOT implement this module
+          if (implemented) {
+            throw formatErrorMessage({
+              token: constraintExpr.token,
+              errorMessage: `Type ${typeToString(concreteType)} must NOT implement ${typeToString(moduleType)}, but it does.`,
+            });
+          }
+        } else {
+          // Positive constraint: type must implement this module
+          if (!implemented) {
+            throw formatErrorMessage({
+              token: constraintExpr.token,
+              errorMessage: `Type ${typeToString(concreteType)} does not implement required module ${typeToString(moduleType)}.`,
+            });
+          }
+        }
+      }
+
+      // Skip adding to whereClauseConstraints since we've already validated
+      continue;
     }
+
     const someType = lhsTypeValue.value;
 
     // Parse RHS: can be Module, (Module1, Module2), !(Module), or (!(Module1), Module2)
