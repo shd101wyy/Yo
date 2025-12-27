@@ -34,7 +34,9 @@ import {
   isFnModuleType,
   isModuleType,
   isSomeType,
+  ModuleType,
   prohibitVoidType,
+  SomeType,
   Type,
   typeOfType,
   typeProhibitsComptModifier,
@@ -519,6 +521,170 @@ use_id :: (fn(forall(T : Type),
 }
 
 /**
+ * Parse where clause constraints from constraint expressions.
+ * Handles forms like: T <: Module, T <: (Module1, Module2), T <: !(Module)
+ */
+function parseWhereClauseConstraints({
+  constraintExprs,
+  env,
+  context,
+}: {
+  constraintExprs: Expr[];
+  env: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+}): {
+  whereClauseConstraints: Map<
+    SomeType,
+    {
+      requiredModules: ModuleType[];
+      negativeModules: ModuleType[];
+    }
+  >;
+  env: Environment;
+} {
+  const whereClauseConstraints = new Map<
+    SomeType,
+    {
+      requiredModules: ModuleType[];
+      negativeModules: ModuleType[];
+    }
+  >();
+
+  for (const constraintExpr of constraintExprs) {
+    // Each constraint must be of the form: T <: Module or T <: (Module1, Module2)
+    if (
+      !exprIsFunctionCall(constraintExpr) ||
+      !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+    ) {
+      throw formatErrorMessage({
+        token: constraintExpr.token,
+        errorMessage: `Expected constraint in the form "T <: Module" or "T <: (Module1, Module2)", got: ${exprToString(constraintExpr)}`,
+      });
+    }
+
+    const lhsExpr = constraintExpr.args[0]!;
+    const rhsExpr = constraintExpr.args[1]!;
+
+    // Evaluate the LHS (must be a SomeType - type parameter)
+    const evaluatedLhs = evaluateExpression({
+      expr: lhsExpr,
+      env,
+      context: { ...context },
+    });
+    if (
+      !evaluatedLhs.$ ||
+      !evaluatedLhs.$.value ||
+      !isTypeValue(evaluatedLhs.$.value)
+    ) {
+      throw formatErrorMessage({
+        token: lhsExpr.token,
+        errorMessage: `Expected type for left-hand side of where clause constraint.`,
+      });
+    }
+    env = evaluatedLhs.$.env;
+
+    const lhsTypeValue = evaluatedLhs.$.value;
+    if (!isSomeType(lhsTypeValue.value)) {
+      throw formatErrorMessage({
+        token: lhsExpr.token,
+        errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)}`,
+      });
+    }
+    const someType = lhsTypeValue.value;
+
+    // Parse RHS: can be Module, (Module1, Module2), !(Module), or (!(Module1), Module2)
+    const moduleExprs: { expr: Expr; isNegated: boolean }[] = [];
+    if (
+      exprIsFunctionCall(rhsExpr) &&
+      exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+    ) {
+      // Tuple form: (Module1, Module2, ...)
+      for (const moduleExpr of rhsExpr.args) {
+        if (
+          exprIsFunctionCall(moduleExpr) &&
+          exprIsFunctionCallOf(moduleExpr, "!") &&
+          moduleExpr.args.length === 1
+        ) {
+          moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
+        } else {
+          moduleExprs.push({ expr: moduleExpr, isNegated: false });
+        }
+      }
+    } else {
+      // Single module - check if negated
+      if (
+        exprIsFunctionCall(rhsExpr) &&
+        exprIsFunctionCallOf(rhsExpr, "!") &&
+        rhsExpr.args.length === 1
+      ) {
+        moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+      } else {
+        moduleExprs.push({ expr: rhsExpr, isNegated: false });
+      }
+    }
+
+    // Evaluate each module expression
+    const requiredModules: ModuleType[] = [];
+    const negativeModules: ModuleType[] = [];
+
+    for (const { expr: moduleExpr, isNegated } of moduleExprs) {
+      const evaluatedRhs = evaluateExpression({
+        expr: moduleExpr,
+        env,
+        context: { ...context },
+      });
+      if (
+        !evaluatedRhs.$ ||
+        !evaluatedRhs.$.value ||
+        !isTypeValue(evaluatedRhs.$.value)
+      ) {
+        throw formatErrorMessage({
+          token: moduleExpr.token,
+          errorMessage: `Expected module type for right-hand side of where clause constraint.`,
+        });
+      }
+      env = evaluatedRhs.$.env;
+
+      const moduleTypeValue = evaluatedRhs.$.value;
+      if (!isModuleType(moduleTypeValue.value)) {
+        throw formatErrorMessage({
+          token: moduleExpr.token,
+          errorMessage: `Expected module type for right-hand side of where clause constraint, got: ${typeToString(moduleTypeValue.value)}`,
+        });
+      }
+
+      const moduleType = moduleTypeValue.value;
+      if (moduleType.receiverType) {
+        throw formatErrorMessage({
+          token: moduleExpr.token,
+          errorMessage: `Module type in where clause already has a receiver type assigned.`,
+        });
+      }
+
+      if (isNegated) {
+        negativeModules.push(moduleType);
+      } else {
+        requiredModules.push(moduleType);
+      }
+    }
+
+    // Store constraints for this SomeType
+    const existing = whereClauseConstraints.get(someType);
+    if (existing) {
+      existing.requiredModules.push(...requiredModules);
+      existing.negativeModules.push(...negativeModules);
+    } else {
+      whereClauseConstraints.set(someType, {
+        requiredModules,
+        negativeModules,
+      });
+    }
+  }
+
+  return { whereClauseConstraints, env };
+}
+
+/**
  * NOTE: Calling this function will increase the env frame.
  */
 export function evaluateFunctionParameters({
@@ -535,10 +701,10 @@ export function evaluateFunctionParameters({
   variadicParameter?: FunctionParameter;
   env: Environment;
   whereClauseConstraints?: Map<
-    import("../../types").SomeType,
+    SomeType,
     {
-      requiredModules: import("../../types").ModuleType[];
-      negativeModules: import("../../types").ModuleType[];
+      requiredModules: ModuleType[];
+      negativeModules: ModuleType[];
     }
   >;
 } {
@@ -549,10 +715,10 @@ export function evaluateFunctionParameters({
   let variadicParameter: FunctionParameter | undefined = undefined;
   let whereClauseConstraints:
     | Map<
-        import("../../types").SomeType,
+        SomeType,
         {
-          requiredModules: import("../../types").ModuleType[];
-          negativeModules: import("../../types").ModuleType[];
+          requiredModules: ModuleType[];
+          negativeModules: ModuleType[];
         }
       >
     | undefined = undefined;
@@ -623,51 +789,13 @@ export function evaluateFunctionParameters({
         });
       }
 
-      for (const constraintExpr of constraintExprs) {
-        // Each constraint must be of the form: T <: Module or T <: (Module1, Module2)
-        if (
-          !exprIsFunctionCall(constraintExpr) ||
-          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
-        ) {
-          throw formatErrorMessage({
-            token: constraintExpr.token,
-            errorMessage: `Expected constraint in the form "T <: Module" or "T <: (Module1, Module2)", got: ${exprToString(constraintExpr)}`,
-          });
-        }
-
-        // Evaluate with isInsideWhereClause context
-        // subtype_of.ts handles both single module and tuple of modules
-        const evaluated = evaluateExpression({
-          expr: constraintExpr,
-          env,
-          context: {
-            ...context,
-            isInsideWhereClause: true,
-          },
-        });
-        if (evaluated.$?.env) {
-          env = evaluated.$.env;
-        }
-        // Collect where clause constraints from the evaluated expression
-        if (evaluated.$?.whereClauseConstraints) {
-          if (!whereClauseConstraints) {
-            whereClauseConstraints = new Map();
-          }
-          // Merge constraints from this expression
-          for (const [
-            someType,
-            constraints,
-          ] of evaluated.$.whereClauseConstraints.entries()) {
-            const existing = whereClauseConstraints.get(someType);
-            if (existing) {
-              existing.requiredModules.push(...constraints.requiredModules);
-              existing.negativeModules.push(...constraints.negativeModules);
-            } else {
-              whereClauseConstraints.set(someType, constraints);
-            }
-          }
-        }
-      }
+      const result = parseWhereClauseConstraints({
+        constraintExprs,
+        env,
+        context,
+      });
+      env = result.env;
+      whereClauseConstraints = result.whereClauseConstraints;
     }
     // Check if it's the variadic parameter
     else if (

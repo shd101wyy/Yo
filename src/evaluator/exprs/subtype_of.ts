@@ -264,98 +264,48 @@ export function evaluateSubtypeOf({
     moduleTypes.push({ moduleType, expr: moduleExpr, isNegated });
   }
 
-  // In a where clause, store the module constraints in expr.$.whereClauseConstraints
-  // instead of mutating the SomeType directly
+  // In a where clause, add the module constraints to the SomeType's module
   if (context.isInsideWhereClause && isSomeType(typeValue.value)) {
     const someType = typeValue.value;
 
-    // Check if this is a function where clause (not a module where clause)
-    // Function where clauses store constraints in the expression's evaluated data
-    // Module where clauses still mutate the SomeType directly (legacy behavior)
-    const isFunctionWhereClause = context.isEvaluatingFunctionType;
-
-    if (isFunctionWhereClause) {
-      // Function where clause: store in expression's whereClauseConstraints
-      const whereClauseConstraints = new Map<
-        typeof someType,
-        {
-          requiredModules: ModuleType[];
-          negativeModules: ModuleType[];
-        }
-      >();
-
-      let constraintEntry = whereClauseConstraints.get(someType);
-      if (!constraintEntry) {
-        constraintEntry = { requiredModules: [], negativeModules: [] };
-        whereClauseConstraints.set(someType, constraintEntry);
-      }
-
-      for (const { moduleType, isNegated } of moduleTypes) {
-        // Create a copy of the module with receiverType set to the someType
-        const moduleWithReceiver: ModuleType = {
-          ...moduleType,
-          receiverType: someType,
-        };
-
-        if (isNegated) {
-          constraintEntry.negativeModules.push(moduleWithReceiver);
-        } else {
-          constraintEntry.requiredModules.push(moduleWithReceiver);
-        }
-      }
-
-      // Return the typeValue with constraints attached to expr.$
-      expr.$ = {
-        env,
-        value: typeValue,
-        type: typeValue.type,
-        pathCollection: [],
-        whereClauseConstraints,
+    for (const { moduleType, expr: moduleExpr, isNegated } of moduleTypes) {
+      // Create a copy of the module with receiverType set to the someType
+      const moduleWithReceiver: ModuleType = {
+        ...moduleType,
+        receiverType: someType,
       };
-      return expr;
-    } else {
-      // Module where clause (no current function type): mutate SomeType directly (legacy behavior)
-      // This happens for module-level where clauses like:
-      //   Id :: module(where(Self <: Copy), ...)
-      for (const { moduleType, expr: moduleExpr, isNegated } of moduleTypes) {
-        // Create a copy of the module with receiverType set to the someType
-        const moduleWithReceiver: ModuleType = {
-          ...moduleType,
-          receiverType: someType,
-        };
 
-        if (isNegated) {
-          // For negated constraints, mark the module as a negative constraint
-          const negatedModuleWithReceiver: ModuleType = {
-            ...moduleWithReceiver,
-            isNegatedConstraint: true,
-          };
-          // Use empty label to prevent direct access - only method calls are allowed
-          const label = "";
-          const field: ModuleField = {
-            label,
-            type: createTypeHierarchy(1), // Module type
-            isCompileTimeOnly: true,
-            assignedValue: createTypeValue(negatedModuleWithReceiver),
-            exprs: {
-              expr: moduleExpr,
-            },
-          };
-          someType.module.fields.push(field);
-        } else {
-          // Use empty label to prevent direct access - only method calls are allowed
-          const label = "";
-          const field: ModuleField = {
-            label,
-            type: createTypeHierarchy(1), // Module type
-            isCompileTimeOnly: true,
-            assignedValue: createTypeValue(moduleWithReceiver),
-            exprs: {
-              expr: moduleExpr,
-            },
-          };
-          someType.module.fields.push(field);
-        }
+      if (isNegated) {
+        // For negated constraints, mark the module as a negative constraint
+        const negatedModuleWithReceiver: ModuleType = {
+          ...moduleWithReceiver,
+          isNegatedConstraint: true,
+        };
+        // Use empty label to prevent direct access - only method calls are allowed
+        const label = "";
+        const field: ModuleField = {
+          label,
+          type: createTypeHierarchy(1), // Module type
+          isCompileTimeOnly: true,
+          assignedValue: createTypeValue(negatedModuleWithReceiver),
+          exprs: {
+            expr: moduleExpr,
+          },
+        };
+        someType.module.fields.push(field);
+      } else {
+        // Use empty label to prevent direct access - only method calls are allowed
+        const label = "";
+        const field: ModuleField = {
+          label,
+          type: createTypeHierarchy(1), // Module type
+          isCompileTimeOnly: true,
+          assignedValue: createTypeValue(moduleWithReceiver),
+          exprs: {
+            expr: moduleExpr,
+          },
+        };
+        someType.module.fields.push(field);
       }
     }
 

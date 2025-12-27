@@ -258,11 +258,10 @@ export function evaluateFunctionCall({
             const methodName = methodExpr.token.value;
             // Get the current function type for where clause constraint lookup
             const currentFunctionType =
-              context.currentFunctionType ||
-              (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+              context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
               "function-body"
                 ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-                : undefined);
+                : undefined;
             // Get the method with the same name in the interface in the env
             const methods = getMethodsByNameFromEnv(
               env,
@@ -426,11 +425,9 @@ export function evaluateFunctionCall({
         methodExpr = func;
         // Get the current function type for where clause constraint lookup
         const currentFunctionTypeForInfix =
-          context.currentFunctionType ||
-          (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-          "function-body"
+          context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
             ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-            : undefined);
+            : undefined;
         // Get the method with the same name in the module/type in the env
         const moduleMethods = getMethodsByNameFromEnv(
           env,
