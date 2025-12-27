@@ -174,19 +174,15 @@ export interface SomeType extends Type {
 
   /**
    * The required modules that this SomeType must implement.
-   * Organized as a stack where each entry includes the frame level where it was added.
-   * This allows where clause constraints to be scoped to specific functions.
-   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredModules from the Impl,
-   * and where clauses can add additional layers that get popped when exiting scope.
+   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredModules = [FnModule, CopyModule]
    */
-  requiredModules: { frameLevel: number; module: ModuleType }[];
+  requiredModules: ModuleType[];
 
   /**
    * The negative modules that this SomeType must NOT implement.
-   * Organized as a stack where each entry includes the frame level where it was added.
-   * For example, where clauses with `!(Copy)` add entries that get popped when exiting scope.
+   * For example, `Impl(!(Copy))` has negativeModules = [CopyModule]
    */
-  negativeModules?: { frameLevel: number; module: ModuleType }[];
+  negativeModules?: ModuleType[];
 
   /**
    * The module that contains where constraints attached to this SomeType.
@@ -763,16 +759,14 @@ export interface DynType extends Type {
    * The required modules that this dynamic dispatch type can dispatch to.
    * This is used to create vtable for dynamic dispatch.
    * Now uses reference semantics by default, so it's not a dynamic sized type.
-   * Uses frameLevel structure for consistency with SomeType, though DynType always uses frameLevel 0.
    */
-  requiredModules: { frameLevel: number; module: ModuleType }[];
+  requiredModules: ModuleType[];
 
   /**
    * The negative modules that this DynType must NOT implement.
    * For example, `Dyn(!(Copy))` has negativeModules = [CopyModule]
-   * Uses frameLevel structure for consistency with SomeType, though DynType always uses frameLevel 0.
    */
-  negativeModules?: { frameLevel: number; module: ModuleType }[];
+  negativeModules?: ModuleType[];
 
   /**
    * The module of the dyn type, which contains

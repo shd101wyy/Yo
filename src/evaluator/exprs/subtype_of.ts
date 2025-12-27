@@ -264,11 +264,9 @@ export function evaluateSubtypeOf({
     moduleTypes.push({ moduleType, expr: moduleExpr, isNegated });
   }
 
-  // In a where clause, push module constraints to the SomeType with the current frame level
-  // These will be popped when the frame is popped, ensuring constraints are scoped properly
+  // In a where clause, add the module constraints to the SomeType's module
   if (context.isInsideWhereClause && isSomeType(typeValue.value)) {
     const someType = typeValue.value;
-    const currentFrameLevel = env.frames.length - 1;
 
     for (const { moduleType, expr: moduleExpr, isNegated } of moduleTypes) {
       // Create a copy of the module with receiverType set to the someType
@@ -283,17 +281,7 @@ export function evaluateSubtypeOf({
           ...moduleWithReceiver,
           isNegatedConstraint: true,
         };
-
-        // Push to negativeModules with frame level
-        if (!someType.negativeModules) {
-          someType.negativeModules = [];
-        }
-        someType.negativeModules.push({
-          frameLevel: currentFrameLevel,
-          module: negatedModuleWithReceiver,
-        });
-
-        // Also add to module.fields for backward compatibility
+        // Use empty label to prevent direct access - only method calls are allowed
         const label = "";
         const field: ModuleField = {
           label,
@@ -306,13 +294,7 @@ export function evaluateSubtypeOf({
         };
         someType.module.fields.push(field);
       } else {
-        // Push to requiredModules with frame level
-        someType.requiredModules.push({
-          frameLevel: currentFrameLevel,
-          module: moduleWithReceiver,
-        });
-
-        // Also add to module.fields for backward compatibility
+        // Use empty label to prevent direct access - only method calls are allowed
         const label = "";
         const field: ModuleField = {
           label,

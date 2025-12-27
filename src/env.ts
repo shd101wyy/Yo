@@ -4,7 +4,6 @@ import { Token } from "./token";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
-  flattenRequiredModules,
   FunctionType,
   isComptFloatType,
   isComptIntType,
@@ -1090,8 +1089,7 @@ export function getMethodsByNameFromEnv(
     // Look for methods in the requiredModules array (from Impl(Module1, Module2, ...))
     // This handles cases like `Impl(Id)` where we need to find the `id` method
     if (methods.length === 0 && dereferencedReceiverType.requiredModules) {
-      const requiredModules = flattenRequiredModules(dereferencedReceiverType);
-      for (const requiredModuleType of requiredModules) {
+      for (const requiredModuleType of dereferencedReceiverType.requiredModules) {
         // Search for the method in the required module
         const method = requiredModuleType.fields.find(
           (f) => f.label === methodName && isFunctionType(f.type)
@@ -1157,7 +1155,7 @@ export function getMethodsByNameFromEnv(
 
     // Then, for dynamic dispatch, check all module types in the DynType for wrapped object methods
     // A method might exist in only some modules, and that's perfectly valid
-    const requiredModules = flattenRequiredModules(dereferencedReceiverType);
+    const requiredModules = dereferencedReceiverType.requiredModules;
     for (const moduleType of requiredModules) {
       const method = moduleType.fields.find(
         (field) =>

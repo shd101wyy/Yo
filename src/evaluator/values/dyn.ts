@@ -38,10 +38,6 @@ import {
   typeToString,
 } from "../../types";
 import {
-  flattenNegativeModules,
-  flattenRequiredModules,
-} from "../../types/utils";
-import {
   createModuleValue,
   createTypeValue,
   isFunctionValue,
@@ -382,15 +378,11 @@ export function evaluateDynValue({
   if (isBoxedType(valueType)) {
     const boxedFieldType = valueType.fields[0]!.type;
     if (isSomeType(boxedFieldType) || isDynType(boxedFieldType)) {
-      const flatNegativeModules = flattenNegativeModules(boxedFieldType);
-      if (flatNegativeModules) {
-        negativeModules.push(...flatNegativeModules);
-      }
+      negativeModules.push(...(boxedFieldType.negativeModules ?? []));
     }
   }
 
-  const flatRequiredModules = flattenRequiredModules(expectedDynType);
-  for (const requiredModuleType of flatRequiredModules) {
+  for (const requiredModuleType of expectedDynType.requiredModules) {
     for (const negativeModule of negativeModules) {
       if (
         areTypesCompatible(
@@ -407,7 +399,7 @@ export function evaluateDynValue({
   }
 
   // Find modules automatically for all required module types
-  for (const requiredModuleType of flatRequiredModules) {
+  for (const requiredModuleType of expectedDynType.requiredModules) {
     if (checkedModuleTypes.has(requiredModuleType)) {
       continue;
     }
@@ -420,8 +412,7 @@ export function evaluateDynValue({
     ) {
       const boxedFieldType = valueType.fields[0]!.type;
       let foundInSomeType = false;
-      const someTypeModules = flattenRequiredModules(boxedFieldType);
-      for (const someTypeModule of someTypeModules) {
+      for (const someTypeModule of boxedFieldType.requiredModules) {
         if (
           areTypesCompatible(
             { type: requiredModuleType, env },
@@ -506,7 +497,7 @@ export function evaluateDynValue({
   // Reorder moduleValues to match the order of expectedDynType.requiredModules
   // This ensures the constructor parameters match the vtable order
   const orderedModuleValues: ModuleValue[] = [];
-  for (const expectedModuleType of flatRequiredModules) {
+  for (const expectedModuleType of expectedDynType.requiredModules) {
     // Find the corresponding module value
     const moduleValueIndex = moduleTypes.findIndex((moduleType) =>
       areTypesCompatible(
