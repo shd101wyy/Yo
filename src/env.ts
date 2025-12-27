@@ -561,7 +561,8 @@ export function getMethodsByNameFromEnv(
   env: Environment,
   methodName: string,
   receiverType: Type,
-  isInfixOperatorCall = false
+  isInfixOperatorCall = false,
+  currentFunctionType?: FunctionType
 ): {
   type: Type;
   value: Value | undefined;
@@ -1110,8 +1111,37 @@ export function getMethodsByNameFromEnv(
       }
     }
 
+    // Look for methods in function-scoped where clause constraints
+    // This checks currentFunctionType.whereClauseConstraints for the SomeType
+    if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
+      const constraints = currentFunctionType.whereClauseConstraints.get(
+        dereferencedReceiverType
+      );
+      if (constraints) {
+        for (const requiredModuleType of constraints.requiredModules) {
+          // Search for the method in the required module
+          const method = requiredModuleType.fields.find(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (method && isFunctionType(method.type)) {
+            // Create a specialized method type with SelfType set to the receiver type
+            const specializedMethodType: FunctionType = {
+              ...method.type,
+              SelfType: dereferencedReceiverType,
+            };
+            // Create an unknown value since the actual implementation is not known
+            const value = createUnknownValue(
+              specializedMethodType,
+              method.label
+            );
+            methods.push({ type: specializedMethodType, value });
+          }
+        }
+      }
+    }
+
     // Look for methods in the required modules stored in the SomeType's module
-    // Only consider modules with empty label "" (from where clauses)
+    // Only consider modules with empty label "" (from module-level where clauses)
     if (methods.length === 0) {
       for (const field of dereferencedReceiverType.module.fields) {
         // Required modules are stored as TypeValue containing ModuleType

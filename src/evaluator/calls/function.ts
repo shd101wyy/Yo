@@ -256,12 +256,20 @@ export function evaluateFunctionCall({
           if (exprIsAtom(methodExpr)) {
             // 1.add(3);
             const methodName = methodExpr.token.value;
+            // Get the current function type for where clause constraint lookup
+            const currentFunctionType =
+              context.currentFunctionType ||
+              (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+              "function-body"
+                ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+                : undefined);
             // Get the method with the same name in the interface in the env
             const methods = getMethodsByNameFromEnv(
               env,
               methodName,
               receiverType,
-              false // isInfixOperatorCall - property access allows auto pointer conversion
+              false, // isInfixOperatorCall - property access allows auto pointer conversion
+              currentFunctionType
             );
 
             functions = methods.map((method) => {
@@ -416,12 +424,20 @@ export function evaluateFunctionCall({
         }
         const methodName = functionName;
         methodExpr = func;
+        // Get the current function type for where clause constraint lookup
+        const currentFunctionTypeForInfix =
+          context.currentFunctionType ||
+          (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+          "function-body"
+            ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+            : undefined);
         // Get the method with the same name in the module/type in the env
         const moduleMethods = getMethodsByNameFromEnv(
           env,
           methodName,
           receiverType,
-          true // isInfixOperatorCall - infix operators don't allow auto pointer conversion
+          true, // isInfixOperatorCall - infix operators don't allow auto pointer conversion
+          currentFunctionTypeForInfix
         );
         functions = moduleMethods.map((method) => ({
           type: method.type,

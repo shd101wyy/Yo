@@ -16,6 +16,8 @@ import { Token, TokenType } from "./token";
 import {
   areTypesCompatible,
   isSomeType,
+  ModuleType,
+  SomeType,
   StructType,
   Type,
   typeContainsGcType,
@@ -287,6 +289,19 @@ export interface EvaluatedExprData {
    * This is only used for `test` function for generating test function code in `main` function.
    */
   originalExpr?: Expr;
+
+  /**
+   * For where clause constraint expressions (T <: Module), this contains the constraints
+   * collected during evaluation. Maps from SomeType to its required and negative modules.
+   * Used to build FunctionType.whereClauseConstraints without mutating SomeTypes.
+   */
+  whereClauseConstraints?: Map<
+    SomeType,
+    {
+      requiredModules: ModuleType[];
+      negativeModules: ModuleType[];
+    }
+  >;
 }
 
 export type AtomExpr = {

@@ -534,12 +534,28 @@ export function evaluateFunctionParameters({
   forallParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
   env: Environment;
+  whereClauseConstraints?: Map<
+    import("../../types").SomeType,
+    {
+      requiredModules: import("../../types").ModuleType[];
+      negativeModules: import("../../types").ModuleType[];
+    }
+  >;
 } {
   env = pushEnvFrame(env);
 
   const parameters: FunctionParameter[] = [];
   const forallParameters: FunctionParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
+  let whereClauseConstraints:
+    | Map<
+        import("../../types").SomeType,
+        {
+          requiredModules: import("../../types").ModuleType[];
+          negativeModules: import("../../types").ModuleType[];
+        }
+      >
+    | undefined = undefined;
 
   let findVariadicParameter = false;
 
@@ -631,6 +647,25 @@ export function evaluateFunctionParameters({
         });
         if (evaluated.$?.env) {
           env = evaluated.$.env;
+        }
+        // Collect where clause constraints from the evaluated expression
+        if (evaluated.$?.whereClauseConstraints) {
+          if (!whereClauseConstraints) {
+            whereClauseConstraints = new Map();
+          }
+          // Merge constraints from this expression
+          for (const [
+            someType,
+            constraints,
+          ] of evaluated.$.whereClauseConstraints.entries()) {
+            const existing = whereClauseConstraints.get(someType);
+            if (existing) {
+              existing.requiredModules.push(...constraints.requiredModules);
+              existing.negativeModules.push(...constraints.negativeModules);
+            } else {
+              whereClauseConstraints.set(someType, constraints);
+            }
+          }
         }
       }
     }
@@ -839,6 +874,7 @@ export function evaluateFunctionParameters({
     forallParameters,
     variadicParameter,
     env,
+    whereClauseConstraints,
   };
 }
 
@@ -886,12 +922,13 @@ export function evaluateFunctionType({
     });
   }
 
-  // Evaluate the parameter list
+  // Evaluate the parameter list (where clauses will store constraints in expr.$)
   const {
     parameters,
     forallParameters,
     variadicParameter,
     env: nextEnv,
+    whereClauseConstraints,
   } = evaluateFunctionParameters({
     parameterExprs: argList,
     env,
@@ -1132,6 +1169,11 @@ ${typeToString(returnType)}`,
         ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
         : undefined,
   });
+
+  // Attach where clause constraints collected from parameter evaluation
+  if (whereClauseConstraints) {
+    functionType.whereClauseConstraints = whereClauseConstraints;
+  }
 
   // Pop the environment frame
   env = popEnvFrame(env, true);

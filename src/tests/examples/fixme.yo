@@ -1,29 +1,29 @@
-Node :: (fn(compt(T): Type) -> compt(Type))
+// Test to verify where clause constraints are properly scoped
+// and don't leak between functions
+
+Container :: (fn(compt(T): Type) -> compt(Type))(
   object(
     value : T,
-    next : Option(Self)
-  )
-;
 
-LinkedList :: (fn(compt(T): Type) -> compt(Type))(
-  object(
-    head : Option(Node(T)),
-
-    has :: (fn(
+    // This function has where(T <: Eq(T))
+    equals :: (fn(
       self: Self, 
-      value: T,
+      other: T,
       where(T <: Eq(T))
-    ) -> bool)({
-      current_opt := self.head.unwrap();
-      current_opt.value == value;
-      false
-    }),
+    ) -> bool)(
+      self.value == other
+    ),
 
-    // FIXME: This function should throw error
-    test_without_where :: (fn(self : Self, value : T) -> bool)({
-      current_opt := self.head.unwrap();
-      current_opt.value == value;
-      false
-    })
+    // This function should NOT have access to Eq(T) 
+    // because it doesn't declare where(T <: Eq(T))
+    try_equals_without_constraint :: (fn(
+      self: Self,
+      other: T
+    ) -> bool)(
+      // This line should fail: T doesn't have Eq(T) in this function's scope
+      self.value == other
+    )
   )
 );
+
+export Container;
