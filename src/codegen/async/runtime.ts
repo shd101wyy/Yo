@@ -107,6 +107,10 @@ void __yo_async_run_until_complete(void* future_ptr) {
     __yo_async_scheduler_init();
   }
   
+#if defined(__linux__)
+  __yo_io_init();  // Initialize io_uring on Linux
+#endif
+  
   ASYNC_DEBUG("[ASYNC] Starting event loop for future=%p\\n", future_ptr);
   
   // future_ptr points to a heap-backed Future/state-machine struct.
@@ -116,10 +120,12 @@ void __yo_async_run_until_complete(void* future_ptr) {
   
   // Run the event loop until the future completes
   while (atomic_load(&future->state) != -1) {
-    // Process one task from the queue
-    yo_continuation_t* cont = yo_thread_async_queue.head;
-    
-    if (cont) {
+    // 1. Process ready tasks (up to 100 per iteration)
+    int tasks_run = 0;
+    while (tasks_run < 100) {
+      yo_continuation_t* cont = yo_thread_async_queue.head;
+      if (!cont) break;
+      
       // Dequeue
       yo_thread_async_queue.head = cont->next;
       if (!yo_thread_async_queue.head) {
@@ -135,15 +141,46 @@ void __yo_async_run_until_complete(void* future_ptr) {
       
       // Free the continuation
       __yo_free(cont);
-    } else {
-      // No tasks in queue but future not complete
-      // This means the future is waiting for something external (IO, etc.)
-      // For now, just break - in real implementation would poll IO
+      tasks_run++;
+    }
+    
+#if defined(__linux__)
+    // 2. Poll io_uring completions (non-blocking)
+    __yo_io_poll();
+    
+    // 3. If no ready tasks but pending I/O, block until completion
+    if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
+      ASYNC_DEBUG("[ASYNC] No ready tasks, waiting for I/O...\\n");
+      __yo_io_wait();
+      continue;
+    }
+#endif
+    
+    // 4. If no tasks and no I/O, check if future is complete
+    if (!yo_thread_async_queue.head) {
+#if defined(__linux__)
+      if (!__yo_has_pending_io()) {
+        // No tasks, no I/O - future must be waiting on something else or complete
+        ASYNC_DEBUG("[ASYNC] No tasks or I/O, future state=%d\\n",
+                    atomic_load(&future->state));
+        if (atomic_load(&future->state) != -1) {
+          // Future not complete but nothing to do - this shouldn't happen
+          ASYNC_DEBUG("[ASYNC] WARNING: No tasks/IO but future not complete\\n");
+          break;
+        }
+      }
+#else
+      // No async I/O support on this platform
       ASYNC_DEBUG("[ASYNC] WARNING: Queue empty but future not complete (state=%d)\\n",
                   atomic_load(&future->state));
       break;
+#endif
     }
   }
+  
+#if defined(__linux__)
+  __yo_io_cleanup();
+#endif
   
   ASYNC_DEBUG("[ASYNC] Event loop finished, future completed (state=%d)\\n", atomic_load(&future->state));
 }
@@ -281,5 +318,169 @@ __yo_yield_future_t __yo_async_yield(void) {
   atomic_init(&future.continuation_sm, NULL);
   return future;
 }
+
+// ============================================================================
+// Async I/O Runtime (Linux - io_uring via liburing)
+// ============================================================================
+
+#if defined(__linux__)
+#include <liburing.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+static struct io_uring __yo_io_ring;
+static bool __yo_io_initialized = false;
+static size_t __yo_pending_io_count = 0;
+
+// I/O operation state (embedded in state machines)
+typedef struct yo_io_state {
+  void* state_machine;       // Owning state machine
+  void (*resume_fn)(void*);  // Resume function when I/O completes
+  int32_t result;            // Result: bytes or -errno
+  bool completed;            // Set to true when I/O completes
+} yo_io_state_t;
+
+// Initialize io_uring (called once at event loop start)
+static void __yo_io_init(void) {
+  if (__yo_io_initialized) return;
+  
+  int ret = io_uring_queue_init(256, &__yo_io_ring, 0);
+  if (ret < 0) {
+    fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\\n", strerror(-ret));
+    exit(1);
+  }
+  __yo_io_initialized = true;
+  ASYNC_DEBUG("[IO] io_uring initialized with 256 entries\\n");
+}
+
+// Cleanup io_uring
+static void __yo_io_cleanup(void) {
+  if (!__yo_io_initialized) return;
+  io_uring_queue_exit(&__yo_io_ring);
+  __yo_io_initialized = false;
+  ASYNC_DEBUG("[IO] io_uring cleaned up\\n");
+}
+
+// Check if there are pending I/O operations
+static inline bool __yo_has_pending_io(void) {
+  return __yo_pending_io_count > 0;
+}
+
+// Submit async read to io_uring
+static void __yo_async_read_submit(int32_t fd, void* buffer, size_t size,
+                                   int64_t offset, yo_io_state_t* io_state) {
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    // Queue full - should not happen with proper sizing
+    io_state->result = -EAGAIN;
+    io_state->completed = true;
+    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
+    return;
+  }
+
+  io_uring_prep_read(sqe, fd, buffer, (unsigned)size, offset);
+  io_uring_sqe_set_data(sqe, io_state);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Submitted read: fd=%d size=%zu offset=%lld (pending=%zu)\\n",
+              fd, size, (long long)offset, __yo_pending_io_count);
+}
+
+// Submit async write to io_uring
+static void __yo_async_write_submit(int32_t fd, const void* buffer, size_t size,
+                                    int64_t offset, yo_io_state_t* io_state) {
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    io_state->result = -EAGAIN;
+    io_state->completed = true;
+    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
+    return;
+  }
+
+  io_uring_prep_write(sqe, fd, buffer, (unsigned)size, offset);
+  io_uring_sqe_set_data(sqe, io_state);
+  io_uring_submit(&__yo_io_ring);
+  __yo_pending_io_count++;
+  
+  ASYNC_DEBUG("[IO] Submitted write: fd=%d size=%zu offset=%lld (pending=%zu)\\n",
+              fd, size, (long long)offset, __yo_pending_io_count);
+}
+
+// Process completions from CQ
+static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
+  yo_io_state_t* io_state = (yo_io_state_t*)io_uring_cqe_get_data(cqe);
+  io_state->result = cqe->res;
+  io_state->completed = true;
+  __yo_pending_io_count--;
+
+  ASYNC_DEBUG("[IO] Completed I/O: result=%d (pending=%zu)\\n",
+              io_state->result, __yo_pending_io_count);
+
+  // Wake the waiting task
+  if (io_state->resume_fn && io_state->state_machine) {
+    yo_async_spawn_task(io_state->resume_fn, io_state->state_machine);
+  }
+
+  io_uring_cqe_seen(&__yo_io_ring, cqe);
+}
+
+// Poll for I/O completions (non-blocking)
+static int __yo_io_poll(void) {
+  struct io_uring_cqe* cqe;
+  int count = 0;
+  
+  while (io_uring_peek_cqe(&__yo_io_ring, &cqe) == 0) {
+    __yo_io_process_cqe(cqe);
+    count++;
+  }
+  
+  if (count > 0) {
+    ASYNC_DEBUG("[IO] Polled %d completions\\n", count);
+  }
+  return count;
+}
+
+// Wait for at least one I/O completion (blocking)
+static int __yo_io_wait(void) {
+  struct io_uring_cqe* cqe;
+  int ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
+  if (ret < 0) {
+    ASYNC_DEBUG("[IO] WARNING: io_uring_wait_cqe failed: %d\\n", ret);
+    return 0;
+  }
+  
+  ASYNC_DEBUG("[IO] Waiting for I/O completion...\\n");
+  __yo_io_process_cqe(cqe);
+  return 1 + __yo_io_poll();  // Process any additional completions
+}
+
+// Synchronous file operations
+static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
+  int fd = open(path, flags, mode);
+  int result = fd >= 0 ? fd : -errno;
+  ASYNC_DEBUG("[IO] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
+  return result;
+}
+
+static void __yo_file_close(int32_t fd) {
+  ASYNC_DEBUG("[IO] close(%d)\\n", fd);
+  close(fd);
+}
+
+static int64_t __yo_file_size(int32_t fd) {
+  struct stat st;
+  if (fstat(fd, &st) < 0) {
+    int result = -errno;
+    ASYNC_DEBUG("[IO] fstat(%d) failed: %d\\n", fd, result);
+    return result;
+  }
+  ASYNC_DEBUG("[IO] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
+  return st.st_size;
+}
+
+#endif // __linux__
 `);
 }

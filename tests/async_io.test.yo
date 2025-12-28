@@ -1,0 +1,59 @@
+{ File, IOError, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } :: import "../std/io/file.yo";
+
+test "file open and close", {
+  // Test basic file open/close
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(file) => {
+      file.close();
+      assert(true);
+    },
+    .Err(e) => {
+      assert(false, "File should open successfully");
+    }
+  );
+};
+
+test "file size", {
+  // Test getting file size
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(file) => {
+      size_result := file.size();
+      file.close();
+      
+      match(size_result,
+        .Ok(size) => {
+          // test_file.txt has "Hello from Yo async I/O!\nThis is a test file.\n"
+          // Which is around 50 bytes
+          assert((size > i64(0)), "File size should be > 0");
+        },
+        .Err(e) => {
+          assert(false, "Should get file size successfully");
+        }
+      );
+    },
+    .Err(e) => {
+      assert(false, "File should open successfully");
+    }
+  );
+};
+
+test "file not found", {
+  // Test error handling for non-existent file
+  (path : *(u8)) = "/nonexistent/path/file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(_) => {
+      assert(false, "Should fail to open non-existent file");
+    },
+    .Err(e) => {
+      match(e,
+        .NotFound => assert(true),
+        _ => assert(false, "Should be NotFound error")
+      );
+    }
+  );
+};

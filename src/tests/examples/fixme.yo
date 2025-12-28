@@ -1,100 +1,16 @@
-{
-  use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-  };
+open import "std/io/file";
 
-  a := 2;
-  x := use_cb(10, (u) => ((u + 1) + a)); // capture variable 'a'
-};
-
-{
-  Option :: (fn(compt(T): Type) -> compt(Type))
-    enum(
-      None,
-      Some(value: T)
-    )
-  ;
-
-  Node :: (fn(compt(T): Type) -> compt(Type))
-    object(
-      value : T,
-      next : Option(Self)
-    )
-  ;
-
-  LinkedList :: (fn(compt(X): Type) -> compt(Type))
-    object(
-      head : Option(Node(X)),
-      length : usize
-    )
-  ;
-};
-
-{
-  use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-  };
-
-  b := Box(i32)(5);
-  z := use_cb(10, dyn (u) => ((u + 1) + b.*)); // capture variable 'b'
-  assert(z == 16);
-};
-
-{
-ArrayList :: (fn(compt(T): Type) -> compt(Type))
-  object(
-    _ptr : ?*(T),
-    _length : usize,
-    _capacity : usize,
-
-    /**
-     * Add an element to the end of the ArrayList
-     */
-    push :: (fn(self: Self, typed_ptr : *(T)) -> unit)({
-      target_ptr := (typed_ptr &+ self._length);
-      
-      return ();
-    })
+main :: (fn() -> unit) {
+  // Test basic file open/close
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(file) => {
+      file.close();
+      assert(true);
+    },
+    .Err(e) => {
+      assert(false, "File should open successfully");
+    }
   );
-};
-
-{
-  Node :: (fn(compt(X): Type) -> compt(Type))
-    object(
-      value : X,
-      next : Option(Self)
-    )
-  ;
-  LinkedList :: (fn(compt(T): Type) -> compt(Type))(
-    object(
-      head : Option(Node(T)),
-
-      has :: (fn(
-        self: Self, 
-        value: T,
-        where(T <: Eq(T))
-      ) -> bool)({
-        current_opt := self.head.unwrap();
-        value == current_opt.value;
-        current_opt.value == value;
-        false
-      })
-    )
-  )
-};
-
-{
-  HashMap :: (fn(
-    compt(K): Type,
-    compt(V): Type,
-    where(K <: (Eq(K), Hash))
-  ) -> compt(Type))
-    object(
-      _find_bucket :: (fn(self: Self, key: K) -> Option(usize))(
-        {
-          key == key;
-          .None
-        }
-      )
-    );
 };

@@ -44,19 +44,28 @@ Yo uses **liburing** for io_uring operations rather than direct syscalls:
 
 **NPM Packaging Strategy:**
 
-liburing source is **vendored** in `vendor/liburing/` (similar to mimalloc):
+liburing is included as a **git submodule** in `vendor/liburing/` (like mimalloc and quickjs):
 
 ```
 vendor/
-├── mimalloc/          # Already vendored
-└── liburing/          # ~5KB of code, BSD-licensed
+├── mimalloc/          # Git submodule
+├── quickjs/           # Git submodule  
+└── liburing/          # Git submodule (BSD-licensed)
     └── src/
         ├── setup.c
         ├── queue.c
-        └── ...
+        ├── register.c
+        ├── syscall.c
+        └── include/
+            └── liburing.h
 ```
 
 The npm package is self-contained - no system dependencies required on Linux.
+
+**Setup for users:**
+```bash
+git submodule update --init --recursive
+```
 
 **Fallback for older kernels:**
 - On Linux kernel < 5.1: Falls back to blocking I/O with thread pool (future)

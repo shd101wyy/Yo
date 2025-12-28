@@ -23,46 +23,44 @@ All platforms share a unified Yo API (`File.read_bytes_async`, `File.read_string
 
 ### NPM Packaging
 
-**Strategy: Vendor liburing source** (like mimalloc)
+**Strategy: Git submodule** (like mimalloc and quickjs)
 
 ```
 vendor/
-├── mimalloc/          # Already vendored
-└── liburing/          # BSD-licensed, ~5KB of actual code
-    ├── include/
-    │   ├── liburing.h
-    │   └── liburing/
-    │       ├── io_uring.h
-    │       ├── compat.h
-    │       ├── barrier.h
-    │       └── io_uring_version.h
-    └── src/
-        ├── setup.c
-        ├── queue.c
-        ├── register.c
-        └── syscall.c
+├── mimalloc/          # Git submodule
+├── quickjs/           # Git submodule
+└── liburing/          # Git submodule (BSD-licensed)
+    ├── src/
+    │   ├── setup.c
+    │   ├── queue.c
+    │   ├── register.c
+    │   ├── syscall.c
+    │   └── include/
+    │       └── liburing.h
+    └── ...
+```
+
+**Setup:**
+```bash
+# Add liburing submodule
+git submodule add https://github.com/axboe/liburing.git vendor/liburing
+
+# For users cloning the repo
+git submodule update --init --recursive
 ```
 
 **Build integration:**
 ```bash
-# Linux compilation includes vendored liburing
+# Linux compilation includes liburing from submodule
 clang -std=c11 a.out.c \
   vendor/liburing/src/setup.c \
   vendor/liburing/src/queue.c \
   vendor/liburing/src/register.c \
   vendor/liburing/src/syscall.c \
-  -Ivendor/liburing/include \
+  -Ivendor/liburing/src/include \
   vendor/mimalloc/src/static.c \
   -Ivendor/mimalloc/include \
   -o a.out
-```
-
-**Obtaining liburing:**
-```bash
-# Clone and extract needed files
-git clone https://github.com/axboe/liburing.git
-# Copy only: src/{setup.c, queue.c, register.c, syscall.c}
-# Copy only: include/liburing.h, include/liburing/*.h
 ```
 
 ## File API Design
@@ -107,30 +105,20 @@ git clone https://github.com/axboe/liburing.git
 
 ## Phase 1: Linux Implementation
 
-### Task 1.1: Vendor liburing
+### Task 1.1: Add liburing Submodule
 
 **Time Estimate:** 0.5 days
 
-1. Clone liburing repository
-2. Copy minimal required files to `vendor/liburing/`
-3. Update build commands in `yo-cli`
+1. Add liburing as git submodule
+2. Update build commands in `yo-cli` to compile liburing source files
+3. Update documentation
 
-**Files to vendor:**
+**Command:**
+```bash
+git submodule add https://github.com/axboe/liburing.git vendor/liburing
 ```
-vendor/liburing/
-├── include/
-│   ├── liburing.h
-│   └── liburing/
-│       ├── io_uring.h
-│       ├── compat.h
-│       ├── barrier.h
-│       └── io_uring_version.h
-└── src/
-    ├── setup.c
-    ├── queue.c
-    ├── register.c
-    └── syscall.c
-```
+
+**Note:** Users will need to run `git submodule update --init --recursive` after cloning.
 
 ---
 
@@ -667,7 +655,7 @@ clang -std=c11 -Wall -Wextra \
 ```bash
 cl /std:c11 a.out.c /link ws2_32.lib kernel32.lib /out:a.out.exe
 ```
-
+src/
 **macOS compilation:**
 ```bash
 clang -std=c11 -Wall -Wextra \
@@ -682,7 +670,7 @@ clang -std=c11 -Wall -Wextra \
 ## Success Criteria
 
 ### Phase 1 (Linux)
-- [ ] liburing vendored in `vendor/liburing/`
+- [x] liburing added as git submodule in `vendor/liburing/`
 - [ ] `File.open()`, `File.close()`, `File.size()` work synchronously
 - [ ] `__yo_async_read_submit()` submits to io_uring
 - [ ] Event loop polls io_uring completions
