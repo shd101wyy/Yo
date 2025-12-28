@@ -4,11 +4,11 @@
 
 Yo integrates platform-native async I/O APIs with the single-threaded async/await event loop:
 
-| Platform      | Backend  | Description                                                   |
-| ------------- | -------- | ------------------------------------------------------------- |
-| **Linux**     | io_uring | True async I/O with kernel-performed operations (kernel 5.1+) |
-| **macOS/BSD** | kqueue   | Event notification + non-blocking I/O                         |
-| **Windows**   | IOCP     | I/O Completion Ports with overlapped I/O                      |
+| Platform      | Backend  | Priority | Description                                                   |
+| ------------- | -------- | -------- | ------------------------------------------------------------- |
+| **Linux**     | io_uring | Phase 1  | True async I/O with kernel-performed operations (kernel 5.1+) |
+| **Windows**   | IOCP     | Phase 2  | I/O Completion Ports with overlapped I/O                      |
+| **macOS/BSD** | kqueue   | Phase 3  | Event notification + non-blocking I/O                         |
 
 All async I/O operations run on the **same thread** as other async tasks - no worker threads involved.
 
@@ -19,17 +19,48 @@ All async I/O operations run on the **same thread** as other async tasks - no wo
 main :: (fn() -> unit) {
   async {
     // Start two file reads concurrently
-    f1 := File.read_async("data1.txt");  // Returns immediately
-    f2 := File.read_async("data2.txt");  // Returns immediately
+    f1 := File.read_bytes_async("data1.txt");  // Returns immediately
+    f2 := File.read_bytes_async("data2.txt");  // Returns immediately
 
     // Both I/O operations in flight on THIS thread
-    data1 := await f1;  // Suspend until ready
-    data2 := await f2;  // Suspend until ready
+    data1 := await f1;  // Suspend until ready, returns Result([u8], IOError)
+    data2 := await f2;  // Suspend until ready, returns Result([u8], IOError)
 
-    println(data1 ++ data2);
+    // Or use read_string_async for text files
+    text := await File.read_string_async("text.txt");  // Returns Result(String, IOError)
   };
 };
 ```
+
+## liburing Dependency
+
+Yo uses **liburing** for io_uring operations rather than direct syscalls:
+
+**Why liburing (not raw syscalls):**
+- liburing is a thin wrapper (~5KB code) maintained by io_uring author Jens Axboe
+- Handles ring buffer memory mapping correctly
+- Well-tested and actively maintained
+- Raw syscalls require managing mmap'd ring buffers manually - error-prone
+
+**NPM Packaging Strategy:**
+
+liburing source is **vendored** in `vendor/liburing/` (similar to mimalloc):
+
+```
+vendor/
+├── mimalloc/          # Already vendored
+└── liburing/          # ~5KB of code, BSD-licensed
+    └── src/
+        ├── setup.c
+        ├── queue.c
+        └── ...
+```
+
+The npm package is self-contained - no system dependencies required on Linux.
+
+**Fallback for older kernels:**
+- On Linux kernel < 5.1: Falls back to blocking I/O with thread pool (future)
+- On other platforms: Uses native backend (IOCP/kqueue)
 
 ## Design Goals
 
@@ -381,37 +412,72 @@ int __yo_io_poll(void) {
 
 ## Async File I/O API
 
+### Data Types
+
+**Return types for file reads:**
+- `[u8]` (slice) - Fat pointer with data pointer + length, for binary data
+- `String` - UTF-8 validated string, for text files
+
+**Buffer types:**
+- `ArrayList(u8)` - Dynamic growable buffer (like Rust's `Vec<u8>`)
+- `Array(u8, N)` - Fixed-size stack buffer (C array)
+
 ### Yo Interface
 
 ```yo
+{ ArrayList } :: import "std/collections/array_list.yo";
+
+// I/O Error type
+IOError :: enum(
+  NotFound,
+  PermissionDenied,
+  IsADirectory,
+  NoSpaceLeft,
+  InvalidUtf8,
+  Other(code: i32, message: String)
+);
+
 // Core async file operations
-File :: struct(
+File :: object(
   fd : i32,
 
   // Open file (synchronous - fast syscall)
-  open :: (fn(path: String, flags: i32) -> Result(Self, Error))({
-    fd := __yo_file_open(path, flags);
+  open :: (fn(path: String, flags: i32) -> Result(Self, IOError))({
+    fd := __yo_file_open(path.as_cstr(), flags);
     cond(
       (fd >= 0) => .Ok(Self(fd)),
-      true => .Err(Error.from_errno((-fd) as i32))
+      true => .Err(IOError.from_errno((0 - fd) as i32))
     )
   }),
 
-  // Async read - returns Future
-  read_async :: (fn(self: Self, buffer: Array(u8), offset: i64) -> Impl Future(Result(usize, Error))) async {
-    result := await __yo_async_read(self.fd, buffer.ptr(), buffer.len(), offset);
+  // Get file size (synchronous)
+  size :: (fn(self: Self) -> Result(i64, IOError))({
+    result := __yo_file_size(self.fd);
     cond(
-      (result >= 0) => .Ok(result as usize),
-      true => .Err(Error.from_errno((-result) as i32))
+      (result >= 0) => .Ok(result),
+      true => .Err(IOError.from_errno((0 - result) as i32))
+    )
+  }),
+
+  // Async read into buffer - returns bytes read
+  // buffer: ArrayList(u8) with pre-allocated capacity
+  read_async :: (fn(self: Self, buffer: ArrayList(u8), offset: i64) -> Impl Future(Result(usize, IOError))) async {
+    result := await __yo_async_read(self.fd, buffer.ptr(), buffer.capacity(), offset);
+    cond(
+      (result >= 0) => {
+        buffer.set_len(result as usize);  // Update length to bytes read
+        .Ok(result as usize)
+      },
+      true => .Err(IOError.from_errno((0 - result) as i32))
     )
   },
 
-  // Async write - returns Future
-  write_async :: (fn(self: Self, data: Array(u8), offset: i64) -> Impl Future(Result(usize, Error))) async {
+  // Async write from slice - returns bytes written
+  write_async :: (fn(self: Self, data: [u8], offset: i64) -> Impl Future(Result(usize, IOError))) async {
     result := await __yo_async_write(self.fd, data.ptr(), data.len(), offset);
     cond(
       (result >= 0) => .Ok(result as usize),
-      true => .Err(Error.from_errno((-result) as i32))
+      true => .Err(IOError.from_errno((0 - result) as i32))
     )
   },
 
@@ -421,22 +487,78 @@ File :: struct(
   })
 );
 
-// Convenience functions
-File.read_all_async :: (fn(path: String) -> Impl Future(Result(String, Error))) async {
-  file := File.open(path, O_RDONLY)?;
-  size := file.size()?;
-  buffer := Array(u8).new(size);
-  bytes_read := await file.read_async(buffer, 0)?;
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+// Read entire file as bytes (returns slice backed by ArrayList)
+File.read_bytes_async :: (fn(path: String) -> Impl Future(Result([u8], IOError))) async {
+  file := match(File.open(path, O_RDONLY),
+    .Ok(f) => f,
+    .Err(e) => return .Err(e)
+  );
+
+  size := match(file.size(),
+    .Ok(s) => s,
+    .Err(e) => { file.close(); return .Err(e); }
+  );
+
+  buffer := ArrayList(u8).with_capacity(size as usize);
+  result := await file.read_async(buffer, i64(0));
   file.close();
-  .Ok(String.from_utf8(buffer))
+
+  match(result,
+    .Ok(bytes_read) => .Ok(buffer.as_slice()),
+    .Err(e) => .Err(e)
+  )
 };
 
-File.write_all_async :: (fn(path: String, data: String) -> Impl Future(Result(unit, Error))) async {
-  file := File.open(path, (O_WRONLY | O_CREAT | O_TRUNC))?;
-  bytes := data.as_bytes();
-  _ := await file.write_async(bytes, 0)?;
+// Read entire file as UTF-8 String
+File.read_string_async :: (fn(path: String) -> Impl Future(Result(String, IOError))) async {
+  bytes_result := await File.read_bytes_async(path);
+  match(bytes_result,
+    .Ok(bytes) => {
+      // Validate UTF-8 and create String
+      match(String.from_utf8_checked(bytes),
+        .Ok(s) => .Ok(s),
+        .Err(_) => .Err(.InvalidUtf8)
+      )
+    },
+    .Err(e) => .Err(e)
+  )
+};
+
+// Write string to file
+File.write_string_async :: (fn(path: String, data: String) -> Impl Future(Result(unit, IOError))) async {
+  file := match(File.open(path, ((O_WRONLY | O_CREAT) | O_TRUNC)),
+    .Ok(f) => f,
+    .Err(e) => return .Err(e)
+  );
+
+  bytes := data.as_bytes();  // Returns ArrayList(u8)
+  result := await file.write_async(bytes.as_slice(), i64(0));
   file.close();
-  .Ok(())
+
+  match(result,
+    .Ok(_) => .Ok(()),
+    .Err(e) => .Err(e)
+  )
+};
+
+// Write bytes to file
+File.write_bytes_async :: (fn(path: String, data: [u8]) -> Impl Future(Result(unit, IOError))) async {
+  file := match(File.open(path, ((O_WRONLY | O_CREAT) | O_TRUNC)),
+    .Ok(f) => f,
+    .Err(e) => return .Err(e)
+  );
+
+  result := await file.write_async(data, i64(0));
+  file.close();
+
+  match(result,
+    .Ok(_) => .Ok(()),
+    .Err(e) => .Err(e)
+  )
 };
 ```
 
@@ -531,22 +653,21 @@ case STATE_AWAIT_READ:
 ## Example: Concurrent File Processing
 
 ```yo
-process_files :: (fn(paths: Array(String)) -> Impl Future(Array(String))) async {
-  // Start all reads concurrently (all on same thread!)
-  futures := paths.map((fn(path: String) -> Impl Future(Result(String, Error)))({
-    File.read_all_async(path)
-  }));
+{ ArrayList } :: import "std/collections/array_list.yo";
 
-  // Await all results
-  results := Array(String).new(paths.len());
-  i := 0;
-  while (i < futures.len()), {
-    result := await futures.get(i);
+process_files :: (fn(paths: ArrayList(String)) -> Impl Future(ArrayList(String))) async {
+  // Start all reads concurrently (all on same thread!)
+  // Note: In production, we'd use a proper Future collection type
+  results := ArrayList(String).new();
+  
+  i := usize(0);
+  while ((i < paths.len())), (i = (i + usize(1))), {
+    path := paths.get(i).unwrap();
+    result := await File.read_string_async(path);
     match(result,
-      .Ok(content) => results.push(content),
-      .Err(e) => println("Error reading file: " ++ e.message())
+      .Ok(content) => { results.push(content); },
+      .Err(e) => println("Error reading file")
     );
-    i := (i + 1);
   };
 
   results
@@ -554,12 +675,19 @@ process_files :: (fn(paths: Array(String)) -> Impl Future(Array(String))) async 
 
 main :: (fn() -> unit) {
   async {
-    paths := ["file1.txt", "file2.txt", "file3.txt"].to_array();
+    paths := ArrayList(String).new();
+    paths.push("file1.txt");
+    paths.push("file2.txt");
+    paths.push("file3.txt");
+    
     contents := await process_files(paths);
 
-    contents.for_each((fn(content: String) -> unit)({
-      println("Content length: " ++ content.len().to_string());
-    }));
+    i := usize(0);
+    while ((i < contents.len())), (i = (i + usize(1))), {
+      content := contents.get(i).unwrap();
+      println("Content length: ");
+      println(content.len().to_string());
+    };
   };
 };
 
@@ -600,31 +728,33 @@ export main;
 io_uring returns negative errno values on error:
 
 ```yo
-read_with_retry :: (fn(file: File, buffer: Array(u8), offset: i64) -> Impl Future(Result(usize, Error))) async {
+{ ArrayList } :: import "std/collections/array_list.yo";
+
+read_with_retry :: (fn(file: File, size: usize, offset: i64) -> Impl Future(Result([u8], IOError))) async {
   max_retries := 3;
   retry := 0;
+  buffer := ArrayList(u8).with_capacity(size);
 
-  while (retry < max_retries), {
+  while ((retry < max_retries)), (retry = (retry + 1)), {
     result := await file.read_async(buffer, offset);
     match(result,
-      .Ok(bytes) => return .Ok(bytes),
+      .Ok(bytes) => return .Ok(buffer.as_slice()),
       .Err(e) => {
-        cond(
-          (e.code() == EINTR) => {
-            // Interrupted, retry
-            retry := (retry + 1);
+        match(e,
+          .Other(code, _) => {
+            // EINTR (4) or EAGAIN (11) - retry
+            cond(
+              ((code == 4) || (code == 11)) => (),  // Continue retry loop
+              true => return .Err(e)  // Non-retryable error
+            );
           },
-          (e.code() == EAGAIN) => {
-            // Would block, retry
-            retry := (retry + 1);
-          },
-          true => return .Err(e)  // Non-retryable error
+          _ => return .Err(e)  // Non-retryable error
         );
       }
     );
   };
 
-  .Err(Error.new("Max retries exceeded"))
+  .Err(.Other(0, "Max retries exceeded"))
 };
 ```
 
@@ -730,48 +860,65 @@ Yo's async I/O provides:
 ### Quick Reference
 
 ```yo
-// Async file read
-data := await File.read_all_async("input.txt")?;
+{ ArrayList } :: import "std/collections/array_list.yo";
 
-// Async file write
-await File.write_all_async("output.txt", data)?;
+// Async file read (returns bytes as slice)
+bytes := await File.read_bytes_async("input.bin")?;  // Result([u8], IOError)
+
+// Async file read (returns UTF-8 String)
+text := await File.read_string_async("input.txt")?;  // Result(String, IOError)
+
+// Async file write (from String)
+await File.write_string_async("output.txt", text)?;
+
+// Async file write (from bytes)
+await File.write_bytes_async("output.bin", bytes)?;
 
 // Concurrent I/O (same thread!)
-f1 := File.read_all_async("a.txt");
-f2 := File.read_all_async("b.txt");
+f1 := File.read_string_async("a.txt");
+f2 := File.read_string_async("b.txt");
 data1 := await f1?;
 data2 := await f2?;
 
-// File handle operations
+// Low-level file handle operations
 file := File.open("data.bin", O_RDONLY)?;
-buffer := Array(u8).new(4096);
-bytes := await file.read_async(buffer, 0)?;
+buffer := ArrayList(u8).with_capacity(usize(4096));
+bytes_read := await file.read_async(buffer, i64(0))?;
 file.close();
+// buffer now contains bytes_read bytes of data
 ```
 
 ## Future Enhancements
 
-**Phase 1 (Current):**
+**Phase 1 (Linux):**
 
-- [x] Async file read/write
-- [x] Linux io_uring backend
-- [x] macOS kqueue backend
-- [x] Windows IOCP backend
+- [ ] Async file read/write
+- [ ] Linux io_uring backend (via liburing)
+- [ ] Vendor liburing in `vendor/liburing/`
 
-**Phase 2 (Networking):**
+**Phase 2 (Windows):**
+
+- [ ] Windows IOCP backend
+- [ ] Cross-platform File API
+
+**Phase 3 (macOS):**
+
+- [ ] macOS kqueue backend
+
+**Phase 4 (Networking):**
 
 - [ ] Async socket operations (accept, connect, send, recv)
 - [ ] TCP/UDP support
 - [ ] HTTP server example
 
-**Phase 3 (Optimizations):**
+**Phase 5 (Optimizations):**
 
 - [ ] Buffered I/O streams (reduce syscalls)
 - [ ] Vectored I/O (readv/writev)
 - [ ] io_uring registered files/buffers
 - [ ] Memory-mapped file I/O
 
-**Phase 4 (Advanced):**
+**Phase 6 (Advanced):**
 
 - [ ] Timeout support for I/O operations
 - [ ] Cancellation support
