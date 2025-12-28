@@ -1,16 +1,18 @@
 open import "std/io/file";
 
 main :: (fn() -> unit) {
-  // Test basic file open/close
-  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  // Test error handling for non-existent file
+  (path : *(u8)) = "/nonexistent/path/file.txt";
   result := File.open(path, O_RDONLY);
   match(result,
-    .Ok(file) => {
-      file.close();
-      assert(true);
+    .Ok(_) => {
+      assert(false, "Should fail to open non-existent file");
     },
     .Err(e) => {
-      assert(false, "File should open successfully");
+      match(e,
+        .NotFound => assert(true),
+        _ => assert(false, "Should be NotFound error")
+      );
     }
   );
 };

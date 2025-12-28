@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -302,6 +302,21 @@ function runSingleTest(
       "-o",
       testOutputPath,
     ];
+
+    // Add liburing on Linux for async I/O (uses system-installed liburing)
+    if (process.platform === "linux") {
+      try {
+        // First check if pkg-config is available
+        execSync("command -v pkg-config", { stdio: "ignore" });
+        // Then check if liburing is installed
+        execSync("pkg-config --exists liburing", { stdio: "ignore" });
+        compileArgs.splice(-2, 0, "-luring");
+      } catch (error) {
+        console.warn(
+          "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
+        );
+      }
+    }
 
     const compileResult = spawnSync(cCompiler, compileArgs, {
       stdio: "pipe",

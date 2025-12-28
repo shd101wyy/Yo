@@ -47,5 +47,7 @@ mkShell rec {
   ];
 
   LANG = "C.UTF-8";
-  shellHook = with pkgs; '''';
+  shellHook = with pkgs; ''
+    ## unset TEMP TMP TEMPDIR TMPDIR
+  '';
 }
