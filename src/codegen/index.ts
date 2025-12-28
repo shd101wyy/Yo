@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import * as fs from "fs";
 import { ModuleManager } from "../module-manager";
 
@@ -164,6 +164,19 @@ export class CodeGenerator {
           }
         } else {
           console.log("Using libc allocator");
+        }
+
+        // Add liburing on Linux for async I/O (uses system-installed liburing)
+        if (process.platform === "linux") {
+          try {
+            execSync("pkg-config --exists liburing", { stdio: "ignore" });
+            compileArgs.splice(-2, 0, "-luring");
+            console.log("Using system liburing for async I/O");
+          } catch (error) {
+            console.warn(
+              "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
+            );
+          }
         }
 
         console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);

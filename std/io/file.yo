@@ -39,14 +39,14 @@ IOError :: enum(
 
   to_string :: (fn(self: Self) -> String)({
     str := match(self,
-      .NotFound => String.from("File not found"),
-      .PermissionDenied => String.from("Permission denied"),
-      .IsADirectory => String.from("Is a directory"),
-      .NoSpaceLeft => String.from("No space left on device"),
-      .InvalidUtf8 => String.from("Invalid UTF-8 encoding"),
+      .NotFound => String.from_cstr("File not found").unwrap(),
+      .PermissionDenied => String.from_cstr("Permission denied").unwrap(),
+      .IsADirectory => String.from_cstr("Is a directory").unwrap(),
+      .NoSpaceLeft => String.from_cstr("No space left on device").unwrap(),
+      .InvalidUtf8 => String.from_cstr("Invalid UTF-8 encoding").unwrap(),
       .Other(code) =>
         // TODO: Format "I/O error: {code}" once we have string formatting
-        String.from("I/O error")
+        String.from_cstr("I/O error").unwrap()
     );
     return str;
   })

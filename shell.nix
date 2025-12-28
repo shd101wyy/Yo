@@ -11,6 +11,7 @@ mkShell rec {
     # llvmPackages_14.llvm
     clang
     mimalloc
+    liburing
     gdb
     valgrind
     emscripten
@@ -18,6 +19,7 @@ mkShell rec {
     ripgrep
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
+  PKG_CONFIG_PATH = "${liburing}/lib/pkgconfig";
   # where to find libgcc
   ## NIX_LDFLAGS="-L${gccForLibs}/lib/gcc/${targetPlatform.config}/${gccForLibs.version}";
   # teach clang about C startup file locations

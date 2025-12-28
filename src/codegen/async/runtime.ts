@@ -56,6 +56,15 @@ typedef struct {
 // Async scheduler initialized flag
 static bool yo_async_scheduler_initialized = false;
 
+// Forward declarations for I/O functions (defined later, may be stubs if liburing unavailable)
+#if defined(__linux__)
+static void __yo_io_init(void);
+static void __yo_io_cleanup(void);
+static bool __yo_has_pending_io(void);
+static void __yo_io_poll(void);
+static void __yo_io_wait(void);
+#endif
+
 // Initialize async scheduler (lightweight - just sets flag)
 static void __yo_async_scheduler_init(void) {
   if (yo_async_scheduler_initialized) {
@@ -324,6 +333,9 @@ __yo_yield_future_t __yo_async_yield(void) {
 // ============================================================================
 
 #if defined(__linux__)
+// Try to include liburing.h - if not available, disable I/O features
+#if __has_include(<liburing.h>)
+#define YO_HAS_LIBURING 1
 #include <liburing.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -480,6 +492,49 @@ static int64_t __yo_file_size(int32_t fd) {
   ASYNC_DEBUG("[IO] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
   return st.st_size;
 }
+
+#else // !YO_HAS_LIBURING
+
+// Stub functions when liburing is not available
+static inline void __yo_io_init(void) {
+  fprintf(stderr, "[Yo] Warning: liburing not available, async I/O disabled\\n");
+}
+
+static inline void __yo_io_cleanup(void) {}
+
+static inline bool __yo_has_pending_io(void) {
+  return false;
+}
+
+static inline void __yo_io_poll(void) {}
+
+static inline void __yo_io_wait(void) {}
+
+static inline void __yo_async_read_submit(void* io_state, int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+  fprintf(stderr, "[Yo] Error: async read not supported without liburing\\n");
+  abort();
+}
+
+static inline void __yo_async_write_submit(void* io_state, int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+  fprintf(stderr, "[Yo] Error: async write not supported without liburing\\n");
+  abort();
+}
+
+static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
+  fprintf(stderr, "[Yo] Error: file operations not supported without liburing\\n");
+  return -1;
+}
+
+static void __yo_file_close(int32_t fd) {
+  fprintf(stderr, "[Yo] Error: file operations not supported without liburing\\n");
+}
+
+static int64_t __yo_file_size(int32_t fd) {
+  fprintf(stderr, "[Yo] Error: file operations not supported without liburing\\n");
+  return -1;
+}
+
+#endif // YO_HAS_LIBURING
 
 #endif // __linux__
 `);
