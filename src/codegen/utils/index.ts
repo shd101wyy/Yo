@@ -195,11 +195,77 @@ export interface CodeGenContext {
  * Sanitize a string to be a valid C identifier
  * Replaces any character that's not alphanumeric or underscore with its Unicode code point
  * This ensures unique identifiers for operators like * and +
+ * Also avoids conflicts with C keywords and common macros
  */
 export function sanitizeForCIdentifier(str: string): string {
-  return str.replace(/[^a-zA-Z0-9_]/g, (char) => {
+  // C keywords and common macros that should be avoided
+  const cReservedWords = new Set([
+    // C keywords
+    "auto",
+    "break",
+    "case",
+    "char",
+    "const",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extern",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "register",
+    "restrict",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "struct",
+    "switch",
+    "typedef",
+    "union",
+    "unsigned",
+    "void",
+    "volatile",
+    "while",
+    // C11 keywords
+    "_Alignas",
+    "_Alignof",
+    "_Atomic",
+    "_Bool",
+    "_Complex",
+    "_Generic",
+    "_Imaginary",
+    "_Noreturn",
+    "_Static_assert",
+    "_Thread_local",
+    // Common standard library macros that expand to complex expressions
+    "errno", // expands to (*__errno_location()) or similar
+    "stdin",
+    "stdout",
+    "stderr", // FILE* macros
+    "NULL",
+    "true",
+    "false", // common macros
+  ]);
+
+  let sanitized = str.replace(/[^a-zA-Z0-9_]/g, (char) => {
     return `_u${char.charCodeAt(0)}_`;
   });
+
+  // If the result is a C reserved word or macro, append underscore
+  if (cReservedWords.has(sanitized)) {
+    sanitized = "__yo_c_reserved_" + sanitized;
+  }
+
+  return sanitized;
 }
 
 /**
@@ -547,8 +613,10 @@ export function getVariableTypeString(
   varName: string,
   context: CodeGenContext
 ): string {
+  // Sanitize the variable name to avoid C reserved words/macros like errno
+  const sanitizedVarName = sanitizeForCIdentifier(varName);
   // For all types (including arrays), use the consistent struct wrapper approach
-  return `${getTypeString(type, context)} ${varName}`;
+  return `${getTypeString(type, context)} ${sanitizedVarName}`;
 }
 
 /**

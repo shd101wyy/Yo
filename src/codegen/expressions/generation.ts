@@ -109,25 +109,25 @@ function checkVariableIsClosureCaptured(
  *
  * @param variableName The variable name to look up
  * @param env The environment containing the variable
- * @returns The name to use in generated code (either parameterAlias or the original name)
+ * @returns The name to use in generated code (either parameterAlias or the original name), sanitized for C
  */
 function getVariableNameForCodegen(
   variableName: string,
   env: Environment | undefined
 ): string {
   if (!env) {
-    return variableName;
+    return sanitizeForCIdentifier(variableName);
   }
 
   const variables = getVariablesFromEnv(env, variableName);
   if (variables.length > 0) {
     const variable = variables[variables.length - 1]!;
     if (variable.parameterAlias) {
-      return variable.parameterAlias;
+      return sanitizeForCIdentifier(variable.parameterAlias);
     }
   }
 
-  return variableName;
+  return sanitizeForCIdentifier(variableName);
 }
 
 /**
@@ -2182,14 +2182,20 @@ function generateFuncCall(
               // 1. The expression doesn't already handle it
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
-              const varTypeAndName = getVariableTypeString(
-                arg.$.type,
-                arg.$.variableName,
-                context
+              // 4. It's not a redundant self-assignment (e.g., int32_t errno_ = errno_)
+              const sanitizedVarName = sanitizeForCIdentifier(
+                arg.$.variableName
               );
-              context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${argCode};`
-              );
+              if (argCode !== sanitizedVarName) {
+                const varTypeAndName = getVariableTypeString(
+                  arg.$.type,
+                  arg.$.variableName,
+                  context
+                );
+                context.emitter.emitLine(
+                  `${indent}${varTypeAndName} = ${argCode};`
+                );
+              }
             }
 
             // Handle deferred dup expressions for function arguments
@@ -2255,7 +2261,7 @@ function generateFuncCall(
 
                   if (dynMethod) {
                     // This is a dyn object's own method, pass the dyn object directly
-                    return finalArgVarName;
+                    return sanitizeForCIdentifier(finalArgVarName);
                   }
                 }
               }
@@ -2264,16 +2270,16 @@ function generateFuncCall(
               // Dyn is a value type, but callers may pass a borrow (pointer) depending on the method signature.
               const argType = arg.$?.type;
               if (argType && isPtrType(argType)) {
-                return `${finalArgVarName}->data`;
+                return `${sanitizeForCIdentifier(finalArgVarName)}->data`;
               }
-              return `(${finalArgVarName}).data`;
+              return `(${sanitizeForCIdentifier(finalArgVarName)}).data`;
             } else {
               // If this is a closure-captured variable, use the generated code (inline access)
               // If this is a state machine variable, use the generated code (sm->var_xxx access)
-              // Otherwise use the variable name (potentially duped)
+              // Otherwise use the sanitized variable name (potentially duped)
               return isClosureCapturedVariable || isStateMachineCapturedVariable
                 ? argCode
-                : finalArgVarName;
+                : sanitizeForCIdentifier(finalArgVarName);
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer

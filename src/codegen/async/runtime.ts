@@ -61,8 +61,8 @@ static bool yo_async_scheduler_initialized = false;
 static void __yo_io_init(void);
 static void __yo_io_cleanup(void);
 static bool __yo_has_pending_io(void);
-static void __yo_io_poll(void);
-static void __yo_io_wait(void);
+static int __yo_io_poll(void);
+static int __yo_io_wait(void);
 #endif
 
 // Initialize async scheduler (lightweight - just sets flag)

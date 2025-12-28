@@ -169,6 +169,9 @@ export class CodeGenerator {
         // Add liburing on Linux for async I/O (uses system-installed liburing)
         if (process.platform === "linux") {
           try {
+            // First check if pkg-config is available
+            execSync("command -v pkg-config", { stdio: "ignore" });
+            // Then check if liburing is installed
             execSync("pkg-config --exists liburing", { stdio: "ignore" });
             compileArgs.splice(-2, 0, "-luring");
             console.log("Using system liburing for async I/O");

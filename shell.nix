@@ -1,13 +1,18 @@
-{ pkgs ? import <nixpkgs> { } }:
+{
+  pkgs ? import <nixpkgs> { },
+}:
 with pkgs;
 let
   gccForLibs = stdenv.cc.cc;
 in
 mkShell rec {
+  nativeBuildInputs = [ # build-time tools
+    pkg-config
+    # cmake
+  ];
   buildInputs = [
     bun
     # python3
-    # cmake
     # llvmPackages_14.llvm
     clang
     mimalloc
@@ -19,7 +24,6 @@ mkShell rec {
     ripgrep
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
-  PKG_CONFIG_PATH = "${liburing}/lib/pkgconfig";
   # where to find libgcc
   ## NIX_LDFLAGS="-L${gccForLibs}/lib/gcc/${targetPlatform.config}/${gccForLibs.version}";
   # teach clang about C startup file locations
@@ -43,6 +47,5 @@ mkShell rec {
   ];
 
   LANG = "C.UTF-8";
-  shellHook = with pkgs; ''
-  '';
+  shellHook = with pkgs; '''';
 }

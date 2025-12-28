@@ -178,7 +178,7 @@ export function generateFunctionPrototype(
 
   // Add regular parameters
   const regularParamStrings = runtimeParams.map((param, index) => {
-    const paramName = param.label || `param${index}`;
+    const paramName = sanitizeForCIdentifier(param.label || `param${index}`);
 
     // Handle function pointer parameters specially
     if (isFunctionType(param.type)) {
