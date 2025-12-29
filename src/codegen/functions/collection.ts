@@ -106,10 +106,10 @@ export function collectRequiredFunctions(
 
       // Exported functions keep their original names (except main)
       if (label === "main") {
-        // Rename user's main to yo_user_main - we'll wrap it
+        // Rename user's main to __yo_user_main - we'll wrap it
         context.functions[value.funcId] = {
           value,
-          cName: "yo_user_main",
+          cName: "__yo_user_main",
         };
       } else {
         context.functions[value.funcId] = {

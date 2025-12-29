@@ -1510,13 +1510,28 @@ function generateFuncCall(
             // In state machine - assign to sm->var_xxx field
             context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
-            const varTypeAndName = getVariableTypeString(
-              lhs.$.type,
-              varName,
-              context
+            // Check if RHS is a temp variable with a registered async struct name
+            const rhsIsTempVar = isTempVariableName(
+              rhs.$!.env.modulePath,
+              rhsCode.trim()
             );
+            let cTypeString: string;
+
+            if (rhsIsTempVar && context.tempVarAsyncStructNames) {
+              const asyncStructName = context.tempVarAsyncStructNames.get(
+                rhsCode.trim()
+              );
+              if (asyncStructName) {
+                cTypeString = `${asyncStructName}*`;
+              } else {
+                cTypeString = getTypeString(lhs.$.type, context);
+              }
+            } else {
+              cTypeString = getTypeString(lhs.$.type, context);
+            }
+
             context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
+              `${indent}${cTypeString} ${varName} = ${rhsCode};`
             );
           }
         }
@@ -1687,8 +1702,60 @@ function generateFuncCall(
       // }
 
       if (!isUnitType(lhs.$.type)) {
+        // For Impl(Future(...)) bindings, use RHS's actual async block type if available
+        // This ensures task := run_task(b) uses run_task's state machine type
+        const lhsType = lhs.$.type;
+        const rhsType = rhs.$?.type;
+        let rhsAsyncStructName: string | undefined;
+
+        // Special case: if RHS is a temp variable from a function call returning Future,
+        // we should use the temp variable's already-declared type instead of inferring from lhsType
+        // Temp variables have the pattern _yoXXXXXXXX_temp_NNNNN
+        const rhsIsTempVar = isTempVariableName(
+          rhs.$!.env.modulePath,
+          finalRhsCode.trim()
+        );
+
+        // If RHS is a temp variable, check if it has a stored async struct name
+        if (rhsIsTempVar && context.tempVarAsyncStructNames) {
+          rhsAsyncStructName = context.tempVarAsyncStructNames.get(
+            finalRhsCode.trim()
+          );
+        }
+
+        const shouldUseFutureType =
+          isInitialization &&
+          rhsType &&
+          typeImplementsFuture(lhsType) &&
+          typeImplementsFuture(rhsType);
+
+        let cTypeString: string;
+        if (rhsIsTempVar && shouldUseFutureType) {
+          // RHS is a temp variable that was already declared with the correct Future type
+          // Use 'auto' or just don't specify the type - let C infer it from the RHS
+          // Actually, C doesn't have type inference, so we need to use the RHS's type
+          // But we don't know the RHS's C type here. The best we can do is use the temp variable's
+          // type by looking at the generated code. But that's not possible.
+          // So instead, just don't emit the initialization - emit an alias assignment.
+          // NO WAIT - we can't do that because this IS the initialization.
+          // The only solution is to get the correct type from the function's async block.
+          if (rhsAsyncStructName) {
+            cTypeString = `${rhsAsyncStructName}*`;
+          } else {
+            cTypeString = getTypeString(rhsType!, context);
+          }
+        } else if (shouldUseFutureType && rhsAsyncStructName) {
+          // Use the async block's struct name directly
+          cTypeString = `${rhsAsyncStructName}*`;
+        } else {
+          cTypeString = getTypeString(
+            shouldUseFutureType ? rhsType! : lhsType,
+            context
+          );
+        }
+
         context.emitter.emitLine(
-          `${indent}${isInitialization ? getTypeString(lhs.$.type, context) + " " : ""}${lhsCode} = ${finalRhsCode};`
+          `${indent}${isInitialization ? cTypeString + " " : ""}${lhsCode} = ${finalRhsCode};`
         );
       }
     }
@@ -2396,8 +2463,65 @@ function generateFuncCall(
               // If it returns a value, assign to a temp variable
               const tempVar = expr.$?.variableName;
               if (tempVar) {
+                // For Impl(Future(...)), use the actual function return type to get the correct state machine type
+                const returnType =
+                  functionValue.specializedType?.return.type ??
+                  functionType.return.type;
+                const exprType = expr.$?.type;
+
+                // Check if both types implement Future
+                const exprIsFuture = exprType && typeImplementsFuture(exprType);
+                const returnIsFuture =
+                  returnType && typeImplementsFuture(returnType);
+
+                let cTypeString: string;
+                if (exprIsFuture && returnIsFuture) {
+                  // For Future types, we need to get the correct state machine struct name
+                  // The function's body should have an async block with the correct struct name
+                  // The body might be wrapped in a begin() block, so we need to unwrap it
+                  let funcBody = functionValue.body;
+
+                  // If body is begin(async(...)), unwrap to get the async block
+                  if (funcBody && exprIsFunctionCallOf(funcBody, "begin")) {
+                    const beginArgs = (funcBody as FuncCallExpr).args;
+                    if (beginArgs.length > 0) {
+                      const lastArg = beginArgs[beginArgs.length - 1]!;
+                      if (
+                        exprIsFunctionCallOf(lastArg, BuiltinFunctions.async)
+                      ) {
+                        funcBody = lastArg;
+                      }
+                    }
+                  }
+
+                  if (
+                    funcBody &&
+                    exprIsFunctionCallOf(funcBody, BuiltinFunctions.async) &&
+                    funcBody.$?.asyncStateMachineStructName
+                  ) {
+                    // Use the async block's registered struct name directly
+                    const asyncStructName =
+                      funcBody.$.asyncStateMachineStructName;
+                    cTypeString = `${asyncStructName}*`;
+
+                    // Store the mapping for variable binding later
+                    if (!context.tempVarAsyncStructNames) {
+                      context.tempVarAsyncStructNames = new Map();
+                    }
+                    context.tempVarAsyncStructNames.set(
+                      tempVar,
+                      asyncStructName
+                    );
+                  } else {
+                    // Fallback to getTypeString on return type
+                    cTypeString = getTypeString(returnType, context);
+                  }
+                } else {
+                  cTypeString = getTypeString(exprType ?? returnType, context);
+                }
+
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(expr.$?.type ?? functionValue.specializedType?.return.type ?? functionType.return.type, context)} ${tempVar} = ${cFuncName}(${argsList});`
+                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`
                 );
 
                 // Handle deferred drop expressions if they exist
@@ -2441,8 +2565,19 @@ function generateFuncCall(
               // If it returns a value, assign to a temp variable or return directly
               const tempVar = expr.$?.variableName;
               if (tempVar) {
+                // For Impl(Future(...)), use the actual function return type to get the correct state machine type
+                const returnType = functionType.return.type;
+                const exprType = expr.$?.type;
+                const typeToUse =
+                  exprType &&
+                  returnType &&
+                  typeImplementsFuture(exprType) &&
+                  typeImplementsFuture(returnType)
+                    ? returnType // Use function's return type for correct state machine
+                    : (exprType ?? returnType); // Otherwise use expr type or fallback to return type
+
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(expr.$?.type ?? functionType.return.type, context)} ${tempVar} = ${funcCode}(${argsList});`
+                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${funcCode}(${argsList});`
                 );
 
                 // Handle deferred drop expressions if they exist

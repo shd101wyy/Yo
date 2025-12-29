@@ -410,7 +410,7 @@ export function generateDynDupDrop(context: FunctionGenerationContext): void {
 }
 
 /**
- * Generate a main() wrapper that calls yo_user_main() and then __yo_async_wait_all()
+ * Generate a main() wrapper that calls __yo_user_main() and then __yo_async_wait_all()
  * This ensures all async tasks complete before the program exits
  * REQUIREMENT: main function must return unit (void)
  */
@@ -422,7 +422,7 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   let mainFunctionValue: FunctionValue | null = null;
   for (const funcId in context.functions) {
     const { cName, value } = context.functions[funcId]!;
-    if (cName === "yo_user_main") {
+    if (cName === "__yo_user_main") {
       hasMain = true;
       mainFunctionValue = value;
       break;
@@ -448,13 +448,13 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   {
     // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
-// Main wrapper - calls yo_user_main directly
+// Main wrapper - calls __yo_user_main directly
 int main(void) {
   // Initialize async runtime (in case async blocks are used)
   __yo_async_scheduler_init();
   
   // Call sync main
-  yo_user_main();
+  __yo_user_main();
   
   // Wait for all async tasks to complete
   // This ensures any async blocks spawned in main finish before exit

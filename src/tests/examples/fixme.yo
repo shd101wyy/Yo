@@ -1,5 +1,33 @@
-open import "std/io/file";
+open import "std/libc/stdio";
+Async :: import "std/async";
 
+run_task :: (fn(b : Box(i32)) -> Impl(Future(unit)))(async {
+  printf("Task started %d\n", b.*);
+  assert(b.* == 0);
+
+  c := Box(i32)(10);
+
+  b.* = (b.* + 1);
+  await Async.yield();
+  
+  printf("Task completed %d\n", b.*);
+  assert(b.* == 2);
+  assert(c.* == 10);
+});
+
+main :: (fn() -> unit) {
+  b := Box(i32)(0);
+
+  // Simple test without nested async blocks
+  task := run_task(b);
+  
+  printf("Running main... %d\n", b.*);
+  assert(b.* == 1);
+  b.* = (b.* + 1);
+};
+
+/*
+open import "std/io/file";
 main :: (fn() -> unit) {
   // Test async read of file bytes
   (path : *(u8)) = "tests/fixtures/test_file.txt";
@@ -26,5 +54,6 @@ main :: (fn() -> unit) {
     }
   );
 };
+*/
 
 export main;

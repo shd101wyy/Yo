@@ -95,6 +95,12 @@ export interface CodeGenContext {
   spawnedClosureSignatures: Map<string, { closureType: Type }>;
 
   /**
+   * Mapping from temp variable names to their async state machine struct names
+   * This is used to preserve the correct Future state machine type when binding temp variables
+   */
+  tempVarAsyncStructNames?: Map<string, string>;
+
+  /**
    * Closure-to-capture type mapping for generating dispose functions
    * Maps closure type ID to its closure type, closure C name, capture type, and capture C name
    */
@@ -189,6 +195,12 @@ export interface CodeGenContext {
    * need to break or continue the loop (not just the switch statement)
    */
   currentLoopLabel?: string;
+
+  /**
+   * Map temp variable names to their async state machine struct names
+   * Used to track correct types for Future-returning function calls
+   */
+  tempVarAsyncStructNames?: Map<string, string>;
 }
 
 /**
