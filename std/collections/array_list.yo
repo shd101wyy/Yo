@@ -42,6 +42,39 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
     }),
 
     /**
+     * Get a pointer to the underlying data buffer
+     * Returns .None if the list is empty or has no allocated buffer
+     */
+    ptr :: (fn(self: Self) -> ?*(T))(
+      self._ptr
+    ),
+
+    /**     * Get a slice view of the ArrayList
+     * Returns a fat pointer [T] with data pointer and length
+     * This allows passing ArrayList to functions expecting slices
+     */
+    // as_slice :: (fn(self: Self) -> [T])({
+    //   ptr := match(self._ptr,
+    //     .Some(p) => p,
+    //     .None => (*(T))(*(void)(usize(0)))  // NULL for empty list
+    //   );
+    //   return [T](ptr, self._length);
+    // }),
+
+    /**     * Directly set the length of the ArrayList
+     * UNSAFE: This does not initialize new elements or free removed elements
+     * Only use when you've manually populated the buffer (e.g., via direct memory writes)
+     */
+    set_len :: (fn(self: Self, new_len: usize) -> unit)({
+      cond(
+        (new_len <= self._capacity) => {
+          self._length = new_len;
+        },
+        true => panic("set_len: new length exceeds capacity")
+      );
+    }),
+
+    /**
      * Create a new empty ArrayList
      */
     new :: (fn() -> Self)(

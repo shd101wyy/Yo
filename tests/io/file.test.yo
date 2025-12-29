@@ -1,0 +1,163 @@
+{ File, IOError, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } :: import "std/io/file.yo";
+open import "std/string";
+
+test "file open and close", {
+  // Test basic file open/close
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(file) => {
+      file.close();
+      assert(true);
+    },
+    .Err(e) => {
+      assert(false, "File should open successfully");
+    }
+  );
+};
+
+test "file size", {
+  // Test getting file size
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(file) => {
+      size_result := file.size();
+      file.close();
+      
+      match(size_result,
+        .Ok(size) => {
+          // test_file.txt has "Hello from Yo async I/O!\nThis is a test file.\n"
+          // Which is around 50 bytes
+          assert((size > i64(0)), "File size should be > 0");
+        },
+        .Err(e) => {
+          assert(false, "Should get file size successfully");
+        }
+      );
+    },
+    .Err(e) => {
+      assert(false, "File should open successfully");
+    }
+  );
+};
+
+test "file not found", {
+  // Test error handling for non-existent file
+  (path : *(u8)) = "/nonexistent/path/file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(_) => {
+      assert(false, "Should fail to open non-existent file");
+    },
+    .Err(e) => {
+      match(e,
+        .NotFound => assert(true),
+        _ => assert(false, "Should be NotFound error")
+      );
+    }
+  );
+};
+
+test "async file read bytes", {
+  // Test async read of file bytes
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(file) => {
+      async {
+        read_result := await file.read_bytes_async();
+        file.close();
+        
+        match(read_result,
+          .Ok(bytes) => {
+            // test_file.txt has "Hello from Yo async I/O!\nThis is a test file.\n"
+            assert((bytes.len() > usize(0)), "Should read some bytes");
+          },
+          .Err(e) => {
+            assert(false, "Should read successfully");
+          }
+        );
+      };
+    },
+    .Err(e) => {
+      assert(false, "File should open successfully");
+    }
+  );
+};
+
+test "async file read string", {
+  // Test async read of file as string
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
+  match(result,
+    .Ok(file) => {
+      async {
+        read_result := await file.read_string_async();
+        file.close();
+        
+        match(read_result,
+          .Ok(content) => {
+            // Verify we got some content
+            assert((content.len() > usize(0)), "Should have content");
+          },
+          .Err(e) => {
+            assert(false, "Should read string successfully");
+          }
+        );
+      };
+    },
+    .Err(e) => {
+      assert(false, "File should open successfully");
+    }
+  );
+};
+
+test "async file write and read", {
+  // Test async write and read roundtrip
+  (path : *(u8)) = "/tmp/yo_async_test.txt";
+  
+  // Write
+  write_result := File.open(path, ((O_WRONLY | O_CREAT) | O_TRUNC));
+  match(write_result,
+    .Ok(file) => {
+      async {
+        test_data := String.from("Hello async write!");
+        write_result := await file.write_string_async(test_data);
+        file.close();
+        
+        match(write_result,
+          .Ok(_) => assert(true),
+          .Err(e) => assert(false, "Write should succeed")
+        );
+      };
+    },
+    .Err(e) => {
+      assert(false, "File should open for writing");
+    }
+  );
+  
+  // Read back
+  read_result := File.open(path, O_RDONLY);
+  match(read_result,
+    .Ok(file) => {
+      async {
+        read_result := await file.read_string_async();
+        file.close();
+        
+        match(read_result,
+          .Ok(content) => {
+            expected := String.from("Hello async write!");
+            assert((content.len() == expected.len()), "Content length should match");
+          },
+          .Err(e) => {
+            assert(false, "Read should succeed");
+          }
+        );
+      };
+    },
+    .Err(e) => {
+      assert(false, "File should open for reading");
+    }
+  );
+};

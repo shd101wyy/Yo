@@ -21,45 +21,38 @@ All platforms share a unified Yo API (`File.read_bytes_async`, `File.read_string
 - Well-tested, actively maintained
 - Raw io_uring syscalls require managing mmap'd ring buffers manually - error-prone
 
-### NPM Packaging
+### liburing Dependency
 
-**Strategy: Git submodule** (like mimalloc and quickjs)
+**Strategy: System-wide installation**
 
-```
-vendor/
-├── mimalloc/          # Git submodule
-├── quickjs/           # Git submodule
-└── liburing/          # Git submodule (BSD-licensed)
-    ├── src/
-    │   ├── setup.c
-    │   ├── queue.c
-    │   ├── register.c
-    │   ├── syscall.c
-    │   └── include/
-    │       └── liburing.h
-    └── ...
-```
+liburing must be installed system-wide. The Yo compiler detects it via `pkg-config`.
 
-**Setup:**
+**Installation:**
 ```bash
-# Add liburing submodule
-git submodule add https://github.com/axboe/liburing.git vendor/liburing
+# Arch Linux / Manjaro / SteamOS
+sudo pacman -S liburing
 
-# For users cloning the repo
-git submodule update --init --recursive
+# Ubuntu / Debian
+sudo apt-get install liburing-dev
+
+# Fedora / RHEL
+sudo dnf install liburing-devel
+
+# From source
+git clone https://github.com/axboe/liburing.git
+cd liburing
+./configure
+make
+sudo make install
 ```
 
 **Build integration:**
 ```bash
-# Linux compilation includes liburing from submodule
+# Linux compilation with liburing (detected via pkg-config)
 clang -std=c11 a.out.c \
-  vendor/liburing/src/setup.c \
-  vendor/liburing/src/queue.c \
-  vendor/liburing/src/register.c \
-  vendor/liburing/src/syscall.c \
-  -Ivendor/liburing/src/include \
   vendor/mimalloc/src/static.c \
   -Ivendor/mimalloc/include \
+  $(pkg-config --cflags --libs liburing) \
   -o a.out
 ```
 
@@ -105,20 +98,14 @@ clang -std=c11 a.out.c \
 
 ## Phase 1: Linux Implementation
 
-### Task 1.1: Add liburing Submodule
+### Task 1.1: Verify liburing Installation ✓
 
-**Time Estimate:** 0.5 days
+**Status:** System-wide liburing is detected via `pkg-config` in the Yo compiler.
 
-1. Add liburing as git submodule
-2. Update build commands in `yo-cli` to compile liburing source files
-3. Update documentation
-
-**Command:**
+**Verification:**
 ```bash
-git submodule add https://github.com/axboe/liburing.git vendor/liburing
+pkg-config liburing --cflags --libs
 ```
-
-**Note:** Users will need to run `git submodule update --init --recursive` after cloning.
 
 ---
 

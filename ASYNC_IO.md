@@ -42,30 +42,32 @@ Yo uses **liburing** for io_uring operations rather than direct syscalls:
 - Well-tested and actively maintained
 - Raw syscalls require managing mmap'd ring buffers manually - error-prone
 
-**NPM Packaging Strategy:**
+**System Dependency:**
 
-liburing is included as a **git submodule** in `vendor/liburing/` (like mimalloc and quickjs):
+liburing must be installed system-wide. The Yo compiler detects it via `pkg-config`.
 
-```
-vendor/
-├── mimalloc/          # Git submodule
-├── quickjs/           # Git submodule  
-└── liburing/          # Git submodule (BSD-licensed)
-    └── src/
-        ├── setup.c
-        ├── queue.c
-        ├── register.c
-        ├── syscall.c
-        └── include/
-            └── liburing.h
-```
+**Installation:**
 
-The npm package is self-contained - no system dependencies required on Linux.
-
-**Setup for users:**
 ```bash
-git submodule update --init --recursive
+# Arch Linux / Manjaro / SteamOS
+sudo pacman -S liburing
+
+# Ubuntu / Debian
+sudo apt-get install liburing-dev
+
+# Fedora / RHEL
+sudo dnf install liburing-devel
+
+# From source
+git clone https://github.com/axboe/liburing.git
+cd liburing
+./configure
+make
+sudo make install
 ```
+
+**Detection:**
+The Yo compiler will check for liburing using `pkg-config liburing --cflags --libs`. If not found, async file I/O will not be available.
 
 **Fallback for older kernels:**
 - On Linux kernel < 5.1: Falls back to blocking I/O with thread pool (future)

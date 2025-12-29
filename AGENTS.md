@@ -7,7 +7,9 @@ You are a programming language and compiler expert.
 To test the Yo evaluator, you can run the command `bun test src/tests/fixme.test.ts` to test the `fixme.yo` file which contains the Yo language code.  
 Usually don't modify the `fixme.yo` unless I tell you to do so.
 
-Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so.
+Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so. 
+
+You can comment out the existing code in `src/tests/examples/fixme.yo` and create new one there. But don't create `.yo` file for testing.  
 
 Do not use `npm` command, only use `bun` command.
 
@@ -76,6 +78,8 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
 Ignore the `DESIGN.md` and other markdown files because they are out of date.
+
+Ignore the Yo files in `src/tests/examples/` except `fixme.yo`. They are all out of date.  
 
 No need to read fixme.test.ts
 
