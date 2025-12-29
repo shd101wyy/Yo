@@ -3428,10 +3428,22 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(`  // Await result temporaries`);
     for (const awaitPoint of analysis.awaitPoints) {
       if (!isUnitType(awaitPoint.resultType)) {
-        const awaitResultTypeCName = getTypeString(
-          awaitPoint.resultType,
-          context
-        );
+        // Determine the correct type for await_result_X:
+        // For extern futures (e.g., io_uring), use the Future's result type directly
+        // For async block futures, use awaitPoint.resultType (which matches the block's result)
+        let awaitResultType = awaitPoint.resultType;
+
+        if (awaitPoint.futureType) {
+          const futureModuleType = extractFutureModuleFromType(
+            awaitPoint.futureType
+          );
+          if (futureModuleType) {
+            // Use the Future's output type as the await_result type
+            awaitResultType = futureModuleType.isFuture.outputType;
+          }
+        }
+
+        const awaitResultTypeCName = getTypeString(awaitResultType, context);
         emitter.emitDeclarationLine(
           `  ${awaitResultTypeCName} await_result_${awaitPoint.index};`
         );
@@ -4116,6 +4128,12 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   // Check if we're in a state machine and this is a captured variable
   if (functionContext.inStateMachine && functionContext.stateMachineVariables) {
     const varName = expr.token.value;
+
+    // Check if this variable is locally shadowed (e.g., in match destructuring)
+    // If so, use the local C variable instead of the state machine field
+    if (functionContext.localShadowedVariables?.has(varName)) {
+      return varName;
+    }
 
     // Check if this variable is in the state machine
     for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
@@ -5108,6 +5126,7 @@ function generateMatchExpression(
     if (pointerCase) {
       // For nullable pointer optimization with destructuring pattern like .Some(value),
       // we need to bind the destructured variable to the pointer value
+      let destructuredVarName: string | undefined;
       if (
         exprIsFunctionCall(pointerCase.casePattern) &&
         pointerCase.casePattern.args.length > 0
@@ -5115,13 +5134,22 @@ function generateMatchExpression(
         // Destructuring pattern: .Some(value)
         const destructuredVar = pointerCase.casePattern.args[0];
         if (destructuredVar && exprIsAtom(destructuredVar)) {
-          const varName = destructuredVar.token.value;
+          destructuredVarName = destructuredVar.token.value;
           const varType = nullablePointerType;
           // Declare and bind the destructured variable to the pointer
           context.emitter.emitLine(
-            `${indent}  ${getTypeString(varType, context)} ${varName} = ${matchedValueCode};`
+            `${indent}  ${getTypeString(varType, context)} ${destructuredVarName} = ${matchedValueCode};`
           );
         }
+      }
+
+      // Add destructured variable to localShadowedVariables so it uses the local C var
+      const functionContext = context as FunctionGenerationContext;
+      if (destructuredVarName && functionContext.inStateMachine) {
+        if (!functionContext.localShadowedVariables) {
+          functionContext.localShadowedVariables = new Set();
+        }
+        functionContext.localShadowedVariables.add(destructuredVarName);
       }
 
       const bodyCode = generateCaseBody(
@@ -5129,14 +5157,26 @@ function generateMatchExpression(
         indent + "  ",
         context
       );
-      if (!isUnit && tempVariableName) {
+
+      // Remove destructured variable from localShadowedVariables after generating body
+      if (destructuredVarName && functionContext.localShadowedVariables) {
+        functionContext.localShadowedVariables.delete(destructuredVarName);
+      }
+
+      // Check if body has control flow (return, break, continue) - don't assign temp in that case
+      const hasControlFlow =
+        bodyCode === "" ||
+        bodyCode === "break" ||
+        bodyCode === "continue" ||
+        bodyCode.includes("return");
+      if (!isUnit && tempVariableName && !hasControlFlow) {
         // For nullable pointer match, the body returns the actual value
         // If bodyCode is empty or just returns the matched value itself, use the matched value
         const resultCode = bodyCode || matchedValueCode;
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${resultCode};`
         );
-      } else if (bodyCode) {
+      } else if (bodyCode && bodyCode !== "") {
         context.emitter.emitLine(`${indent}  ${bodyCode};`);
       }
     }
@@ -5149,11 +5189,17 @@ function generateMatchExpression(
         indent + "  ",
         context
       );
-      if (!isUnit && tempVariableName) {
+      // Check if body has control flow (return, break, continue) - don't assign temp in that case
+      const hasControlFlow =
+        bodyCode === "" ||
+        bodyCode === "break" ||
+        bodyCode === "continue" ||
+        bodyCode.includes("return");
+      if (!isUnit && tempVariableName && !hasControlFlow) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${bodyCode};`
         );
-      } else {
+      } else if (bodyCode && bodyCode !== "") {
         context.emitter.emitLine(`${indent}  ${bodyCode};`);
       }
     }

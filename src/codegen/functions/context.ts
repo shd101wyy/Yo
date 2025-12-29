@@ -67,4 +67,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
     }
   >;
+  // Variables that are locally shadowed (e.g., in match destructuring patterns)
+  // When a variable name is in this set, use the local C variable instead of sm->var_...
+  localShadowedVariables?: Set<string>;
 }

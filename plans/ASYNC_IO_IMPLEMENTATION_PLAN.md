@@ -100,7 +100,7 @@ clang -std=c11 a.out.c \
 
 ### Task 1.1: Verify liburing Installation ✓
 
-**Status:** System-wide liburing is detected via `pkg-config` in the Yo compiler.
+**Status:** COMPLETED. System-wide liburing is detected via `pkg-config` in the Yo compiler.
 
 **Verification:**
 ```bash
@@ -109,7 +109,9 @@ pkg-config liburing --cflags --libs
 
 ---
 
-### Task 1.2: C Runtime - I/O Header
+### Task 1.2: C Runtime - I/O Header ✓
+
+**Status:** COMPLETED. C runtime for io_uring async I/O has been implemented in `src/codegen/async/runtime.ts`.
 
 **File:** Generate as part of C output in `src/codegen/async/runtime.ts`
 
@@ -249,13 +251,11 @@ static int64_t __yo_file_size(int32_t fd) {
 #endif // __linux__
 ```
 
-**Time Estimate:** 1 day
-
 ---
 
-### Task 1.3: Update Event Loop
+### Task 1.3: Update Event Loop ✓
 
-Modify the existing async runtime in `src/codegen/async/runtime.ts`:
+**Status:** COMPLETED. Event loop has been updated to integrate io_uring polling.
 
 ```c
 // Updated event loop with io_uring integration
@@ -315,9 +315,23 @@ void __yo_async_run_until_complete(void* future_ptr) {
 
 ---
 
-### Task 1.4: Codegen - Async I/O Await Pattern
+### Task 1.4: Codegen - Async I/O Await Pattern (IN PROGRESS)
 
-The codegen needs to recognize `await __yo_async_read(...)` and generate special state machine code.
+**Status:** IN PROGRESS. 
+
+**Completed:**
+- ✅ `Concrete(T)` builtin module for explicit extern type resolution
+- ✅ `IOReadFuture` and `IOWriteFuture` types using `Impl(Concrete(yo_io_future_t), Future(i32))`
+- ✅ Fixed `getTypeString` to handle extern types vs async block capture structs
+- ✅ Added `localShadowedVariables` for match destructuring in state machines
+- ✅ Fixed match expression codegen for early returns and local variable bindings
+
+**Remaining Issues:**
+- ❌ FutureModuleType unification: Function return types create different FutureModuleType instances than async block bodies
+- ❌ `await_future_X` field types resolving to wrong struct names
+- ❌ Some stale drop calls with undeclared variables in generated code
+
+**Current Approach:**c_read(...)` and generate special state machine code.
 
 **State Machine Struct Addition:**
 
@@ -352,11 +366,15 @@ case STATE_AWAIT_IO_READ:
     sm->io_state.resume_fn = (void(*)(void*))my_async_fn_resume;
     sm->io_state.completed = false;
     
-    __yo_async_read_submit(sm->fd, sm->buffer, sm->size, sm->offset, &sm->io_state);
-    
-    // Suspend - DO NOT add to ready queue
-    // io_uring completion will call yo_async_spawn_task
-    return;
+---
+
+### Task 1.5: Yo Standard Library - File API ✓
+
+**Status:** COMPLETED. `std/io/file.yo` implemented with:
+- ✅ Synchronous operations: `File.open()`, `File.close()`, `File.size()`
+- ✅ Async operations: `read_bytes_async()`, `read_string_async()`, `write_bytes_async()`, `write_string_async()`
+- ✅ `IOError` enum with error code mapping
+- ✅ Proper extern type declarations for io_uring futures
   }
   
   // Resumed after I/O completion
@@ -440,11 +458,11 @@ File :: object(
   size :: (fn(self: Self) -> Result(i64, IOError))({
     result := __yo_file_size(self._fd);
     cond(
-      (result >= i64(0)) => .Ok(result),
-      true => .Err(IOError.from_errno((i32(0) - (result as i32))))
-    )
-  }),
+---
 
+### Task 1.6: Tests (BLOCKED)
+
+**Status:** BLOCKED by Task 1.4 codegen issues.
   // Close file (synchronous)
   close :: (fn(self: Self) -> unit)({
     __yo_file_close(self._fd);

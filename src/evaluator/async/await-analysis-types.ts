@@ -27,6 +27,12 @@ export interface AwaitPoint {
   resultType: Type;
 
   /**
+   * The full Future type being awaited (Impl Future(T) or similar)
+   * This is stored to help codegen determine the correct C type for await_future_X fields
+   */
+  futureType?: Type;
+
+  /**
    * The variable that should receive the await result (if any)
    * This is the variable ID from the captured variables
    */

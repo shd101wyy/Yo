@@ -298,6 +298,7 @@ function walkExprForAwaits(
             index: awaitPoints.length,
             expr,
             resultType,
+            futureType: futureModuleType, // Store the FutureModuleType itself, not the outer type
             targetVariableId,
             futureVariableId,
           });

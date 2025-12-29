@@ -485,20 +485,22 @@ export function getTypeString(
     case TypeTag.SomeType: {
       const someType = type as SomeType;
 
-      // For Impl(Future(...)), check resolvedConcreteType FIRST (the actual state machine struct)
-      // before falling back to the generic FutureModuleType
+      // For Impl(Future(...)), handle different cases:
+      // 1. Impl(Concrete(extern_type), Future(T)) - use extern_type's C name
+      // 2. Async blocks - use the registered FutureModuleType's cName (state machine struct)
+      // 3. Fallback - use yo_io_future_t for unregistered extern futures
       if (typeImplementsFuture(someType)) {
-        // If there's a resolved concrete type (async function's state machine), use that
-        if (someType.resolvedConcreteType) {
-          const concreteTypeString = getTypeString(
+        // Check for Concrete(extern_type) - resolvedConcreteType will be an extern type
+        if (someType.resolvedConcreteType?.isExtern) {
+          const externTypeName = getTypeString(
             someType.resolvedConcreteType,
             context
           );
-          // Impl futures are heap-backed state machines - use pointer type
-          return `${concreteTypeString}*`;
+          // Extern futures are heap-backed - use pointer type
+          return `${externTypeName}*`;
         }
 
-        // Try the FutureModuleType (for non-async Future implementations)
+        // Try the FutureModuleType (for async blocks, this is registered with state machine name)
         const futureModule = extractFutureModuleFromType(someType);
         if (futureModule) {
           const cTypeName = context.types[futureModule.id]?.cName;
@@ -509,10 +511,8 @@ export function getTypeString(
           }
         }
 
-        // Fallback for extern "Yo" functions returning Impl Future(T)
+        // Fallback for extern "Yo" functions returning Impl Future(T) without Concrete
         // These return pointers to C structs with Future-compatible layout
-        // (yo_ref_header_t, _Atomic int state, result, continuation_fn, continuation_sm)
-        // Use the generic yo_io_future_t type which has this layout
         return "yo_io_future_t*";
       }
 

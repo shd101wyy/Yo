@@ -2,11 +2,13 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { attachTempVariableToExpr, FuncCallExpr } from "../../expr";
 import {
+  areTypesCompatible,
   convertComptTypeToRuntimeType,
   createFutureModuleType,
   createSomeType,
   createType0,
   extractFutureModuleFromType,
+  FutureModuleType,
   SomeType,
   Type,
 } from "../../types";
@@ -70,7 +72,8 @@ export function evaluateAsync({
   // Determine the expected return type for the body
   // If context expects Impl(Future(T)), extract T for the body
   let unwrappedFutureExpectedType: Type | undefined = undefined;
-  // let wrapperType: SomeType | undefined;
+  // Track the expected FutureModuleType to reuse its ID for consistent codegen
+  let expectedFutureModuleType: FutureModuleType | undefined = undefined;
 
   if (context.expectedType) {
     const expectedType = context.expectedType.type;
@@ -78,9 +81,7 @@ export function evaluateAsync({
     if (futureModuleFromExpected) {
       unwrappedFutureExpectedType =
         futureModuleFromExpected.isFuture.outputType;
-      // if (isSomeType(expectedType)) {
-      //   wrapperType = expectedType;
-      // }
+      expectedFutureModuleType = futureModuleFromExpected;
     }
   }
 
@@ -126,8 +127,26 @@ export function evaluateAsync({
     env,
   });
 
-  // Create FutureModuleType for the inferred return type
-  const futureModuleType = createFutureModuleType(returnType, env);
+  // Reuse the expected FutureModuleType if available and the return types match.
+  // This ensures the FutureModuleType ID is consistent between the function's return type
+  // annotation and the async block body, allowing codegen to properly link them.
+  let futureModuleType: FutureModuleType;
+  if (
+    expectedFutureModuleType &&
+    areTypesCompatible(
+      { type: returnType, env },
+      {
+        type: expectedFutureModuleType.isFuture.outputType,
+        env: context.expectedType!.env,
+      },
+      true
+    )
+  ) {
+    futureModuleType = expectedFutureModuleType;
+  } else {
+    // Create new FutureModuleType for the inferred return type
+    futureModuleType = createFutureModuleType(returnType, env);
+  }
 
   // Enrich captured variables with values and types (convert to FunctionCapturedVariableInfo)
   const capturedVariables =
