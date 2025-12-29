@@ -3725,7 +3725,16 @@ function emitDeferredAsyncBlockStructDefinitions(
 
     // Local variable fields
     for (const v of b.analysis.capturedVariables) {
-      const t = getTypeString(v.type, context);
+      // Try to get the C type string for the variable type
+      // If it fails (not registered), skip this dependency - it's from an external function
+      let t: string;
+      try {
+        t = getTypeString(v.type, context);
+      } catch (e) {
+        // Type not registered yet - skip this dependency check
+        continue;
+      }
+
       const target = byStructName.get(t);
       if (target && target.structName !== b.structName) {
         addDep(target.structName);
@@ -3746,7 +3755,18 @@ function emitDeferredAsyncBlockStructDefinitions(
       if (!futureType) {
         continue;
       }
-      const t = getTypeString(futureType, context);
+
+      // Try to get the C type string for the future type
+      // If it fails (not registered), skip this dependency - it's from an external function
+      let t: string;
+      try {
+        t = getTypeString(futureType, context);
+      } catch (e) {
+        // Future type not registered yet - it's from a function call, not an inline async block
+        // Skip this dependency check
+        continue;
+      }
+
       const target = byStructName.get(t);
       if (target && target.structName !== b.structName) {
         addDep(target.structName);

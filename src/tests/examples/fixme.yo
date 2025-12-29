@@ -1,6 +1,15 @@
-run_task :: (fn(z : Box(i32)) -> Impl(Future(unit)))(async {
+yield :: (fn() -> Impl(Future(unit)))
+  async {
+    // Empty async block that just completes immediately
+    // The act of awaiting this will cause the current task to suspend and re-enqueue
+    return ();
+  }
+;
+
+run_task :: (fn(z : Box(i32)) -> Impl(Future(i32)))(async {
   assert(z.* == 0);
-  return ();
+  await yield();
+  return (z.* + 1);
 });
 
 main :: (fn() -> unit) {

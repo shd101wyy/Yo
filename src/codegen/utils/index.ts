@@ -18,6 +18,7 @@ import {
   IsoType,
   isPtrType,
   isSliceType,
+  isSomeType,
   isStructType,
   PtrType,
   SliceType,
@@ -195,12 +196,6 @@ export interface CodeGenContext {
    * need to break or continue the loop (not just the switch statement)
    */
   currentLoopLabel?: string;
-
-  /**
-   * Map temp variable names to their async state machine struct names
-   * Used to track correct types for Future-returning function calls
-   */
-  tempVarAsyncStructNames?: Map<string, string>;
 }
 
 /**
@@ -529,6 +524,33 @@ export function getTypeString(
             // Impl futures are heap-backed state machines.
             // Use pointer type so the address is stable across suspension and returns.
             return `${cTypeName}*`;
+          }
+        }
+
+        // Fallback: Check if resolvedConcreteType matches any registered async block's capture struct
+        // This happens when a function returns an async block - the function's return type is a fresh
+        // SomeType, but its resolvedConcreteType points to the async block's capture struct
+        if (
+          someType.resolvedConcreteType &&
+          isStructType(someType.resolvedConcreteType)
+        ) {
+          const captureStructId = someType.resolvedConcreteType.id;
+          // Search through all registered types to find a state machine that uses this capture struct
+          for (const [_typeId, typeEntry] of Object.entries(context.types)) {
+            if (
+              isSomeType(typeEntry.type) &&
+              typeImplementsFuture(typeEntry.type)
+            ) {
+              // Check if this registered Future type has the same capture struct
+              if (
+                typeEntry.type.resolvedConcreteType &&
+                isStructType(typeEntry.type.resolvedConcreteType) &&
+                typeEntry.type.resolvedConcreteType.id === captureStructId
+              ) {
+                // Found a matching async block - use its state machine type
+                return `${typeEntry.cName}*`;
+              }
+            }
           }
         }
 
