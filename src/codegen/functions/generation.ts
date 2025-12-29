@@ -15,7 +15,6 @@ import {
   isFnModuleType,
   isFunctionSpecializable,
   isFunctionType,
-  isFutureModuleType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -666,8 +665,8 @@ export function generateFunctionBody(
     if (!findReturn && args.length > 0) {
       const lastExpr = args[args.length - 1];
 
-      // Check if this is an async function - async functions return Future(T)
-      const isAsyncFunction = isFutureModuleType(functionType.return.type);
+      // Check if this is an async function - async functions return Impl(Future(T)) or Dyn(Future(T))
+      const isAsyncFunction = typeImplementsFuture(functionType.return.type);
 
       if (isAsyncFunction && lastExpr) {
         // Check if the last expression is an async block
@@ -681,12 +680,23 @@ export function generateFunctionBody(
         // If so, return it directly without wrapping (e.g., from Option.unwrap())
         const lastExprType = lastExpr.$?.type;
         const isAlreadyFuture =
-          lastExprType && isFutureModuleType(lastExprType);
+          lastExprType && typeImplementsFuture(lastExprType);
 
         if (isAsyncBlock || isAlreadyFuture) {
           // Last expression is an async block or already returns a Future - return it directly
           const resultCode = generateExpr(lastExpr, indent, context);
+
+          // Generate deferred dup expressions for captured variables (needed for ARC)
+          // but return the async block's state machine, not the dup'd values
+          if (
+            lastExpr.$?.deferredDupExpressions &&
+            lastExpr.$.deferredDupExpressions.length > 0
+          ) {
+            generateDeferredDupExpressions(lastExpr, indent, context);
+          }
+
           emitter.emitLine(`${indent}return ${resultCode};`);
+          return; // Exit early - we've handled the return
         } else {
           // FIXME: OUTDATED
           /// // For async functions, wrap the return value in a Future
