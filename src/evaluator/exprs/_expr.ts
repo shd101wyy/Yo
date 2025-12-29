@@ -84,6 +84,7 @@ import { EvaluatorContext } from "../context";
 import { evaluateArrayType } from "../types/array";
 import { evaluateClosureType } from "../types/closure";
 import { evaluateComptListType } from "../types/compt_list";
+import { evaluateConcreteType } from "../types/concrete_module";
 import { evaluateDynType } from "../types/dyn";
 import { evaluateEnumType } from "../types/enum";
 import { evaluateFnModuleType } from "../types/fn_module";
@@ -436,6 +437,13 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Future)) {
       // Future type
       return evaluateFutureType({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Concrete)) {
+      // Concrete type (marker for resolvedConcreteType in Impl)
+      return evaluateConcreteType({
         expr,
         env,
         context: { ...context },

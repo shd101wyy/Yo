@@ -10,8 +10,10 @@ import {
 import {
   createSomeType,
   createType0,
+  isConcreteModuleType,
   isModuleType,
   ModuleType,
+  Type,
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -21,11 +23,16 @@ import { evaluateExpression } from "../exprs/expr";
  * Evaluates the `Impl(module1, module2, ...)` syntax.
  * Creates a SomeType whose module contains the given module constraints.
  * Supports negated modules with `!(Module)` syntax.
+ * Supports Concrete(T) to explicitly set resolvedConcreteType.
  *
  * Example:
  *   Id :: module(id : (fn(self : Self) -> Self));
  *   ImplId :: Impl(Id);
  *   ImplIdNotCopy :: Impl(Id, !(Copy));  // Must implement Id but NOT Copy
+ *
+ *   // Explicit concrete type for extern futures:
+ *   extern "Yo", yo_io_future : Type;
+ *   IOReadFuture :: Impl(Concrete(yo_io_future), Future(i32));
  *
  * ImplId is a SomeType that requires types to implement the Id module.
  */
@@ -54,9 +61,11 @@ export function evaluateImplConstraint({
 
   const requiredModules: ModuleType[] = [];
   const negativeModules: ModuleType[] = [];
+  let concreteType: Type | undefined = undefined;
 
   // Evaluate each argument and expect them to be module types
   // Support negated modules with !(Module) syntax
+  // Support Concrete(T) to set resolvedConcreteType
   for (const arg of expr.args) {
     // Check if this is a negated module: !(Module)
     const isNegated =
@@ -94,10 +103,25 @@ export function evaluateImplConstraint({
       });
     }
 
+    const moduleType = evaluatedArg.$.value.value;
+
+    // Check if this is a Concrete(T) module - extract the concrete type
+    if (isConcreteModuleType(moduleType)) {
+      if (concreteType !== undefined) {
+        throw formatErrorMessage({
+          token: moduleExpr.token,
+          errorMessage: `Impl can only have one Concrete(T) specifier`,
+        });
+      }
+      concreteType = moduleType.isConcrete.concreteType;
+      // Don't add Concrete to requiredModules - it's just a marker
+      continue;
+    }
+
     if (isNegated) {
-      negativeModules.push(evaluatedArg.$.value.value);
+      negativeModules.push(moduleType);
     } else {
-      requiredModules.push(evaluatedArg.$.value.value);
+      requiredModules.push(moduleType);
     }
   }
 
@@ -109,6 +133,11 @@ export function evaluateImplConstraint({
     requiredModules,
     negativeModules
   );
+
+  // If Concrete(T) was specified, set the resolvedConcreteType
+  if (concreteType !== undefined) {
+    someType.resolvedConcreteType = concreteType;
+  }
 
   const typeValue = createTypeValue(someType);
 

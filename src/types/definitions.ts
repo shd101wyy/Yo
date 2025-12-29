@@ -493,6 +493,13 @@ export interface ModuleType extends Type {
   isFuture?: { outputType: Type };
 
   /**
+   * If this module represents a Concrete type marker, this contains the concrete type.
+   * Set for modules created via `Concrete(T)` syntax.
+   * Used in Impl(Concrete(T), ...) to explicitly specify the resolvedConcreteType.
+   */
+  isConcrete?: { concreteType: Type };
+
+  /**
    * The module path where this module was defined.
    * Used for orphan rule checks to ensure coherence.
    * Inherited from Type.definedInModulePath.
@@ -520,6 +527,18 @@ export type FnModuleType = ModuleType & { isFn: { callType: FunctionType } };
  * - Dyn(Future(i32)) for dynamic dispatch
  */
 export type FutureModuleType = ModuleType & { isFuture: { outputType: Type } };
+
+/**
+ * ConcreteModuleType is a marker module that specifies the concrete type for Impl.
+ * Used with extern types to explicitly set resolvedConcreteType.
+ *
+ * Examples:
+ * - Concrete(yo_io_future): marker that the concrete type is yo_io_future
+ * - Impl(Concrete(yo_io_future), Future(i32)): Future with explicit C type
+ */
+export type ConcreteModuleType = ModuleType & {
+  isConcrete: { concreteType: Type };
+};
 
 export interface EnumVariant {
   /**

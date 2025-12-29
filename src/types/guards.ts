@@ -1,6 +1,7 @@
 import {
   ArrayType,
   ComptListType,
+  ConcreteModuleType,
   DynType,
   EnumType,
   FnModuleType,
@@ -360,6 +361,10 @@ export function isVoidType(type?: Type): type is VoidType {
 
 export function isFutureModuleType(type?: Type): type is FutureModuleType {
   return isModuleType(type) && type.isFuture !== undefined;
+}
+
+export function isConcreteModuleType(type?: Type): type is ConcreteModuleType {
+  return isModuleType(type) && type.isConcrete !== undefined;
 }
 
 // Helper function to check if a type is a C compatible type

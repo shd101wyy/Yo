@@ -346,35 +346,10 @@ static struct io_uring __yo_io_ring;
 static bool __yo_io_initialized = false;
 static size_t __yo_pending_io_count = 0;
 
-// I/O operation state (embedded in state machines)
-typedef struct yo_io_state {
-  void* state_machine;       // Owning state machine
-  void (*resume_fn)(void*);  // Resume function when I/O completes
-  int32_t result;            // Result: bytes or -errno
-  bool completed;            // Set to true when I/O completes
-} yo_io_state_t;
-
-// I/O Future types - these are awaitable futures that complete when I/O finishes
-// They follow the same structure as async block state machines
-typedef struct yo_io_read_future_t {
-  yo_ref_header_t header;                       // Reference counting (must be first)
-  _Atomic int state;                            // Future state (0 = pending, -1 = completed)
-  int32_t result;                               // Bytes read or -errno
-  _Atomic(void (*)(void*)) continuation_fn;     // Continuation function
-  _Atomic(void*) continuation_sm;               // Continuation state machine
-  yo_io_state_t io_state;                       // I/O state for io_uring
-  void* buffer;                                 // Buffer to read into (kept alive by refcount)
-} yo_io_read_future_t;
-
-typedef struct yo_io_write_future_t {
-  yo_ref_header_t header;                       // Reference counting (must be first)
-  _Atomic int state;                            // Future state (0 = pending, -1 = completed)
-  int32_t result;                               // Bytes written or -errno
-  _Atomic(void (*)(void*)) continuation_fn;     // Continuation function
-  _Atomic(void*) continuation_sm;               // Continuation state machine
-  yo_io_state_t io_state;                       // I/O state for io_uring
-  const void* buffer;                           // Buffer to write from (kept alive by refcount)
-} yo_io_write_future_t;
+// I/O Future types - yo_io_future_t is defined in types/generation.ts
+// It has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
+// so the await codegen can access ->state and ->result uniformly.
+// We store the future pointer directly in the SQE user data.
 
 // Initialize io_uring (called once at event loop start)
 static void __yo_io_init(void) {
@@ -402,68 +377,19 @@ static inline bool __yo_has_pending_io(void) {
   return __yo_pending_io_count > 0;
 }
 
-// Submit async read to io_uring
-static void __yo_async_read_submit(int32_t fd, void* buffer, size_t size,
-                                   int64_t offset, yo_io_state_t* io_state) {
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    // Queue full - should not happen with proper sizing
-    io_state->result = -EAGAIN;
-    io_state->completed = true;
-    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
-    return;
-  }
-
-  io_uring_prep_read(sqe, fd, buffer, (unsigned)size, offset);
-  io_uring_sqe_set_data(sqe, io_state);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Submitted read: fd=%d size=%zu offset=%lld (pending=%zu)\\n",
-              fd, size, (long long)offset, __yo_pending_io_count);
-}
-
-// Submit async write to io_uring
-static void __yo_async_write_submit(int32_t fd, const void* buffer, size_t size,
-                                    int64_t offset, yo_io_state_t* io_state) {
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
-  if (!sqe) {
-    io_state->result = -EAGAIN;
-    io_state->completed = true;
-    ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
-    return;
-  }
-
-  io_uring_prep_write(sqe, fd, buffer, (unsigned)size, offset);
-  io_uring_sqe_set_data(sqe, io_state);
-  io_uring_submit(&__yo_io_ring);
-  __yo_pending_io_count++;
-  
-  ASYNC_DEBUG("[IO] Submitted write: fd=%d size=%zu offset=%lld (pending=%zu)\\n",
-              fd, size, (long long)offset, __yo_pending_io_count);
-}
-
 // Process completions from CQ
+// The future pointer is stored directly in the SQE user data
 static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
-  yo_io_state_t* io_state = (yo_io_state_t*)io_uring_cqe_get_data(cqe);
-  io_state->result = cqe->res;
-  io_state->completed = true;
+  yo_io_future_t* future = (yo_io_future_t*)io_uring_cqe_get_data(cqe);
   __yo_pending_io_count--;
 
-  ASYNC_DEBUG("[IO] Completed I/O: result=%d (pending=%zu)\\n",
-              io_state->result, __yo_pending_io_count);
-
-  // The io_state is embedded in an IOReadFuture or IOWriteFuture
-  // We need to mark the future as complete and wake awaiters
-  
-  // Calculate the future pointer from the io_state offset
-  // io_state is the 6th field in yo_io_read_future_t/yo_io_write_future_t
-  yo_io_read_future_t* future = (yo_io_read_future_t*)((char*)io_state - offsetof(yo_io_read_future_t, io_state));
-  
   // Set the result
-  future->result = io_state->result;
+  future->result = cqe->res;
   
-  // Mark as completed
+  ASYNC_DEBUG("[IO] Completed I/O: result=%d (pending=%zu)\\n",
+              future->result, __yo_pending_io_count);
+  
+  // Mark as completed (state -1 = done)
   atomic_store_explicit(&future->state, -1, memory_order_release);
   
   // Wake continuation if registered
@@ -508,9 +434,9 @@ static int __yo_io_wait(void) {
 }
 
 // Create and start an async read operation
-// Returns a Future that completes when the read finishes
-static yo_io_read_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
-  yo_io_read_future_t* future = (yo_io_read_future_t*)__yo_malloc(sizeof(yo_io_read_future_t));
+// Returns a yo_io_future_t* that completes when the read finishes
+static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   
   // Initialize ref counting
   future->header.ref_count = 1;
@@ -520,15 +446,6 @@ static yo_io_read_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint
   future->result = 0;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  
-  // Store buffer reference
-  future->buffer = buffer;
-  
-  // Initialize io_state
-  future->io_state.state_machine = NULL;  // Not used with new approach
-  future->io_state.resume_fn = NULL;      // Not used with new approach
-  future->io_state.result = 0;
-  future->io_state.completed = false;
   
   // Submit to io_uring
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
@@ -541,7 +458,7 @@ static yo_io_read_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint
   }
   
   io_uring_prep_read(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
-  io_uring_sqe_set_data(sqe, &future->io_state);
+  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
   io_uring_submit(&__yo_io_ring);
   __yo_pending_io_count++;
   
@@ -552,9 +469,9 @@ static yo_io_read_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint
 }
 
 // Create and start an async write operation
-// Returns a Future that completes when the write finishes
-static yo_io_write_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
-  yo_io_write_future_t* future = (yo_io_write_future_t*)__yo_malloc(sizeof(yo_io_write_future_t));
+// Returns a yo_io_future_t* that completes when the write finishes
+static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   
   // Initialize ref counting
   future->header.ref_count = 1;
@@ -564,15 +481,6 @@ static yo_io_write_future_t* __yo_async_write_start(int32_t fd, const void* buff
   future->result = 0;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  
-  // Store buffer reference
-  future->buffer = buffer;
-  
-  // Initialize io_state
-  future->io_state.state_machine = NULL;  // Not used with new approach
-  future->io_state.resume_fn = NULL;      // Not used with new approach
-  future->io_state.result = 0;
-  future->io_state.completed = false;
   
   // Submit to io_uring
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
@@ -585,7 +493,7 @@ static yo_io_write_future_t* __yo_async_write_start(int32_t fd, const void* buff
   }
   
   io_uring_prep_write(sqe, fd, buffer, (unsigned)size, (int64_t)offset);
-  io_uring_sqe_set_data(sqe, &future->io_state);
+  io_uring_sqe_set_data(sqe, future);  // Store future pointer directly
   io_uring_submit(&__yo_io_ring);
   __yo_pending_io_count++;
   

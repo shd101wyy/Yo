@@ -485,9 +485,20 @@ export function getTypeString(
     case TypeTag.SomeType: {
       const someType = type as SomeType;
 
-      // For Impl(Future(...)), use the FutureModuleType's C name (state machine struct)
-      // Check this BEFORE resolvedConcreteType because the capture struct is an implementation detail
+      // For Impl(Future(...)), check resolvedConcreteType FIRST (the actual state machine struct)
+      // before falling back to the generic FutureModuleType
       if (typeImplementsFuture(someType)) {
+        // If there's a resolved concrete type (async function's state machine), use that
+        if (someType.resolvedConcreteType) {
+          const concreteTypeString = getTypeString(
+            someType.resolvedConcreteType,
+            context
+          );
+          // Impl futures are heap-backed state machines - use pointer type
+          return `${concreteTypeString}*`;
+        }
+
+        // Try the FutureModuleType (for non-async Future implementations)
         const futureModule = extractFutureModuleFromType(someType);
         if (futureModule) {
           const cTypeName = context.types[futureModule.id]?.cName;
@@ -497,6 +508,12 @@ export function getTypeString(
             return `${cTypeName}*`;
           }
         }
+
+        // Fallback for extern "Yo" functions returning Impl Future(T)
+        // These return pointers to C structs with Future-compatible layout
+        // (yo_ref_header_t, _Atomic int state, result, continuation_fn, continuation_sm)
+        // Use the generic yo_io_future_t type which has this layout
+        return "yo_io_future_t*";
       }
 
       // For Impl(Fn(...)), use the resolvedConcreteType (the capture struct)

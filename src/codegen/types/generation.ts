@@ -217,6 +217,17 @@ typedef struct {
   // Note: concrete Future types may have additional fields (e.g., result) after this
 } yo_future_generic_t;
 
+// Generic I/O Future type for extern "Yo" functions returning Impl Future(T)
+// This has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
+// so the await codegen can access ->state and ->result uniformly
+typedef struct yo_io_future_t {
+  yo_ref_header_t header;                       // Reference counting (must be first)
+  _Atomic int state;                            // Future state (0 = pending, -1 = completed)
+  int32_t result;                               // The result value (bytes read/written or -errno)
+  _Atomic(void (*)(void*)) continuation_fn;     // Continuation function
+  _Atomic(void*) continuation_sm;               // Continuation state machine
+} yo_io_future_t;
+
 // Forward declarations will be added here if needed
 `);
 

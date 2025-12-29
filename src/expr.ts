@@ -537,6 +537,7 @@ export const BuiltinKeywords = {
   Array: ["Array"],
   Slice: ["Slice"],
   Future: ["Future"],
+  Concrete: ["Concrete"],
   Type: ["Type"],
   Module: ["Module"],
   ComptList: ["ComptList"],
