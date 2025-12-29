@@ -11,8 +11,10 @@ import {
   isFunctionSpecializable,
   isFunctionType,
   isObjectType,
+  isSomeType,
   isUnitType,
   Type,
+  typeImplementsFuture,
 } from "../../types";
 import {
   isFunctionValue,
@@ -229,6 +231,27 @@ export function findFunctionCallsInExpr(
           // Skip collecting functions whose body contains UnknownValue
           // This means the function wasn't fully evaluated (e.g., nested function in an unspecialized generic)
           if (exprContainsUnknownValue(functionValue.body)) {
+            return;
+          }
+
+          // DEBUG: Check if this is a SomeType ARC function without resolvedConcreteType
+          const paramTypes = functionValue.type.parameters.map((p) => p.type);
+          const hasSomeTypeWithoutResolved = paramTypes.some(
+            (t) =>
+              isSomeType(t) &&
+              typeImplementsFuture(t) &&
+              !t.resolvedConcreteType
+          );
+          if (hasSomeTypeWithoutResolved) {
+            // Skip collecting SomeType's ARC functions (___drop, ___dup) that have generic
+            // Impl(Future) parameters without resolvedConcreteType. These are just wrapper
+            // functions that call builtins like __yo_sometype_drop. The codegen will handle
+            // dispatching to the concrete type's functions directly.
+            //
+            // These functions shouldn't be codegen'd because:
+            // 1. Their 'self' parameter type (SomeType) doesn't have a C representation
+            // 2. The codegen for ___drop already handles SomeType by dispatching to concrete type
+            // 3. The actual ARC operations are done via __yo_sometype_drop/__yo_sometype_dup builtins
             return;
           }
 

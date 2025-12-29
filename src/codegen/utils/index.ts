@@ -499,7 +499,7 @@ export function getTypeString(
 
       // For Impl(Future(...)), handle different cases:
       // 1. Impl(Concrete(extern_type), Future(T)) - use extern_type's C name
-      // 2. Async blocks - use the registered FutureModuleType's cName (state machine struct)
+      // 2. Async blocks - use the registered SomeType's cName (state machine struct)
       // 3. Fallback - use yo_io_future_t for unregistered extern futures
       if (typeImplementsFuture(someType)) {
         // Check for Concrete(extern_type) - resolvedConcreteType will be an extern type
@@ -512,7 +512,16 @@ export function getTypeString(
           return `${externTypeName}*`;
         }
 
-        // Try the FutureModuleType (for async blocks, this is registered with state machine name)
+        // First try the SomeType's own ID - each async block creates a fresh SomeType
+        // with a unique ID, and we register the state machine struct under that ID.
+        const someTypeCName = context.types[someType.id]?.cName;
+        if (someTypeCName) {
+          // Impl futures are heap-backed state machines.
+          // Use pointer type so the address is stable across suspension and returns.
+          return `${someTypeCName}*`;
+        }
+
+        // Fallback: try the FutureModuleType (for backward compatibility with extern futures)
         const futureModule = extractFutureModuleFromType(someType);
         if (futureModule) {
           const cTypeName = context.types[futureModule.id]?.cName;
@@ -523,9 +532,12 @@ export function getTypeString(
           }
         }
 
-        // Fallback for extern "Yo" functions returning Impl Future(T) without Concrete
-        // These return pointers to C structs with Future-compatible layout
-        return "yo_io_future_t*";
+        // No fallback - all Impl(Future) types must have a concrete type
+        throw new Error(
+          `Impl(Future) type has no registered concrete type. ` +
+            `SomeType ID: ${someType.id}, FutureModule: ${futureModule?.id ?? "none"}. ` +
+            `Ensure async blocks are properly analyzed and their state machine types are registered.`
+        );
       }
 
       // For Impl(Fn(...)), use the resolvedConcreteType (the capture struct)

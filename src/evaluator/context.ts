@@ -1,4 +1,4 @@
-import { Environment } from "../env";
+import { Environment, Variable } from "../env";
 import { YoError } from "../error";
 import { Expr, FuncCallExpr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
@@ -449,11 +449,24 @@ export function trackVariableUsage(
     return;
   }
 
-  // Get the variable from the specified frame level
-  const variable = evaluationEnv.frames[frameLevel]?.variables.find(
-    (v) => v.name === variableName
-  );
-  if (!variable) {
+  // Get the variable from the evaluation environment by searching all frames
+  // The frameLevel parameter is relative to the original environment, but we need to
+  // find the variable in evaluationEnv which may have different frame indices
+  let variable: Variable | undefined = undefined;
+  let actualFrameLevel = -1;
+
+  for (let i = 0; i < evaluationEnv.frames.length; i++) {
+    const found = evaluationEnv.frames[i]?.variables.find(
+      (v) => v.name === variableName
+    );
+    if (found) {
+      variable = found;
+      actualFrameLevel = i;
+      break;
+    }
+  }
+
+  if (!variable || actualFrameLevel < 0) {
     return;
   }
 
@@ -478,7 +491,7 @@ export function trackVariableUsage(
       : usageType;
 
   context.capturedVariables.set(variableName, {
-    frameLevel,
+    frameLevel: actualFrameLevel, // Use the actual frame level in evaluationEnv
     usageType: newUsageType,
     token,
   });

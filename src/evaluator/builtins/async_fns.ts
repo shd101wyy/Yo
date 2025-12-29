@@ -88,6 +88,9 @@ export function evaluateAsync({
   // Create a map to track captured variables (similar to closures)
   const capturedVariablesMap = new Map<string, CapturedVariableInfo>();
 
+  // Save the environment at the start of async block evaluation (for captured variable enrichment)
+  const asyncBlockEvaluationEnv = env;
+
   // Evaluate the body in async context to:
   // 1. Allow `await` expressions
   // 2. Infer the return type T
@@ -99,7 +102,7 @@ export function evaluateAsync({
       ...context,
       isEvaluatingFunctionBodyOrAsyncBlock: {
         kind: "async-block",
-        evaluationEnv: env,
+        evaluationEnv: asyncBlockEvaluationEnv,
       },
       isEvaluatingFunctionType: undefined, // Clear function type context for async block
       isEvaluatingLoopBody: undefined, // Clear loop body context for async block
@@ -149,11 +152,12 @@ export function evaluateAsync({
   }
 
   // Enrich captured variables with values and types (convert to FunctionCapturedVariableInfo)
+  // Use asyncBlockEvaluationEnv which has the correct frame levels for captured variables
   const capturedVariables =
     capturedVariablesMap.size > 0
       ? enrichCapturedVariables({
           capturedVariables: capturedVariablesMap,
-          env,
+          env: asyncBlockEvaluationEnv,
         })
       : undefined;
 

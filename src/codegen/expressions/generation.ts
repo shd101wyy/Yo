@@ -314,6 +314,42 @@ function generateFuncCall(
     return generateExpr(expr.$.macroExpansion, indent, context);
   }
 
+  // Handle method calls to ___drop/___dup on SomeType with resolvedConcreteType.
+  // These are wrapper functions that were not collected during function collection
+  // because they just call builtins. We handle them here by dispatching to the
+  // concrete type's methods or using the appropriate ref-counting operation.
+  if (
+    exprIsFunctionCall(expr.func) &&
+    exprIsFunctionCallOf(expr.func, ".", 2) &&
+    expr.func.args[1] &&
+    exprIsAtom(expr.func.args[1])
+  ) {
+    const methodName = expr.func.args[1].token.value;
+    const receiverExpr = expr.func.args[0];
+    const receiverType = receiverExpr?.$?.type;
+
+    if (
+      receiverType &&
+      isSomeType(receiverType) &&
+      typeImplementsFuture(receiverType)
+    ) {
+      // SomeType implementing Future - ALWAYS use ref-counting operations directly.
+      // Futures are heap-allocated state machines (pointers), not value types.
+      // The resolvedConcreteType might be the capture struct (value type), but we can't
+      // dispatch to its ___drop/___dup because those expect struct values, not pointers.
+      // The state machine manages its own memory and uses ref-counting.
+      if (methodName === BuiltinFunctions.___drop[0]) {
+        const receiverCode = generateExpr(receiverExpr!, indent, context);
+        return `if (${receiverCode} != NULL) { __yo_decr_rc((void*)${receiverCode}); }`;
+      }
+
+      if (methodName === BuiltinFunctions.___dup[0]) {
+        const receiverCode = generateExpr(receiverExpr!, indent, context);
+        return `__yo_incr_rc((void*)${receiverCode})`;
+      }
+    }
+  }
+
   // Handle anonymous function/closure construction
   // If expr.$.closureFunctionValue is set, this is a closure that needs to be constructed
   if (
@@ -3312,11 +3348,13 @@ function generateAsyncBlock(
   const constructorName = `__yo_new_${asyncBlockId}`;
   const disposeFunctionName = `${asyncBlockId}_state_dispose`;
 
-  // Register this state machine struct as the concrete type for the FutureModuleType
-  // This allows getTypeString to find the struct name when generating code
-  // Always update (not just if missing) because collectType no longer registers FutureModuleType
-  context.types[futureModuleType.id] = {
-    type: futureModuleType,
+  // Register this state machine struct as the concrete type for this specific async block's SomeType.
+  // IMPORTANT: We use futureType.id (the SomeType's ID) rather than futureModuleType.id because
+  // each async block creates its own fresh SomeType, but they may share the same FutureModuleType
+  // (e.g., multiple async blocks returning Impl(Future(unit)) share the same Future(unit) module).
+  // Using the SomeType's unique ID ensures each async block gets its own state machine struct.
+  context.types[futureType.id] = {
+    type: futureType,
     cName: structName,
   };
 
@@ -6272,11 +6310,14 @@ function preRegisterAsyncBlocksInExpr(
             expr.$.asyncStateMachineStructName = structName;
           }
 
-          // Also register in context.types for backward compatibility with getTypeString
-          // Note: this may be overwritten by later async blocks with the same output type,
-          // which is why we also store on the expression itself
-          context.types[futureModuleType.id] = {
-            type: futureModuleType,
+          // Register in context.types using the SomeType's unique ID.
+          // IMPORTANT: Each async block creates its own fresh SomeType with a unique ID,
+          // but they may share the same FutureModuleType (e.g., multiple async blocks
+          // returning Impl(Future(unit)) share the same Future(unit) module).
+          // Using the SomeType's unique ID ensures each async block's state machine
+          // struct is registered separately.
+          context.types[futureType.id] = {
+            type: futureType,
             cName: structName,
           };
 

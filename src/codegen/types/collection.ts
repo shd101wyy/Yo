@@ -116,14 +116,26 @@ export function collectTypesFromExpr(
   if (expr.$ && expr.$.value && isFunctionValue(expr.$.value)) {
     const functionValue = expr.$.value;
     if (!context.functions[functionValue.funcId]) {
-      context.functions[functionValue.funcId] = {
-        value: functionValue,
-        cName: functionValue.funcId,
-      };
-      // Collect types from the function signature
-      collectTypesFromFunctionType(functionValue.type, context);
-      // Recursively collect functions called by this function
-      findFunctionCallsInExpr(functionValue.body, context);
+      // Skip collecting SomeType's ARC functions that have Impl(Future) params without resolvedConcreteType
+      // These are just wrapper functions that codegen handles specially
+      const paramTypes = functionValue.type.parameters.map((p) => p.type);
+      const hasSomeTypeWithoutResolved = paramTypes.some(
+        (t) =>
+          isSomeType(t) && typeImplementsFuture(t) && !t.resolvedConcreteType
+      );
+      if (hasSomeTypeWithoutResolved) {
+        // Don't collect this function - it's a generic SomeType ARC wrapper
+        // The codegen will handle dispatching to concrete type's functions directly
+      } else {
+        context.functions[functionValue.funcId] = {
+          value: functionValue,
+          cName: functionValue.funcId,
+        };
+        // Collect types from the function signature
+        collectTypesFromFunctionType(functionValue.type, context);
+        // Recursively collect functions called by this function
+        findFunctionCallsInExpr(functionValue.body, context);
+      }
     }
   }
 
@@ -242,6 +254,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
   // Handle SomeType (Impl) that implements Future - DON'T register the FutureModuleType here.
   // The async block generation will register it with the correct state machine struct name.
   // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped.
+  // ALSO: Don't collect the module (ARC functions) since those are generic and will be resolved
+  // to concrete state machine types during specialization.
   if (isSomeType(type) && typeImplementsFuture(type)) {
     const futureModule = extractFutureModuleFromType(type);
     if (futureModule) {
@@ -250,6 +264,9 @@ export function collectType(type: Type, context: CodeGenContext): void {
       collectType(futureModule.isFuture.outputType, context);
     }
 
+    // Important: Don't collect type.module! The SomeType's ARC functions are generic and
+    // should not be codegen'd directly. They will be resolved via resolvedConcreteType
+    // during specialization, and the concrete type's ARC functions will be collected instead.
     return;
   }
 

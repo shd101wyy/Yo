@@ -1380,10 +1380,17 @@ ${functionsWithMatchingTypes
       ) {
         const functionBody = functionToCall.value.body;
         if (functionBody.$?.type) {
+          // If the function body's type is also a SomeType with resolvedConcreteType,
+          // use that concrete type directly. This is important for async blocks which
+          // return SomeType(Impl(Future)) with resolvedConcreteType set to the capture struct.
+          let concreteType = functionBody.$.type;
+          if (isSomeType(concreteType) && concreteType.resolvedConcreteType) {
+            concreteType = concreteType.resolvedConcreteType;
+          }
           // Clone the SomeType and set its resolvedConcreteType
           finalReturnType = {
             ...returnType,
-            resolvedConcreteType: functionBody.$.type,
+            resolvedConcreteType: concreteType,
           } as SomeType;
         }
       }

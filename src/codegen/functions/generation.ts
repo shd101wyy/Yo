@@ -191,7 +191,23 @@ export function generateFunctionPrototype(
       return functionPointerType;
     } else {
       // Handle non-function parameters
-      const paramTypeStr = getTypeString(param.type, context);
+      let paramTypeStr: string;
+      if (isSomeType(param.type) && typeImplementsFuture(param.type)) {
+        // For Future types, we must have a resolved concrete type (the state machine)
+        if (!param.type.resolvedConcreteType) {
+          throw new Error(
+            `Impl(Future) parameter '${param.label}' has no resolvedConcreteType. ` +
+              `Function: ${cFunctionName}. ` +
+              `SomeType ID: ${param.type.id}. ` +
+              `This indicates the function wasn't properly specialized - generic Impl(Future) functions should not reach codegen.`
+          );
+        }
+        // Use the concrete state machine pointer type
+        paramTypeStr =
+          getTypeString(param.type.resolvedConcreteType, context) + "*";
+      } else {
+        paramTypeStr = getTypeString(param.type, context);
+      }
 
       return `${paramTypeStr} ${paramName}`;
     }
