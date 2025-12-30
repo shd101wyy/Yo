@@ -231,13 +231,24 @@ function generateDestructuringAndCalls(
 
   for (const label of labels) {
     if (isValidIdentifier(label)) {
-      // Simple case: label is a valid identifier
-      destructurings.push(label);
-      calls.push(`(${callFn})(${label});`);
+      // Check if the field name is 'self' which would shadow the function parameter
+      // If so, we need to alias it to avoid shadowing
+      if (label === "self") {
+        const alias = "_self";
+        destructurings.push(`${label} : ${alias}`);
+        calls.push(`(${callFn})(${alias});`);
+      } else {
+        // Simple case: label is a valid identifier and doesn't shadow
+        destructurings.push(label);
+        // Use method call syntax (___dup(label)) instead of bare function call (___dup(label))
+        // This ensures Self is resolved in the context of the field's type, not the struct's type
+        calls.push(`(${callFn})(${label});`);
+      }
     } else {
       // Need aliased destructuring: { (label) : alias }
       const alias = sanitizeFieldLabel(label);
       destructurings.push(`(${label}) : ${alias}`);
+      // Use method call syntax for aliased fields too
       calls.push(`(${callFn})(${alias});`);
     }
   }

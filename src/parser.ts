@@ -15,7 +15,6 @@ import {
   Token,
   TokenType,
 } from "./token";
-import { randomId } from "./utils";
 
 type ParserReturn = {
   expr: Expr;
@@ -1170,7 +1169,11 @@ or ) to end the function call`,
 export function generateExprFromCode(code: string): Expr {
   // Create a parser for the code
   const parser = new Parser({
-    modulePath: `auto-generated://${randomId()}`,
+    modulePath: `auto-generated://
+// === START auto-generated code ===
+${code}
+// === END auto-generated code ===
+`,
     inputString: code,
   });
 
