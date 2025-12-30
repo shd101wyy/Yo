@@ -4355,31 +4355,50 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
 
     // Check if this variable is in the state machine
-    for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
-      if (capturedVar.name === varName) {
-        // This is a state machine variable - access it through sm->
-        // Use kind to determine field name:
-        // - "outer": Use __capture.varName (sm->__capture.varName)
-        // - "local": Use var_{varId} (sm->var_{varId})
-        const fieldName =
-          capturedVar.kind === "outer"
-            ? `__capture.${varName}`
-            : `var_${varId}`;
-        return `sm->${fieldName}`;
-      }
+    // IMPORTANT: Look up by variable ID from environment, not by name!
+    // This handles variable shadowing correctly - shadowed variables have the same name but different IDs
+    let foundInStateMachine = false;
+    if (expr.$?.env) {
+      const variables = getVariablesFromEnv(expr.$.env, varName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!; // Most recent scope
+        const varId = variable.isOwningTheSameGcValueAs
+          ? variable.isOwningTheSameGcValueAs.id
+          : variable.id;
 
-      // Also check if this variable is the owner of a borrowed variable in the state machine
-      // e.g., _temp_123 owns the value, future1 borrows from _temp_123
-      // In deferred drops, we drop _temp_123, but in state machine it's stored as sm->var_future1
-      if (
-        capturedVar.isOwningTheSameGcValueAs &&
-        capturedVar.isOwningTheSameGcValueAs.name === varName
-      ) {
-        const fieldName =
-          capturedVar.kind === "outer"
-            ? `__capture.${varName}`
-            : `var_${varId}`;
-        return `sm->${fieldName}`;
+        // Check if this variable ID is in the state machine
+        const capturedVar = functionContext.stateMachineVariables.get(varId);
+        if (capturedVar) {
+          // This is a state machine variable - access it through sm->
+          // Use kind to determine field name:
+          // - "outer": Use __capture.varName (sm->__capture.varName)
+          // - "local": Use var_{varId} (sm->var_{varId})
+          const fieldName =
+            capturedVar.kind === "outer"
+              ? `__capture.${varName}`
+              : `var_${varId}`;
+          foundInStateMachine = true;
+          return `sm->${fieldName}`;
+        }
+      }
+    }
+
+    // Fallback: if we don't have env info or didn't find it by ID, search by name
+    // This handles captured variables from outer scopes (capture struct) where we might not have env
+    if (!foundInStateMachine) {
+      for (const [
+        varId,
+        capturedVar,
+      ] of functionContext.stateMachineVariables) {
+        if (capturedVar.name === varName) {
+          // Found by name - this should only happen for outer captured variables
+          const fieldName =
+            capturedVar.kind === "outer"
+              ? `__capture.${varName}`
+              : `var_${varId}`;
+          foundInStateMachine = true;
+          return `sm->${fieldName}`;
+        }
       }
     }
 
