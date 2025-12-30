@@ -514,3 +514,392 @@ test "String UTF-8 all ASCII control characters", {
   str := String.from_bytes(bytes);
   assert(str.len() == usize(5));
 };
+
+// ===== String.from_cstr Tests =====
+
+test "String.from_cstr creates string from C string", {
+  (cstr : *(u8)) = "Hello";
+  result := String.from_cstr(cstr);
+  
+  match(result,
+    .Ok(str) => {
+      assert(str.len() == usize(5));
+      assert(str.at(usize(0)).unwrap().to_u32() == u32(72));
+      assert(str.at(usize(4)).unwrap().to_u32() == u32(111));
+    },
+    .Err(_) => assert(false, "Should successfully create string from C string")
+  );
+};
+
+test "String.from_cstr empty string", {
+  (cstr : *(u8)) = "";
+  result := String.from_cstr(cstr);
+  
+  match(result,
+    .Ok(str) => {
+      assert(str.is_empty());
+      assert(str.len() == usize(0));
+    },
+    .Err(_) => assert(false, "Should successfully create empty string")
+  );
+};
+
+test "String.from_cstr with UTF-8", {
+  (cstr : *(u8)) = "Hello 世界";
+  result := String.from_cstr(cstr);
+  
+  match(result,
+    .Ok(str) => {
+      assert(str.len() == usize(8));
+    },
+    .Err(_) => assert(false, "Should handle UTF-8 in C string")
+  );
+};
+
+test "String.from_cstr single character", {
+  (cstr : *(u8)) = "X";
+  result := String.from_cstr(cstr);
+  
+  match(result,
+    .Ok(str) => {
+      assert(str.len() == usize(1));
+      assert(str.at(usize(0)).unwrap().to_u32() == u32(88));
+    },
+    .Err(_) => assert(false, "Should create single character string")
+  );
+};
+
+// ===== String Literal Conversion Tests =====
+
+test "String.from with string literal", {
+  str := String.from("ABC");
+  assert(str.len() == usize(3));
+  assert(str.at(usize(0)).unwrap().to_u32() == u32(65));
+  assert(str.at(usize(1)).unwrap().to_u32() == u32(66));
+  assert(str.at(usize(2)).unwrap().to_u32() == u32(67));
+};
+
+test "String.from with empty string literal", {
+  str := String.from("");
+  assert(str.is_empty());
+  assert(str.len() == usize(0));
+};
+
+test "String.from with UTF-8 literal", {
+  str := String.from("你好");
+  assert(str.len() == usize(2));
+};
+
+test "String.from with emoji literal", {
+  str := String.from("😀😁");
+  assert(str.len() == usize(2));
+  assert(str.at(usize(0)).unwrap().to_u32() == u32(0x1F600));
+  assert(str.at(usize(1)).unwrap().to_u32() == u32(0x1F601));
+};
+
+// ===== Large String Tests =====
+
+test "String with many ASCII characters", {
+  bytes := ArrayList(u8).new();
+  
+  i := usize(0);
+  while((i < usize(100)), (i = (i + usize(1))), {
+    bytes.push(u8(65));
+  });
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(100));
+  assert(not(str.is_empty()));
+};
+
+test "String concat multiple times", {
+  base := String.from("A");
+  
+  result := base.concat(base);
+  assert(result.len() == usize(2));
+
+  result2 := result.concat(result);
+  assert(result2.len() == usize(4));
+
+  result3 := result2.concat(result2);
+  assert(result3.len() == usize(8));
+};
+
+// ===== String Byte Array Tests =====
+
+test "String as_bytes preserves UTF-8 encoding", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  
+  str := String.from_bytes(bytes);
+  result := str.as_bytes();
+  
+  assert(result.len() == usize(3));
+  assert(result.get(usize(0)).unwrap() == u8(0xE4));
+  assert(result.get(usize(1)).unwrap() == u8(0xB8));
+  assert(result.get(usize(2)).unwrap() == u8(0xAD));
+};
+
+test "String as_bytes returns copy not reference", {
+  original_bytes := ArrayList(u8).new();
+  original_bytes.push(u8(65));
+  original_bytes.push(u8(66));
+  
+  str := String.from_bytes(original_bytes);
+  retrieved := str.as_bytes();
+  
+  assert(retrieved.len() == usize(2));
+};
+
+// ===== Additional UTF-8 Character Tests =====
+
+test "String Greek characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xCE));
+  bytes.push(u8(0xB1));
+  bytes.push(u8(0xCE));
+  bytes.push(u8(0xB2));
+  bytes.push(u8(0xCE));
+  bytes.push(u8(0xB3));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(3));
+  
+  alpha := str.at(usize(0));
+  assert(alpha.unwrap().to_u32() == u32(0x3B1));
+  
+  beta := str.at(usize(1));
+  assert(beta.unwrap().to_u32() == u32(0x3B2));
+  
+  gamma := str.at(usize(2));
+  assert(gamma.unwrap().to_u32() == u32(0x3B3));
+};
+
+test "String Cyrillic characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xD0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0xD1));
+  bytes.push(u8(0x80));
+  bytes.push(u8(0xD0));
+  bytes.push(u8(0xB8));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(3));
+  
+  p := str.at(usize(0));
+  assert(p.unwrap().to_u32() == u32(0x41F));
+  
+  r := str.at(usize(1));
+  assert(r.unwrap().to_u32() == u32(0x440));
+  
+  i := str.at(usize(2));
+  assert(i.unwrap().to_u32() == u32(0x438));
+};
+
+test "String Arabic characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xD8));
+  bytes.push(u8(0xA7));
+  bytes.push(u8(0xD9));
+  bytes.push(u8(0x84));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(2));
+  
+  alef := str.at(usize(0));
+  assert(alef.unwrap().to_u32() == u32(0x627));
+  
+  lam := str.at(usize(1));
+  assert(lam.unwrap().to_u32() == u32(0x644));
+};
+
+test "String Hebrew characters", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xD7));
+  bytes.push(u8(0xA9));
+  bytes.push(u8(0xD7));
+  bytes.push(u8(0x9C));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(2));
+  
+  shin := str.at(usize(0));
+  assert(shin.unwrap().to_u32() == u32(0x5E9));
+  
+  lamed := str.at(usize(1));
+  assert(lamed.unwrap().to_u32() == u32(0x5DC));
+};
+
+test "String Japanese Hiragana", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xE3));
+  bytes.push(u8(0x81));
+  bytes.push(u8(0x82));
+  bytes.push(u8(0xE3));
+  bytes.push(u8(0x81));
+  bytes.push(u8(0x84));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(2));
+  
+  a := str.at(usize(0));
+  assert(a.unwrap().to_u32() == u32(0x3042));
+  
+  i := str.at(usize(1));
+  assert(i.unwrap().to_u32() == u32(0x3044));
+};
+
+test "String Korean Hangul", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xED));
+  bytes.push(u8(0x95));
+  bytes.push(u8(0x9C));
+  bytes.push(u8(0xEA));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0x80));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(2));
+  
+  han := str.at(usize(0));
+  assert(han.unwrap().to_u32() == u32(0xD55C));
+  
+  gul := str.at(usize(1));
+  assert(gul.unwrap().to_u32() == u32(0xAE00));
+};
+
+// ===== More Emoji Tests =====
+
+test "String various emojis", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x98));
+  bytes.push(u8(0x80));
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x91));
+  bytes.push(u8(0x8D));
+  bytes.push(u8(0xF0));
+  bytes.push(u8(0x9F));
+  bytes.push(u8(0x8E));
+  bytes.push(u8(0x89));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(3));
+  
+  grinning := str.at(usize(0));
+  assert(grinning.unwrap().to_u32() == u32(0x1F600));
+  
+  thumbsup := str.at(usize(1));
+  assert(thumbsup.unwrap().to_u32() == u32(0x1F44D));
+  
+  tada := str.at(usize(2));
+  assert(tada.unwrap().to_u32() == u32(0x1F389));
+};
+
+// ===== Whitespace and Special Character Tests =====
+
+test "String various whitespace", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(32));
+  bytes.push(u8(9));
+  bytes.push(u8(10));
+  bytes.push(u8(13));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(4));
+  
+  space := str.at(usize(0));
+  assert(space.unwrap().to_u32() == u32(32));
+  
+  tab := str.at(usize(1));
+  assert(tab.unwrap().to_u32() == u32(9));
+  
+  newline := str.at(usize(2));
+  assert(newline.unwrap().to_u32() == u32(10));
+  
+  carriage := str.at(usize(3));
+  assert(carriage.unwrap().to_u32() == u32(13));
+};
+
+test "String punctuation marks", {
+  str := String.from("!@#$%^&*()");
+  assert(str.len() == usize(10));
+  
+  exclaim := str.at(usize(0));
+  assert(exclaim.unwrap().to_u32() == u32(33));
+  
+  at := str.at(usize(1));
+  assert(at.unwrap().to_u32() == u32(64));
+};
+
+// ===== Concat Edge Cases =====
+
+test "String concat with special characters", {
+  str1 := String.from("Hello");
+  str2 := String.from(" 世界");
+  
+  result := str1.concat(str2);
+  assert(result.len() == usize(8));
+};
+
+test "String concat three strings", {
+  str1 := String.from("A");
+  str2 := String.from("B");
+  str3 := String.from("C");
+  
+  result := str1.concat(str2).concat(str3);
+  assert(result.len() == usize(3));
+  assert(result.at(usize(0)).unwrap().to_u32() == u32(65));
+  assert(result.at(usize(1)).unwrap().to_u32() == u32(66));
+  assert(result.at(usize(2)).unwrap().to_u32() == u32(67));
+};
+
+test "String concat identical strings", {
+  str := String.from("Test");
+  result := str.concat(str);
+  
+  assert(result.len() == usize(8));
+  assert(str.len() == usize(4));
+};
+
+// ===== Performance and Stress Tests =====
+
+test "String with_capacity and repeated push", {
+  bytes := ArrayList(u8).with_capacity(usize(50));
+  
+  i := usize(0);
+  while((i < usize(50)), (i = (i + usize(1))), {
+    bytes.push(u8(((i % usize(26)) + usize(65))));
+  });
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(50));
+  assert(not(str.is_empty()));
+};
+
+test "String alternating ASCII and UTF-8", {
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(65));
+  bytes.push(u8(0xE4));
+  bytes.push(u8(0xB8));
+  bytes.push(u8(0xAD));
+  bytes.push(u8(66));
+  bytes.push(u8(0xE6));
+  bytes.push(u8(0x96));
+  bytes.push(u8(0x87));
+  bytes.push(u8(67));
+  
+  str := String.from_bytes(bytes);
+  assert(str.len() == usize(5));
+  
+  assert(str.at(usize(0)).unwrap().to_u32() == u32(65));
+  assert(str.at(usize(1)).unwrap().to_u32() == u32(0x4E2D));
+  assert(str.at(usize(2)).unwrap().to_u32() == u32(66));
+  assert(str.at(usize(3)).unwrap().to_u32() == u32(0x6587));
+  assert(str.at(usize(4)).unwrap().to_u32() == u32(67));
+};

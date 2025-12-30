@@ -4550,19 +4550,15 @@ function generateComptValue(
     const targetType =
       _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
 
-    // Check if the target type is a pointer to a slice (e.g., [u8]
-    // In Yo, [u8] is a fat pointer (slice value), not a pointer to a slice struct
-    // So we generate a slice struct value directly
-    if (targetType && isPtrType(targetType)) {
-      const childType = targetType.childType;
-      if (isSliceType(childType)) {
-        const sliceCType = getTypeString(childType, context);
-        const stringLiteral = JSON.stringify(value.value);
-        const stringLength = Buffer.byteLength(value.value, "utf8");
+    // Check if the target type is a slice (e.g., [u8])
+    // In Yo, [u8] is a fat pointer (slice value), represented as a struct with data+length
+    if (targetType && isSliceType(targetType)) {
+      const sliceCType = getTypeString(targetType, context);
+      const stringLiteral = JSON.stringify(value.value);
+      const stringLength = Buffer.byteLength(value.value, "utf8");
 
-        // Generate slice struct value (fat pointer)
-        return `(${sliceCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
-      }
+      // Generate slice struct value (fat pointer)
+      return `(${sliceCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
     }
 
     // For regular strings, return the C string literal with proper escaping
