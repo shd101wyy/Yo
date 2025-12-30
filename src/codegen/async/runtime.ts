@@ -436,6 +436,9 @@ static int __yo_io_wait(void) {
 // Create and start an async read operation
 // Returns a yo_io_future_t* that completes when the read finishes
 static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+  // Ensure io_uring is initialized (lazy initialization for eager async execution)
+  __yo_io_init();
+  
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   
   // Initialize ref counting
@@ -471,6 +474,9 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
 // Create and start an async write operation
 // Returns a yo_io_future_t* that completes when the write finishes
 static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+  // Ensure io_uring is initialized (lazy initialization for eager async execution)
+  __yo_io_init();
+  
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   
   // Initialize ref counting
