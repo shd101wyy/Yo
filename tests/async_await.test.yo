@@ -30,3 +30,28 @@ test "Test eager async", {
   assert(b.* == 1);
   b.* = (b.* + 1);
 };
+
+test "Test async function", {
+  run_task :: (fn(b : Box(i32)) -> Impl(Future(i32)))(async {
+      printf("Task started %d\n", b.*);
+      assert(b.* == 0);
+
+      c := Box(i32)(10);
+
+      b.* = (b.* + 1);
+      await Async.yield();
+      
+      printf("Task completed %d\n", b.*);
+      assert(b.* == 2);
+      assert(c.* == 10);
+
+      return b.*;
+  });
+
+  bb := Box(i32)(0);
+  task := run_task(bb);
+  
+  printf("Running main... %d\n", bb.*);
+  assert(bb.* == 1);
+  bb.* = (bb.* + 1);
+};

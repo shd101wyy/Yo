@@ -1,20 +1,30 @@
-yield :: (fn() -> Impl(Future(unit)))
-  async {
-    // Empty async block that just completes immediately
-    // The act of awaiting this will cause the current task to suspend and re-enqueue
-    return ();
-  }
-;
+open import "std/libc/stdio";
+Async :: import "std/async";
 
-run_task :: (fn(z : Box(i32)) -> Impl(Future(i32)))(async {
-  assert(z.* == 0);
-  await yield();
-  return (z.* + 1);
+
+run_task :: (fn(b : Box(i32)) -> Impl(Future(i32)))(async {
+    printf("Task started %d\n", b.*);
+    assert(b.* == 0);
+
+    c := Box(i32)(10);
+
+    b.* = (b.* + 1);
+    await Async.yield();
+    
+    printf("Task completed %d\n", b.*);
+    assert(b.* == 2);
+    assert(c.* == 10);
+
+    return b.*;
 });
 
 main :: (fn() -> unit) {
   bb := Box(i32)(0);
-  run_task(bb);  
+  task := run_task(bb);
+  
+  printf("Running main... %d\n", bb.*);
+  assert(bb.* == 1);
+  bb.* = (bb.* + 1);
 };
 
 /*
