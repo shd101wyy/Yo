@@ -202,20 +202,51 @@ void __yo_async_wait_all(void) {
   
   ASYNC_DEBUG("[ASYNC] Waiting for all tasks to complete (queue_count=%zu)\\n", yo_thread_async_queue.count);
   
-  // Process all tasks in the queue
-  while (yo_thread_async_queue.head) {
-    yo_continuation_t* cont = yo_thread_async_queue.head;
-    yo_thread_async_queue.head = cont->next;
-    if (!yo_thread_async_queue.head) {
-      yo_thread_async_queue.tail = NULL;
+#if defined(__linux__)
+  __yo_io_init();  // Ensure io_uring is initialized
+#endif
+  
+  // Process all tasks in the queue and poll for I/O events until both are empty
+  while (true) {
+    // 1. Process ready tasks
+    bool tasks_processed = false;
+    while (yo_thread_async_queue.head) {
+      yo_continuation_t* cont = yo_thread_async_queue.head;
+      yo_thread_async_queue.head = cont->next;
+      if (!yo_thread_async_queue.head) {
+        yo_thread_async_queue.tail = NULL;
+      }
+      yo_thread_async_queue.count--;
+      
+      ASYNC_DEBUG("[ASYNC] Executing continuation: resume_fn=%p, sm=%p\\n",
+                  (void*)cont->resume_fn, cont->state_machine);
+      
+      cont->resume_fn(cont->state_machine);
+      __yo_free(cont);
+      tasks_processed = true;
     }
-    yo_thread_async_queue.count--;
     
-    ASYNC_DEBUG("[ASYNC] Executing continuation: resume_fn=%p, sm=%p\\n",
-                (void*)cont->resume_fn, cont->state_machine);
+#if defined(__linux__)
+    // 2. Poll for I/O completions (non-blocking)
+    __yo_io_poll();
     
-    cont->resume_fn(cont->state_machine);
-    __yo_free(cont);
+    // 3. If no tasks were processed and there's pending I/O, wait for one completion
+    if (!tasks_processed && __yo_has_pending_io()) {
+      ASYNC_DEBUG("[ASYNC] No ready tasks, waiting for I/O...\\n");
+      __yo_io_wait();
+      continue;
+    }
+    
+    // 4. If no tasks and no pending I/O, we're done
+    if (!yo_thread_async_queue.head && !__yo_has_pending_io()) {
+      break;
+    }
+#else
+    // No async I/O support - if no tasks, we're done
+    if (!yo_thread_async_queue.head) {
+      break;
+    }
+#endif
   }
   
   ASYNC_DEBUG("[ASYNC] All tasks completed\\n");
