@@ -2,66 +2,49 @@ open import "std/io/file";
 open import "std/string";
 
 main :: (fn() -> unit) {
-  {
-    s := "Hello, Yo async I/O!";
-    String.from(s);
-  };
-  {
-    String.from("Hello, Yo async I/O!");
-  };
-  {
-    (s : *(u8)) = "Hello, Yo async I/O!";
-    String.from_cstr(s);
-  };
-};
-
-/*
-main :: (fn() -> unit) {
   // Test async write and read roundtrip
   (path : *(u8)) = "/tmp/yo_async_test.txt";
   async {
     // Write
-    write_result := File.open(path, ((O_WRONLY | O_CREAT) | O_TRUNC));
-    match(write_result,
-      .Ok(file) => {
+    write_open_result := File.open(path, ((O_WRONLY | O_CREAT) | O_TRUNC));
+    match(write_open_result,
+      .Ok(write_file) => {
           test_data := String.from("Hello async write!");
-          write_result := await file.write_string_async(test_data);
-          file.close();
+          write_result := await write_file.write_string_async(test_data);
+          write_file.close();
           
           match(write_result,
             .Ok(_) => assert(true),
-            .Err(e) => assert(false, "Write should succeed")
+            .Err(_) => assert(false, "Write should succeed")
           );
       },
-      .Err(e) => {
+      .Err(_) => {
         assert(false, "File should open for writing");
       }
     );
     
     // Read back
-    read_result := File.open(path, O_RDONLY);
-    match(read_result,
-      .Ok(file) => {
-          read_result := await file.read_string_async();
-          file.close();
+    read_open_result := File.open(path, O_RDONLY);
+    match(read_open_result,
+      .Ok(read_file) => {
+          read_result := await read_file.read_string_async();
+          read_file.close();
           
           match(read_result,
             .Ok(content) => {
               expected := String.from("Hello async write!");
               assert((content.len() == expected.len()), "Content length should match");
             },
-            .Err(e) => {
+            .Err(_) => {
               assert(false, "Read should succeed");
             }
           );
       },
-      .Err(e) => {
+      .Err(_) => {
         assert(false, "File should open for reading");
       }
     );
   };
 };
-
-*/
 
 export main;

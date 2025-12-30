@@ -125,6 +125,11 @@ export function generateAsyncBlockResumeFunction(
   const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
+  // Clear condBranchInfo for this async block to prevent branch info
+  // from other async blocks (or outer scopes) from leaking in.
+  // Each async block should only see its own branch information.
+  context.condBranchInfo = new Map();
+
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
