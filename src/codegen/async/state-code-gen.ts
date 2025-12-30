@@ -312,12 +312,22 @@ function generateAwaitExpression(
         return;
       }
 
-      // Store the Future - it's already spawned eagerly
-      // The actual result extraction and variable assignment happens in the next state
-      // (in generateAsyncBlockResumeFunction, after the result is extracted to await_result_X)
-      emitter.emitLine(
-        `${indent}// Store Future for await (variable: ${varName}) - future already in state machine and already spawned`
-      );
+      // If this await doesn't have a futureVariableId (e.g., awaiting a function call result),
+      // we need to store the Future value into await_future_X field
+      if (awaitPoint.futureVariableId === undefined) {
+        const futureCode = generateExpr(futureExpr, indent, context);
+        emitter.emitLine(
+          `${indent}// Store Future for await (variable: ${varName})`
+        );
+        emitter.emitLine(
+          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+        );
+      } else {
+        // The future is already stored in a state machine variable field
+        emitter.emitLine(
+          `${indent}// Store Future for await (variable: ${varName}) - future already in state machine`
+        );
+      }
 
       return;
     }

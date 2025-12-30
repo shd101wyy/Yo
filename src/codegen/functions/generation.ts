@@ -686,14 +686,8 @@ export function generateFunctionBody(
           // Last expression is an async block or already returns a Future - return it directly
           const resultCode = generateExpr(lastExpr, indent, context);
 
-          // Generate deferred dup expressions for captured variables (needed for ARC)
-          // but return the async block's state machine, not the dup'd values
-          if (
-            lastExpr.$?.deferredDupExpressions &&
-            lastExpr.$.deferredDupExpressions.length > 0
-          ) {
-            generateDeferredDupExpressions(lastExpr, indent, context);
-          }
+          // Note: deferred dup expressions for async blocks are handled internally by generateAsyncBlock
+          // so we don't need to generate them here
 
           emitter.emitLine(`${indent}return ${resultCode};`);
           return; // Exit early - we've handled the return

@@ -3450,24 +3450,50 @@ function generateAsyncBlock(
         let dupExpr: Expr | undefined;
         if (!inSpecialContext && expr.$?.deferredDupExpressions) {
           for (const possibleDupExpr of expr.$.deferredDupExpressions) {
-            // Dup expression is in the form: ___dup(varName)
-            // Extract the variable name from the first argument
-            if (
-              exprIsFunctionCall(possibleDupExpr) &&
-              possibleDupExpr.args.length > 0 &&
-              exprIsAtom(possibleDupExpr.args[0])
-            ) {
-              const varName = possibleDupExpr.args[0].token.value;
-              if (varName === elem.label) {
-                dupExpr = possibleDupExpr;
-                break;
+            // Dup expression can be in two forms:
+            // 1. Method call: (varName.___dup)()
+            // 2. Function call: ___dup(varName)
+            let varName: string | undefined;
+
+            if (exprIsFunctionCall(possibleDupExpr)) {
+              // Check for function call: ___dup(varName)
+              if (
+                possibleDupExpr.args.length > 0 &&
+                exprIsAtom(possibleDupExpr.args[0])
+              ) {
+                varName = possibleDupExpr.args[0].token.value;
               }
+              // Check for method call: (varName.___dup)()
+              else if (
+                possibleDupExpr.args.length === 0 &&
+                exprIsFunctionCall(possibleDupExpr.func) &&
+                exprIsFunctionCallOf(possibleDupExpr.func, ".") &&
+                possibleDupExpr.func.args.length >= 2 &&
+                exprIsAtom(possibleDupExpr.func.args[0])
+              ) {
+                varName = possibleDupExpr.func.args[0].token.value;
+              }
+            }
+
+            if (varName === elem.label) {
+              dupExpr = possibleDupExpr;
+              break;
             }
           }
         }
 
         if (dupExpr) {
-          return `.${elem.label} = ${generateExpr(dupExpr, indent, context)}`;
+          // Generate the dup expression
+          // If the dup expression has a temp variable, we need to generate it outside the struct literal
+          if (dupExpr.$?.variableName) {
+            // Generate the temp variable declaration and assignment outside the struct
+            const _dupCode = generateExpr(dupExpr, indent, context);
+            // Return just the variable name for use in the struct literal
+            return `.${elem.label} = ${dupExpr.$.variableName}`;
+          } else {
+            // No temp variable, generate inline
+            return `.${elem.label} = ${generateExpr(dupExpr, indent, context)}`;
+          }
         }
         // Fallback: generate proper variable access using generateAtom
         // This handles closure context and state machine access properly
