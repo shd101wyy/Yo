@@ -1067,9 +1067,6 @@ function generateFuncCall(
             expr.$.variableName && needsTempVarDeclaration
               ? expr.$.variableName
               : expr.$.variableName || argCode;
-          context.emitter.emitLine(
-            `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting result = %d\\n", (int)${resultValue});`
-          );
           context.emitter.emitLine(`${indent}sm->result = ${resultValue};`);
         }
 
@@ -3580,8 +3577,13 @@ function emitAsyncBlockStructDefinition(
     `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
   );
 
-  // For unit type, we don't generate a result field (would be `void result;` which is invalid C)
-  if (!isUnitType(resultType)) {
+  // Always include a result field to keep continuation_fn/continuation_sm at consistent offsets
+  // For unit type, use uint8_t as a dummy (cannot use void in struct)
+  if (isUnitType(resultType)) {
+    emitter.emitDeclarationLine(
+      `  uint8_t result;  // Dummy result for unit type`
+    );
+  } else {
     emitter.emitDeclarationLine(
       `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`
     );
@@ -3984,6 +3986,9 @@ function generateAsyncBlockConstructor(
   emitter.emitLine(
     `  sm->header.ref_count = 1;  // Caller owns initial reference`
   );
+  emitter.emitLine(
+    `  GC_DEBUG("AsyncBlock ${structName}: Created ptr=%p RC=1\\n", (void*)sm);`
+  );
   emitter.emitLine(`  sm->header.gc_flags = 0;`);
   emitter.emitLine(`  sm->header.gc_mark = YO_GC_UNMARKED;`);
   emitter.emitLine(`  sm->header.gc_next = NULL;`);
@@ -4032,6 +4037,9 @@ function generateAsyncBlockConstructor(
     `  // This ensures the task stays alive until completion, even if user drops early`
   );
   emitter.emitLine(`  __yo_incr_rc((void*)sm);  // refcount: 1 -> 2`);
+  emitter.emitLine(
+    `  GC_DEBUG("AsyncBlock ${structName}: Eager increment ptr=%p RC=2\\n", (void*)sm);`
+  );
   emitter.emitLine(`  ${resumeFunctionName}(sm);`);
   emitter.emitLine(``);
 

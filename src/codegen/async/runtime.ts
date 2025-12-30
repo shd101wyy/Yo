@@ -230,8 +230,8 @@ void __yo_async_wait_all(void) {
     // 2. Poll for I/O completions (non-blocking)
     __yo_io_poll();
     
-    // 3. If no tasks were processed and there's pending I/O, wait for one completion
-    if (!tasks_processed && __yo_has_pending_io()) {
+    // 3. If no tasks were processed, no new tasks after polling, and there's pending I/O, wait for completion
+    if (!tasks_processed && !yo_thread_async_queue.head && __yo_has_pending_io()) {
       ASYNC_DEBUG("[ASYNC] No ready tasks, waiting for I/O...\\n");
       __yo_io_wait();
       continue;
@@ -252,39 +252,10 @@ void __yo_async_wait_all(void) {
   ASYNC_DEBUG("[ASYNC] All tasks completed\\n");
 }
 
-// Register a continuation to be called when a Future completes
-// Called by await when the Future is not yet ready
-void yo_async_register_continuation(
-    void* future_ptr,
-    void (*resume_fn)(void*),
-    void* state_machine) {
-  
-  ASYNC_DEBUG("[ASYNC] Registering continuation for future=%p: resume_fn=%p, sm=%p\\n",
-              future_ptr, (void*)resume_fn, state_machine);
-  
-  // All generated Future/state-machine structs start with:
-  //   _Atomic int state;
-  //   _Atomic(void (*)(void*)) continuation_fn;
-  //   _Atomic(void*) continuation_sm;
-  typedef struct {
-    _Atomic int state;
-    _Atomic(void (*)(void*)) continuation_fn;
-    _Atomic(void*) continuation_sm;
-  } yo_future_cont_base_t;
-
-  yo_future_cont_base_t* f = (yo_future_cont_base_t*)future_ptr;
-
-  // If already completed, schedule the continuation immediately.
-  int st = atomic_load_explicit(&f->state, memory_order_acquire);
-  if (st == -1) {
-    yo_async_enqueue_continuation(resume_fn, state_machine);
-    return;
-  }
-
-  // Store continuation; it will be spawned when the future reaches completion.
-  atomic_store_explicit(&f->continuation_fn, (void (*)(void*))resume_fn, memory_order_release);
-  atomic_store_explicit(&f->continuation_sm, state_machine, memory_order_release);
-}
+// NOTE: yo_async_register_continuation has been removed.
+// Continuation registration is now done inline at each await site
+// with direct field access to the specific future type.
+// This avoids the generic pointer casting issues with variable-sized result fields.
 
 // ============================================================================
 // Concurrency Helper Functions (from std/concurrency.yo)
@@ -427,7 +398,10 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
   void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
   
+  ASYNC_DEBUG("[IO] Continuation check: cont_fn=%p, cont_sm=%p\\n", (void*)cont_fn, cont_sm);
+  
   if (cont_fn && cont_sm) {
+    ASYNC_DEBUG("[IO] Spawning continuation for I/O completion\\n");
     yo_async_spawn_task(cont_fn, cont_sm);
   }
 

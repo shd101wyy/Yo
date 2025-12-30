@@ -78,9 +78,7 @@ export function generateFunctionDeclarations(
   emitter.emitDeclarationLine(
     `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
   );
-  emitter.emitDeclarationLine(
-    `void yo_async_register_continuation(void* future, void (*resume_fn)(void*), void* state_machine);`
-  );
+  // NOTE: yo_async_register_continuation removed - continuation registration is now inline
   emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
   emitter.emitDeclarationLine("");
 
@@ -1041,6 +1039,8 @@ function generateAtomicGCRuntimeFunctions(
 void __yo_decr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
+  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, header->ref_count, header->ref_count - 1);
+  
   if (header->ref_count == 1) {
     // Last reference - deallocate immediately without decrementing
     GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
@@ -1058,6 +1058,7 @@ void __yo_decr_rc(void* ptr) {
 void* __yo_incr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   header->ref_count++;
+  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, header->ref_count);
   return ptr;
 }`);
 

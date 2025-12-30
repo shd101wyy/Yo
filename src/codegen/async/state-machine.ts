@@ -519,8 +519,15 @@ export function generateAsyncBlockResumeFunction(
       );
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      } else {`);
+      // Register continuation directly on the future (type-specific access)
       emitter.emitLine(
-        `        yo_async_register_continuation(sm->${futureFieldName}, (void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        `        // Register continuation to be called when future completes`
+      );
+      emitter.emitLine(
+        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
+      );
+      emitter.emitLine(
+        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
       );
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      }`);
