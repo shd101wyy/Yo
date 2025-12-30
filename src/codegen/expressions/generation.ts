@@ -3312,6 +3312,74 @@ function generateFuncCall(
 }
 
 /**
+ * Helper function to get the C name of the ___drop function for a given type.
+ * Returns undefined if no drop function is found.
+ */
+function getDropFunctionForType(
+  type: Type,
+  context: CodeGenContext
+): string | undefined {
+  // For types that have a module with ___drop function
+  if (
+    isStructType(type) ||
+    isEnumType(type) ||
+    isDynType(type) ||
+    isSomeType(type) ||
+    isIsoType(type)
+  ) {
+    const dropFunction = type.module.fields.find(
+      (field) => field.label === BuiltinFunctions.___drop[0]
+    );
+
+    if (
+      dropFunction &&
+      dropFunction.assignedValue &&
+      isFunctionValue(dropFunction.assignedValue)
+    ) {
+      const dropFunctionCName =
+        context.functions[dropFunction.assignedValue.funcId]?.cName;
+      return dropFunctionCName;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Helper function to get the C name of the ___dup function for a given type.
+ * Returns undefined if no dup function is found.
+ */
+export function getDupFunctionForType(
+  type: Type,
+  context: CodeGenContext
+): string | undefined {
+  // For types that have a module with ___dup function
+  if (
+    isStructType(type) ||
+    isEnumType(type) ||
+    isDynType(type) ||
+    isSomeType(type) ||
+    isIsoType(type)
+  ) {
+    const dupFunction = type.module.fields.find(
+      (field) => field.label === BuiltinFunctions.___dup[0]
+    );
+
+    if (
+      dupFunction &&
+      dupFunction.assignedValue &&
+      isFunctionValue(dupFunction.assignedValue)
+    ) {
+      const dupFunctionCName =
+        context.functions[dupFunction.assignedValue.funcId]?.cName;
+      return dupFunctionCName;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Generate C code for an async block expression.
  * async { body } creates a Future by calling a constructor function
  * similar to how closures are created.
@@ -3857,6 +3925,7 @@ function generateAsyncBlockStateDisposeFunction(
   asyncBlockId: string,
   structName: string,
   disposeFunctionName: string,
+  resultType: Type,
   captureType: StructType | undefined,
   analysis: AwaitAnalysisResult,
   context: FunctionGenerationContext
@@ -3913,9 +3982,39 @@ function generateAsyncBlockStateDisposeFunction(
 
   emitter.emitLine(``);
 
+  // Drop the result field if it contains GC-managed data
+  // This is critical: when the state machine completes, the result is stored
+  // but never dropped. The dispose function must clean it up.
+  if (!isUnitType(resultType) && typeContainsGcType(resultType)) {
+    const resultTypeCName = getTypeString(resultType, context);
+
+    emitter.emitLine(
+      `  // Drop result field if it was set (state == -1 means completed)`
+    );
+    emitter.emitLine(
+      `  int final_state = atomic_load_explicit(&sm->state, memory_order_acquire);`
+    );
+    emitter.emitLine(`  if (final_state == -1) {`);
+    emitter.emitLine(`    ASYNC_DEBUG("  Dropping result field\\n");`);
+
+    // Find the ___drop function for the result type
+    const dropFunctionName = getDropFunctionForType(resultType, context);
+    if (dropFunctionName) {
+      emitter.emitLine(`    ${dropFunctionName}(sm->result);`);
+    } else {
+      emitter.emitLine(
+        `    /* Warning: No ___drop function found for result type ${resultTypeCName} */`
+      );
+    }
+
+    emitter.emitLine(`  }`);
+  }
+
+  emitter.emitLine(``);
+
   // NOTE: Local variables are ALWAYS handled by deferred drop expressions
   // that run in the final state before completion. The state machine dispose
-  // function only needs to clean up outer captured variables.
+  // function only needs to clean up captured variables and the result field.
   // Memory is freed by __yo_decr_rc after this function returns.
 
   emitter.emitLine(
@@ -6450,6 +6549,7 @@ export function generateDeferredAsyncBlocks(
       asyncBlockId,
       structName,
       disposeFunctionName,
+      resultType,
       captureType,
       analysis,
       context

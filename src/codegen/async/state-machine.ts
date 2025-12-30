@@ -18,9 +18,10 @@ import {
   isUnitType,
   SomeType,
   StructType,
+  typeContainsGcType,
 } from "../../types";
 import { isTempVariableName } from "../../utils";
-import { generateExpr } from "../expressions";
+import { generateExpr, getDupFunctionForType } from "../expressions";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
@@ -172,9 +173,32 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
-        emitter.emitLine(
-          `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
-        );
+
+        // If the result contains GC-managed data, we need to dup it before copying
+        // because the Future's dispose function will drop it, and we need our own reference
+        if (typeContainsGcType(prevAwait.resultType)) {
+          const dupFunctionName = getDupFunctionForType(
+            prevAwait.resultType,
+            context
+          );
+          if (dupFunctionName) {
+            emitter.emitLine(
+              `      sm->await_result_${stateNumber - 1} = ${dupFunctionName}(sm->${prevFutureFieldName}->result);`
+            );
+          } else {
+            emitter.emitLine(
+              `      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`
+            );
+            emitter.emitLine(
+              `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
+            );
+          }
+        } else {
+          // For non-GC types (primitives), simple copy is fine
+          emitter.emitLine(
+            `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
+          );
+        }
 
         // If this await has a target variable, assign the result to it
         if (prevAwait.targetVariableId) {
