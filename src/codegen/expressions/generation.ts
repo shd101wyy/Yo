@@ -1585,7 +1585,7 @@ function generateFuncCall(
             }
 
             context.emitter.emitLine(
-              `${indent}${cTypeString} ${varName} = ${rhsCode};`
+              `${indent}${cTypeString} ${sanitizeForCIdentifier(varName)} = ${rhsCode};`
             );
           }
         }

@@ -104,9 +104,14 @@ test "Test the `where` scoping in functions", {
 };
 
 test "Test variable name matching C reserved", {
+  test_fn :: (fn(errno : i32) -> i32) {
+    return errno;
+  };
+
   errno := 2; // This local variable matches C reserved `errno`.
   cond(
     (errno == 2) => "yes",
     true => "no"
   );
+  assert(test_fn(errno) == 2);
 };
