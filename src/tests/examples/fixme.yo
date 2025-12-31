@@ -2,6 +2,52 @@ open import "std/io/file";
 open import "std/string";
 
 main :: (fn() -> unit) {
+  // Test async write and read roundtrip
+  (path : *(u8)) = "/tmp/yo_async_test.txt";
+  async {
+    // Write
+    write_open_result := File.open(path, ((O_WRONLY | O_CREAT) | O_TRUNC));
+    match(write_open_result,
+      .Ok(write_file) => {
+          test_data := String.from("Hello async write!");
+          write_result := await write_file.write_string_async(test_data);
+          write_file.close();
+          
+          match(write_result,
+            .Ok(_) => assert(true),
+            .Err(_) => assert(false, "Write should succeed")
+          );
+      },
+      .Err(_) => {
+        assert(false, "File should open for writing");
+      }
+    );
+    
+    // Read back
+    read_open_result := File.open(path, O_RDONLY);
+    match(read_open_result,
+      .Ok(read_file) => {
+          read_result := await read_file.read_string_async();
+          read_file.close();
+          
+          match(read_result,
+            .Ok(content) => {
+              expected := String.from("Hello async write!");
+              assert((content.len() == expected.len()), "Content length should match");
+            },
+            .Err(_) => {
+              assert(false, "Read should succeed");
+            }
+          );
+      },
+      .Err(_) => {
+        assert(false, "File should open for reading");
+      }
+    );
+  };
+};
+/*
+main :: (fn() -> unit) {
   // Test async read of file bytes
   (path : *(u8)) = "tests/fixtures/test_file.txt";
   result := File.open(path, O_RDONLY);
@@ -27,7 +73,7 @@ main :: (fn() -> unit) {
     }
   );
 };
-
+*/
 /*
 main :: (fn() -> unit) {
   // Test async write and read roundtrip

@@ -1,7 +1,7 @@
 # Async Early Return - Missing Local Variable Drops
 
-**Status:** 🔴 OPEN  
-**Date:** December 30, 2025  
+**Status:** ✅ FIXED  
+**Date:** December 30, 2025 (Fixed: December 31, 2025)  
 **Severity:** High (Memory Leak)
 
 ## Problem
@@ -27,7 +27,7 @@ async {
 
 The async state machine codegen generates "drop local variables" code only at the normal completion point (end of function), not at early return points within conditional blocks.
 
-### Generated C Code
+### Generated C Code (BEFORE FIX)
 
 **Early return (inside if/else):**
 ```c
@@ -70,34 +70,101 @@ Indirect leak of 46 byte(s) in 1 object(s) allocated from:
 
 These are the ArrayList and its buffer allocated but never freed when the async function returns early.
 
-## Solution
+## Solution (IMPLEMENTED)
 
-### Option 1: Drop locals before ALL completion points
+### Fix 1: Zero-initialize `yo_io_future_t`
 
-Generate local variable drop code before EVERY early return, not just at the function end.
+In `src/codegen/async/runtime.ts`, added `memset` to zero-initialize the future struct in both `__yo_async_read_start` and `__yo_async_write_start`:
 
 ```c
-if (_yoa08d9b3a_temp_14350 != NULL) {
-  // ... use buffer
-} else {
-  // Drop local variables before early return
-  fn_id31561___drop(sm->var_yoa08d9b3a_buffer_2);
-  
-  // Early return
-  sm->result = error_result;
-  atomic_store_explicit(&sm->state, -1, memory_order_release);
-  __yo_decr_rc((void*)sm);
-  return;
+memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
+```
+
+This prevents segfaults when dropping a future that was allocated but not fully initialized.
+
+### Fix 2: Track and generate pending deferred drops for early async completion
+
+Added a `pendingDeferredDrops` field to `FunctionGenerationContext` (`src/codegen/functions/context.ts`):
+
+```typescript
+// Pending deferred drops from enclosing begin blocks that need to run before async completion
+pendingDeferredDrops?: import("../../expr").Expr[];
+```
+
+In `src/codegen/async/state-machine.ts`, populate this field before generating state segment code:
+
+```typescript
+// Set pending deferred drops so early returns can drop local variables
+functionContext.pendingDeferredDrops = bodyExpr.$?.deferredDropExpressions;
+
+// Generate code for this segment
+generateStateSegmentCode(segment, context);
+
+// Clear pending drops after segment
+functionContext.pendingDeferredDrops = undefined;
+```
+
+In `src/codegen/expressions/generation.ts`, generate pending drops before early async completion:
+
+```typescript
+// Generate pending deferred drops from enclosing begin blocks
+// Only generate these if the return expression doesn't already have its own
+// deferred drops (to avoid double-dropping).
+if (
+  functionContext.pendingDeferredDrops &&
+  (!expr.$.deferredDropExpressions ||
+    expr.$.deferredDropExpressions.length === 0)
+) {
+  context.emitter.emitLine(`${indent}// Drop local variables before early completion`);
+  for (const dropExpr of functionContext.pendingDeferredDrops) {
+    const dropCode = generateExpr(dropExpr, indent, context);
+    if (dropCode) {
+      context.emitter.emitLine(`${indent}${dropCode};`);
+    }
+  }
 }
 ```
 
-### Option 2: Use RAII-style cleanup with defer/finally
+### Generated C Code (AFTER FIX)
 
-Implement a defer mechanism that ensures cleanup code runs on ALL exit paths.
+```c
+case 1: { // State 1
+  // ... code ...
+  if (result < 0) {
+    // error path - falls through to normal deferred drops
+  } else {
+    // success path
+    // Drop local variables before early completion
+    if (sm->var_io_future != NULL) { __yo_decr_rc((void*)sm->var_io_future); };
+    fn_drop(sm->var_buffer);
+    // Final state - complete the result Future
+    sm->result = ok_result;
+    atomic_store_explicit(&sm->state, -1, memory_order_release);
+    // ...
+    return;
+  }
+  
+  // Normal deferred drops (for error path)
+  if (sm->var_io_future != NULL) { __yo_decr_rc((void*)sm->var_io_future); };
+  fn_drop(sm->var_buffer);
+}
+```
 
-### Option 3: Dispose function cleanup
+## Testing
 
-Move local variable drops to the dispose function, which is always called when the state machine is freed. However, this requires tracking which variables have been initialized.
+```bash
+./yo-cli compile src/tests/examples/fixme.yo --release --sanitize address -o test_fixme && ./test_fixme
+```
+
+Before fix: 190 bytes leaked in 3 allocations
+After fix: No leaks detected
+
+## Related Files
+
+- `src/codegen/async/runtime.ts` - Zero-initialization fix
+- `src/codegen/async/state-machine.ts` - Pending drops tracking
+- `src/codegen/expressions/generation.ts` - Early return drop generation
+- `src/codegen/functions/context.ts` - pendingDeferredDrops field
 
 ## Recommended Approach
 

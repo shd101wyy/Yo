@@ -1055,8 +1055,14 @@ function generateFuncCall(
 
         // Generate pending deferred drops from enclosing begin blocks
         // This is needed when returning early from inside a cond branch - the outer
-        // begin block's deferred drops would otherwise be skipped
-        if (functionContext.pendingDeferredDrops) {
+        // begin block's deferred drops would otherwise be skipped.
+        // Only generate these if the return expression doesn't already have its own
+        // deferred drops (to avoid double-dropping).
+        if (
+          functionContext.pendingDeferredDrops &&
+          (!expr.$.deferredDropExpressions ||
+            expr.$.deferredDropExpressions.length === 0)
+        ) {
           context.emitter.emitLine(
             `${indent}// Drop local variables before early completion`
           );
