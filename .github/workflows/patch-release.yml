@@ -30,6 +30,7 @@ jobs:
     - name: Install dependencies
       run: |
         bun install
+        bun install -g @vscode/vsce
         bun run build
 
     - name: Bump patch version in root package.json
@@ -59,15 +60,12 @@ jobs:
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-    - name: Install vsce
-      run: npm install -g @vscode/vsce
-
     - name: Build and package VS Code extension
       run: |
         cd vscode-extension
         bun install
         bun run build
-        vsce package
+        bun package
 
     - name:  Publish extension to Visual Studio Marketplace
       id: create_vsix
