@@ -24,13 +24,12 @@ jobs:
       run: |
         bun install
         bun run build
-
-    - name: Test module manager
-      run: bun test src/tests/module-manager.test.ts
-
-    - name: Test codegen
+    - name: Run tests
+      run: ./yo-cli test ./tests
+  
+    - name: Bundle vscode extension
       run: |
-        # Print the available "cc" command
-        which cc || echo "cc command not found"
-
-        bun test src/tests/codegen.test.ts
+        cd vscode-extension
+        bun install
+        bun run build
+        bun package

@@ -1,0 +1,103 @@
+name: Patch Release
+
+on: workflow_dispatch
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        ref: develop
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: |
+        bun install
+        bun run build
+
+    - name: Bump patch version in root package.json
+      id: version
+      run: |
+        cd ${{ github.workspace }}
+        npm version patch --no-git-tag-version
+        NEW_VERSION=$(node -p "require('./package.json').version")
+        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "New version: $NEW_VERSION"
+
+    - name: Bump patch version in vscode-extension package.json
+      run: |
+        cd vscode-extension
+        npm version patch --no-git-tag-version
+
+    - name: Commit version bump
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add package.json vscode-extension/package.json
+        git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+        git push
+
+    - name: Publish to npm
+      run: npm publish
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    - name: Install vsce
+      run: npm install -g @vscode/vsce
+
+    - name: Build and package VS Code extension
+      run: |
+        cd vscode-extension
+        bun install
+        bun run build
+        vsce package
+
+    - name:  Publish extension to Visual Studio Marketplace
+      id: create_vsix
+      uses: HaaLeo/publish-vscode-extension@v1
+      with:
+        dryRun: ${{ github.ref != 'refs/heads/develop' }}
+        pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+        registryUrl: https://marketplace.visualstudio.com
+
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.version.outputs.version }}
+        release_name: Release v${{ steps.version.outputs.version }}
+        body: |
+          Patch release v${{ steps.version.outputs.version }}
+          
+          ## Changes
+          - Bug fixes and improvements
+        draft: false
+        prerelease: false
+
+    - name: Upload VSIX to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ steps.create_vsix.outputs.vsixPath}}
+        asset_name: ${{ steps.create_vsix.outputs.vsixPath}}
+        asset_content_type: application/vsix
