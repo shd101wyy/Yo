@@ -32,10 +32,16 @@ jobs:
       with:
         bun-version: latest
 
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+        registry-url: 'https://registry.npmjs.org'
+
     - name: Install dependencies
       run: |
         bun install
-        bun install -g @vscode/vsce
+        npm install -g @vscode/vsce
         bun run build
 
     - name: Bundle vscode extension
@@ -44,6 +50,15 @@ jobs:
         bun install
         bun run build
         bun package
+
+    - name:  Publish extension to Visual Studio Marketplace
+      id: create_vsix
+      uses: HaaLeo/publish-vscode-extension@v2
+      with:
+        dryRun: true
+        pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+        packagePath: ./vscode-extension
+        registryUrl: https://marketplace.visualstudio.com
 
     - name: Run tests
       run: ./yo-cli test ./tests --bail -v

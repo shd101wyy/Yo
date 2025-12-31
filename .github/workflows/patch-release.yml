@@ -24,13 +24,13 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18'
+        node-version: '20'
         registry-url: 'https://registry.npmjs.org'
 
     - name: Install dependencies
       run: |
         bun install
-        bun install -g @vscode/vsce
+        npm install -g @vscode/vsce
         bun run build
 
     - name: Bump patch version in root package.json
@@ -69,10 +69,11 @@ jobs:
 
     - name:  Publish extension to Visual Studio Marketplace
       id: create_vsix
-      uses: HaaLeo/publish-vscode-extension@v1
+      uses: HaaLeo/publish-vscode-extension@v2
       with:
         dryRun: ${{ github.ref != 'refs/heads/develop' }}
         pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+        packagePath: ./vscode-extension
         registryUrl: https://marketplace.visualstudio.com
 
     - name: Create GitHub Release
