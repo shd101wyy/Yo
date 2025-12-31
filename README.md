@@ -3,14 +3,9 @@
 `Work in Progress`
 
 A multi-paradigm, general-purpose, compiled programming language.
-Yo aims to be **Simple** and **Fast** (around 0% - 20% slower than C).
+Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 > The name `Yo` comes from the Chinese word `柚` (yòu), meaning `pomelo`, a large citrus fruit similar to grapefruit. It's my daughter's nickname.
-
-- [Learn Yo in 10 Minutes](./LEARN_YO_IN_10_MINUTES.yo)
-- [Design](./DESIGN.md)
-- [Grammar](./GRAMMAR.md)
-- [Roadmap](./ROADMAP.md)
 
 ## Features
 
@@ -21,10 +16,24 @@ Yo aims to be **Simple** and **Fast** (around 0% - 20% slower than C).
 - [Async/await](./ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking).
 - `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
-- Thread-per-core concurrency model (see [PARALLEL.md](./PARALLEL.md)).
-- Modular implicits.
-- **C** interop.  
+- Thread-per-core parallelism model (see [PARALLEL.md](./PARALLEL.md)).
+- **C** interop.
 - etc
+
+## Language Design
+
+For design of the language, please refer to the [DESIGN.md](./DESIGN.md).
+
+## Installation
+
+The `Yo` language is currently distributed as an `npm` package:
+
+```bash
+$ npm install -g @shd101wyy/yo # Install yo compiler globally
+```
+
+It exposes the `yo` command in your terminal.
+There is also an alias `yo-cli` for `yo` command in case of naming conflicts.
 
 ## Development
 
@@ -64,8 +73,7 @@ $ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
 ## Editor support
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
-    See `vscode-extension/syntaxes/README.md` for installation steps, `ftdetect` examples and `home-manager` snippets.
-
+  See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
 
 ## License
 
