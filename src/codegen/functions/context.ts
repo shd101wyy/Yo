@@ -30,6 +30,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // FIXME: OUTDATED, it used to be { futureType: FutureType }
   inStateMachine?: { futureType: SomeType | DynType }; // Set when generating code inside a state machine, contains the Future type being generated
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
+  // Pending deferred drops from enclosing begin blocks that need to run before async completion
+  // This is used to ensure local variables are dropped when an async function completes
+  // from within a nested expression (e.g., a cond branch that returns early)
+  pendingDeferredDrops?: Expr[];
   // Deferred async block generation - async blocks are generated after all regular functions
   deferredAsyncBlocks?: Array<{
     bodyExpr: Expr;

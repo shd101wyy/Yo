@@ -1053,6 +1053,21 @@ function generateFuncCall(
         const childType = futureModuleType.isFuture.outputType;
         const isUnitResult = isUnitType(childType);
 
+        // Generate pending deferred drops from enclosing begin blocks
+        // This is needed when returning early from inside a cond branch - the outer
+        // begin block's deferred drops would otherwise be skipped
+        if (functionContext.pendingDeferredDrops) {
+          context.emitter.emitLine(
+            `${indent}// Drop local variables before early completion`
+          );
+          for (const dropExpr of functionContext.pendingDeferredDrops) {
+            const dropCode = generateExpr(dropExpr, indent, context);
+            if (dropCode) {
+              context.emitter.emitLine(`${indent}${dropCode};`);
+            }
+          }
+        }
+
         context.emitter.emitLine(
           `${indent}// Final state - complete the result Future`
         );

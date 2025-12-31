@@ -493,6 +493,11 @@ export function generateAsyncBlockResumeFunction(
 
     context.stateMachineVariables = combinedVariables;
 
+    // Set pending deferred drops from the body expression
+    // These need to be generated when the async function completes early (e.g., from a cond branch)
+    const previousPendingDeferredDrops = context.pendingDeferredDrops;
+    context.pendingDeferredDrops = bodyExpr.$?.deferredDropExpressions;
+
     // Generate the code for this segment
     // For the last segment, we need to capture the final expression's value
     const isLastSegmentWithResult =
@@ -503,6 +508,9 @@ export function generateAsyncBlockResumeFunction(
       context,
       isLastSegmentWithResult
     );
+
+    // Restore pending deferred drops
+    context.pendingDeferredDrops = previousPendingDeferredDrops;
 
     emitter.emitLine(``);
 

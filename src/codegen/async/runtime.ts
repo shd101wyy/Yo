@@ -445,6 +445,7 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   __yo_io_init();
   
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
   
   // Initialize ref counting
   future->header.ref_count = 1;
@@ -483,6 +484,7 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   __yo_io_init();
   
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
   
   // Initialize ref counting
   future->header.ref_count = 1;
