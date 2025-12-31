@@ -58,6 +58,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
         value: Expr;
         hasAwait: boolean;
         remainingExprs?: Expr[]; // Expressions after the await in this branch
+        deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
       }>;
       targetVariableId?: string; // Variable that receives the cond result (if any)
     }

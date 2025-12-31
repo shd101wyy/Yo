@@ -439,6 +439,7 @@ function generateCondWithAwait(
     value: Expr;
     hasAwait: boolean;
     remainingExprs?: Expr[]; // Expressions after the await in this branch
+    deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
   }> = [];
 
   // Generate if-else chain
@@ -492,12 +493,13 @@ function generateCondWithAwait(
         `${indent}  `,
         context
       );
-      // Store branch info with remaining expressions
+      // Store branch info with remaining expressions and deferred drops from the branch's begin block
       branchesWithAwait.push({
         index: i,
         value,
         hasAwait: true,
         remainingExprs,
+        deferredDropExpressions: value.$?.deferredDropExpressions,
       });
     } else {
       // This branch doesn't contain await - just generate normal code
@@ -532,6 +534,16 @@ function generateCondWithAwait(
                 (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
             ) {
               emitter.emitLine(`${indent}  ${argCode};`);
+            }
+          }
+        }
+
+        // Generate deferred drop expressions for the begin block
+        if (value.$?.deferredDropExpressions) {
+          for (const dropExpr of value.$.deferredDropExpressions) {
+            const dropCode = generateExpr(dropExpr, `${indent}  `, context);
+            if (dropCode) {
+              emitter.emitLine(`${indent}  ${dropCode};`);
             }
           }
         }
@@ -767,6 +779,7 @@ function generateMatchWithAwait(
             value: caseBody,
             hasAwait: true,
             remainingExprs,
+            deferredDropExpressions: caseBody.$?.deferredDropExpressions,
           });
 
           functionContext.condBranchInfo.set(awaitPoint.index, branchData);
@@ -811,6 +824,7 @@ function generateMatchWithAwait(
               value: caseBody,
               hasAwait: true,
               remainingExprs,
+              deferredDropExpressions: caseBody.$?.deferredDropExpressions,
             });
 
             functionContext.condBranchInfo.set(awaitPoint.index, branchData);
@@ -963,6 +977,7 @@ function generateMatchWithAwait(
             value: caseBody,
             hasAwait: true,
             remainingExprs,
+            deferredDropExpressions: caseBody.$?.deferredDropExpressions,
           });
 
           functionContext.condBranchInfo.set(awaitPoint.index, branchData);

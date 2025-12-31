@@ -295,6 +295,23 @@ export function generateAsyncBlockResumeFunction(
                   }
                 }
 
+                // Generate deferred drop expressions for the branch's begin block
+                // Filter out drops that reference temp variables not in state machine scope
+                if (branch.deferredDropExpressions) {
+                  for (const dropExpr of branch.deferredDropExpressions) {
+                    const dropCode = generateExpr(
+                      dropExpr,
+                      "          ",
+                      context
+                    );
+                    // Skip drops that don't use state machine fields (sm->var_*)
+                    // These are temp variables from the original scope that aren't accessible
+                    if (dropCode && dropCode.includes("sm->")) {
+                      emitter.emitLine(`          ${dropCode};`);
+                    }
+                  }
+                }
+
                 // Restore context
                 context.inStateMachine = previousInStateMachineForBranch;
                 context.stateMachineVariables =

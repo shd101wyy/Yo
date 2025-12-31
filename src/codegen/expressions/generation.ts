@@ -5695,31 +5695,22 @@ function generateMatchExpression(
                 const fieldName = sanitizeForCIdentifier(variantElement.label);
                 const fieldType = getTypeString(variantElement.type, context);
 
-                // Generate variable declaration and assignment
                 const accessPrefix =
                   ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
-                context.emitter.emitLine(
-                  `${indent}  /* MARKER: Generating destructured variable ${varName} */`
-                );
-                context.emitter.emitLine(
-                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
-                );
-                // Check if this variable needs to be stored in the state machine
+
+                // Check if this variable needs to be stored in the state machine FIRST
                 // For async contexts, pattern-matched variables that are used across await points
                 // need to be stored in the state machine structure
                 const functionContext = context as FunctionGenerationContext;
+                let varId: string | undefined;
+                let isStateMachineVariable = false;
+
                 if (
                   functionContext?.inStateMachine &&
                   functionContext.stateMachineVariables
                 ) {
                   // Find the variable ID by searching through state machine variables
                   // The state machine tracks variables by their ID
-                  let varId: string | undefined;
-
-                  // Try to get ID from expr metadata if available
-                  // if (destructuredVar.$?.id) {
-                  //   varId = destructuredVar.$.id;
-                  // } else
                   if (destructuredVar.$?.env) {
                     // Try to look up in environment
                     const vars = getVariablesFromEnv(
@@ -5735,11 +5726,21 @@ function generateMatchExpression(
                     varId &&
                     functionContext.stateMachineVariables.has(varId)
                   ) {
-                    // This variable crosses an await boundary, store it in state machine
-                    context.emitter.emitLine(
-                      `${indent}  sm->var_${varId} = ${varName};`
-                    );
+                    isStateMachineVariable = true;
                   }
+                }
+
+                // Generate variable declaration/assignment based on context
+                if (isStateMachineVariable && varId) {
+                  // This variable crosses an await boundary, assign directly to state machine
+                  context.emitter.emitLine(
+                    `${indent}  sm->var_${varId} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                  );
+                } else {
+                  // Regular local variable declaration and assignment
+                  context.emitter.emitLine(
+                    `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                  );
                 }
               }
             }
