@@ -498,6 +498,129 @@ function generateFuncCall(
     return selfCode; // Just return the argument as-is
   }
 
+  // __yo_drop_array_element - drop array element at index without borrowing
+  // This is used when dropping arrays to directly drop each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_array_element)) {
+    const arrayArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!arrayArg || !indexArg) {
+      return `// Error: __yo_drop_array_element requires exactly 2 arguments`;
+    }
+
+    const arrayCode = generateExpr(arrayArg, indent, context);
+    const indexCode = generateExpr(indexArg, indent, context);
+
+    // Get the array element type to find its drop function
+    const arrayType = arrayArg.$?.type;
+    if (!arrayType || !isArrayType(arrayType)) {
+      return `// Error: __yo_drop_array_element requires an array type`;
+    }
+
+    const elementType = arrayType.childType;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // If element type is array, recursively generate inline drop code
+    if (isArrayType(concreteElementType)) {
+      const nestedArrayLength = concreteElementType.length;
+      if (!isNumberValue(nestedArrayLength)) {
+        return `// Error: array element has non-constant length`;
+      }
+      const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
+      // Generate inline drop code using ___drop recursively
+      const emitter = (context as FunctionGenerationContext).emitter;
+      emitter.emitLine(
+        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
+      );
+      // Create a fake expression for the nested array element to recursively call ___drop codegen
+      const nestedArrayElement = `(${arrayCode}).data[${indexCode}].data[${loopVar}]`;
+      emitter.emitLine(`  { // drop nested array element`);
+      const dropCode = generateDropCodeForValue(
+        nestedArrayElement,
+        concreteElementType.childType,
+        context
+      );
+      if (dropCode) {
+        emitter.emitLine(`    ${dropCode};`);
+      }
+      emitter.emitLine(`  }`);
+      emitter.emitLine(`}`);
+      return ``;
+    }
+
+    // Call the drop function on the element
+    // Arrays are represented as structs with a .data field containing the actual C array
+    const dropFnCName = getDropFunctionForType(concreteElementType, context);
+    if (dropFnCName) {
+      return `${dropFnCName}((${arrayCode}).data[${indexCode}])`;
+    } else {
+      return `// No drop function for array element type`;
+    }
+  }
+
+  // __yo_dup_array_element - dup array element at index without borrowing
+  // This is used when duping arrays to directly dup each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_array_element)) {
+    const arrayArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!arrayArg || !indexArg) {
+      return `// Error: __yo_dup_array_element requires exactly 2 arguments`;
+    }
+
+    const arrayCode = generateExpr(arrayArg, indent, context);
+    const indexCode = generateExpr(indexArg, indent, context);
+
+    // Get the array element type to find its dup function
+    const arrayType = arrayArg.$?.type;
+    if (!arrayType || !isArrayType(arrayType)) {
+      return `// Error: __yo_dup_array_element requires an array type`;
+    }
+
+    const elementType = arrayType.childType;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // If element type is array, recursively generate inline dup code
+    if (isArrayType(concreteElementType)) {
+      const nestedArrayLength = concreteElementType.length;
+      if (!isNumberValue(nestedArrayLength)) {
+        return `// Error: array element has non-constant length`;
+      }
+      const tempVar = `temp_array_${Math.floor(Math.random() * 1000000)}`;
+      const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
+      const elementCName = getTypeString(concreteElementType, context);
+      const emitter = (context as FunctionGenerationContext).emitter;
+      emitter.emitLine(
+        `${elementCName} ${tempVar} = (${arrayCode}).data[${indexCode}];`
+      );
+      emitter.emitLine(
+        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
+      );
+      // Recursively generate dup code for nested array elements
+      const dupCode = generateDupCodeForValue(
+        `${tempVar}.data[${loopVar}]`,
+        concreteElementType.childType,
+        context
+      );
+      emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${dupCode};`);
+      emitter.emitLine(`}`);
+      return tempVar;
+    }
+
+    // Call the dup function on the element
+    // Arrays are represented as structs with a .data field containing the actual C array
+    const dupFnCName = getDupFunctionForType(concreteElementType, context);
+    if (dupFnCName) {
+      return `${dupFnCName}((${arrayCode}).data[${indexCode}])`;
+    } else {
+      return `// No dup function for array element type`;
+    }
+  }
+
   // ___dup - generic dup hook used by evaluator for GC/reference-counted values.
   // In many cases the evaluator rewrites `___dup(x)` into `x.___dup()`, but in
   // some contexts (e.g. deferred dup for dyn-closure captures) the builtin call
@@ -515,43 +638,7 @@ function generateFuncCall(
       return valueCode;
     }
 
-    // Dyn is a value type; duplication increments the RC of `.data` and returns the copied fat pointer.
-    if (isDynType(valueType)) {
-      const dynCName = getTypeString(valueType, context);
-      return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
-    }
-
-    // Object types are reference counted; duplication increments RC and returns the same pointer.
-    if (isObjectType(valueType)) {
-      const objCName = getTypeString(valueType, context);
-      return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
-    }
-
-    // Iso types use atomic reference counting
-    if (isIsoType(valueType)) {
-      const isoCName = getTypeString(valueType, context);
-      return `((${isoCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
-    }
-
-    // For struct/enum types, dispatch to their ___dup function
-    if (isStructType(valueType) || isEnumType(valueType)) {
-      const dupFn = valueType.module?.fields.find(
-        (f) => f.label === BuiltinFunctions.___dup[0]
-      );
-      if (
-        dupFn &&
-        dupFn.assignedValue &&
-        isFunctionValue(dupFn.assignedValue)
-      ) {
-        const dupFnCName = context.functions[dupFn.assignedValue.funcId]?.cName;
-        if (dupFnCName) {
-          return `${dupFnCName}(${valueCode})`;
-        }
-      }
-    }
-
-    // Value types: no-op dup.
-    return valueCode;
+    return generateDupCodeForValue(valueCode, valueType, context);
   }
 
   // ___drop - generic drop hook used by evaluator for GC/reference-counted values.
@@ -568,55 +655,7 @@ function generateFuncCall(
       return ``;
     }
 
-    if (isDynType(valueType)) {
-      return `__yo_decr_rc((void*)(${valueCode}).data)`;
-    }
-    if (isObjectType(valueType)) {
-      return `__yo_decr_rc((void*)(${valueCode}))`;
-    }
-    // Iso types use atomic reference counting
-    if (isIsoType(valueType)) {
-      return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
-    }
-    // For SomeType with resolvedConcreteType, dispatch to the concrete type's ___drop
-    if (isSomeType(valueType) && valueType.resolvedConcreteType) {
-      const concreteType = valueType.resolvedConcreteType;
-      const dropFn = concreteType.module?.fields.find(
-        (f) => f.label === BuiltinFunctions.___drop[0]
-      );
-      if (
-        dropFn &&
-        dropFn.assignedValue &&
-        isFunctionValue(dropFn.assignedValue)
-      ) {
-        const dropFnCName =
-          context.functions[dropFn.assignedValue.funcId]?.cName;
-        if (dropFnCName) {
-          return `${dropFnCName}(${valueCode})`;
-        }
-      }
-    }
-
-    // For struct/enum types, dispatch to their ___drop function
-    if (isStructType(valueType) || isEnumType(valueType)) {
-      const dropFn = valueType.module?.fields.find(
-        (f) => f.label === BuiltinFunctions.___drop[0]
-      );
-      if (
-        dropFn &&
-        dropFn.assignedValue &&
-        isFunctionValue(dropFn.assignedValue)
-      ) {
-        const dropFnCName =
-          context.functions[dropFn.assignedValue.funcId]?.cName;
-        if (dropFnCName) {
-          return `${dropFnCName}(${valueCode})`;
-        }
-      }
-    }
-
-    // Value types: no-op drop.
-    return ``;
+    return generateDropCodeForValue(valueCode, valueType, context);
   }
 
   // __yo_dyn_drop - call dispose on dyn object via dispose function then __yo_decr_rc on dyn
@@ -3365,6 +3404,122 @@ function generateFuncCall(
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;
+}
+
+/**
+ * Helper function to generate drop code for a value of any type.
+ * This handles arrays recursively.
+ */
+function generateDropCodeForValue(
+  valueCode: string,
+  valueType: Type,
+  context: CodeGenContext
+): string {
+  const concreteType =
+    isSomeType(valueType) && valueType.resolvedConcreteType
+      ? valueType.resolvedConcreteType
+      : valueType;
+
+  // Handle arrays recursively
+  if (isArrayType(concreteType)) {
+    const arrayLength = concreteType.length;
+    if (!isNumberValue(arrayLength)) {
+      return `/* Error: array has non-constant length */`;
+    }
+    const emitter = (context as FunctionGenerationContext).emitter;
+    emitter.emitLine(`for (size_t i = 0; i < ${arrayLength.value}; i++) {`);
+    const elementDropCode = generateDropCodeForValue(
+      `(${valueCode}).data[i]`,
+      concreteType.childType,
+      context
+    );
+    if (elementDropCode) {
+      emitter.emitLine(`  ${elementDropCode};`);
+    }
+    emitter.emitLine(`}`);
+    return "";
+  }
+
+  // Handle other types
+  if (isDynType(concreteType)) {
+    return `__yo_decr_rc((void*)(${valueCode}).data)`;
+  }
+  if (isObjectType(concreteType)) {
+    return `__yo_decr_rc((void*)(${valueCode}))`;
+  }
+  if (isIsoType(concreteType)) {
+    return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
+  }
+  if (isStructType(concreteType) || isEnumType(concreteType)) {
+    const dropFnCName = getDropFunctionForType(concreteType, context);
+    if (dropFnCName) {
+      return `${dropFnCName}(${valueCode})`;
+    }
+  }
+
+  return "";
+}
+
+/**
+ * Helper function to generate dup code for a value of any type.
+ * This handles arrays recursively.
+ */
+function generateDupCodeForValue(
+  valueCode: string,
+  valueType: Type,
+  context: CodeGenContext
+): string {
+  const concreteType =
+    isSomeType(valueType) && valueType.resolvedConcreteType
+      ? valueType.resolvedConcreteType
+      : valueType;
+
+  // Handle arrays recursively
+  if (isArrayType(concreteType)) {
+    const arrayLength = concreteType.length;
+    if (!isNumberValue(arrayLength)) {
+      return `/* Error: array has non-constant length */`;
+    }
+    const tempVar = `temp_dup_${Date.now()}`;
+    const loopVar = `i_${Date.now()}`;
+    const arrayCName = getTypeString(concreteType, context);
+    const emitter = (context as FunctionGenerationContext).emitter;
+    emitter.emitLine(`${arrayCName} ${tempVar} = ${valueCode};`);
+    emitter.emitLine(
+      `for (size_t ${loopVar} = 0; ${loopVar} < ${arrayLength.value}; ${loopVar}++) {`
+    );
+    const elementDupCode = generateDupCodeForValue(
+      `${tempVar}.data[${loopVar}]`,
+      concreteType.childType,
+      context
+    );
+    emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${elementDupCode};`);
+    emitter.emitLine(`}`);
+    return tempVar;
+  }
+
+  // Handle other types
+  if (isDynType(concreteType)) {
+    const dynCName = getTypeString(concreteType, context);
+    return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
+  }
+  if (isObjectType(concreteType)) {
+    const objCName = getTypeString(concreteType, context);
+    return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
+  }
+  if (isIsoType(concreteType)) {
+    const isoCName = getTypeString(concreteType, context);
+    return `((${isoCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
+  }
+  if (isStructType(concreteType) || isEnumType(concreteType)) {
+    const dupFnCName = getDupFunctionForType(concreteType, context);
+    if (dupFnCName) {
+      return `${dupFnCName}(${valueCode})`;
+    }
+  }
+
+  // Value types: no-op
+  return valueCode;
 }
 
 /**

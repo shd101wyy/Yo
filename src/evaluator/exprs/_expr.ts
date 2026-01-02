@@ -17,6 +17,8 @@ import { evaluateAndOr } from "../builtins/and_or";
 import {
   evaluateYoDecrRc,
   evaluateYoDecrRcAtomic,
+  evaluateYoDropArrayElement,
+  evaluateYoDupArrayElement,
   evaluateYoDynVtableDrop,
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
@@ -533,6 +535,16 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_dispose)) {
       // __yo_iso_dispose (dispose inner value of Iso if not extracted)
       return evaluateYoIsoDispose({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_array_element)
+    ) {
+      // __yo_drop_array_element (drop array element at index without borrowing)
+      return evaluateYoDropArrayElement({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_array_element)
+    ) {
+      // __yo_dup_array_element (dup array element at index without borrowing)
+      return evaluateYoDupArrayElement({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
       // __yo_rc_own
       return evaluateYoRcOwn({ expr, env, context: { ...context } });

@@ -8,7 +8,6 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
-  exprIsAtom,
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
@@ -96,11 +95,13 @@ function generateArrayDupCall(arrayExpr: Expr): string {
   if (isNumberValue(arrayType.length)) {
     const arrayLength = (arrayType.length as NumberValue).value;
     // Generate array constructor call with duplicated elements
+    // Use __yo_dup_array_element builtin to dup elements directly without borrowing
+    // This is necessary because y(0) creates a borrowed reference which can't be duped
     return `begin(
   ${Array.from(
     { length: Number(arrayLength) },
     (_, i) =>
-      `${BuiltinFunctions.___dup[0]!}(${arrayExpr.$?.variableName}(${i}))`
+      `${BuiltinFunctions.__yo_dup_array_element[0]!}(${arrayExpr.$?.variableName}, ${i})`
   ).join(", ")}
 )`;
   } else {
@@ -124,15 +125,9 @@ export function evaluateDup({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___dup, 1);
 
   const argExpr = expr.args[0]!;
-  if (!exprIsAtom(argExpr)) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___dup[0]}":\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
 
+  // Evaluate the argument first to get its type and variable name
+  // This handles both simple variables (atoms) and complex expressions like array access
   const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,

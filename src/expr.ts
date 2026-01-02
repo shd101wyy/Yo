@@ -940,6 +940,8 @@ export const BuiltinFunctions = {
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
   dispose: ["dispose"], // Destructor to run when an object is dropped
+  __yo_drop_array_element: ["__yo_drop_array_element"], // drop array element at index without borrowing
+  __yo_dup_array_element: ["__yo_dup_array_element"], // dup array element at index without borrowing
 
   /// Others
   __yo_noop: ["__yo_noop"],

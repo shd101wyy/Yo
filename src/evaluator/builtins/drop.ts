@@ -8,7 +8,6 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
-  exprIsAtom,
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
@@ -121,9 +120,12 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   }
   const arrayLength = arrayLengthValue.value;
   const dropCalls: string[] = [];
+
+  // Use __yo_drop_array_element builtin to drop elements directly without borrowing
+  // This is necessary because y(0) creates a borrowed reference which can't be dropped
   for (let i = 0; i < arrayLength; i++) {
     dropCalls.push(
-      `${BuiltinFunctions.___drop[0]!}(${arrayExpr.$.variableName}(${i}))`
+      `${BuiltinFunctions.__yo_drop_array_element[0]!}(${arrayExpr.$.variableName}, ${i})`
     );
   }
 
@@ -147,14 +149,9 @@ export function evaluateDrop({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___drop, 1);
 
   const argExpr = expr.args[0]!;
-  if (!exprIsAtom(argExpr)) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___drop[0]}":\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
+
+  // Evaluate the argument first to get its type and variable name
+  // This handles both simple variables (atoms) and complex expressions like array access
   const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
@@ -178,8 +175,8 @@ export function evaluateDrop({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___drop[0]}":\n${exprToString(
-        argExpr
-      )}`,
+        evaluatedArgExpr
+      )}\n\nOriginal expression:\n${exprToString(argExpr)}`,
     });
   }
 

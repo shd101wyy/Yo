@@ -84,5 +84,22 @@ test "Test Rc in different data structures", {
     x := Box(i32)(3);
     y := { x };
     z := { y };
+    assert(x.* == 3, "x.* == 3");
+    assert(y.x.* == 3, "y.x.* == 3");
+    assert(z.y.x.* == 3, "z.y.x.* == 3");
+  };
+
+  // Array containing Rc
+  {
+    x := Box(i32)(3);
+    y := [x,];
+    z := [y,];
+    m := [z,];
+    n := [m,];
+    assert(x.* == 3, "x.* == 3");
+    assert(y(0).* == 3, "y(0).* ==");
+    assert(z(0)(0).* == 3, "z(0)(0).* ==");
+    assert(m(0)(0)(0).* == 3, "m(0)(0)(0).* ==");
+    assert(n(0)(0)(0)(0).* == 3, "n(0)(0)(0)(0).* ==");
   };
 };
