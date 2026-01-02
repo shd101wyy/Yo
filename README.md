@@ -13,16 +13,16 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - Compile-time evaluation.
 - Homoiconicity and metaprogramming (**Yo** is just a combination of **Lisp** and **C**).
 - Closure.
-- [Async/await](./ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking).
-- `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./CYCLE_COLLECTION.md).
-- [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
-- Thread-per-core parallelism model (see [PARALLEL.md](./PARALLEL.md)).
+- [Async/await](./docs/ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking).
+- `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/CYCLE_COLLECTION.md).
+- [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
+- Thread-per-core parallelism model (see [PARALLELISM.md](./docs/PARALLELISM.md)).
 - **C** interop.
 - etc
 
 ## Language Design
 
-For design of the language, please refer to the [DESIGN.md](./DESIGN.md).
+For design of the language, please refer to the [DESIGN.md](./docs/DESIGN.md).
 
 ## Installation
 
@@ -69,6 +69,10 @@ Test some local yo-cli:
 ```bash
 $ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
 ```
+
+## Code examples
+
+Check the `./tests` folder for code examples and test cases.  
 
 ## Editor support
 

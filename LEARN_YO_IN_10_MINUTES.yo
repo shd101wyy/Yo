@@ -205,11 +205,11 @@ right_exp :=
 3.(+) 4;
 
 // define a function
-add :: (fn(x: i32, y: i32)-> i32) // function type is written as fn(args...)-> return_type
+add :: (fn(x: i32, y: i32) -> i32) // function type is written as fn(args...)-> return_type
   x + y // calling the function type with the body will create a function value.
 ;
 // or define the type first, then use `_` to refer the function type:
-(compt(add) : (fn(x: i32, y: i32)-> i32)) = _ // `_` here referes to the function type (x: i32, y: i32)-> i32
+(compt(add) : (fn(x: i32, y: i32) -> i32)) = _ // `_` here referes to the function type (x: i32, y: i32)-> i32
   x + y
 ;
 
@@ -235,15 +235,15 @@ get_value =
       else: Option(i32).None;
 
 // Named parameters in function declarations with default values
+// Named parameter value must be compile-time known.
 create_user :: (fn( 
     name: String,
-    (age: i32) ?= 18, // Use ?= operator to define a default value
-    (role: String) ?= String.from("user")
+    (age: i32) ?= 18 // Use ?= operator to define a default value
   ) -> User)
-  User
+  User(
     name: name,
-    age: age,
-    role: role
+    age: age
+  )
 ;
 
 
@@ -263,16 +263,6 @@ user2 := create_user(name: "Bob", age: 30);  // explicit values
 // Yo also supports the infix function application
 // 3 `add` 4; // is equivalent to add(3, 4)
 
-
-// Define a custom operator
-(+++) :: (fn(x: i32, y: i32)->i32)
-  x + y;
-3 +++ 4; // 7
-
-modify :: (fn(x: i32)-> i32) {
-  x += 1;
-  x
-}
 
 // block using {...} with ";" as separator
 result := {
@@ -339,7 +329,7 @@ named_tuple := (x: x, y: y);
 (x: a) := named_tuple; // a: 1
 
 // there might be ambiguity for the function that accepts tuple as its first argument
-some_func :: (fn(x: (i32, i32))-> i32) {
+some_func :: (fn(x : (i32, i32)) -> i32) {
   return x.0 + x.1;
 };
 
@@ -407,18 +397,20 @@ p := { x : 3, y : 4 }; // Create an anonymous struct value.
 
 // ADT (tagged union)
 Color ::
-  enum
+  enum(
     Red, // = 0
     Green,
     Blue
+  )
 ;
 color := Color.Red; // color is of type Color
 
 // each variant can have one type as its argument
 Animal ::
-  enum
+  enum(
     Dog(String, f64),
     Cat(name: String, weight: f64)
+  )
 ;
 a := Animal.Dog "Buddy", 12.5;
 // or use the anonymous variant liternal:
@@ -429,12 +421,14 @@ a := Animal.Dog "Buddy", 12.5;
 
 // union
 Result ::
-  union 
-    int: i64,
-    float: f64,
-    bool: bool;
+  union(
+    int   : i64,
+    float : f64,
+    bool  : bool
+  )
+;
 
-result := Result(int:12);
+result := Result(int : 12);
 result.float = 3.14;
 // or use the anonymous union liternal:
 (result : Result) = _( int: 12 );
@@ -442,9 +436,11 @@ result.float = 3.14;
 
 // A more complicated example
 Shape ::
-  enum
+  enum(
     Circle(i32),
-    Rectangle(width: i32, height: i32);
+    Rectangle(width: i32, height: i32)
+  )
+;
 s := Shape.Circle 5;
 s := Shape.Rectangle width: 10, height: 20;
 
@@ -453,7 +449,8 @@ Option :: (fn(compt(T): Type)-> compt(Type))
   enum(
     Some(T),
     None
-  );
+  )
+;
 
 x := Option(i32).Some(12);
 
@@ -498,37 +495,38 @@ Option ::
 // All the fields of the module are compile-time known by default
 Id :: module
   // `Self` in module here means the receiver type. 
-  id:
-    fn(val : Self)-> Self
+  id :
+    fn(self : *(Self)) -> Self
 ;
 
 Stringer :: module
-    to_string: (fn(val : Self)-> String)
+    to_string: (fn(self : *(Self))-> String)
 ;
 
 /// Implement the module
-IdI32 :: impl i32, Id(
-  id:
-    (self)-> self
-);
+IdI32 :: impl(i32,
+  Id(
+    id:
+      (self) -> self.*
+  ));
 
 impl(forall(T : Type, U : Type), where(T <: Stringer, U <: Stringer), 
   (T, U), Stringer(
     to_string:
       ((x, y))->
-        "(" + 
+        "(".to_string() + 
         x.to_string() + 
-        "," + 
+        ",".to_string() + 
         y.to_string() + 
-        ")"
+        ")".to_string()
   ));
 
 /// method call
 12.id(); // 12
 (3,4).to_string(); // "(3,4)"
 // or call from the module
-Id(i32).id(12); // 12
-Stringer((i32, i32)).to_string((3,4)); // "(3,4)"
+(i32 <: Id).id(12); // 12
+((i32, i32) <: Stringer).to_string((3,4)); // "(3,4)"
 
 // Implement method to a type
 Cm :: struct(
@@ -545,36 +543,43 @@ x.M(); // 2
 
 // `forall` can be used to define generics
 // e.g. without `forall` it also works:
-id :: (fn(compt(T): Type, x: T)-> T) {
+id :: (fn(compt(T) : Type, x : T) -> T) {
   return x;
 };
 // but when you call it, you need to specify the type:
 id(i32, 12); // 12
-id(bool, 12); // true
+id(bool, true); // true
 // e.g. with `forall`:
 id ::
-  fn(forall(T: Type), x: T)-> T {
+  fn(forall(T : Type), x : T)-> T {
   return x;
-}
+};
 
 // then you can call it without specifying the type:
 id(12);   // 12
 id(true); // true
+
+// With type constraints
+use_id :: (fn(forall(T : Type), x : T, where(T <: Id))-> T) {
+  return x.id();
+};
+
 
 // Module
 // Module is a block of expressions.
 // The very last expression is the return value.
 
 // arith.yo
-add :: 
-  (fn(x: i32, y: i32)-> i32)
-  x + y;
-sub ::
-  (fn(x: i32, y: i32)-> i32)
-  x - y;
-export
-  add, sub
-; // export add and sub
+add :: (fn(x: i32, y: i32)-> i32)(
+  x + y
+);
+sub :: (fn(x: i32, y: i32)-> i32)(
+  x - y
+);
+export(
+  add,
+  sub
+); // export add and sub
 
 // main.yo
 { add, sub } :: import("./arith.yo");
@@ -601,78 +606,59 @@ s2 := s; // s2 and s point to the same object.
 // Yo uses & for pointer value
 x := 1;
 y := 2;
-swap ::
-  (fn(a: *(i32), b: *(i32)) -> unit) {
+swap :: (fn(a: *(i32), b: *(i32)) -> unit) {
   tmp := a.*; // dereference the pointer
   a.* = b.*;
   b.* = tmp;
 };
 swap(&(x), &(y));
 
-// do notation
-// allows us to use `<-`, `<=`, `<<=` inside a block
-/// do {
-///   with response <= fetch("https://api.example.com");
-///   std.println(response);
-///   with json <= response.json();
-///   std.println(json);
-/// };
-/// // is equavalent to
-/// {
-///   fetch("https://api.example.com", (response) => {
-///     std.println(response);
-///     response.json((json) => {
-///       std.println(json);
-///     });
-///   });
-/// };
-
 // malloc
 // There is no null pointer in Yo.
 // We have ?*(i32) for nullable pointers.
 // They are just the wrapper for Option(*(i32)).
 (some_ptr : Option(*(i32))) = malloc(sizeof(i32)); // allocate memory for i32
-match some_ptr,
+match(some_ptr,
   .Some(ptr) => {
     ptr.* = 42; // dereference the pointer
-    std.println(ptr.*); // print the value
+    println(ptr.*); // print the value
   },
-  .None => std.println("Memory allocation failed");
+  .None => println("Memory allocation failed")
+);
 free(some_ptr); // free the memory
 
 // Control flow
 /// cond
-cond  (x == 1) => std.println("x is 1"),
-      (x == 2) => std.println("x is 2"),
-      true     => std.println("x is not 1 or 2");
+cond((x == 1) => println("x is 1"),
+      (x == 2) => println("x is 2"),
+      true     => println("x is not 1 or 2")
+);
 
 /// while
-factorial ::
-  (fn(x: i32)-> i32) {
+factorial :: (fn(x : i32)-> i32) {
   result := 1;
-  while x > 1, {
+  while(x > 1, {
     result = (result * x);
     x -= 1;
-  };
+  });
   result
 };
 
 //// or
-factorial ::
-  (fn(x: i32)-> i32) {
+factorial :: (fn(x: i32)-> i32) {
   result := 1;
-  while x > 1,  // condition
+  while(x > 1,  // condition
         x = (x - 1), // step
   { // body
     result = (result * x);
-  };
+  });
   result
-}
+};
 
 /// for
 /// for loop can be used to iterate over an array or slice
 arr := [1, 2, 3, 4, 5];
-for arr, (element, index)=> {
+for arr, (element, index) => {
   println(index);
   println(element);
 };
@@ -683,36 +669,41 @@ for arr, element => {
 
 // Recursion using recur
 // recur is used to call the current function recursively
-factorial_rec :: (fn(x: i32)-> i32)
-  if x <= 1,
+factorial_rec :: (fn(x: i32)-> i32)(
+  if(x <= 1,
     then: 1,
-    else: (x * recur(x - 1));  // recur calls factorial_rec recursively
+    else: (x * recur(x - 1)) // recur calls factorial_rec recursively
+  )
+);
 
 // recur can also be used with named arguments
-fibonacci :: (fn(n: i32)-> i32)
-  if n <= 1,
+fibonacci :: (fn(n: i32)-> i32)(
+  if(n <= 1,
     then: n,
-    else: (recur(n - 1) + recur(n - 2));
+    else: (recur(n - 1) + recur(n - 2))
+  )
+);
 
 // Tail recursion for better performance
-factorial_tail :: (fn(x: i32, acc: i32)-> i32)
-  if x <= 1,
+factorial_tail :: (fn(x: i32, acc: i32)-> i32)(
+  if(x <= 1,
     then: acc,
-    else: recur(x - 1, x * acc);  // tail-recursive call
-
-/// for
-for 0..=10, (x)=> std.println(x); // NOTE: The last argument is **NOT** a function
+    else: recur(x - 1, x * acc)  // tail-recursive call
+  )
+);
 
 // Pattern matching
-match x,
-  1 => std.println("x is 1"),
-  2 => std.println("x is 2"),
-  _ => std.println("x is not 1 or 2")
+match(x,
+  1 => println("x is 1"),
+  2 => println("x is 2"),
+  _ => println("x is not 1 or 2")
+);
 
 x := Option(i32).Some(12);
-match x,
-  .Some(value) => std.println("x is Some with value " + value),
-  .None => std.println("x is None")
+match(x,
+  .Some(value) => println("x is Some with value ".to_string() + value.to_string()),
+  .None => println("x is None")
+);
 
 // Error Handling
 // Yo uses the Result type for operations that may fail
@@ -720,29 +711,33 @@ match x,
 
 // Define the Result type as a generic type
 Result :: (fn(compt(T): Type, compt(E): Type)-> compt(Type))
-  enum
+  enum(
     Ok(T),
     Err(E)
+  )
 ;
 
 // Define a standard error type
 DivisionError ::
-  enum
+  enum(
     DivideByZero,
-    Overflow;
+    Overflow
+  )
+;
 
 // Example: Safe division function that returns a Result
-safe_div ::
-  (fn(a: i32, b: i32)-> Result(i32, DivisionError))
+safe_div :: (fn(a: i32, b: i32)-> Result(i32, DivisionError))
   if b == 0,
-    then: Result(i32, DivisionError).Err(.DivideByZero),
-    else: Result(i32, DivisionError).Ok(a / b);
+    then: .Err(.DivideByZero),
+    else: .Ok(a / b)
+;
 
 // Pattern matching for error handling
 division_result := safe_div(10, 2);
-match division_result,
-  .Ok(value)  => std.println("Result: " + value.to_string()),
-  .Err(_) => std.println("Error: Cannot divide by zero");
+match(division_result,
+  .Ok(value)  => println("Result: ".to_string() + value.to_string()),
+  .Err(_) => println("Error: Cannot divide by zero")
+);
 
 // Macro function definition
 // all of its parameters and return type are Expr
@@ -751,15 +746,19 @@ match division_result,
 if :: (fn(quote(condition): Expr, 
         quote(then): Expr,
         quote(else): Expr)
-      -> unqoute(Expr))
+      -> unquote(Expr))
   quote(
-    cond  unquote(condition) => unquote(then),
-          true => unquote(else));
+    cond(
+      unquote(condition) => unquote(then),
+      true => unquote(else)
+    )
+  )
+;
 
-if x == 1, then: std.println("x is 1"), else: std.println("x is not 1");
+if x == 1, then: println("x is 1"), else: println("x is not 1");
 // will be expanded to
-cond  (x == 1) => std.println("x is 1"),
-      true     => std.println("x is not 1");
+cond  (x == 1) => println("x is 1"),
+      true     => println("x is not 1");
 
 
 // Architecture
@@ -767,9 +766,6 @@ cond  (x == 1) => std.println("x is 1"),
 // * Parser - AST Generation, without caring about semantics
 // * Interpreter - Type checking & Compile-time execution as much as possible
 // * Compiler - Code Generation, to `C` only now
-
-extern "C",
-  printf: (fn(format: *(char), ...) -> i32);
 
 // Compile-time Execution
 PI :: 3.14159265358979323846; // PI : compt_float;
@@ -814,7 +810,7 @@ arr := [read_input(), 2, 3]; // arr: Array(i32, 3); runtime mutable
 // A function that returns a type is called a type function.  
 // The type function requires all its parameters to be `compt`.  
 // The type function is pure, which means it will be cached once executed.
-Matrix :: (fn(compt(T): Type, compt(ROWS): usize, compt(COLS): usize)-> compt(Type))
+Matrix :: (fn(compt(T): Type, compt(ROWS) : usize, compt(COLS) : usize)-> compt(Type))
   Array(Array(T, COLS), ROWS)
 ;
 
