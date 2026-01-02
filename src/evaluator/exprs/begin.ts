@@ -27,7 +27,13 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { areTypesCompatible, isSomeType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  isObjectType,
+  isSomeType,
+  typeContainsGcType,
+  typeToString,
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -261,18 +267,6 @@ function isUnitValueExpression(expr: Expr): boolean {
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.tuple, 0)
   );
-}
-
-/**
- * Helper to get the base variable ID by following the isOwningTheSameGcValueAs chain.
- * This is used for dup/drop optimization to identify which variables share the same ARC value.
- */
-function getBaseVariableId(variable: Variable): string {
-  let current = variable;
-  while (current.isOwningTheSameGcValueAs) {
-    current = current.isOwningTheSameGcValueAs;
-  }
-  return current.id;
 }
 
 /**
@@ -824,10 +818,26 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     const dupCallsToRemove = new Set<FuncCallExpr>(); // Track which dup calls to remove
 
     for (const variable of variablesNeedingDrop) {
-      const baseId = getBaseVariableId(variable);
+      // Follow the entire isOwningTheSameGcValueAs chain to get the root base variable
+      let baseVariable = variable;
+      while (baseVariable.isOwningTheSameGcValueAs) {
+        baseVariable = baseVariable.isOwningTheSameGcValueAs;
+      }
+      const baseId = baseVariable.id;
       const dupCalls = dupCallsByBaseVariable.get(baseId);
 
-      if (dupCalls && dupCalls.length > 0) {
+      // Special case: Don't optimize value type assignments with RC fields.
+      // When we do `y = temp_value` in C where both are value types (structs, enums, arrays),
+      // it's a memcpy (shallow copy). Both y and temp_value exist as separate values,
+      // and each needs its own drop call to properly decrement the RC of their inner fields.
+      // Optimizing away the dup/drop pair would cause use-after-free.
+      // Check the base variable (the temp being assigned from), not the derived variable.
+      // Only pointer types (object(...)) can be safely optimized here.
+      const isValueTypeWithRCFields =
+        !isObjectType(baseVariable.type) &&
+        typeContainsGcType(baseVariable.type);
+
+      if (dupCalls && dupCalls.length > 0 && !isValueTypeWithRCFields) {
         // We can optimize: cancel one dup/drop pair
         const dupCallToRemove = dupCalls[0]!;
         dupCallsToRemove.add(dupCallToRemove);

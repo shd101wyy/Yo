@@ -451,6 +451,42 @@ cond(
 - Doesn't optimize across function boundaries
 - Conservative: Falls back to dup/drop when uncertain
 
+**Important: Value Type Semantics**
+
+The optimization must respect C's value type semantics. When assigning value types in C (structs, unions, arrays), the assignment performs a **shallow copy (memcpy)**:
+
+```yo
+// Value type (struct) with RC field:
+x := { box(42) };   // temp owns struct, x.isOwningTheSameGcValueAs = temp
+y := x;             // y.isOwningTheSameGcValueAs = x
+
+// In C codegen:
+// struct_type x = temp;     // memcpy - both x and temp exist!
+// struct_type y = x;        // memcpy - both y and x exist!
+```
+
+After the memcpy, **both the source and destination exist as separate values**. Each needs its own drop call to decrement the RC of inner fields. Therefore:
+
+**Rule:** Don't optimize dup/drop pairs for **value types** (structs, enums, arrays) that contain RC fields.
+**Rule:** Only optimize for **pointer types** (`object(...)`) where assignment copies the pointer, not the data.
+
+```typescript
+// In begin.ts optimization:
+const isValueTypeWithRCFields =
+  !isObjectType(baseVariable.type) &&  // Not a pointer type
+  typeContainsGcType(baseVariable.type);  // Contains RC fields
+
+if (dupCalls && dupCalls.length > 0 && !isValueTypeWithRCFields) {
+  // Safe to optimize: either pointer type or no RC fields
+}
+```
+
+**Why this matters:**
+
+- **Pointer types**: `x = ptr` copies the pointer → only one value exists → optimize ✅
+- **Value types with RC fields**: `x = struct` does memcpy → two values exist → don't optimize ❌
+- **Value types without RC fields**: Safe to optimize, but the check prevents it conservatively
+
 ## Future Optimizations
 
 The current implementation (Phase 1 + Phase 1.5) provides a **good balance** of safety, simplicity, and performance:
@@ -458,6 +494,7 @@ The current implementation (Phase 1 + Phase 1.5) provides a **good balance** of 
 - ✅ Zero memory safety bugs
 - ✅ Simple "assignments always own" model
 - ✅ Eliminates redundant dup/drop pairs within scopes
+- ✅ Respects C value type semantics for correctness
 - ✅ Parameters borrow by default (no RC overhead on calls)
 
 ## Summary
