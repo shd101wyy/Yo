@@ -338,13 +338,15 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 `;
   }
 
-  return {
-    signature,
-    code: `(${signature} { // ___drop
+  const finalCode = `(${signature} { // ___drop
   ${dropDestructuringsExpr}
   ${decrRcExpr}
   return ();
-})`,
+})`;
+
+  return {
+    signature,
+    code: finalCode,
   };
 }
 

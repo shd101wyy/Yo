@@ -1,6 +1,32 @@
 # Roadmap
 
-## 2024
+## 2025
+
+The roadmap from 2024 is now revised and updated for 2025, based on the new design in [DESIGN.md](./DESIGN.md).
+
+### 2025 - September
+
+- [x] Automatically insert **dup and **drop for reference-semantics types and types containing reference-semantics types, without optimization.
+- [x] Code generation for dynamic dispatch.
+- [x] Eliminate **dup and **drop operations.
+- [x] Use non-atomic RC for now.
+- [x] Switch to biased reference counting, [Python PEP 703](https://peps.python.org/pep-0703/), [tid](https://github.com/colesbury/nogil/blob/f7e45d6bfbbd48c8d5cf851c116b73b85add9fc6/Include/object.h#L428-L455).
+- [x] Add cycle removal for reference counting.
+
+### 2025 - October
+
+- [x] Async/await stackless coroutine design and evaluator/codegen implementation.
+- [x] Async IO design.
+
+### To be considered
+
+- [ ] Tail call optimization for `recur` in codegen.
+- [ ] Type reflection. I wonder if this should be done in the phase of self-hosting compiler.
+- [ ] BRC optimization.
+- [ ] GC optimization.
+- [ ] Async/await state machine generation optimization.
+
+## 2024 DEPRECATED
 
 The order of the roadmap is not necessarily the order of implementation.  
 It is just a list of things that need to be done.
@@ -45,29 +71,3 @@ It is just a list of things that need to be done.
   - [ ] `for`
   - [ ] `while`
   - [ ] `do while`
-
-## 2025
-
-The roadmap from 2024 is now revised and updated for 2025, based on the new design in [DESIGN.md](./DESIGN.md).
-
-### 2025 - September
-
-- [x] Automatically insert **dup and **drop for reference-semantics types and types containing reference-semantics types, without optimization.
-- [x] Code generation for dynamic dispatch.
-- [x] Eliminate **dup and **drop operations.
-- [x] Use non-atomic RC for now.
-- [x] Switch to biased reference counting, [Python PEP 703](https://peps.python.org/pep-0703/), [tid](https://github.com/colesbury/nogil/blob/f7e45d6bfbbd48c8d5cf851c116b73b85add9fc6/Include/object.h#L428-L455).
-- [x] Add cycle removal for reference counting.
-
-### 2025 - October
-
-- [x] Async/await stackless coroutine design and evaluator/codegen implementation.
-- [x] Async IO design.
-
-### To be considered
-
-- [ ] Tail call optimization for `recur` in codegen.  
-- [ ] Type reflection. I wonder if this should be done in the phase of self-hosting compiler.
-- [ ] BRC optimization.
-- [ ] GC optimization.
-- [ ] Async/await state machine generation optimization.

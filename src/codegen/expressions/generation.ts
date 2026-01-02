@@ -533,6 +533,23 @@ function generateFuncCall(
       return `((${isoCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
     }
 
+    // For struct/enum types, dispatch to their ___dup function
+    if (isStructType(valueType) || isEnumType(valueType)) {
+      const dupFn = valueType.module?.fields.find(
+        (f) => f.label === BuiltinFunctions.___dup[0]
+      );
+      if (
+        dupFn &&
+        dupFn.assignedValue &&
+        isFunctionValue(dupFn.assignedValue)
+      ) {
+        const dupFnCName = context.functions[dupFn.assignedValue.funcId]?.cName;
+        if (dupFnCName) {
+          return `${dupFnCName}(${valueCode})`;
+        }
+      }
+    }
+
     // Value types: no-op dup.
     return valueCode;
   }
@@ -565,6 +582,24 @@ function generateFuncCall(
     if (isSomeType(valueType) && valueType.resolvedConcreteType) {
       const concreteType = valueType.resolvedConcreteType;
       const dropFn = concreteType.module?.fields.find(
+        (f) => f.label === BuiltinFunctions.___drop[0]
+      );
+      if (
+        dropFn &&
+        dropFn.assignedValue &&
+        isFunctionValue(dropFn.assignedValue)
+      ) {
+        const dropFnCName =
+          context.functions[dropFn.assignedValue.funcId]?.cName;
+        if (dropFnCName) {
+          return `${dropFnCName}(${valueCode})`;
+        }
+      }
+    }
+
+    // For struct/enum types, dispatch to their ___drop function
+    if (isStructType(valueType) || isEnumType(valueType)) {
+      const dropFn = valueType.module?.fields.find(
         (f) => f.label === BuiltinFunctions.___drop[0]
       );
       if (
