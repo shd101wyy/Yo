@@ -1,6 +1,6 @@
 # Yo
 
-`Work in Progress`
+`Work in Progress`, NOT READY FOR PRODUCTION USE.
 
 A multi-paradigm, general-purpose, compiled programming language.
 Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).

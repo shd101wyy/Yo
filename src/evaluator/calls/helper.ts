@@ -300,7 +300,11 @@ export function checkIfFunctionParameterMatchesArgument({
         }
 
         // Mark the argument as consumed (moved) at the call site
-        callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
+        callerEnv = setExprAsConsumed(
+          evaluatedArgExpr,
+          callerEnv,
+          true // NOTE: Allow to consume again here is necessary.
+        );
       }
     }
   }
