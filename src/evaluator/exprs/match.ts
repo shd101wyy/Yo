@@ -36,6 +36,7 @@ import { VUnit } from "../../unit-value";
 import { createUnknownValue, isEnumValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
+import { evaluateExpression } from "./expr";
 
 /**
  *
@@ -73,18 +74,30 @@ export function evaluateMatch({
   // Evaluate the value to be matched
   const scrutineeExpr = args[0]!;
 
-  // Evaluate any expression as scrutinee, not just atoms
-
-  // NOTE: Use evaluateBeginExpression causes the problem. It inserts unnecessary `dup` function call.
-  const evaluatedScrutineeExpr = evaluateBeginExpression({
-    expr: scrutineeExpr,
-    env,
-    context: {
-      ...context,
-      expectedType: undefined,
-    },
-    variablesToAdd: [],
-  });
+  // Evaluate any expression as scrutinee, not just atoms.
+  // Important: don't wrap an *atomic* scrutinee (a plain variable like `result`/`self`)
+  // in an implicit begin() scope.
+  // Doing so creates an owning temp copy that gets dropped at end-of-scope, which is
+  // incorrect for borrowed scrutinees and breaks enums/structs-with-GC-fields
+  // (e.g. Result(String, Err) causing double-drop/UAF).
+  const evaluatedScrutineeExpr = exprIsAtom(scrutineeExpr)
+    ? evaluateExpression({
+        expr: scrutineeExpr,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+        },
+      })
+    : evaluateBeginExpression({
+        expr: scrutineeExpr,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+        },
+        variablesToAdd: [],
+      });
 
   if (!evaluatedScrutineeExpr.$) {
     throw formatErrorMessage({
