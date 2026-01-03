@@ -292,19 +292,40 @@ export function checkIfFunctionParameterMatchesArgument({
       requireExprNotConsumed(evaluatedArgExpr, callerEnv);
 
       // If parameter takes ownership, call ___dup on borrowed ARC values
-      // and mark the argument as consumed at the call site
+      // and/or mark the argument as consumed at the call site.
+      //
+      // Move-ownership semantics (Option B):
+      // - If the argument already owns the GC value, *move* it into the call: consume it, no dup.
+      // - If the argument is only borrowed/non-owning, create an owned temp via ___dup and pass that;
+      //   the original binding is still consumed (becomes unusable) to preserve linear/consuming-call semantics.
       if (parameter.isOwningTheGcValue && !parameter.isCompileTimeOnly) {
-        setExprAsNeedsToCallDup(evaluatedArgExpr, context);
-        if (evaluatedArgExpr.$?.env) {
-          callerEnv = evaluatedArgExpr.$?.env;
-        }
+        const argVarName = evaluatedArgExpr.$?.variableName;
+        const argVars = argVarName
+          ? getVariablesFromEnv(callerEnv, argVarName)
+          : [];
+        const argVar = argVars.length ? argVars[argVars.length - 1] : undefined;
 
-        // Mark the argument as consumed (moved) at the call site
-        callerEnv = setExprAsConsumed(
-          evaluatedArgExpr,
-          callerEnv,
-          true // NOTE: Allow to consume again here is necessary.
-        );
+        if (argVar?.isOwningTheGcValue) {
+          // Argument already owns: move it (no dup), and consume at call site.
+          callerEnv = setExprAsConsumed(
+            evaluatedArgExpr,
+            callerEnv,
+            true // NOTE: Allow to consume again here is necessary.
+          );
+        } else {
+          // Argument is borrowed/non-owning: materialize ownership via ___dup and pass the temp.
+          // Still consume the original argument binding so it can't be used after the call.
+          setExprAsNeedsToCallDup(evaluatedArgExpr, context);
+          if (evaluatedArgExpr.$?.env) {
+            callerEnv = evaluatedArgExpr.$.env;
+          }
+
+          callerEnv = setExprAsConsumed(
+            evaluatedArgExpr,
+            callerEnv,
+            true // NOTE: Allow to consume again here is necessary.
+          );
+        }
       }
     }
   }

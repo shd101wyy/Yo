@@ -2,6 +2,8 @@
 
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 
+Non-atomic RC is sound in Yo because GC-managed objects are **thread-local** and cannot be shared across threads unless they are explicitly `Send` (see `docs/PARALLELISM.md`).
+
 ## Ownership Model
 
 Yo uses a simplified ownership model with clear rules:
@@ -67,7 +69,12 @@ fn broken(p : Point) -> unit {
 
 ### 4. Explicit Ownership Transfer: `own()` keyword
 
-Use `own()` to transfer ownership to a function parameter. The caller must call `___dup` at the call site:
+Use `own()` to transfer ownership to a function parameter.
+
+**Move-ownership semantics:**
+
+- If the argument already **owns** the GC value, the call **moves** ownership into the callee (the caller binding becomes consumed).
+- If the argument is only **borrowed / non-owning** (e.g. a borrowed parameter), the compiler inserts `___dup` to materialize an owned temporary for the callee, and the original binding is still **consumed** (becomes unusable) to keep `own()` calls linear/consuming.
 
 ```rust
 fn consume(own(box): Box(i32)) -> unit {
@@ -76,17 +83,27 @@ fn consume(own(box): Box(i32)) -> unit {
 }
 
 b := box(42);      // b owns
-consume(b);        // ___dup(b) at call site, ownership transferred to function
-                   // b still owns its reference after the call
+consume(b);        // b cannot be used after this point
+
+fn call_consume(p : Box(i32)) -> unit { // p borrows by default
+  consume(p); // compiler inserts ___dup(p) to satisfy own(box)
+  // p is NOT usable here (moved/consumed by the own() call)
+}
+
+fn call_consume_but_keep_using(p : Box(i32)) -> unit { // p borrows by default
+  p2 := p;    // compiler inserts ___dup(p); p2 owns
+  consume(p2); // p2 is consumed
+  // p is still usable here
+}
 ```
 
-**Rule:** `own()` parameters take ownership via `___dup` at call site. The caller's variable remains valid.
+**Rule:** `own()` parameters take ownership; passing an owned value moves it, passing a borrowed value clones it via `___dup` and still consumes the argument binding.
 
 ## Basic Model
 
 ### Ownership and Reference Counting
 
-Each heap allocated ARC value has a unique owner. Its reference counter starts at 1.
+Each heap allocated ARC value starts with a single owner. Its reference counter starts at 1.
 
 ```yo
 Point :: object(x : i32, y : i32);
@@ -283,7 +300,7 @@ x := match(optional,
 
 ### Rule 5: The `own()` Keyword
 
-**`own()` parameters take ownership, caller must dup:**
+**`own()` parameters take ownership (move if possible, otherwise dup):**
 
 ```rust
 fn consume(own(box): Box(i32)) -> unit {
@@ -292,8 +309,14 @@ fn consume(own(box): Box(i32)) -> unit {
 }
 
 b := box(42);      // b owns
-consume(b);        // ___dup(b) at call site, b is consumed
+consume(b);        // b is consumed
 // b cannot be used after this point
+
+// If the argument is borrowed/non-owning, the compiler inserts ___dup.
+// Example: borrowed parameter passing to an own() parameter.
+fn call_consume(p : Box(i32)) -> unit {
+  consume(p); // inserts ___dup(p); p is consumed (not usable after this)
+}
 ```
 
 ### Exception: Function Parameters (Borrow by Default)
@@ -366,7 +389,7 @@ The straightforward "always own" model is now fully implemented:
 2. **Function parameters**: Borrow by default (no `own()` keyword), no `___dup` at call site ✅
 3. **Parameters are not reassignable**: Prevent `param = value` (compile error) ✅
 4. **Parameters can be mutated**: Allow `param.field = value` (calls dup) ✅
-5. **`own()` parameters**: Call `___dup` at call site ✅
+5. **`own()` parameters**: Move semantics ✅
 6. **Scope exit**: Call `___drop` on all owned variables ✅
 7. **Deferred drops in branches**: All branching constructs (cond, match, while, for) properly emit drop calls ✅
 8. **Destructuring borrows**: Both destructuring assignment and match destructuring borrow by default ✅
