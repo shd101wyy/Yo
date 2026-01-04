@@ -36,10 +36,11 @@ For debugging running command, always use `| head` or `| tail` to limit the outp
 
 **Running Tests:**
 
-- `./yo-cli test` - Run all \*.test.yo files
+- `./yo-cli test` - Run all \*.test.yo files, but don't do this as it takes long time to run.
 - `./yo-cli test path/to/file.yo` - Run tests in a specific file
 - `--bail` or `-b` - Stop immediately after first test failure
 - `-v` or `--verbose` - Show detailed error messages
+- `--test-name-pattern "Test XXX"` to run a specific test
 - Tests automatically use AddressSanitizer for memory leak detection
 
 Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
