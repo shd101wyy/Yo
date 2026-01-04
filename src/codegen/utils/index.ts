@@ -1,4 +1,5 @@
 import { Emitter } from "../../emitter";
+import { Environment, getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
   exprIsFunctionCall,
@@ -204,7 +205,7 @@ export interface CodeGenContext {
  * This ensures unique identifiers for operators like * and +
  * Also avoids conflicts with C keywords and common macros
  */
-export function sanitizeForCIdentifier(str: string): string {
+export function sanitizeForCIdentifier(str: string, isExternC = false): string {
   // C keywords and common macros that should be avoided
   const cReservedWords = new Set([
     // C keywords
@@ -268,7 +269,7 @@ export function sanitizeForCIdentifier(str: string): string {
   });
 
   // If the result is a C reserved word or macro, append underscore
-  if (cReservedWords.has(sanitized)) {
+  if (!isExternC && cReservedWords.has(sanitized)) {
     sanitized = "__yo_c_reserved_" + sanitized;
   }
 
@@ -809,4 +810,40 @@ export function canOptimizeAsSimpleEnum(enumType: EnumType): boolean {
     }
   }
   return enumType.variants.length > 0; // Must have at least one variant
+}
+
+/**
+ * Get the actual variable name to use in generated code, checking for parameterAlias.
+ * In anonymous functions, the parameter name may differ from the expected interface parameter name.
+ * If a parameterAlias exists, it should be used instead of the variable's actual name.
+ *
+ * @param variableName The variable name to look up
+ * @param env The environment containing the variable
+ * @returns The name to use in generated code (either parameterAlias or the original name), sanitized for C
+ */
+export function getVariableNameForCodegen(
+  variableName: string,
+  env: Environment | undefined
+): string {
+  if (!env) {
+    return sanitizeForCIdentifier(variableName);
+  }
+
+  const variables = getVariablesFromEnv(env, variableName);
+  if (variables.length > 0) {
+    const variable = variables[variables.length - 1]!;
+    if (variable.parameterAlias) {
+      return sanitizeForCIdentifier(
+        variable.parameterAlias,
+        variable.type.isExtern === "c"
+      );
+    } else {
+      return sanitizeForCIdentifier(
+        variable.name,
+        variable.type.isExtern === "c"
+      );
+    }
+  }
+
+  return sanitizeForCIdentifier(variableName);
 }

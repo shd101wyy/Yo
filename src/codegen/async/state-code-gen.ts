@@ -932,7 +932,10 @@ function generateMatchWithAwait(
                   }
                 }
 
-                const fieldLabel = sanitizeForCIdentifier(variantField.label);
+                const fieldLabel = sanitizeForCIdentifier(
+                  variantField.label,
+                  variantField.type.isExtern === "c"
+                );
                 const accessExpr = `${matchedValueCode}.data.${variantName}.${fieldLabel}`;
 
                 if (isStateMachineVar && varId) {

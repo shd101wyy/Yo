@@ -39,6 +39,7 @@ import {
   canOptimizeAsNullablePointer,
   CodeGenContext,
   getTypeString,
+  getVariableNameForCodegen,
   isComptFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   isGenericFunction,
@@ -786,8 +787,9 @@ export function generateFunctionBody(
             // First, generate the expression and store it in its temp variable
             if (lastExpr.$?.variableName) {
               const exprType = getTypeString(lastExpr.$.type!, context);
-              const exprTempVar = sanitizeForCIdentifier(
-                lastExpr.$.variableName
+              const exprTempVar = getVariableNameForCodegen(
+                lastExpr.$.variableName,
+                lastExpr.$.env
               );
               const rawCode = generateExpr(lastExpr, indent, context);
               if (exprTempVar !== rawCode) {

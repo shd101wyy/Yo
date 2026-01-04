@@ -70,6 +70,7 @@ import {
   CodeGenContext,
   getEnumVariantCName,
   getTypeString,
+  getVariableNameForCodegen,
   getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
@@ -100,34 +101,6 @@ function checkVariableIsClosureCaptured(
 
   // Check if it's from a captured frame level
   return latestVariable.frameLevel <= closureCaptureFrameLevel;
-}
-
-/**
- * Get the actual variable name to use in generated code, checking for parameterAlias.
- * In anonymous functions, the parameter name may differ from the expected interface parameter name.
- * If a parameterAlias exists, it should be used instead of the variable's actual name.
- *
- * @param variableName The variable name to look up
- * @param env The environment containing the variable
- * @returns The name to use in generated code (either parameterAlias or the original name), sanitized for C
- */
-function getVariableNameForCodegen(
-  variableName: string,
-  env: Environment | undefined
-): string {
-  if (!env) {
-    return sanitizeForCIdentifier(variableName);
-  }
-
-  const variables = getVariablesFromEnv(env, variableName);
-  if (variables.length > 0) {
-    const variable = variables[variables.length - 1]!;
-    if (variable.parameterAlias) {
-      return sanitizeForCIdentifier(variable.parameterAlias);
-    }
-  }
-
-  return sanitizeForCIdentifier(variableName);
 }
 
 /**
@@ -245,7 +218,7 @@ function allocateClosureCapture(
       if (!field) {
         return `/* Error: missing field at index ${i} */`;
       }
-      return `.${sanitizeForCIdentifier(field.label)} = ${arg}`;
+      return `.${sanitizeForCIdentifier(field.label, field.type.isExtern === "c")} = ${arg}`;
     })
     .join(", ")} }`;
 
@@ -1066,7 +1039,11 @@ function generateFuncCall(
 
           // Declare and assign the temp variable
           const argType = getTypeString(arg.$.type!, context);
-          const argTempVar = sanitizeForCIdentifier(savedVariableName);
+          const argTempVar = getVariableNameForCodegen(
+            savedVariableName,
+            arg.$.env
+          );
+
           if (argTempVar !== rawArgCode) {
             context.emitter.emitLine(
               `${indent}${argType} ${argTempVar} = ${rawArgCode};`
@@ -1089,7 +1066,10 @@ function generateFuncCall(
         generateDeferredDupExpressions(arg, indent, functionContext);
         const dupExpr = arg.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          argCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          argCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
           handledDeferredDup = true;
         }
       }
@@ -1099,7 +1079,7 @@ function generateFuncCall(
       // The evaluator provides a temp variable name for return expressions so we can
       // compute the value before running deferred drops.
       const returnTempVar = expr.$.variableName
-        ? sanitizeForCIdentifier(expr.$.variableName)
+        ? getVariableNameForCodegen(expr.$.variableName, expr.$.env)
         : undefined;
 
       // Skip re-declaring if we already generated a dup call with a temp variable
@@ -1321,7 +1301,10 @@ function generateFuncCall(
       const rhsType = rhs.$?.type;
       runtimeDestructurings.forEach(({ label, type, variableName }) => {
         // Sanitize the variable name for C
-        const sanitizedVariableName = sanitizeForCIdentifier(variableName);
+        const sanitizedVariableName = sanitizeForCIdentifier(
+          variableName,
+          type.isExtern === "c"
+        );
         const varTypeAndName = getVariableTypeString(
           type,
           sanitizedVariableName,
@@ -1347,7 +1330,7 @@ function generateFuncCall(
 
         let fieldName = label.match(/^\d+$/)
           ? `_${label}`
-          : sanitizeForCIdentifier(label);
+          : sanitizeForCIdentifier(label, type.isExtern === "c");
 
         if (rhsType && isTupleType(rhsType) && !label.match(/^\d+$/)) {
           const index = rhsType.fields.findIndex((el) => el.label === label);
@@ -1428,7 +1411,11 @@ function generateFuncCall(
           // Handle temp variable assignment for Gc values
           let rhsCode: string;
           if (rhs.$?.variableName) {
-            const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
+            const tempVarName = getVariableNameForCodegen(
+              rhs.$.variableName,
+              rhs.$.env
+            );
+
             const rhsExprCode = generateExpr(rhs, indent, context);
 
             // Generate temp variable assignment first (only if not in state machine)
@@ -1481,8 +1468,15 @@ function generateFuncCall(
         // BUT: don't create temp variables for captured variables
         // ALSO: don't create temp variables if the temp var name is the same as the variable itself
         if (rhs.$?.variableName) {
-          const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
-          const sanitizedVarName = sanitizeForCIdentifier(varName);
+          const tempVarName = getVariableNameForCodegen(
+            rhs.$.variableName,
+            rhs.$.env
+          );
+
+          const sanitizedVarName = getVariableNameForCodegen(
+            varName,
+            lhs.$.env
+          );
 
           // Skip temp variable creation if temp var name matches the actual variable name
           // This prevents redundant declarations like "int32_t x = x;"
@@ -1499,12 +1493,16 @@ function generateFuncCall(
               generateDeferredDupExpressions(rhs, indent, functionContext);
               const dupExpr = rhs.$.deferredDupExpressions[0]!;
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+                rhsCode = getVariableNameForCodegen(
+                  dupExpr.$.variableName,
+                  dupExpr.$.env
+                );
               }
             }
           } else if (
             exprIsAtom(rhs) &&
-            tempVarName === sanitizeForCIdentifier(rhs.token.value)
+            tempVarName ===
+              getVariableNameForCodegen(rhs.token.value, rhs.$.env)
           ) {
             // Just use the variable directly, no temp variable needed
             rhsCode = generateExpr(rhs, indent, context);
@@ -1518,7 +1516,10 @@ function generateFuncCall(
               generateDeferredDupExpressions(rhs, indent, functionContext);
               const dupExpr = rhs.$.deferredDupExpressions[0]!;
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+                rhsCode = getVariableNameForCodegen(
+                  dupExpr.$.variableName,
+                  dupExpr.$.env
+                );
               }
             }
           } else {
@@ -1549,12 +1550,12 @@ function generateFuncCall(
                   // Note: captureType is no longer on ClosureType, so we use a naming convention
                   // The capture struct name follows the pattern: closure_type_name + "_capture"
                   const captureStructName = `${closureTypeEntry.cName}_capture`;
-                  rhsCode = `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(rhs.token.value)}`;
+                  rhsCode = `((${captureStructName}*)closure_context->data)->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
                 } else {
-                  rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
+                  rhsCode = `closure_context->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
                 }
               } else {
-                rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
+                rhsCode = `closure_context->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
               }
             } else {
               // Normal temp variable handling
@@ -1585,7 +1586,10 @@ function generateFuncCall(
                 // Use the dup result variable instead of the original temp variable
                 const dupExpr = rhs.$.deferredDupExpressions[0]!;
                 if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                  rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+                  rhsCode = getVariableNameForCodegen(
+                    dupExpr.$.variableName,
+                    dupExpr.$.env
+                  );
                 } else {
                   // Use temp variable for the main assignment
                   rhsCode = tempVarName;
@@ -1610,7 +1614,10 @@ function generateFuncCall(
             // Use the dup result variable
             const dupExpr = rhs.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+              rhsCode = getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
         }
@@ -1659,7 +1666,7 @@ function generateFuncCall(
             }
 
             context.emitter.emitLine(
-              `${indent}${cTypeString} ${sanitizeForCIdentifier(varName)} = ${rhsCode};`
+              `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
             );
           }
         }
@@ -1744,7 +1751,10 @@ function generateFuncCall(
       ) {
         // If RHS has a variable name, we need to declare it first
         if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
+          const rhsVarName = getVariableNameForCodegen(
+            rhs.$.variableName,
+            rhs.$.env
+          );
           // Only emit the variable declaration if it's not the same as rhsCode
           if (rhsVarName !== rhsCode.trim()) {
             const rhsTypeStr = getTypeString(rhs.$.type, context);
@@ -1758,7 +1768,10 @@ function generateFuncCall(
         // Use the dup result variable instead of the original
         const dupExpr = rhs.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          finalRhsCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         }
       }
 
@@ -1797,7 +1810,10 @@ function generateFuncCall(
       ) {
         // If RHS has a variable name, we need to declare it first
         if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
+          const rhsVarName = getVariableNameForCodegen(
+            rhs.$.variableName,
+            rhs.$.env
+          );
           // Only emit the variable declaration if it's not the same as rhsCode
           if (rhsVarName !== rhsCode.trim()) {
             const rhsTypeStr = getTypeString(rhs.$.type, context);
@@ -1811,7 +1827,10 @@ function generateFuncCall(
         // Use the dup result variable instead of the original
         const dupExpr = rhs.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          finalRhsCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         }
       }
 
@@ -2130,7 +2149,10 @@ function generateFuncCall(
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
+              return getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
 
@@ -2179,7 +2201,10 @@ function generateFuncCall(
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
+              return getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
 
@@ -2223,7 +2248,10 @@ function generateFuncCall(
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
+              return getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
 
@@ -2266,7 +2294,10 @@ function generateFuncCall(
           // Use the dup result variable instead of the original
           const dupExpr = arg.$.deferredDupExpressions[0]!;
           if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-            return sanitizeForCIdentifier(dupExpr.$.variableName);
+            return getVariableNameForCodegen(
+              dupExpr.$.variableName,
+              dupExpr.$.env
+            );
           }
         }
 
@@ -2378,8 +2409,9 @@ function generateFuncCall(
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
               // 4. It's not a redundant self-assignment (e.g., int32_t errno_ = errno_)
-              const sanitizedVarName = sanitizeForCIdentifier(
-                arg.$.variableName
+              const sanitizedVarName = getVariableNameForCodegen(
+                arg.$.variableName,
+                arg.$.env
               );
               if (argCode !== sanitizedVarName) {
                 const varTypeAndName = getVariableTypeString(
@@ -2407,19 +2439,25 @@ function generateFuncCall(
               // the call argument.
               const argTargets = new Set<string>();
               if (arg.$?.variableName) {
-                argTargets.add(sanitizeForCIdentifier(arg.$.variableName));
+                argTargets.add(
+                  getVariableNameForCodegen(arg.$.variableName, arg.$.env)
+                );
               }
               if (argCode) {
                 argTargets.add(argCode);
               }
               if (exprIsAtom(arg)) {
-                argTargets.add(sanitizeForCIdentifier(arg.token.value));
+                argTargets.add(
+                  getVariableNameForCodegen(arg.token.value, arg.$.env)
+                );
               }
 
               const matchingDupExpr = arg.$.deferredDupExpressions.find((e) => {
                 const target = getDeferredDupTargetAtomName(e);
                 if (!target) return false;
-                return argTargets.has(sanitizeForCIdentifier(target));
+                return argTargets.has(
+                  getVariableNameForCodegen(target, e.$?.env)
+                );
               });
 
               if (matchingDupExpr) {
@@ -2428,8 +2466,9 @@ function generateFuncCall(
                   exprIsFunctionCall(matchingDupExpr) &&
                   matchingDupExpr.$?.variableName
                 ) {
-                  finalArgVarName = sanitizeForCIdentifier(
-                    matchingDupExpr.$.variableName
+                  finalArgVarName = getVariableNameForCodegen(
+                    matchingDupExpr.$.variableName,
+                    matchingDupExpr.$.env
                   );
                 }
               }
@@ -2819,8 +2858,9 @@ function generateFuncCall(
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    finalArgVarName = sanitizeForCIdentifier(
-                      dupExpr.$.variableName
+                    finalArgVarName = getVariableNameForCodegen(
+                      dupExpr.$.variableName,
+                      dupExpr.$.env
                     );
                   }
                 }
@@ -2956,8 +2996,9 @@ function generateFuncCall(
                   // If the arg has a variable name but generateExpr didn't create a declaration,
                   // we need to create it now so the dup call can reference it
                   if (arg.$?.variableName && arg.$?.type) {
-                    const argVarName = sanitizeForCIdentifier(
-                      arg.$.variableName
+                    const argVarName = getVariableNameForCodegen(
+                      arg.$.variableName,
+                      arg.$.env
                     );
                     // Only emit the declaration if argCode is different from the variable name
                     // to avoid generating code like: prev_opt = prev_opt;
@@ -2975,7 +3016,10 @@ function generateFuncCall(
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    return sanitizeForCIdentifier(dupExpr.$.variableName);
+                    return getVariableNameForCodegen(
+                      dupExpr.$.variableName,
+                      dupExpr.$.env
+                    );
                   }
                 }
 
@@ -3007,7 +3051,10 @@ function generateFuncCall(
             const argsList = runtimeArgExprs
               .map((arg, index) => {
                 const argCode = generateExpr(arg, indent, context);
-                const sanitizedLabel = sanitizeForCIdentifier(labels[index]!);
+                const sanitizedLabel = getVariableNameForCodegen(
+                  labels[index]!,
+                  arg.$?.env
+                );
 
                 // Handle deferred dup expressions for struct fields
                 let finalArgValue = argCode;
@@ -3018,8 +3065,9 @@ function generateFuncCall(
                   // If the arg has a variable name but generateExpr didn't create a declaration,
                   // we need to create it now so the dup call can reference it
                   if (arg.$?.variableName && arg.$?.type) {
-                    const argVarName = sanitizeForCIdentifier(
-                      arg.$.variableName
+                    const argVarName = getVariableNameForCodegen(
+                      arg.$.variableName,
+                      arg.$.env
                     );
                     const argType = arg.$.type;
                     const argTypeStr = getTypeString(argType, context);
@@ -3036,8 +3084,9 @@ function generateFuncCall(
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    finalArgValue = sanitizeForCIdentifier(
-                      dupExpr.$.variableName
+                    finalArgValue = getVariableNameForCodegen(
+                      dupExpr.$.variableName,
+                      dupExpr.$.env
                     );
                   }
                 }
@@ -3085,7 +3134,10 @@ function generateFuncCall(
           if (cName && exprIsAtom(labelExpr) && fieldExpr) {
             const functionContext = context as FunctionGenerationContext;
             const label = labelExpr.token.value;
-            const sanitizedLabel = sanitizeForCIdentifier(label);
+            const sanitizedLabel = getVariableNameForCodegen(
+              label,
+              labelExpr.$?.env
+            );
             const fieldCode = generateExpr(fieldExpr, indent, context);
 
             // Handle deferred dup expressions for union field
@@ -3102,8 +3154,9 @@ function generateFuncCall(
               // Use the dup result variable instead of the original
               const dupExpr = fieldExpr.$.deferredDupExpressions[0]!;
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                finalFieldValue = sanitizeForCIdentifier(
-                  dupExpr.$.variableName
+                finalFieldValue = getVariableNameForCodegen(
+                  dupExpr.$.variableName,
+                  dupExpr.$.env
                 );
               }
             }
@@ -3225,7 +3278,10 @@ function generateFuncCall(
                   const field = variant.fields[index];
                   if (field && !isUnitType(field.type)) {
                     const argCode = generateExpr(arg, indent, context);
-                    const sanitizedLabel = sanitizeForCIdentifier(field.label);
+                    const sanitizedLabel = getVariableNameForCodegen(
+                      field.label,
+                      arg.$?.env
+                    );
 
                     // Handle deferred dup expressions for enum variant fields
                     let finalArgValue = argCode;
@@ -3244,8 +3300,9 @@ function generateFuncCall(
                         exprIsFunctionCall(dupExpr) &&
                         dupExpr.$?.variableName
                       ) {
-                        finalArgValue = sanitizeForCIdentifier(
-                          dupExpr.$.variableName
+                        finalArgValue = getVariableNameForCodegen(
+                          dupExpr.$.variableName,
+                          dupExpr.$.env
                         );
                       }
                     }
@@ -4421,7 +4478,7 @@ function generateThreadSpawnCall(
 
   // If the argument has a variable name, use it; otherwise use the generated code
   const cbVarName = cbArg.$?.variableName
-    ? sanitizeForCIdentifier(cbArg.$.variableName)
+    ? getVariableNameForCodegen(cbArg.$.variableName, cbArg.$.env)
     : cbArgCode;
 
   // Emit code to heap-allocate a copy of the closure data
@@ -4501,7 +4558,7 @@ function generateWorkerSpawnCall(
 
   // If the argument has a variable name, use it; otherwise use the generated code
   const cbVarName = cbArg.$?.variableName
-    ? sanitizeForCIdentifier(cbArg.$.variableName)
+    ? getVariableNameForCodegen(cbArg.$.variableName, cbArg.$.env)
     : cbArgCode;
 
   // Emit code to heap-allocate a copy of the closure data
@@ -4750,7 +4807,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // Variable not in stateMachineVariables - it's a local C variable in the resume function
     // Just use the variable name (don't regenerate its value)
     if (expr.$?.variableName) {
-      return sanitizeForCIdentifier(expr.$.variableName);
+      return getVariableNameForCodegen(expr.$.variableName, expr.$.env);
     }
   }
 
@@ -4789,7 +4846,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         expr.$.variableName,
         expr.$?.env
       );
-      return sanitizeForCIdentifier(varNameToUse);
+      return varNameToUse; // Already sanitized
     }
   }
 
@@ -4829,10 +4886,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     const captureTypeCName = functionContext.currentClosureCaptureTypeCName;
     if (captureTypeCName) {
       // Cast void* closure_context directly to the capture struct pointer
-      return `((${captureTypeCName}*)closure_context)->${sanitizeForCIdentifier(expr.token.value)}`;
+      return `((${captureTypeCName}*)closure_context)->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
     }
     // Fallback to old approach if we can't determine the type (should not happen)
-    return `closure_context->${sanitizeForCIdentifier(expr.token.value)}`;
+    return `closure_context->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
   }
 
   // Fallback: Check if this is a closure function by looking at the current function name and finding its type
@@ -4857,7 +4914,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       if (closureTypeEntry) {
         // Note: captureType is no longer on ClosureType, use naming convention
         const captureStructName = `${closureTypeEntry.cName}_capture`;
-        return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
+        return `((${captureStructName}*)closure_context->data)->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
       }
     }
   }
@@ -4865,7 +4922,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   // Check if this variable has a parameterAlias (used in anonymous functions
   // where the actual parameter name differs from the expected interface parameter name)
   const varNameToUse = getVariableNameForCodegen(expr.token.value, expr.$?.env);
-  return sanitizeForCIdentifier(varNameToUse);
+  return varNameToUse;
 }
 
 /**
@@ -5875,7 +5932,7 @@ function generateMatchExpression(
               const destructuredVar = caseValue.args[fieldIndex + 1]!; // Skip the variant name
               const variantElement = variant.fields[fieldIndex];
 
-              if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+              if (exprIsAtom(destructuredVar) && variantElement) {
                 // Skip unit type fields - they don't exist in the generated struct
                 if (isUnitType(variantElement.type)) {
                   continue;
@@ -6143,7 +6200,10 @@ export function generateReturnStatement(
         // Use the duped value's variable name instead of the original
         const dupExpr = expr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          atomCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          atomCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         }
       }
 
@@ -6188,7 +6248,10 @@ export function generateReturnStatement(
         // Use the duped value's variable name for the return
         const dupExpr = expr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          const dupedValue = sanitizeForCIdentifier(dupExpr.$.variableName);
+          const dupedValue = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
           context.emitter.emitLine(`${indent}return ${dupedValue};`);
         } else {
           // Fallback: return the raw code
@@ -6503,7 +6566,10 @@ function generateCaseBody(
         // Use the duped value's variable name instead of the original expression
         const dupExpr = finalExpr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalExprCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          finalExprCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         } else {
           finalExprCode = generateExpr(finalExpr, indent, context);
         }
