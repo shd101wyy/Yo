@@ -292,6 +292,7 @@ function runSingleTest(
     // Compile C code with AddressSanitizer for memory leak detection
     // Note: Using libc allocator (no mimalloc) for faster test compilation
     const compileArgs = [
+      ...(cCompiler === "zig" ? ["cc"] : []),
       "-std=c11",
       "-Wall",
       "-Wextra",

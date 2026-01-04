@@ -93,7 +93,12 @@ export class CodeGenerator {
 
       // Compile the C code with the specified compiler (unless skipped)
       if (!options.skipCCompiler) {
-        const compiler = options.cCompiler as string;
+        let compiler = options.cCompiler as string;
+
+        // Handle zig compiler: zig requires 'zig cc' to invoke its C compiler
+        if (compiler === "zig") {
+          compiler = "zig";
+        }
 
         // Determine optimization flags
         let optimizationFlags: string[];
@@ -114,6 +119,7 @@ export class CodeGenerator {
         }
 
         const compileArgs = [
+          ...(options.cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
           ...optimizationFlags,
           tempCFile,

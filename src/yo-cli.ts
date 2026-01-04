@@ -42,10 +42,11 @@ yo run <script>                  Run a script defined in 'yo.json'
   })
   .option("cc", {
     alias: "c-compiler",
-    describe: "C Compiler to use",
+    describe: "C Compiler to use: 'cc' (default), 'gcc', 'clang', or 'zig'",
     type: "string",
     demandOption: false,
     default: "cc",
+    choices: ["cc", "gcc", "clang", "zig"],
   })
   .option("t", {
     alias: "target",
