@@ -4,33 +4,28 @@ Gc :: import "std/gc";
 List :: object(
   value : i32,
   next : Option(Self),
-  
+
   dispose :: ((fn(self : Self)-> unit) {
     printf("Disposing List with value %d\n", self.value);
   })
 );
 
-form_cycle :: (fn() -> unit) {
-  a := List(3, .None);
-  b := List(5, .None);
-
-  a.next = .Some(b);
-  b.next = .Some(a); // Create a cycle
+test_leak :: (fn() -> unit) {
+  z := List(3, .None);
+  y := List(2, .Some(z));
+  x := List(1, .Some(y));
 };
-
-test_list :: (fn() -> unit) {
-  form_cycle(); // create cycle
-  c := List(7, .None);
-  assert(Gc.tracked_count() == 3, "Expected 3 tracked objects before GC");
-  Gc.collect(); // manually trigger the GC collection
-  assert(Gc.tracked_count() == 1, "Expected 1 tracked object after GC");
-};
-
 
 main :: (fn() -> unit) {
-  test_list();
-
-  d := List(9, .None);
+  // Run 100 times to accumulate leaks
+  i := 0;
+  while i < 100, {
+    test_leak();
+    i = (i + 1);
+  };
+  
+  // Check how many objects are still tracked (should be 0 if no leak, 200 if leaking)
+  printf("Tracked objects: %zu\n", Gc.tracked_count());
 };
 
 export main;

@@ -33,3 +33,21 @@ test "Gc initial state", {
 test "Test cycle collection", {
   test_list();
 };
+
+
+test "Test freeing many objects", {
+  test_leak :: (fn() -> unit) {
+    z := List(3, .None);
+    y := List(2, .Some(z));
+    x := List(1, .Some(y));
+  };
+
+  // Run 100 times to accumulate leaks
+  i := 0;
+  while i < 100, {
+    test_leak();
+    i = (i + 1);
+  };
+
+  assert(Gc.tracked_count() == 0, "Expect no leak from test_leak();");
+};
