@@ -1960,8 +1960,49 @@ function generateFuncCall(
         }
       }
       if (isReturningValue) {
+        const lastArg = expr.args[expr.args.length - 1]!;
+        let lastArgCode = argsCode[argsCode.length - 1]!;
+
+        // Handle deferred dup expressions for the return value
+        // This is needed when returning a borrowed value - we must call dup
+        if (
+          lastArg.$?.deferredDupExpressions &&
+          lastArg.$.deferredDupExpressions.length > 0
+        ) {
+          // Similar to return statement handling: first declare/assign the value
+          // before calling dup on it
+          if (lastArg.$?.variableName) {
+            const savedVariableName = lastArg.$.variableName;
+            lastArg.$.variableName = undefined;
+            const rawArgCode = generateExpr(lastArg, indent + "  ", context);
+            lastArg.$.variableName = savedVariableName;
+
+            const argType = getTypeString(lastArg.$.type!, context);
+            const argTempVar = getVariableNameForCodegen(
+              savedVariableName,
+              lastArg.$.env
+            );
+
+            if (argTempVar !== rawArgCode) {
+              context.emitter.emitLine(
+                `${indent}  ${argType} ${argTempVar} = ${rawArgCode};`
+              );
+            }
+            lastArgCode = argTempVar;
+          }
+
+          generateDeferredDupExpressions(lastArg, indent + "  ", context);
+          const dupExpr = lastArg.$.deferredDupExpressions[0]!;
+          if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+            lastArgCode = getVariableNameForCodegen(
+              dupExpr.$.variableName,
+              dupExpr.$.env
+            );
+          }
+        }
+
         context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
+          `${indent}  ${tempVariableName} = ${lastArgCode};`
         );
       }
 

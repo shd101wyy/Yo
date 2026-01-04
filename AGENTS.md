@@ -164,3 +164,6 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
   Box(V)(value)
 ;
 ```
+
+`UnknownValue` in Yo is a compile-time value, not runtime value.
+It's just we only know its type but not real value.

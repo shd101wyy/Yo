@@ -1,7 +1,6 @@
 import {
   addVariableToEnv,
   Environment,
-  getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -80,6 +79,7 @@ export function evaluateMatch({
   // Doing so creates an owning temp copy that gets dropped at end-of-scope, which is
   // incorrect for borrowed scrutinees and breaks enums/structs-with-GC-fields
   // (e.g. Result(String, Err) causing double-drop/UAF).
+  // Also, match(self, XXX) will `dup(self)` infinitely if wrapped in begin block
   const evaluatedScrutineeExpr = exprIsAtom(scrutineeExpr)
     ? evaluateExpression({
         expr: scrutineeExpr,
@@ -99,7 +99,7 @@ export function evaluateMatch({
         variablesToAdd: [],
       });
 
-  if (!evaluatedScrutineeExpr.$) {
+  if (!evaluatedScrutineeExpr.$ || !evaluatedScrutineeExpr.$.variableName) {
     throw formatErrorMessage({
       token: scrutineeExpr.token,
       errorMessage: `Failed to evaluate the match scrutinee expression: ${exprToString(scrutineeExpr)}`,
@@ -265,32 +265,6 @@ export function evaluateMatch({
 
       // Push a new frame for this match case to allow variable shadowing
       caseEnv = pushEnvFrame(caseEnv);
-
-      if (evaluatedScrutineeExpr.$.variableName) {
-        const variableName = evaluatedScrutineeExpr.$.variableName;
-
-        // Only add the variable if it doesn't already exist in the environment
-        // (The scrutinee variable comes from outer scope, so it should already exist)
-        const existingVariables = getVariablesFromEnv(caseEnv, variableName);
-        if (existingVariables.length === 0) {
-          // Add the new variable to env
-          const { env: nextEnv } = addVariableToEnv({
-            env: caseEnv,
-            variable: {
-              name: variableName,
-              type: variableType,
-              isCompileTimeOnly: false,
-              value: evaluatedScrutineeExpr.$.value,
-              token: evaluatedScrutineeExpr.token,
-              initializedAtToken: evaluatedScrutineeExpr.token, // Set as initialized
-              consumedAtToken: undefined, // Not consumed yet
-              isReassignable: false,
-              isOwningTheGcValue: false,
-            },
-          });
-          caseEnv = nextEnv;
-        }
-      }
 
       // Mark the case as executed
       matchArmExpr.$ = {
@@ -654,32 +628,6 @@ export function evaluateMatch({
               errorMessage: `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${exprToString(param)}`,
             });
           }
-        }
-      }
-
-      // Add the scrutinee variable to env if it has a variable name
-      if (evaluatedScrutineeExpr.$.variableName) {
-        const variableName = evaluatedScrutineeExpr.$.variableName;
-
-        // Only add the variable if it doesn't already exist in the environment
-        // (The scrutinee variable comes from outer scope, so it should already exist)
-        const existingVariables = getVariablesFromEnv(caseEnv, variableName);
-        if (existingVariables.length === 0) {
-          const { env: nextEnv } = addVariableToEnv({
-            env: caseEnv,
-            variable: {
-              name: variableName,
-              type: variableType,
-              isCompileTimeOnly: false,
-              value: evaluatedScrutineeExpr.$.value,
-              token: evaluatedScrutineeExpr.token,
-              initializedAtToken: evaluatedScrutineeExpr.token,
-              consumedAtToken: undefined,
-              isReassignable: false,
-              isOwningTheGcValue: false,
-            },
-          });
-          caseEnv = nextEnv;
         }
       }
 

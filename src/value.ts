@@ -332,6 +332,11 @@ export function isFunctionValue(value?: Value): value is FunctionValue {
   return value?.tag === ValueTag.Function;
 }
 
+/**
+ * UnknownValue is a compile-time value, not runtime value.
+ * It's just we only know its type but not real value.
+ * @returns
+ */
 export function isUnknownValue(value?: Value): value is UnknownValue {
   return value?.tag === ValueTag.Unknown;
 }
