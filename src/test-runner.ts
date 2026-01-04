@@ -291,21 +291,24 @@ function runSingleTest(
 
     // Compile C code with AddressSanitizer for memory leak detection
     // Note: Using libc allocator (no mimalloc) for faster test compilation
-    const compileArgs = [
-      ...(cCompiler === "zig" ? ["cc"] : []),
-      "-std=c11",
-      "-Wall",
-      "-Wextra",
-      "-O0",
-      "-fsanitize=address",
-      "-fno-omit-frame-pointer",
-      testCPath,
-      "-o",
-      testOutputPath,
-    ];
+    const isMSVC = cCompiler === "cl";
+    const compileArgs = isMSVC
+      ? ["/Od", "/W4", "/fsanitize=address", testCPath, `/Fe${testOutputPath}`]
+      : [
+          ...(cCompiler === "zig" ? ["cc"] : []),
+          "-std=c11",
+          "-Wall",
+          "-Wextra",
+          "-O0",
+          "-fsanitize=address",
+          "-fno-omit-frame-pointer",
+          testCPath,
+          "-o",
+          testOutputPath,
+        ];
 
     // Add liburing on Linux for async I/O (uses system-installed liburing)
-    if (process.platform === "linux") {
+    if (process.platform === "linux" && !isMSVC) {
       try {
         // First check if pkg-config is available
         execSync("command -v pkg-config", { stdio: "ignore" });

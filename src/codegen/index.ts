@@ -100,44 +100,68 @@ export class CodeGenerator {
           compiler = "zig";
         }
 
+        const isMSVC = compiler === "cl";
+
         // Determine optimization flags
         let optimizationFlags: string[];
         if (options.optimize !== undefined) {
           // Explicit --optimize flag takes precedence
           const level = options.optimize;
           if (level === "0") {
-            optimizationFlags = ["-Wall", "-Wextra", "-O0"];
+            optimizationFlags = isMSVC
+              ? ["/Od", "/W4"]
+              : ["-Wall", "-Wextra", "-O0"];
           } else {
-            optimizationFlags = ["-w", `-O${level}`];
+            optimizationFlags = isMSVC
+              ? ["/w", `/O${level}`]
+              : ["-w", `-O${level}`];
           }
         } else if (options.release) {
           // --release uses -O2 and silences warnings
-          optimizationFlags = ["-w", "-O2"];
+          optimizationFlags = isMSVC ? ["/w", "/O2"] : ["-w", "-O2"];
         } else {
           // Default: debug mode with no optimizations and all warnings
-          optimizationFlags = ["-Wall", "-Wextra", "-O0"];
+          optimizationFlags = isMSVC
+            ? ["/Od", "/W4"]
+            : ["-Wall", "-Wextra", "-O0"];
         }
 
-        const compileArgs = [
-          ...(options.cCompiler === "zig" ? ["cc"] : []),
-          "-std=c11",
-          ...optimizationFlags,
-          tempCFile,
-          "-o",
-          outputFile,
-        ];
+        const compileArgs = isMSVC
+          ? [...optimizationFlags, tempCFile, `/Fe${outputFile}`]
+          : [
+              ...(options.cCompiler === "zig" ? ["cc"] : []),
+              "-std=c11",
+              ...optimizationFlags,
+              tempCFile,
+              "-o",
+              outputFile,
+            ];
 
         // Add sanitizer flags if requested
         if (options.sanitize) {
           if (options.sanitize === "address") {
-            compileArgs.splice(-2, 0, "-fsanitize=address");
-            compileArgs.splice(-2, 0, "-fno-omit-frame-pointer");
-            console.log(
-              "AddressSanitizer enabled (memory errors + leak detection)"
-            );
+            if (isMSVC) {
+              // MSVC uses /fsanitize=address
+              compileArgs.splice(isMSVC ? -1 : -2, 0, "/fsanitize=address");
+              console.log(
+                "AddressSanitizer enabled (memory errors + leak detection)"
+              );
+            } else {
+              compileArgs.splice(-2, 0, "-fsanitize=address");
+              compileArgs.splice(-2, 0, "-fno-omit-frame-pointer");
+              console.log(
+                "AddressSanitizer enabled (memory errors + leak detection)"
+              );
+            }
           } else if (options.sanitize === "leak") {
-            compileArgs.splice(-2, 0, "-fsanitize=leak");
-            console.log("LeakSanitizer enabled (leak detection only)");
+            if (isMSVC) {
+              console.warn(
+                "LeakSanitizer is not supported by MSVC, use AddressSanitizer instead"
+              );
+            } else {
+              compileArgs.splice(-2, 0, "-fsanitize=leak");
+              console.log("LeakSanitizer enabled (leak detection only)");
+            }
           }
         }
 
@@ -145,7 +169,7 @@ export class CodeGenerator {
         const externalFiles = options.extern;
         externalFiles.forEach((externFile) => {
           if (fs.existsSync(externFile)) {
-            compileArgs.splice(-2, 0, externFile); // Insert before -o outputFile
+            compileArgs.splice(isMSVC ? -1 : -2, 0, externFile); // Insert before output file
           } else {
             console.warn(
               `External file ${externFile} does not exist and will be ignored`
@@ -160,8 +184,11 @@ export class CodeGenerator {
           const mimallocIncludePath = "vendor/mimalloc/include";
 
           if (fs.existsSync(mimallocStaticPath)) {
-            compileArgs.splice(-2, 0, mimallocStaticPath); // Add mimalloc static.c
-            compileArgs.splice(-2, 0, `-I${mimallocIncludePath}`); // Add include path
+            compileArgs.splice(isMSVC ? -1 : -2, 0, mimallocStaticPath); // Add mimalloc static.c
+            const includeFlag = isMSVC
+              ? `/I${mimallocIncludePath}`
+              : `-I${mimallocIncludePath}`;
+            compileArgs.splice(isMSVC ? -1 : -2, 0, includeFlag); // Add include path
             console.log("Using bundled mimalloc");
           } else {
             console.warn(
@@ -173,7 +200,7 @@ export class CodeGenerator {
         }
 
         // Add liburing on Linux for async I/O (uses system-installed liburing)
-        if (process.platform === "linux") {
+        if (process.platform === "linux" && !isMSVC) {
           try {
             // First check if pkg-config is available
             execSync("command -v pkg-config", { stdio: "ignore" });
