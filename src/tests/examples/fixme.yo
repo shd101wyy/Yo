@@ -1,25 +1,36 @@
-open import "std/string";
+open import "std/libc/stdio.yo";
+Gc :: import "std/gc";
 
-id :: (fn(forall(T : Type), v : T) -> T)(v);
+List :: object(
+  value : i32,
+  next : Option(Self),
+  
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing List with value %d\n", self.value);
+  })
+);
+
+form_cycle :: (fn() -> unit) {
+  a := List(3, .None);
+  b := List(5, .None);
+
+  a.next = .Some(b);
+  b.next = .Some(a); // Create a cycle
+};
+
+test_list :: (fn() -> unit) {
+  form_cycle(); // create cycle
+  c := List(7, .None);
+  assert(Gc.tracked_count() == 3, "Expected 3 tracked objects before GC");
+  Gc.collect(); // manually trigger the GC collection
+  assert(Gc.tracked_count() == 1, "Expected 1 tracked object after GC");
+};
+
 
 main :: (fn() -> unit) {
-  {
-    x := Box(i32)(3);
-    y := { x };
-    z := { y };  
-    y.x = Box(i32)(4);
-  };
+  test_list();
 
-  {
-    (cstr : *(u8)) = "Hello";
-    result := String.from_cstr(cstr);
-    match(id(result),
-      .Ok(str) => {
-        assert(str.len() == usize(5));
-      },
-      .Err(_) => assert(false, "Should successfully create string from C string")
-    );
-  };
+  d := List(9, .None);
 };
 
 export main;

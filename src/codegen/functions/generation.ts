@@ -1041,6 +1041,15 @@ function generateAtomicGCRuntimeFunctions(
 void __yo_decr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
+  // Skip if this object is marked as garbage by the GC.
+  // During GC collection, dispose functions may call ___drop on children,
+  // but those children are also being collected by the GC.
+  // The GC is responsible for freeing garbage objects, not the RC system.
+  if ((header->gc_flags & YO_GC_TRACKED) && header->gc_mark == YO_GC_GARBAGE) {
+    GC_DEBUG("Decr: Skipping ptr=%p (marked as GC garbage)\\n", ptr);
+    return;
+  }
+  
   GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, header->ref_count, header->ref_count - 1);
   
   if (header->ref_count == 1) {
@@ -1302,7 +1311,19 @@ void __yo_gc_collect() {
     obj = obj->gc_next;
   }
   
-  // Phase 4: Sweep - collect garbage objects
+  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid)
+  // This must happen before freeing any objects, because dispose functions may try
+  // to access other garbage objects (e.g., to check gc_mark in __yo_decr_rc).
+  obj = head;
+  while (obj != NULL) {
+    if (obj->gc_mark == YO_GC_GARBAGE && obj->dispose_fn) {
+      GC_DEBUG("GC: Disposing garbage: ptr=%p\\n", obj);
+      obj->dispose_fn(obj);
+    }
+    obj = obj->gc_next;
+  }
+  
+  // Phase 4b: Free all garbage objects and remove from tracking list
   yo_ref_header_t* current = head;
   yo_ref_header_t* prev = NULL;
   
@@ -1310,7 +1331,7 @@ void __yo_gc_collect() {
     yo_ref_header_t* next = current->gc_next;
     
     if (current->gc_mark == YO_GC_GARBAGE) {
-      GC_DEBUG("GC: Collecting garbage: ptr=%p\\n", current);
+      GC_DEBUG("GC: Freeing garbage: ptr=%p\\n", current);
       
       // Remove from tracking list
       if (prev == NULL) {
@@ -1325,10 +1346,7 @@ void __yo_gc_collect() {
       yo_current_thread_gc->tracked_count--;
       collected++;
       
-      // Call dispose and free
-      if (current->dispose_fn) {
-        current->dispose_fn(current);
-      }
+      // Free the object (dispose was already called in Phase 4a)
       __yo_free(current);
       
       current = next;
