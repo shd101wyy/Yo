@@ -1,31 +1,8 @@
-open import "std/libc/stdio.yo";
-Gc :: import "std/gc";
-
-List :: object(
-  value : i32,
-  next : Option(Self),
-
-  dispose :: ((fn(self : Self)-> unit) {
-    printf("Disposing List with value %d\n", self.value);
-  })
-);
-
-test_leak :: (fn() -> unit) {
-  z := List(3, .None);
-  y := List(2, .Some(z));
-  x := List(1, .Some(y));
-};
+open import "std/collections";
 
 main :: (fn() -> unit) {
-  // Run 100 times to accumulate leaks
-  i := 0;
-  while i < 100, {
-    test_leak();
-    i = (i + 1);
-  };
-  
-  // Check how many objects are still tracked (should be 0 if no leak, 200 if leaking)
-  printf("Tracked objects: %zu\n", Gc.tracked_count());
+  list := LinkedList(i32).new();
+  list.push_front(i32(42));
 };
 
 export main;
