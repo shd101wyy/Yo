@@ -934,11 +934,11 @@ export function generateTupleDeclaration(
     `typedef struct { // ${tupleType.typeName} : ${typeToString(tupleType)}`
   );
 
-  for (const field of tupleType.fields) {
+  for (let i = 0; i < tupleType.fields.length; i++) {
+    const field = tupleType.fields[i]!;
     const fieldTypeStr = getTypeString(field.type, context);
-    const fieldName = field.label.match(/^\d+$/)
-      ? `_${field.label}`
-      : sanitizeForCIdentifier(field.label);
+    // Tuples always use numeric field names _0, _1, _2... in C
+    const fieldName = `_${i}`;
     emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
   }
 

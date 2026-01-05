@@ -132,3 +132,10 @@ test "Test anonymous struct with type method", {
   result := closure.call(3);
   assert(result == 6, "Expected 6");
 };
+
+test "Test generic function callback", {
+  generic_fn :: (fn(forall(T: Type), x: T, callback: (fn(v: T)-> T))-> T)
+    callback(x)
+  ;
+  assert(generic_fn(2, (x) -> (x + 16)) == 18);
+};

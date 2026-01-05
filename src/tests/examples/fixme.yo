@@ -2,22 +2,57 @@
 open import "std/libc/stdio.yo";
 
 main :: (fn() -> unit) {
-  // Create binding first, then assign value
-  arr1 : Array(i32, 3);
-  arr1 = [1, 2, 3];
+  t := (1, 3.4, true);
+  (t2 : Tuple(a: i32, b: f64, c: bool)) = t;
 
-  // Create binding and assign value in one line
-  arr2 := [1, 2, 3];
-  arr2(0) = 12;
+  {
+    // by index
+    assert(t.0 == 1);
+    assert(t.1 == 3.4);
+    assert(t.2 == true);
+  };
 
-  // Copy array
-  arr3 := arr1;
-  arr3(1) = 22; // This shouldn't affect arr1
+  {
+    // by index
+    assert(t2.0 == 1);
+    assert(t2.1 == 3.4);
+    assert(t2.2 == true);
 
-  assert(arr1(0) == 1);
-  assert(arr1(1) == 2);
-  assert(arr2(0) == 12);
-  assert(arr3(1) == 22);
+    // by label
+    assert(t2.a == 1);
+    assert(t2.b == 3.4);
+    assert(t2.c == true);
+  };
+  
+  {
+    // by order
+    (x, y, z) := t;
+    assert(x == 1);
+    assert(y == 3.4);
+    assert(z == true);
+  };
+  {
+    // by order
+    (c, b, a) := t2;
+    assert(c == 1);
+    assert(b == 3.4);
+    assert(a == true);
+  };
+  {
+    // by label
+    (c : c, b : b, a : a) := t2;
+    assert(a == 1);
+    assert(b == 3.4);
+    assert(c == true);
+  };
+
+  {
+    // by label with different names
+    (c : c1, b : b1, a : a1) := t2;
+    assert(a1 == 1);
+    assert(b1 == 3.4);
+    assert(c1 == true);
+  };
 };
 
 export main;

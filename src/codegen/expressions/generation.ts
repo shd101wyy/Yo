@@ -53,6 +53,7 @@ import {
   isFunctionValue,
   isNumberValue,
   isStructValue,
+  isTupleValue,
   isTypeValue,
   isUnknownValue,
   Value,
@@ -2344,11 +2345,13 @@ function generateFuncCall(
       const functionContext = context as FunctionGenerationContext;
 
       // Generate tuple initialization with dup handling for each argument
+      // Use explicit field assignments with numeric indices
       const argsList = runtimeArgExprs
-        .map((arg) => {
+        .map((arg, index) => {
           const argCode = generateExpr(arg, indent, context);
 
           // Handle deferred dup expressions for tuple fields
+          let finalArgValue = argCode;
           if (
             arg.$?.deferredDupExpressions &&
             arg.$.deferredDupExpressions.length > 0
@@ -2357,14 +2360,15 @@ function generateFuncCall(
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return getVariableNameForCodegen(
+              finalArgValue = getVariableNameForCodegen(
                 dupExpr.$.variableName,
                 dupExpr.$.env
               );
             }
           }
 
-          return argCode;
+          // Use explicit field assignment with numeric index
+          return `._${index} = ${finalArgValue}`;
         })
         .join(", ");
 
@@ -2384,6 +2388,33 @@ function generateFuncCall(
     } else if (expr.args.length === 0) {
       // unit
       return "";
+    } else {
+      // Fallback: use expr.args directly if runtimeArgExprsInOrder is not set
+      const args = runtimeArgExprs ?? expr.args;
+      if (!cName) {
+        return `/* Error: tuple type not found - typeId: ${expr.$?.type?.id ?? "none"} */`;
+      }
+
+      const argsList = args
+        .map((arg, index) => {
+          const argCode = generateExpr(arg, indent, context);
+          return `._${index} = ${argCode}`;
+        })
+        .join(", ");
+
+      // If this tuple has a temporary variable name, declare it
+      if (tempVar && expr.$?.type) {
+        const tupleValue = `(${cName}){ ${argsList} }`;
+        const varTypeAndName = getVariableTypeString(
+          expr.$.type,
+          tempVar,
+          context
+        );
+        context.emitter.emitLine(`${indent}${varTypeAndName} = ${tupleValue};`);
+        return tempVar;
+      } else {
+        return `(${cName}){ ${argsList} }`;
+      }
     }
   }
   // (anonymous) array value
@@ -3259,10 +3290,14 @@ function generateFuncCall(
             const argsList = runtimeArgExprs
               .map((arg, index) => {
                 const argCode = generateExpr(arg, indent, context);
-                const sanitizedLabel = getVariableNameForCodegen(
-                  labels[index]!,
-                  arg.$?.env
-                );
+                // For tuples, always use numeric field names _0, _1, _2...
+                // For regular structs, use the actual field labels
+                const fieldName = isTupleType(structType)
+                  ? `_${index}`
+                  : sanitizeForCIdentifier(
+                      labels[index]!,
+                      structType.isExtern === "c"
+                    );
 
                 // Handle deferred dup expressions for struct fields
                 let finalArgValue = argCode;
@@ -3299,7 +3334,7 @@ function generateFuncCall(
                   }
                 }
 
-                return `.${sanitizedLabel} = ` + finalArgValue;
+                return `.${fieldName} = ` + finalArgValue;
               })
               .join(", ");
             const structValue = `(${cName}){ ${argsList} }`;
@@ -5280,6 +5315,21 @@ function generateComptValue(
 
       return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${nonUnitFields.join(", ")} } } }`;
     }
+  } else if (isTupleValue(value)) {
+    // For tuple values, generate tuple struct initialization with numeric field names
+    const type = value.type;
+    const cName = context.types[type.id]?.cName;
+    if (!cName) {
+      return `// Error: No C type name found for tuple ${typeToString(type)}\n`;
+    }
+
+    const fields = value.fields.map((field, index) => {
+      const fieldCode = generateComptValue(field, context);
+      // Tuples always use numeric field names _0, _1, _2...
+      return `._${index} = ${fieldCode}`;
+    });
+
+    return `(${cName}){ ${fields.join(", ")} }`;
   } else if (isStructValue(value)) {
     // For structs, we need to generate a struct initialization
     const type = value.type;
@@ -5312,7 +5362,11 @@ function generateComptValue(
         // For regular struct compile-time values, generate as before
         const fields = value.fields.map((field, index) => {
           const fieldValue = field;
-          const fieldName = sanitizeForCIdentifier(type.fields[index]!.label);
+          // For tuples, use numeric field names _0, _1, _2...
+          // For regular structs, use the actual field labels
+          const fieldName = isTupleType(type)
+            ? `_${index}`
+            : sanitizeForCIdentifier(type.fields[index]!.label);
           const fieldCode = generateComptValue(fieldValue, context);
           return `.${fieldName} = ${fieldCode}`;
         });

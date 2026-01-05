@@ -1,0 +1,138 @@
+test "Test assignments", {
+  {
+    x := 1;
+    y := (x = 2);
+
+    assert(x == 2);
+    assert(y == 1);
+  };
+
+  {
+    x := box(1);
+    y := (x = box(2));
+
+    assert(x.* == 2);
+    assert(y.* == 1);
+  };
+
+  {
+    x := [1, 2, 3];
+    y := (x = [2, 3, 4]);
+
+    assert(x(0) == 2);
+    assert(y(0) == 1);
+  };
+};
+
+test "Test bindings", {
+  x : i32;
+  y : i32;
+  x = 1;
+  y = 2;
+  assert((x + y) == 3);
+};
+
+test "Test compt", {
+  compt_12 :: (fn() -> compt(i32))(
+    12
+  );
+
+  Point :: struct(
+    x : i32,
+    y : i32
+  );
+
+  {
+    x :: 13;
+    y := x;
+    z :: compt_12();
+    assert((y + z) == 25);
+  };
+
+  {
+    use_point :: (fn(p : Point) -> i32)
+      (p.x + p.y)
+    ;
+
+    p :: Point(compt_12(), 16);
+    assert(use_point(p) == 28);
+  };
+};
+
+test "Test cond", {
+  {
+    max :: (fn(x : i32, y : i32) -> i32)
+      cond(
+        (x > y) => {
+          a := 12;
+          x
+        },
+        true => {
+          b := 13;
+          y
+        }
+      )
+    ;
+
+    x := 5;
+    y := 10;
+    assert(max(x, y) == 10);
+  };
+};
+
+test "Test destructuring", {
+  // tuple destructuring
+  {
+    t := (1, 3.4, true);
+    (t2 : Tuple(a: i32, b: f64, c: bool)) = t;
+
+    {
+      // by index
+      assert(t.0 == 1);
+      assert(t.1 == 3.4);
+      assert(t.2 == true);
+    };
+
+    {
+      // by index
+      assert(t2.0 == 1);
+      assert(t2.1 == 3.4);
+      assert(t2.2 == true);
+
+      // by label
+      assert(t2.a == 1);
+      assert(t2.b == 3.4);
+      assert(t2.c == true);
+    };
+    
+    {
+      // by order
+      (x, y, z) := t;
+      assert(x == 1);
+      assert(y == 3.4);
+      assert(z == true);
+    };
+    {
+      // by order
+      (c, b, a) := t2;
+      assert(c == 1);
+      assert(b == 3.4);
+      assert(a == true);
+    };
+    {
+      // by label
+      (c : c, b : b, a : a) := t2;
+      assert(a == 1);
+      assert(b == 3.4);
+      assert(c == true);
+    };
+
+    {
+      // by label with different names
+      (c : c1, b : b1, a : a1) := t2;
+      assert(a1 == 1);
+      assert(b1 == 3.4);
+      assert(c1 == true);
+    };
+  };
+};
