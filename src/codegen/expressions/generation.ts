@@ -594,6 +594,118 @@ function generateFuncCall(
     }
   }
 
+  // __yo_drop_tuple_element - drop tuple element at index without borrowing
+  // This is used when dropping tuples to directly drop each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_tuple_element)) {
+    const tupleArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!tupleArg || !indexArg) {
+      return `// Error: __yo_drop_tuple_element requires exactly 2 arguments`;
+    }
+
+    const tupleCode = generateExpr(tupleArg, indent, context);
+    const indexCode = generateExpr(indexArg, indent, context);
+
+    // Get the tuple element type to find its drop function
+    const tupleType = tupleArg.$?.type;
+    if (!tupleType || !isTupleType(tupleType)) {
+      return `// Error: __yo_drop_tuple_element requires a tuple type`;
+    }
+
+    // Get index value
+    const indexValue = indexArg.$?.value;
+    if (!isNumberValue(indexValue)) {
+      return `// Error: __yo_drop_tuple_element requires a constant index`;
+    }
+
+    const index = Number(indexValue.value);
+    if (index < 0 || index >= tupleType.fields.length) {
+      return `// Error: __yo_drop_tuple_element index out of bounds`;
+    }
+
+    const elementType = tupleType.fields[index]!.type;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // For nested tuples, we need to recursively drop the RC elements
+    if (isTupleType(concreteElementType)) {
+      const elementAccessCode = `(${tupleCode})._${index}`;
+      const dropCode = generateDropCodeForValue(
+        elementAccessCode,
+        concreteElementType,
+        context
+      );
+      return dropCode;
+    }
+
+    // Call the drop function on the element
+    // Tuples are represented as structs with fields named _0, _1, _2, etc.
+    const dropFnCName = getDropFunctionForType(concreteElementType, context);
+    if (dropFnCName) {
+      return `${dropFnCName}((${tupleCode})._${index})`;
+    } else {
+      return `// No drop function for tuple element type`;
+    }
+  }
+
+  // __yo_dup_tuple_element - dup tuple element at index without borrowing
+  // This is used when duping tuples to directly dup each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_tuple_element)) {
+    const tupleArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!tupleArg || !indexArg) {
+      return `// Error: __yo_dup_tuple_element requires exactly 2 arguments`;
+    }
+
+    const tupleCode = generateExpr(tupleArg, indent, context);
+    const indexCode = generateExpr(indexArg, indent, context);
+
+    // Get the tuple element type to find its dup function
+    const tupleType = tupleArg.$?.type;
+    if (!tupleType || !isTupleType(tupleType)) {
+      return `// Error: __yo_dup_tuple_element requires a tuple type`;
+    }
+
+    // Get index value
+    const indexValue = indexArg.$?.value;
+    if (!isNumberValue(indexValue)) {
+      return `// Error: __yo_dup_tuple_element requires a constant index`;
+    }
+
+    const index = Number(indexValue.value);
+    if (index < 0 || index >= tupleType.fields.length) {
+      return `// Error: __yo_dup_tuple_element index out of bounds`;
+    }
+
+    const elementType = tupleType.fields[index]!.type;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // For nested tuples, we need to recursively dup the RC elements
+    if (isTupleType(concreteElementType)) {
+      const elementAccessCode = `(${tupleCode})._${index}`;
+      const dupCode = generateDupCodeForValue(
+        elementAccessCode,
+        concreteElementType,
+        context
+      );
+      return dupCode;
+    }
+
+    // Call the dup function on the element
+    // Tuples are represented as structs with fields named _0, _1, _2, etc.
+    const dupFnCName = getDupFunctionForType(concreteElementType, context);
+    if (dupFnCName) {
+      return `${dupFnCName}((${tupleCode})._${index})`;
+    } else {
+      return `// No dup function for tuple element type`;
+    }
+  }
+
   // ___dup - generic dup hook used by evaluator for reference-counted values.
   // In many cases the evaluator rewrites `___dup(x)` into `x.___dup()`, but in
   // some contexts (e.g. deferred dup for dyn-closure captures) the builtin call
@@ -3593,6 +3705,31 @@ function generateDropCodeForValue(
     return "";
   }
 
+  // Handle tuples recursively
+  if (isTupleType(concreteType)) {
+    const emitter = (context as FunctionGenerationContext).emitter;
+    let hasDrops = false;
+    for (let i = 0; i < concreteType.fields.length; i++) {
+      const fieldType = concreteType.fields[i]!.type;
+      const concreteFieldType =
+        isSomeType(fieldType) && fieldType.resolvedConcreteType
+          ? fieldType.resolvedConcreteType
+          : fieldType;
+      if (typeContainsRcType(concreteFieldType)) {
+        const fieldDropCode = generateDropCodeForValue(
+          `(${valueCode})._${i}`,
+          fieldType,
+          context
+        );
+        if (fieldDropCode) {
+          emitter.emitLine(`${fieldDropCode};`);
+          hasDrops = true;
+        }
+      }
+    }
+    return "";
+  }
+
   // Handle other types
   if (isDynType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}).data)`;
@@ -3633,8 +3770,8 @@ function generateDupCodeForValue(
     if (!isNumberValue(arrayLength)) {
       return `/* Error: array has non-constant length */`;
     }
-    const tempVar = `temp_dup_${Date.now()}`;
-    const loopVar = `i_${Date.now()}`;
+    const tempVar = `temp_dup_${randomId()}`; // Use randomId instead of Date.now
+    const loopVar = `i_${randomId()}`;
     const arrayCName = getTypeString(concreteType, context);
     const emitter = (context as FunctionGenerationContext).emitter;
     emitter.emitLine(`${arrayCName} ${tempVar} = ${valueCode};`);
@@ -3648,6 +3785,30 @@ function generateDupCodeForValue(
     );
     emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${elementDupCode};`);
     emitter.emitLine(`}`);
+    return tempVar;
+  }
+
+  // Handle tuples - dup the RC fields
+  if (isTupleType(concreteType)) {
+    const emitter = (context as FunctionGenerationContext).emitter;
+    const tempVar = `temp_dup_tuple_${randomId()}`; // Use randomId instead of Date.now
+    const tupleCName = getTypeString(concreteType, context);
+    emitter.emitLine(`${tupleCName} ${tempVar} = ${valueCode};`);
+    for (let i = 0; i < concreteType.fields.length; i++) {
+      const fieldType = concreteType.fields[i]!.type;
+      const concreteFieldType =
+        isSomeType(fieldType) && fieldType.resolvedConcreteType
+          ? fieldType.resolvedConcreteType
+          : fieldType;
+      if (typeContainsRcType(concreteFieldType)) {
+        const fieldDupCode = generateDupCodeForValue(
+          `${tempVar}._${i}`,
+          fieldType,
+          context
+        );
+        emitter.emitLine(`${tempVar}._${i} = ${fieldDupCode};`);
+      }
+    }
     return tempVar;
   }
 

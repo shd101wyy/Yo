@@ -18,7 +18,9 @@ import {
   evaluateYoDecrRc,
   evaluateYoDecrRcAtomic,
   evaluateYoDropArrayElement,
+  evaluateYoDropTupleElement,
   evaluateYoDupArrayElement,
+  evaluateYoDupTupleElement,
   evaluateYoDynVtableDrop,
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
@@ -545,6 +547,16 @@ ${exprToString(expr)}`,
     ) {
       // __yo_dup_array_element (dup array element at index without borrowing)
       return evaluateYoDupArrayElement({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_tuple_element)
+    ) {
+      // __yo_drop_tuple_element (drop tuple element at index without borrowing)
+      return evaluateYoDropTupleElement({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_tuple_element)
+    ) {
+      // __yo_dup_tuple_element (dup tuple element at index without borrowing)
+      return evaluateYoDupTupleElement({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
       // __yo_rc_own
       return evaluateYoRcOwn({ expr, env, context: { ...context } });

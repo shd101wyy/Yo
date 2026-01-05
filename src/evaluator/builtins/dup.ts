@@ -52,11 +52,12 @@ function generateTupleDupCall(tupleExpr: Expr): string {
     return ""; // No elements need duplication, return as-is
   }
 
-  // Destructure the tuple, dup ARC elements, and reconstruct
+  // Use __yo_dup_tuple_element builtin to dup elements directly without borrowing
+  // This is necessary because tuple.0 creates a borrowed reference which can't be duped
   const dupCalls = fieldsNeedingDup
     .map(({ index, needsDup }) =>
       needsDup
-        ? `${BuiltinFunctions.___dup[0]!}(${tupleExpr.$?.variableName}.${index})`
+        ? `${BuiltinFunctions.__yo_dup_tuple_element[0]!}(${tupleExpr.$?.variableName}, ${index})`
         : ""
     )
     .filter((x) => x.length > 0);

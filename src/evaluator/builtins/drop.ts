@@ -67,11 +67,12 @@ function generateTupleDropCall(tupleExpr: Expr): string {
     return ""; // No elements need dropping
   }
 
-  // Destructure the tuple and drop each ARC-containing element
+  // Use __yo_drop_tuple_element builtin to drop elements directly without borrowing
+  // This is necessary because tuple.0 creates a borrowed reference which can't be dropped
   const dropCalls = fieldsNeedingDrop
     .map(
       ({ index }) =>
-        `${BuiltinFunctions.___drop[0]!}(${tupleExpr.$!.variableName}.${index})`
+        `${BuiltinFunctions.__yo_drop_tuple_element[0]!}(${tupleExpr.$!.variableName}, ${index})`
     )
     .join(",\n  ");
 

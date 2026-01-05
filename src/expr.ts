@@ -942,6 +942,8 @@ export const BuiltinFunctions = {
   dispose: ["dispose"], // Destructor to run when an object is dropped
   __yo_drop_array_element: ["__yo_drop_array_element"], // drop array element at index without borrowing
   __yo_dup_array_element: ["__yo_dup_array_element"], // dup array element at index without borrowing
+  __yo_drop_tuple_element: ["__yo_drop_tuple_element"], // drop tuple element at index without borrowing
+  __yo_dup_tuple_element: ["__yo_dup_tuple_element"], // dup tuple element at index without borrowing
 
   /// Others
   __yo_noop: ["__yo_noop"],
