@@ -511,7 +511,7 @@
   // Arithmetic operations
   sum :: (a + b);        // 75i8
   diff :: (a - b);       // 25i8
-  prod :: (a * b);       // 1250i8 (may overflow)
+  compt_expect_error(prod :: (a * b));       // 1250i8 (may overflow)
   quot :: (a / b);       // 2i8 (integer division)
   remainder :: (a % b);  // 0i8 (50 % 25 = 0)
   
@@ -597,7 +597,7 @@
     min_neg :: -(min_val);               // overflow: -(-128) should be handled
     
     // Operations with max value
-    max_sum :: (max_val + i8(1));     // overflow
+    compt_expect_error(max_sum :: (max_val + i8(1)));     // overflow
     max_sub :: (max_val - i8(1));     // 126i8
     max_neg :: -(max_val);               // -127i8
     
@@ -677,7 +677,7 @@
   
   // Test chained operations
   {
-    chain1 :: ((a + b) * i8(2));   // (50i8 + 25i8) * 2i8 = 150i8 (may overflow)
+    compt_expect_error(chain1 :: ((a + b) * i8(2)));   // (50i8 + 25i8) * 2i8 = 150i8 (may overflow)
     chain2 :: (a + (b * i8(2)));   // 50i8 + (25i8 * 2i8) = 100i8
     chain3 :: ((a / b) + i8(1));   // (50i8 / 25i8) + 1i8 = 3i8
     
@@ -707,13 +707,13 @@
   c :: i16(1000);
   zero :: i16(0);
   neg_val :: i16(-500);
-  max_val :: i16(32767);
-  min_val :: i16(-32768);
+  max_val :: i16.MAX;
+  min_val :: i16.MIN;
   
   // Arithmetic operations
   sum :: (a + b);        // 1250i16
   diff :: (a - b);       // 750i16
-  prod :: (a * b);       // 250000i16 (may overflow)
+  compt_expect_error(prod :: (a * b));       // 250000i16 (may overflow)
   quot :: (a / b);       // 4i16 (integer division)
   remainder :: (a % b);  // 0i16 (1000 % 250 = 0)
   
@@ -797,11 +797,11 @@
   {
     // Operations with min value
     min_sum :: (min_val + i16(1));     // -32767i16
-    min_sub :: (min_val - i16(1));     // overflow behavior
+    compt_expect_error(min_sub :: (min_val - i16(1)));     // overflow behavior
     min_neg :: -(min_val);               // overflow: -(-32768) should be handled
     
     // Operations with max value
-    max_sum :: (max_val + i16(1));     // overflow
+    compt_expect_error(max_sum :: (max_val + i16(1)));     // overflow
     max_sub :: (max_val - i16(1));     // 32766i16
     max_neg :: -(max_val);               // -32767i16
     
@@ -928,13 +928,13 @@
   c :: i32(100000);
   zero :: i32(0);
   neg_val :: i32(-50000);
-  max_val :: i32(2147483647);
-  min_val :: i32(-2147483648);
+  max_val :: i32.MAX;
+  min_val :: i32.MIN;
   
   // Arithmetic operations
   sum :: (a + b);        // 125000i32
   diff :: (a - b);       // 75000i32
-  prod :: (a * b);       // 2500000000i32
+  compt_expect_error(prod :: (a * b));       // 2500000000i32
   quot :: (a / b);       // 4i32 (integer division)
   remainder :: (a % b);  // 0i32 (100000 % 25000 = 0)
   
@@ -967,7 +967,6 @@
   // Arithmetic
   compt_assert(sum == i32(125000));
   compt_assert(diff == i32(75000));
-  compt_assert(prod == i32(2500000000));
   compt_assert(quot == i32(4));
   compt_assert(remainder == i32(0));
   
@@ -1019,11 +1018,11 @@
   {
     // Operations with min value
     min_sum :: (min_val + i32(1));     // -2147483647i32
-    min_sub :: (min_val - i32(1));     // overflow behavior
+    compt_expect_error(min_sub :: (min_val - i32(1)));     // overflow behavior
     min_neg :: -(min_val);               // overflow: -(-2147483648) should be handled
     
     // Operations with max value
-    max_sum :: (max_val + i32(1));     // overflow
+    compt_expect_error(max_sum :: (max_val + i32(1)));     // overflow
     max_sub :: (max_val - i32(1));     // 2147483646i32
     max_neg :: -(max_val);               // -2147483647i32
     
@@ -1162,13 +1161,13 @@
   c :: i64(1000000000000);
   zero :: i64(0);
   neg_val :: i64(-500000000000);
-  max_val :: i64(9223372036854775807);
-  min_val :: i64(-9223372036854775808);
+  max_val :: i64.MAX;
+  min_val :: i64.MIN;
   
   // Arithmetic operations
   sum :: (a + b);        // 1250000000000i64
   diff :: (a - b);       // 750000000000i64
-  prod :: (a * b);       // 250000000000000000000000i64 (may overflow)
+  compt_expect_error(prod :: (a * b));       // 250000000000000000000000i64 (may overflow)
   quot :: (a / b);       // 4i64 (integer division)
   remainder :: (a % b);  // 0i64
   
@@ -1247,11 +1246,11 @@
   {
     // Operations with min value
     min_sum :: (min_val + i64(1));     // -9223372036854775807i64
-    min_sub :: (min_val - i64(1));     // overflow behavior
+    compt_expect_error(min_sub :: (min_val - i64(1)));     // overflow behavior
     min_neg :: -(min_val);               // overflow: -(-9223372036854775808) should be handled
     
     // Operations with max value
-    max_sum :: (max_val + i64(1));     // overflow
+    compt_expect_error(max_sum :: (max_val + i64(1)));     // overflow
     max_sub :: (max_val - i64(1));     // 9223372036854775806i64
     max_neg :: -(max_val);               // -9223372036854775807i64
     
@@ -1836,12 +1835,12 @@
   b :: u16(250);
   c :: u16(1000);
   zero :: u16(0);
-  max_val :: u16(65535);
+  max_val :: u16.MAX;
   
   // Arithmetic operations
   sum :: (a + b);        // 1250u16
   diff :: (a - b);       // 750u16
-  prod :: (a * b);       // 250000u16 (may overflow and wrap)
+  compt_expect_error(prod :: (a * b));       // 250000u16 (may overflow and wrap)
   quot :: (a / b);       // 4u16 (integer division)
   remainder :: (a % b);  // 0u16 (1000 % 250 = 0)
   
@@ -1898,11 +1897,11 @@
     
     // Operations with min value
     min_sum :: (min_val + u16(1));     // 1u16
-    min_sub :: (min_val - u16(1));     // 65535u16 (underflow wraps)
+    compt_expect_error(min_sub :: (min_val - u16(1)));     // 65535u16 (underflow wraps)
     min_mult :: (min_val * u16(500));  // 0u16
     
     // Operations with max value
-    max_sum :: (max_val + u16(1));     // 0u16 (overflow wraps)
+    compt_expect_error(max_sum :: (max_val + u16(1)));     // 0u16 (overflow wraps)
     max_sub :: (max_val - u16(1));     // 65534u16
     max_div :: (max_val / u16(13));    // 5041u16
     max_mod :: (max_val % u16(100));   // 35u16 (65535 % 100 = 35)
@@ -1924,7 +1923,7 @@
   {
     zero_sum :: (zero + a);      // 1000u16
     zero_diff1 :: (a - zero);    // 1000u16
-    zero_diff2 :: (zero - a);    // underflow behavior
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior
     zero_prod :: (zero * a);     // 0u16
     
     compt_assert(zero_sum == u16(1000));
@@ -2018,7 +2017,7 @@
   b :: u32(25000);
   c :: u32(100000);
   zero :: u32(0);
-  max_val :: u32(4294967295);
+  max_val :: u32.MAX;
   
   // Arithmetic operations
   sum :: (a + b);        // 125000u32
@@ -2083,11 +2082,11 @@
     
     // Operations with min value
     min_sum :: (min_val + u32(1));     // 1u32
-    min_sub :: (min_val - u32(1));     // underflow wraps to max
+    compt_expect_error(min_sub :: (min_val - u32(1)));     // underflow wraps to max
     min_mult :: (min_val * u32(500000));  // 0u32
     
     // Operations with max value
-    max_sum :: (max_val + u32(1));     // 0u32 (overflow wraps)
+    compt_expect_error(max_sum :: (max_val + u32(1)));     // 0u32 (overflow wraps)
     max_sub :: (max_val - u32(1));     // 4294967294u32
     max_div :: (max_val / u32(100));   // 42949672u32
     max_mod :: (max_val % u32(1000));  // 295u32
@@ -2109,7 +2108,7 @@
   {
     zero_sum :: (zero + a);      // 100000u32
     zero_diff1 :: (a - zero);    // 100000u32
-    zero_diff2 :: (zero - a);    // underflow behavior
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior
     zero_prod :: (zero * a);     // 0u32
     
     compt_assert(zero_sum == u32(100000));
@@ -2215,12 +2214,12 @@
   b :: u64(250000000000);
   c :: u64(1000000000000);
   zero :: u64(0);
-  max_val :: u64(18446744073709551615);
+  max_val :: u64.MAX;
   
   // Arithmetic operations
   sum :: (a + b);        // 1250000000000u64
   diff :: (a - b);       // 750000000000u64
-  prod :: (a * b);       // 250000000000000000000000u64 (may overflow)
+  compt_expect_error(prod :: (a * b));       // 250000000000000000000000u64 (may overflow)
   quot :: (a / b);       // 4u64 (integer division)
   remainder :: (a % b);  // 0u64
   
@@ -2274,7 +2273,7 @@
     
     // Operations with min value
     min_sum :: (min_val + u64(1));     // 1u64
-    min_sub :: (min_val - u64(1));     // underflow wraps to max
+    compt_expect_error(min_sub :: (min_val - u64(1)));     // underflow wraps to max
     min_mult :: (min_val * u64(5000000));  // 0u64
     
     // Operations with large values near max
@@ -2298,7 +2297,7 @@
   {
     zero_sum :: (zero + a);      // 1000000000000u64
     zero_diff1 :: (a - zero);    // 1000000000000u64
-    zero_diff2 :: (zero - a);    // underflow behavior
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior
     zero_prod :: (zero * a);     // 0u64
     
     compt_assert(zero_sum == u64(1000000000000));
@@ -2464,7 +2463,7 @@
   {
     zero_sum :: (zero + a);      // 100000usize
     zero_diff1 :: (a - zero);    // 100000usize
-    zero_diff2 :: (zero - a);    // underflow behavior (wraps around)
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior (wraps around)
     zero_prod :: (zero * a);     // 0usize
     
     compt_assert(zero_sum == usize(100000));
