@@ -51,6 +51,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
+import { getNumericBounds } from "../calls/numeric_type";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -126,38 +127,6 @@ function getValueTagFromType(type: Type): ValueTag {
   }
 }
 
-// Helper function to get min and max values for integer types
-function getIntegerBounds(
-  type: Type
-): { min: number | bigint; max: number | bigint } | null {
-  switch (type.tag) {
-    case TypeTag.U8:
-      return { min: 0, max: 255 };
-    case TypeTag.I8:
-      return { min: -128, max: 127 };
-    case TypeTag.U16:
-      return { min: 0, max: 65535 };
-    case TypeTag.I16:
-      return { min: -32768, max: 32767 };
-    case TypeTag.U32:
-      return { min: 0, max: 4294967295 };
-    case TypeTag.I32:
-      return { min: -2147483648, max: 2147483647 };
-    case TypeTag.U64:
-      return { min: 0n, max: 18446744073709551615n }; // 2^64 - 1
-    case TypeTag.I64:
-      return { min: -9223372036854775808n, max: 9223372036854775807n }; // -2^63 to 2^63-1
-    case TypeTag.Usize:
-      return { min: 0n, max: 18446744073709551615n }; // Assume 64-bit
-    case TypeTag.Isize:
-      return { min: -9223372036854775808n, max: 9223372036854775807n }; // Assume 64-bit
-    case TypeTag.ComptInt:
-      return { min: -Infinity, max: Infinity }; // Unbounded
-    default:
-      return null; // Not an integer type or float type
-  }
-}
-
 // Helper function to check for overflow
 function checkOverflow(
   value: number | bigint,
@@ -167,8 +136,8 @@ function checkOverflow(
   rhs: number | bigint,
   token: Token
 ): void {
-  const bounds = getIntegerBounds(type);
-  if (bounds === null) {
+  const bounds = getNumericBounds(type);
+  if (bounds === undefined) {
     return; // No overflow check for floats
   }
 
@@ -224,7 +193,7 @@ function applyNumericBounds(
   ) {
     const bigValue =
       typeof value === "bigint" ? value : BigInt(Math.floor(value));
-    const bounds = getIntegerBounds(type)!;
+    const bounds = getNumericBounds(type)!;
     const min =
       typeof bounds.min === "bigint" ? bounds.min : BigInt(bounds.min);
     const max =

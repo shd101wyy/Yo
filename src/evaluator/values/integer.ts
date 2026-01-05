@@ -75,9 +75,18 @@ export function evaluateIntegerLiteral(
       valueTag === ValueTag.Isize;
 
     let integerValue: number | bigint;
-    if (is64Bit) {
-      // Parse as BigInt for 64-bit types
-      integerValue = BigInt(numberValue);
+    if (is64Bit || valueTag === ValueTag.ComptInt) {
+      // Parse as BigInt for 64-bit types and compt_int to preserve precision
+      // For non-decimal radixes, prepend the appropriate prefix
+      if (radix === 16) {
+        integerValue = BigInt("0x" + numberValue);
+      } else if (radix === 8) {
+        integerValue = BigInt("0o" + numberValue);
+      } else if (radix === 2) {
+        integerValue = BigInt("0b" + numberValue);
+      } else {
+        integerValue = BigInt(numberValue);
+      }
     } else {
       // Parse as number for smaller types
       integerValue = parseInt(numberValue, radix);
