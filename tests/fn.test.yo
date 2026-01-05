@@ -155,10 +155,12 @@ test "Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
+    b := id(Box(i32), box(123));
 
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
+    assert(b.* == 123);
   };
 
   {
@@ -170,10 +172,45 @@ test "Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
+    b := id(Box(i32), box(123));
 
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
+    assert(b.* == 123);
+  };
+
+  {
+    id :: (fn(compt(T): Type, val: T) -> T) {
+      id2 :: (fn(compt(X): Type, val: X) -> X) 
+        val
+      ;
+      id2(T, val)
+    };
+
+    x := id(i32, 12);
+    y := id(f64, 3.14);
+    z := id(bool, true);
+    b := id(Box(i32), box(123));
+
+    assert(x == 12);
+    assert(y == 3.14);
+    assert(z == true);
+    assert(b.* == 123);
+  };
+
+  {
+    compt_add :: (fn(x : i32, compt(y) : i32) -> i32)
+      (x + y)
+    ;
+    x := compt_add(1, 1);
+    y := compt_add(2, 1);
+    z := compt_add(3, 2);
+    
+    assert(x == 2);
+    assert(y == 3);
+    assert(z == 5);
+  
   };
 };
 
@@ -182,4 +219,29 @@ test "Test generic function callback", {
     callback(x)
   ;
   assert(generic_fn(2, (x) -> (x + 16)) == 18);
+};
+
+test "Test 'recur'", {
+  {
+    factorial :: (fn(x : i32) -> i32)
+      cond(
+        (x < 1) => 1,
+        true => (x * recur(x - 1))
+      )
+    ;
+    assert(factorial(6) == 720);
+  };
+
+  {
+    factorial :: (fn(x : i32) -> i32) {
+      factorial_acc :: (fn(x : i32, acc : i32) -> i32) {
+        return cond(
+          (x < 1) => acc,
+          true => recur(x - 1, acc * x)
+        );
+      };
+      return factorial_acc(x, 1);
+    };
+    assert(factorial(6) == 720);
+  };
 };
