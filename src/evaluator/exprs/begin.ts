@@ -197,21 +197,39 @@ function searchRecursively(
       }
     }
 
-    // Only include dup calls that are present in ALL branches
+    // Only include dup calls that are present in ALL branches.
+    // CRITICAL: Since only ONE branch executes at runtime, all branch dup expressions
+    // count as ONE runtime dup. We wrap them in an array to mark them as a group.
     if (branchDupCalls.length > 0) {
       const firstBranchDups = branchDupCalls[0]!;
-      for (const [varName, _dupCallArray] of firstBranchDups) {
+      for (const [varName, _firstBranchDupArray] of firstBranchDups) {
         const isPresentInAllBranches = branchDupCalls.every((branchDups) =>
           branchDups.has(varName)
         );
 
         if (isPresentInAllBranches) {
-          // Collect all dup call expressions from all branches
-          const allDupCallsForVar: FuncCallExpr[] = [];
+          // Collect ALL dup call expressions from ALL branches.
+          // Mark them by wrapping in a special marker object.
+          // At runtime, only ONE executes (counts as 1 dup), but if we optimize it away,
+          // we must remove ALL of them from the AST.
+          const allBranchDupExprs: FuncCallExpr[] = [];
           for (const branchDups of branchDupCalls) {
-            allDupCallsForVar.push(...branchDups.get(varName)!);
+            const branchDupArray = branchDups.get(varName);
+            if (branchDupArray && branchDupArray.length > 0) {
+              allBranchDupExprs.push(...branchDupArray);
+            }
           }
-          dupCalls.set(varName, allDupCallsForVar);
+          // Store a special marker (negative index) followed by all the branch expressions.
+          // The marker helps us identify this as a branch group that counts as 1 runtime dup.
+          if (!dupCalls.has(varName)) {
+            dupCalls.set(varName, []);
+          }
+          // Use a marker object with a special property to identify branch groups
+          const marker = allBranchDupExprs[0]! as FuncCallExpr & {
+            __branchGroup?: FuncCallExpr[];
+          };
+          marker.__branchGroup = allBranchDupExprs;
+          dupCalls.get(varName)!.push(marker);
         }
       }
     }
@@ -838,18 +856,54 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         typeContainsGcType(baseVariable.type);
 
       if (dupCalls && dupCalls.length > 0 && !isValueTypeWithRCFields) {
+        // Count how many runtime dups we have.
+        // Branch groups (marked with __branchGroup) count as 1 dup each.
+        // Regular dups count as 1 dup each.
+        let runtimeDupCount = 0;
+        const allDupExprsToRemove: FuncCallExpr[] = [];
+
+        for (const dupCallExpr of dupCalls) {
+          const marker = dupCallExpr as FuncCallExpr & {
+            __branchGroup?: FuncCallExpr[];
+          };
+          if (marker.__branchGroup) {
+            // This is a branch group - counts as 1 runtime dup
+            runtimeDupCount++;
+            allDupExprsToRemove.push(...marker.__branchGroup);
+          } else {
+            // Regular dup call - counts as 1 runtime dup
+            runtimeDupCount++;
+            allDupExprsToRemove.push(dupCallExpr);
+          }
+        }
+
         // We can optimize: cancel one dup/drop pair
-        const dupCallToRemove = dupCalls[0]!;
-        dupCallsToRemove.add(dupCallToRemove);
+        // Remove ONE runtime dup (which may be multiple expressions if it's a branch group)
+        if (runtimeDupCount > 0) {
+          // Remove the first runtime dup
+          const firstDup = dupCalls[0]!;
+          const marker = firstDup as FuncCallExpr & {
+            __branchGroup?: FuncCallExpr[];
+          };
+          if (marker.__branchGroup) {
+            // Remove all expressions in the branch group
+            for (const expr of marker.__branchGroup) {
+              dupCallsToRemove.add(expr);
+            }
+          } else {
+            // Remove this single dup expression
+            dupCallsToRemove.add(firstDup);
+          }
 
-        // Remove this dup call from the list so it won't be matched again
-        dupCalls.shift();
+          // Remove from the list
+          dupCalls.shift();
 
-        // Mark the variable as consumed so it won't generate a drop call
-        env = updateExistingVariable(env, variable, {
-          ...variable,
-          consumedAtToken: lastExpr.token,
-        });
+          // Mark the variable as consumed so it won't generate a drop call
+          env = updateExistingVariable(env, variable, {
+            ...variable,
+            consumedAtToken: lastExpr.token,
+          });
+        }
       } else {
         // No matching dup call, this variable actually needs drop
         variablesActuallyNeedingDrop.push(variable);

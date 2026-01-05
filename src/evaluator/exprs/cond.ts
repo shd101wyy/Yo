@@ -5,6 +5,7 @@ import {
   BuiltinKeywords,
   ControlFlowKind,
   Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
@@ -30,6 +31,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
+import { evaluateExpression } from "./expr";
 
 export function evaluateCond({
   expr,
@@ -96,18 +98,30 @@ export function evaluateCond({
     // NOTE: It's necessary to use evaluateBeginExpression here,
     // because the condition might contain Gc values that need to be properly managed by `begin` block.
     // Evaluate the condition expression
-    const evaluatedCondExpr = evaluateBeginExpression({
-      expr: condExpr,
-      env: caseEnv,
-      context: {
-        ...context,
-        expectedType: {
-          type: createBooleanType(),
+    const evaluatedCondExpr = exprIsAtom(condExpr)
+      ? evaluateExpression({
+          expr: condExpr,
           env: caseEnv,
-        },
-      },
-      variablesToAdd: [],
-    });
+          context: {
+            ...context,
+            expectedType: {
+              type: createBooleanType(),
+              env: caseEnv,
+            },
+          },
+        })
+      : evaluateBeginExpression({
+          expr: condExpr,
+          env: caseEnv,
+          context: {
+            ...context,
+            expectedType: {
+              type: createBooleanType(),
+              env: caseEnv,
+            },
+          },
+          variablesToAdd: [],
+        });
 
     if (!evaluatedCondExpr.$) {
       throw formatErrorMessage({
