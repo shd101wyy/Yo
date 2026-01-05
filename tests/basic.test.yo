@@ -135,4 +135,29 @@ test "Test destructuring", {
       assert(c1 == true);
     };
   };
+
+  // struct destructuring
+  {
+    Point :: struct(x : i32, y : f64);
+    point := Point(3, 4.5);
+    {
+      { x, y } := point;
+      assert(x == 3);
+      assert(y == 4.5);
+    };
+    {
+      { y, x } := point;
+      assert(x == 3);
+      assert(y == 4.5);
+    };
+    {
+      _(x : a, y : b) := point;
+      assert(a == 3);
+      assert(b == 4.5);
+    };
+    {
+      { x : another_x } := point;
+      assert(another_x == 3);
+    };
+  };
 };

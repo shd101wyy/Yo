@@ -1,15 +1,28 @@
-test "Test swap 2 numbers", {
-  swap :: (fn(a : *(i32), b : *(i32)) -> unit) {
-    temp := a.*;
-    a.* = b.*;
-    b.* = temp;
+test "Test simple functions", {
+  {
+    swap :: (fn(a : *(i32), b : *(i32)) -> unit) {
+      temp := a.*;
+      a.* = b.*;
+      b.* = temp;
+    };
+
+    x := 5;
+    y := 10;
+    swap(&(x), &(y));
+    assert(x == 10);
+    assert(y == 5);   
   };
 
-  x := 5;
-  y := 10;
-  swap(&(x), &(y));
-  assert(x == 10);
-  assert(y == 5);
+  {
+    add :: (fn(x : i32, y : i32) -> i32)(x + y);
+    assert(add({
+      a := 12;
+      a
+    }, {
+      b := 13;
+      b
+    }) == 25);
+  };
 };
 
 test "Test callback regular function", {
@@ -131,6 +144,37 @@ test "Test anonymous struct with type method", {
 
   result := closure.call(3);
   assert(result == 6, "Expected 6");
+};
+
+test "Test generic functions", {
+  {
+    id :: (fn(compt(T): Type, val: T) -> T)
+      val
+    ;
+
+    x := id(i32, 12);
+    y := id(f64, 3.14);
+    z := id(bool, true);
+
+    assert(x == 12);
+    assert(y == 3.14);
+    assert(z == true);
+  };
+
+  {
+    id :: (fn(compt(T): Type, val: T) -> T) {
+      id2 :: (fn(val: T) -> T)(val);
+      return id2(val);
+    };
+
+    x := id(i32, 12);
+    y := id(f64, 3.14);
+    z := id(bool, true);
+
+    assert(x == 12);
+    assert(y == 3.14);
+    assert(z == true);
+  };
 };
 
 test "Test generic function callback", {

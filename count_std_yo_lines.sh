@@ -6,7 +6,7 @@ if [ ! -d "std" ]; then
   exit 1
 fi
 
-# Count total lines in all TypeScript files in src directory
-total_lines=$(find src -name "*.yo" -type f -exec wc -l {} \; | awk '{ sum += $1 } END { print sum }')
+# Count total lines in all TypeScript files in std directory
+total_lines=$(find std -name "*.yo" -type f -exec wc -l {} \; | awk '{ sum += $1 } END { print sum }')
 
-echo "Total lines in Yo files in src directory: $total_lines"
+echo "Total lines in Yo files in ./std directory: $total_lines"
