@@ -638,6 +638,10 @@ export function generateFunctionBody(
     // Handle begin block - generate all statements except the last, then return the last
     const args = expr.args;
 
+    // Set pending deferred drops from the function body begin block
+    // These need to be generated when early returning from anywhere inside this function
+    context.pendingDeferredDrops = expr.$?.deferredDropExpressions;
+
     // Generate all expressions except the last as statements
     let findReturn = false;
     for (let i = 0; i < args.length - 1; i++) {

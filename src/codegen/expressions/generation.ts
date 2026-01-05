@@ -1193,6 +1193,28 @@ function generateFuncCall(
       }
 
       // Normal (non-state-machine) return
+
+      // Generate pending deferred drops from enclosing begin blocks
+      // This is needed when returning early from inside a cond/match branch - the outer
+      // begin block's deferred drops would otherwise be skipped.
+      // Only generate these if the return expression doesn't already have its own
+      // deferred drops (to avoid double-dropping).
+      if (
+        functionContext.pendingDeferredDrops &&
+        (!expr.$.deferredDropExpressions ||
+          expr.$.deferredDropExpressions.length === 0)
+      ) {
+        context.emitter.emitLine(
+          `${indent}// Drop local variables before early return`
+        );
+        for (const dropExpr of functionContext.pendingDeferredDrops) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode) {
+            context.emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
+      }
+
       if (isUnitType(expr.$.type)) {
         return `return`;
       }
@@ -1206,6 +1228,21 @@ function generateFuncCall(
     } else {
       if (expr.$?.deferredDropExpressions) {
         generateDeferredDropExpressions(expr, indent, context);
+      }
+
+      const functionContext = context as FunctionGenerationContext;
+
+      // Generate pending deferred drops for unit return as well
+      if (functionContext.pendingDeferredDrops) {
+        context.emitter.emitLine(
+          `${indent}// Drop local variables before early return`
+        );
+        for (const dropExpr of functionContext.pendingDeferredDrops) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode) {
+            context.emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
       }
 
       return "return";
@@ -1926,6 +1963,7 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
     const tempVariableName = expr.$?.variableName;
     const valueType = expr.$?.type;
+    const functionContext = context as FunctionGenerationContext;
 
     if (tempVariableName && valueType) {
       // Expression form: begin block that returns a value
@@ -1937,6 +1975,11 @@ function generateFuncCall(
 
       // Evaluate each argument
       context.emitter.emitLine(`${indent}{ // begin block`);
+
+      // Set pending deferred drops from this begin block
+      // These need to be generated when early returning from inside this block
+      const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
+      functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
 
       // Generate and emit code for each arg IMMEDIATELY to preserve order
       // This is important because generateExpr may have side effects that emit code
@@ -2018,12 +2061,20 @@ function generateFuncCall(
 
       context.emitter.emitLine(`${indent}} // end begin block`);
 
+      // Restore previous pending deferred drops
+      functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+
       return isUnitType(valueType) || expr.$?.controlFlow
         ? ""
         : tempVariableName;
     } else {
       // Statement form: begin block without returning a value
       context.emitter.emitLine(`${indent}{ // begin block`);
+
+      // Set pending deferred drops for statement form as well
+      const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
+      functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
+
       const argsCode = expr.args.map((arg) =>
         generateExpr(arg, indent + "  ", context)
       );
@@ -2044,6 +2095,10 @@ function generateFuncCall(
       }
 
       context.emitter.emitLine(`${indent}} // end begin block`);
+
+      // Restore previous pending deferred drops
+      functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+
       return "";
     }
   }
