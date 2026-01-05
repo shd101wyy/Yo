@@ -55,7 +55,7 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 // Helper function to extract numeric value from a Value
-function extractNumericValue(value?: Value): number | null {
+function extractNumericValue(value?: Value): number | bigint | null {
   if (
     value &&
     (isComptIntValue(value) || isComptFloatValue(value) || isNumberValue(value))
@@ -66,13 +66,20 @@ function extractNumericValue(value?: Value): number | null {
 }
 
 // Helper function to create a numeric value of the given type
-function createNumericValue(value: number, type: Type): Value | undefined {
+function createNumericValue(
+  value: number | bigint,
+  type: Type
+): Value | undefined {
   // Handle compt_int and compt_float separately
   if (type.tag === TypeTag.ComptInt) {
-    return createComptIntValue(value);
+    // For compt_int, always convert to BigInt
+    const bigValue =
+      typeof value === "bigint" ? value : BigInt(Math.floor(value));
+    return createComptIntValue(bigValue);
   }
   if (type.tag === TypeTag.ComptFloat) {
-    return createComptFloatValue(value);
+    const numValue = typeof value === "bigint" ? Number(value) : value;
+    return createComptFloatValue(numValue);
   }
 
   // C compatible types return unknown value
@@ -120,7 +127,9 @@ function getValueTagFromType(type: Type): ValueTag {
 }
 
 // Helper function to get min and max values for integer types
-function getIntegerBounds(type: Type): { min: number; max: number } | null {
+function getIntegerBounds(
+  type: Type
+): { min: number | bigint; max: number | bigint } | null {
   switch (type.tag) {
     case TypeTag.U8:
       return { min: 0, max: 255 };
@@ -135,15 +144,15 @@ function getIntegerBounds(type: Type): { min: number; max: number } | null {
     case TypeTag.I32:
       return { min: -2147483648, max: 2147483647 };
     case TypeTag.U64:
-      return { min: 0, max: Number.MAX_SAFE_INTEGER };
+      return { min: 0n, max: 18446744073709551615n }; // 2^64 - 1
     case TypeTag.I64:
-      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER };
+      return { min: -9223372036854775808n, max: 9223372036854775807n }; // -2^63 to 2^63-1
     case TypeTag.Usize:
-      return { min: 0, max: Number.MAX_SAFE_INTEGER };
+      return { min: 0n, max: 18446744073709551615n }; // Assume 64-bit
     case TypeTag.Isize:
-      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER };
+      return { min: -9223372036854775808n, max: 9223372036854775807n }; // Assume 64-bit
     case TypeTag.ComptInt:
-      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER };
+      return { min: -Infinity, max: Infinity }; // Unbounded
     default:
       return null; // Not an integer type or float type
   }
@@ -151,11 +160,11 @@ function getIntegerBounds(type: Type): { min: number; max: number } | null {
 
 // Helper function to check for overflow
 function checkOverflow(
-  value: number,
+  value: number | bigint,
   type: Type,
   operation: string,
-  lhs: number,
-  rhs: number,
+  lhs: number | bigint,
+  rhs: number | bigint,
   token: Token
 ): void {
   const bounds = getIntegerBounds(type);
@@ -163,7 +172,31 @@ function checkOverflow(
     return; // No overflow check for floats
   }
 
-  if (value < bounds.min || value > bounds.max) {
+  // Infinity bounds mean unbounded (compt_int)
+  if (bounds.min === -Infinity && bounds.max === Infinity) {
+    return; // No overflow for unbounded types
+  }
+
+  // Helper to compare mixed number/bigint values
+  const lessThan = (a: number | bigint, b: number | bigint): boolean => {
+    if (typeof a === "bigint" || typeof b === "bigint") {
+      const bigA = typeof a === "bigint" ? a : BigInt(Math.floor(a));
+      const bigB = typeof b === "bigint" ? b : BigInt(Math.floor(b));
+      return bigA < bigB;
+    }
+    return a < b;
+  };
+
+  const greaterThan = (a: number | bigint, b: number | bigint): boolean => {
+    if (typeof a === "bigint" || typeof b === "bigint") {
+      const bigA = typeof a === "bigint" ? a : BigInt(Math.floor(a));
+      const bigB = typeof b === "bigint" ? b : BigInt(Math.floor(b));
+      return bigA > bigB;
+    }
+    return a > b;
+  };
+
+  if (lessThan(value, bounds.min) || greaterThan(value, bounds.max)) {
     const opSymbol =
       operation === "multiply" ? "*" : operation === "add" ? "+" : "-";
     throw formatErrorMessage({
@@ -178,33 +211,51 @@ function checkOverflow(
 }
 
 // Helper function to apply numeric bounds based on type
-function applyNumericBounds(value: number, type: Type): number {
+function applyNumericBounds(
+  value: number | bigint,
+  type: Type
+): number | bigint {
+  // Convert to the appropriate type for 64-bit integers
+  if (
+    type.tag === TypeTag.U64 ||
+    type.tag === TypeTag.I64 ||
+    type.tag === TypeTag.Usize ||
+    type.tag === TypeTag.Isize
+  ) {
+    const bigValue =
+      typeof value === "bigint" ? value : BigInt(Math.floor(value));
+    const bounds = getIntegerBounds(type)!;
+    const min =
+      typeof bounds.min === "bigint" ? bounds.min : BigInt(bounds.min);
+    const max =
+      typeof bounds.max === "bigint" ? bounds.max : BigInt(bounds.max);
+
+    if (bigValue < min) return min;
+    if (bigValue > max) return max;
+    return bigValue;
+  }
+
+  // For smaller integer types, use number
+  const numValue = typeof value === "bigint" ? Number(value) : value;
+
   switch (type.tag) {
     case TypeTag.U8:
-      return Math.floor(Math.abs(value)) % 256;
+      return Math.floor(Math.abs(numValue)) % 256;
     case TypeTag.I8:
-      return Math.max(-128, Math.min(127, Math.floor(value)));
+      return Math.max(-128, Math.min(127, Math.floor(numValue)));
     case TypeTag.U16:
-      return Math.floor(Math.abs(value)) % 65536;
+      return Math.floor(Math.abs(numValue)) % 65536;
     case TypeTag.I16:
-      return Math.max(-32768, Math.min(32767, Math.floor(value)));
+      return Math.max(-32768, Math.min(32767, Math.floor(numValue)));
     case TypeTag.U32:
-      return Math.floor(Math.abs(value)) % 4294967296;
+      return Math.floor(Math.abs(numValue)) % 4294967296;
     case TypeTag.I32:
-      return Math.max(-2147483648, Math.min(2147483647, Math.floor(value)));
-    case TypeTag.U64:
-      return Math.max(0, Math.floor(value));
-    case TypeTag.I64:
-      return Math.floor(value);
-    case TypeTag.Usize:
-      return Math.max(0, Math.floor(value));
-    case TypeTag.Isize:
-      return Math.floor(value);
+      return Math.max(-2147483648, Math.min(2147483647, Math.floor(numValue)));
     case TypeTag.F32:
     case TypeTag.F64:
-      return value; // No bounds needed for floats
+      return numValue; // No bounds needed for floats
     default:
-      return value;
+      return numValue;
   }
 }
 
@@ -213,7 +264,7 @@ function performArithmeticOp(
   lhsValue: Value,
   rhsValue: Value,
   resultType: Type,
-  op: (a: number, b: number) => number
+  op: (a: number | bigint, b: number | bigint) => number | bigint
 ): Value {
   const lhs = extractNumericValue(lhsValue);
   const rhs = extractNumericValue(rhsValue);
@@ -231,13 +282,20 @@ function performArithmeticOp(
 function performComparisonOp(
   lhsValue: Value,
   rhsValue: Value,
-  op: (a: number, b: number) => boolean
+  op: (a: number | bigint, b: number | bigint) => boolean
 ): Value {
   const lhs = extractNumericValue(lhsValue);
   const rhs = extractNumericValue(rhsValue);
 
   if (lhs === null || rhs === null) {
     return createUnknownValue(createBooleanType());
+  }
+
+  // Handle mixed number/bigint comparisons
+  if (typeof lhs === "bigint" || typeof rhs === "bigint") {
+    const bigLhs = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+    const bigRhs = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
+    return createBooleanValue(op(bigLhs, bigRhs));
   }
 
   return createBooleanValue(op(lhs, rhs));
@@ -247,7 +305,7 @@ function performComparisonOp(
 function performUnaryOp(
   value: Value,
   resultType: Type,
-  op: (a: number) => number
+  op: (a: number | bigint) => number | bigint
 ): Value {
   const num = extractNumericValue(value);
 
@@ -363,7 +421,12 @@ export function evaluateYoNumericFunctions({
 
     if (operation === "neg") {
       if (isNumberValue(arg.$.value)) {
-        value = performUnaryOp(arg.$.value, numericType, (x) => -x);
+        value = performUnaryOp(arg.$.value, numericType, (x) => {
+          if (typeof x === "bigint") {
+            return -x;
+          }
+          return -x;
+        });
       } else {
         value = createUnknownValue(numericType);
       }
@@ -521,15 +584,22 @@ export function evaluateYoNumericFunctions({
       const lhs = extractNumericValue(lhsValue);
       const rhs = extractNumericValue(rhsValue);
       if (lhs !== null && rhs !== null) {
-        const result = lhs + rhs;
+        // Handle bigint arithmetic
+        const result =
+          typeof lhs === "bigint" || typeof rhs === "bigint"
+            ? (typeof lhs === "bigint" ? lhs : BigInt(lhs)) +
+              (typeof rhs === "bigint" ? rhs : BigInt(rhs))
+            : lhs + rhs;
         checkOverflow(result, numericType, "add", lhs, rhs, expr.token);
       }
-      value = performArithmeticOp(
-        lhsValue,
-        rhsValue,
-        numericType,
-        (a, b) => a + b
-      );
+      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
+        if (typeof a === "bigint" || typeof b === "bigint") {
+          const bigA = typeof a === "bigint" ? a : BigInt(a);
+          const bigB = typeof b === "bigint" ? b : BigInt(b);
+          return bigA + bigB;
+        }
+        return a + b;
+      });
       resultType = numericType;
       break;
     }
@@ -537,15 +607,21 @@ export function evaluateYoNumericFunctions({
       const lhs = extractNumericValue(lhsValue);
       const rhs = extractNumericValue(rhsValue);
       if (lhs !== null && rhs !== null) {
-        const result = lhs - rhs;
+        const result =
+          typeof lhs === "bigint" || typeof rhs === "bigint"
+            ? (typeof lhs === "bigint" ? lhs : BigInt(lhs)) -
+              (typeof rhs === "bigint" ? rhs : BigInt(rhs))
+            : lhs - rhs;
         checkOverflow(result, numericType, "subtract", lhs, rhs, expr.token);
       }
-      value = performArithmeticOp(
-        lhsValue,
-        rhsValue,
-        numericType,
-        (a, b) => a - b
-      );
+      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
+        if (typeof a === "bigint" || typeof b === "bigint") {
+          const bigA = typeof a === "bigint" ? a : BigInt(a);
+          const bigB = typeof b === "bigint" ? b : BigInt(b);
+          return bigA - bigB;
+        }
+        return a - b;
+      });
       resultType = numericType;
       break;
     }
@@ -553,28 +629,39 @@ export function evaluateYoNumericFunctions({
       const lhs = extractNumericValue(lhsValue);
       const rhs = extractNumericValue(rhsValue);
       if (lhs !== null && rhs !== null) {
-        const result = lhs * rhs;
+        const result =
+          typeof lhs === "bigint" || typeof rhs === "bigint"
+            ? (typeof lhs === "bigint" ? lhs : BigInt(lhs)) *
+              (typeof rhs === "bigint" ? rhs : BigInt(rhs))
+            : lhs * rhs;
         checkOverflow(result, numericType, "multiply", lhs, rhs, expr.token);
       }
-      value = performArithmeticOp(
-        lhsValue,
-        rhsValue,
-        numericType,
-        (a, b) => a * b
-      );
+      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
+        if (typeof a === "bigint" || typeof b === "bigint") {
+          const bigA = typeof a === "bigint" ? a : BigInt(a);
+          const bigB = typeof b === "bigint" ? b : BigInt(b);
+          return bigA * bigB;
+        }
+        return a * b;
+      });
       resultType = numericType;
       break;
     }
     case "div": {
       // Handle division by zero check
       const rhsNum = extractNumericValue(rhsValue);
-      if (rhsNum === 0) {
+      if (rhsNum === 0 || rhsNum === 0n) {
         throw formatErrorMessage({
           token: rhs.token,
           errorMessage: `Division by zero in "${funcName}" operation`,
         });
       }
       value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
+        if (typeof a === "bigint" || typeof b === "bigint") {
+          const bigA = typeof a === "bigint" ? a : BigInt(a);
+          const bigB = typeof b === "bigint" ? b : BigInt(b);
+          return bigA / bigB;
+        }
         return isIntegerType(numericType) ||
           numericType.tag === TypeTag.ComptInt
           ? Math.trunc(a / b)
@@ -592,18 +679,20 @@ export function evaluateYoNumericFunctions({
       }
       // Handle modulo by zero check
       const rhsModNum = extractNumericValue(rhsValue);
-      if (rhsModNum === 0) {
+      if (rhsModNum === 0 || rhsModNum === 0n) {
         throw formatErrorMessage({
           token: rhs.token,
           errorMessage: `Modulo by zero in "${funcName}" operation`,
         });
       }
-      value = performArithmeticOp(
-        lhsValue,
-        rhsValue,
-        numericType,
-        (a, b) => a % b
-      );
+      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
+        if (typeof a === "bigint" || typeof b === "bigint") {
+          const bigA = typeof a === "bigint" ? a : BigInt(a);
+          const bigB = typeof b === "bigint" ? b : BigInt(b);
+          return bigA % bigB;
+        }
+        return a % b;
+      });
       resultType = numericType;
       break;
     }

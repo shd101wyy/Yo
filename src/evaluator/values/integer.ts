@@ -67,7 +67,22 @@ export function evaluateIntegerLiteral(
       // QUESTION: Should we throw error here?
     }
 
-    const integerValue = parseInt(numberValue, radix);
+    // For 64-bit types, use BigInt; for smaller types, use number
+    const is64Bit =
+      valueTag === ValueTag.U64 ||
+      valueTag === ValueTag.I64 ||
+      valueTag === ValueTag.Usize ||
+      valueTag === ValueTag.Isize;
+
+    let integerValue: number | bigint;
+    if (is64Bit) {
+      // Parse as BigInt for 64-bit types
+      integerValue = BigInt(numberValue);
+    } else {
+      // Parse as number for smaller types
+      integerValue = parseInt(numberValue, radix);
+    }
+
     const value = createNumberValue(valueTag, integerValue);
     expr.$ = {
       env,

@@ -10,7 +10,7 @@ export function evaluateCharLiteral(
 ): AtomExpr {
   if (expr.token.type === TokenType.Char) {
     const charCode = parseCharLiteral(expr.token.value);
-    const value = createComptIntValue(charCode);
+    const value = createComptIntValue(BigInt(charCode));
     expr.$ = {
       env,
       value,

@@ -195,7 +195,9 @@ export function tryToCallArrayWithArguments({
           errorMessage: `Expected compile-time known value for array index, got runtime value.`,
         });
       } else if (isNumberValue(evaluatedArgExpr.$.value)) {
-        const index = evaluatedArgExpr.$.value.value;
+        const indexValue = evaluatedArgExpr.$.value.value;
+        const index =
+          typeof indexValue === "bigint" ? Number(indexValue) : indexValue;
         if (index < 0 || index >= arrayValue.elements.length) {
           throw formatErrorMessage({
             token: argExpr.token,

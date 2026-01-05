@@ -61,7 +61,7 @@ export function evaluateYoComptStringFunctions({
     // length(x)
     if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_length)) {
       if (isComptStringValue(arg.$.value)) {
-        value = createComptIntValue(arg.$.value.value.length);
+        value = createComptIntValue(BigInt(arg.$.value.value.length));
       } else {
         value = createUnknownValue(createComptIntType());
       }
@@ -180,7 +180,9 @@ export function evaluateYoComptStringFunctions({
       isComptIntValue(startArg.$.value)
     ) {
       const str = stringArg.$.value.value;
-      const start = startArg.$.value.value;
+      const startValue = startArg.$.value.value;
+      const start =
+        typeof startValue === "bigint" ? Number(startValue) : startValue;
       let end = str.length; // default to string length
 
       // Check if end argument was provided and is valid
@@ -190,7 +192,8 @@ export function evaluateYoComptStringFunctions({
         endArg.$.value &&
         isComptIntValue(endArg.$.value)
       ) {
-        end = endArg.$.value.value;
+        const endValue = endArg.$.value.value;
+        end = typeof endValue === "bigint" ? Number(endValue) : endValue;
       }
 
       // Use JavaScript's slice semantics

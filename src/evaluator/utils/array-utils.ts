@@ -103,7 +103,8 @@ export function evaluateArrayFillMethod({
   // Check if lengthValue is a concrete numeric value
   let arrayLength: number;
   if (isNumberValue(lengthValue)) {
-    arrayLength = lengthValue.value;
+    const lengthVal = lengthValue.value;
+    arrayLength = typeof lengthVal === "bigint" ? Number(lengthVal) : lengthVal;
     if (!Number.isInteger(arrayLength) || arrayLength < 0) {
       throw formatErrorMessage({
         token: fillValueArg.token,

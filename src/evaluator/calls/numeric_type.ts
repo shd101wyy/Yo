@@ -136,7 +136,8 @@ function extractComptNumericValue(value?: Value): number | undefined {
   if (!value) return undefined;
   // isNumberValue includes ComptInt, ComptFloat, and all concrete numeric types
   if (isNumberValue(value)) {
-    return value.value;
+    const val = value.value;
+    return typeof val === "bigint" ? Number(val) : val;
   }
   return undefined;
 }
@@ -171,7 +172,7 @@ function createComptValueOfType(
 
   // Create the appropriate value type
   if (isComptIntType(targetType)) {
-    return createComptIntValue(Math.floor(numericValue));
+    return createComptIntValue(BigInt(Math.floor(numericValue)));
   }
   if (isComptFloatType(targetType)) {
     return createComptFloatValue(numericValue);
@@ -185,10 +186,24 @@ function createComptValueOfType(
   if (isIntegerType(targetType)) {
     const tag = getValueTagFromType(targetType);
     if (tag) {
-      return createNumberValue(
-        tag as NumberValue["tag"],
-        Math.floor(numericValue)
-      );
+      // For 64-bit types, convert to BigInt
+      const is64Bit =
+        tag === ValueTag.U64 ||
+        tag === ValueTag.I64 ||
+        tag === ValueTag.Usize ||
+        tag === ValueTag.Isize;
+
+      if (is64Bit) {
+        return createNumberValue(
+          tag as NumberValue["tag"],
+          BigInt(Math.floor(numericValue))
+        );
+      } else {
+        return createNumberValue(
+          tag as NumberValue["tag"],
+          Math.floor(numericValue)
+        );
+      }
     }
   }
 

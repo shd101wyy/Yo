@@ -99,7 +99,9 @@ export function evaluateMacroExpand({
       });
     }
 
-    maxExpansionLevel = evaluatedLevelArgExpr.$.value.value;
+    const levelValue = evaluatedLevelArgExpr.$.value.value;
+    maxExpansionLevel =
+      typeof levelValue === "bigint" ? Number(levelValue) : levelValue;
     if (maxExpansionLevel < 0) {
       throw formatErrorMessage({
         token: levelArgExpr.token,

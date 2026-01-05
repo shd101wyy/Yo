@@ -463,7 +463,10 @@ export function getTypeString(
         if (!context.arrayStructTypes.has(arrayTypeName)) {
           context.arrayStructTypes.set(arrayTypeName, {
             childType: elementTypeString,
-            length: length.value,
+            length:
+              typeof length.value === "bigint"
+                ? Number(length.value)
+                : length.value,
           });
         }
 
