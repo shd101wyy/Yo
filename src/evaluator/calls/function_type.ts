@@ -74,6 +74,7 @@ export function createFunctionBodyEvaluationContext(
 /**
  * expr should be the:
  * functionType(functionBody);
+ * Please note this is for regular functions only, closures are handled in closure_type.ts
  */
 export function tryToImplementFunctionByFunctionType({
   expr,
@@ -98,8 +99,10 @@ export function tryToImplementFunctionByFunctionType({
   const functionBodyExpr = argExprs[0]!;
 
   // Add parameters to the env new frame
-  // Check if we're in a closure context (caller already has capturedVariables set)
-  const isInClosureContext = !!context.capturedVariables;
+  // Regular functions (defined with `::`) do NOT capture outer variables.
+  // Only closures (defined with `=>`) track captures. So we always treat this as
+  // a non-closure context and clear any inherited capturedVariables.
+  const isInClosureContext = false;
 
   // Check if we need to set up parameter aliases
   // This happens when implementing a module trait method where the function type
@@ -216,8 +219,10 @@ export function tryToImplementFunctionByFunctionType({
   };
 
   // Create a mutable context that we can check after evaluation
+  // For regular functions (not closures), we clear capturedVariables to prevent
+  // outer variables from being incorrectly marked as captured/consumed.
   const { evaluationContext } = createFunctionBodyEvaluationContext(
-    context,
+    { ...context, capturedVariables: undefined },
     newFunctionType,
     functionValue,
     env
