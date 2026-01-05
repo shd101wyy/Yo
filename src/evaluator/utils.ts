@@ -15,13 +15,13 @@ export function isValidVariableName(expr: Expr): boolean {
 }
 
 /**
- * Find the ultimate Gc-owning variable that a RHS expression borrows from.
+ * Find the ultimate Rc-owning variable that a RHS expression borrows from.
  * Handles chains like:
  *   temp := Box(...); // temp owns
  *   x := temp;        // x owns what temp owns
  *   y := x;           // y owns what x owns, which is what temp owns
  */
-export function findGcValueOwnerRelationship(
+export function findRcValueOwnerRelationship(
   rhs: Expr,
   env: Environment,
   _modulePath: string
@@ -37,13 +37,13 @@ export function findGcValueOwnerRelationship(
 
   // Follow the borrowing chain until we reach an owning variable or it breaks.
   const visited = new Set<string>();
-  while (candidate && candidate.isOwningTheSameGcValueAs) {
+  while (candidate && candidate.isOwningTheSameRcValueAs) {
     if (visited.has(candidate.id)) return undefined; // cycle guard
     visited.add(candidate.id);
-    candidate = candidate.isOwningTheSameGcValueAs;
+    candidate = candidate.isOwningTheSameRcValueAs;
   }
 
-  if (candidate && candidate.isOwningTheGcValue) {
+  if (candidate && candidate.isOwningTheRcValue) {
     return candidate;
   }
   return undefined;

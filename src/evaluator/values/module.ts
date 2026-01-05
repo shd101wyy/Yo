@@ -394,7 +394,7 @@ export function findMethodsFromGenericImpls({
                   token: PlaceholderToken,
                   initializedAtToken: PlaceholderToken,
                   consumedAtToken: undefined,
-                  isOwningTheGcValue: false,
+                  isOwningTheRcValue: false,
                 },
               });
               specializedEnv = nextEnv;
@@ -413,7 +413,7 @@ export function findMethodsFromGenericImpls({
                     token: PlaceholderToken,
                     initializedAtToken: PlaceholderToken,
                     consumedAtToken: undefined,
-                    isOwningTheGcValue: false,
+                    isOwningTheRcValue: false,
                   },
                 });
                 specializedEnv = nextEnv;
@@ -576,7 +576,7 @@ export function findMethodFromGenericImplForModule({
                 token: PlaceholderToken,
                 initializedAtToken: PlaceholderToken,
                 consumedAtToken: undefined,
-                isOwningTheGcValue: false,
+                isOwningTheRcValue: false,
               },
             });
             specializedEnv = nextEnv;
@@ -595,7 +595,7 @@ export function findMethodFromGenericImplForModule({
                   token: PlaceholderToken,
                   initializedAtToken: PlaceholderToken,
                   consumedAtToken: undefined,
-                  isOwningTheGcValue: false,
+                  isOwningTheRcValue: false,
                 },
               });
               specializedEnv = nextEnv;
@@ -988,7 +988,7 @@ function tryMatchGenericImpl({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       unifyEnv = nextEnv;
@@ -1004,7 +1004,7 @@ function tryMatchGenericImpl({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       unifyEnv = nextEnv;
@@ -1714,7 +1714,7 @@ export function evaluateModuleValue({
           token: paramExpr.token,
           initializedAtToken: paramExpr.token,
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       env = nextEnv;

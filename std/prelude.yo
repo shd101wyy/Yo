@@ -2741,15 +2741,15 @@ impl(Type, {
   });
   export is_compatible_with;
 
-  contains_gc_type :: (fn(compt(self): Type) -> compt(bool))({
-    return __yo_type_contains_gc_type(self);
+  contains_rc_type :: (fn(compt(self): Type) -> compt(bool))({
+    return __yo_type_contains_rc_type(self);
   });
-  export contains_gc_type;
+  export contains_rc_type;
 
-  can_form_gc_cycle :: (fn(compt(self): Type) -> compt(bool))({
-    return __yo_type_can_form_gc_cycle(self);
+  can_form_rc_cycle :: (fn(compt(self): Type) -> compt(bool))({
+    return __yo_type_can_form_rc_cycle(self);
   });
-  export can_form_gc_cycle;
+  export can_form_rc_cycle;
 
   impls :: (fn(compt(self): Type, compt(marker): Module) -> compt(bool))({
     return __yo_type_impls(self, marker);
@@ -2768,10 +2768,10 @@ Var :: impl({
   };
   export print_info;
 
-  is_owning_the_gc_value :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
-    return quote __yo_var_is_owning_the_gc_value(unquote(variable));
+  is_owning_the_rc_value :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
+    return quote __yo_var_is_owning_the_rc_value(unquote(variable));
   };
-  export is_owning_the_gc_value;
+  export is_owning_the_rc_value;
 
   has_other_aliases :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
     return quote __yo_var_has_other_aliases(unquote(variable));
@@ -2894,14 +2894,14 @@ impl(forall(T : Type), Iso(T), {
     unquote(assignment);
     unquote(temp_type) :: typeof(unquote(temp));
     cond(
-      Type.contains_gc_type(unquote(temp_type)) =>  // compile-time check
+      Type.contains_rc_type(unquote(temp_type)) =>  // compile-time check
         cond(
-          Type.can_form_gc_cycle(unquote(temp_type)) => { // compile-time check
+          Type.can_form_rc_cycle(unquote(temp_type)) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type containing GC type that can form cycles");
+            compt_assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
             Option(Iso(unquote(temp_type))).None
           },
-          !(Var.is_owning_the_gc_value(unquote(temp))) => { // compile-time check
+          !(Var.is_owning_the_rc_value(unquote(temp))) => { // compile-time check
             consume(unquote(temp));
             compt_assert(false, "Cannot isolate value of type that is not owned");
             Option(Iso(unquote(temp_type))).None
@@ -2919,7 +2919,7 @@ impl(forall(T : Type), Iso(T), {
           }
         ),
       true => { // compile-time check
-        compt_assert(false, "Cannot isolate value type that does not contain GC type");
+        compt_assert(false, "Cannot isolate value type that does not contain Rc type");
         Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
       }
     )

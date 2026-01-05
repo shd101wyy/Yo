@@ -10,7 +10,7 @@ import { createIsoType, IsoType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToIsoType } from "../types/utils";
+import { addRcFunctionsToIsoType } from "../types/utils";
 
 /**
  * Evaluate Iso type constructor call
@@ -64,7 +64,7 @@ export function evaluateIsoTypeCall({
   const isoType = createIsoType(childType, env);
 
   // Add atomic ARC functions to the Iso type
-  env = addARCFunctionsToIsoType({
+  env = addRcFunctionsToIsoType({
     isoType,
     env,
     context,
@@ -90,7 +90,7 @@ export function evaluateIsoTypeCall({
  * iso := Iso(Box(i32))(x);  // Consumes x
  *
  * This function:
- * 1. Checks that the value has no aliases (via isOwningTheSameGcValueAs)
+ * 1. Checks that the value has no aliases (via isOwningTheSameRcValueAs)
  * 2. Consumes the variable (marks it as moved)
  * 3. Wraps the value in an Iso type with atomic RC
  */
@@ -135,11 +135,11 @@ export function evaluateIsoValueCall({
       const variable = variables[variables.length - 1]!;
 
       // Check if there are other variables that own the same GC value
-      // by looking for variables with isOwningTheSameGcValueAs pointing to this variable
+      // by looking for variables with isOwningTheSameRcValueAs pointing to this variable
       const allVariables = env.frames.flatMap((frame) => frame.variables);
       const aliases = allVariables.filter(
         (v) =>
-          v.isOwningTheSameGcValueAs?.id === variable.id && v.id !== variable.id
+          v.isOwningTheSameRcValueAs?.id === variable.id && v.id !== variable.id
       );
 
       if (aliases.length > 0) {

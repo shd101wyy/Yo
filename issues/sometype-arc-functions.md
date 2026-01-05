@@ -9,15 +9,15 @@ When a `SomeType` (used for `Impl(Fn(...))` closures) is stored in a container l
 
 However, `SomeType` is an abstract type - at evaluation time, we don't know the concrete type it will resolve to. This caused two issues:
 
-### Issue 1: `typeContainsGcType(SomeType)` returned `false`
+### Issue 1: `typeContainsRcType(SomeType)` returned `false`
 
-The `typeContainsGcType` function determines whether a type needs ARC management. Since `SomeType` doesn't have a known structure at generation time, it was returning `false`, causing Box's `___dispose` to not generate `___drop` calls for SomeType fields.
+The `typeContainsRcType` function determines whether a type needs ARC management. Since `SomeType` doesn't have a known structure at generation time, it was returning `false`, causing Box's `___dispose` to not generate `___drop` calls for SomeType fields.
 
-**Fix**: Changed `typeContainsGcType` to conservatively return `true` for `SomeType`, ensuring containers always generate proper cleanup code.
+**Fix**: Changed `typeContainsRcType` to conservatively return `true` for `SomeType`, ensuring containers always generate proper cleanup code.
 
 ### Issue 2: No ARC dispatch mechanism for SomeType
 
-Even after fixing `typeContainsGcType`, calling `___drop` on a SomeType value didn't work because:
+Even after fixing `typeContainsRcType`, calling `___drop` on a SomeType value didn't work because:
 - The codegen handles `___drop` as a builtin function
 - For value types, it returned empty string (no-op)
 - SomeType is technically a value type (its `resolvedConcreteType` is often a value struct like a closure capture)
@@ -105,7 +105,7 @@ For `Box(Impl(Fn(...)))` containing a capture struct with `MyBox`:
 ## Files Modified
 
 - `src/expr.ts` - Added `__yo_sometype_drop`, `__yo_sometype_dup` builtins
-- `src/types/utils.ts` - Made `typeContainsGcType(SomeType)` return `true`
-- `src/evaluator/types/utils.ts` - Added `addARCFunctionsToSomeType`, fixed field label sanitization
+- `src/types/utils.ts` - Made `typeContainsRcType(SomeType)` return `true`
+- `src/evaluator/types/utils.ts` - Added `addRcFunctionsToSomeType`, fixed field label sanitization
 - `src/codegen/expressions/generation.ts` - Added codegen for SomeType ARC builtins
 - `src/codegen/types/generation.ts` - Fixed `dispose_fn` to use `___dispose`

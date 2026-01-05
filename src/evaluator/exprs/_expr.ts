@@ -68,15 +68,15 @@ import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
   evaluateYoAreTypesCompatible,
-  evaluateYoTypeCanFormGcCycle,
-  evaluateYoTypeContainsGcType,
+  evaluateYoTypeCanFormRcCycle,
+  evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
 import { evaluateVaStart } from "../builtins/va_start";
 import {
   evaluateYoVarHasOtherAliases,
-  evaluateYoVarIsOwningTheGcValue,
+  evaluateYoVarIsOwningTheRcValue,
   evaluateYoVarPrintInfo,
 } from "../builtins/var_fns";
 import { evaluateFunctionCall } from "../calls/function";
@@ -788,10 +788,10 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_contains_gc_type, 1)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_contains_rc_type, 1)
     ) {
-      // __yo_type_contains_gc_type
-      return evaluateYoTypeContainsGcType({
+      // __yo_type_contains_rc_type
+      return evaluateYoTypeContainsRcType({
         expr,
         env,
         context: { ...context },
@@ -799,12 +799,12 @@ ${exprToString(expr)}`,
     } else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_type_can_form_gc_cycle,
+        BuiltinFunctions.__yo_type_can_form_rc_cycle,
         1
       )
     ) {
-      // __yo_type_can_form_gc_cycle
-      return evaluateYoTypeCanFormGcCycle({
+      // __yo_type_can_form_rc_cycle
+      return evaluateYoTypeCanFormRcCycle({
         expr,
         env,
         context: { ...context },
@@ -832,11 +832,11 @@ ${exprToString(expr)}`,
     } else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_var_is_owning_the_gc_value
+        BuiltinFunctions.__yo_var_is_owning_the_rc_value
       )
     ) {
-      // __yo_var_is_owning_the_gc_value
-      return evaluateYoVarIsOwningTheGcValue({
+      // __yo_var_is_owning_the_rc_value
+      return evaluateYoVarIsOwningTheRcValue({
         expr,
         env,
         context: { ...context },

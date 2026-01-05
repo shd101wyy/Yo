@@ -201,7 +201,7 @@ Got:      "${paramName}"`,
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
         consumedAtToken: undefined,
-        isOwningTheGcValue: false,
+        isOwningTheRcValue: false,
       },
       skipCheckingFunctionOverloading: true,
     });
@@ -243,7 +243,7 @@ Got:      "${paramName}"`,
     }
 
     // Add regular parameter to environment
-    // Use the expected parameter's isOwningTheGcValue to properly track ownership
+    // Use the expected parameter's isOwningTheRcValue to properly track ownership
     // (borrowed parameters default to false, owned parameters are true)
     const anonymousParamName = paramExpr.token.value;
     const expectedParamName = expectedParam.label;
@@ -259,7 +259,7 @@ Got:      "${paramName}"`,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
-        isOwningTheGcValue: expectedParam.isOwningTheGcValue, // Parameters borrow by default
+        isOwningTheRcValue: expectedParam.isOwningTheRcValue, // Parameters borrow by default
         // If anonymous function uses different parameter name than expected,
         // store the expected name as alias for C codegen
         parameterAlias:

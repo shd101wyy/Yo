@@ -18,7 +18,7 @@ import {
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToDynType } from "./utils";
+import { addRcFunctionsToDynType } from "./utils";
 
 export function evaluateDynType({
   expr,
@@ -138,7 +138,7 @@ export function evaluateDynType({
   const dynType = createDynType(moduleTypes, env, negativeModules);
 
   // Add ARC functions to the dyn type's module
-  env = addARCFunctionsToDynType({
+  env = addRcFunctionsToDynType({
     dynType,
     env,
     context,

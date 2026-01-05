@@ -31,7 +31,7 @@ import {
   areTypesCompatible,
   isObjectType,
   isSomeType,
-  typeContainsGcType,
+  typeContainsRcType,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -780,7 +780,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // When returning a variable from the current frame, mark it as consumed (ownership transfer)
   // When returning from an outer frame, call dup (borrowing)
   if (
-    returnVariable?.isOwningTheGcValue &&
+    returnVariable?.isOwningTheRcValue &&
     returnVariable.frameLevel === env.frames.length - 1 &&
     !returnVariable.consumedAtToken
   ) {
@@ -836,10 +836,10 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     const dupCallsToRemove = new Set<FuncCallExpr>(); // Track which dup calls to remove
 
     for (const variable of variablesNeedingDrop) {
-      // Follow the entire isOwningTheSameGcValueAs chain to get the root base variable
+      // Follow the entire isOwningTheSameRcValueAs chain to get the root base variable
       let baseVariable = variable;
-      while (baseVariable.isOwningTheSameGcValueAs) {
-        baseVariable = baseVariable.isOwningTheSameGcValueAs;
+      while (baseVariable.isOwningTheSameRcValueAs) {
+        baseVariable = baseVariable.isOwningTheSameRcValueAs;
       }
       const baseId = baseVariable.id;
       const dupCalls = dupCallsByBaseVariable.get(baseId);
@@ -853,7 +853,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // Only pointer types (object(...)) can be safely optimized here.
       const isValueTypeWithRCFields =
         !isObjectType(baseVariable.type) &&
-        typeContainsGcType(baseVariable.type);
+        typeContainsRcType(baseVariable.type);
 
       if (dupCalls && dupCalls.length > 0 && !isValueTypeWithRCFields) {
         // Count how many runtime dups we have.

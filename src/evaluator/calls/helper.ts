@@ -298,14 +298,14 @@ export function checkIfFunctionParameterMatchesArgument({
       // - If the argument already owns the GC value, *move* it into the call: consume it, no dup.
       // - If the argument is only borrowed/non-owning, create an owned temp via ___dup and pass that;
       //   the original binding is still consumed (becomes unusable) to preserve linear/consuming-call semantics.
-      if (parameter.isOwningTheGcValue && !parameter.isCompileTimeOnly) {
+      if (parameter.isOwningTheRcValue && !parameter.isCompileTimeOnly) {
         const argVarName = evaluatedArgExpr.$?.variableName;
         const argVars = argVarName
           ? getVariablesFromEnv(callerEnv, argVarName)
           : [];
         const argVar = argVars.length ? argVars[argVars.length - 1] : undefined;
 
-        if (argVar?.isOwningTheGcValue) {
+        if (argVar?.isOwningTheRcValue) {
           // Argument already owns: move it (no dup), and consume at call site.
           callerEnv = setExprAsConsumed(
             evaluatedArgExpr,
@@ -389,7 +389,7 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
-      isOwningTheGcValue: parameter.isOwningTheGcValue,
+      isOwningTheRcValue: parameter.isOwningTheRcValue,
     },
   });
   calleeEnv = nextEnv;
@@ -571,7 +571,7 @@ export function tryToCallFunctionWithArguments({
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
         value: typeValue,
-        isOwningTheGcValue: false,
+        isOwningTheRcValue: false,
       },
     });
     calleeEnv = nextEnv;
@@ -598,7 +598,7 @@ export function tryToCallFunctionWithArguments({
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       calleeEnv = nextEnv;
@@ -780,7 +780,7 @@ Got:   ${typeToString(typeValue.type)}`,
               token: token,
               initializedAtToken: token, // Set as initialized
               consumedAtToken: undefined,
-              isOwningTheGcValue: false,
+              isOwningTheRcValue: false,
             },
           });
           calleeEnv = nextEnv;
@@ -1029,7 +1029,7 @@ Got:   ${argExprs.length} arguments`,
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       calleeEnv = nextEnv;

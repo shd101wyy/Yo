@@ -136,7 +136,7 @@ export default class Evaluator {
                 field.exprs.labelExpr?.token ?? field.exprs.expr.token,
               consumedAtToken: undefined,
               token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
-              isOwningTheGcValue: false,
+              isOwningTheRcValue: false,
             },
           });
           env = nextEnv;

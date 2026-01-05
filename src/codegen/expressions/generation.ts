@@ -22,11 +22,11 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
-  isGcType,
   isIsoType,
   isNewtypeType,
   isObjectType,
   isPtrType,
+  isRcType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -38,7 +38,7 @@ import {
   SomeType,
   StructType,
   Type,
-  typeContainsGcType,
+  typeContainsRcType,
   typeImplementsFn,
   typeImplementsFuture,
   TypeTag,
@@ -131,7 +131,7 @@ function getDeferredDupTargetAtomName(dupExpr: Expr): string | undefined {
  *
  * @param captureType The struct type containing captured variables
  * @param closureTypeId A unique ID for generating temp variable names
- * @param sourceExpr The expression containing deferredDupExpressions (for Gc handling)
+ * @param sourceExpr The expression containing deferredDupExpressions (for Rc handling)
  * @param indent The current indentation level
  * @param context The code generation context
  * @param useStackAllocation If true, allocate on stack (for Impl closures); if false, heap-allocate (for Dyn closures)
@@ -594,7 +594,7 @@ function generateFuncCall(
     }
   }
 
-  // ___dup - generic dup hook used by evaluator for GC/reference-counted values.
+  // ___dup - generic dup hook used by evaluator for reference-counted values.
   // In many cases the evaluator rewrites `___dup(x)` into `x.___dup()`, but in
   // some contexts (e.g. deferred dup for dyn-closure captures) the builtin call
   // is intentionally deferred to codegen.
@@ -614,7 +614,7 @@ function generateFuncCall(
     return generateDupCodeForValue(valueCode, valueType, context);
   }
 
-  // ___drop - generic drop hook used by evaluator for GC/reference-counted values.
+  // ___drop - generic drop hook used by evaluator for reference-counted values.
   // Similar to ___dup, some drops are deferred to codegen.
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
     const valueArg = expr.args[0];
@@ -860,7 +860,7 @@ function generateFuncCall(
     const argCode = generateExpr(argExpr, indent, context);
 
     // For GC types (reference-counted objects), return the actual ref_count
-    if (isGcType(argType)) {
+    if (isRcType(argType)) {
       return `((yo_ref_header_t*)(${argCode}))->ref_count`;
     } else {
       // For value types, always return 1
@@ -1409,8 +1409,8 @@ function generateFuncCall(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isOwningTheSameGcValueAs
-            ? variable.isOwningTheSameGcValueAs.id
+          const idToCheck = variable.isOwningTheSameRcValueAs
+            ? variable.isOwningTheSameRcValueAs.id
             : variable.id;
 
           if (functionContext.stateMachineVariables.has(idToCheck)) {
@@ -1445,7 +1445,7 @@ function generateFuncCall(
           }
         } else {
           // Copying from another array - use direct struct assignment
-          // Handle temp variable assignment for Gc values
+          // Handle temp variable assignment for Rc values
           let rhsCode: string;
           if (rhs.$?.variableName) {
             const tempVarName = getVariableNameForCodegen(
@@ -1499,7 +1499,7 @@ function generateFuncCall(
           rhs.$?.type &&
           typeImplementsFn(rhs.$.type);
 
-        // If RHS has a temp variable name (e.g., for Gc values), we need to:
+        // If RHS has a temp variable name (e.g., for Rc values), we need to:
         // 1. First generate the RHS expression and assign it to the temp variable
         // 2. Then use the temp variable for the assignment
         // BUT: don't create temp variables for captured variables
@@ -2437,7 +2437,7 @@ function generateFuncCall(
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info) ||
     exprIsFunctionCallOf(
       expr,
-      BuiltinFunctions.__yo_var_is_owning_the_gc_value
+      BuiltinFunctions.__yo_var_is_owning_the_rc_value
     ) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases)
   ) {
@@ -3865,7 +3865,7 @@ function generateAsyncBlock(
     // Build the capture struct literal
     // Dup expressions are created at evaluation time and don't have correct context for code generation
     // When in a closure or state machine, always use generateAtom for proper context-aware access
-    // Otherwise, use dup expressions if available (they handle proper Gc semantics)
+    // Otherwise, use dup expressions if available (they handle proper Rc semantics)
     const functionContext = context as FunctionGenerationContext;
     const inSpecialContext =
       functionContext.currentClosureCaptures !== undefined ||
@@ -3874,7 +3874,7 @@ function generateAsyncBlock(
     const captureFields = captureType.fields
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for Gc types,
+        // deferredDupExpressions only contains dup expressions for Rc types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
         if (!inSpecialContext && expr.$?.deferredDupExpressions) {
@@ -4310,7 +4310,7 @@ function generateAsyncBlockStateDisposeFunction(
   emitter.emitLine(``);
 
   // Drop capture struct (like closures do)
-  if (captureType && typeContainsGcType(captureType)) {
+  if (captureType && typeContainsRcType(captureType)) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
     );
@@ -4349,7 +4349,7 @@ function generateAsyncBlockStateDisposeFunction(
   // Drop the result field if it contains GC-managed data
   // This is critical: when the state machine completes, the result is stored
   // but never dropped. The dispose function must clean it up.
-  if (!isUnitType(resultType) && typeContainsGcType(resultType)) {
+  if (!isUnitType(resultType) && typeContainsRcType(resultType)) {
     const resultTypeCName = getTypeString(resultType, context);
 
     emitter.emitLine(
@@ -4833,8 +4833,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!; // Most recent scope
-        const varId = variable.isOwningTheSameGcValueAs
-          ? variable.isOwningTheSameGcValueAs.id
+        const varId = variable.isOwningTheSameRcValueAs
+          ? variable.isOwningTheSameRcValueAs.id
           : variable.id;
 
         // Check if this variable ID is in the state machine
@@ -4879,10 +4879,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheSameGcValueAs) {
+        if (variable.isOwningTheSameRcValueAs) {
           // This variable is borrowing - try to find the owner in state machine
-          const ownerName = variable.isOwningTheSameGcValueAs.name;
-          const ownerId = variable.isOwningTheSameGcValueAs.id;
+          const ownerName = variable.isOwningTheSameRcValueAs.name;
+          const ownerId = variable.isOwningTheSameRcValueAs.id;
 
           for (const [
             varId,
@@ -4907,7 +4907,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  // If this atom has a temp variable name (e.g., for Gc values), use that instead of regenerating code
+  // If this atom has a temp variable name (e.g., for Rc values), use that instead of regenerating code
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
   // ALSO: if this is a compile-time only variable with a value, inline it instead
@@ -5233,8 +5233,8 @@ function generateFieldAccess(
       return cFunctionName;
     }
 
-    // Fallback: Check if this is an Gc method call (___drop, ___dup, ___dispose)
-    // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
+    // Fallback: Check if this is an Rc method call (___drop, ___dup, ___dispose)
+    // Sometimes, we only called addRcFunctionSignaturesToStructType / addRcFunctionSignaturesToEnumType
     // So they are using the `undefined` function value, before we actually update its module fields.
     if (
       !expr.$?.value &&
@@ -5243,7 +5243,7 @@ function generateFieldAccess(
         BuiltinFunctions.___dup.includes(fieldName)) &&
       objectType
     ) {
-      // For Gc methods, we need to look up the function from the type's module
+      // For Rc methods, we need to look up the function from the type's module
       // and return the function name directly instead of treating it as field access
       let typeModule: ModuleType | null = null;
 
@@ -5269,10 +5269,10 @@ function generateFieldAccess(
             functionValue.funcId;
           return cFunctionName;
         } else {
-          return `/* ERROR: Gc method ${fieldName} not found in type module */`;
+          return `/* ERROR: Rc method ${fieldName} not found in type module */`;
         }
       } else {
-        return `/* ERROR: No module found for Gc method ${fieldName} */`;
+        return `/* ERROR: No module found for Rc method ${fieldName} */`;
       }
     }
 

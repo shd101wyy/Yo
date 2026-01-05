@@ -1,5 +1,5 @@
 import { createEmptyEnv, Environment, Frame } from "../env";
-import { addARCFunctionsToSomeType } from "../evaluator/types/utils";
+import { addRcFunctionsToSomeType } from "../evaluator/types/utils";
 import { Expr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
@@ -890,7 +890,7 @@ export function createSomeType(
   module.receiverType = someType;
 
   // Add ARC functions to SomeType - these dispatch to resolvedConcreteType at codegen time
-  addARCFunctionsToSomeType({
+  addRcFunctionsToSomeType({
     someType,
     env: emptyEnv,
     context: {

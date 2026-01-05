@@ -16,7 +16,7 @@ import {
   isSomeType,
   ModuleType,
   Type,
-  typeContainsGcType,
+  typeContainsRcType,
   typeContainsSelfTypeForDynamicDispatchCheck,
   typeContainsSomeType,
   typeImplementsFuture,
@@ -74,24 +74,24 @@ export interface Variable {
   isCompileTimeOnly: boolean;
 
   /**
-   * Whether the variable is holding the Gc value or borrowing the Gc value.
-   * This is only relevant for types that are managed by Gc.
-   * If the value is not Gc managed, then it should be 'false'
+   * Whether the variable is holding the Rc value or borrowing the Rc value.
+   * This is only relevant for types that are managed by Rc.
+   * If the value is not Rc managed, then it should be 'false'
    *
    * Under the new simplified ownership model:
-   * - Variables created by := or = always own (isOwningTheGcValue: true)
-   * - Function parameters borrow by default (isOwningTheGcValue: false)
-   * - Function parameters with own() explicitly own (isOwningTheGcValue: true)
-   * - For non-Gc types, this is always false (no ownership tracking needed)
+   * - Variables created by := or = always own (isOwningTheRcValue: true)
+   * - Function parameters borrow by default (isOwningTheRcValue: false)
+   * - Function parameters with own() explicitly own (isOwningTheRcValue: true)
+   * - For non-Rc types, this is always false (no ownership tracking needed)
    */
-  isOwningTheGcValue: boolean;
+  isOwningTheRcValue: boolean;
 
   /**
-   * Tracks when this variable owns a share of the same Gc object as another variable.
+   * Tracks when this variable owns a share of the same Rc object as another variable.
    * This is used for dup/drop optimization across variable reassignments.
    *
    * When a temp variable is created to hold the old value during reassignment:
-   * - The temp variable's `isOwningTheSameGcValueAs` points to the original variable
+   * - The temp variable's `isOwningTheSameRcValueAs` points to the original variable
    * - This allows us to optimize away `dup(original) + drop(temp)` pairs
    *
    * Example:
@@ -101,10 +101,10 @@ export interface Variable {
    * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
    * ```
    *
-   * Here, `temp` would have `isOwningTheSameGcValueAs = y` because both own
+   * Here, `temp` would have `isOwningTheSameRcValueAs = y` because both own
    * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
    */
-  isOwningTheSameGcValueAs?: Variable;
+  isOwningTheSameRcValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -539,8 +539,8 @@ export function getVariableInfo(variable: Variable) {
     value: valueToString(variable.value),
     isCompileTimeOnly: variable.isCompileTimeOnly,
     isUndefined: !variable.initializedAtToken,
-    isOwningTheGcValue: !!variable.isOwningTheGcValue,
-    isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
+    isOwningTheRcValue: !!variable.isOwningTheRcValue,
+    isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
     isReassignable: !!variable.isReassignable,
     isConsumed: !!variable.consumedAtToken,
   };
@@ -1212,7 +1212,7 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
-    // First, check the dyn object's own module for its Gc methods (___drop, ___dup, ___dispose)
+    // First, check the dyn object's own module for its Rc methods (___drop, ___dup, ___dispose)
     const dynMethod = dereferencedReceiverType.module.fields.find(
       (field) =>
         field.label === methodName &&
@@ -1366,8 +1366,8 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     (variable) =>
       !variable.consumedAtToken &&
       // !variable.isCompileTimeOnly &&
-      variable.isOwningTheGcValue &&
-      typeContainsGcType(variable.type)
+      variable.isOwningTheRcValue &&
+      typeContainsRcType(variable.type)
   );
 
   // Return in reverse order (end to start) for proper drop order

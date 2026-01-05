@@ -18,7 +18,7 @@ import {
   isUnitType,
   SomeType,
   StructType,
-  typeContainsGcType,
+  typeContainsRcType,
 } from "../../types";
 import { isTempVariableName } from "../../utils";
 import { generateExpr, getDupFunctionForType } from "../expressions";
@@ -174,9 +174,9 @@ export function generateAsyncBlockResumeFunction(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
 
-        // If the result contains GC-managed data, we need to dup it before copying
+        // If the result contains Rc-managed data, we need to dup it before copying
         // because the Future's dispose function will drop it, and we need our own reference
-        if (typeContainsGcType(prevAwait.resultType)) {
+        if (typeContainsRcType(prevAwait.resultType)) {
           const dupFunctionName = getDupFunctionForType(
             prevAwait.resultType,
             context
@@ -194,7 +194,7 @@ export function generateAsyncBlockResumeFunction(
             );
           }
         } else {
-          // For non-GC types (primitives), simple copy is fine
+          // For non-Rc types (primitives), simple copy is fine
           emitter.emitLine(
             `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
           );
@@ -274,7 +274,7 @@ export function generateAsyncBlockResumeFunction(
                       name: field.label,
                       type: field.type,
                       kind: "outer",
-                      isOwningTheSameGcValueAs: undefined, // FIXME
+                      isOwningTheSameRcValueAs: undefined, // FIXME
                     });
                   }
                 }
@@ -377,7 +377,7 @@ export function generateAsyncBlockResumeFunction(
                   name: field.label,
                   type: field.type,
                   kind: "outer",
-                  isOwningTheSameGcValueAs: undefined, // FIXME
+                  isOwningTheSameRcValueAs: undefined, // FIXME
                 });
               }
             }
@@ -428,7 +428,7 @@ export function generateAsyncBlockResumeFunction(
                 name: field.label,
                 type: field.type,
                 kind: "outer",
-                isOwningTheSameGcValueAs: undefined, // FIXME
+                isOwningTheSameRcValueAs: undefined, // FIXME
               });
             }
           }
@@ -503,7 +503,7 @@ export function generateAsyncBlockResumeFunction(
           name: field.label,
           type: field.type,
           kind: "outer",
-          isOwningTheSameGcValueAs: undefined,
+          isOwningTheSameRcValueAs: undefined,
         });
       }
     }

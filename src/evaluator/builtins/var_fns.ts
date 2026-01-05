@@ -49,7 +49,7 @@ export function evaluateYoVarPrintInfo({
   return expr;
 }
 
-export function evaluateYoVarIsOwningTheGcValue({
+export function evaluateYoVarIsOwningTheRcValue({
   expr,
   env,
   context,
@@ -60,7 +60,7 @@ export function evaluateYoVarIsOwningTheGcValue({
 }): FuncCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
-    BuiltinFunctions.__yo_var_is_owning_the_gc_value,
+    BuiltinFunctions.__yo_var_is_owning_the_rc_value,
     1
   );
 
@@ -75,19 +75,19 @@ export function evaluateYoVarIsOwningTheGcValue({
   }
 
   const variableName = varValue.$?.variableName;
-  let isOwningTheGcValue = false;
+  let isOwningTheRcValue = false;
   if (variableName) {
     const variables = getVariablesFromEnv(env, variableName);
     if (variables.length > 0) {
       const variable = variables.at(-1)!;
-      isOwningTheGcValue = variable.isOwningTheGcValue;
+      isOwningTheRcValue = variable.isOwningTheRcValue;
     }
   }
 
   expr.$ = {
     env,
     type: createBooleanType(),
-    value: createBooleanValue(isOwningTheGcValue),
+    value: createBooleanValue(isOwningTheRcValue),
     pathCollection: [],
   };
   return expr;
@@ -124,19 +124,19 @@ export function evaluateYoVarHasOtherAliases({
     const variables = getVariablesFromEnv(env, variableName);
     if (variables.length > 0) {
       const variable = variables.at(-1)!;
-      const isOwningTheSameGcValueAs = variable.isOwningTheSameGcValueAs;
-      if (isOwningTheSameGcValueAs) {
+      const isOwningTheSameRcValueAs = variable.isOwningTheSameRcValueAs;
+      if (isOwningTheSameRcValueAs) {
         hasOtherAliases = true;
       } else {
         const targetVariableId = variable.id;
-        // Check if there exists any variable that has isOwningTheSameGcValueAs equal to targetVariableId
+        // Check if there exists any variable that has isOwningTheSameRcValueAs equal to targetVariableId
         for (let i = env.frames.length - 1; i >= 0; i--) {
           const frame = env.frames[i]!;
           for (let j = 0; j < frame.variables.length; j++) {
             const frameVariable = frame.variables[j]!;
             if (
-              frameVariable.isOwningTheSameGcValueAs &&
-              frameVariable.isOwningTheSameGcValueAs.id === targetVariableId
+              frameVariable.isOwningTheSameRcValueAs &&
+              frameVariable.isOwningTheSameRcValueAs.id === targetVariableId
             ) {
               hasOtherAliases = true;
               break;

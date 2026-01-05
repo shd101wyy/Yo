@@ -18,7 +18,7 @@ import {
   isSomeType,
   StructType,
   Type,
-  typeContainsGcType,
+  typeContainsRcType,
   typeToString,
 } from "./types";
 import {
@@ -195,9 +195,9 @@ export interface EvaluatedExprData {
   comment?: string;
 
   /**
-   * For closures that capture Gc variables, this contains expressions that
+   * For closures that capture Rc variables, this contains expressions that
    * call ___dup on the captured variables. Used by C codegen to generate
-   * proper Gc handling in closure ___dup methods.
+   * proper Rc handling in closure ___dup methods.
    *
    * Example: If a closure captures `x: MyBox`, this would contain the expression `x.___dup()`
    */
@@ -231,7 +231,7 @@ export interface EvaluatedExprData {
   /**
    * For closure and async block expressions, this contains the capture struct type that holds all
    * captured variables from outer scope.
-   * The capture struct has Gc functions (___drop, ___dup, ___dispose) auto-generated.
+   * The capture struct has Rc functions (___drop, ___dup, ___dispose) auto-generated.
    *
    * Example: For `async { printf("%d", x); }` where `x: MyBox` is from outer scope,
    * this would contain a StructType with a single field `x: MyBox`.
@@ -570,7 +570,7 @@ export const BuiltinFunctions = {
   as: ["as"],
   the: ["the"],
   do: ["do"],
-  rc: "rc", // Get the reference count of a Gc type
+  rc: "rc", // Get the reference count of a Rc type
 
   // Async/await functions
   async: ["async"],
@@ -871,14 +871,14 @@ export const BuiltinFunctions = {
   // Type related functions
   __yo_type_to_string: ["__yo_type_to_string"],
   // __yo_type_is_type0: ["__yo_type_is_type0"],
-  __yo_type_contains_gc_type: ["__yo_type_contains_gc_type"],
-  __yo_type_can_form_gc_cycle: ["__yo_type_can_form_gc_cycle"],
+  __yo_type_contains_rc_type: ["__yo_type_contains_rc_type"],
+  __yo_type_can_form_rc_cycle: ["__yo_type_can_form_rc_cycle"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
   __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a module (e.g., Copy, Send)
 
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],
-  __yo_var_is_owning_the_gc_value: ["__yo_var_is_owning_the_gc_value"],
+  __yo_var_is_owning_the_rc_value: ["__yo_var_is_owning_the_rc_value"],
   __yo_var_has_other_aliases: ["__yo_var_has_other_aliases"],
 
   // Operator related functions
@@ -915,27 +915,27 @@ export const BuiltinFunctions = {
   // Error handling
   panic: ["panic"],
 
-  // Gc related
+  // Rc/Gc related
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
   __yo_incr_rc: ["__yo_incr_rc"], // increment the reference-counter (usize)
   __yo_decr_rc_atomic: ["__yo_decr_rc_atomic"], // atomic decrement for Iso types
   __yo_incr_rc_atomic: ["__yo_incr_rc_atomic"], // atomic increment for Iso types
-  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheGcValue to be true. This is useful for implementing ___dup function.
+  __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheRcValue to be true. This is useful for implementing ___dup function.
   __yo_iso_extract: ["__yo_iso_extract"], // extract inner value from Iso(T), returns Option(T)
   __yo_iso_dispose: ["__yo_iso_dispose"], // dispose inner value of Iso if not extracted
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
 
-  // Dynamic dispatch Gc functions
+  // Dynamic dispatch Rc functions
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
   __yo_dyn_dup: ["__yo_dyn_dup"], // dup the dyn object with wrapped object
 
-  // SomeType Gc functions - dispatch to resolvedConcreteType if available
+  // SomeType Rc functions - dispatch to resolvedConcreteType if available
   __yo_sometype_drop: ["__yo_sometype_drop"], // drop by dispatching to resolvedConcreteType
   __yo_sometype_dup: ["__yo_sometype_dup"], // dup by dispatching to resolvedConcreteType
 
-  // Gc functions
+  // Rc functions
   ___drop: ["___drop"], // drop the value; decrement the reference-counter if necessary, and call `dispose` if is_uniquely_owned
   ___dispose: ["___dispose"],
   ___dup: ["___dup"], // duplicate the value; increment the reference-counter if necessary
@@ -1250,8 +1250,8 @@ function exprToPrettyString(
 
 export function attachTempVariableToExpr(
   expr: Expr,
-  isOwningTheGcValue: boolean,
-  isOwningTheSameGcValueAs?: Variable
+  isOwningTheRcValue: boolean,
+  isOwningTheSameRcValueAs?: Variable
 ): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
@@ -1260,10 +1260,10 @@ ${exprToString(expr)}`);
   const { env, type, value, originType } = expr.$;
   const modulePath = env.modulePath;
 
-  // NOTE: For now let's make all the isOwningTheGcValue variable runtime-only
+  // NOTE: For now let's make all the isOwningTheRcValue variable runtime-only
   // so the `object` value can only be used in runtime.
   // Actually, all C pointer related should be runtime-only.
-  const _isOwningTheARCValue = isOwningTheGcValue && typeContainsGcType(type);
+  const _isOwningTheARCValue = isOwningTheRcValue && typeContainsRcType(type);
 
   // Check if a temp variable already exists
   if (expr.$.variableName) {
@@ -1276,7 +1276,7 @@ ${exprToString(expr)}`);
       // attaching a temp variable to it. This is crucial for correct reference
       // counting - returning a borrowed parameter should generate a dup call.
       const preservedIsOwningTheRefValue =
-        Boolean(existingVariable.isOwningTheGcValue) === false
+        Boolean(existingVariable.isOwningTheRcValue) === false
           ? false
           : _isOwningTheARCValue;
       const updatedVariable: Variable = {
@@ -1286,8 +1286,8 @@ ${exprToString(expr)}`);
         isCompileTimeOnly: preservedIsOwningTheRefValue
           ? false
           : Boolean(value),
-        isOwningTheGcValue: preservedIsOwningTheRefValue,
-        isOwningTheSameGcValueAs,
+        isOwningTheRcValue: preservedIsOwningTheRefValue,
+        isOwningTheSameRcValueAs,
       };
       expr.$.env = updateExistingVariable(
         env,
@@ -1313,8 +1313,8 @@ ${exprToString(expr)}`);
         value: _isOwningTheARCValue ? undefined : value,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
         initializedAtToken: expr.token,
-        isOwningTheGcValue: _isOwningTheARCValue,
-        isOwningTheSameGcValueAs,
+        isOwningTheRcValue: _isOwningTheARCValue,
+        isOwningTheSameRcValueAs,
         consumedAtToken: undefined,
         token: expr.token,
       },
@@ -1342,8 +1342,8 @@ ${exprToString(expr)}`);
       value: _isOwningTheARCValue ? undefined : value,
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
-      isOwningTheGcValue: _isOwningTheARCValue,
-      isOwningTheSameGcValueAs,
+      isOwningTheRcValue: _isOwningTheARCValue,
+      isOwningTheSameRcValueAs,
       consumedAtToken: undefined,
       token: expr.token,
     },
@@ -1421,14 +1421,14 @@ export function mergeAndCheckEnvs(
       consumedAtToken: Token | undefined;
       initializedAtToken: Token | undefined;
       type: Type;
-      isOwningTheGcValue: boolean;
+      isOwningTheRcValue: boolean;
     }[][] = [[]];
     frameVariables.forEach((variable) => {
       matrix[0]!.push({
         consumedAtToken: variable.consumedAtToken,
         initializedAtToken: variable.initializedAtToken,
         type: variable.type,
-        isOwningTheGcValue: variable.isOwningTheGcValue ?? false,
+        isOwningTheRcValue: variable.isOwningTheRcValue ?? false,
       });
     });
 
@@ -1473,7 +1473,7 @@ export function mergeAndCheckEnvs(
           consumedAtToken: variable.consumedAtToken,
           initializedAtToken: variable.initializedAtToken,
           type: variable.type,
-          isOwningTheGcValue: variable.isOwningTheGcValue ?? false,
+          isOwningTheRcValue: variable.isOwningTheRcValue ?? false,
         });
       });
     }
@@ -1496,7 +1496,7 @@ export function mergeAndCheckEnvs(
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
         initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
         isOwningTheRefValueAtTokens.push(
-          matrix[j]![i]!.isOwningTheGcValue
+          matrix[j]![i]!.isOwningTheRcValue
             ? caseEnvFrameVariables[i]!.token
             : undefined
         );
@@ -1693,52 +1693,52 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       }
 
       // Check isOwningTheRefValueAtTokens
-      // Variable is not owning the Gc value outside, but the only case makes it owning.
+      // Variable is not owning the Rc value outside, but the only case makes it owning.
       // case 1
       /*
       if (isOwningTheRefValueAtTokens.length === 1) {
         if (
-          !frameVariables[i]!.isOwningTheGcValue &&
+          !frameVariables[i]!.isOwningTheRcValue &&
           isOwningTheRefValueAtTokens[0]
         ) {
           throw formatErrorMessages([
             {
               token: frameVariables[i]!.token,
-              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the Gc value in all cases.`,
+              errorMessage: `Variable "${frameVariables[i]!.name}" might not be owning the Rc value in all cases.`,
             },
             {
               token: isOwningTheRefValueAtTokens[0]!,
-              errorMessage: `Might be owning the Gc value here:`,
+              errorMessage: `Might be owning the Rc value here:`,
             },
           ]);
         }
       }
       // case 2
-      // variable is not owning the Gc value outside, but all cases make it owning.
+      // variable is not owning the Rc value outside, but all cases make it owning.
       else 
       */
       if (
-        !frameVariables[i]!.isOwningTheGcValue &&
+        !frameVariables[i]!.isOwningTheRcValue &&
         isOwningTheRefValueAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
           ...frameVariables[i]!,
-          isOwningTheGcValue: true,
-          isOwningTheSameGcValueAs: undefined,
+          isOwningTheRcValue: true,
+          isOwningTheSameRcValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
       }
       // case 3
       else {
-        const isOwningTheGcValue = isOwningTheRefValueAtTokens.filter(
+        const isOwningTheRcValue = isOwningTheRefValueAtTokens.filter(
           (u) => !!u
         );
         const isNotOwningTheRefValue = isOwningTheRefValueAtTokens.filter(
           (u) => !u
         );
         if (
-          isOwningTheGcValue.length > 0 &&
+          isOwningTheRcValue.length > 0 &&
           isNotOwningTheRefValue.length > 0
         ) {
           throw formatErrorMessages(
@@ -1746,11 +1746,11 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
               return {
                 errorMessage:
                   (index === 0
-                    ? `Variable "${variableName}" might be holding the Gc value in some cases but not holding the Gc value in other cases:\n`
+                    ? `Variable "${variableName}" might be holding the Rc value in some cases but not holding the Rc value in other cases:\n`
                     : "") +
                   (token
-                    ? "Might be owning the Gc value here:"
-                    : "Might be not owning the Gc value here:"),
+                    ? "Might be owning the Rc value here:"
+                    : "Might be not owning the Rc value here:"),
                 token: token ?? bodies[index]!.token,
               };
             })
@@ -1785,7 +1785,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           ...frameVariables[i]!,
           id: newVariableId,
           // Clear ownership tracking since the value may come from different sources
-          isOwningTheSameGcValueAs: undefined,
+          isOwningTheSameRcValueAs: undefined,
         };
         env = updateExistingVariable(env, frameVariables[i]!, newVariable);
         frameVariables[i] = newVariable;
@@ -1956,8 +1956,8 @@ export function setExprAsNeedsToCallDup(
     });
   }
 
-  if (typeContainsGcType(expr.$.type)) {
-    // Check if the expr.variableName is holding the Gc value
+  if (typeContainsRcType(expr.$.type)) {
+    // Check if the expr.variableName is holding the Rc value
     // if yes, then no need to call dup
     // We just need to set it as consumed
     if (isTempVariableName(expr.$.env.modulePath, variableName)) {
@@ -1968,7 +1968,7 @@ export function setExprAsNeedsToCallDup(
         const variables = getVariablesFromEnv(expr.$.env, variableName);
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
-          if (variable.isOwningTheGcValue) {
+          if (variable.isOwningTheRcValue) {
             // Set the variable as consumed so we won't need to drop it later
             if (!variable.consumedAtToken) {
               expr.$.env = updateExistingVariable(expr.$.env, variable, {

@@ -8,13 +8,13 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  canTypeFormGcCycle,
+  canTypeFormRcCycle,
   createBooleanType,
   createComptStringType,
   isModuleType,
   isTypeHierarchyType,
   ModuleType,
-  typeContainsGcType,
+  typeContainsRcType,
   typeToString,
 } from "../../types";
 import {
@@ -155,7 +155,7 @@ export function evaluateYoAreTypesCompatible({
   return expr;
 }
 
-export function evaluateYoTypeContainsGcType({
+export function evaluateYoTypeContainsRcType({
   expr,
   env,
   context,
@@ -166,7 +166,7 @@ export function evaluateYoTypeContainsGcType({
 }): FuncCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
-    BuiltinFunctions.__yo_type_contains_gc_type,
+    BuiltinFunctions.__yo_type_contains_rc_type,
     1
   );
 
@@ -203,7 +203,7 @@ export function evaluateYoTypeContainsGcType({
     });
   }
 
-  const flag = typeContainsGcType(typeValue.value);
+  const flag = typeContainsRcType(typeValue.value);
   const value = createBooleanValue(flag);
 
   expr.$ = {
@@ -217,7 +217,7 @@ export function evaluateYoTypeContainsGcType({
   return expr;
 }
 
-export function evaluateYoTypeCanFormGcCycle({
+export function evaluateYoTypeCanFormRcCycle({
   expr,
   env,
   context,
@@ -228,7 +228,7 @@ export function evaluateYoTypeCanFormGcCycle({
 }): FuncCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
-    BuiltinFunctions.__yo_type_can_form_gc_cycle,
+    BuiltinFunctions.__yo_type_can_form_rc_cycle,
     1
   );
 
@@ -265,7 +265,7 @@ export function evaluateYoTypeCanFormGcCycle({
     });
   }
 
-  const flag = canTypeFormGcCycle(typeValue.value);
+  const flag = canTypeFormRcCycle(typeValue.value);
   const value = createBooleanValue(flag);
 
   expr.$ = {

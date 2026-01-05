@@ -19,8 +19,8 @@ import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";
 import {
-  addARCFunctionSignaturesToEnumType,
-  addARCFunctionsToEnumType,
+  addRcFunctionSignaturesToEnumType,
+  addRcFunctionsToEnumType,
   autoDeriveSendForEnumType,
 } from "./utils";
 
@@ -42,7 +42,7 @@ export function evaluateEnumType({
 
   // Create enumType with empty variants
   const enumType = createEnumType(env);
-  addARCFunctionSignaturesToEnumType({ enumType, env, context });
+  addRcFunctionSignaturesToEnumType({ enumType, env, context });
 
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
@@ -225,7 +225,7 @@ export function evaluateEnumType({
   });
 
   // Auto-generate ARC functions using the systematic approach
-  env = addARCFunctionsToEnumType({
+  env = addRcFunctionsToEnumType({
     enumType,
     env,
     context,

@@ -12,7 +12,7 @@ import {
   areTypesCompatible,
   createStructType,
   StructType,
-  typeContainsGcType,
+  typeContainsRcType,
   TypeField,
   typeToString,
 } from "../../types";
@@ -24,7 +24,7 @@ import {
 } from "../../value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToStructType } from "../types/utils";
+import { addRcFunctionsToStructType } from "../types/utils";
 
 /**
  * Consume captured variables for closures.
@@ -154,7 +154,7 @@ export function createCaptureTypeAndValue({
       inferredCaptureType.fields = captureFields;
       captureType = inferredCaptureType;
 
-      env = addARCFunctionsToStructType({
+      env = addRcFunctionsToStructType({
         structType: inferredCaptureType,
         env,
         context: { ...context },
@@ -178,7 +178,7 @@ export function createCaptureTypeAndValue({
       const emptyStructType = createStructType(env);
       emptyStructType.fields = [];
 
-      env = addARCFunctionsToStructType({
+      env = addRcFunctionsToStructType({
         structType: emptyStructType,
         env,
         context: { ...context },
@@ -331,7 +331,7 @@ export function generateCapturedVariableDupExpressions({
       captureInfo,
     ] of capturedVariablesWithValues.entries()) {
       // Check if the captured variable type requires ARC (contains ARC types)
-      if (typeContainsGcType(captureInfo.type)) {
+      if (typeContainsRcType(captureInfo.type)) {
         // Create an expression: varName.___dup()
         const dupExpr: Expr = generateExprFromCode(
           `${BuiltinFunctions.___dup[0]!}(${varName})`

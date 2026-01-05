@@ -251,7 +251,7 @@ export function isDynType(type?: Type): type is DynType {
  * @param type
  * @returns
  */
-export function isGcType(type?: Type): boolean {
+export function isRcType(type?: Type): boolean {
   if (isSomeType(type)) {
     const someType = type as SomeType;
 
@@ -259,7 +259,7 @@ export function isGcType(type?: Type): boolean {
       return true;
     }
     if (someType.resolvedConcreteType) {
-      return isGcType(someType.resolvedConcreteType);
+      return isRcType(someType.resolvedConcreteType);
     }
   }
 

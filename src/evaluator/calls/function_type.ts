@@ -137,7 +137,7 @@ export function tryToImplementFunctionByFunctionType({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
         skipCheckingFunctionOverloading: true,
       });
@@ -163,7 +163,7 @@ export function tryToImplementFunctionByFunctionType({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
-          isOwningTheGcValue: anonymousParam.isOwningTheGcValue,
+          isOwningTheRcValue: anonymousParam.isOwningTheRcValue,
           // Set up parameter alias if names differ
           parameterAlias:
             anonymousParamName !== expectedParamName

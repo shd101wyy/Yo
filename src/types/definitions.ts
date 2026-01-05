@@ -314,7 +314,7 @@ export interface FunctionParameter {
    * When true, the caller must dup the value before passing.
    * The parameter becomes the owner and will be dropped at function exit.
    */
-  isOwningTheGcValue: boolean;
+  isOwningTheRcValue: boolean;
   /**
    * The expression information of the parameter.
    */

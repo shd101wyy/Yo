@@ -14,7 +14,7 @@
 
 Instead of introducing move semantics, we ensure isolation at construction time and use atomic RC for thread safety:
 
-1. **Construction check**: `Iso(T)(v)` requires `v` has no aliases (checked via `isOwningTheSameGcValueAs`)
+1. **Construction check**: `Iso(T)(v)` requires `v` has no aliases (checked via `isOwningTheSameRcValueAs`)
 2. **Atomic operations**: Once wrapped, all RC operations use atomic instructions
 3. **Normal semantics**: After construction, `Iso(T)` can be freely copied and shared
 
@@ -56,9 +56,9 @@ In the future, we will support the `derive` keyword to automatically generate `I
 
 1. **Unique ownership**: `v` must not have any aliases
 
-   - Check: `v.isOwningTheGcValue == true`
-   - Check: `v.isOwningTheSameGcValueAs == undefined`
-   - Check: No other variable has `isOwningTheSameGcValueAs == v.id`
+   - Check: `v.isOwningTheRcValue == true`
+   - Check: `v.isOwningTheSameRcValueAs == undefined`
+   - Check: No other variable has `isOwningTheSameRcValueAs == v.id`
 
 2. **Recursive isolation** (for reference types):
    - If `T` contains nested objects, they must also be uniquely owned
@@ -67,7 +67,7 @@ In the future, we will support the `derive` keyword to automatically generate `I
 ```yo
 // ❌ Rejected: x has alias y
 x := box(1);
-y := x;                    // y.isOwningTheSameGcValueAs = x
+y := x;                    // y.isOwningTheSameRcValueAs = x
 iso := Iso(Box(i32))(x);   // COMPILE ERROR: x has aliases
 
 // ✅ Accepted: x is unique
@@ -217,7 +217,7 @@ match(msg2_opt,
 ```yo
 // ❌ Cannot isolate: has alias
 x := box(42);
-y := x;                    // y.isOwningTheSameGcValueAs = x
+y := x;                    // y.isOwningTheSameRcValueAs = x
 iso := Iso(Box(i32))(x);   // COMPILE ERROR: Cannot isolate x, also owned by y
 
 // ✅ Fix: Don't create aliases

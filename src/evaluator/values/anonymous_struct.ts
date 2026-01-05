@@ -21,7 +21,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateTypeField } from "../types/field";
-import { addARCFunctionsToStructType } from "../types/utils";
+import { addRcFunctionsToStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
 
 export function evaluateAnonymousStructValue({
@@ -251,7 +251,7 @@ export function evaluateAnonymousStructValue({
   }
 
   // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  env = addARCFunctionsToStructType({
+  env = addRcFunctionsToStructType({
     structType,
     env,
     context,
@@ -282,7 +282,7 @@ export function evaluateAnonymousStructValue({
       token: expr.token,
       isCompileTimeOnly: true,
       consumedAtToken: undefined,
-      isOwningTheGcValue: false,
+      isOwningTheRcValue: false,
     },
   });
   env = nextEnv;

@@ -18,7 +18,7 @@ import {
   isArrayType,
   isSomeType,
   isTupleType,
-  typeContainsGcType,
+  typeContainsRcType,
 } from "../../types";
 import { isNumberValue, NumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
@@ -45,7 +45,7 @@ function generateTupleDupCall(tupleExpr: Expr): string {
   const fieldsNeedingDup = tupleType.fields.map((element, index) => ({
     index,
     element,
-    needsDup: typeContainsGcType(element.type),
+    needsDup: typeContainsRcType(element.type),
   }));
 
   if (fieldsNeedingDup.every(({ needsDup }) => !needsDup)) {
@@ -85,7 +85,7 @@ function generateArrayDupCall(arrayExpr: Expr): string {
   const arrayType = arrayExpr.$.type;
   const childType = arrayType.childType;
 
-  if (!typeContainsGcType(childType)) {
+  if (!typeContainsRcType(childType)) {
     return ""; // No elements need duplication, return as-is
   }
 
@@ -153,7 +153,7 @@ export function evaluateDup({
       : argType;
 
   // Check if there is `.___dup` method available to call or if it's a tuple needing dup
-  if (typeContainsGcType(concreteType)) {
+  if (typeContainsRcType(concreteType)) {
     // Handle tuple types specially since they don't have methods
     if (isTupleType(concreteType)) {
       const tupleDupCode = generateTupleDupCall(evaluatedArgExpr);
@@ -245,13 +245,13 @@ export function evaluateDup({
       );
       if (variables.length) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheGcValue) {
+        if (variable.isOwningTheRcValue) {
           const nextEnv = updateExistingVariable(
             evaluatedDupMethodCallExpr.$.env,
             variable,
             {
               ...variable,
-              isOwningTheGcValue: false,
+              isOwningTheRcValue: false,
             }
           );
           evaluatedDupMethodCallExpr.$.env = nextEnv;

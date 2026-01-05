@@ -73,7 +73,7 @@ function createOptionType(
       initializedAtToken: PlaceholderToken,
       consumedAtToken: undefined,
       value: innerTypeValue,
-      isOwningTheGcValue: false,
+      isOwningTheRcValue: false,
     },
   });
 

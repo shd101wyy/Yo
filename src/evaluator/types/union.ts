@@ -10,7 +10,7 @@ import {
 import {
   createUnionType,
   ModuleField,
-  typeContainsGcType,
+  typeContainsRcType,
   TypeField,
 } from "../../types";
 import { createTypeValue } from "../../value";
@@ -77,7 +77,7 @@ export function evaluateUnionType({
       });
     }
 
-    if (typeContainsGcType(field.type)) {
+    if (typeContainsRcType(field.type)) {
       throw formatErrorMessage({
         token: field.exprs.expr.token,
         errorMessage: `Union type cannot have field with garbage-collected type.`,

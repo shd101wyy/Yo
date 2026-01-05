@@ -33,7 +33,7 @@ import {
   StructType,
   TupleType,
   Type,
-  typeContainsGcType,
+  typeContainsRcType,
   typeRequiresInference,
   typeToString,
 } from "../../types";
@@ -58,7 +58,7 @@ import {
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findGcValueOwnerRelationship } from "../utils";
+import { findRcValueOwnerRelationship } from "../utils";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -409,8 +409,8 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       } as SomeType;
     }
     let isMutatingDefinedVariable = false;
-    const oldVariableIsOwningTheSameGcValueAs =
-      variable.isOwningTheSameGcValueAs;
+    const oldVariableIsOwningTheSameRcValueAs =
+      variable.isOwningTheSameRcValueAs;
     if (!variable.initializedAtToken) {
       // Check if we are initializing a variable that is defined outside the current while loop.
       if (
@@ -469,16 +469,16 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       // But we track shared ownership for dup/drop optimization
 
       // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findGcValueOwnerRelationship(
+      const rhsOwningVariable = findRcValueOwnerRelationship(
         rhs,
         env,
         env.modulePath
       );
 
       // If the RHS owning variable was consumed (moved), LHS becomes the primary owner
-      let isOwningTheSameGcValueAs = rhsOwningVariable;
+      let isOwningTheSameRcValueAs = rhsOwningVariable;
       if (rhsOwningVariable?.consumedAtToken) {
-        isOwningTheSameGcValueAs = undefined;
+        isOwningTheSameRcValueAs = undefined;
       }
 
       env = updateExistingVariable(env, variable, {
@@ -486,8 +486,8 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         initializedAtToken: lhs.token,
         value: valueToStore,
         type: variableType,
-        isOwningTheGcValue: typeContainsGcType(variableType),
-        isOwningTheSameGcValueAs, // Track shared ownership for optimization, or undefined if moved
+        isOwningTheRcValue: typeContainsRcType(variableType),
+        isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
     } else {
       // Disallow reassignment of SomeType (Impl(...)) variables.
@@ -563,16 +563,16 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       const newVariableId = generateVarialeId(env.modulePath, variableName);
 
       // Find if RHS is sharing ownership with another variable
-      const rhsOwningVariable = findGcValueOwnerRelationship(
+      const rhsOwningVariable = findRcValueOwnerRelationship(
         rhs,
         env,
         env.modulePath
       );
 
       // If the RHS owning variable was consumed (moved), LHS becomes the primary owner
-      let isOwningTheSameGcValueAs = rhsOwningVariable;
+      let isOwningTheSameRcValueAs = rhsOwningVariable;
       if (rhsOwningVariable?.consumedAtToken) {
-        isOwningTheSameGcValueAs = undefined;
+        isOwningTheSameRcValueAs = undefined;
       }
 
       // Under the new simplified ownership model:
@@ -583,8 +583,8 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         id: newVariableId, // New ID distinguishes this instance from previous one
         value: valueToStore,
         type: variableType,
-        isOwningTheGcValue: typeContainsGcType(variableType),
-        isOwningTheSameGcValueAs, // Track shared ownership for optimization, or undefined if moved
+        isOwningTheRcValue: typeContainsRcType(variableType),
+        isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
       });
       isMutatingDefinedVariable = true;
     }
@@ -621,11 +621,11 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         expr,
         true,
 
-        // Check if the oldVariableIsOwningTheSameGcValueAs is located on the same frame level
+        // Check if the oldVariableIsOwningTheSameRcValueAs is located on the same frame level
         // If not, we can't track the relationship as the old variable is out of scope
-        oldVariableIsOwningTheSameGcValueAs?.frameLevel ===
+        oldVariableIsOwningTheSameRcValueAs?.frameLevel ===
           env.frames.length - 1
-          ? oldVariableIsOwningTheSameGcValueAs
+          ? oldVariableIsOwningTheSameRcValueAs
           : undefined
       );
     }

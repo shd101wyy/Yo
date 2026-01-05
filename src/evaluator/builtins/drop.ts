@@ -19,7 +19,7 @@ import {
   isArrayType,
   isSomeType,
   isTupleType,
-  typeContainsGcType,
+  typeContainsRcType,
   typeImplementsFuture,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -55,7 +55,7 @@ function generateTupleDropCall(tupleExpr: Expr): string {
     .map((element, index) => ({
       index,
       element,
-      needsDrop: typeContainsGcType(
+      needsDrop: typeContainsRcType(
         isSomeType(element.type) && element.type.resolvedConcreteType
           ? element.type.resolvedConcreteType
           : element.type
@@ -109,7 +109,7 @@ function generateArrayDropCall(arrayExpr: Expr): string {
       ? childType.resolvedConcreteType
       : childType;
 
-  if (!typeContainsGcType(concreteChildType)) {
+  if (!typeContainsRcType(concreteChildType)) {
     return ""; // No elements need dropping
   }
 
@@ -184,7 +184,7 @@ export function evaluateDrop({
 
   // For Impl(Future(T)), do NOT unwrap resolvedConcreteType
   // The state machine is ref-counted and uses __yo_sometype_drop
-  // which is generated for SomeType in addARCFunctionsToSomeType
+  // which is generated for SomeType in addRcFunctionsToSomeType
   const shouldUseConcreteType =
     isSomeType(argType) &&
     argType.resolvedConcreteType &&
@@ -194,7 +194,7 @@ export function evaluateDrop({
     : argType;
 
   // Check if there is `.___drop` method available to call or if it's a tuple/array needing drop
-  if (typeContainsGcType(concreteType)) {
+  if (typeContainsRcType(concreteType)) {
     // Handle tuple types specially since they don't have methods
     if (isTupleType(concreteType)) {
       const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);

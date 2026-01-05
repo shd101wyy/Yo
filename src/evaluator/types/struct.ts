@@ -13,8 +13,8 @@ import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
 import {
-  addARCFunctionSignaturesToStructType,
-  addARCFunctionsToStructType,
+  addRcFunctionSignaturesToStructType,
+  addRcFunctionsToStructType,
   autoDeriveSendForStructType,
 } from "./utils";
 import { validateDisposeFunction } from "./validation";
@@ -46,7 +46,7 @@ export function evaluateStructType({
   // Create structType with empty fields
   // This is used as the SelfType for the following evaluations.
   const structType = createStructType(env, isReferenceSemantics, isNewtype);
-  addARCFunctionSignaturesToStructType({ structType, env, context });
+  addRcFunctionSignaturesToStructType({ structType, env, context });
 
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
@@ -140,7 +140,7 @@ export function evaluateStructType({
   });
 
   // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  env = addARCFunctionsToStructType({
+  env = addRcFunctionsToStructType({
     structType,
     env,
     context,

@@ -23,7 +23,7 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import { canTypeFormGcCycle, typeImplementsFuture } from "../../types/utils";
+import { canTypeFormRcCycle, typeImplementsFuture } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -328,7 +328,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
-  // Generate closure constructor and Gc functions
+  // Generate closure constructor and Rc functions
   generateClosureConstructorFunctions(context);
 
   // NOTE: Don't generate capture dispose functions here yet!
@@ -1624,7 +1624,7 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
-      if (canTypeFormGcCycle(type)) {
+      if (canTypeFormRcCycle(type)) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 
@@ -1636,7 +1636,7 @@ export function generateRefStructConstructorFunctions(
 }
 
 /**
- * Generate constructor function implementations for closures and their Gc functions
+ * Generate constructor function implementations for closures and their Rc functions
  */
 export function generateClosureConstructorFunctions(
   context: FunctionGenerationContext

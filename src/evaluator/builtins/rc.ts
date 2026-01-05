@@ -5,7 +5,7 @@ import {
   expectExprToBeFunctionCallOf,
   FuncCallExpr,
 } from "../../expr";
-import { createUsizeType, isGcType } from "../../types";
+import { createUsizeType, isRcType } from "../../types";
 import { createNumberValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
@@ -46,7 +46,7 @@ export function evaluateRc({
   }
   env = evaluatedExpr.$.env;
 
-  if (isGcType(evaluatedExpr.$.type)) {
+  if (isRcType(evaluatedExpr.$.type)) {
     expr.$ = {
       env,
       type: createUsizeType(),

@@ -152,7 +152,7 @@ export function synthesizeTypes(
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
             consumedAtToken: undefined,
-            isOwningTheGcValue: false,
+            isOwningTheRcValue: false,
           },
         });
         given.env = nextEnv;
@@ -181,7 +181,7 @@ export function synthesizeTypes(
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
             consumedAtToken: undefined,
-            isOwningTheGcValue: false,
+            isOwningTheRcValue: false,
           },
         });
         expected.env = nextEnv;
@@ -220,7 +220,7 @@ export function synthesizeTypes(
               token: PlaceholderToken,
               initializedAtToken: PlaceholderToken,
               consumedAtToken: undefined,
-              isOwningTheGcValue: false,
+              isOwningTheRcValue: false,
             },
           });
           expected.env = nextEnv;
@@ -250,7 +250,7 @@ export function synthesizeTypes(
               token: PlaceholderToken,
               initializedAtToken: PlaceholderToken,
               consumedAtToken: undefined,
-              isOwningTheGcValue: false,
+              isOwningTheRcValue: false,
             },
           });
           given.env = nextEnv;
@@ -297,7 +297,7 @@ export function synthesizeTypes(
             token: PlaceholderToken, // FIXME: What should be `token` here?
             initializedAtToken: PlaceholderToken, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
-            isOwningTheGcValue: false,
+            isOwningTheRcValue: false,
           },
         });
         expected.env = nextEnv;
@@ -357,7 +357,7 @@ export function synthesizeTypes(
             token: PlaceholderToken,
             initializedAtToken: PlaceholderToken,
             consumedAtToken: undefined,
-            isOwningTheGcValue: false,
+            isOwningTheRcValue: false,
           },
         });
         given.env = nextEnv;
@@ -566,7 +566,7 @@ export function synthesizeTypes(
             token: PlaceholderToken, // FIXME: What should be `token` here?
             initializedAtToken: PlaceholderToken, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
-            isOwningTheGcValue: false,
+            isOwningTheRcValue: false,
           },
         });
         expected.env = nextEnv;

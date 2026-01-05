@@ -565,7 +565,7 @@ export function evaluateMatch({
                     initializedAtToken: variableExpr.token,
                     consumedAtToken: undefined,
                     isReassignable: false,
-                    isOwningTheGcValue: false,
+                    isOwningTheRcValue: false,
                   },
                 });
                 caseEnv = nextEnv;
@@ -609,7 +609,7 @@ export function evaluateMatch({
                   initializedAtToken: param.token,
                   consumedAtToken: undefined,
                   isReassignable: false,
-                  isOwningTheGcValue: false,
+                  isOwningTheRcValue: false,
                 },
               });
               caseEnv = nextEnv;
