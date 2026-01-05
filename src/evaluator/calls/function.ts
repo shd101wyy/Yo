@@ -554,6 +554,10 @@ export function evaluateFunctionCall({
           },
         };
       } catch (error) {
+        // Re-throw overflow errors immediately - they should not be caught
+        if (error instanceof YoError && error.kind === "overflow") {
+          throw error;
+        }
         return {
           ...functionToCall,
           result: {
@@ -593,6 +597,10 @@ export function evaluateFunctionCall({
           },
         };
       } catch (error) {
+        // Re-throw overflow errors immediately - they should not be caught
+        if (error instanceof YoError && error.kind === "overflow") {
+          throw error;
+        }
         return {
           ...functionToCall,
           result: {

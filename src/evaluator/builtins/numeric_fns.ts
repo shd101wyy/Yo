@@ -1,6 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FuncCallExpr, exprToString } from "../../expr";
+import { Token } from "../../token";
 import {
   Type,
   TypeTag,
@@ -115,6 +116,64 @@ function getValueTagFromType(type: Type): ValueTag {
     // C compatible types don't have corresponding ValueTags since they're runtime-only
     default:
       throw new Error(`Unsupported numeric type: ${type.tag}`);
+  }
+}
+
+// Helper function to get min and max values for integer types
+function getIntegerBounds(type: Type): { min: number; max: number } | null {
+  switch (type.tag) {
+    case TypeTag.U8:
+      return { min: 0, max: 255 };
+    case TypeTag.I8:
+      return { min: -128, max: 127 };
+    case TypeTag.U16:
+      return { min: 0, max: 65535 };
+    case TypeTag.I16:
+      return { min: -32768, max: 32767 };
+    case TypeTag.U32:
+      return { min: 0, max: 4294967295 };
+    case TypeTag.I32:
+      return { min: -2147483648, max: 2147483647 };
+    case TypeTag.U64:
+      return { min: 0, max: Number.MAX_SAFE_INTEGER };
+    case TypeTag.I64:
+      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER };
+    case TypeTag.Usize:
+      return { min: 0, max: Number.MAX_SAFE_INTEGER };
+    case TypeTag.Isize:
+      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER };
+    case TypeTag.ComptInt:
+      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER };
+    default:
+      return null; // Not an integer type or float type
+  }
+}
+
+// Helper function to check for overflow
+function checkOverflow(
+  value: number,
+  type: Type,
+  operation: string,
+  lhs: number,
+  rhs: number,
+  token: Token
+): void {
+  const bounds = getIntegerBounds(type);
+  if (bounds === null) {
+    return; // No overflow check for floats
+  }
+
+  if (value < bounds.min || value > bounds.max) {
+    const opSymbol =
+      operation === "multiply" ? "*" : operation === "add" ? "+" : "-";
+    throw formatErrorMessage({
+      token,
+      errorMessage:
+        `Integer overflow in compile-time evaluation\n` +
+        `  ${lhs} ${opSymbol} ${rhs} = ${value}\n` +
+        `  Result ${value} exceeds ${type.tag} range [${bounds.min}, ${bounds.max}]`,
+      kind: "overflow",
+    });
   }
 }
 
@@ -458,7 +517,13 @@ export function evaluateYoNumericFunctions({
   let resultType: Type;
 
   switch (operation) {
-    case "add":
+    case "add": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        const result = lhs + rhs;
+        checkOverflow(result, numericType, "add", lhs, rhs, expr.token);
+      }
       value = performArithmeticOp(
         lhsValue,
         rhsValue,
@@ -467,7 +532,14 @@ export function evaluateYoNumericFunctions({
       );
       resultType = numericType;
       break;
-    case "sub":
+    }
+    case "sub": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        const result = lhs - rhs;
+        checkOverflow(result, numericType, "subtract", lhs, rhs, expr.token);
+      }
       value = performArithmeticOp(
         lhsValue,
         rhsValue,
@@ -476,7 +548,14 @@ export function evaluateYoNumericFunctions({
       );
       resultType = numericType;
       break;
-    case "mul":
+    }
+    case "mul": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        const result = lhs * rhs;
+        checkOverflow(result, numericType, "multiply", lhs, rhs, expr.token);
+      }
       value = performArithmeticOp(
         lhsValue,
         rhsValue,
@@ -485,6 +564,7 @@ export function evaluateYoNumericFunctions({
       );
       resultType = numericType;
       break;
+    }
     case "div": {
       // Handle division by zero check
       const rhsNum = extractNumericValue(rhsValue);
