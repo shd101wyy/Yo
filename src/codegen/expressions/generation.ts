@@ -604,7 +604,7 @@ function generateFuncCall(
     }
 
     const tupleCode = generateExpr(tupleArg, indent, context);
-    const indexCode = generateExpr(indexArg, indent, context);
+    generateExpr(indexArg, indent, context);
 
     // Get the tuple element type to find its drop function
     const tupleType = tupleArg.$?.type;
@@ -660,7 +660,7 @@ function generateFuncCall(
     }
 
     const tupleCode = generateExpr(tupleArg, indent, context);
-    const indexCode = generateExpr(indexArg, indent, context);
+    generateExpr(indexArg, indent, context);
 
     // Get the tuple element type to find its dup function
     const tupleType = tupleArg.$?.type;
@@ -3708,7 +3708,6 @@ function generateDropCodeForValue(
   // Handle tuples recursively
   if (isTupleType(concreteType)) {
     const emitter = (context as FunctionGenerationContext).emitter;
-    let hasDrops = false;
     for (let i = 0; i < concreteType.fields.length; i++) {
       const fieldType = concreteType.fields[i]!.type;
       const concreteFieldType =
@@ -3723,7 +3722,6 @@ function generateDropCodeForValue(
         );
         if (fieldDropCode) {
           emitter.emitLine(`${fieldDropCode};`);
-          hasDrops = true;
         }
       }
     }
