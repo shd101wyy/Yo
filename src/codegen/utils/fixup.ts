@@ -14,7 +14,7 @@ export function fixupDynImplKeys(context: CodeGenContext): void {
       dynType: DynType;
       concreteType: Type;
       dataType: Type;
-      moduleValue: ModuleValue;
+      moduleValues: ModuleValue[];
     }
   >();
 

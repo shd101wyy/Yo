@@ -187,7 +187,7 @@ export interface CodeGenContext {
        * - dataType = Box(T)
        */
       dataType: Type;
-      moduleValue: ModuleValue;
+      moduleValues: ModuleValue[];
     }
   >;
 

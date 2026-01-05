@@ -1961,118 +1961,142 @@ export function generateDynWrapperFunctions(
     }
 
     // Regular dyn method wrappers (non-Fn modules)
-    const moduleType = impl.moduleValue.type;
-    const moduleFields = moduleType.fields;
+    // Iterate through all required modules and their corresponding module values
+    for (
+      let moduleIndex = 0;
+      moduleIndex < impl.dynType.requiredModules.length;
+      moduleIndex++
+    ) {
+      const requiredModuleType = impl.dynType.requiredModules[moduleIndex]!;
 
-    for (let i = 0; i < moduleFields.length; i++) {
-      const field = moduleFields[i]!;
-
-      // Skip 'Self' type declarations as they're not methods
-      if (field.label === "Self") {
+      // Skip Fn modules as they're handled above
+      if (isFnModuleType(requiredModuleType)) {
         continue;
       }
 
-      // Skip reserved ARC/GC hooks; Dyn dup/drop are generated separately.
-      if (reservedDynMethodLabels.has(field.label)) {
-        continue;
-      }
-
-      const fieldValue = impl.moduleValue.fields[i];
-
-      if (!fieldValue || !isFunctionValue(fieldValue)) {
+      const moduleValue = impl.moduleValues[moduleIndex];
+      if (!moduleValue) {
         emitter.emitDeclarationLine(
-          `/* Warning: Module field ${field.label} is not a function value */`
+          `/* Warning: Module value missing for module ${moduleIndex} */`
         );
         continue;
       }
 
-      const funcType = field.type;
-      if (!isFunctionType(funcType)) {
-        emitter.emitDeclarationLine(
-          `/* Warning: Module field ${field.label} is not a function type */`
-        );
-        continue;
-      }
+      const moduleType = moduleValue.type;
+      const moduleFields = moduleType.fields;
 
-      // Get the impl function name
-      const implFuncId = fieldValue.funcId;
-      const implFuncCName = context.functions[implFuncId]?.cName;
-      if (!implFuncCName) {
-        emitter.emitDeclarationLine(
-          `/* Warning: Impl function for ${field.label} not found */`
-        );
-        continue;
-      }
+      for (let i = 0; i < moduleFields.length; i++) {
+        const field = moduleFields[i]!;
 
-      // Generate wrapper function
-      const wrapperName = `yo_wrap_${implKey}_${field.label}`;
-
-      // Build parameter list
-      const returnTypeStr = getTypeString(funcType.return.type, context);
-      const params = ["void* self_ptr"];
-      for (let j = 1; j < funcType.parameters.length; j++) {
-        const param = funcType.parameters[j]!;
-        const paramTypeStr = getTypeString(param.type, context);
-        params.push(`${paramTypeStr} arg${j}`);
-      }
-
-      emitter.emitDeclarationLine(
-        `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
-      );
-
-      // Unwrap the boxed value and prepare first argument
-      // The first parameter of the impl function determines what we pass
-      const implFirstParamType = funcType.parameters[0]?.type;
-
-      let firstArg: string;
-
-      if (isBoxedType(dataType)) {
-        // Dyn wraps Box(T) from the prelude.
-        const boxedCName =
-          context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
-        const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
-        emitter.emitDeclarationLine(
-          `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
-        );
-
-        // If the impl expects a borrow, pass pointer to the field inside Box.
-        if (implFirstParamType && isPtrType(implFirstParamType)) {
-          firstArg = `&box->${fieldName}`;
-        } else {
-          firstArg = `box->${fieldName}`;
+        // Skip 'Self' type declarations as they're not methods
+        if (field.label === "Self") {
+          continue;
         }
-      } else {
-        // Dyn wraps a normal object type (already a pointer in C).
-        const concreteTypeStr = getTypeString(impl.concreteType, context);
-        emitter.emitDeclarationLine(
-          `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
-        );
 
-        // If the impl expects a pointer to the object type, take the address
-        if (implFirstParamType && isPtrType(implFirstParamType)) {
-          firstArg = `&concrete_value`;
-        } else {
-          firstArg = `concrete_value`;
+        // Skip reserved ARC/GC hooks; Dyn dup/drop are generated separately.
+        if (reservedDynMethodLabels.has(field.label)) {
+          continue;
         }
-      }
 
-      // Build argument list for impl call
-      const args = [firstArg];
-      for (let j = 1; j < funcType.parameters.length; j++) {
-        args.push(`arg${j}`);
-      }
+        const fieldValue = moduleValue.fields[i];
 
-      // Call the impl function
-      if (isVoidType(funcType.return.type)) {
-        emitter.emitDeclarationLine(`  ${implFuncCName}(${args.join(", ")});`);
-      } else {
+        if (!fieldValue || !isFunctionValue(fieldValue)) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Module field ${field.label} is not a function value */`
+          );
+          continue;
+        }
+
+        const funcType = field.type;
+        if (!isFunctionType(funcType)) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Module field ${field.label} is not a function type */`
+          );
+          continue;
+        }
+
+        // Get the impl function name
+        const implFuncId = fieldValue.funcId;
+        const implFuncCName = context.functions[implFuncId]?.cName;
+        if (!implFuncCName) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Impl function for ${field.label} not found */`
+          );
+          continue;
+        }
+
+        // Generate wrapper function
+        const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+
+        // Build parameter list
+        const returnTypeStr = getTypeString(funcType.return.type, context);
+        const params = ["void* self_ptr"];
+        for (let j = 1; j < funcType.parameters.length; j++) {
+          const param = funcType.parameters[j]!;
+          const paramTypeStr = getTypeString(param.type, context);
+          params.push(`${paramTypeStr} arg${j}`);
+        }
+
         emitter.emitDeclarationLine(
-          `  return ${implFuncCName}(${args.join(", ")});`
+          `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
         );
-      }
 
-      emitter.emitDeclarationLine(`}`);
-      emitter.emitDeclarationLine("");
+        // Unwrap the boxed value and prepare first argument
+        // The first parameter of the impl function determines what we pass
+        const implFirstParamType = funcType.parameters[0]?.type;
+
+        let firstArg: string;
+
+        if (isBoxedType(dataType)) {
+          // Dyn wraps Box(T) from the prelude.
+          const boxedCName =
+            context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
+          const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
+          emitter.emitDeclarationLine(
+            `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
+          );
+
+          // If the impl expects a borrow, pass pointer to the field inside Box.
+          if (implFirstParamType && isPtrType(implFirstParamType)) {
+            firstArg = `&box->${fieldName}`;
+          } else {
+            firstArg = `box->${fieldName}`;
+          }
+        } else {
+          // Dyn wraps a normal object type (already a pointer in C).
+          const concreteTypeStr = getTypeString(impl.concreteType, context);
+          emitter.emitDeclarationLine(
+            `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
+          );
+
+          // If the impl expects a pointer to the object type, take the address
+          if (implFirstParamType && isPtrType(implFirstParamType)) {
+            firstArg = `&concrete_value`;
+          } else {
+            firstArg = `concrete_value`;
+          }
+        }
+
+        // Build argument list for impl call
+        const args = [firstArg];
+        for (let j = 1; j < funcType.parameters.length; j++) {
+          args.push(`arg${j}`);
+        }
+
+        // Call the impl function
+        if (isVoidType(funcType.return.type)) {
+          emitter.emitDeclarationLine(
+            `  ${implFuncCName}(${args.join(", ")});`
+          );
+        } else {
+          emitter.emitDeclarationLine(
+            `  return ${implFuncCName}(${args.join(", ")});`
+          );
+        }
+
+        emitter.emitDeclarationLine(`}`);
+        emitter.emitDeclarationLine("");
+      }
     }
   }
 }

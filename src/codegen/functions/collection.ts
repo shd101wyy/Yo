@@ -181,35 +181,9 @@ export function findFunctionCallsInExpr(
           ? valueType.fields[0]!.type
           : valueType;
 
-        // Merge all module values into a single module value
-        // This is needed for Dyn(Module1, Module2, ...) which has multiple implementations
-        // Create a merged module type with all fields from all required modules
-        const mergedModuleFields: (typeof dynType.requiredModules)[0]["fields"] =
-          [];
-        const mergedFields: (typeof moduleValues)[0]["fields"] = [];
-
-        // Collect all fields from all module types and values in order
-        for (let i = 0; i < dynType.requiredModules.length; i++) {
-          const moduleType = dynType.requiredModules[i]!;
-          const moduleValue = moduleValues[i];
-
-          if (moduleValue) {
-            mergedModuleFields.push(...moduleType.fields);
-            mergedFields.push(...moduleValue.fields);
-          }
-        }
-
-        // Create a synthetic merged module type
-        const mergedModuleType: (typeof dynType.requiredModules)[0] = {
-          ...dynType.requiredModules[0]!,
-          fields: mergedModuleFields,
-        };
-
-        const mergedModuleValue: ModuleValue = {
-          tag: moduleValues[0]!.tag,
-          type: mergedModuleType,
-          fields: mergedFields,
-        };
+        // Store all module values in order
+        // We don't merge them anymore since we need to match module types with their values
+        // during wrapper function generation
 
         // Use ID-based key for now, will be fixed up later
         const implKey = `${concreteType.id}_${dynType.id}`;
@@ -218,7 +192,7 @@ export function findFunctionCallsInExpr(
           dynType,
           concreteType,
           dataType: valueType,
-          moduleValue: mergedModuleValue,
+          moduleValues,
         });
       }
     }

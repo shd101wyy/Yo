@@ -79,3 +79,38 @@ test "Test simple dynamic dispatch with automatic `box` call on value types", {
   bi := MyBox(100);
   assert(use_test_dyn(dyn bi) == 200);
 };
+
+test "Test Dyn with multiple modules", {
+  Speak :: module(
+    speak : (fn(self : Self) -> i32)
+  );
+
+  Run :: module(
+    run : (fn(self : Self) -> i32)
+  );
+
+  // Dog :: struct(); // This should give error working with `dyn`.
+  Dog :: object();
+
+  DogSpeak :: impl(Dog, Speak
+    speak : ((self : Self) -> {
+      printf("Woof!\n");
+      return 1;
+    })
+  );
+
+  DogRun :: impl(Dog, Run
+    run : ((self : Self) -> {
+      printf("The dog is running!\n");
+      return 2;
+    })
+  );
+
+  act :: (fn(s : Dyn(Speak, Run)) -> i32)
+    s.speak() + s.run()
+  ;
+
+  dog := Dog();
+  result := act(dyn(dog));
+  assert(result == 3, "Expected result to be 3");
+};

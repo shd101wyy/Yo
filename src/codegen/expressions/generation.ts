@@ -4713,12 +4713,6 @@ function generateDynCall(
     return `/* Error: dyn() call missing module values */`;
   }
 
-  // For now, assume single module (no multiple traits yet)
-  const moduleValue = moduleValues[0];
-  if (!moduleValue) {
-    return `/* Error: Invalid module value */`;
-  }
-
   // dyn() requires an object type (including Box(T)); value types must use box().
   if (!isObjectType(valueType) && !isBoxedType(valueType)) {
     return `/* Error: dyn() requires an object type (use box() for value types) */`;
@@ -4752,7 +4746,7 @@ function generateDynCall(
     dynType,
     concreteType,
     dataType: valueType,
-    moduleValue,
+    moduleValues,
   });
 
   // Generate the value expression
