@@ -94,14 +94,18 @@ export function evaluateDynType({
     for (let j = i + 1; j < moduleTypes.length; j++) {
       const moduleTypeB = moduleTypes[j]!;
       for (const elementA of moduleTypeA.fields) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `Module types ${typeToString(
-            moduleTypeA
-          )} and ${typeToString(
-            moduleTypeB
-          )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
-        });
+        for (const elementB of moduleTypeB.fields) {
+          if (elementA.label === elementB.label) {
+            throw formatErrorMessage({
+              token: expr.token,
+              errorMessage: `Module types ${typeToString(
+                moduleTypeA
+              )} and ${typeToString(
+                moduleTypeB
+              )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
+            });
+          }
+        }
       }
     }
   }

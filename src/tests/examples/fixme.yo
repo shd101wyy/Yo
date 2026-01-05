@@ -1,10 +1,39 @@
-{ get_thread_id, Thread } :: import "std/thread";
 
-main :: (fn() -> unit) {
-  thread := Thread.spawn(
-    () => ()     // Thread runs with no captures
-  );
-  thread.join();
-};
+open import "std/libc/stdio.yo";
+
+Speak :: module(
+  speak : (fn(self : Self) -> i32)
+);
+
+Run :: module(
+  run : (fn(self : Self) -> i32)
+);
+
+// Dog :: struct(); // This should give error working with `dyn`.
+Dog :: object();
+
+DogSpeak :: impl(Dog, Speak
+  speak : ((self : Self) -> {
+    printf("Woof!\n");
+    return 1;
+  })
+);
+
+DogRun :: impl(Dog, Run
+  run : ((self : Self) -> {
+    printf("The dog is running!\n");
+    return 2;
+  })
+);
+
+act :: (fn(s : Dyn(Speak, Run)) -> i32)
+  s.speak() + s.run()
+;
+
+main :: ((fn() -> unit) {
+  dog := Dog();
+  result := act(dyn(dog));
+  assert(result == 3, "Expected result to be 3");
+});
 
 export main;
