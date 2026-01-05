@@ -302,12 +302,12 @@ typedef struct yo_io_future_t {
     }
   }
 
-  // Second pass: Collect structs and complex enums for topological sorting
-  const structsAndEnums: Array<{
+  // Second pass: Collect structs, complex enums, and tuples for topological sorting
+  const structsAndEnumsAndTuples: Array<{
     typeId: string;
-    type: StructType | EnumType;
+    type: StructType | EnumType | TupleType;
     cName: string;
-    kind: "struct" | "enum";
+    kind: "struct" | "enum" | "tuple";
   }> = [];
 
   for (const typeId in context.types) {
@@ -317,25 +317,29 @@ typedef struct yo_io_future_t {
     }
 
     if (isStructType(type)) {
-      structsAndEnums.push({ typeId, type, cName, kind: "struct" });
+      structsAndEnumsAndTuples.push({ typeId, type, cName, kind: "struct" });
     } else if (
       isEnumType(type) &&
       !canOptimizeAsSimpleEnum(type) &&
       !canOptimizeAsNullablePointer(type)
     ) {
-      structsAndEnums.push({ typeId, type, cName, kind: "enum" });
+      structsAndEnumsAndTuples.push({ typeId, type, cName, kind: "enum" });
+    } else if (isTupleType(type)) {
+      structsAndEnumsAndTuples.push({ typeId, type, cName, kind: "tuple" });
     }
   }
 
   // Build dependency graph
   // An edge from A to B means B must be defined before A
   const dependencies = new Map<string, Set<string>>();
-  const typeIdToData = new Map(structsAndEnums.map((e) => [e.typeId, e]));
+  const typeIdToData = new Map(
+    structsAndEnumsAndTuples.map((e) => [e.typeId, e])
+  );
   const cNameToTypeId = new Map(
-    structsAndEnums.map((e) => [e.cName, e.typeId])
+    structsAndEnumsAndTuples.map((e) => [e.cName, e.typeId])
   );
 
-  for (const { typeId, type, kind } of structsAndEnums) {
+  for (const { typeId, type, kind } of structsAndEnumsAndTuples) {
     dependencies.set(typeId, new Set());
 
     if (kind === "struct" && isStructType(type)) {
@@ -358,6 +362,18 @@ typedef struct yo_io_future_t {
           !field.type.isReferenceSemantics &&
           !field.type.isNewtype
         ) {
+          const depCName = getTypeString(field.type, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+        // Tuples used by value need to be defined first
+        else if (isTupleType(field.type)) {
           const depCName = getTypeString(field.type, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
@@ -398,10 +414,67 @@ typedef struct yo_io_future_t {
                 dependencies.get(typeId)!.add(depTypeId);
               }
             }
+            // Tuples used by value need to be defined first
+            else if (isTupleType(field.type)) {
+              const depCName = getTypeString(field.type, context);
+              const depTypeId = cNameToTypeId.get(depCName);
+              if (
+                depTypeId &&
+                depTypeId !== typeId &&
+                typeIdToData.has(depTypeId)
+              ) {
+                dependencies.get(typeId)!.add(depTypeId);
+              }
+            }
             // Note: Structs by pointer (object types) don't create dependencies
             // because they use forward declarations
           }
         }
+      }
+    } else if (kind === "tuple" && isTupleType(type)) {
+      // Check if tuple contains other tuples, structs, or enums by value
+      for (const field of type.fields) {
+        // Nested tuples need to be defined first
+        if (isTupleType(field.type)) {
+          const depCName = getTypeString(field.type, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+        // Enums by value need to be defined first
+        else if (isEnumType(field.type)) {
+          const depCName = getTypeString(field.type, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+        // Value structs (non-object, non-newtype) need to be defined first
+        else if (
+          isStructType(field.type) &&
+          !field.type.isReferenceSemantics &&
+          !field.type.isNewtype
+        ) {
+          const depCName = getTypeString(field.type, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+        // Note: Structs by pointer (object types) don't create dependencies
       }
     }
   }
@@ -420,9 +493,9 @@ typedef struct yo_io_future_t {
   }
 
   const sortedTypes: Array<{
-    type: StructType | EnumType;
+    type: StructType | EnumType | TupleType;
     cName: string;
-    kind: "struct" | "enum";
+    kind: "struct" | "enum" | "tuple";
   }> = [];
 
   while (queue.length > 0) {
@@ -447,8 +520,8 @@ typedef struct yo_io_future_t {
   }
 
   // If we didn't sort all types, there's a cycle - just append remaining in original order
-  if (sortedTypes.length < structsAndEnums.length) {
-    for (const item of structsAndEnums) {
+  if (sortedTypes.length < structsAndEnumsAndTuples.length) {
+    for (const item of structsAndEnumsAndTuples) {
       if (!sortedTypes.find((t) => t.cName === item.cName)) {
         sortedTypes.push({
           type: item.type,
@@ -465,6 +538,8 @@ typedef struct yo_io_future_t {
       generateStructDeclaration(type, cName, context);
     } else if (kind === "enum" && isEnumType(type)) {
       generateEnumDeclaration(type, cName, context);
+    } else if (kind === "tuple" && isTupleType(type)) {
+      generateTupleDeclaration(type, cName, context);
     }
   }
 
@@ -480,7 +555,7 @@ typedef struct yo_io_future_t {
     }
   }
 
-  // Fifth pass: Generate other type declarations (closures, dyn, unions, tuples, futures)
+  // Fifth pass: Generate other type declarations (closures, dyn, unions, futures)
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
@@ -491,10 +566,8 @@ typedef struct yo_io_future_t {
       generateDynDeclaration(type, cName, context);
     } else if (isUnionType(type)) {
       generateUnionDeclaration(type, cName, context);
-    } else if (isTupleType(type)) {
-      // For tuples, we can generate a struct-like declaration
-      generateTupleDeclaration(type, cName, context);
     }
+    // Note: Tuples are now handled in the topologically sorted third pass
     // FIXME: Handle FutureModuleType declarations if needed
     // else if (isFutureModuleType(type)) {
     //   generateFutureDeclaration(type, cName, context);
