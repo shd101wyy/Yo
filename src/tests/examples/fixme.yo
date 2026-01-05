@@ -1,20 +1,23 @@
 
 open import "std/libc/stdio.yo";
 
-main :: ((fn() -> unit) {
-  x := Box(i32)(3);
-  y := (x,);
-  z := (y,);
-  m := (z,);
-  n := (m,);
+main :: (fn() -> unit) {
+  // Create binding first, then assign value
+  arr1 : Array(i32, 3);
+  arr1 = [1, 2, 3];
 
-  z.0 = (box(10),);
+  // Create binding and assign value in one line
+  arr2 := [1, 2, 3];
+  arr2(0) = 12;
 
-  assert(x.* == 3, "x.* == 3");
-  assert(y.0.* == 3, "y.0.* == 3");
-  assert(z.0.0.* == 10, "z.0.0.* == 10");
-  assert(m.0.0.0.* == 3, "m.0.0.0.* == 3");
-  assert(n.0.0.0.0.* == 3, "n.0.0.0.0.* == 3");
-});
+  // Copy array
+  arr3 := arr1;
+  arr3(1) = 22; // This shouldn't affect arr1
+
+  assert(arr1(0) == 1);
+  assert(arr1(1) == 2);
+  assert(arr2(0) == 12);
+  assert(arr3(1) == 22);
+};
 
 export main;

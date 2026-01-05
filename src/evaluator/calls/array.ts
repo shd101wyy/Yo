@@ -74,6 +74,7 @@ export function tryToCallArrayWithArguments({
         env: callerEnv,
         context: {
           ...context,
+          expectedType: { type: createUsizeType(), env: callerEnv },
         },
       });
       if (!evaluatedStartExpr.$) {
@@ -109,6 +110,7 @@ export function tryToCallArrayWithArguments({
         env: callerEnv,
         context: {
           ...context,
+          expectedType: { type: createUsizeType(), env: callerEnv },
         },
       });
       if (!evaluatedEndExpr.$) {
@@ -153,6 +155,7 @@ export function tryToCallArrayWithArguments({
       env: callerEnv,
       context: {
         ...context,
+        expectedType: { type: createUsizeType(), env: callerEnv },
       },
     });
     if (!evaluatedArgExpr.$) {

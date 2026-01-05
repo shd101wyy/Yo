@@ -115,3 +115,20 @@ test "Test variable name matching C reserved", {
   );
   assert(test_fn(errno) == 2);
 };
+
+test "Test anonymous struct with type method", {
+  x := 1;
+  y := 2;
+
+  closure := {
+    x,
+    y,
+
+    call :: ((fn(self: Self, z : i32) -> i32)
+      (self.x + (self.y + z))
+    )
+  };
+
+  result := closure.call(3);
+  assert(result == 6, "Expected 6");
+};

@@ -5,7 +5,7 @@ test "Test Array declaration with inferred length", {
   assert(arr2.len() == 3);
 };
 
-test "Array element access and length", {
+test "Test Array element access and length", {
   arr := [10, 20, 30, 40, 50];
   assert(arr.len() == 5);
   assert(arr(usize(0)) == 10);
@@ -15,7 +15,7 @@ test "Array element access and length", {
   assert(arr(usize(4)) == 50);
 };
 
-test "Array slice element access and length", {
+test "Test Array slice element access and length", {
   arr := [1, 2, 3, 4, 5];
   s := arr(1:arr.len());
   assert(s.len() == 4);
@@ -23,4 +23,30 @@ test "Array slice element access and length", {
   assert(s(usize(1)) == 3);
   assert(s(usize(2)) == 4);
   assert(s(usize(3)) == 5);
+};
+
+test "Test Array copy", {
+  // Create binding first, then assign value
+  arr1 : Array(i32, 3);
+  arr1 = [1, 2, 3];
+
+  // Create binding and assign value in one line
+  arr2 := [1, 2, 3];
+  arr2(0) = 12;
+
+  // Copy array
+  arr3 := arr1;
+  arr3(1) = 22; // This shouldn't affect arr1
+
+  assert(arr1(0) == 1);
+  assert(arr1(1) == 2);
+  assert(arr1(2) == 3);
+
+  assert(arr2(0) == 12);
+  assert(arr2(1) == 2);
+  assert(arr2(2) == 3);
+
+  assert(arr3(0) == 1);
+  assert(arr3(1) == 22);
+  assert(arr3(2) == 3);
 };
