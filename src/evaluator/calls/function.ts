@@ -556,7 +556,16 @@ export function evaluateFunctionCall({
       } catch (error) {
         // Re-throw overflow errors immediately - they should not be caught
         if (error instanceof YoError && error.kind === "overflow") {
-          throw error;
+          throw formatErrorMessages(
+            [
+              {
+                token: expr.token,
+                errorMessage: `Failed to call the function:\n`,
+              },
+              ...error.tokenAndErrorList,
+            ],
+            error.isAssertionError
+          );
         }
         return {
           ...functionToCall,
@@ -599,7 +608,16 @@ export function evaluateFunctionCall({
       } catch (error) {
         // Re-throw overflow errors immediately - they should not be caught
         if (error instanceof YoError && error.kind === "overflow") {
-          throw error;
+          throw formatErrorMessages(
+            [
+              {
+                token: expr.token,
+                errorMessage: `Failed to call the function:\n`,
+              },
+              ...error.tokenAndErrorList,
+            ],
+            error.isAssertionError
+          );
         }
         return {
           ...functionToCall,
