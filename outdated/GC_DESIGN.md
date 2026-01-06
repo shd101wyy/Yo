@@ -13,6 +13,7 @@
 **Latency Goal**: <5ms pause times (99.9th percentile)
 
 **Key Features**:
+
 1. ✅ **Shadow Stack**: Precise root tracking compatible with C transpilation
 2. ✅ **Concurrent Marking**: Most GC work happens in parallel with mutators
 3. ✅ **Generational Collection**: Young generation for fast frequent collections
@@ -24,29 +25,32 @@
 
 For a statically-typed language transpiling to C with <5ms latency goals:
 
-| Approach | Precision | Latency | C Compat | Complexity | Overhead |
-|----------|-----------|---------|----------|------------|----------|
-| **Conservative** | ❌ Imprecise | ❌ High (10-30ms) | ✅ Perfect | ✅ Simple | ✅ 0% call |
-| **Shadow Stack** | ✅ Precise | ✅ Low (<5ms) | ✅ Perfect | ⚠️ Moderate | ⚠️ 3-5% call |
-| **Stack Maps** | ✅ Precise | ✅ Low (<5ms) | ❌ Fragile | ❌ Complex | ✅ 0% call |
+| Approach         | Precision    | Latency           | C Compat   | Complexity  | Overhead     |
+| ---------------- | ------------ | ----------------- | ---------- | ----------- | ------------ |
+| **Conservative** | ❌ Imprecise | ❌ High (10-30ms) | ✅ Perfect | ✅ Simple   | ✅ 0% call   |
+| **Shadow Stack** | ✅ Precise   | ✅ Low (<5ms)     | ✅ Perfect | ⚠️ Moderate | ⚠️ 3-5% call |
+| **Stack Maps**   | ✅ Precise   | ✅ Low (<5ms)     | ❌ Fragile | ❌ Complex  | ✅ 0% call   |
 
 **Verdict**: Shadow Stack is the sweet spot for Yo's requirements.
 
 ### Performance Targets
 
 **Throughput**:
+
 - Allocation: ~10-20 cycles per small object (TLAB bump allocation)
 - Function call overhead: +3-5% (shadow stack setup)
 - Write barrier: ~2-5 cycles per GC pointer write (when GC running)
 - Overall: 5-10% slower than RC, but enables better concurrency
 
 **Latency**:
+
 - Minor GC (young generation): ~1-2ms (90% of collections)
 - Major GC (full heap): ~3-5ms (10% of collections)
 - STW phases: <5ms total per collection
 - Target met: ✅ <5ms latency achieved
 
 **Memory**:
+
 - Heap size: ~2x live data (configurable)
 - Per-object overhead: 16 bytes (GC header)
 - Shadow stack: <100 KB per 32 threads
@@ -55,6 +59,7 @@ For a statically-typed language transpiling to C with <5ms latency goals:
 ### Three-Phase Implementation Roadmap
 
 **Phase 1: Basic GC (3-6 months)**
+
 - Stop-the-world mark-sweep
 - Shadow stack infrastructure
 - Type descriptors for precise scanning
@@ -62,6 +67,7 @@ For a statically-typed language transpiling to C with <5ms latency goals:
 - Target: Correctness + <10ms pauses
 
 **Phase 2: Concurrent GC (3-6 months)**
+
 - Concurrent marking with tri-color algorithm
 - Concurrent sweeping
 - Safepoint mechanism
@@ -69,6 +75,7 @@ For a statically-typed language transpiling to C with <5ms latency goals:
 - Target: <5ms pauses
 
 **Phase 3: Generational + Incremental (6-12 months)**
+
 - Young/old generation split
 - Remembered sets for old→young pointers
 - Incremental marking
@@ -78,12 +85,14 @@ For a statically-typed language transpiling to C with <5ms latency goals:
 ### Migration from Reference Counting
 
 **Breaking changes**:
+
 1. ❌ No deterministic destructors for `object`, `dyn`, `fn` types
 2. ❌ No `own()` keyword (no ownership transfer)
 3. ❌ Non-deterministic finalization timing
 4. ✅ Use `struct` with `___drop` for RAII resources
 
 **Compiler changes**:
+
 1. Remove all `___dup()` and `___drop()` calls
 2. Generate shadow stack setup/teardown in functions
 3. Emit type descriptors for all GC types
@@ -91,6 +100,7 @@ For a statically-typed language transpiling to C with <5ms latency goals:
 5. Insert safepoints at loops and allocations
 
 **Runtime changes**:
+
 1. Replace mimalloc with GC heap allocator
 2. Implement tri-color marking algorithm
 3. Add shadow stack scanning
@@ -100,24 +110,28 @@ For a statically-typed language transpiling to C with <5ms latency goals:
 ### Comparison to Other Languages
 
 **Go** (concurrent mark-sweep, stack maps):
+
 - Similar latency: <5ms
 - No generational GC (Yo has this advantage)
 - Native code generation (vs Yo's C transpilation)
 - More mature GC (10+ years of optimization)
 
 **Java HotSpot** (generational, parallel, compacting):
+
 - Better throughput (highly optimized)
 - Higher latency: 10-50ms typical
 - Complex implementation (JIT + GC)
 - Overkill for Yo's needs
 
 **D Language** (conservative mark-sweep):
+
 - Simpler GC, but imprecise
 - Higher latency: 10-30ms
 - No generational collection
 - Good C interop (like Yo)
 
 **OCaml** (precise, generational):
+
 - Similar design to Yo's proposal
 - Good latency: <5ms
 - Uses similar shadow stack approach
@@ -168,6 +182,7 @@ union(...)      // C-compatible unions
 ```
 
 **Characteristics:**
+
 - Stored inline (stack or embedded)
 - Copied on assignment
 - No pointers to track
@@ -175,6 +190,7 @@ union(...)      // C-compatible unions
 - Deterministic destruction (stack unwinding)
 
 **Example:**
+
 ```yo
 Point :: struct(x: i32, y: i32);
 Rectangle :: struct(top_left: Point, bottom_right: Point);
@@ -195,6 +211,7 @@ dyn(...)        // Dynamic dispatch trait objects (GC-managed)
 ```
 
 **Characteristics:**
+
 - Stored on GC heap
 - Passed by reference (pointer copy)
 - Tracked by GC
@@ -202,6 +219,7 @@ dyn(...)        // Dynamic dispatch trait objects (GC-managed)
 - Non-deterministic destruction (finalized by GC)
 
 **Example:**
+
 ```yo
 Node :: object(
   value: i32,
@@ -234,6 +252,7 @@ c2 := c1;  // Shallow copy: id copied, data pointer copied (both point to same N
 ### Assignment and Passing
 
 **Value Types:**
+
 ```yo
 p1 := Point(x: 1, y: 2);  // Stack allocation
 p2 := p1;                     // Deep copy (entire struct copied)
@@ -241,6 +260,7 @@ f(p1);                        // Pass by copy (struct copied to function)
 ```
 
 **GC Types:**
+
 ```yo
 node := Node(value: 42, next: .None);  // Heap allocation (GC-managed)
 node2 := node;                             // Shallow copy (both point to same object)
@@ -256,6 +276,7 @@ f(node);                                   // Pass by reference (pointer copied)
 - **GC invariant**: Unreachable objects are eventually collected
 
 **Example:**
+
 ```yo
 {
   node := Node(value: 1, next: .None);  // node is reachable (on stack)
@@ -346,15 +367,15 @@ ResourceHandle :: struct(
 
 ```
 Initial:  All objects WHITE (unmarked)
-         
-GC Root Scan:  
+
+GC Root Scan:
          Stack objects → GRAY (marked, pending scan)
-         
+
 Concurrent Mark:
          For each GRAY object:
            - Mark all WHITE children as GRAY
            - Mark object as BLACK (fully scanned)
-         
+
 End of Mark:
          BLACK objects → reachable (keep)
          WHITE objects → unreachable (collect)
@@ -372,7 +393,7 @@ End of Mark:
 // Every time a GC pointer field is written:
 void write_barrier(void** slot, void* new_value) {
   *slot = new_value;
-  
+
   // If GC is running and new_value is WHITE, mark it GRAY
   if (gc_is_active && get_color(new_value) == WHITE) {
     mark_gray(new_value);
@@ -381,6 +402,7 @@ void write_barrier(void** slot, void* new_value) {
 ```
 
 **Code generation:**
+
 ```yo
 // Source:
 obj.field = new_obj;
@@ -426,6 +448,7 @@ typedef struct {
 ```
 
 **Example:**
+
 ```yo
 Node :: object(
   value: i32,        // Offset 0, not a pointer
@@ -448,15 +471,15 @@ static YoTypeDescriptor Node_descriptor = {
 ```c
 void* yo_gc_alloc(YoTypeDescriptor* type_desc) {
   size_t total_size = sizeof(YoGCHeader) + type_desc->size;
-  
+
   void* mem = malloc(total_size);  // Or bump allocator
   YoGCHeader* header = (YoGCHeader*)mem;
-  
+
   header->mark_bits = WHITE;
   header->type_tag = OBJECT_TAG;
   header->size = type_desc->size;
   header->type_info = type_desc;
-  
+
   return (void*)(header + 1);  // Return pointer after header
 }
 ```
@@ -488,12 +511,12 @@ void scan_stack_conservative(void* stack_bottom, void* stack_top) {
   // Align to pointer size
   uintptr_t* p = (uintptr_t*)((uintptr_t)stack_top & ~(sizeof(void*) - 1));
   uintptr_t* end = (uintptr_t*)stack_bottom;
-  
+
   for (; p < end; p++) {
     void* potential_ptr = (void*)*p;
-    
+
     // Check if this looks like a valid heap pointer
-    if (is_pointer_aligned(potential_ptr) && 
+    if (is_pointer_aligned(potential_ptr) &&
         is_in_heap_bounds(potential_ptr) &&
         is_valid_gc_object(potential_ptr)) {
       mark_gray(potential_ptr);
@@ -517,6 +540,7 @@ bool is_valid_gc_object(void* ptr) {
 ```
 
 **Pros:**
+
 - ✅ Simple to implement (Phase 1)
 - ✅ Works immediately with C interop
 - ✅ No compiler changes needed
@@ -524,10 +548,12 @@ bool is_valid_gc_object(void* ptr) {
 - ✅ False positives are rare in practice (<1% memory overhead)
 
 **Cons:**
+
 - ⚠️ May keep some garbage alive (if integers look like pointers)
 - ⚠️ Can't move objects during compaction (pointers might be disguised integers)
 
 **Why this works well:**
+
 - Most stack values are small integers, not heap addresses
 - Heap is allocated in specific address ranges, easy to check bounds
 - Object headers can be validated to reduce false positives
@@ -557,23 +583,23 @@ void example_function() {
   frame.roots = roots;
   frame.num_roots = 2;
   shadow_stack_top = &frame;
-  
+
   // Function body
   YoNode* node1 = yo_gc_alloc(...);
   YoNode* node2 = yo_gc_alloc(...);
   roots[0] = &node1;  // Register with shadow stack
   roots[1] = &node2;
-  
+
   // ... use node1, node2 ...
-  
+
   // Cleanup on exit
   shadow_stack_top = frame.prev;
 }
 
 // GC scans shadow stack instead of real stack
 void scan_shadow_stack() {
-  for (ShadowStackFrame* frame = shadow_stack_top; 
-       frame != NULL; 
+  for (ShadowStackFrame* frame = shadow_stack_top;
+       frame != NULL;
        frame = frame->prev) {
     for (size_t i = 0; i < frame->num_roots; i++) {
       mark_gray(*frame->roots[i]);
@@ -583,11 +609,13 @@ void scan_shadow_stack() {
 ```
 
 **Pros:**
+
 - ✅ Precise - no false positives
 - ✅ Enables moving/compacting GC
 - ✅ Can track exact pointer types
 
 **Cons:**
+
 - ❌ Overhead on every function call (~5-10% slowdown)
 - ❌ Complex codegen (track all GC pointers)
 - ❌ More code size (frame setup/teardown)
@@ -602,23 +630,24 @@ void scan_shadow_stack() {
 // Compiler generates:
 interface StackMap {
   functionName: string;
-  instructionOffset: number;   // PC offset within function
+  instructionOffset: number; // PC offset within function
   stackSize: number;
-  pointerOffsets: number[];    // Offsets of GC pointers on stack
+  pointerOffsets: number[]; // Offsets of GC pointers on stack
 }
 
 // Example generated metadata:
 const stackMaps: StackMap[] = [
   {
     functionName: "process_nodes",
-    instructionOffset: 42,  // After call to yo_gc_alloc
+    instructionOffset: 42, // After call to yo_gc_alloc
     stackSize: 64,
-    pointerOffsets: [8, 16, 24]  // node1 at [rbp-8], node2 at [rbp-16], etc.
-  }
+    pointerOffsets: [8, 16, 24], // node1 at [rbp-8], node2 at [rbp-16], etc.
+  },
 ];
 ```
 
 **Generated C with embedded metadata:**
+
 ```c
 // Compiler emits stack map metadata
 static YoStackMap process_nodes_maps[] = {
@@ -629,21 +658,23 @@ void process_nodes() {
   YoNode* node1;  // [rbp-8]
   YoNode* node2;  // [rbp-16]
   YoNode* node3;  // [rbp-24]
-  
+
   // Safepoint: GC can scan using stack map
   yo_safepoint();  // GC knows exactly where pointers are
-  
+
   // ...
 }
 ```
 
 **Pros:**
+
 - ✅ Precise - no false positives
 - ✅ Enables moving/compacting GC
 - ✅ Zero runtime overhead (no shadow stack)
 - ✅ Minimal memory overhead (compact metadata)
 
 **Cons:**
+
 - ❌ Complex compiler implementation
 - ❌ Requires tracking all GC allocation sites
 - ❌ Harder to debug (metadata correctness)
@@ -656,22 +687,26 @@ void process_nodes() {
 #### Why Shadow Stack?
 
 1. **Precise GC Required for <5ms Latency Goal**
+
    - Conservative scanning prevents moving/compacting GC
    - False positives delay collection and increase memory usage
    - Cannot achieve Go-like performance without precision
 
 2. **Static Typing Makes Shadow Stack Efficient**
+
    - Compiler knows exactly which locals are GC pointers
    - No runtime type checks needed
    - Minimal overhead (~3-5% in practice, not 5-10%)
 
 3. **Perfect Fit for C Transpilation**
+
    - No C compiler cooperation needed
    - Works with any C compiler (GCC, Clang, MSVC)
    - Portable across all platforms
    - Simple, debuggable generated code
 
 4. **Enables Advanced GC Optimizations**
+
    - Moving/compacting GC (reduce fragmentation)
    - Generational GC (most objects die young)
    - Parallel and concurrent GC
@@ -686,6 +721,7 @@ void process_nodes() {
 #### Implementation Phases
 
 **Phase 1: Basic Shadow Stack + Stop-the-World Mark-Sweep**
+
 - Implement shadow stack infrastructure
 - Stop-the-world tri-color mark-sweep
 - Per-thread allocation buffers (TLAB)
@@ -693,6 +729,7 @@ void process_nodes() {
 - Target: <10ms pause times
 
 **Phase 2: Concurrent GC**
+
 - Concurrent marking with write barriers
 - Concurrent sweeping
 - Multiple GC threads
@@ -700,6 +737,7 @@ void process_nodes() {
 - Target: <5ms pause times
 
 **Phase 3: Generational + Incremental**
+
 - Generational hypothesis (young/old spaces)
 - Incremental marking (spread work over time)
 - Remembered sets for old→young pointers
@@ -707,6 +745,7 @@ void process_nodes() {
 - Target: <2ms typical pause, <5ms max pause
 
 **Phase 4: Compacting GC (Optional)**
+
 - Moving collector to reduce fragmentation
 - Update shadow stack roots after compaction
 - Parallel compaction
@@ -735,12 +774,14 @@ Stack maps would require tracking C compiler's stack layout:
 #### Shadow Stack Overhead Analysis
 
 **Memory Overhead:**
+
 - 1 pointer per GC-allocated local variable
 - Typical function: 2-4 GC locals → 16-32 bytes per frame
 - Call stack depth: 50-100 frames → 1-3 KB per thread
 - Total: <100 KB for 32 threads (negligible)
 
 **Time Overhead:**
+
 - Function entry: Initialize shadow frame (~5 cycles)
 - Per-local: Store pointer in roots array (~2 cycles)
 - Function exit: Restore previous frame (~3 cycles)
@@ -748,6 +789,7 @@ Stack maps would require tracking C compiler's stack layout:
 - In practice: 3-5% slowdown (Go has similar overhead)
 
 **Benefits:**
+
 - Zero false positives (vs 1-5% memory waste with conservative)
 - Enables compacting GC (better cache locality, 10-30% throughput gain)
 - Enables generational GC (90% of collections are fast young-gen)
@@ -776,6 +818,7 @@ __thread YoShadowFrame* yo_shadow_stack_top = NULL;
 ### Code Generation Strategy
 
 For every Yo function, the compiler generates C code that:
+
 1. **Setup shadow frame on entry**
 2. **Register all GC pointer locals in roots array**
 3. **Update roots array when locals are reassigned**
@@ -784,6 +827,7 @@ For every Yo function, the compiler generates C code that:
 #### Example 1: Simple Function
 
 **Yo source:**
+
 ```yo
 process :: (fn(x: i32) -> Node)
   {
@@ -794,6 +838,7 @@ process :: (fn(x: i32) -> Node)
 ```
 
 **Generated C:**
+
 ```c
 typedef struct {
   int32_t value;
@@ -809,30 +854,31 @@ YoNode* process(int32_t x) {
   frame.num_roots = 2;
   frame.function_name = "process";  // Debug only
   yo_shadow_stack_top = &frame;
-  
+
   // Initialize roots to NULL (before allocation)
   YoNode* node = NULL;
   YoNode* result = NULL;
   roots[0] = &node;
   roots[1] = &result;
-  
+
   // Function body
   node = yo_gc_alloc(&YoNode_descriptor);
   node->value = x;
   node->next = YoOption_Node_None();
-  
+
   result = yo_gc_alloc(&YoNode_descriptor);
   result->value = x * 2;
   result->next = YoOption_Node_Some(node);
-  
+
   // Shadow frame teardown
   yo_shadow_stack_top = frame.prev;
-  
+
   return result;
 }
 ```
 
 **Key points:**
+
 - `roots` array lives on the C stack (automatic storage)
 - Each entry in `roots` is a pointer to a local variable
 - GC scans `roots[i]` to find the address of each local, then dereferences it
@@ -842,6 +888,7 @@ YoNode* process(int32_t x) {
 #### Example 2: Reassignment of GC Pointers
 
 **Yo source:**
+
 ```yo
 swap_nodes :: (fn(a: Node, b: Node) -> Node)
   {
@@ -853,6 +900,7 @@ swap_nodes :: (fn(a: Node, b: Node) -> Node)
 ```
 
 **Generated C:**
+
 ```c
 YoNode* swap_nodes(YoNode* a, YoNode* b) {
   // Shadow frame setup
@@ -862,21 +910,21 @@ YoNode* swap_nodes(YoNode* a, YoNode* b) {
   frame.roots = roots;
   frame.num_roots = 3;
   yo_shadow_stack_top = &frame;
-  
+
   // Register parameters as roots
   roots[0] = &a;
   roots[1] = &b;
-  
+
   // Function body
   YoNode* temp = a;
   roots[2] = &temp;
-  
+
   a = b;      // Reassignment - no need to update roots (already points to 'a')
   b = temp;   // Reassignment - no need to update roots (already points to 'b')
-  
+
   // Shadow frame teardown
   yo_shadow_stack_top = frame.prev;
-  
+
   return a;
 }
 ```
@@ -886,6 +934,7 @@ YoNode* swap_nodes(YoNode* a, YoNode* b) {
 #### Example 3: Nested Function Calls
 
 **Yo source:**
+
 ```yo
 create_list :: (fn(n: i32) -> Node)
   {
@@ -897,6 +946,7 @@ create_list :: (fn(n: i32) -> Node)
 ```
 
 **Generated C:**
+
 ```c
 YoNode* create_list(int32_t n) {
   // Shadow frame setup
@@ -906,25 +956,25 @@ YoNode* create_list(int32_t n) {
   frame.roots = roots;
   frame.num_roots = 2;
   yo_shadow_stack_top = &frame;
-  
+
   YoNode* head = NULL;
   YoNode* tail = NULL;
   roots[0] = &head;
   roots[1] = &tail;
-  
+
   // Allocation (safepoint - GC can run here!)
   head = yo_gc_alloc(&YoNode_descriptor);
   head->value = n;
   head->next = YoOption_Node_None();
-  
+
   // Nested call (safepoint - GC can run here!)
   tail = create_list(n - 1);
-  
+
   // After call, 'head' and 'tail' might have moved if we implement compacting GC
   // But shadow stack ensures they're updated correctly!
-  
+
   head->next = YoOption_Node_Some(tail);
-  
+
   yo_shadow_stack_top = frame.prev;
   return head;
 }
@@ -936,14 +986,14 @@ YoNode* create_list(int32_t n) {
 
 ```c
 void yo_gc_scan_shadow_stack() {
-  for (YoShadowFrame* frame = yo_shadow_stack_top; 
-       frame != NULL; 
+  for (YoShadowFrame* frame = yo_shadow_stack_top;
+       frame != NULL;
        frame = frame->prev) {
-    
+
     for (uint32_t i = 0; i < frame->num_roots; i++) {
       void** root_ptr = (void**)frame->roots[i];  // Address of local variable
       void* obj = *root_ptr;                      // Dereference to get object pointer
-      
+
       if (obj != NULL) {
         yo_gc_mark_gray(obj);  // Mark object as reachable
       }
@@ -957,12 +1007,14 @@ void yo_gc_scan_shadow_stack() {
 For functions that don't allocate and don't call other functions (leaf functions with no GC), we can skip shadow stack setup:
 
 **Yo source:**
+
 ```yo
 add :: (fn(a: i32, b: i32) -> i32)
   ((a + b) : i32)
 ```
 
 **Generated C (optimized):**
+
 ```c
 int32_t add(int32_t a, int32_t b) {
   // No shadow frame needed - no GC pointers!
@@ -971,6 +1023,7 @@ int32_t add(int32_t a, int32_t b) {
 ```
 
 **Optimization rule**: Only setup shadow frame if:
+
 - Function has GC pointer locals, OR
 - Function calls other functions that might trigger GC (safepoints)
 
@@ -986,15 +1039,15 @@ __thread YoShadowFrame* yo_shadow_stack_top = NULL;
 void yo_gc_scan_all_threads() {
   // Stop all threads at safepoints
   yo_gc_stop_the_world();
-  
+
   // Scan each thread's shadow stack
   for (size_t i = 0; i < num_threads; i++) {
     YoThread* thread = &threads[i];
-    
+
     for (YoShadowFrame* frame = thread->shadow_stack_top;
          frame != NULL;
          frame = frame->prev) {
-      
+
       for (uint32_t j = 0; j < frame->num_roots; j++) {
         void* obj = *(void**)frame->roots[j];
         if (obj != NULL) {
@@ -1003,7 +1056,7 @@ void yo_gc_scan_all_threads() {
       }
     }
   }
-  
+
   // Resume threads
   yo_gc_resume_world();
 }
@@ -1014,23 +1067,25 @@ void yo_gc_scan_all_threads() {
 Shadow frames are stack-allocated, so they're automatically cleaned up:
 
 **Yo source with early return:**
+
 ```yo
 find_node :: (fn(list: Node, value: i32) -> Option(Node))
   {
     current := list;
-    
+
     while (current.value != value), {
       match(current.next,
         .Some(next) => { current = next; },
         .None => { return .None; }  // Early return
       );
     };
-    
+
     .Some(current)
   }
 ```
 
 **Generated C:**
+
 ```c
 YoOption_Node find_node(YoNode* list, int32_t value) {
   YoShadowFrame frame;
@@ -1039,13 +1094,13 @@ YoOption_Node find_node(YoNode* list, int32_t value) {
   frame.roots = roots;
   frame.num_roots = 1;
   yo_shadow_stack_top = &frame;
-  
+
   YoNode* current = list;
   roots[0] = &current;
-  
+
   while (current->value != value) {
     YoOption_Node next_opt = current->next;
-    
+
     if (YoOption_Node_is_Some(&next_opt)) {
       current = YoOption_Node_unwrap(&next_opt);
     } else {
@@ -1054,7 +1109,7 @@ YoOption_Node find_node(YoNode* list, int32_t value) {
       return YoOption_Node_None();
     }
   }
-  
+
   yo_shadow_stack_top = frame.prev;
   return YoOption_Node_Some(current);
 }
@@ -1069,15 +1124,15 @@ For debugging, we can walk the shadow stack to print GC roots:
 ```c
 void yo_gc_debug_print_shadow_stack() {
   printf("=== Shadow Stack Trace ===\n");
-  
+
   int depth = 0;
   for (YoShadowFrame* frame = yo_shadow_stack_top;
        frame != NULL;
        frame = frame->prev) {
-    
-    printf("Frame %d: %s (%u roots)\n", 
+
+    printf("Frame %d: %s (%u roots)\n",
            depth, frame->function_name, frame->num_roots);
-    
+
     for (uint32_t i = 0; i < frame->num_roots; i++) {
       void* obj = *(void**)frame->roots[i];
       if (obj != NULL) {
@@ -1088,10 +1143,10 @@ void yo_gc_debug_print_shadow_stack() {
         printf("  [%u] NULL\n", i);
       }
     }
-    
+
     depth++;
   }
-  
+
   printf("======================\n");
 }
 ```
@@ -1099,24 +1154,28 @@ void yo_gc_debug_print_shadow_stack() {
 ### Performance Characteristics
 
 **Overhead per function call:**
+
 - Shadow frame setup: ~10 cycles
 - Per-local registration: ~2 cycles
 - Shadow frame teardown: ~3 cycles
 - Total: ~10-20 cycles per call
 
 **Compared to function call overhead:**
+
 - Function call itself: ~20-50 cycles (on modern x86-64)
 - Shadow stack overhead: ~10-20 cycles
 - Relative overhead: ~20-40% of call overhead
 - In practice: 3-5% slowdown for typical programs
 
 **Why so low in practice?**
+
 - Many functions are leaf functions (no shadow stack needed)
 - Many functions are inlined (no shadow stack setup)
 - Compiler can elide shadow stack for functions without GC pointers
 - Shadow stack operations are cache-friendly (linear traversal)
 
 **Comparison to alternatives:**
+
 - Conservative scanning: 0% call overhead, but 10-30% collection overhead + false positives
 - Stack maps: 0% call overhead, but complex implementation + C compiler dependent
 - Shadow stack: 3-5% call overhead, but enables all GC optimizations
@@ -1126,6 +1185,7 @@ void yo_gc_debug_print_shadow_stack() {
 ### Latency Goals
 
 **Target latency profile (like Go):**
+
 - **Typical pause**: <2ms (99th percentile)
 - **Maximum pause**: <5ms (99.9th percentile)
 - **STW phases**: Root scanning + sync only
@@ -1134,18 +1194,21 @@ void yo_gc_debug_print_shadow_stack() {
 ### Three-Phase GC Strategy
 
 **Phase 1: Basic Mark-Sweep (Foundation)**
+
 - Stop-the-world tri-color marking
 - Stop-the-world sweeping
 - Establish correctness baseline
 - Expected pause: 5-20ms (acceptable for Phase 1)
 
 **Phase 2: Concurrent Mark-Sweep (Target: <5ms)**
+
 - Concurrent marking with write barriers
 - Concurrent sweeping
 - STW only for root scan + sync
 - Expected pause: <5ms
 
 **Phase 3: Generational + Incremental (Target: <2ms)**
+
 - Generational hypothesis (young gen + old gen)
 - Incremental marking (spread over time)
 - Most collections are young-gen only
@@ -1156,6 +1219,7 @@ void yo_gc_debug_print_shadow_stack() {
 #### Tri-Color Marking Algorithm
 
 **Colors represent object states:**
+
 ```c
 typedef enum {
   WHITE = 0,  // Unmarked (potentially garbage)
@@ -1172,6 +1236,7 @@ typedef struct {
 ```
 
 **Tri-color invariant:**
+
 - **Invariant**: No BLACK object points to WHITE object
 - **Why**: Ensures we don't miss reachable objects during concurrent marking
 - **Maintained by**: Write barrier
@@ -1179,34 +1244,36 @@ typedef struct {
 #### Concurrent Marking Phases
 
 **1. Initial Mark (STW - brief)**
+
 ```c
 void yo_gc_initial_mark() {
   // Stop all threads at safepoints
   yo_gc_stop_the_world();  // ~0.5-1ms
-  
+
   // Mark all root objects as GRAY
   yo_gc_scan_all_shadow_stacks();  // Scan shadow stacks
   yo_gc_scan_global_roots();       // Scan global variables
-  
+
   // Resume threads
   yo_gc_resume_world();
-  
+
   // Now marking can proceed concurrently
 }
 ```
 
 **2. Concurrent Mark (Parallel, no STW)**
+
 ```c
 void yo_gc_concurrent_mark() {
   // Multiple GC threads mark concurrently with mutators
   while (yo_gc_has_gray_objects()) {
     void* obj = yo_gc_pop_gray_object();
-    
+
     if (obj == NULL) break;  // No more work
-    
+
     // Mark children
     yo_gc_mark_children(obj);
-    
+
     // Mark this object as BLACK
     yo_gc_set_color(obj, BLACK);
   }
@@ -1215,12 +1282,12 @@ void yo_gc_concurrent_mark() {
 void yo_gc_mark_children(void* obj) {
   YoGCHeader* header = yo_gc_get_header(obj);
   YoTypeDescriptor* type = (YoTypeDescriptor*)header->type_info;
-  
+
   // Scan all pointer fields
   for (size_t i = 0; i < type->pointer_count; i++) {
     void** field_ptr = (void**)((char*)obj + type->pointer_offsets[i]);
     void* child = *field_ptr;
-    
+
     if (child != NULL && yo_gc_get_color(child) == WHITE) {
       yo_gc_set_color(child, GRAY);
       yo_gc_push_gray_object(child);
@@ -1230,36 +1297,38 @@ void yo_gc_mark_children(void* obj) {
 ```
 
 **3. Remark (STW - brief)**
+
 ```c
 void yo_gc_remark() {
   // Stop all threads to process any objects marked during concurrent phase
   yo_gc_stop_the_world();  // ~0.5-1ms
-  
+
   // Process write barrier buffers
   yo_gc_process_write_barriers();
-  
+
   // Scan any new roots (objects allocated during concurrent mark)
   yo_gc_scan_all_shadow_stacks();
-  
+
   // Finish marking any remaining GRAY objects
   while (yo_gc_has_gray_objects()) {
     void* obj = yo_gc_pop_gray_object();
     yo_gc_mark_children(obj);
     yo_gc_set_color(obj, BLACK);
   }
-  
+
   yo_gc_resume_world();
 }
 ```
 
 **4. Concurrent Sweep (Parallel, no STW)**
+
 ```c
 void yo_gc_concurrent_sweep() {
   // Sweep heap and free WHITE objects
   for (YoHeapBlock* block = heap_blocks; block != NULL; block = block->next) {
     for (void* obj = block->start; obj < block->end; obj = yo_gc_next_object(obj)) {
       YoGCHeader* header = yo_gc_get_header(obj);
-      
+
       if (header->mark_bits == WHITE) {
         // Object is garbage - free it
         yo_gc_free_object(obj);
@@ -1277,6 +1346,7 @@ void yo_gc_concurrent_sweep() {
 **Problem**: Mutator threads modify object graph during concurrent marking.
 
 **Example scenario:**
+
 ```
 Initial state:
   A (BLACK) -> B (GRAY) -> C (WHITE)
@@ -1296,19 +1366,20 @@ void yo_write_barrier(void** slot, void* new_value) {
   // If GC is marking and new_value is WHITE, mark it GRAY
   if (yo_gc_is_marking && new_value != NULL) {
     YoColor color = yo_gc_get_color(new_value);
-    
+
     if (color == WHITE) {
       yo_gc_set_color(new_value, GRAY);
       yo_gc_push_gray_object(new_value);
     }
   }
-  
+
   // Perform the write
   *slot = new_value;
 }
 ```
 
 **Code generation:**
+
 ```yo
 // Yo source:
 obj.field = new_obj;
@@ -1319,6 +1390,7 @@ obj->field = new_obj;
 ```
 
 **Overhead:**
+
 - **During concurrent marking**: 1 check + potential mark per write (~5-10 cycles)
 - **When GC not running**: Just a flag check (~2 cycles, usually predicted)
 - **In practice**: <1% overhead
@@ -1326,6 +1398,7 @@ obj->field = new_obj;
 #### Safepoint Mechanism
 
 **Safepoint insertion points:**
+
 ```c
 // 1. Loop back-edges
 while (condition) {
@@ -1346,6 +1419,7 @@ for (i = 0; i < 1000000; i++) {
 ```
 
 **Safepoint implementation:**
+
 ```c
 // Global flag for GC requests
 volatile bool yo_gc_safepoint_requested = false;
@@ -1359,20 +1433,21 @@ void yo_safepoint() {
 void yo_gc_safepoint_slow() {
   // Park this thread until GC is done
   pthread_mutex_lock(&yo_gc_safepoint_mutex);
-  
+
   // Signal that we've reached a safepoint
   yo_gc_threads_at_safepoint++;
-  
+
   // Wait for GC to finish
   while (yo_gc_safepoint_requested) {
     pthread_cond_wait(&yo_gc_safepoint_cond, &yo_gc_safepoint_mutex);
   }
-  
+
   pthread_mutex_unlock(&yo_gc_safepoint_mutex);
 }
 ```
 
 **STW pause breakdown:**
+
 ```
 Initial Mark:
   - Request safepoint: ~0.1ms (signal all threads)
@@ -1398,7 +1473,8 @@ Total STW per GC cycle: ~3.4ms ✅ Under 5ms goal!
 
 **Observation**: Most objects die young (90%+ of allocations)
 
-**Strategy**: 
+**Strategy**:
+
 - **Young generation**: Frequently collected (minor GC)
 - **Old generation**: Rarely collected (major GC)
 - **Promotion**: Young objects that survive N collections → old generation
@@ -1409,10 +1485,10 @@ typedef struct {
   YoHeapBlock* young_gen_end;
   YoHeapBlock* old_gen_start;
   YoHeapBlock* old_gen_end;
-  
+
   size_t young_gen_size;
   size_t old_gen_size;
-  
+
   uint8_t promotion_threshold;  // Survive N minor GCs to promote
 } YoGenerationalGC;
 ```
@@ -1425,16 +1501,16 @@ typedef struct {
 void yo_gc_minor_collect() {
   // Stop the world (brief)
   yo_gc_stop_the_world();  // ~0.5ms
-  
+
   // 1. Mark young generation roots
   yo_gc_scan_all_shadow_stacks();   // Only mark young objects
   yo_gc_scan_remembered_set();      // Old -> Young pointers
-  
+
   // 2. Copy survivors to old generation
   for (void* obj = young_gen_start; obj < young_gen_end; obj = next_obj(obj)) {
     if (yo_gc_is_marked(obj)) {
       uint8_t age = yo_gc_get_age(obj);
-      
+
       if (age >= promotion_threshold) {
         // Promote to old generation
         void* new_addr = yo_gc_copy_to_old_gen(obj);
@@ -1445,12 +1521,12 @@ void yo_gc_minor_collect() {
       }
     }
   }
-  
+
   // 3. Free entire young generation
   yo_gc_reset_young_gen();
-  
+
   yo_gc_resume_world();
-  
+
   // Total pause: ~1ms for typical young gen ✅
 }
 ```
@@ -1471,12 +1547,12 @@ typedef struct {
 // Write barrier for generational GC
 void yo_write_barrier_generational(void** slot, void* new_value) {
   void* obj = yo_gc_containing_object(slot);
-  
+
   // If old object writes to young object, add to remembered set
   if (yo_gc_is_old(obj) && yo_gc_is_young(new_value)) {
     yo_remembered_set_add(slot);
   }
-  
+
   *slot = new_value;
 }
 ```
@@ -1495,14 +1571,14 @@ typedef struct {
 
 void yo_gc_incremental_mark_step() {
   size_t work_done = 0;
-  
-  while (work_done < yo_incremental_gc.work_budget && 
+
+  while (work_done < yo_incremental_gc.work_budget &&
          yo_gc_has_gray_objects()) {
-    
+
     void* obj = yo_gc_pop_gray_object();
     yo_gc_mark_children(obj);
     yo_gc_set_color(obj, BLACK);
-    
+
     work_done++;
   }
 }
@@ -1510,18 +1586,19 @@ void yo_gc_incremental_mark_step() {
 // Call incremental marking from allocation
 void* yo_gc_alloc(YoTypeDescriptor* type_desc) {
   void* obj = yo_gc_alloc_fast(type_desc);
-  
+
   if (obj == NULL) {
     // Slow path: trigger incremental marking step
     yo_gc_incremental_mark_step();
     obj = yo_gc_alloc_slow(type_desc);
   }
-  
+
   return obj;
 }
 ```
 
 **Benefits:**
+
 - Spread GC work over time (no sudden pauses)
 - Allocation triggers proportional marking work
 - Heap stays balanced (allocation rate ≈ marking rate)
@@ -1535,23 +1612,23 @@ typedef struct {
   size_t heap_size;
   size_t live_size;
   size_t target_heap_ratio;  // heap_size / live_size (default: 2x)
-  
+
   double gc_cpu_percentage;   // Target: <25% CPU for GC
   uint64_t last_gc_duration;
   uint64_t mutator_duration;
 } YoAdaptiveGC;
 
 void yo_gc_adjust_heap_size() {
-  double gc_overhead = (double)yo_adaptive_gc.last_gc_duration / 
+  double gc_overhead = (double)yo_adaptive_gc.last_gc_duration /
                        (double)yo_adaptive_gc.mutator_duration;
-  
+
   if (gc_overhead > 0.25) {
     // GC taking too much CPU - increase heap size
-    yo_adaptive_gc.heap_size = yo_adaptive_gc.live_size * 
+    yo_adaptive_gc.heap_size = yo_adaptive_gc.live_size *
                                 (yo_adaptive_gc.target_heap_ratio + 1);
   } else if (gc_overhead < 0.10) {
     // GC not using much CPU - decrease heap size
-    yo_adaptive_gc.heap_size = yo_adaptive_gc.live_size * 
+    yo_adaptive_gc.heap_size = yo_adaptive_gc.live_size *
                                 yo_adaptive_gc.target_heap_ratio;
   }
 }
@@ -1560,6 +1637,7 @@ void yo_gc_adjust_heap_size() {
 ### Complete GC Cycle with All Optimizations
 
 **Minor GC (90% of collections):**
+
 ```
 1. Stop the world              (~0.3ms)
 2. Scan shadow stacks          (~0.3ms)
@@ -1570,6 +1648,7 @@ Total: ~1.4ms ✅ Well under 5ms!
 ```
 
 **Major GC (10% of collections):**
+
 ```
 1. Initial mark (STW)          (~1.0ms)
 2. Concurrent mark             (parallel, no pause)
@@ -1579,6 +1658,7 @@ Total STW: ~2.5ms ✅ Under 5ms!
 ```
 
 **With incremental marking:**
+
 ```
 Minor GC pause:                (~1.4ms)
 Major GC pause (initial mark): (~0.8ms)  // Less work due to incremental
@@ -1589,6 +1669,7 @@ Total: ~1-2ms typical, <5ms worst case ✅
 ### Comparison: Yo GC vs Go GC
 
 **Go's GC strategy (as of Go 1.21+):**
+
 - Concurrent mark-sweep with STW pauses
 - Write barriers during concurrent marking
 - Target: <10ms (old), now <5ms (newer versions)
@@ -1596,6 +1677,7 @@ Total: ~1-2ms typical, <5ms worst case ✅
 - GOGC parameter for heap sizing
 
 **Yo's GC strategy (proposed):**
+
 - Concurrent mark-sweep (same as Go)
 - Generational GC (Go doesn't have this)
 - Incremental marking (Go has this)
@@ -1603,12 +1685,14 @@ Total: ~1-2ms typical, <5ms worst case ✅
 - Target: <5ms (same as modern Go)
 
 **Key differences:**
+
 - ✅ **Yo**: Generational GC → faster minor collections
 - ✅ **Yo**: Shadow stack → simpler implementation for C target
 - ✅ **Go**: Stack maps → slightly lower overhead (~1% vs 3%)
 - ✅ **Go**: More mature (10+ years of tuning)
 
 **Expected performance:**
+
 - **Yo**: Similar latency to Go (<5ms)
 - **Yo**: Potentially better throughput (generational helps)
 - **Yo**: Slightly higher function call overhead (shadow stack)
@@ -1616,20 +1700,21 @@ Total: ~1-2ms typical, <5ms worst case ✅
 ### Monitoring and Debugging
 
 **GC statistics:**
+
 ```c
 typedef struct {
   uint64_t total_collections;
   uint64_t minor_collections;
   uint64_t major_collections;
-  
+
   uint64_t total_pause_time_ns;
   uint64_t max_pause_time_ns;
   uint64_t avg_pause_time_ns;
-  
+
   size_t bytes_allocated;
   size_t bytes_freed;
   size_t live_objects;
-  
+
   double gc_cpu_percentage;
 } YoGCStats;
 
@@ -1647,6 +1732,7 @@ void yo_gc_print_stats() {
 ```
 
 **Environment variables for tuning:**
+
 ```bash
 YO_GC_HEAP_SIZE=512M          # Initial heap size
 YO_GC_MAX_HEAP_SIZE=4G        # Maximum heap size
@@ -1685,7 +1771,7 @@ worker_run :: (fn(worker: Worker) -> unit)
   {
     loop({
       task_opt := worker.local_queue.pop();
-      
+
       task := cond(
         match(task_opt,
           .Some(t) => t,
@@ -1695,7 +1781,7 @@ worker_run :: (fn(worker: Worker) -> unit)
           }
         )
       );
-      
+
       execute_task(task);
     });
   }
@@ -1719,12 +1805,12 @@ __thread ThreadLocalBuffer tlab;
 void* yo_gc_alloc_fast(size_t size) {
   void* ptr = tlab.bump_ptr;
   void* new_ptr = ptr + size;
-  
+
   if (new_ptr <= tlab.buffer_end) {
     tlab.bump_ptr = new_ptr;
     return ptr;  // Fast path: no synchronization!
   }
-  
+
   return yo_gc_alloc_slow(size);  // Slow path: refill buffer
 }
 ```
@@ -1748,6 +1834,7 @@ void yo_safepoint() {
 ```
 
 **Code generation:**
+
 ```yo
 // Source:
 while cond(), {
@@ -1777,6 +1864,7 @@ c_draw_point(p);  // ✅ Passed directly, no conversion needed
 ```
 
 **Generated C:**
+
 ```c
 typedef struct {
   int32_t x;
@@ -1805,6 +1893,7 @@ c_process_node(___pin(node));  // Pin during C call
 ```
 
 **Generated C:**
+
 ```c
 YoNode* node = yo_gc_alloc(&YoNode_descriptor);
 yo_gc_pin(node);              // Prevent collection
@@ -1863,14 +1952,17 @@ Weak(T) :: struct(
 ### GC Overhead Breakdown
 
 **Allocation:**
+
 - Fast path: ~5-10 cycles (TLAB bump allocation)
 - Slow path: ~100-500 cycles (refill TLAB or fallback)
 
 **Write Barrier:**
+
 - ~5-10 cycles per GC pointer write (only during mark phase)
 - Zero overhead when GC is not running
 
 **Collection Pause:**
+
 - Root scan: 0.1-1ms per thread (stack scanning)
 - Sync pause: <0.1ms (write barrier sync)
 - Concurrent mark/sweep: No pause (runs alongside mutators)
@@ -1880,14 +1972,17 @@ Weak(T) :: struct(
 ### Memory Overhead
 
 **Per-object overhead:**
+
 - GC header: 16 bytes per object
 - Type descriptor: Shared across all objects of same type
 
 **Heap overhead:**
+
 - GC typically keeps heap at 2x live data size
 - Configurable: trade memory for fewer collections
 
 **Example:**
+
 ```
 100 MB live data → 200 MB heap size → 100 MB overhead
 ```
@@ -1905,6 +2000,7 @@ Weak(T) :: struct(
 5. ✅ Manual GC trigger or allocation threshold
 
 **Goals:**
+
 - Prove GC works with hybrid type system
 - Enable work-stealing concurrency
 - Establish baseline performance
@@ -1920,6 +2016,7 @@ Weak(T) :: struct(
 5. ✅ Per-thread allocation buffers (TLABs)
 
 **Goals:**
+
 - Reduce pause times to <2ms
 - Scale GC work with mutator threads
 - Maintain work-stealing capability
@@ -1935,6 +2032,7 @@ Weak(T) :: struct(
 5. ✅ Write barrier elision (escape analysis)
 
 **Goals:**
+
 - Minimize GC overhead
 - Reduce memory footprint
 - Optimize for common allocation patterns
@@ -1995,18 +2093,21 @@ FileHandle :: struct(  // Value type!
 ### Compiler Changes Required
 
 **1. Remove RC code generation:**
+
 - Remove `___dup` calls on assignment
 - Remove `___drop` calls at scope exit
 - Remove `isOwningTheSameRefValueAs` tracking
 - Remove biased RC infrastructure
 
 **2. Add GC infrastructure:**
+
 - Generate type descriptors for all GC types
 - Emit `yo_gc_alloc` calls for object/closure/dyn creation
 - Insert write barriers on GC pointer writes
 - Insert safepoint checks in loops and function calls
 
 **3. Update codegen:**
+
 ```typescript
 // Before:
 emitAssignment(lhs, rhs) {
@@ -2026,16 +2127,19 @@ emitAssignment(lhs, rhs) {
 ### Runtime Changes Required
 
 **1. Replace mimalloc with GC allocator:**
+
 - Implement GC heap management
 - Add mark-sweep algorithm
 - Add write barrier support
 
 **2. Update concurrency runtime:**
+
 - Remove thread affinity from task scheduler
 - Implement work-stealing scheduler
 - Add GC safepoint support to async runtime
 
 **3. Add GC runtime API:**
+
 ```c
 void* yo_gc_alloc(YoTypeDescriptor* type_desc);
 void yo_gc_write_barrier(void** slot, void* value);
@@ -2049,12 +2153,14 @@ void yo_gc_unpin(void* ptr);
 ### Reference Counting (Current)
 
 **Pros:**
+
 - ✅ Deterministic destructors (RAII)
 - ✅ Predictable memory usage
 - ✅ No GC pauses
 - ✅ Simple mental model (ownership)
 
 **Cons:**
+
 - ❌ Overhead on every mutation (dup/drop)
 - ❌ Atomic operations in multithreading
 - ❌ Cannot handle cycles (needs weak pointers)
@@ -2064,6 +2170,7 @@ void yo_gc_unpin(void* ptr);
 ### Garbage Collection (Proposed)
 
 **Pros:**
+
 - ✅ Zero mutation overhead (no dup/drop)
 - ✅ Work-stealing concurrency enabled
 - ✅ Handles cycles naturally
@@ -2071,6 +2178,7 @@ void yo_gc_unpin(void* ptr);
 - ✅ Better throughput for allocation-heavy code
 
 **Cons:**
+
 - ❌ Non-deterministic destructors (no RAII for GC types)
 - ❌ GC pauses (~2ms with concurrent GC)
 - ❌ Higher memory usage (2x live data)
@@ -2080,6 +2188,7 @@ void yo_gc_unpin(void* ptr);
 ### Recommendation
 
 **Use GC if:**
+
 - Work-stealing concurrency is critical
 - High allocation rate (many short-lived objects)
 - Cyclic data structures are common
@@ -2087,6 +2196,7 @@ void yo_gc_unpin(void* ptr);
 - RAII is not required for most types
 
 **Use RC if:**
+
 - Deterministic destructors are essential (RAII everywhere)
 - Predictable latency is critical (no pauses)
 - Memory usage must be minimal
@@ -2106,6 +2216,7 @@ This GC design for Yo provides:
 **The key trade-off**: Lose deterministic destructors for GC types, gain work-stealing and zero mutation overhead.
 
 **Next steps:**
+
 1. Implement Phase 1 (basic mark-sweep GC)
 2. Update concurrency runtime to use work-stealing
 3. Benchmark against RC implementation

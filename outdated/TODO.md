@@ -1,1 +1,1 @@
-Fix `setVariableAsConsumed`. Especially for record type.   
+Fix `setVariableAsConsumed`. Especially for record type.

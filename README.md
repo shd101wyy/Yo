@@ -72,11 +72,11 @@ $ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
 
 ## Code examples
 
-Check the `./tests` folder for code examples and test cases.  
+Check the `./tests` folder for code examples and test cases.
 
 ## Editor support
 
-- VS Code Extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) that supports basic syntax highlighting. No LSP yet.  
+- VS Code Extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) that supports basic syntax highlighting. No LSP yet.
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.

@@ -1225,6 +1225,7 @@ struct Point {
 The `newtype` keyword defines a struct with a single field along with methods, constants, and module implementations in one declaration. It provides zero-cost abstraction - at runtime, it's identical to the wrapped type, but at compile time it's a distinct type. This is similar to Haskell's `newtype`.
 
 **Key properties:**
+
 - Zero runtime overhead (no wrapper allocation)
 - Type safety through distinct types
 - Methods and constants defined inline
@@ -1232,46 +1233,48 @@ The `newtype` keyword defines a struct with a single field along with methods, c
 - Access wrapped value via the field name
 
 **Syntax:**
+
 ```rust
 newtype(
   field_name : FieldType,
-  
+
   // Methods
   method_name :: ((fn(...) -> ReturnType) body),
-  
+
   // Constants
   CONSTANT_NAME :: Value,
-  
+
   // Module implementations
   ModuleName :: impl(Self, Module(...))
 )
 ```
 
 **Example:**
+
 ```rust
 // Simple newtype with methods and constants
 UserId :: newtype(
   value : i32,
-  
+
   // Methods
   from_i32 :: ((fn(v: i32) -> Self) Self(value: v)),
-  
+
   to_i32 :: ((fn(self: Self) -> i32) self.value),
-  
+
   // Constants
   ADMIN :: Self(value: 0.as(i32)),
-  
+
   // Module implementations
   Eq :: impl(Self, Eq(Self)(
     (==) : ((fn(a: Self, b: Self) -> bool)
       (a.value == b.value)
     ),
-    
+
     (!=) : ((fn(a: Self, b: Self) -> bool)
       (a.value != b.value)
     )
   )),
-  
+
   Ord :: impl(Self, Ord(Self)(
     (<) : ((fn(a: Self, b: Self) -> bool)
       (a.value < b.value)
@@ -1294,6 +1297,7 @@ cond(
 ```
 
 **More complex example** (see `std/string/rune.yo`):
+
 ```rust
 rune :: newtype(
   c : u32,
@@ -1325,6 +1329,7 @@ rune :: newtype(
 ```
 
 **Use cases:**
+
 - Type-safe IDs (UserId, OrderId, etc.)
 - Unicode characters (rune wrapping u32)
 - Units of measurement (Meters, Seconds, Dollars)
@@ -1332,6 +1337,7 @@ rune :: newtype(
 - Semantic distinction (Username vs Password)
 
 **Memory layout:**
+
 ```rust
 UserId :: newtype(value : i32, /* methods... */);
 // sizeof(UserId) == sizeof(i32)
@@ -1344,7 +1350,7 @@ UserId :: newtype(value : i32, /* methods... */);
 MyNumber := union(
   i : i32,
   j : f32
-); 
+);
 (my_number : MyNumber) = MyNumber(i : 10);
 my_number.j = 1.2;
 ```

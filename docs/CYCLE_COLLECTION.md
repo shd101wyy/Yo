@@ -78,6 +78,7 @@ This approach is similar to QuickJS and balances several concerns:
 - **Simple**: No need to track per-object sizes
 
 **Example behavior:**
+
 ```
 Initial: threshold = 256
 After creating 256 objects → GC runs, 10 survive → threshold = max(256, 20) = 256
@@ -86,6 +87,7 @@ After creating 400 more objects → GC runs, 300 survive → threshold = max(256
 ```
 
 **Why object count over memory threshold:**
+
 - Thread-local objects are typically similar sizes (no huge variance)
 - Tracking object count is cheaper than tracking bytes
 - Cycle collection cost is proportional to object count, not bytes
@@ -237,15 +239,15 @@ await task.send(x);  // Send COPY of x (value type)
 
 **What can be sent between threads (value types only):**
 
-| Type                                | Can Send? | Reason                          |
-| ----------------------------------- | --------- | ------------------------------- |
+| Type                             | Can Send? | Reason                          |
+| -------------------------------- | --------- | ------------------------------- |
 | Primitives (`i32`, `bool`, etc.) | ✅ Yes    | Value type, copied              |
-| Value structs (`struct(...)`)       | ✅ Yes    | Value type, copied              |
-| Tuples of value types               | ✅ Yes    | Value type, copied              |
-| Enums with value payloads           | ✅ Yes    | Value type, copied              |
-| `object(...)`                       | ❌ No     | Reference counted, thread-local |
-| Closures                            | ❌ No     | May capture references          |
-| `*T` (pointers)                     | ❌ No     | Not safe across threads         |
+| Value structs (`struct(...)`)    | ✅ Yes    | Value type, copied              |
+| Tuples of value types            | ✅ Yes    | Value type, copied              |
+| Enums with value payloads        | ✅ Yes    | Value type, copied              |
+| `object(...)`                    | ❌ No     | Reference counted, thread-local |
+| Closures                         | ❌ No     | May capture references          |
+| `*T` (pointers)                  | ❌ No     | Not safe across threads         |
 
 **Key Design Decision:** Reference types (`object(...)`) **never** cross thread boundaries. This means:
 

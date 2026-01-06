@@ -18,9 +18,8 @@ function memmove<T: Type>(destination: Pointer<T>, source: Pointer<T>, count: us
 function memcpy<T: Type>(destination: Pointer<T>, source: Pointer<T>, count: usize): Unit;
 ```
 
-
 ```typescript
 inline function malloc<T: Type>(): Address<T> {
-  
+
 }
 ```

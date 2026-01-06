@@ -36,6 +36,7 @@ In `function.ts`, when resolving overloaded function calls, the evaluator uses a
 When evaluating `dyn(box(closure))`:
 
 1. **Checking Phase** (with cloned exprs):
+
    - Creates capture struct type A (e.g., `structid123`)
    - Mutates `SomeType.resolvedConcreteType = structTypeA`
    - **Caches** the specialized function with `structTypeA`
@@ -60,10 +61,10 @@ Added a `skipSpecialization?: boolean` parameter to `tryToCallFunctionWithArgume
 // In function.ts - checking phase
 const result = tryToCallFunctionWithArguments({
   // ... other params
-  skipSpecialization: true,  // Don't pollute cache during checking
+  skipSpecialization: true, // Don't pollute cache during checking
 });
 
-// In function.ts - actual call phase  
+// In function.ts - actual call phase
 const result = tryToCallFunctionWithArguments({
   // ... other params
   // skipSpecialization defaults to false - do specialize
@@ -71,6 +72,7 @@ const result = tryToCallFunctionWithArguments({
 ```
 
 When `skipSpecialization: true`:
+
 - The function still evaluates to check parameter compatibility
 - But it **skips** creating/using the specialization cache
 - No cache entry is created with the intermediate capture struct

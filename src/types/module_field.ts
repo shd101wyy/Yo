@@ -4,7 +4,7 @@ import { ModuleField, ModuleType } from "./definitions";
 
 export function addModuleFieldsByCode(
   module: ModuleType,
-  elements: Record<string, string>
+  elements: Record<string, string>,
 ) {
   const selfType = module.receiverType;
   for (const label in elements) {

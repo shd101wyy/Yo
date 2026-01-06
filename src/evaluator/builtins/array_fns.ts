@@ -100,7 +100,7 @@ export function evaluateYoArrayFill({
   if (
     !areTypesCompatible(
       { type: arrayType.childType, env },
-      { type: fillValueType, env }
+      { type: fillValueType, env },
     )
   ) {
     throw formatErrorMessage({

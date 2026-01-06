@@ -131,7 +131,7 @@ export function evaluateImplConstraint({
     "Impl", // Name for the SomeType
     undefined,
     requiredModules,
-    negativeModules
+    negativeModules,
   );
 
   // If Concrete(T) was specified, set the resolvedConcreteType

@@ -8,7 +8,7 @@ import { isFunctionType, isUnitType, ModuleField } from "../../types";
  */
 export function validateDisposeFunction(
   moduleElement: ModuleField,
-  token: Token
+  token: Token,
 ): void {
   if (moduleElement.label !== BuiltinFunctions.dispose[0]) {
     return; // Not a dispose function, skip validation

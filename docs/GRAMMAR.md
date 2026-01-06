@@ -16,7 +16,7 @@ Expression ::= PrimaryExpression PrimaryEnd*
 PrimaryExpression ::=
   | Atom
   | ParenExpression
-  | ArrayExpression  
+  | ArrayExpression
   | CurlyBracketExpression
   | DotExpression
 
@@ -35,7 +35,7 @@ PrimaryEnd ::=
 Atom ::= Literal | Identifier | Operator
 
 ;; Literals
-Literal ::= 
+Literal ::=
   | BooleanLiteral
   | NumberLiteral
   | StringLiteral
@@ -46,7 +46,7 @@ BooleanLiteral ::= "true" | "false"
 ;; Number Literals
 NumberLiteral ::= IntegerLiteral | FloatLiteral
 
-IntegerLiteral ::= 
+IntegerLiteral ::=
   | DecimalInteger
   | HexInteger
   | BinaryInteger
@@ -57,7 +57,7 @@ HexInteger     ::= '0' ('x' | 'X') HexDigit (HexDigit | '_')*
 BinaryInteger  ::= '0' ('b' | 'B') ('0' | '1') (('0' | '1') | '_')*
 OctalInteger   ::= '0' ('o' | 'O') OctalDigit (OctalDigit | '_')*
 
-FloatLiteral   ::= 
+FloatLiteral   ::=
   | Digit (Digit | '_')* '.' Digit (Digit | '_')* Exponent?
   | Digit (Digit | '_')* Exponent
 
@@ -100,7 +100,7 @@ Operator      ::= DotOperator | NonDotOperator
 DotOperator   ::= '.' '.'*
 NonDotOperator ::= OperatorChar+ (excluding any '.')
 
-OperatorChar  ::= '!' | '#' | '$' | '%' | '&' | '*' | '+' | '-' | '.' | '/' 
+OperatorChar  ::= '!' | '#' | '$' | '%' | '&' | '*' | '+' | '-' | '.' | '/'
                 | ':' | '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '|' | '~'
 ```
 
@@ -150,7 +150,7 @@ FieldAccess ::= '.' Identifier
 ;; Infix Operator
 ;; Whitespace-sensitive parsing for operator precedence
 ;; Operators at line start are treated with left associativity
-InfixOperator ::= 
+InfixOperator ::=
   | Whitespace* Operator Whitespace* Expression       ;; Regular infix: a + b
   | Whitespace* BacktickIdentifier Whitespace* Expression  ;; Backtick infix: a `add` b
 
@@ -183,10 +183,12 @@ Separator ::= ',' | ';'
 ### Whitespace Sensitivity
 
 1. **Field access** (`.`): No whitespace allowed before or after the dot
+
    - Valid: `obj.field`, `person.name`
    - Invalid: `obj . field`, `obj .field`
 
 2. **Function calls**: Whitespace determines call style
+
    - No space: `func(arg1, arg2)` - parenthesized call
    - With space: `func arg1, arg2` - space-separated arguments
 
@@ -198,6 +200,7 @@ Separator ::= ',' | ';'
 ### Separator Semantics
 
 1. **Comma (`,`)**: Creates array literals, tuples, or struct literals
+
    - In `[]`: array literal
    - In `()`: tuple value
    - In `{}`: struct literal (anonymous record)
@@ -210,16 +213,21 @@ Separator ::= ',' | ';'
 ### Special Cases
 
 1. **Empty constructs**:
+
    - `()` - unit value
    - `[]` - empty array
    - `{}` - empty struct
    - `{;}` - empty begin block
 
 2. **Shorthand struct syntax**:
+
    - `{ x, y }` desugars to `_( x: x, y: y )`
    - Identifiers without colons use their name as both key and value
 
 3. **Leading dot**:
    - `.Something` is sugar for enum variants or tagged unions
    - Can be used with or without arguments: `.Ok(value)` or `.None`
+
+```
+
 ```

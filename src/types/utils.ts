@@ -89,7 +89,7 @@ import { TypeTag } from "./tags";
  */
 export function getModuleTypeFromEnv(
   env: Environment,
-  moduleName: string
+  moduleName: string,
 ): ModuleType | undefined {
   const variables = getVariablesFromEnv(env, moduleName);
   if (variables.length === 0) {
@@ -136,7 +136,7 @@ export function typeImplementsModuleInternal({
       if (
         areTypesCompatible(
           { type: expectedModuleWithReceiver, env },
-          { type: fieldModuleType, env }
+          { type: fieldModuleType, env },
         )
       ) {
         return true;
@@ -185,7 +185,7 @@ export function typeImplementsCopy(
  */
 export function typeImplementsSend(
   type: Type | undefined,
-  env: Environment
+  env: Environment,
 ): boolean {
   if (!type) {
     return false;
@@ -204,7 +204,7 @@ export function typeImplementsSend(
 }
 
 export function typeImplementsFn(
-  type: Type | undefined
+  type: Type | undefined,
 ): type is (SomeType | DynType) & { isFn: true } {
   if (!type) {
     return false;
@@ -251,7 +251,7 @@ export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
 }
 
 export function typeImplementsFuture(
-  type: Type | undefined
+  type: Type | undefined,
 ): type is (SomeType | DynType) & { isFuture: true } {
   if (!type) {
     return false;
@@ -277,7 +277,7 @@ export function typeImplementsFuture(
  * Returns the FutureModuleType if found, otherwise undefined.
  */
 export function extractFutureModuleFromType(
-  type: Type
+  type: Type,
 ): FutureModuleType | undefined {
   // If the type is already a FutureModuleType, return it directly
   if (isFutureModuleType(type)) {
@@ -327,7 +327,7 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
  */
 export function typeContainsRcType(
   type?: Type,
-  checkedTypes: Type[] = []
+  checkedTypes: Type[] = [],
 ): boolean {
   if (!type) {
     return false;
@@ -354,21 +354,21 @@ export function typeContainsRcType(
       return typeContainsRcType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
-        typeContainsRcType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes),
       );
     case TypeTag.Union:
       return (type as UnionType).fields.some((field) =>
-        typeContainsRcType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes),
       );
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
-        typeContainsRcType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes),
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.fields?.some((param) =>
-          typeContainsRcType(param.type, checkedTypes)
-        )
+          typeContainsRcType(param.type, checkedTypes),
+        ),
       );
     case TypeTag.Iso:
       // Iso itself is GC type (atomic RC), check inner type
@@ -407,7 +407,7 @@ export function typeContainsRcType(
  */
 export function typeContainsSomeType(
   type?: Type,
-  checkedTypes: Type[] = []
+  checkedTypes: Type[] = [],
 ): boolean {
   if (!type) {
     return false;
@@ -460,35 +460,35 @@ export function typeContainsSomeType(
       return typeContainsSomeType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
-        typeContainsSomeType(field.type, checkedTypes)
+        typeContainsSomeType(field.type, checkedTypes),
       );
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
-        typeContainsSomeType(field.type, checkedTypes)
+        typeContainsSomeType(field.type, checkedTypes),
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.fields?.some((param) =>
-          typeContainsSomeType(param.type, checkedTypes)
-        )
+          typeContainsSomeType(param.type, checkedTypes),
+        ),
       );
     case TypeTag.Union:
       return (type as UnionType).fields.some((field) =>
-        typeContainsSomeType(field.type, checkedTypes)
+        typeContainsSomeType(field.type, checkedTypes),
       );
     case TypeTag.Function: {
       const functionType = type as FunctionType;
       return (
         functionType.forallParameters.length > 0 ||
         functionType.parameters.some((parameter) =>
-          typeContainsSomeType(parameter.type, checkedTypes)
+          typeContainsSomeType(parameter.type, checkedTypes),
         ) ||
         typeContainsSomeType(functionType.return.type, checkedTypes)
       );
     }
     case TypeTag.Module:
       return (type as ModuleType).fields.some((field) =>
-        typeContainsSomeType(field.type, checkedTypes)
+        typeContainsSomeType(field.type, checkedTypes),
       );
     case TypeTag.Ptr:
       return typeContainsSomeType((type as PtrType).childType, checkedTypes);
@@ -523,7 +523,7 @@ export function typeContainsUnknownValue(type: Type): boolean {
   }
   if (isEnumType(type)) {
     return type.variants.some((v) =>
-      v.fields?.some((param) => typeContainsUnknownValue(param.type))
+      v.fields?.some((param) => typeContainsUnknownValue(param.type)),
     );
   }
   if (isUnionType(type)) {
@@ -681,7 +681,7 @@ export function typeRequiresInference(type?: Type): boolean {
  */
 export function getValueOfSomeTypeFromEnv(
   env: Environment,
-  someType: SomeType
+  someType: SomeType,
 ): Type {
   let someTypeValue: TypeValue | undefined = undefined;
   // Track visited SomeTypes to detect cycles (e.g., A -> B -> A)
@@ -902,7 +902,7 @@ export function canComptFloatCastTo(targetType: Type): boolean {
  */
 export function functionParameterToString(
   parameter: FunctionParameter,
-  visited: Set<string> = new Set()
+  visited: Set<string> = new Set(),
 ): string {
   let label = parameter.label;
 
@@ -931,7 +931,7 @@ export function functionParameterToString(
  */
 export function tupleFieldToString(
   element: TypeField,
-  visited: Set<string> = new Set()
+  visited: Set<string> = new Set(),
 ): string {
   let label = element.label;
   if (stringIsOperator(label)) {
@@ -965,7 +965,7 @@ export function tupleFieldToString(
  */
 function moduleElementToString(
   element: ModuleField,
-  visited: Set<string> = new Set()
+  visited: Set<string> = new Set(),
 ): string {
   let label = element.label;
   if (stringIsOperator(label)) {
@@ -993,7 +993,7 @@ function moduleElementToString(
 
 function functionTypeToString(
   func: FunctionType,
-  visited: Set<string> = new Set()
+  visited: Set<string> = new Set(),
 ): string {
   const params = func.parameters
     .map((param) => functionParameterToString(param, visited))
@@ -1048,7 +1048,7 @@ function functionTypeToString(
  */
 export function typeToString(
   type: Type,
-  visited: Set<string> = new Set()
+  visited: Set<string> = new Set(),
 ): string {
   // Check for circular references using type ID
   if (type.id && visited.has(type.id)) {
@@ -1157,7 +1157,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     // Complex types
     case TypeTag.Array: {
       return `[${typeToString((type as ArrayType).childType, visited)}; ${valueToString(
-        (type as ArrayType).length
+        (type as ArrayType).length,
       )}]`;
     }
 
@@ -1347,7 +1347,7 @@ let targetPointerSizeBits = 64;
 export function setTargetPointerSize(bits: number): void {
   if (bits <= 0 || bits % 8 !== 0) {
     throw new Error(
-      `Invalid pointer size: ${bits} bits. Must be positive and divisible by 8.`
+      `Invalid pointer size: ${bits} bits. Must be positive and divisible by 8.`,
     );
   }
   targetPointerSizeBits = bits;
@@ -1692,7 +1692,7 @@ Please consider use 'unit' type instead.
  */
 export function canTypeFormRcCycle(
   type: Type,
-  visitedTypes = new Set<string>()
+  visitedTypes = new Set<string>(),
 ): boolean {
   if (!isObjectType(type)) {
     return false; // Only objects can form cycles through reference counting
@@ -1726,7 +1726,7 @@ export function canTypeFormRcCycle(
 function typeCanFormCyclicRcReference(
   type: Type,
   originalRefStruct: StructType,
-  visitedTypes: Set<string>
+  visitedTypes: Set<string>,
 ): boolean {
   // If this type is the same as the original object, we have a direct self-reference
   if (isStructType(type) && type.id === originalRefStruct.id) {
@@ -1747,7 +1747,7 @@ function typeCanFormCyclicRcReference(
             typeCanFormCyclicRcReference(
               field.type,
               originalRefStruct,
-              visitedTypes
+              visitedTypes,
             )
           ) {
             return true;
@@ -1762,7 +1762,7 @@ function typeCanFormCyclicRcReference(
       return typeCanFormCyclicRcReference(
         type.resolvedConcreteType,
         originalRefStruct,
-        visitedTypes
+        visitedTypes,
       );
     } else {
       return true; // Be conservative
@@ -1774,7 +1774,7 @@ function typeCanFormCyclicRcReference(
     return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
-      visitedTypes
+      visitedTypes,
     );
   }
 
@@ -1783,7 +1783,7 @@ function typeCanFormCyclicRcReference(
     return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
-      visitedTypes
+      visitedTypes,
     );
   }
 
@@ -1794,7 +1794,7 @@ function typeCanFormCyclicRcReference(
         typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
-          visitedTypes
+          visitedTypes,
         )
       ) {
         return true;
@@ -1809,7 +1809,7 @@ function typeCanFormCyclicRcReference(
         typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
-          visitedTypes
+          visitedTypes,
         )
       ) {
         return true;
@@ -1843,7 +1843,7 @@ function typeCanFormCyclicRcReference(
  */
 export function typeContainsSelfTypeForDynamicDispatchCheck(
   type: Type,
-  selfType: Type | undefined
+  selfType: Type | undefined,
 ): boolean {
   if (!selfType) {
     return false; // No Self type defined, so can't contain it
@@ -1858,47 +1858,47 @@ export function typeContainsSelfTypeForDynamicDispatchCheck(
   if (isArrayType(type)) {
     return typeContainsSelfTypeForDynamicDispatchCheck(
       type.childType,
-      selfType
+      selfType,
     );
   }
 
   if (isSliceType(type)) {
     return typeContainsSelfTypeForDynamicDispatchCheck(
       type.childType,
-      selfType
+      selfType,
     );
   }
 
   if (isPtrType(type)) {
     return typeContainsSelfTypeForDynamicDispatchCheck(
       type.childType,
-      selfType
+      selfType,
     );
   }
 
   if (isTupleType(type)) {
     return type.fields.some((elem) =>
-      typeContainsSelfTypeForDynamicDispatchCheck(elem.type, selfType)
+      typeContainsSelfTypeForDynamicDispatchCheck(elem.type, selfType),
     );
   }
 
   if (isStructType(type)) {
     return type.fields.some((field) =>
-      typeContainsSelfTypeForDynamicDispatchCheck(field.type, selfType)
+      typeContainsSelfTypeForDynamicDispatchCheck(field.type, selfType),
     );
   }
 
   if (isUnionType(type)) {
     return type.fields.some((t) =>
-      typeContainsSelfTypeForDynamicDispatchCheck(t.type, selfType)
+      typeContainsSelfTypeForDynamicDispatchCheck(t.type, selfType),
     );
   }
 
   if (isEnumType(type)) {
     return type.variants.some((variant) =>
       variant.fields?.some((field) =>
-        typeContainsSelfTypeForDynamicDispatchCheck(field.type, selfType)
-      )
+        typeContainsSelfTypeForDynamicDispatchCheck(field.type, selfType),
+      ),
     );
   }
 
@@ -1908,7 +1908,7 @@ export function typeContainsSelfTypeForDynamicDispatchCheck(
     // The problem is only with return types (caller doesn't know concrete type)
     return typeContainsSelfTypeForDynamicDispatchCheck(
       type.return.type,
-      selfType
+      selfType,
     );
   }
 

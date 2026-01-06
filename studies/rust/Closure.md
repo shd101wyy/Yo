@@ -19,8 +19,8 @@ type Inventory: Linear = {
 ```rust
 fn main() {
     let mut list = vec![1, 2, 3];
-    
-    
+
+
     println!("Before closure {:?}", list);
     {
         let mut my_closure = || {

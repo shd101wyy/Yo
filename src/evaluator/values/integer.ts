@@ -24,7 +24,7 @@ import { EvaluatorContext } from "../context";
 export function evaluateIntegerLiteral(
   expr: AtomExpr,
   env: Environment,
-  context: EvaluatorContext
+  context: EvaluatorContext,
 ): AtomExpr {
   if (expr.token.type === TokenType.Integer) {
     let numberValue = expr.token.value.replace(/_/g, ""); // Remove underscores for readability

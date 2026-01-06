@@ -175,7 +175,7 @@ export function evaluateCond({
         .slice(0, i)
         .every(
           ({ condValue: prevCondValue }) =>
-            isBooleanValue(prevCondValue) && prevCondValue.value === false
+            isBooleanValue(prevCondValue) && prevCondValue.value === false,
         )
     ) {
       firstTrueIndex = i;
@@ -237,7 +237,7 @@ export function evaluateCond({
       // Merge and check all environments
       env = mergeAndCheckEnvs(
         env,
-        bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+        bodies.filter((body) => body.$ && body.$.controlFlow !== "return"),
       );
 
       // Determine the compile-time value
@@ -339,7 +339,7 @@ export function evaluateCond({
               {
                 type: evaluatedCaseBodyExpr.$.type,
                 env: evaluatedCaseBodyExpr.$.env,
-              }
+              },
             )
           ) {
             // Check if the types match when converting to runtime type
@@ -357,7 +357,7 @@ export function evaluateCond({
                 {
                   type: evaluatedCaseBodyExpr.$.type,
                   env: evaluatedCaseBodyExpr.$.env,
-                }
+                },
               )
             ) {
               valueType = {
@@ -415,7 +415,7 @@ export function evaluateCond({
       // Merge and check all environments
       env = mergeAndCheckEnvs(
         env,
-        bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+        bodies.filter((body) => body.$ && body.$.controlFlow !== "return"),
       );
 
       // Determine the compile-time value
@@ -479,7 +479,7 @@ export function evaluateCond({
             context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
               "function-body" &&
             isFunctionTypeAndReturnsComptValue(
-              context.isEvaluatingFunctionBodyOrAsyncBlock.type
+              context.isEvaluatingFunctionBodyOrAsyncBlock.type,
             )
               ? createUnknownValue(returnType)
               : undefined,

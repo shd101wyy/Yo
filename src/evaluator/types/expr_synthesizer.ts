@@ -99,7 +99,7 @@ export function synthesizeExprAndType({
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Failed to evaluate expr and type for struct:\n${exprToString(
-            expr
+            expr,
           )}`,
         });
       }
@@ -117,7 +117,7 @@ export function synthesizeExprAndType({
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Cannot use _ with type ${typeToString(
-          type
+          type,
         )}. Only supported with struct types.`,
       });
     }
@@ -131,13 +131,13 @@ export function synthesizeExprAndType({
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Expected identifier for enum variant, got ${exprToString(
-            variantNameExpr
+            variantNameExpr,
           )}`,
         });
       }
       const variantName = variantNameExpr.token.value;
       const variant = type.variants.find(
-        (variant) => variant.name === variantName
+        (variant) => variant.name === variantName,
       );
       if (!variant) {
         throw formatErrorMessage({
@@ -163,7 +163,7 @@ export function synthesizeExprAndType({
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Cannot use . with type ${typeToString(
-          type
+          type,
         )}. Only supported with enum types.`,
       });
     }
@@ -181,14 +181,14 @@ export function synthesizeExprAndType({
         throw formatErrorMessage({
           token: variantExpr.token,
           errorMessage: `Expected identifier for enum variant, got ${exprToString(
-            variantNameExpr
+            variantNameExpr,
           )}`,
         });
       }
 
       const variantName = variantNameExpr.token.value;
       const variant = type.variants.find(
-        (variant) => variant.name === variantName
+        (variant) => variant.name === variantName,
       );
       if (!variant) {
         throw formatErrorMessage({
@@ -211,7 +211,7 @@ export function synthesizeExprAndType({
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Failed to evaluate expr and type for enum variant:\n${exprToString(
-            expr
+            expr,
           )}`,
         });
       }
@@ -225,7 +225,7 @@ export function synthesizeExprAndType({
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Cannot use . with type ${typeToString(
-          type
+          type,
         )}. Only supported with enum types.`,
       });
     }
@@ -236,7 +236,7 @@ export function synthesizeExprAndType({
       // Try to synthesize the types to resolve unknown values
       const { expectedEnv } = synthesizeTypes(
         { type: type, env },
-        { type: expr.$.type, env }
+        { type: expr.$.type, env },
       );
 
       return {

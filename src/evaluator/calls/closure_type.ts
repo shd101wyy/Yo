@@ -77,7 +77,7 @@ export function tryToImplementClosureByFnModuleType({
     context,
     fnModuleType.isFn.callType,
     functionValue,
-    env
+    env,
   );
 
   // Evaluate the closure body
@@ -105,7 +105,7 @@ export function tryToImplementClosureByFnModuleType({
   if (
     !areTypesCompatible(
       { type: fnModuleType.isFn.callType.return.type, env },
-      { type: closureBodyReturnType, env }
+      { type: closureBodyReturnType, env },
     )
   ) {
     throw formatErrorMessage({

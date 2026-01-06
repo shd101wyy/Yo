@@ -55,4 +55,4 @@ function someOtherFunction(x: Person) {
 }
 ```
 
-Everything is `&mut` by default like in Rust.  
+Everything is `&mut` by default like in Rust.

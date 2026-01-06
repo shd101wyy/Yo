@@ -1,4 +1,4 @@
-## 34.1 Introducing the Compile-Time Concept 
+## 34.1 Introducing the Compile-Time Concept
 
 ### Compile-Time Parameters §
 
@@ -39,7 +39,7 @@ function max<boolean>(a: boolean, b: boolean): boolean {
 }
 ```
 
-### 34.1.2 Compile-Time Variables  
+### 34.1.2 Compile-Time Variables
 
 ```typescript
 type CmdFn = {
@@ -63,10 +63,11 @@ function performFn(#prefixChar: u8, startValue: i32): i32 {
     if (cmdFn.name[0] == prefixChar) {
       result = cmdFn.func(result);
     }
-  }) 
+  })
 }
 
 ```
+
 ## 34.2 Generic Data Structures
 
 All type parameters are `comptime` operations.

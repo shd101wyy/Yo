@@ -325,7 +325,7 @@ Futures (async block state machines) are **reference counted** to handle cases w
 main :: (fn() -> unit) {
   task := async { /* work */ };  // Creates Future with refcount=2
   // User reference (task) + Running task reference (event loop)
-  
+
   // task goes out of scope - refcount decrements to 1
   // Task continues running! Event loop still holds reference
 };

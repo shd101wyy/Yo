@@ -6,13 +6,13 @@ https://iacoma.cs.uiuc.edu/iacoma-papers/pact18.pdf
 
 The academic paper uses a single 64-bit packed RCWord with atomic operations:
 
-- RCWord       64 bits
-  - Biased     32 bits
-    - TID      18 bits
-    - Counter  14 bits
-  - Shared     32 bits
-    - Counter  14 bits
-    - Flags     2 bits
+- RCWord 64 bits
+  - Biased 32 bits
+    - TID 18 bits
+    - Counter 14 bits
+  - Shared 32 bits
+    - Counter 14 bits
+    - Flags 2 bits
     - Reserved 16 bits
 
 ## Yo's Split Word Design
@@ -24,7 +24,7 @@ Yo changes upon the paper with a split design for true non-atomic owner access:
   - GC flags 2 bits (Yo extension)
   - Reserved 16 bits
 - **Shared Word** (32 bits, atomic):
-  - Counter 14 bits  
+  - Counter 14 bits
   - BRC flags 2 bits (merged, reserved)
   - Reserved 16 bits
 
@@ -48,21 +48,21 @@ The split word design provides several critical advantages:
 
 ```c
 typedef struct {
-  // Biased Reference Counting fields  
+  // Biased Reference Counting fields
   size_t thread_id;                                     // Thread ID that owns this object (0 = no owner/shared)
   uint32_t biased_word;                                 // Non-atomic biased word (owner thread only)
   _Atomic(uint32_t) shared_word;                        // Atomic shared word (cross-thread access)
-  
+
   // Biased word format (32 bits, non-atomic access):
   // Bits 0-13:   Biased counter (14 bits) - non-atomic access by owner thread only
-  // Bits 14-15:  GC flags (2 bits) - non-atomic access by owner thread only  
+  // Bits 14-15:  GC flags (2 bits) - non-atomic access by owner thread only
   // Bits 16-31:  Reserved (16 bits) - for future use
-  
+
   // Shared word format (32 bits, atomic access):
   // Bits 0-13:   Shared counter (14 bits) - atomic access, should never be negative in Yo
   // Bits 14-15:  BRC flags (2 bits) - merged (bit 0), reserved (bit 1) (atomic access)
   // Bits 16-31:  Reserved (16 bits) - for future use
-  
+
   // GC object management fields
   struct yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
   void (*dispose_fn)(void*);                            // Dispose function for this object type (immutable after construction)
@@ -73,15 +73,19 @@ typedef struct {
 ## Yo Language Extensions
 
 ### GC Flags Integration
+
 GC flags are placed in the biased word for true non-atomic performance:
+
 - **YO_GC_TRACKED** (0x01): Object is tracked by GC (might participate in cycles)
 - **YO_GC_TRIAL_DECREMENTED** (0x02): Biased counter was decremented during trial deletion (vs shared counter)
 
 These flags achieve true non-atomic access since they're only accessed by:
+
 - Owner thread during normal operation (direct memory access)
 - Single thread during stop-the-world GC phases (no concurrency)
 
 ### Fast Thread ID Function
+
 Yo uses optimized inline assembly for thread ID retrieval (inspired by Python/mimalloc):
 
 ```c
@@ -100,7 +104,9 @@ static inline size_t __yo_get_thread_id(void) {
 ```
 
 ### Abort on Negative Counter
+
 Yo follows the paper's algorithm for handling negative shared counters:
+
 - If `shared_counter < 0`: Set the `queued` flag and queue the object to the owner thread
 - The owner thread will perform explicit merge during the next GC cycle
 - This handles cross-thread reference patterns correctly without aborting
@@ -108,8 +114,9 @@ Yo follows the paper's algorithm for handling negative shared counters:
 The queued objects are processed during stop-the-world GC phases.
 
 ## Invariant Description
-  - Must be zero or higher
-  - If zero, object can be deallocated
+
+- Must be zero or higher
+- If zero, object can be deallocated
 - I2: biased = (references added - references removed) by owner
   - Must be zero or higher
   - When it reaches 0, owner unbiases object, implicitly merging counters
@@ -170,12 +177,12 @@ end procedure
 
 procedure FastDecrement(obj)
   obj.rcword.biased.counter -= 1 // Non-atomic decrement of biased counter
-  
+
   if obj.rcword.biased.counter > 0 then
     return
   end if
-  
-  do                             // biased counter is zero 
+
+  do                             // biased counter is zero
     old := obj.rcword.shared     // Read shared half-word
     new := old
     new.merged := True           // Set merged flag
@@ -282,11 +289,11 @@ procedure FastDecrement(obj) // Yo version - following paper's algorithm with sp
   // Direct non-atomic access to biased counter
   biased_counter := GetBiasedCounter(obj.biased_word)
   obj.biased_word := SetBiasedCounter(obj.biased_word, biased_counter - 1)
-  
+
   if biased_counter - 1 > 0 then
     return // Still have biased references - zero atomic operations!
   end if
-  
+
   // Biased counter reached zero - set merged flag (paper's algorithm)
   do
     old := obj.shared_word     // Atomic read of shared word
@@ -306,7 +313,7 @@ procedure SlowDecrement(obj)
     old := obj.shared_word  // Atomic read of shared word only
     new := old
     new.counter -= 1
-    
+
     // If counter went negative, set queued flag (Yo follows paper's algorithm)
     if new.counter < 0 then
       new.queued := True
@@ -325,8 +332,9 @@ end procedure
 ### BRC Operations Summary
 
 Yo's implementation follows the BRC paper's algorithm:
+
 - **Increment**: Fast path for owner thread, slow atomic path for non-owners
-- **Decrement**: Fast path for owner thread, slow atomic path for non-owners  
+- **Decrement**: Fast path for owner thread, slow atomic path for non-owners
 - **Queue on Negative**: When shared counter goes negative, set queued flag and add to owner's queue
 - **Explicit Merge**: During GC, owner processes queued objects and merges counters
 

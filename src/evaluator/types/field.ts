@@ -88,7 +88,7 @@ export function evaluateTypeField({
         throw formatErrorMessage({
           token: labelExpr.token,
           errorMessage: `Expected identifier for element label, got ${exprToString(
-            labelExpr
+            labelExpr,
           )}`,
         });
       }
@@ -131,7 +131,7 @@ export function evaluateTypeField({
       throw formatErrorMessage({
         token: labelExpr.token,
         errorMessage: `Expected identifier for element label, got ${exprToString(
-          labelExpr
+          labelExpr,
         )}`,
       });
     }
@@ -155,7 +155,7 @@ export function evaluateTypeField({
       throw formatErrorMessage({
         token: labelExpr.token,
         errorMessage: `Expected identifier for element label, got ${exprToString(
-          labelExpr
+          labelExpr,
         )}`,
       });
     }
@@ -259,7 +259,7 @@ Please consider adding "compt"  modifier to the field label.`,
       throw formatErrorMessage({
         token: assignedValueExpr.token,
         errorMessage: `Failed to evaluate required value expression: ${exprToString(
-          assignedValueExpr
+          assignedValueExpr,
         )}`,
       });
     }
@@ -270,7 +270,7 @@ Please consider adding "compt"  modifier to the field label.`,
       throw formatErrorMessage({
         token: assignedValueExpr.token,
         errorMessage: `Expected compile-time known value for required value, got ${exprToString(
-          assignedValueExpr
+          assignedValueExpr,
         )}`,
       });
     }
@@ -282,7 +282,7 @@ Please consider adding "compt"  modifier to the field label.`,
       if (
         !areTypesCompatible(
           { type: expectedType.type, env },
-          { type: assignedValueType, env }
+          { type: assignedValueType, env },
         )
       ) {
         throw formatErrorMessage({
@@ -320,7 +320,7 @@ Given type: ${typeToString(assignedValueType)}`,
       throw formatErrorMessage({
         token: defaultValueExpr.token,
         errorMessage: `Failed to evaluate default value expression: ${exprToString(
-          defaultValueExpr
+          defaultValueExpr,
         )}`,
       });
     }
@@ -331,7 +331,7 @@ Given type: ${typeToString(assignedValueType)}`,
       throw formatErrorMessage({
         token: defaultValueExpr.token,
         errorMessage: `Expected compile-time known value for default value, got ${exprToString(
-          defaultValueExpr
+          defaultValueExpr,
         )}`,
       });
     }
@@ -343,7 +343,7 @@ Given type: ${typeToString(assignedValueType)}`,
       if (
         !areTypesCompatible(
           { type: expectedType.type, env },
-          { type: defaultValueType, env }
+          { type: defaultValueType, env },
         )
       ) {
         throw formatErrorMessage({

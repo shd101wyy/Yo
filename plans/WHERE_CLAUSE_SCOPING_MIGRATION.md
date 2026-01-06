@@ -15,7 +15,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))(
   object(
     // This function has where(T <: Eq(T))
     has :: (fn(
-      self: Self, 
+      self: Self,
       value: T,
       where(T <: Eq(T))
     ) -> bool)({
@@ -46,7 +46,7 @@ The solution introduces function-scoped constraint storage:
 
 1. **FunctionType Enhancement**: Add `whereClauseConstraints` map to store constraints per SomeType
 2. **Context Threading**: Add `currentFunctionType` to evaluation context
-3. **Dual-Mode Constraint Storage**: 
+3. **Dual-Mode Constraint Storage**:
    - Functions: Store constraints in `FunctionType.whereClauseConstraints`
    - Modules: Keep existing behavior (mutate SomeType for collection)
 4. **Method Lookup Enhancement**: Check function-scoped constraints when resolving methods
@@ -56,10 +56,13 @@ The solution introduces function-scoped constraint storage:
 ```typescript
 // FunctionType now has:
 interface FunctionType {
-  whereClauseConstraints?: Map<SomeType, {
-    requiredModules: ModuleType[];
-    negativeModules: ModuleType[];
-  }>;
+  whereClauseConstraints?: Map<
+    SomeType,
+    {
+      requiredModules: ModuleType[];
+      negativeModules: ModuleType[];
+    }
+  >;
 }
 
 // EvaluatorContext now has:
@@ -79,15 +82,18 @@ Added `whereClauseConstraints` field to `FunctionType`:
 ```typescript
 export interface FunctionType extends Type {
   // ... existing fields ...
-  
+
   /**
    * Where clause constraints for this function.
    * Maps each SomeType to its required and negative module constraints.
    */
-  whereClauseConstraints?: Map<SomeType, {
-    requiredModules: ModuleType[];
-    negativeModules: ModuleType[];
-  }>;
+  whereClauseConstraints?: Map<
+    SomeType,
+    {
+      requiredModules: ModuleType[];
+      negativeModules: ModuleType[];
+    }
+  >;
 }
 ```
 
@@ -100,7 +106,7 @@ Added `currentFunctionType` field to track which function's constraints to popul
 ```typescript
 export interface EvaluatorContext {
   // ... existing fields ...
-  
+
   /**
    * The function type being evaluated, used to store where clause constraints.
    * Set when evaluating function type parameters.
@@ -165,7 +171,7 @@ const evaluatedParams = evaluateFunctionParameters({
 
 // Transfer constraints to final function type
 if (placeholderFunctionType.whereClauseConstraints) {
-  functionType.whereClauseConstraints = 
+  functionType.whereClauseConstraints =
     placeholderFunctionType.whereClauseConstraints;
 }
 ```
@@ -184,23 +190,24 @@ export function getMethodsByNameFromEnv(
   methodName: string,
   receiverType: Type,
   isInfixOperatorCall: boolean,
-  currentFunctionType?: FunctionType  // NEW PARAMETER
+  currentFunctionType?: FunctionType, // NEW PARAMETER
 ): MethodLookupResult[] {
   // ... existing logic ...
-  
+
   if (isSomeType(dereferencedReceiverType)) {
     // Check base requiredModules from SomeType
     const baseModules = dereferencedReceiverType.requiredModules || [];
-    
+
     // Check function-scoped where clause constraints (NEW)
-    const whereConstraints = 
-      currentFunctionType?.whereClauseConstraints?.get(dereferencedReceiverType);
-    
+    const whereConstraints = currentFunctionType?.whereClauseConstraints?.get(
+      dereferencedReceiverType,
+    );
+
     const allRequiredModules = [
       ...baseModules,
-      ...(whereConstraints?.requiredModules || [])
+      ...(whereConstraints?.requiredModules || []),
     ];
-    
+
     // ... rest of method lookup logic ...
   }
 }
@@ -221,7 +228,7 @@ const methods = getMethodsByNameFromEnv(
   // Extract function type from context
   context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
     ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-    : undefined
+    : undefined,
 );
 ```
 
@@ -243,7 +250,7 @@ This change is **non-breaking** for correctly written code:
 Container :: (fn(compt(T): Type) -> compt(Type))(
   object(
     method1 :: (fn(self: Self, where(T <: Copy)) -> unit)({ ... }),
-    
+
     // This relied on leaked constraints - now fails correctly
     method2 :: (fn(self: Self) -> unit)({
       // Tries to use Copy methods on T without declaring where clause
@@ -264,7 +271,7 @@ The fix is validated by `src/tests/examples/fixme.yo`:
 LinkedList :: (fn(compt(T): Type) -> compt(Type))(
   object(
     has :: (fn(
-      self: Self, 
+      self: Self,
       value: T,
       where(T <: Eq(T))  // Declares constraint
     ) -> bool)({
@@ -311,6 +318,7 @@ bun test src/tests/fixme.test.ts
 **Rejected Approach**: Use a stack-based system with `frameLevel` tracking and pop constraints after function evaluation.
 
 **Problem**: Where clause constraints must be available during:
+
 1. Function type evaluation (for parameter type checking)
 2. Function body evaluation (for method resolution)
 
@@ -327,6 +335,7 @@ Popping constraints after type evaluation would break body evaluation.
 **Chosen Approach**: Store constraints in `FunctionType.whereClauseConstraints` map.
 
 **Benefits**:
+
 - No mutation of shared SomeTypes
 - Proper scoping (constraints only visible within declaring function)
 - Constraints available during both type checking and body evaluation
@@ -336,6 +345,7 @@ Popping constraints after type evaluation would break body evaluation.
 ### Why Preserve Module Behavior?
 
 Module where clauses still mutate SomeTypes because:
+
 1. Modules collect constraints differently (into `selfConstraints` arrays)
 2. Modules don't have the same scoping/leaking issues
 3. Module constraint collection happens in a single pass

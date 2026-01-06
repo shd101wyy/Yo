@@ -3,8 +3,9 @@
 **Inspired by Vale language's generational references approach.**
 
 This document describes a memory management system based on generational references that combines:
+
 - **Single ownership** (linear types) - owning references
-- **Generational checking** - borrow references  
+- **Generational checking** - borrow references
 - **Zero mutation overhead** - no RC operations
 - **Deterministic destruction** - RAII works!
 - **Work-stealing enabled** - no thread affinity
@@ -14,6 +15,7 @@ This document describes a memory management system based on generational referen
 ### Problems with Current Approaches
 
 **Reference Counting (Current):**
+
 - ❌ Overhead on every mutation (`___dup`/`___drop`)
 - ❌ Atomic operations expensive in multithreading
 - ❌ Thread affinity (biased RC) prevents work-stealing
@@ -22,6 +24,7 @@ This document describes a memory management system based on generational referen
 - ✅ Simple mental model
 
 **Garbage Collection (Considered):**
+
 - ✅ Zero mutation overhead
 - ✅ Work-stealing enabled
 - ✅ Handles cycles naturally
@@ -31,8 +34,9 @@ This document describes a memory management system based on generational referen
 - ❌ Complex runtime
 
 **Generational References (Proposed):** ✨
+
 - ✅ Zero mutation overhead
-- ✅ Work-stealing enabled  
+- ✅ Work-stealing enabled
 - ✅ Deterministic destructors (RAII works!)
 - ✅ Simple implementation
 - ✅ Can optimize checks to zero with linear style
@@ -41,12 +45,12 @@ This document describes a memory management system based on generational referen
 
 ### Performance Comparison (from Vale benchmarks)
 
-| Approach | Overhead |
-|----------|----------|
-| Unsafe C++ (baseline) | 0% |
-| Reference Counting | +25.29% |
-| Generational References (basic) | +10.84% |
-| Gen Refs + Linear Style + Regions | ~0% |
+| Approach                          | Overhead |
+| --------------------------------- | -------- |
+| Unsafe C++ (baseline)             | 0%       |
+| Reference Counting                | +25.29%  |
+| Generational References (basic)   | +10.84%  |
+| Gen Refs + Linear Style + Regions | ~0%      |
 
 **Generational references are 2.3x faster than RC!**
 
@@ -65,14 +69,17 @@ Every heap-allocated object has a **generation number** stored before it:
 ```
 
 When allocated:
+
 - Generation = random 64-bit number (or incremented counter)
 
 When freed:
+
 - Generation = 0
 
 ### Two Types of References
 
 **1. Owning Reference (Linear Type)**
+
 - Just a raw pointer
 - No generation needed
 - Owns the object
@@ -80,6 +87,7 @@ When freed:
 - Automatically freed when out of scope
 
 **2. Borrowing Reference (Generational Reference)**
+
 - Pointer + remembered generation
 - Does NOT own the object
 - Must check generation before dereferencing
@@ -106,6 +114,7 @@ node := Node(value: 42, next: .None);
 ```
 
 **Properties:**
+
 - Stored as raw pointer (8 bytes)
 - No generation check needed (we own it!)
 - Linear type: must move, cannot copy
@@ -126,6 +135,7 @@ print_value(&(node));  // &(node) creates a borrow
 ```
 
 **Properties:**
+
 - Stored as `{ ptr: *T, generation: u64 }` (16 bytes)
 - Generation check before each dereference
 - Can be copied freely (cheap copy)
@@ -176,10 +186,10 @@ void* yo_alloc(size_t object_size) {
   // Allocate generation + object
   size_t total_size = sizeof(uint64_t) + object_size;
   void* mem = malloc(total_size);
-  
+
   uint64_t* gen_ptr = (uint64_t*)mem;
   *gen_ptr = random_u64();  // Or increment global counter
-  
+
   // Return pointer to object data (after generation)
   return (void*)(gen_ptr + 1);
 }
@@ -191,10 +201,10 @@ void* yo_alloc(size_t object_size) {
 void yo_free(void* ptr) {
   // Get generation pointer
   uint64_t* gen_ptr = (uint64_t*)ptr - 1;
-  
+
   // Set generation to 0 (marks as freed)
   *gen_ptr = 0;
-  
+
   // Free memory
   free(gen_ptr);
 }
@@ -207,12 +217,12 @@ YoBorrow yo_borrow(void* own_ptr) {
   // Get current generation
   uint64_t* gen_ptr = (uint64_t*)own_ptr - 1;
   uint64_t current_gen = *gen_ptr;
-  
+
   YoBorrow borrow = {
     .ptr = own_ptr,
     .remembered_generation = current_gen
   };
-  
+
   return borrow;
 }
 ```
@@ -224,7 +234,7 @@ void __check(YoBorrow borrow) {
   // Get current generation from object
   uint64_t* gen_ptr = (uint64_t*)borrow.ptr - 1;
   uint64_t current_gen = *gen_ptr;
-  
+
   // Compare with remembered generation
   if (current_gen != borrow.remembered_generation) {
     // Object was freed! Panic!
@@ -303,6 +313,7 @@ printf("%d\n", node.value);
 ```
 
 **Generated C:**
+
 ```c
 YoNode* node = yo_alloc(sizeof(YoNode));
 // No __check! Direct access!
@@ -316,7 +327,7 @@ fn process(own_node: Node) -> unit {
   // own_node is owned by this function
   // No check needed!
   printf("%d\n", own_node.value);
-  
+
   // Passes ownership to another function
   consume(own_node);
 }
@@ -337,24 +348,26 @@ fn consume(node: Node) -> unit {
 fn process(n: *(Node)) -> unit {
   __check(n);  // Check #1
   printf("%d\n", n.value);
-  
+
   __check(n);  // Check #2 - REQUIRED!
   printf("%d\n", n.next);
 }
 ```
 
 **Why both checks are necessary:**
+
 - Another thread might free the object between checks
 - Even in the same function, concurrent access can invalidate borrows
 - Redundant check elimination is **UNSAFE** in multithreaded code
 
 **Generated C:**
+
 ```c
 void process(YoBorrow n) {
   __check(n);  // Check before first access
   YoNode* n_ptr = (YoNode*)n.ptr;
   printf("%d\n", n_ptr->value);
-  
+
   __check(n);  // Check again before second access!
   n_ptr = (YoNode*)n.ptr;  // Reload pointer after check
   printf("%d\n", n_ptr->next);
@@ -368,9 +381,9 @@ void process(YoBorrow n) {
 fn thread1(n: *(Node)) -> unit {
   __check(n);  // ✅ Passes
   printf("%d\n", n.value);
-  
+
   // ⚠️ Thread 2 frees the object HERE!
-  
+
   // If we skip this check, we access freed memory!
   __check(n);  // ✅ REQUIRED - catches use-after-free!
   printf("%d\n", n.next);
@@ -397,29 +410,31 @@ single_threaded fn calculate(n: *(Node)) -> i32 {
 ```
 
 **Requirements for this optimization:**
+
 - Explicit `single_threaded` annotation or compiler proof
 - No concurrent access possible
 - Object cannot be freed by another thread
 - **Not implemented yet - future optimization**
 
 **Trade-off:**
+
 - Multithreaded code: Always check (safe, ~10% overhead)
 - Single-threaded code: Can optimize (requires proof)
 
 ## Comparison: Memory Safety Approaches
 
-| Aspect | RC | GC | Gen Refs |
-|--------|----|----|----------|
-| **Mutation overhead** | ❌ High (dup/drop) | ✅ Zero | ✅ Zero |
-| **Dereference overhead** | ✅ Zero | ✅ Zero | ⚠️ Check (optimizable to zero!) |
-| **Deterministic destructors** | ✅ Yes | ❌ No | ✅ Yes |
-| **RAII support** | ✅ Yes | ❌ No | ✅ Yes |
-| **Work-stealing** | ❌ No (thread affinity) | ✅ Yes | ✅ Yes |
-| **Cycles** | ⚠️ Weak ptrs | ✅ Auto | ⚠️ Weak ptrs |
-| **Memory per object** | 8 bytes (RC) | 16 bytes (header) | 8 bytes (gen) |
-| **Pointer size** | 8 bytes | 8 bytes | 16 bytes (borrow) or 8 bytes (own) |
-| **Complexity** | Medium | High | Low |
-| **False positives** | N/A | N/A | Extremely rare (1 in 2^64) |
+| Aspect                        | RC                      | GC                | Gen Refs                           |
+| ----------------------------- | ----------------------- | ----------------- | ---------------------------------- |
+| **Mutation overhead**         | ❌ High (dup/drop)      | ✅ Zero           | ✅ Zero                            |
+| **Dereference overhead**      | ✅ Zero                 | ✅ Zero           | ⚠️ Check (optimizable to zero!)    |
+| **Deterministic destructors** | ✅ Yes                  | ❌ No             | ✅ Yes                             |
+| **RAII support**              | ✅ Yes                  | ❌ No             | ✅ Yes                             |
+| **Work-stealing**             | ❌ No (thread affinity) | ✅ Yes            | ✅ Yes                             |
+| **Cycles**                    | ⚠️ Weak ptrs            | ✅ Auto           | ⚠️ Weak ptrs                       |
+| **Memory per object**         | 8 bytes (RC)            | 16 bytes (header) | 8 bytes (gen)                      |
+| **Pointer size**              | 8 bytes                 | 8 bytes           | 16 bytes (borrow) or 8 bytes (own) |
+| **Complexity**                | Medium                  | High              | Low                                |
+| **False positives**           | N/A                     | N/A               | Extremely rare (1 in 2^64)         |
 
 ## Safety Guarantees
 
@@ -432,13 +447,14 @@ single_threaded fn calculate(n: *(Node)) -> i32 {
     node := Node(value: 42, next: .None);
     &(node)  // Create borrow
   };  // node freed here, generation set to 0
-  
+
   // Attempt to use borrow
   printf("%d\n", borrow.value);  // 💥 PANIC! Generation mismatch!
 }
 ```
 
 **What happens:**
+
 1. `node` is freed, generation set to 0
 2. `borrow.remembered_generation` still has old value
 3. `__check(borrow)` compares: `0 != old_value` → **PANIC**
@@ -469,12 +485,14 @@ uint64_t random_u64() {
 ```
 
 **Why random?**
+
 - Object can live anywhere (stack, heap, custom allocators)
 - No need to track generation counter
 - Reuse memory locations freely
 - Statistical safety: 1 in 2^64 chance of false negative
 
 **Safety analysis** (from Vale):
+
 - 64-bit generation: 1/2^64 chance of collision per check
 - If 6 million checks fail per second: **73,250 years** on average until unsafety
 - Comfortable odds!
@@ -524,9 +542,9 @@ c := Container(id: 1, data: Node(value: 42, next: .None));
 fn reader(n: *(Node)) -> unit {
   __check(n);  // ✅ Passes - object alive
   printf("%d\n", n.value);
-  
+
   // ⚠️ Thread 2 might free the object HERE!
-  
+
   __check(n);  // ✅ Required - might catch use-after-free!
   printf("%d\n", n.next);
 }
@@ -539,6 +557,7 @@ fn owner(node: Node) -> unit {
 ```
 
 **Race condition:**
+
 1. Thread 1 checks, generation matches ✅
 2. Thread 1 uses `n.value` ✅
 3. **Thread 2 frees the object** → generation = 0
@@ -584,7 +603,7 @@ fn worker_run(worker: Worker) -> unit {
       .Some(t) => t,
       .None => steal_from_others(worker)  // ✅ Can steal!
     ;
-    
+
     // Execute task on any thread
     task.work();
   });
@@ -592,6 +611,7 @@ fn worker_run(worker: Worker) -> unit {
 ```
 
 **Why this works:**
+
 - No per-object reference counter
 - No thread ownership
 - Generation checks work on any thread
@@ -602,6 +622,7 @@ fn worker_run(worker: Worker) -> unit {
 ### Phase 1: Basic Generational References
 
 **Implement:**
+
 1. ✅ Allocation with generation (`yo_alloc`)
 2. ✅ Deallocation with generation zeroing (`yo_free`)
 3. ✅ Borrow creation (`yo_borrow`)
@@ -610,6 +631,7 @@ fn worker_run(worker: Worker) -> unit {
 6. ✅ Automatic check insertion before borrow dereferences
 
 **Goals:**
+
 - Prove memory safety works
 - Measure baseline overhead
 - Replace biased RC
@@ -619,28 +641,33 @@ fn worker_run(worker: Worker) -> unit {
 ### Phase 2: Check Elimination Optimizations
 
 **Implement:**
+
 1. ✅ Linear style support (move semantics) - **Safe: no borrowing, no checks needed**
 2. ✅ Ownership transfer tracking (compiler knows when we own vs borrow)
 3. ⚠️ Single-threaded proof (future: only optimize if provably single-threaded)
 4. ⚠️ Redundant check elimination (future: only safe in single-threaded contexts)
 
 **Goals:**
+
 - Reduce checks to zero for linear style code (safe via ownership)
 - Keep thread-safety for borrowed references
 
-**Expected overhead:** 
+**Expected overhead:**
+
 - Borrowed refs: ~10% (always check for thread-safety)
 - Owned refs: 0% (no checks needed)
 
 ### Phase 3: Advanced Optimizations
 
 **Implement:**
+
 1. ✅ Region-based borrow checking (eliminate checks in safe regions)
 2. ✅ Stack allocation for objects (generation on stack)
 3. ✅ Inline objects in structs (embedded generations)
 4. ✅ Pre-checking for loops (check once, use many times)
 
 **Goals:**
+
 - Match C++ performance for optimized code
 - Zero overhead for linear style + regions
 
@@ -651,6 +678,7 @@ fn worker_run(worker: Worker) -> unit {
 ### Code Changes
 
 **Before (RC):**
+
 ```rust
 node := Node(value: 42, next: .None);  // ___dup at assignment
 node2 := node;  // ___dup
@@ -658,6 +686,7 @@ node2 := node;  // ___dup
 ```
 
 **After (Gen Refs):**
+
 ```rust
 node := Node(value: 42, next: .None);  // No dup, just alloc + generation
 node2 := &(node);  // Borrow, no dup!
@@ -665,6 +694,7 @@ node2 := &(node);  // Borrow, no dup!
 ```
 
 **Changes:**
+
 - Remove ALL `___dup` and `___drop` calls
 - Replace copies with borrows (`&`)
 - Let compiler insert `__check` calls
@@ -672,12 +702,14 @@ node2 := &(node);  // Borrow, no dup!
 ### Compiler Changes
 
 **Remove:**
+
 - `___dup` codegen on assignment
 - `___drop` codegen at scope exit
 - `isOwningTheSameRefValueAs` tracking
 - Biased RC infrastructure
 
 **Add:**
+
 - Generation allocation/deallocation
 - Borrow creation codegen
 - `__check` insertion before borrow dereferences
@@ -686,6 +718,7 @@ node2 := &(node);  // Borrow, no dup!
 ### Runtime Changes
 
 **Replace:**
+
 ```typescript
 // Before:
 function emitAssignment(lhs, rhs) {
@@ -715,18 +748,19 @@ function emitAssignment(lhs, rhs) {
     node := Node(value: 42, next: .None);
     &(node)
   };  // node freed here
-  
+
   printf("%d\n", borrow.value);  // 💥 Panic!
 }
 ```
 
 **Error message:**
+
 ```
 ERROR: Use-after-free detected!
   at: example.yo:6:3
   Expected generation: 12345678
   Current generation: 0 (freed)
-  
+
 Stack trace:
   #0 __check at runtime.c:42
   #1 main at example.c:10
@@ -742,13 +776,14 @@ fn broken() -> *(Node) {
 ```
 
 **Error message:**
+
 ```
 ERROR: Cannot return reference to local variable
   at: example.yo:3:10
-  
+
   note: `node` is freed at the end of this function
   note: Returned borrow would be invalid
-  
+
   help: Consider returning an owning reference:
         fn broken() -> Node { ... }
 ```
@@ -768,6 +803,7 @@ fn process(n: *(Node)) -> unit {
 **Overhead:** ~10% (from Vale benchmarks)
 
 **Why we always check:**
+
 - Thread-safe: Another thread might free the object at any time
 - Cannot eliminate "redundant" checks in multithreaded code
 - Simple and safe: works in all scenarios
@@ -808,26 +844,29 @@ fn hot_loop(n: *!(Node)) -> unit {
 
 Generational references provide the best of all worlds:
 
-| Feature | RC | GC | Gen Refs |
-|---------|----|----|----------|
-| Zero mutation overhead | ❌ | ✅ | ✅ |
-| Deterministic destructors | ✅ | ❌ | ✅ |
-| Work-stealing | ❌ | ✅ | ✅ |
-| Simple implementation | ✅ | ❌ | ✅ |
-| Zero-overhead possible | ❌ | ❌ | ✅ (with linear style) |
+| Feature                   | RC  | GC  | Gen Refs               |
+| ------------------------- | --- | --- | ---------------------- |
+| Zero mutation overhead    | ❌  | ✅  | ✅                     |
+| Deterministic destructors | ✅  | ❌  | ✅                     |
+| Work-stealing             | ❌  | ✅  | ✅                     |
+| Simple implementation     | ✅  | ❌  | ✅                     |
+| Zero-overhead possible    | ❌  | ❌  | ✅ (with linear style) |
 
 **Performance** (from Vale):
+
 - Basic: +10.84% overhead (vs unsafe)
 - Optimized: ~0% overhead (with linear style + regions)
 - 2.3x faster than reference counting!
 
 **Safety:**
+
 - Use-after-free: Detected (panic)
 - Double-free: Detected (malloc + generation)
 - Memory leaks: Impossible (linear types)
 - Data races: Prevented (borrow checking)
 
 **Developer Experience:**
+
 - Simple mental model: "own or borrow"
 - Fast by default (10% overhead acceptable)
 - Can optimize to zero when needed

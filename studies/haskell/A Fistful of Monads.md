@@ -1,5 +1,4 @@
-> http://learnyouahaskell.com/a-fistful-of-monads
-> https://stackoverflow.com/questions/28910076/is-it-true-that-order-of-execution-inside-a-do-block-doesnt-depend-on-the-state
+> http://learnyouahaskell.com/a-fistful-of-monads > https://stackoverflow.com/questions/28910076/is-it-true-that-order-of-execution-inside-a-do-block-doesnt-depend-on-the-state
 
 `>>=` is `bind`.
 

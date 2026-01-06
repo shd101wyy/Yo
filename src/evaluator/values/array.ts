@@ -83,7 +83,7 @@ export function evaluateArrayValue({
       if (
         !areTypesCompatible(
           { type: arrayElementType, env },
-          { type: evaluatedElement.$.type, env }
+          { type: evaluatedElement.$.type, env },
         )
       ) {
         // Check if types match when converting to runtime type.
@@ -107,7 +107,7 @@ export function evaluateArrayValue({
             {
               type: evaluatedElement.$.type,
               env,
-            }
+            },
           )
         ) {
           arrayElementType = evaluatedElement.$.type;
@@ -128,7 +128,7 @@ Given type: ${typeToString(evaluatedElement.$.type)}`,
 
   const arrayType = createArrayType(
     arrayElementType!,
-    createNumberValue(ValueTag.Usize, arrayLength)
+    createNumberValue(ValueTag.Usize, arrayLength),
   );
 
   const arrayValue = arrayElementValues.every((val) => !!val)

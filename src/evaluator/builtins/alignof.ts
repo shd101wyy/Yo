@@ -59,7 +59,7 @@ export function evaluateAlignOf({
   } else {
     typeAlignValue = createNumberValue(
       ValueTag.Usize,
-      typeAlign // alignment in bytes
+      typeAlign, // alignment in bytes
     );
   }
 

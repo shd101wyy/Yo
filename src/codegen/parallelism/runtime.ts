@@ -15,7 +15,7 @@ import { Emitter } from "../../emitter";
  */
 export function generateParallelismRuntime(
   emitter: Emitter,
-  _debugParallelism: boolean
+  _debugParallelism: boolean,
 ): void {
   emitter.emitLine(`
 // ============================================================================

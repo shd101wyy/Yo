@@ -6,7 +6,7 @@ import { createComptStringValue } from "../../value";
 
 export function evaluateStringLiteral(
   expr: AtomExpr,
-  env: Environment
+  env: Environment,
 ): AtomExpr {
   if (expr.token.type === TokenType.String) {
     const value = createComptStringValue(JSON.parse(expr.token.value));

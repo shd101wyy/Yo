@@ -68,7 +68,7 @@ export function evaluatePropertyAccess({
       throw formatErrorMessage({
         token: propertyExpr.token,
         errorMessage: `Expected identifier for enum variant access, got:\n${exprToString(
-          propertyExpr
+          propertyExpr,
         )}`,
       });
     }
@@ -84,7 +84,7 @@ export function evaluatePropertyAccess({
     const enumType = expectedEnumType;
 
     const variant = enumType.variants.find(
-      (variant) => variant.name === variantName
+      (variant) => variant.name === variantName,
     );
     if (!variant) {
       throw formatErrorMessage({
@@ -204,7 +204,7 @@ export function evaluatePropertyAccess({
         throw formatErrorMessage({
           token: propertyExpr.token,
           errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-            propertyExpr
+            propertyExpr,
           )}`,
         });
       }
@@ -213,7 +213,7 @@ export function evaluatePropertyAccess({
       {
         const propertyName = propertyExpr.token.value;
         const field = typeValue.value.module.fields.find(
-          (method) => method.label === propertyName
+          (method) => method.label === propertyName,
         );
         if (field) {
           expr.$ = {
@@ -232,7 +232,7 @@ export function evaluatePropertyAccess({
       // Check if variantName is a valid enum variant
       const enumType = typeValue.value;
       const variant = enumType.variants.find(
-        (variant) => variant.name === variantName
+        (variant) => variant.name === variantName,
       );
       if (!variant) {
         throw formatErrorMessage({
@@ -286,7 +286,7 @@ export function evaluatePropertyAccess({
         throw formatErrorMessage({
           token: propertyExpr.token,
           errorMessage: `Expected identifier for type method, got:\n${exprToString(
-            propertyExpr
+            propertyExpr,
           )}`,
         });
       }
@@ -294,7 +294,7 @@ export function evaluatePropertyAccess({
       // Check if the type method exists
       // Use findLast to get the most recently added field (handles duplicates from impl blocks)
       const field = typeValue.value.module.fields.findLast(
-        (property) => property.label === propertyName
+        (property) => property.label === propertyName,
       );
       if (field) {
         // Use the type from the assigned value if it exists, otherwise use field.type
@@ -344,7 +344,7 @@ export function evaluatePropertyAccess({
         throw formatErrorMessage({
           token: propertyExpr.token,
           errorMessage: `Expected identifier for type method, got:\n${exprToString(
-            propertyExpr
+            propertyExpr,
           )}`,
         });
       }
@@ -368,7 +368,7 @@ export function evaluatePropertyAccess({
             if (
               !areTypesCompatible(
                 { type: moduleType, env },
-                { type: implModuleType, env }
+                { type: implModuleType, env },
               )
             ) {
               continue;
@@ -376,7 +376,7 @@ export function evaluatePropertyAccess({
 
             // Now look for the method in this matched impl module
             const methodIndex = implModuleType.fields.findIndex(
-              (f) => f.label === propertyName && isFunctionType(f.type)
+              (f) => f.label === propertyName && isFunctionType(f.type),
             );
             if (methodIndex >= 0) {
               const method = implModuleType.fields[methodIndex]!;
@@ -430,7 +430,7 @@ export function evaluatePropertyAccess({
 
       // Check if the type method exists in the module's own fields
       const field = moduleType.fields.find(
-        (property) => property.label === propertyName
+        (property) => property.label === propertyName,
       );
       if (field) {
         expr.$ = {
@@ -490,20 +490,20 @@ export function evaluatePropertyAccess({
           throw formatErrorMessage({
             token: propertyExpr.token,
             errorMessage: `Expected integer for tuple index, got:\n${exprToString(
-              propertyExpr
+              propertyExpr,
             )}`,
           });
         }
 
         const runtimeElementsCount = fields.filter(
-          (field) => !field.isCompileTimeOnly
+          (field) => !field.isCompileTimeOnly,
         ).length;
 
         if (index < 0 || index >= runtimeElementsCount) {
           throw formatErrorMessage({
             token: propertyExpr.token,
             errorMessage: `Index out of bounds: ${index} for accessing field in:\n${typeToString(
-              objectExpr.$?.type
+              objectExpr.$?.type,
             )}`,
           });
         }
@@ -547,7 +547,7 @@ export function evaluatePropertyAccess({
           const tupleFieldIndex = fields.findIndex(
             // NOTE: To access comptime only field, use the type instead, not the value.
             // The value can only access runtime fields.
-            (field) => field.label === label
+            (field) => field.label === label,
           );
           if (tupleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
@@ -620,7 +620,7 @@ export function evaluatePropertyAccess({
         throw formatErrorMessage({
           token: propertyExpr.token,
           errorMessage: `Accessomg module field by index is not allowed, got:\n${exprToString(
-            propertyExpr
+            propertyExpr,
           )}`,
         });
       } else if (isValidVariableName(propertyExpr)) {
@@ -628,7 +628,7 @@ export function evaluatePropertyAccess({
 
         {
           const tupleFieldIndex = fields.findIndex(
-            (field) => field.label === label
+            (field) => field.label === label,
           );
           if (tupleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
@@ -685,19 +685,19 @@ export function evaluatePropertyAccess({
         throw formatErrorMessage({
           token: propertyExpr.token,
           errorMessage: `Expected identifier for enum variant property, got:\n${exprToString(
-            propertyExpr
+            propertyExpr,
           )}`,
         });
       }
 
       const propertyName = propertyExpr.token.value;
       const selectedVariant = objectType.variants.find(
-        (variant) => variant.name === objectType.selectedVariantName
+        (variant) => variant.name === objectType.selectedVariantName,
       );
       if (selectedVariant) {
         // Check if the property exists in the selected variant
         const fieldIndex = (selectedVariant.fields ?? []).findIndex(
-          (property) => property.label === propertyName
+          (property) => property.label === propertyName,
         );
         if (fieldIndex < 0) {
           /*

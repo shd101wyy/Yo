@@ -18,6 +18,7 @@ x := use_cb(10, (u) => ((u + 1) + a)); // capture variable 'a'
 ```
 
 Error:
+
 ```
 Error: Type mismatch for parameter "cb":
     Expected: Impl(Fn(u : i32) -> i32)
@@ -41,6 +42,7 @@ Two separate issues in `areTypesCompatible`:
 **File**: `src/types/compatibility.ts`
 
 1. **Uncommented cycle detection** to handle recursive types:
+
    ```typescript
    // Cycle detection: only for types that can be recursive (struct, enum, union, object)
    // Don't apply to SomeType as the same SomeType ID can have different meanings in different contexts
@@ -116,6 +118,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
 ```
 
 Error:
+
 ```
 Error: Type mismatch for parameter "self":
     Expected: *(T)
@@ -135,7 +138,7 @@ When `requireExactMatch=true` was set for method receivers, an early return in t
 
 ```typescript
 if (requireExactMatch && expected.type.name === given.type.name) {
-  return false;  // Too strict!
+  return false; // Too strict!
 }
 ```
 
@@ -158,6 +161,7 @@ Removed the early return that rejected SomeTypes with the same name but differen
 ```
 
 This allows:
+
 - `*(T)` from `impl(forall(T: Type), *(T), ...)` to unify with `*(T)` from `ArrayList(T)`
 - While still preventing `i32` from matching `compt_int` (different code paths for primitive types)
 
@@ -177,7 +181,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))(
     head : Option(Node(T)),
 
     has :: (fn(
-      self: Self, 
+      self: Self,
       value: T,
       where(T <: Eq(T))
     ) -> bool)({
@@ -191,6 +195,7 @@ LinkedList :: (fn(compt(T): Type) -> compt(Type))(
 ```
 
 Error:
+
 ```
 Error: No matching call found with arguments:
 (current_opt.value) == value
@@ -204,7 +209,7 @@ The where clause constraint lookup used Map's direct key lookup with object iden
 
 ```typescript
 const constraints = currentFunctionType.whereClauseConstraints.get(
-  dereferencedReceiverType
+  dereferencedReceiverType,
 );
 ```
 
@@ -221,9 +226,9 @@ Modified the constraint lookup to iterate through all constraints and check type
 if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
   // First try direct lookup
   let constraints = currentFunctionType.whereClauseConstraints.get(
-    dereferencedReceiverType
+    dereferencedReceiverType,
   );
-  
+
   // If direct lookup fails and receiver is a SomeType, try to find a compatible
   // constrained type parameter. This handles cases like:
   //   - where(T <: Eq(T)) in has method
@@ -239,7 +244,7 @@ if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
         areTypesCompatible(
           { type: constrainedType, env },
           { type: dereferencedReceiverType, env },
-          false // Allow type parameter unification
+          false, // Allow type parameter unification
         )
       ) {
         constraints = typeConstraints;
@@ -247,7 +252,7 @@ if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
       }
     }
   }
-  
+
   if (constraints) {
     // ... use the constraints to find methods
   }
@@ -279,6 +284,7 @@ HashMap :: (fn(
 ```
 
 Error:
+
 ```
 Error: No matching call found with arguments:
 key == key
@@ -302,13 +308,13 @@ Modified the constraint lookup to traverse the chain of parent function types:
 if (methods.length === 0) {
   // Helper function to find constraints from a function type
   const findConstraintsInFunction = (
-    funcType: FunctionType | undefined
+    funcType: FunctionType | undefined,
   ): { requiredModules: ModuleType[] } | undefined => {
     if (!funcType?.whereClauseConstraints) return undefined;
 
     // First try direct lookup
     let constraints = funcType.whereClauseConstraints.get(
-      dereferencedReceiverType
+      dereferencedReceiverType,
     );
 
     // If direct lookup fails and receiver is a SomeType, try to find a compatible
@@ -323,7 +329,7 @@ if (methods.length === 0) {
           areTypesCompatible(
             { type: constrainedType, env },
             { type: dereferencedReceiverType, env },
-            false // Allow type parameter unification
+            false, // Allow type parameter unification
           )
         ) {
           constraints = typeConstraints;
@@ -362,6 +368,7 @@ These four related issues all stem from the type system's handling of generic ty
 4. **Parent function constraints** needed to be accessible from nested methods
 
 The fixes ensure that:
+
 - Generic types like `ArrayList(T)`, `LinkedList(T)`, and `HashMap(K, V)` work correctly
 - Type parameters can unify across different scopes
 - Where clause constraints are properly propagated through the type system

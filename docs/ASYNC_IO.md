@@ -37,6 +37,7 @@ main :: (fn() -> unit) {
 Yo uses **liburing** for io_uring operations rather than direct syscalls:
 
 **Why liburing (not raw syscalls):**
+
 - liburing is a thin wrapper (~5KB code) maintained by io_uring author Jens Axboe
 - Handles ring buffer memory mapping correctly
 - Well-tested and actively maintained
@@ -70,6 +71,7 @@ sudo make install
 The Yo compiler will check for liburing using `pkg-config liburing --cflags --libs`. If not found, async file I/O will not be available.
 
 **Fallback for older kernels:**
+
 - On Linux kernel < 5.1: Falls back to blocking I/O with thread pool (future)
 - On other platforms: Uses native backend (IOCP/kqueue)
 
@@ -426,10 +428,12 @@ int __yo_io_poll(void) {
 ### Data Types
 
 **Return types for file reads:**
+
 - `[u8]` (slice) - Fat pointer with data pointer + length, for binary data
 - `String` - UTF-8 validated string, for text files
 
 **Buffer types:**
+
 - `ArrayList(u8)` - Dynamic growable buffer (like Rust's `Vec<u8>`)
 - `Array(u8, N)` - Fixed-size stack buffer (C array)
 
@@ -670,7 +674,7 @@ process_files :: (fn(paths: ArrayList(String)) -> Impl Future(ArrayList(String))
   // Start all reads concurrently (all on same thread!)
   // Note: In production, we'd use a proper Future collection type
   results := ArrayList(String).new();
-  
+
   i := usize(0);
   while ((i < paths.len())), (i = (i + usize(1))), {
     path := paths.get(i).unwrap();
@@ -690,7 +694,7 @@ main :: (fn() -> unit) {
     paths.push("file1.txt");
     paths.push("file2.txt");
     paths.push("file3.txt");
-    
+
     contents := await process_files(paths);
 
     i := usize(0);

@@ -59,6 +59,7 @@ int32_t result = fn_id33365_return_i32(&b);
 ### Step 1: Verify `resolvedConcreteType` Propagation
 
 The evaluator sets `resolvedConcreteType` on function call results, but we need to verify:
+
 - [ ] The type is properly cloned (not mutating shared type objects)
 - [ ] The `resolvedConcreteType` survives through variable assignment
 - [ ] The codegen sees the `resolvedConcreteType` when generating variable declarations
@@ -66,12 +67,14 @@ The evaluator sets `resolvedConcreteType` on function call results, but we need 
 ### Step 2: Fix Variable Declaration Codegen
 
 In `src/codegen/expressions/generation.ts`, when generating variable declarations for `SomeType`:
+
 - [ ] Check if the type has `resolvedConcreteType`
 - [ ] Use `getTypeString(type.resolvedConcreteType, context)` instead of `void*`
 
 ### Step 3: Fix Method Call Resolution
 
 In `src/evaluator/exprs/property_access.ts` or method call handling:
+
 - [ ] When calling a method on a `SomeType` with `resolvedConcreteType`:
   - Use the `resolvedConcreteType` to find the correct impl
   - Set the method call's `functionValue` to the concrete implementation
@@ -80,6 +83,7 @@ In `src/evaluator/exprs/property_access.ts` or method call handling:
 ### Step 4: Ensure Codegen Uses Static Dispatch
 
 In `src/codegen/expressions/generation.ts` for method calls:
+
 - [ ] If the receiver type is `SomeType` with `resolvedConcreteType`, generate static dispatch
 - [ ] The function name should be the concrete impl's function name
 - [ ] Arguments should match the concrete impl's signature
@@ -94,6 +98,7 @@ In `src/codegen/expressions/generation.ts` for method calls:
 ## Testing
 
 After fixes, this should work:
+
 ```sh
 bun run src/yo-cli.ts compile src/tests/examples/fixme.yo --release -o test_fixme && ./test_fixme
 ```

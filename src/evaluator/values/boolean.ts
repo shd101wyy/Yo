@@ -6,7 +6,7 @@ import { createBooleanValue, Value } from "../../value";
 
 export function evaluateBooleanLiteral(
   expr: AtomExpr,
-  env: Environment
+  env: Environment,
 ): AtomExpr {
   if (expr.token.type === TokenType.Bool) {
     const booleanValue = expr.token.value === "true";

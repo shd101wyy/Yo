@@ -10,6 +10,7 @@ Yo provides two mechanisms for parallel execution:
 Communication between threads is done via **Channel** (implemented separately).
 
 This is similar to:
+
 - **Go**: goroutines (Worker) + channels
 - **Rust**: std::thread (Thread) + mpsc channels
 - **Java**: Thread + ExecutorService (Worker) + BlockingQueue
@@ -34,14 +35,14 @@ See `ASYNC_AWAIT.md` for single-threaded concurrency.
 ```yo
 Thread :: struct(
   handle : __yo_thread_t,
-  
+
   // Spawn a new OS thread running the given function
   // The function must be Send (no captured non-Send references)
   spawn :: (fn(f : Impl(Fn() -> unit, Send)) -> Thread),
-  
+
   // Wait for the thread to complete (blocking)
   join :: (fn(self : Thread) -> unit),
-  
+
   // Get current thread ID
   get_id :: (fn() -> usize),
 );
@@ -78,10 +79,10 @@ Worker :: impl {
   // Spawn a task on the thread pool
   // Returns immediately, task runs in background
   spawn :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(...);
-  
+
   // Configure thread pool (call before first spawn)
   set_num_threads :: (fn(n : usize) -> unit)(...),
-  
+
   // Get number of threads in pool (default: hardware threads)
   get_num_threads :: (fn() -> usize)(...);
 
@@ -187,32 +188,34 @@ Thread.spawn(() => {
 ### Thread-Local GC
 
 Each OS thread has:
+
 - **Separate heap**: GC-managed allocations are thread-local
 - **Non-atomic RC**: Reference counting uses non-atomic operations
 - **Thread-local cycle collector**: GC runs independently per thread
 
 This means:
+
 - No data races on GC-managed values (they can't be shared)
 - No atomic overhead for reference counting
 - No stop-the-world GC pauses
 
 ## Comparison: Thread vs Worker
 
-| Aspect          | Thread                  | Worker                    |
-| --------------- | ----------------------- | ------------------------- |
-| OS Thread       | Dedicated (1:1)         | Shared (thread pool)      |
-| Lifecycle       | Explicit (join/kill)    | Fire-and-forget           |
-| Overhead        | Higher (thread creation)| Lower (reuses threads)    |
-| Use Case        | Long-running tasks      | Short-lived tasks         |
-| Thread Affinity | N/A                     | Yes (task stays on thread)|
+| Aspect          | Thread                   | Worker                     |
+| --------------- | ------------------------ | -------------------------- |
+| OS Thread       | Dedicated (1:1)          | Shared (thread pool)       |
+| Lifecycle       | Explicit (join/kill)     | Fire-and-forget            |
+| Overhead        | Higher (thread creation) | Lower (reuses threads)     |
+| Use Case        | Long-running tasks       | Short-lived tasks          |
+| Thread Affinity | N/A                      | Yes (task stays on thread) |
 
 ## Summary
 
-| Component   | Purpose                  | API                       |
-| ----------- | ------------------------ | ------------------------- |
-| **Thread**  | Dedicated OS thread      | `spawn`, `join`, `kill`   |
-| **Worker**  | Thread pool task         | `spawn`                   |
-| **Channel** | Communication (future)   | `send`, `recv`, `close`   |
+| Component   | Purpose                | API                     |
+| ----------- | ---------------------- | ----------------------- |
+| **Thread**  | Dedicated OS thread    | `spawn`, `join`, `kill` |
+| **Worker**  | Thread pool task       | `spawn`                 |
+| **Channel** | Communication (future) | `send`, `recv`, `close` |
 
 ### Quick Reference
 

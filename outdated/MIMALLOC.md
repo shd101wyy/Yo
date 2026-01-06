@@ -5,6 +5,7 @@ The Yo programming language uses [mimalloc](https://github.com/microsoft/mimallo
 ## How It Works
 
 ### Bundled Approach
+
 Yo includes mimalloc as a git submodule in `vendor/mimalloc/`. The Yo compiler automatically:
 
 1. **Includes mimalloc source**: Compiles `vendor/mimalloc/src/static.c` alongside generated C code
@@ -12,6 +13,7 @@ Yo includes mimalloc as a git submodule in `vendor/mimalloc/`. The Yo compiler a
 3. **Smart fallback**: Generated C code uses conditional compilation to fallback gracefully
 
 ### Generated C Code Structure
+
 ```c
 // Mimalloc compatibility layer - try mimalloc first, fallback to stdlib
 #ifdef __has_include
@@ -40,19 +42,23 @@ Yo includes mimalloc as a git submodule in `vendor/mimalloc/`. The Yo compiler a
 ```
 
 All generated C code uses the `yo_*` memory functions, which automatically resolve to either:
-- `mi_*` functions (when mimalloc is available) 
+
+- `mi_*` functions (when mimalloc is available)
 - Standard C library functions (fallback for compatibility)
 
 ## Cross-Platform Support
 
 ### Automatic Detection
+
 The system works across all platforms:
+
 - **Windows**: Works with MSVC, MinGW, and Clang
 - **macOS**: Works with Clang and GCC
 - **Linux**: Works with GCC, Clang, and other compilers
 - **Other Unix systems**: Automatic fallback to system malloc
 
 ### No Installation Required
+
 Since mimalloc is bundled as a git submodule, users don't need to install mimalloc separately. The Yo compiler handles everything automatically.
 
 ## Building from Source
@@ -70,8 +76,9 @@ The `--recursive` flag ensures the mimalloc submodule is also downloaded.
 ## Performance Benefits
 
 Mimalloc provides:
+
 - **2-3x faster allocation/deallocation** compared to system malloc
-- **Better memory locality** for improved cache performance  
+- **Better memory locality** for improved cache performance
 - **Thread-safe** with excellent multi-threaded performance
 - **Low memory overhead** with efficient metadata storage
 - **Security features** like guard pages and free list encoding
@@ -79,6 +86,7 @@ Mimalloc provides:
 ## Compatibility
 
 The fallback mechanism ensures Yo programs compile and run correctly even when:
+
 - Mimalloc headers are not found
 - Older compilers don't support `__has_include`
 - Cross-compilation environments lack mimalloc
@@ -94,6 +102,7 @@ The Yo compiler (`yo-cli`) automatically:
 4. If not found: warns but continues with fallback to system malloc
 
 Example compilation output:
+
 ```
 Generated C code written to program.c
 Using bundled mimalloc

@@ -52,7 +52,7 @@ export function evaluateYoExprIsAtom({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -60,7 +60,7 @@ export function evaluateYoExprIsAtom({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -69,7 +69,7 @@ export function evaluateYoExprIsAtom({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -111,7 +111,7 @@ export function evaluateYoExprIsFnCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -119,7 +119,7 @@ export function evaluateYoExprIsFnCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -128,7 +128,7 @@ export function evaluateYoExprIsFnCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -170,7 +170,7 @@ export function evaluateYoExprGetCallee({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -178,7 +178,7 @@ export function evaluateYoExprGetCallee({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -187,7 +187,7 @@ export function evaluateYoExprGetCallee({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -209,7 +209,7 @@ export function evaluateYoExprGetCallee({
       throw formatErrorMessage({
         token: argExpr.token,
         errorMessage: `Expected function call expression for argument, got:\n${exprToString(
-          expr
+          expr,
         )}`,
       });
     }
@@ -241,7 +241,7 @@ export function evaluateYoExprGetArgs({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -249,7 +249,7 @@ export function evaluateYoExprGetArgs({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -258,7 +258,7 @@ export function evaluateYoExprGetArgs({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -276,14 +276,14 @@ export function evaluateYoExprGetArgs({
       const fnArgs = exprValue.value.args;
       const fnArgsValue = createComptListValue(
         createExprType(),
-        fnArgs.map((arg) => createExprValue(arg))
+        fnArgs.map((arg) => createExprValue(arg)),
       );
       expr.$.value = fnArgsValue;
     } else {
       throw formatErrorMessage({
         token: argExpr.token,
         errorMessage: `Expected function call expression for argument, got:\n${exprToString(
-          expr
+          expr,
         )}`,
       });
     }
@@ -315,7 +315,7 @@ export function evaluateYoExprToString({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -323,7 +323,7 @@ export function evaluateYoExprToString({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -332,7 +332,7 @@ export function evaluateYoExprToString({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected expression value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -378,7 +378,7 @@ export function evaluateYoExprEq({
     throw formatErrorMessage({
       token: firstArgExpr.token,
       errorMessage: `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
-        firstArgExpr
+        firstArgExpr,
       )}`,
     });
   }
@@ -386,7 +386,7 @@ export function evaluateYoExprEq({
     throw formatErrorMessage({
       token: firstArgExpr.token,
       errorMessage: `Expected expression type for "${expr.func.token.value}" first argument, got:\n${exprToString(
-        firstArgExpr
+        firstArgExpr,
       )}`,
     });
   }
@@ -395,7 +395,7 @@ export function evaluateYoExprEq({
     throw formatErrorMessage({
       token: firstArgExpr.token,
       errorMessage: `Expected expression value for "${expr.func.token.value}" first argument, got:\n${exprToString(
-        firstArgExpr
+        firstArgExpr,
       )}`,
     });
   }
@@ -413,7 +413,7 @@ export function evaluateYoExprEq({
     throw formatErrorMessage({
       token: secondArgExpr.token,
       errorMessage: `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
-        secondArgExpr
+        secondArgExpr,
       )}`,
     });
   }
@@ -421,7 +421,7 @@ export function evaluateYoExprEq({
     throw formatErrorMessage({
       token: secondArgExpr.token,
       errorMessage: `Expected expression type for "${expr.func.token.value}" second argument, got:\n${exprToString(
-        secondArgExpr
+        secondArgExpr,
       )}`,
     });
   }
@@ -430,7 +430,7 @@ export function evaluateYoExprEq({
     throw formatErrorMessage({
       token: secondArgExpr.token,
       errorMessage: `Expected expression value for "${expr.func.token.value}" second argument, got:\n${exprToString(
-        secondArgExpr
+        secondArgExpr,
       )}`,
     });
   }
@@ -442,8 +442,8 @@ export function evaluateYoExprEq({
     value = createBooleanValue(
       areValuesEqual(
         { value: firstExprValue, env },
-        { value: secondExprValue, env }
-      )
+        { value: secondExprValue, env },
+      ),
     );
   } else {
     value = createUnknownValue(createBooleanType()) as UnknownValue;

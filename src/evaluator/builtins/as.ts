@@ -41,7 +41,7 @@ export function evaluateAs({
     throw formatErrorMessage({
       token: valueExpr.token,
       errorMessage: `Failed to evaluate value argument for "as":\n${exprToString(
-        valueExpr
+        valueExpr,
       )}`,
     });
   }
@@ -59,7 +59,7 @@ export function evaluateAs({
     throw formatErrorMessage({
       token: typeExpr.token,
       errorMessage: `Failed to evaluate type argument for "as":\n${exprToString(
-        typeExpr
+        typeExpr,
       )}`,
     });
   }
@@ -69,7 +69,7 @@ export function evaluateAs({
     throw formatErrorMessage({
       token: typeExpr.token,
       errorMessage: `Second argument to "as" must be a type, got:\n${exprToString(
-        typeExpr
+        typeExpr,
       )}`,
     });
   }

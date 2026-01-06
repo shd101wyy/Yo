@@ -70,7 +70,7 @@ export class CodeGenerator {
        * 'leak' - Leak detection only
        */
       sanitize?: "address" | "leak";
-    }
+    },
   ): void {
     if (!options.skipCodegen) {
       this.moduleManager.compileModule(modulePath, {
@@ -144,19 +144,19 @@ export class CodeGenerator {
               // MSVC uses /fsanitize=address
               compileArgs.splice(isMSVC ? -1 : -2, 0, "/fsanitize=address");
               console.log(
-                "AddressSanitizer enabled (memory errors + leak detection)"
+                "AddressSanitizer enabled (memory errors + leak detection)",
               );
             } else {
               compileArgs.splice(-2, 0, "-fsanitize=address");
               compileArgs.splice(-2, 0, "-fno-omit-frame-pointer");
               console.log(
-                "AddressSanitizer enabled (memory errors + leak detection)"
+                "AddressSanitizer enabled (memory errors + leak detection)",
               );
             }
           } else if (options.sanitize === "leak") {
             if (isMSVC) {
               console.warn(
-                "LeakSanitizer is not supported by MSVC, use AddressSanitizer instead"
+                "LeakSanitizer is not supported by MSVC, use AddressSanitizer instead",
               );
             } else {
               compileArgs.splice(-2, 0, "-fsanitize=leak");
@@ -172,7 +172,7 @@ export class CodeGenerator {
             compileArgs.splice(isMSVC ? -1 : -2, 0, externFile); // Insert before output file
           } else {
             console.warn(
-              `External file ${externFile} does not exist and will be ignored`
+              `External file ${externFile} does not exist and will be ignored`,
             );
           }
         });
@@ -192,7 +192,7 @@ export class CodeGenerator {
             console.log("Using bundled mimalloc");
           } else {
             console.warn(
-              "Bundled mimalloc not found, falling back to standard malloc"
+              "Bundled mimalloc not found, falling back to standard malloc",
             );
           }
         } else {
@@ -210,7 +210,7 @@ export class CodeGenerator {
             console.log("Using system liburing for async I/O");
           } catch (error) {
             console.warn(
-              "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
+              "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions.",
             );
           }
         }

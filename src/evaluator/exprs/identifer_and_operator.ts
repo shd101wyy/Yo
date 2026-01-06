@@ -503,7 +503,7 @@ export function evaluateIdentifierAndOperator({
             variable.frameLevel,
             usageType,
             expr.token,
-            context
+            context,
           );
         }
       }
@@ -525,7 +525,7 @@ export function evaluateIdentifierAndOperator({
             variable.frameLevel,
             usageType,
             expr.token,
-            context
+            context,
           );
         }
       }

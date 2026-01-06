@@ -16,7 +16,7 @@ import { Emitter } from "../../emitter";
  */
 export function generateAsyncRuntime(
   emitter: Emitter,
-  _debugAsyncAwait: boolean
+  _debugAsyncAwait: boolean,
 ): void {
   emitter.emitLine(`
 // ============================================================================

@@ -74,7 +74,7 @@ export function evaluateAnonymousStructValue({
 
       // Check if there is duplicate labels
       const duplicateLabel = moduleFields.find(
-        (elem) => elem.label === field.label
+        (elem) => elem.label === field.label,
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
@@ -87,7 +87,7 @@ export function evaluateAnonymousStructValue({
         throw formatErrorMessage({
           token: arg.token,
           errorMessage: `Expected compile-time only field for anonymous struct, got:\n${exprToString(
-            arg
+            arg,
           )}`,
         });
       }
@@ -123,7 +123,7 @@ export function evaluateAnonymousStructValue({
         throw formatErrorMessage({
           token: labelExpr.token,
           errorMessage: `Expected identifier for anonymous struct field label, got:\n${exprToString(
-            labelExpr
+            labelExpr,
           )}`,
         });
       }
@@ -217,7 +217,7 @@ export function evaluateAnonymousStructValue({
         throw formatErrorMessage({
           token: valueExpr.token,
           errorMessage: `Failed to evaluate the anonymous struct field expression: ${exprToString(
-            valueExpr
+            valueExpr,
           )}`,
         });
       }

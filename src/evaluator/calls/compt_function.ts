@@ -86,13 +86,13 @@ export function evaluateComptFunctionCall({
           return areTypesCompatible(
             { type: argValue.value, env: cache.env },
             { type: givenArgValue.value, env: callerEnv },
-            true // requireExactMatch for cache comparison
+            true, // requireExactMatch for cache comparison
           );
         }
 
         return areValuesEqual(
           { value: argValue, env: cache.env },
-          { value: givenArgValue, env: callerEnv }
+          { value: givenArgValue, env: callerEnv },
         );
       })
     ); // Check if the values are equal
@@ -117,7 +117,7 @@ export function evaluateComptFunctionCall({
       functionType.return.type,
       functionType.return.label,
       // Store recursive type reference so we can resolve it later
-      { functionValue, argValues }
+      { functionValue, argValues },
     ),
     env: calleeEnv,
     body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary

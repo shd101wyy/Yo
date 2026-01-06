@@ -63,7 +63,7 @@ export function pathContainsPath(path1: Path, path2: Path): boolean {
 
 export function pathCollectionConflictsWithPathCollection(
   collection1: PathCollection,
-  collection2: PathCollection
+  collection2: PathCollection,
 ): boolean {
   // If any path in collection1 conflicts with any path in collection2, then they conflict.
   for (const path1 of collection1) {
@@ -338,7 +338,7 @@ export function cloneExpr(expr: Expr): Expr {
 export type Expr = AtomExpr | FuncCallExpr;
 
 export function exprIsFunctionCall(
-  expr: Expr | undefined
+  expr: Expr | undefined,
 ): expr is FuncCallExpr {
   return expr?.tag === ExprTag.FuncCall;
 }
@@ -362,7 +362,7 @@ export function exprIsAtomAndOperator(expr: Expr): boolean {
 export function exprIsFunctionCallOf(
   expr: Expr,
   funcNames: string | string[],
-  argumentCount?: number
+  argumentCount?: number,
 ): boolean {
   if (expr.tag !== ExprTag.FuncCall) {
     return false;
@@ -388,7 +388,7 @@ export function exprIsFunctionCallOf(
 export function expectExprToBeFunctionCallOf(
   expr: Expr,
   expectedFunctionName: string | string[],
-  expectedArgCount?: number
+  expectedArgCount?: number,
 ) {
   if (!exprIsFunctionCall(expr)) {
     throw formatErrorMessage({
@@ -407,7 +407,7 @@ export function expectExprToBeFunctionCallOf(
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Expected ${expectedArgCount} arguments, got ${expr.args.length}:\n${exprToString(
-        expr
+        expr,
       )}`,
     });
   }
@@ -415,7 +415,7 @@ export function expectExprToBeFunctionCallOf(
 
 export function expectExprToHaveBeenEvaluated(
   expr: Expr,
-  errorMessage?: string
+  errorMessage?: string,
 ) {
   if (expr.$ === undefined) {
     throw formatErrorMessage({
@@ -423,7 +423,7 @@ export function expectExprToHaveBeenEvaluated(
       errorMessage:
         errorMessage ??
         `Expected expression to have been evaluated, but it has not been evaluated yet:\n${exprToString(
-          expr
+          expr,
         )}`,
     });
   }
@@ -958,7 +958,7 @@ export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
       expr.func.tag === "Atom" &&
       (expr.func.token.type === TokenType.Operator ||
         expr.func.token.type === TokenType.BacktickIdentifier) &&
-      expr.args.length === 2
+      expr.args.length === 2,
   );
 }
 
@@ -1068,7 +1068,7 @@ function exprToCompactString(expr: Expr): string {
 
 function exprToPrettyString(
   expr: Expr,
-  config: Required<ExprToStringConfig>
+  config: Required<ExprToStringConfig>,
 ): string {
   const indent = " ".repeat(config.indentLevel * config.indentSize);
   const nextConfig = { ...config, indentLevel: config.indentLevel + 1 };
@@ -1193,7 +1193,7 @@ function exprToPrettyString(
           }
 
           const formattedArgs = expr.args.map((arg) =>
-            exprToPrettyString(arg, nextConfig)
+            exprToPrettyString(arg, nextConfig),
           );
           return `${func}(\n${nextIndent}${formattedArgs.join(`,\n${nextIndent}`)}\n${indent})`;
         } else if (funcName === BuiltinKeywords.cond[0]) {
@@ -1223,7 +1223,7 @@ function exprToPrettyString(
                 const bodyLines = body.split("\n");
                 const indentedBody = bodyLines
                   .map((line, index) =>
-                    index === 0 ? line : `${nextIndent}${line}`
+                    index === 0 ? line : `${nextIndent}${line}`,
                   )
                   .join("\n");
                 return `${conditionStr} => ${indentedBody}`;
@@ -1240,7 +1240,7 @@ function exprToPrettyString(
 
       // Default multi-line function call
       const formattedArgs = expr.args.map((arg) =>
-        exprToPrettyString(arg, nextConfig)
+        exprToPrettyString(arg, nextConfig),
       );
       return `${func}(\n${nextIndent}${formattedArgs.join(`,\n${nextIndent}`)}\n${indent})`;
     }
@@ -1253,7 +1253,7 @@ function exprToPrettyString(
 export function attachTempVariableToExpr(
   expr: Expr,
   isOwningTheRcValue: boolean,
-  isOwningTheSameRcValueAs?: Variable
+  isOwningTheSameRcValueAs?: Variable,
 ): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
@@ -1294,7 +1294,7 @@ ${exprToString(expr)}`);
       expr.$.env = updateExistingVariable(
         env,
         existingVariable,
-        updatedVariable
+        updatedVariable,
       );
       // Preserve the originType
       if (!originType) {
@@ -1369,7 +1369,7 @@ ${exprToString(expr)}`);
  */
 export function mergeAndCheckEnvs(
   env: Environment,
-  bodies: Expr[]
+  bodies: Expr[],
 ): Environment {
   // console.log("env:");
   // printEnvVarNames(env);
@@ -1500,7 +1500,7 @@ export function mergeAndCheckEnvs(
         isOwningTheRefValueAtTokens.push(
           matrix[j]![i]!.isOwningTheRcValue
             ? caseEnvFrameVariables[i]!.token
-            : undefined
+            : undefined,
         );
         consumedAtTokens.push(matrix[j]![i]!.consumedAtToken);
         types.push(matrix[j]![i]!.type);
@@ -1543,7 +1543,7 @@ export function mergeAndCheckEnvs(
               if (
                 !areTypesCompatible(
                   { type: firstConcreteType, env: firstCaseEnv },
-                  { type: currentConcreteType, env: currentCaseEnv }
+                  { type: currentConcreteType, env: currentCaseEnv },
                 )
               ) {
                 throw formatErrorMessages([
@@ -1573,7 +1573,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           if (
             !areTypesCompatible(
               { type: firstType, env: firstCaseEnv },
-              { type: currentType, env: currentCaseEnv }
+              { type: currentType, env: currentCaseEnv },
             )
           ) {
             throw formatErrorMessages([
@@ -1643,7 +1643,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
                     : "Not initialized here:"),
                 token: token ?? bodies[index]!.token,
               };
-            })
+            }),
           );
         }
       }
@@ -1689,7 +1689,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
                     : "") + (token ? "Consumed here:" : "Not consumed here:"),
                 token: token ?? bodies[index]!.token,
               };
-            })
+            }),
           );
         }
       }
@@ -1734,10 +1734,10 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // case 3
       else {
         const isOwningTheRcValue = isOwningTheRefValueAtTokens.filter(
-          (u) => !!u
+          (u) => !!u,
         );
         const isNotOwningTheRefValue = isOwningTheRefValueAtTokens.filter(
-          (u) => !u
+          (u) => !u,
         );
         if (
           isOwningTheRcValue.length > 0 &&
@@ -1755,7 +1755,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
                     : "Might be not owning the Rc value here:"),
                 token: token ?? bodies[index]!.token,
               };
-            })
+            }),
           );
         }
       }
@@ -1775,7 +1775,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
       // Check if any branch has a different variable ID (indicating reassignment)
       const hasReassignmentInSomeBranch = variableIds.some(
-        (id) => id !== originalVariableId
+        (id) => id !== originalVariableId,
       );
 
       if (hasReassignmentInSomeBranch) {
@@ -1806,7 +1806,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
  */
 export function replaceFuncCallExprWithFuncCallExpr(
   funcExpr: FuncCallExpr,
-  newFuncExpr: FuncCallExpr
+  newFuncExpr: FuncCallExpr,
 ): void {
   funcExpr.$ = newFuncExpr.$;
   funcExpr.args = newFuncExpr.args;
@@ -1818,7 +1818,7 @@ export function replaceFuncCallExprWithFuncCallExpr(
 
 export function replaceFuncCallExprWithAtomExpr(
   funcExpr: FuncCallExpr,
-  newAtomExpr: AtomExpr
+  newAtomExpr: AtomExpr,
 ): void {
   // Convert function call to atom by changing its properties
   const atomExpr = funcExpr as unknown as AtomExpr;
@@ -1834,7 +1834,7 @@ export function replaceFuncCallExprWithAtomExpr(
 
 export function replaceExprWithFuncCallExpr(
   expr: Expr,
-  newFuncExpr: FuncCallExpr
+  newFuncExpr: FuncCallExpr,
 ): void {
   if (exprIsFunctionCall(expr)) {
     replaceFuncCallExprWithFuncCallExpr(expr, newFuncExpr);
@@ -1848,7 +1848,7 @@ export function replaceExprWithFuncCallExpr(
 
 export function replaceExprWithAtomExpr(
   expr: Expr,
-  newAtomExpr: AtomExpr
+  newAtomExpr: AtomExpr,
 ): void {
   if (exprIsAtom(expr)) {
     // Replace atom with atom - just copy all properties
@@ -1864,7 +1864,7 @@ export function replaceExprWithAtomExpr(
 export function setExprAsConsumed(
   expr: Expr,
   env: Environment,
-  allowConsumeAgain: boolean = false
+  allowConsumeAgain: boolean = false,
 ): Environment {
   // Check if it's dereferencing a pointer/reference to linear type value.
   // if (expr.$?.isAccessingProperty && isType0(typeOfType(expr.$.type))) {
@@ -1940,7 +1940,7 @@ export function setExprAsConsumed(
  */
 export function setExprAsNeedsToCallDup(
   expr: Expr,
-  context: EvaluatorContext
+  context: EvaluatorContext,
 ): void {
   if (!expr.$) {
     return;
@@ -1987,7 +1987,7 @@ export function setExprAsNeedsToCallDup(
     // Copy semantics: call dup to share ownership
     // replace this expr with ___dup(...)
     const dupCallExpr = generateExprFromCode(
-      `${BuiltinFunctions.___dup[0]!}(${variableName})`
+      `${BuiltinFunctions.___dup[0]!}(${variableName})`,
     );
 
     // console.trace(exprToString(dupCallExpr), expr.$.env.frames.length);
@@ -2004,7 +2004,7 @@ export function setExprAsNeedsToCallDup(
       // Set the variable as consumed so we won't need to drop it later
       const variables = getVariablesFromEnv(
         evaluatedDupCallExpr.$.env,
-        evaluatedDupCallExpr.$.variableName
+        evaluatedDupCallExpr.$.variableName,
       );
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
@@ -2015,7 +2015,7 @@ export function setExprAsNeedsToCallDup(
             {
               ...variable,
               consumedAtToken: evaluatedDupCallExpr.token,
-            }
+            },
           );
         }
       }

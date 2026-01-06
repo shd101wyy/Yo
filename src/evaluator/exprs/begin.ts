@@ -91,7 +91,7 @@ function generateDeferredDropExpressions({
 
     // Create a drop expression: ___drop(varName)
     const dropExpr: Expr = generateExprFromCode(
-      `${BuiltinFunctions.___drop[0]!}(${variable.name})`
+      `${BuiltinFunctions.___drop[0]!}(${variable.name})`,
     );
 
     // Evaluate the dropExpr to ensure it's properly typed and processed
@@ -124,7 +124,7 @@ function generateDeferredDropExpressions({
 
 function searchRecursively(
   expr: Expr,
-  dupCalls: Map<string, FuncCallExpr[]>
+  dupCalls: Map<string, FuncCallExpr[]>,
 ): void {
   // Check the captured dup expressions first
   if (expr.$?.deferredDupExpressions) {
@@ -180,7 +180,7 @@ function searchRecursively(
   // Helper function to handle branching expressions (cond, match)
   function handleBranchingExpression(
     expr: FuncCallExpr,
-    startIndex: number
+    startIndex: number,
   ): void {
     const branchDupCalls: Map<string, FuncCallExpr[]>[] = [];
 
@@ -204,7 +204,7 @@ function searchRecursively(
       const firstBranchDups = branchDupCalls[0]!;
       for (const [varName, _firstBranchDupArray] of firstBranchDups) {
         const isPresentInAllBranches = branchDupCalls.every((branchDups) =>
-          branchDups.has(varName)
+          branchDups.has(varName),
         );
 
         if (isPresentInAllBranches) {
@@ -269,7 +269,7 @@ function searchRecursively(
 
 // Function to recursively collect dup calls with conservative cross-branch analysis
 function collectDupCallsConservatively(
-  currentExpr: Expr
+  currentExpr: Expr,
 ): Map<string, FuncCallExpr[]> {
   const dupCalls = new Map<string, FuncCallExpr[]>();
 
@@ -293,11 +293,11 @@ function isUnitValueExpression(expr: Expr): boolean {
  */
 function removeDupCallsFromExpr(
   expr: Expr,
-  dupCallsToRemove: Set<FuncCallExpr>
+  dupCallsToRemove: Set<FuncCallExpr>,
 ): void {
   if (expr.$?.deferredDupExpressions) {
     expr.$.deferredDupExpressions = expr.$.deferredDupExpressions.filter(
-      (dupExpr) => !dupCallsToRemove.has(dupExpr as FuncCallExpr)
+      (dupExpr) => !dupCallsToRemove.has(dupExpr as FuncCallExpr),
     );
     if (expr.$.deferredDupExpressions.length === 0) {
       expr.$.deferredDupExpressions = undefined;
@@ -477,7 +477,7 @@ export function evaluateBeginExpression({
           context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
             "function-body" &&
           isSomeType(
-            context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type,
           ) &&
           context.functionReturnImplConcreteType
         ) {
@@ -488,7 +488,7 @@ export function evaluateBeginExpression({
             const firstReturn = context.functionReturnImplConcreteType[0]!;
             const compatible = areTypesCompatible(
               { type: firstReturn.concreteType, env: firstReturn.env },
-              { type: returnedConcreteType, env }
+              { type: returnedConcreteType, env },
             );
 
             if (!compatible) {
@@ -663,7 +663,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           {
             type: returnType,
             env: env,
-          }
+          },
         );
       } catch (synthesisError) {
         // If synthesis fails, check basic compatibility as fallback
@@ -677,13 +677,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
             {
               type: returnType,
               env: env,
-            }
+            },
           )
         ) {
           throw formatErrorMessage({
             token: lastExpr.token,
             errorMessage: `Return type mismatch. Expected type "${typeToString(
-              context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+              context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type,
             )}", but got "${typeToString(returnType)}".`,
           });
         }
@@ -702,7 +702,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           {
             type: returnType,
             env: env,
-          }
+          },
         );
       } catch (synthesisError) {
         // If synthesis fails, check basic compatibility as fallback
@@ -715,13 +715,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
             {
               type: returnType,
               env: env,
-            }
+            },
           )
         ) {
           throw formatErrorMessage({
             token: lastExpr.token,
             errorMessage: `Return type mismatch. Expected type "${typeToString(
-              context.expectedType.type
+              context.expectedType.type,
             )}", but got "${typeToString(returnType)}".`,
           });
         }

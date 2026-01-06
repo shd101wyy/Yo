@@ -62,13 +62,13 @@ export function evaluateImport({
     // std library
     modulePathToImport = path.relative(
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
-      path.resolve(stdPath, modulePathToImport.replace("std/", "./"))
+      path.resolve(stdPath, modulePathToImport.replace("std/", "./")),
     );
   } else if (modulePathToImport === "std") {
     // std library
     modulePathToImport = path.relative(
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
-      path.resolve(stdPath, "./index.yo")
+      path.resolve(stdPath, "./index.yo"),
     ); // Let's set prelude.yo as the default for now
   }
 
@@ -86,7 +86,7 @@ ${modulePathToImport}`,
     "file://" +
     path.resolve(
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
-      modulePathToImport
+      modulePathToImport,
     );
   const extname = path.extname(moduleAbsolutePath);
   if (!extname) {
@@ -98,7 +98,7 @@ ${modulePathToImport}`,
       // Try index.yo in the directory
       const indexYoPath = path.join(
         moduleAbsolutePath.replace(/^file:\/\//, "").replace(/\.yo$/, ""),
-        "index.yo"
+        "index.yo",
       );
       if (existsSync(indexYoPath)) {
         moduleAbsolutePath = "file://" + indexYoPath;

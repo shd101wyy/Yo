@@ -24,7 +24,7 @@ export function isValidVariableName(expr: Expr): boolean {
 export function findRcValueOwnerRelationship(
   rhs: Expr,
   env: Environment,
-  _modulePath: string
+  _modulePath: string,
 ): Variable | undefined {
   if (!rhs.$?.variableName) {
     return undefined;

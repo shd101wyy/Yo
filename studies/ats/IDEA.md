@@ -8,7 +8,7 @@
 
 ## Refinement Types and Dependent Types
 
-Runtime checks discharge proofs at **compile time**.  
+Runtime checks discharge proofs at **compile time**.
 
 ```typescript
 function id(x: i32 | f32): if x is i32 then f32 else i32 {

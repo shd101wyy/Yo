@@ -16,7 +16,7 @@ Regular (non-async) functions that return early from inside loops, conditionals,
 has :: (fn(self: Self, value: T) -> bool)({
   current_opt := self.head;  // RC++
   i := usize(0);
-  
+
   while(i < self.length, i = (i + usize(1)), {
     match(current_opt,
       .None => {
@@ -34,7 +34,7 @@ has :: (fn(self: Self, value: T) -> bool)({
       }
     );
   });
-  
+
   false  // Normal path - current_opt IS dropped
 })
 ```
@@ -57,7 +57,7 @@ The cycle collector frees nodes that still have outstanding references from vari
 ```c
 bool fn_id33857_has(yo_struct_id33491* self, int32_t value) {
   yo_enum_id33545 current_opt = ...;  // Allocate and initialize
-  
+
   while (...) {
     switch ((current_opt).tag) {
     case YO_ENUM_ID33545_NONE:
@@ -72,7 +72,7 @@ bool fn_id33857_has(yo_struct_id33491* self, int32_t value) {
       ...
     }
   }
-  
+
   fn_id33590___drop(current_opt);  // ✓ Only dropped here
   return false;
 }
@@ -97,7 +97,7 @@ export function generateFunctionBody(
   expr: Expr,
   functionType: FunctionType,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
 ): void {
   if (
     exprIsFunctionCall(expr) &&
@@ -106,7 +106,7 @@ export function generateFunctionBody(
     // Set pending deferred drops from the function body begin block
     // These need to be generated when early returning from anywhere inside this function
     context.pendingDeferredDrops = expr.$?.deferredDropExpressions;
-    
+
     // ... generate function body
   }
 }
@@ -119,7 +119,7 @@ Save and restore `pendingDeferredDrops` for nested begin blocks:
 ```typescript
 else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
   const functionContext = context as FunctionGenerationContext;
-  
+
   if (tempVariableName && valueType) {
     // Expression form: begin block that returns a value
     context.emitter.emitLine(`${indent}{ // begin block`);
@@ -136,9 +136,9 @@ else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
     // Statement form: begin block without returning a value
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
     functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
-    
+
     // ... generate statements ...
-    
+
     functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
   }
 }
@@ -151,9 +151,9 @@ Emit pending drops before early returns:
 ```typescript
 if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
   // ... handle return value ...
-  
+
   // Normal (non-state-machine) return
-  
+
   // Generate pending deferred drops from enclosing begin blocks
   if (
     functionContext.pendingDeferredDrops &&
@@ -161,7 +161,7 @@ if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
       expr.$.deferredDropExpressions.length === 0)
   ) {
     context.emitter.emitLine(
-      `${indent}// Drop local variables before early return`
+      `${indent}// Drop local variables before early return`,
     );
     for (const dropExpr of functionContext.pendingDeferredDrops) {
       const dropCode = generateExpr(dropExpr, indent, context);
@@ -170,7 +170,7 @@ if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
       }
     }
   }
-  
+
   return `return ${returnValue}`;
 }
 ```
@@ -180,7 +180,7 @@ if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
 ```c
 bool fn_id33855_has(yo_struct_id33489* self, int32_t value) {
   yo_enum_id33543 current_opt = ...;  // Allocate and initialize
-  
+
   while (...) {
     switch ((current_opt).tag) {
     case YO_ENUM_ID33543_NONE:
@@ -199,7 +199,7 @@ bool fn_id33855_has(yo_struct_id33489* self, int32_t value) {
       ...
     }
   }
-  
+
   fn_id33590___drop(current_opt);  // ✓ Still dropped here too
   return false;
 }
@@ -220,6 +220,7 @@ Successfully compiled to test
 ## Remaining Work
 
 This fix handles `return` statements. Similar fixes may be needed for:
+
 - `break` statements (early exit from loops)
 - `continue` statements (skipping to next iteration)
 

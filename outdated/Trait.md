@@ -1,6 +1,6 @@
 # Rust like trait system
 
-Our current Yo language design embraces incoherence and give programmers a way to manually choose an implementation when there's a conflict. 
+Our current Yo language design embraces incoherence and give programmers a way to manually choose an implementation when there's a conflict.
 However, I feel this approach introduces unnecessary complexity and cognitive load for programmers.  
 Therefore, I would like to migrate to Rust style coherence by simply refusing to compile programs that contain conflicting implementations:
 
@@ -31,8 +31,8 @@ impl(forall(T : Type), ArrayList(T), Id(
 ```
 
 Use Rust like orphan rule:
-- A type can implement a trait if either the type or the trait is defined in the current package.
 
+- A type can implement a trait if either the type or the trait is defined in the current package.
 
 ~~Separate `trait` and `module` concepts. In this design, `module` is no longer used as `trait`:~~
 
@@ -64,7 +64,7 @@ process :: (fn(forall(T : Type, U : Type),
   };
 
 // struct declaration
-Container :: (fn(compt(T) : Type, 
+Container :: (fn(compt(T) : Type,
   where(
     T <: (Display, PartialOrd)
   )) -> compt(Type)) {
@@ -106,7 +106,7 @@ AdvancedDisplay :: (fn(compt(T) : Type,
 };
 ```
 
-We can remove the use of `using` once we support `where` clauses.  
+We can remove the use of `using` once we support `where` clauses.
 
 ---
 

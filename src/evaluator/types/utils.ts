@@ -34,7 +34,7 @@ function parseAndEvaluateExprCode(
   code: string,
   SelfType: StructType | EnumType | DynType | SomeType | IsoType,
   env: Environment,
-  context: EvaluatorContext
+  context: EvaluatorContext,
 ): { expr: Expr; env: Environment } {
   const expr = generateExprFromCode(code);
 
@@ -54,7 +54,7 @@ function parseAndEvaluateExprCode(
 
   if (!evaluatedExpr.$) {
     throw new Error(
-      `Failed to evaluate auto-generated expression: ${exprToString(expr)}`
+      `Failed to evaluate auto-generated expression: ${exprToString(expr)}`,
     );
   }
 
@@ -84,7 +84,7 @@ export function addFunctionSignatureToSelfTypeModule({
     functionSignature,
     SelfType,
     env,
-    context
+    context,
   );
   if (exprIsFunctionCall(functionExpr)) {
     if (
@@ -111,7 +111,7 @@ export function addFunctionSignatureToSelfTypeModule({
       };
       if (SelfType.module) {
         const index = SelfType.module.fields.findIndex(
-          (el) => el.label === label
+          (el) => el.label === label,
         );
         if (index >= 0) {
           SelfType.module.fields[index] = moduleField;
@@ -150,7 +150,7 @@ export function addFunctionCodeToSelfTypeModule({
     functionCode,
     SelfType,
     env,
-    context
+    context,
   );
   if (exprIsFunctionCall(functionExpr)) {
     if (
@@ -177,7 +177,7 @@ export function addFunctionCodeToSelfTypeModule({
       };
       if (SelfType.module) {
         const index = SelfType.module.fields.findIndex(
-          (el) => el.label === label
+          (el) => el.label === label,
         );
         if (index >= 0) {
           // Replace existing field
@@ -220,7 +220,7 @@ function isValidIdentifier(label: string): boolean {
  */
 function generateDestructuringAndCalls(
   labels: string[],
-  callFn: string
+  callFn: string,
 ): { destructuringExpr: string; callsExpr: string } {
   if (labels.length === 0) {
     return { destructuringExpr: "", callsExpr: "" };
@@ -273,12 +273,12 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
 
   const destructuringLabels = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type),
     )
     .map((field) => field.label);
 
   const hasDisposeFunction = structType.module.fields.some(
-    (field) => field.label === BuiltinFunctions.dispose[0]
+    (field) => field.label === BuiltinFunctions.dispose[0],
   );
 
   if (!destructuringLabels.length && !hasDisposeFunction) {
@@ -287,7 +287,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
 
   const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
     destructuringLabels,
-    BuiltinFunctions.___drop[0]!
+    BuiltinFunctions.___drop[0]!,
   );
 
   const dropDestructuringsExpr = destructuringLabels.length
@@ -317,7 +317,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   const signature = DropFnSignature;
   const destructuringLabels = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type),
     )
     .map((field) => field.label);
 
@@ -330,7 +330,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   if (!isRcType(structType) && destructuringLabels.length) {
     const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
       destructuringLabels,
-      BuiltinFunctions.___drop[0]!
+      BuiltinFunctions.___drop[0]!,
     );
     dropDestructuringsExpr = `
   ${destructuringExpr}
@@ -360,7 +360,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   const signature = DupFnSignature;
   const destructuringLabels = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type),
     )
     .map((field) => field.label);
 
@@ -373,7 +373,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   if (!isRcType(structType) && destructuringLabels.length) {
     const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
       destructuringLabels,
-      BuiltinFunctions.___dup[0]!
+      BuiltinFunctions.___dup[0]!,
     );
     dupDestructuringsExpr = `
   ${destructuringExpr}
@@ -578,7 +578,7 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
   const variantsWithRcTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsRcType(field.type))
+      variant.fields.some((field) => typeContainsRcType(field.type)),
   );
 
   const decrRcExpr = isRcType(enumType)
@@ -596,7 +596,7 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
         const destructurings = variant
           .fields!.filter(
             (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
+              !field.isCompileTimeOnly && typeContainsRcType(field.type),
           )
           .map((field) => field.label);
 
@@ -641,7 +641,7 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
   const variantsWithRcTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsRcType(field.type))
+      variant.fields.some((field) => typeContainsRcType(field.type)),
   );
 
   const incrRcExpr = isRcType(enumType)
@@ -659,7 +659,7 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
         const destructurings = variant
           .fields!.filter(
             (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
+              !field.isCompileTimeOnly && typeContainsRcType(field.type),
           )
           .map((field) => field.label);
 
@@ -1013,7 +1013,7 @@ export function attachModuleToReceiverType(
   moduleName: string,
   receiverType: StructType | EnumType | UnionType,
   env: Environment,
-  context: EvaluatorContext
+  context: EvaluatorContext,
 ): Environment {
   // Evaluate the module call (e.g., Copy() or Send())
   const moduleCallCode = `${moduleName}()`;

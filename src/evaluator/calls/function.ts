@@ -89,7 +89,7 @@ import { tryToCallTypeWithArguments } from "./type";
 function resolveRecursiveTypeRef(
   someType: SomeType,
   callerEnv: Environment,
-  context?: EvaluatorContext
+  context?: EvaluatorContext,
 ): Type | undefined {
   if (!someType.recursiveTypeRef) {
     return undefined;
@@ -108,13 +108,13 @@ function resolveRecursiveTypeRef(
           return areTypesCompatible(
             { type: argValue.value, env: cache.env },
             { type: givenArgValue.value, env: callerEnv },
-            true // requireExactMatch
+            true, // requireExactMatch
           );
         }
 
         return areValuesEqual(
           { value: argValue, env: cache.env },
-          { value: givenArgValue, env: callerEnv }
+          { value: givenArgValue, env: callerEnv },
         );
       })
     );
@@ -151,7 +151,7 @@ function resolveRecursiveTypeRef(
       }
       // Found a resolved type
       return true;
-    }
+    },
   );
 
   if (anyResolvedCache && isTypeValue(anyResolvedCache.value)) {
@@ -236,7 +236,7 @@ export function evaluateFunctionCall({
               methodName,
               receiverType,
               false, // isInfixOperatorCall - property access allows auto pointer conversion
-              currentFunctionType
+              currentFunctionType,
             );
 
             functions = methods.map((method) => {
@@ -311,7 +311,7 @@ export function evaluateFunctionCall({
           throw formatErrorMessage({
             token: func.token,
             errorMessage: `Expected type for function call, got ${exprToString(
-              functionToCall
+              functionToCall,
             )}`,
           });
         }
@@ -402,7 +402,7 @@ export function evaluateFunctionCall({
           methodName,
           receiverType,
           true, // isInfixOperatorCall - infix operators don't allow auto pointer conversion
-          currentFunctionTypeForInfix
+          currentFunctionTypeForInfix,
         );
         functions = moduleMethods.map((method) => ({
           type: method.type,
@@ -444,7 +444,7 @@ export function evaluateFunctionCall({
         if (isModuleType(functionToCall.$.type)) {
           const moduleType = functionToCall.$.type;
           const selfIndex = moduleType.fields.findIndex(
-            (e) => e.label === "Call"
+            (e) => e.label === "Call",
           );
           if (selfIndex < 0) {
             throw formatErrorMessage({
@@ -532,7 +532,7 @@ export function evaluateFunctionCall({
               },
               ...error.tokenAndErrorList,
             ],
-            error.isAssertionError
+            error.isAssertionError,
           );
         }
         return {
@@ -584,7 +584,7 @@ export function evaluateFunctionCall({
               },
               ...error.tokenAndErrorList,
             ],
-            error.isAssertionError
+            error.isAssertionError,
           );
         }
         return {
@@ -643,7 +643,7 @@ export function evaluateFunctionCall({
       else if (isTypeValue(value) && isEnumType(value.value)) {
         const enumType = value.value;
         const selectedVariant = enumType.variants.find(
-          (variant) => variant.name === enumType.selectedVariantName
+          (variant) => variant.name === enumType.selectedVariantName,
         );
         if (!selectedVariant) {
           return {
@@ -1105,7 +1105,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
   });
 
   let functionsWithMatchingTypes = functionsToCall.filter(
-    (functionToCall) => functionToCall.result.kind !== "error"
+    (functionToCall) => functionToCall.result.kind !== "error",
   );
 
   // Check if there is only one compt function call,
@@ -1115,7 +1115,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
   const comptFunctionCalls = functionsWithMatchingTypes.filter(
     (functionToCall) =>
       isFunctionType(functionToCall.type) &&
-      functionToCall.type.return.isCompileTimeOnly // TODO: How about other type calls?
+      functionToCall.type.return.isCompileTimeOnly, // TODO: How about other type calls?
   );
   if (comptFunctionCalls.length === 1) {
     functionsWithMatchingTypes = comptFunctionCalls;
@@ -1151,10 +1151,10 @@ ${error.tokenAndErrorList
   .join("\n")}`,
             },
             ...error.tokenAndErrorList.filter(
-              ({ token }) => token.modulePath === expr.token.modulePath
+              ({ token }) => token.modulePath === expr.token.modulePath,
             ),
           ],
-          error.isAssertionError
+          error.isAssertionError,
         );
       } else {
         // console.log("Error type:", error?.constructor?.name);
@@ -1352,7 +1352,7 @@ ${functionsWithMatchingTypes
           throw formatErrorMessage({
             token: expr.token,
             errorMessage: `Expected macro function to return an Expr value, got:\n${valueToString(
-              returnValue
+              returnValue,
             )}`,
           });
         }
@@ -1468,7 +1468,7 @@ ${functionsWithMatchingTypes
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Expected macro closure to return an Expr value, got:\n${valueToString(
-            returnValue
+            returnValue,
           )}`,
         });
       }
@@ -1561,7 +1561,7 @@ ${functionsWithMatchingTypes
       };
       // FIXME: Support to set value for comptime
       const selectedVariant = enumType.variants.find(
-        (variant) => variant.name === enumType.selectedVariantName
+        (variant) => variant.name === enumType.selectedVariantName,
       );
       if (!selectedVariant) {
         throw formatErrorMessage({
@@ -1581,7 +1581,7 @@ ${functionsWithMatchingTypes
         const enumValue = createEnumValue(
           enumType,
           selectedVariant.name,
-          memberValues as Value[]
+          memberValues as Value[],
         );
         expr.$.value = enumValue;
       }

@@ -7,9 +7,9 @@ You are a programming language and compiler expert.
 To test the Yo evaluator, you can run the command `bun test src/tests/fixme.test.ts` to test the `fixme.yo` file which contains the Yo language code.  
 Usually don't modify the `fixme.yo` unless I tell you to do so.
 
-Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so. 
+Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so.
 
-You can comment out the existing code in `src/tests/fixme.yo` and create new one there. But don't create `.yo` file for testing.  
+You can comment out the existing code in `src/tests/fixme.yo` and create new one there. But don't create `.yo` file for testing.
 
 Do not use `npm` command, only use `bun` command.
 
@@ -68,6 +68,7 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
      ```
 
 2. **Always write `cond(...)` and `match(...)` with parentheses:**
+
    - `cond(...)` - NOT `cond ...`
    - `match(...)` - NOT `match ...`
    - The parentheses are **required** and must not be omitted.
@@ -134,7 +135,6 @@ While implementing the evaluate or codegen, no shortcuts or simplcations!
 
    - Always write `cond(condition => result, true => default)`
    - Parentheses are required around `cond(...)`
-
 
 The `begin.ts` performs the reference counting optimization that cancels out the dup/drop pairs when possible.
 

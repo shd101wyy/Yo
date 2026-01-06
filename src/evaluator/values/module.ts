@@ -128,7 +128,7 @@ const typeImplRegistry: Map<string, ImplRecord[]> = new Map();
 export function clearGenericImplsFromModule(modulePath: string): void {
   for (const [moduleTypeName, impls] of genericImplRegistry.entries()) {
     const filteredImpls = impls.filter(
-      (impl) => impl.sourceModulePath !== modulePath
+      (impl) => impl.sourceModulePath !== modulePath,
     );
     if (filteredImpls.length === 0) {
       genericImplRegistry.delete(moduleTypeName);
@@ -153,7 +153,7 @@ export function clearAllGlobalImplState(): void {
  */
 function registerGenericImpl(
   moduleTypeName: string,
-  genericImpl: GenericImpl
+  genericImpl: GenericImpl,
 ): void {
   let impls = genericImplRegistry.get(moduleTypeName);
   if (!impls) {
@@ -339,7 +339,7 @@ export function findMethodsFromGenericImpls({
       const moduleValue = impl.moduleValue;
 
       const methodIndex = moduleType.fields.findIndex(
-        (f) => f.label === methodName && isFunctionType(f.type)
+        (f) => f.label === methodName && isFunctionType(f.type),
       );
 
       if (methodIndex >= 0) {
@@ -351,7 +351,7 @@ export function findMethodsFromGenericImpls({
           const specializedType = substituteInFunctionType(
             method.type,
             match.substitutions,
-            match.valueSubstitutions
+            match.valueSubstitutions,
           );
 
           // If it's a function value, we need to:
@@ -397,7 +397,7 @@ export function findMethodsFromGenericImpls({
             // Push the parametersFrame which contains the function parameters (like `self`)
             let specializedEnv = pushEnvFrame(
               baseEnv,
-              specializedType.parametersFrame
+              specializedType.parametersFrame,
             );
 
             // Add type substitutions to the environment first (like T=i32, U=usize, Self=[i32; 5])
@@ -546,7 +546,7 @@ export function findMethodFromGenericImplForModule({
     const implModuleValue = impl.moduleValue;
 
     const methodIndex = implModuleType.fields.findIndex(
-      (f) => f.label === methodName && isFunctionType(f.type)
+      (f) => f.label === methodName && isFunctionType(f.type),
     );
 
     if (methodIndex >= 0) {
@@ -558,7 +558,7 @@ export function findMethodFromGenericImplForModule({
         const specializedType = substituteInFunctionType(
           method.type,
           match.substitutions,
-          match.valueSubstitutions
+          match.valueSubstitutions,
         );
 
         // If it's a function value, we need to re-evaluate with concrete substitutions
@@ -576,7 +576,7 @@ export function findMethodFromGenericImplForModule({
           // Create a specialized environment with the specialized function parameters
           let specializedEnv = pushEnvFrame(
             baseEnv,
-            specializedType.parametersFrame
+            specializedType.parametersFrame,
           );
 
           // Add value substitutions (compile-time values like U=3)
@@ -702,7 +702,7 @@ interface GenericImplMatchResult {
 function substituteInType(
   type: Type,
   substitutions: Map<string, Type>,
-  valueSubstitutions: Map<string, Value> = new Map()
+  valueSubstitutions: Map<string, Value> = new Map(),
 ): Type {
   if (isSomeType(type)) {
     const substitute = substitutions.get(type.name);
@@ -716,7 +716,7 @@ function substituteInType(
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
     );
     if (newChildType === type.childType) {
       return type;
@@ -728,7 +728,7 @@ function substituteInType(
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
     );
     // Also substitute the array length if it's an UnknownValue with a variable name
     let newLength = type.length;
@@ -748,7 +748,7 @@ function substituteInType(
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
     );
     if (newChildType === type.childType) {
       return type;
@@ -760,7 +760,7 @@ function substituteInType(
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
     );
     if (newChildType === type.childType) {
       return type;
@@ -774,7 +774,7 @@ function substituteInType(
       const newType = substituteInType(
         f.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
       );
       if (newType !== f.type) {
         changed = true;
@@ -794,7 +794,7 @@ function substituteInType(
       const newType = substituteInType(
         f.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
       );
       if (newType !== f.type) {
         changed = true;
@@ -818,7 +818,7 @@ function substituteInType(
         const newType = substituteInType(
           f.type,
           substitutions,
-          valueSubstitutions
+          valueSubstitutions,
         );
         if (newType !== f.type) {
           changed = true;
@@ -843,7 +843,7 @@ function substituteInType(
       const newType = substituteInType(
         f.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
       );
       if (newType !== f.type) {
         changed = true;
@@ -861,7 +861,7 @@ function substituteInType(
     const newChildType = substituteInType(
       type.isFuture.outputType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
     );
     if (newChildType === type.isFuture.outputType) {
       return type;
@@ -873,7 +873,7 @@ function substituteInType(
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
     );
     if (newChildType === type.childType) {
       return type;
@@ -896,7 +896,7 @@ function substituteInType(
 function substituteInFunctionType(
   functionType: FunctionType,
   substitutions: Map<string, Type>,
-  valueSubstitutions: Map<string, Value> = new Map()
+  valueSubstitutions: Map<string, Value> = new Map(),
 ): FunctionType {
   let changed = false;
 
@@ -906,21 +906,21 @@ function substituteInFunctionType(
       const newType = substituteInType(
         p.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
       );
       if (newType !== p.type) {
         changed = true;
         return { ...p, type: newType };
       }
       return p;
-    }
+    },
   );
 
   // Substitute in return type
   const newReturnType = substituteInType(
     functionType.return.type,
     substitutions,
-    valueSubstitutions
+    valueSubstitutions,
   );
   const returnChanged = newReturnType !== functionType.return.type;
 
@@ -930,7 +930,7 @@ function substituteInFunctionType(
     newSelfType = substituteInType(
       functionType.SelfType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
     );
     if (newSelfType !== functionType.SelfType) {
       changed = true;
@@ -949,7 +949,7 @@ function substituteInFunctionType(
       const newType = substituteInType(
         v.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
       );
       if (newType !== v.type) {
         return { ...v, type: newType };
@@ -1032,7 +1032,7 @@ function tryMatchGenericImpl({
   try {
     const { expectedEnv } = synthesizeTypes(
       { type: impl.receiverTypePattern, env: unifyEnv },
-      { type: concreteType, env }
+      { type: concreteType, env },
     );
 
     // Check if all where constraints are satisfied
@@ -1043,7 +1043,7 @@ function tryMatchGenericImpl({
       // Get the bound type for this SomeType from the unified environment
       const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
         expectedEnv,
-        someType
+        someType,
       );
       if (!boundType) {
         return noMatch;
@@ -1101,7 +1101,7 @@ function tryMatchGenericImpl({
       if (param.kind === "type") {
         const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
           expectedEnv,
-          param.someType
+          param.someType,
         );
         if (boundType && !isSomeType(boundType)) {
           substitutions.set(param.name, boundType);
@@ -1139,7 +1139,7 @@ function tryMatchGenericImpl({
  */
 function someTypeHasModuleConstraint(
   someType: SomeType,
-  requiredModule: ModuleType
+  requiredModule: ModuleType,
 ): boolean {
   const moduleName = requiredModule.typeName;
   if (!moduleName) {
@@ -1172,7 +1172,7 @@ function someTypeHasModuleConstraint(
  */
 function someTypeHasNegatedModuleConstraint(
   someType: SomeType,
-  requiredNegatedModule: ModuleType
+  requiredNegatedModule: ModuleType,
 ): boolean {
   const moduleName = requiredNegatedModule.typeName;
   if (!moduleName) {
@@ -1297,7 +1297,7 @@ Consider adding "where(T <: !(${constraintModule.typeName ?? typeToString(constr
  */
 function getValueOfSomeTypeFromEnvForGenericImpl(
   env: Environment,
-  someType: SomeType
+  someType: SomeType,
 ): Type {
   // Search from the most recent frame to the oldest
   for (let i = env.frames.length - 1; i >= 0; i--) {
@@ -1325,7 +1325,7 @@ export function clearImplsFromModule(modulePath: string): void {
 
   for (const moduleType of typesWithImpls) {
     moduleType.fields = moduleType.fields.filter(
-      (field) => field.sourceModulePath !== modulePath
+      (field) => field.sourceModulePath !== modulePath,
     );
   }
 
@@ -1355,7 +1355,7 @@ function registerImpl(modulePath: string, moduleType: ModuleType): void {
 function attachModuleToReceiverType(
   moduleValue: ModuleValue,
   expr: Expr,
-  sourceModulePath?: string
+  sourceModulePath?: string,
 ): void {
   const receiverType = moduleValue.type.receiverType;
   if (!receiverType || !receiverType.module) {

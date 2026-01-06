@@ -36,7 +36,7 @@ function generateTupleDupCall(tupleExpr: Expr): string {
     throw formatErrorMessage({
       token: tupleExpr.token,
       errorMessage: `Expected variable name for drop generation:\n${exprToString(
-        tupleExpr
+        tupleExpr,
       )}`,
     });
   }
@@ -58,7 +58,7 @@ function generateTupleDupCall(tupleExpr: Expr): string {
     .map(({ index, needsDup }) =>
       needsDup
         ? `${BuiltinFunctions.__yo_dup_tuple_element[0]!}(${tupleExpr.$?.variableName}, ${index})`
-        : ""
+        : "",
     )
     .filter((x) => x.length > 0);
 
@@ -78,7 +78,7 @@ function generateArrayDupCall(arrayExpr: Expr): string {
     throw formatErrorMessage({
       token: arrayExpr.token,
       errorMessage: `Expected variable name for dup generation:\n${exprToString(
-        arrayExpr
+        arrayExpr,
       )}`,
     });
   }
@@ -102,7 +102,7 @@ function generateArrayDupCall(arrayExpr: Expr): string {
   ${Array.from(
     { length: Number(arrayLength) },
     (_, i) =>
-      `${BuiltinFunctions.__yo_dup_array_element[0]!}(${arrayExpr.$?.variableName}, ${i})`
+      `${BuiltinFunctions.__yo_dup_array_element[0]!}(${arrayExpr.$?.variableName}, ${i})`,
   ).join(", ")}
 )`;
   } else {
@@ -141,7 +141,7 @@ export function evaluateDup({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.___dup[0]}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -217,7 +217,7 @@ export function evaluateDup({
     } else {
       // Handle struct types and other types with ___dup methods
       const dupMethodCallExpr = generateExprFromCode(
-        `(${exprToString(evaluatedArgExpr)}).___dup()`
+        `(${exprToString(evaluatedArgExpr)}).___dup()`,
       ) as FuncCallExpr;
 
       // Convert this ___dup(x) to x.___dup() and evaluate the function call
@@ -232,7 +232,7 @@ export function evaluateDup({
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Failed to evaluate the "${BuiltinFunctions.___dup[0]}" method call:\n${exprToString(
-            dupMethodCallExpr
+            dupMethodCallExpr,
           )}`,
         });
       }
@@ -242,7 +242,7 @@ export function evaluateDup({
       // This is necessary, otherwise we will generate the ___drop function call for that temp variable
       const variables = getVariablesFromEnv(
         evaluatedDupMethodCallExpr.$.env,
-        tempVariableName
+        tempVariableName,
       );
       if (variables.length) {
         const variable = variables[variables.length - 1]!;
@@ -253,7 +253,7 @@ export function evaluateDup({
             {
               ...variable,
               isOwningTheRcValue: false,
-            }
+            },
           );
           evaluatedDupMethodCallExpr.$.env = nextEnv;
         }

@@ -46,7 +46,7 @@ export function evaluateYoComptBooleanFunctions({
       throw formatErrorMessage({
         token: arg.token,
         errorMessage: `Expected bool type for "${expr.func.token.value}" argument, got:\n${exprToString(
-          arg
+          arg,
         )}`,
       });
     }
@@ -95,7 +95,7 @@ export function evaluateYoComptBooleanFunctions({
       throw formatErrorMessage({
         token: lhs.token,
         errorMessage: `Expected bool type for "${expr.func.token.value}" first argument, got:\n${exprToString(
-          lhs
+          lhs,
         )}`,
       });
     }
@@ -113,7 +113,7 @@ export function evaluateYoComptBooleanFunctions({
       throw formatErrorMessage({
         token: rhs.token,
         errorMessage: `Expected bool type for "${expr.func.token.value}" second argument, got:\n${exprToString(
-          rhs
+          rhs,
         )}`,
       });
     }
@@ -165,7 +165,7 @@ export function evaluateYoComptBooleanFunctions({
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Unexpected function call for compt_boolean operations: ${exprToString(
-          expr
+          expr,
         )}`,
       });
     }

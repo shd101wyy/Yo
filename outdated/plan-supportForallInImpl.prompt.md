@@ -3,6 +3,7 @@
 Support `impl(forall(T : Type), Data(T), Copy())` syntax to enable generic module implementations for type constructors like `Data(T)`.
 
 Also support `where` clause for constrained generic impls:
+
 ```yo
 impl(forall(T : Type), where(T <: Copy), Array(T, Size), Copy());
 ```
@@ -18,6 +19,7 @@ Note: `where` must come after `forall` and is optional. `forall` must be the 1st
 ## Steps
 
 ### 1. Parse `forall` and `where` as first arguments in `impl`
+
 **File:** `src/evaluator/values/module.ts` - `evaluateModuleValue`
 
 - Detect 3-argument case: `impl(forall(...), ReceiverTypePattern, Module(...))`
@@ -27,6 +29,7 @@ Note: `where` must come after `forall` and is optional. `forall` must be the 1st
 - Parse `where` constraints (reuse logic from function's where clause handling)
 
 ### 2. Create generic impl registry
+
 **File:** `src/evaluator/values/module.ts`
 
 - Add `GenericImpl` interface storing:
@@ -47,6 +50,7 @@ Note: `where` must come after `forall` and is optional. `forall` must be the 1st
 - Store this pattern type in the generic impl registry (don't attach to a concrete type)
 
 ### 4. Update `typeImplementsModule`
+
 **File:** `src/evaluator/exprs/subtype_of.ts`
 
 - After checking direct impls, check `genericImplRegistry` for matching patterns
@@ -56,6 +60,7 @@ Note: `where` must come after `forall` and is optional. `forall` must be the 1st
 - Use existing `synthesizeType` infrastructure for unification
 
 ### 5. Update module manager
+
 **File:** `src/module-manager.ts`
 
 - Call `clearGenericImplsFromModule` alongside `clearImplsFromModule` before re-evaluation

@@ -59,7 +59,9 @@ function occursCheck(someTypeId: string, type: Type): boolean {
 
   if (isEnumType(type)) {
     return type.variants.some((v) =>
-      v.fields ? v.fields.some((el) => occursCheck(someTypeId, el.type)) : false
+      v.fields
+        ? v.fields.some((el) => occursCheck(someTypeId, el.type))
+        : false,
     );
   }
 
@@ -113,12 +115,12 @@ export function synthesizeTypes(
     type: Type;
     env: Environment;
   },
-  checkedTypePairs: { expected: Type; given: Type }[] = []
+  checkedTypePairs: { expected: Type; given: Type }[] = [],
 ): { expectedEnv: Environment; givenEnv: Environment } {
   // Prevent circular checks for `object` and similar recursive types
   if (
     checkedTypePairs.find(
-      (pair) => pair.expected === expected.type && pair.given === given.type
+      (pair) => pair.expected === expected.type && pair.given === given.type,
     )
   ) {
     // Already checked this pair, avoid infinite recursion
@@ -132,7 +134,7 @@ export function synthesizeTypes(
     // Check if either SomeType is already bound
     const expectedBoundType = getValueOfSomeTypeFromEnv(
       expected.env,
-      expected.type
+      expected.type,
     );
     const givenBoundType = getValueOfSomeTypeFromEnv(given.env, given.type);
 
@@ -167,7 +169,7 @@ export function synthesizeTypes(
       const value = createTypeValue(givenBoundType);
       const existingVariables = getVariablesFromEnv(
         expected.env,
-        expected.type.name
+        expected.type.name,
       );
       const variable = existingVariables[existingVariables.length - 1];
       if (!variable) {
@@ -198,7 +200,7 @@ export function synthesizeTypes(
     else {
       // Bind both to the same new concrete type
       const value = createTypeValue(
-        given.type // NOTE: Using expected.type here causes some errors in tests
+        given.type, // NOTE: Using expected.type here causes some errors in tests
         // createSomeType(createType0(), `type_synth_${randomId()}`) // <= This also causes some errors in tests
       );
 
@@ -206,7 +208,7 @@ export function synthesizeTypes(
       {
         const existingVariables = getVariablesFromEnv(
           expected.env,
-          expected.type.name
+          expected.type.name,
         );
         const variable = existingVariables[existingVariables.length - 1];
         if (!variable) {
@@ -236,7 +238,7 @@ export function synthesizeTypes(
       {
         const existingVariables = getVariablesFromEnv(
           given.env,
-          given.type.name
+          given.type.name,
         );
         const variable = existingVariables[existingVariables.length - 1];
         if (!variable) {
@@ -273,7 +275,7 @@ export function synthesizeTypes(
       // Occurs check: prevent infinite types like T = Option(T)
       if (occursCheck(expected.type.id, given.type)) {
         throw new Error(
-          `Cannot unify type variable "${expected.type.name}" with type "${typeToString(given.type)}" because it would create an infinite type.`
+          `Cannot unify type variable "${expected.type.name}" with type "${typeToString(given.type)}" because it would create an infinite type.`,
         );
       }
 
@@ -283,7 +285,7 @@ export function synthesizeTypes(
       // Check if the same variable already exists in the env
       const existingVariables = getVariablesFromEnv(
         expected.env,
-        expected.type.name
+        expected.type.name,
       );
       const variable = existingVariables[existingVariables.length - 1];
       if (!variable) {
@@ -312,7 +314,7 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: type, env: expected.env },
         { type: given.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -329,7 +331,7 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expected.type, env: expected.env },
         { type: existingType, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -337,7 +339,7 @@ export function synthesizeTypes(
       // Occurs check: prevent infinite types like T = Option(T)
       if (occursCheck(given.type.id, expected.type)) {
         throw new Error(
-          `Cannot unify type variable "${given.type.name}" with type "${typeToString(expected.type)}" because it would create an infinite type.`
+          `Cannot unify type variable "${given.type.name}" with type "${typeToString(expected.type)}" because it would create an infinite type.`,
         );
       }
 
@@ -378,7 +380,7 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expected.type.fields[i]!.type, env: expected.env },
         { type: given.type.fields[i]!.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -400,7 +402,7 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
         { type: givenElement.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -420,7 +422,7 @@ export function synthesizeTypes(
             type: givenElement.assignedValue.value,
             env: given.env,
           },
-          checkedTypePairs
+          checkedTypePairs,
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -447,7 +449,7 @@ export function synthesizeTypes(
         const { expectedEnv, givenEnv } = synthesizeTypes(
           { type: expectedTypeVariantElements[j]!.type, env: expected.env },
           { type: givenTypeVariantElements[j]!.type, env: given.env },
-          checkedTypePairs
+          checkedTypePairs,
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -468,7 +470,7 @@ export function synthesizeTypes(
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: expectedElement.type, env: expected.env },
         { type: givenElement.type, env: given.env },
-        checkedTypePairs
+        checkedTypePairs,
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -488,7 +490,7 @@ export function synthesizeTypes(
             type: givenElement.assignedValue.value,
             env: given.env,
           },
-          checkedTypePairs
+          checkedTypePairs,
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
@@ -504,7 +506,7 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -519,7 +521,7 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -534,7 +536,7 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -551,7 +553,7 @@ export function synthesizeTypes(
       // Check if the variable already exists in the env
       const existingVariables = getVariablesFromEnv(
         expected.env,
-        expectedLengthVariableName
+        expectedLengthVariableName,
       );
       const variable = existingVariables[existingVariables.length - 1];
       if (!variable) {
@@ -589,7 +591,7 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -604,7 +606,7 @@ export function synthesizeTypes(
         type: given.type.childType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -622,7 +624,7 @@ export function synthesizeTypes(
         type: given.type.isFuture.outputType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -641,7 +643,7 @@ export function synthesizeTypes(
         type: givenFnModule.isFn.callType,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -669,7 +671,7 @@ export function synthesizeTypes(
           type: givenForallParam.type,
           env: given.env,
         },
-        checkedTypePairs
+        checkedTypePairs,
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -686,7 +688,7 @@ export function synthesizeTypes(
           type: givenFunction.parameters[i]!.type,
           env: given.env,
         },
-        checkedTypePairs
+        checkedTypePairs,
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
@@ -702,7 +704,7 @@ export function synthesizeTypes(
         type: givenFunction.return.type,
         env: given.env,
       },
-      checkedTypePairs
+      checkedTypePairs,
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
@@ -719,7 +721,7 @@ export function synthesizeTypes(
     // Check if they have the same tag as a basic compatibility check
     if (expected.type.tag !== given.type.tag) {
       throw new Error(
-        `Cannot unify incompatible types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`
+        `Cannot unify incompatible types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`,
       );
     }
   }

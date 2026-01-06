@@ -96,7 +96,7 @@ function exprContainsUnknownValue(expr: Expr): boolean {
  */
 export function collectRequiredFunctions(
   moduleValue: ModuleValue,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   // Start with exported functions
   for (let i = 0; i < moduleValue.fields.length; i++) {
@@ -131,7 +131,7 @@ export function collectRequiredFunctions(
  */
 export function findFunctionCallsInExpr(
   expr: Expr,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   // Skip test blocks - they should not generate code
   if (
@@ -247,7 +247,7 @@ export function findFunctionCallsInExpr(
             (t) =>
               isSomeType(t) &&
               typeImplementsFuture(t) &&
-              !t.resolvedConcreteType
+              !t.resolvedConcreteType,
           );
           if (hasSomeTypeWithoutResolved) {
             // Skip collecting SomeType's ARC functions (___drop, ___dup) that have generic

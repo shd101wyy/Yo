@@ -55,7 +55,7 @@ export function typeImplementsModule({
       if (
         areTypesCompatible(
           { type: expectedModuleWithReceiver, env },
-          { type: fieldModuleType, env }
+          { type: fieldModuleType, env },
         )
       ) {
         return true;

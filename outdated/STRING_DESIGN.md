@@ -11,6 +11,7 @@ use the QuickJS Unicode library, but this is **not required** for basic String f
 ## Implementation Status
 
 ### ✅ Implemented (Native Yo, No Dependencies)
+
 - `String` object type with `ArrayList(u8)` storage
 - `String.new()` - Create empty string
 - `String.from_bytes(ArrayList(u8))` - Create from byte array (assumes valid UTF-8)
@@ -25,6 +26,7 @@ use the QuickJS Unicode library, but this is **not required** for basic String f
 - Full emoji and multi-byte character support (tested with Chinese and emoji)
 
 ### 🚧 Planned (Native Yo)
+
 - `String.from_utf8(bytes)` with validation - Returns `Result(String, StringError)` on invalid UTF-8
 - `slice(start, end)` - Substring extraction
 - `split(delimiter)` - String tokenization
@@ -34,6 +36,7 @@ use the QuickJS Unicode library, but this is **not required** for basic String f
 - Hash implementation for HashMap keys
 
 ### 🔮 Future (Using QuickJS - Optional)
+
 - Unicode normalization (NFC, NFD, NFKC, NFKD)
 - Full Unicode case conversion (beyond ASCII)
 - Unicode property queries (is_alphabetic, is_numeric with full Unicode tables)
@@ -47,11 +50,12 @@ They are documented here for future reference when implementing advanced Unicode
 ### Available in `vendor/quickjs/cutils.h` and `cutils.c`:
 
 1. **UTF-8 Encoding/Decoding**
+
    ```c
    // Encode a Unicode codepoint to UTF-8 bytes
    // Returns: number of bytes written (1-6)
    int unicode_to_utf8(uint8_t *buf, unsigned int c);
-   
+
    // Decode a UTF-8 byte sequence to Unicode codepoint
    // Returns: codepoint value, or -1 on error
    // Updates *pp to point after the decoded character
@@ -59,6 +63,7 @@ They are documented here for future reference when implementing advanced Unicode
    ```
 
 2. **Constants**
+
    ```c
    #define UTF8_CHAR_LEN_MAX 6  // Maximum bytes for one UTF-8 character
    ```
@@ -76,6 +81,7 @@ They are documented here for future reference when implementing advanced Unicode
 ### Available in `vendor/quickjs/libunicode.h` and `libunicode.c`:
 
 1. **Unicode Normalization**
+
    ```c
    enum UnicodeNormalizationEnum {
        UNICODE_NFC,   // Canonical Composition
@@ -83,14 +89,15 @@ They are documented here for future reference when implementing advanced Unicode
        UNICODE_NFKC,  // Compatibility Composition
        UNICODE_NFKD   // Compatibility Decomposition
    };
-   
+
    int unicode_normalize(uint32_t **pdst, const uint32_t *src, int src_len,
                          UnicodeNormalizationEnum n_type,
-                         void *opaque, 
+                         void *opaque,
                          void *(*realloc_func)(void *opaque, void *ptr, size_t size));
    ```
 
 2. **Character Properties**
+
    ```c
    // Character classification
    int lre_is_cased(uint32_t c);
@@ -98,7 +105,7 @@ They are documented here for future reference when implementing advanced Unicode
    int lre_is_id_start(uint32_t c);
    int lre_is_id_continue(uint32_t c);
    int lre_is_space(uint32_t c);
-   
+
    // Case conversion (returns number of result codepoints, stores in res[])
    int lre_case_conv(uint32_t *res, uint32_t c, int conv_type);
    ```
@@ -125,6 +132,7 @@ String :: object(
 Lazy caching of character count, offset indices, and hash codes are **not yet implemented** but planned for future optimization.
 
 **Future Optimizations (Not Implemented):**
+
 ```yo
 // Potential future additions for performance
 _char_count : Option(usize),        // Cached character count
@@ -139,6 +147,7 @@ _hash : Option(usize)                // Cached hash for HashMap
 ### Why `rune` instead of `Char`?
 
 The name `rune` is chosen to:
+
 - Avoid confusion with C's `char` type (which is 8-bit)
 - Match Go's terminology (Go's `rune` is an `int32` representing a Unicode code point)
 - Clearly indicate Unicode code points (32-bit values)
@@ -158,6 +167,7 @@ String.at :: fn(self: Self, index: usize) -> Option(rune)
 ```
 
 **Benefits:**
+
 - ✅ Type-safe: can't accidentally use invalid codepoints
 - ✅ Self-documenting: `rune` clearly means "Unicode code point"
 - ✅ Can add helper methods (is_digit, is_whitespace, etc.)
@@ -166,6 +176,7 @@ String.at :: fn(self: Self, index: usize) -> Option(rune)
 - ✅ Field access: `r.c` to get the codepoint value
 
 **Similar to:**
+
 - **Rust**: `char` is a distinct 4-byte type for Unicode scalar values
 - **Go**: `rune` is an alias for `int32` representing Unicode code points
 - **Swift**: `Character` is a distinct type
@@ -226,26 +237,28 @@ _char_count: 3
 ```
 
 **Performance:**
+
 - First `at()` or `length()`: O(n) - builds index
 - Subsequent `at()`: O(1) - uses cached index
 - Memory cost: ~8 bytes per character (usize on 64-bit)
 
 **Implementation:**
+
 ```c
 // Build character offset index (called once, lazily)
 void yo_string_build_char_index(String* s) {
     if (s->_char_offsets != NULL) return; // Already built
-    
+
     ArrayList* offsets = arraylist_new();
     const uint8_t* p = s->_bytes->data;
     const uint8_t* end = p + s->_bytes->length;
-    
+
     while (p < end) {
         arraylist_push(offsets, p - s->_bytes->data); // Store byte offset
         const uint8_t* prev = p;
         unicode_from_utf8(p, end - p, &p); // Advance to next char
     }
-    
+
     s->_char_offsets = offsets;
     s->_char_count = offsets->length;
 }
@@ -253,9 +266,9 @@ void yo_string_build_char_index(String* s) {
 // O(1) character access (after index built)
 uint32_t yo_string_char_at(String* s, size_t char_index) {
     yo_string_build_char_index(s); // Build if needed
-    
+
     if (char_index >= s->_char_count) return -1; // Out of bounds
-    
+
     size_t byte_offset = s->_char_offsets->data[char_index];
     const uint8_t* p = s->_bytes->data + byte_offset;
     const uint8_t* next;
@@ -343,12 +356,12 @@ chars :: fn(self: Self) -> CharIterator  // yields Char
 ```yo
 /**
  * rune - A Unicode scalar value (code point)
- * 
+ *
  * Represents a single Unicode character in the range U+0000 to U+10FFFF,
  * excluding surrogate code points (U+D800 to U+DFFF).
- * 
+ *
  * The field `c` holds the codepoint value as a u32.
- * 
+ *
  * Named `rune` (like Go) to avoid confusion with C's `char` type.
  */
 rune :: struct(c: u32)
@@ -383,7 +396,7 @@ RuneConstants :: module(
   UPPERCASE_Z :: rune(c: 0x5A),     // 'Z'
   LOWERCASE_A :: rune(c: 0x61),     // 'a'
   LOWERCASE_Z :: rune(c: 0x7A),     // 'z'
-  
+
   // Unicode examples
   EMOJI_GRINNING :: rune(c: 0x1F600), // 😀
   EMOJI_EARTH    :: rune(c: 0x1F30D), // 🌍
@@ -393,6 +406,7 @@ RuneConstants :: module(
 ## Implementation Strategy
 
 ### ✅ Phase 1: Basic Immutable String (COMPLETED)
+
 - ✅ Implement core type with ArrayList(u8) storage
 - ✅ Add `new()`, `from_bytes()`, `from()` constructors
 - ✅ Implement `is_empty`, `as_bytes`, `length`, `concat`
@@ -402,6 +416,7 @@ RuneConstants :: module(
 - ✅ Full emoji and multi-byte character support
 
 ### 🚧 Phase 2: Essential String Operations (IN PROGRESS)
+
 - Add `from_utf8()` with UTF-8 validation
 - Implement `slice()`, `split()`, `trim()`
 - Add `starts_with`, `ends_with`, `contains`, `find`
@@ -409,11 +424,13 @@ RuneConstants :: module(
 - Optimize `at()` with lazy character offset indexing
 
 ### 🚧 Phase 3: Hashing and HashMap Integration
+
 - Implement Hash trait for String
 - Add hash caching optimization
 - Use String as HashMap key type
 
 ### 🔮 Phase 4: Advanced Unicode (Optional, Using QuickJS)
+
 - Full Unicode case conversion (`to_lowercase`, `to_uppercase`)
 - Unicode normalization (NFC, NFD, NFKC, NFKD)
 - Unicode property queries (is_alphabetic, is_numeric with full tables)
@@ -453,7 +470,7 @@ size_t yo_utf8_char_count(const uint8_t* bytes, size_t byte_len) {
     size_t count = 0;
     const uint8_t* p = bytes;
     const uint8_t* end = bytes + byte_len;
-    
+
     while (p < end) {
         const uint8_t* prev = p;
         int32_t c = unicode_from_utf8(p, end - p, &p);
@@ -469,7 +486,7 @@ size_t yo_utf8_char_count(const uint8_t* bytes, size_t byte_len) {
 bool yo_utf8_validate(const uint8_t* bytes, size_t byte_len) {
     const uint8_t* p = bytes;
     const uint8_t* end = bytes + byte_len;
-    
+
     while (p < end) {
         const uint8_t* prev = p;
         int32_t c = unicode_from_utf8(p, end - p, &p);
@@ -494,20 +511,21 @@ bool yo_utf8_validate(const uint8_t* bytes, size_t byte_len) {
 
 ## Comparison with Other Languages
 
-| Feature | JavaScript | Rust | Go | Python 3 | Yo (Current) |
-|---------|-----------|------|-----|----------|--------------|
-| Mutability | Immutable | Immutable | Immutable | Immutable | Immutable |
-| Encoding | UTF-16 | UTF-8 | UTF-8 | UTF-8/UTF-32 | UTF-8 |
-| Char Type | None (string[0]) | `char` (4 bytes) | `rune` (int32) | `str[0]` (str) | `rune` (u32) |
-| Indexing | O(1) by char | O(1) by byte | O(1) by byte | O(1) by char | O(n) by char† |
-| Concat | Copy | Zero-copy (Rc) | Copy | Copy | Copy |
-| Dependencies | Built-in | Built-in | Built-in | Built-in | Self-contained |
+| Feature      | JavaScript       | Rust             | Go             | Python 3       | Yo (Current)   |
+| ------------ | ---------------- | ---------------- | -------------- | -------------- | -------------- |
+| Mutability   | Immutable        | Immutable        | Immutable      | Immutable      | Immutable      |
+| Encoding     | UTF-16           | UTF-8            | UTF-8          | UTF-8/UTF-32   | UTF-8          |
+| Char Type    | None (string[0]) | `char` (4 bytes) | `rune` (int32) | `str[0]` (str) | `rune` (u32)   |
+| Indexing     | O(1) by char     | O(1) by byte     | O(1) by byte   | O(1) by char   | O(n) by char†  |
+| Concat       | Copy             | Zero-copy (Rc)   | Copy           | Copy           | Copy           |
+| Dependencies | Built-in         | Built-in         | Built-in       | Built-in       | Self-contained |
 
 † Future optimization: O(1) after lazy O(n) index build on first character access
 
 ## Next Steps
 
 ### Immediate Priorities
+
 1. ✅ Basic String implementation (DONE)
 2. 🚧 Add UTF-8 validation to `from_utf8()`
 3. 🚧 Implement essential operations (`slice`, `split`, `trim`, `find`)
@@ -515,6 +533,7 @@ bool yo_utf8_validate(const uint8_t* bytes, size_t byte_len) {
 5. 🚧 Optimize `at()` with lazy character offset indexing
 
 ### Future Work
+
 - Consider using QuickJS for advanced Unicode features (case conversion, normalization)
 - Implement string interning for frequently used strings
 - Explore zero-copy string slicing (sharing byte arrays between parent and slices)
@@ -522,14 +541,15 @@ bool yo_utf8_validate(const uint8_t* bytes, size_t byte_len) {
 
 ## Indexing Tradeoffs Summary
 
-| Approach | Time | Space | Pros | Cons |
-|----------|------|-------|------|------|
-| **Scan each time** | O(n) per access | O(1) | Simple, no overhead | Slow for repeated access |
-| **Lazy index array** (chosen) | O(1) after O(n) build | O(n) | Fast after build, pay only if used | Memory cost |
-| **UTF-32 encoding** | O(1) always | O(4n) | Always fast | 4x memory, incompatible with C |
-| **Byte indexing only** | O(1) always | O(1) | No overhead | User confusion, easy errors |
+| Approach                      | Time                  | Space | Pros                               | Cons                           |
+| ----------------------------- | --------------------- | ----- | ---------------------------------- | ------------------------------ |
+| **Scan each time**            | O(n) per access       | O(1)  | Simple, no overhead                | Slow for repeated access       |
+| **Lazy index array** (chosen) | O(1) after O(n) build | O(n)  | Fast after build, pay only if used | Memory cost                    |
+| **UTF-32 encoding**           | O(1) always           | O(4n) | Always fast                        | 4x memory, incompatible with C |
+| **Byte indexing only**        | O(1) always           | O(1)  | No overhead                        | User confusion, easy errors    |
 
 **Our choice: Lazy index array** - best balance for immutable strings where indexing patterns are typically:
+
 - Access many characters: index amortizes to O(1)
 - Access few/no characters: no overhead
 - Access once: same as scan approach
@@ -539,16 +559,14 @@ bool yo_utf8_validate(const uint8_t* bytes, size_t byte_len) {
 1. **QuickJS Integration**: When should we add QuickJS for advanced Unicode?
    - Only when users need normalization/full case conversion?
    - Make it optional via feature flag?
-   
 2. **Performance Optimizations**:
    - Should we add lazy character offset indexing now or wait for benchmarks?
    - Is hash caching worth the memory cost?
-   
 3. **Zero-Copy Slicing**:
    - Should we support string slicing with shared byte arrays (like Rust's `&str`)?
    - Would this complicate the ownership model?
-   
 4. **String Interning**:
+
    - Should we implement string interning for frequently used strings?
    - How would this interact with the garbage collector?
 

@@ -76,7 +76,7 @@ export default class Parser {
   private isParenthesizedExpression(
     tokens: Token[],
     startIndex: number,
-    endIndex: number
+    endIndex: number,
   ): boolean {
     startIndex = this.skipWhitespace(tokens, startIndex);
     endIndex = this.skipWhitespaceBackward(tokens, endIndex);
@@ -552,7 +552,7 @@ export default class Parser {
 
   private isOperatorAtLineStart(
     tokensBeforeOperator: Token[],
-    _operatorIndex: number
+    _operatorIndex: number,
   ): boolean {
     // Look backwards from the operator to find the last newline
     for (let i = tokensBeforeOperator.length - 1; i >= 0; i--) {
@@ -561,7 +561,7 @@ export default class Parser {
         // Found a newline, check if there are only whitespace tokens between newline and operator
         const tokensBetween = tokensBeforeOperator.slice(i + 1);
         const onlyWhitespace = tokensBetween.every(
-          (t) => t.type === TokenType.Whitespace
+          (t) => t.type === TokenType.Whitespace,
         );
         return onlyWhitespace;
       }
@@ -656,7 +656,7 @@ export default class Parser {
     } else {
       return Math.min(
         this.getExprMinimumColumnNumber(expr.func),
-        ...expr.args.map((arg) => this.getExprMinimumColumnNumber(arg))
+        ...expr.args.map((arg) => this.getExprMinimumColumnNumber(arg)),
       );
     }
   }
@@ -782,7 +782,7 @@ Please use parentheses to clarify:
 ${exprToString(primaryExpr)} ${token.value} (${exprToString(rhs)})
 // or
 (${exprToString(primaryExpr)} ${token.value} ${exprToString(
-          rhs.args[0]!
+          rhs.args[0]!,
         )}) ${exprToString(rhs.func)} ${exprToString(rhs.args[1]!)}
 
 Or use newline after "${token.value}" to confirm the right-associativity.
@@ -803,14 +803,14 @@ Or use newline after "${token.value}" to confirm the right-associativity.
         const tokensInBetween = tokens.slice(index + 1, startIndex);
         const hasNewLineAfterOperator = tokensInBetween.some(
           (token) =>
-            token.type === TokenType.Whitespace && token.value.includes("\n")
+            token.type === TokenType.Whitespace && token.value.includes("\n"),
         );
 
         // Check if current operator is at the start of a line (left associativity)
         const tokensBeforeOperator = tokens.slice(0, index);
         const isOperatorAtLineStart = this.isOperatorAtLineStart(
           tokensBeforeOperator,
-          index
+          index,
         );
 
         // Check if operator is alone on its own line
@@ -1187,7 +1187,7 @@ ${code}
     throw new Error(
       `Expected exactly one expression from parsed code, got ${program.length}: "${code}"
 ${program.map((expr) => exprToString(expr)).join("\n")}      
-`
+`,
     );
   }
 

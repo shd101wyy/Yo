@@ -37,7 +37,6 @@ I32Info :: TypeInfo.I32(
 );
 ```
 
-
 ```rust,f#
 swap ::
   (fn(forall(R1 : Region, compt(R2) : Region),
@@ -548,6 +547,5 @@ Let's keep it simple for now:
   ;
   (animals : Array(Dyn(Bark))) = [dyn(dog), dyn(cat)];
   ```
-
 
 Use ^(x) to move a value. By moving we consume the variable. This could be useful for ending the variable lifetime early, especially like in a `cond`/`match` expression.

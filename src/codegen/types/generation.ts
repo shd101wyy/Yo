@@ -242,7 +242,7 @@ typedef struct yo_io_future_t {
     if (isFutureModuleType(type)) {
       // Forward declaration for Future types (they don't use _struct pattern)
       context.emitter.emitDeclarationLine(
-        `typedef struct ${cName}_struct ${cName}; // Forward declaration`
+        `typedef struct ${cName}_struct ${cName}; // Forward declaration`,
       );
     } else if (isStructType(type)) {
       // Skip forward declaration for newtypes since they're just typedefs
@@ -250,7 +250,7 @@ typedef struct yo_io_future_t {
         continue;
       }
       context.emitter.emitDeclarationLine(
-        `typedef struct ${cName}_struct ${cName}; // Forward declaration`
+        `typedef struct ${cName}_struct ${cName}; // Forward declaration`,
       );
     } else if (isEnumType(type)) {
       // Skip forward declaration for enums optimized as nullable pointers or simple enums
@@ -259,7 +259,7 @@ typedef struct yo_io_future_t {
       const simpleEnumOptimizable = canOptimizeAsSimpleEnum(type);
       if (!nullablePointerType && !simpleEnumOptimizable) {
         context.emitter.emitDeclarationLine(
-          `typedef struct ${cName}_struct ${cName}; // Forward declaration`
+          `typedef struct ${cName}_struct ${cName}; // Forward declaration`,
         );
       }
     }
@@ -334,10 +334,10 @@ typedef struct yo_io_future_t {
   // An edge from A to B means B must be defined before A
   const dependencies = new Map<string, Set<string>>();
   const typeIdToData = new Map(
-    structsAndEnumsAndTuples.map((e) => [e.typeId, e])
+    structsAndEnumsAndTuples.map((e) => [e.typeId, e]),
   );
   const cNameToTypeId = new Map(
-    structsAndEnumsAndTuples.map((e) => [e.cName, e.typeId])
+    structsAndEnumsAndTuples.map((e) => [e.cName, e.typeId]),
   );
 
   for (const { typeId, type, kind } of structsAndEnumsAndTuples) {
@@ -630,19 +630,19 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     // Generate Iso struct type
     emitter.emitDeclarationLine(`typedef struct { // Iso wrapper struct`);
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Atomic RC header`
+      `  yo_ref_header_t header; // Atomic RC header`,
     );
     emitter.emitDeclarationLine(`  _Atomic bool extracted; // Extraction flag`);
     emitter.emitDeclarationLine(`  ${childTypeCName} value; // Inner value`);
     emitter.emitDeclarationLine(`} ${isoTypeName}_struct;`);
     emitter.emitDeclarationLine(
-      `typedef ${isoTypeName}_struct* ${isoTypeName};`
+      `typedef ${isoTypeName}_struct* ${isoTypeName};`,
     );
     emitter.emitDeclarationLine("");
 
     // Generate constructor function declaration
     emitter.emitDeclarationLine(
-      `${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value);`
+      `${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value);`,
     );
     emitter.emitDeclarationLine("");
 
@@ -659,7 +659,7 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
 
     // Generate extract function declaration
     emitter.emitDeclarationLine(
-      `${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso);`
+      `${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso);`,
     );
   }
 
@@ -671,10 +671,10 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     if (!structGenerated) continue;
 
     emitter.emitDeclarationLine(
-      `void __yo_iso_dispose_${isoTypeName}(${isoTypeName} iso);`
+      `void __yo_iso_dispose_${isoTypeName}(${isoTypeName} iso);`,
     );
     emitter.emitDeclarationLine(
-      `static void __yo_dispose_iso_${isoTypeName}(void* ptr);`
+      `static void __yo_dispose_iso_${isoTypeName}(void* ptr);`,
     );
   }
 
@@ -713,7 +713,7 @@ ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
 
     // Check if the child type has a ___drop function we should call
     const dropFn = childType.module?.fields.find(
-      (f) => f.label === BuiltinFunctions.___drop[0]
+      (f) => f.label === BuiltinFunctions.___drop[0],
     );
 
     if (dropFn?.assignedValue && context.functions) {
@@ -760,7 +760,7 @@ static void __yo_dispose_iso_${isoTypeName}(void* ptr) {
     // Get the Option type's variant names from context.types
     // We need to find the Option enum and get its Some/None variant tag names
     const optionTypeEntry = Object.values(context.types).find(
-      (entry) => entry.cName === optionTypeCName
+      (entry) => entry.cName === optionTypeCName,
     );
 
     if (optionTypeEntry && isEnumType(optionTypeEntry.type)) {
@@ -802,7 +802,7 @@ export function generateClosureDeclaration(
   functionType: FunctionType,
   cName: string,
   captureType: StructType | undefined,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   const emitter = context.emitter;
 
@@ -812,7 +812,7 @@ export function generateClosureDeclaration(
   if (isStructType(captureType) && captureType.fields.length > 0) {
     // Check if the capture type already exists in the context (it should have been collected)
     const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType
+      (entry) => entry.type === captureType,
     );
 
     if (!existingCaptureTypeEntry) {
@@ -820,7 +820,7 @@ export function generateClosureDeclaration(
       // This shouldn't normally happen if collection is working properly
       const captureStructName = `${cName}_capture`;
       emitter.emitDeclarationLine(
-        `typedef struct { // Capture data for ${typeToString(functionType)}`
+        `typedef struct { // Capture data for ${typeToString(functionType)}`,
       );
 
       for (const field of captureType.fields) {
@@ -854,19 +854,19 @@ export function generateClosureDeclaration(
   // Impl closures are value types - no yo_ref_header_t, stack-allocated
   // IMPORTANT: Use named-struct form to match our forward declaration pattern.
   emitter.emitDeclarationLine(
-    `struct ${cName}_struct { // Impl Closure : ${typeToString(functionType)} (static dispatch, value type)`
+    `struct ${cName}_struct { // Impl Closure : ${typeToString(functionType)} (static dispatch, value type)`,
   );
   // Direct function pointer for static dispatch (no vtable indirection)
   emitter.emitDeclarationLine(
-    `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Direct call function pointer`
+    `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Direct call function pointer`,
   );
   // Data field is always void* to allow different capture types for same closure type
   emitter.emitDeclarationLine(
-    `  void* data; // Captured data (pointer to stack-allocated capture struct)`
+    `  void* data; // Captured data (pointer to stack-allocated capture struct)`,
   );
   // Dispose function pointer for cleanup when closure goes out of scope
   emitter.emitDeclarationLine(
-    `  void (*dispose)(void* self); // Dispose function for cleanup`
+    `  void (*dispose)(void* self); // Dispose function for cleanup`,
   );
 
   emitter.emitDeclarationLine(`};`);
@@ -879,7 +879,7 @@ export function generateClosureDeclaration(
 export function generateStructDeclaration(
   structType: StructType,
   cName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   const emitter = context.emitter;
 
@@ -888,7 +888,7 @@ export function generateStructDeclaration(
     const underlyingType = structType.fields[0]!.type;
     const underlyingTypeStr = getTypeString(underlyingType, context);
     emitter.emitDeclarationLine(
-      `typedef ${underlyingTypeStr} ${cName}; // ${structType.typeName} : ${typeToString(structType)} (newtype - zero-cost abstraction)`
+      `typedef ${underlyingTypeStr} ${cName}; // ${structType.typeName} : ${typeToString(structType)} (newtype - zero-cost abstraction)`,
     );
     emitter.emitDeclarationLine(""); // Add blank line for readability
     return;
@@ -897,10 +897,10 @@ export function generateStructDeclaration(
   if (structType.isReferenceSemantics) {
     // For object, generate a struct with the common reference header
     emitter.emitDeclarationLine(
-      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
+      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`,
     );
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Reference count header`
+      `  yo_ref_header_t header; // Reference count header`,
     );
 
     for (const field of structType.fields) {
@@ -913,7 +913,7 @@ export function generateStructDeclaration(
   } else {
     // For regular struct, generate as before
     emitter.emitDeclarationLine(
-      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)}`
+      `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)}`,
     );
 
     for (const field of structType.fields) {
@@ -934,11 +934,11 @@ export function generateStructDeclaration(
 export function generateTupleDeclaration(
   tupleType: TupleType,
   cName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   const emitter = context.emitter;
   emitter.emitDeclarationLine(
-    `typedef struct { // ${tupleType.typeName} : ${typeToString(tupleType)}`
+    `typedef struct { // ${tupleType.typeName} : ${typeToString(tupleType)}`,
   );
 
   for (let i = 0; i < tupleType.fields.length; i++) {
@@ -959,12 +959,12 @@ export function generateTupleDeclaration(
 export function generateUnionDeclaration(
   unionType: UnionType,
   cName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   const emitter = context.emitter;
   // Generate C union (not tagged union)
   emitter.emitDeclarationLine(
-    `typedef union { // ${unionType.typeName} : ${typeToString(unionType)}`
+    `typedef union { // ${unionType.typeName} : ${typeToString(unionType)}`,
   );
 
   for (const field of unionType.fields) {
@@ -983,7 +983,7 @@ export function generateUnionDeclaration(
 export function generateEnumDeclaration(
   enumType: EnumType,
   cName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   const emitter = context.emitter;
 
@@ -993,7 +993,7 @@ export function generateEnumDeclaration(
     // Generate a simple typedef for the pointer type
     const pointerTypeStr = getTypeString(nullablePointerType, context);
     emitter.emitDeclarationLine(
-      `typedef ${pointerTypeStr} ${cName}; // ${enumType.typeName} : ${typeToString(enumType)} (optimized as nullable pointer)`
+      `typedef ${pointerTypeStr} ${cName}; // ${enumType.typeName} : ${typeToString(enumType)} (optimized as nullable pointer)`,
     );
     emitter.emitDeclarationLine(""); // Add blank line for readability
     return;
@@ -1004,7 +1004,7 @@ export function generateEnumDeclaration(
   if (simpleEnumOptimizable) {
     // Generate a simple enum declaration
     emitter.emitDeclarationLine(
-      `typedef enum { // ${enumType.typeName} : ${typeToString(enumType)} (optimized as simple enum)`
+      `typedef enum { // ${enumType.typeName} : ${typeToString(enumType)} (optimized as simple enum)`,
     );
 
     for (let i = 0; i < enumType.variants.length; i++) {
@@ -1047,7 +1047,7 @@ export function generateEnumDeclaration(
     if (variant.fields && variant.fields.length > 0) {
       // Filter out unit type fields - they don't need to be stored
       const nonUnitElements = variant.fields.filter(
-        (field) => !isUnitType(field.type)
+        (field) => !isUnitType(field.type),
       );
 
       // Only generate struct if there are non-unit fields
@@ -1072,7 +1072,7 @@ export function generateEnumDeclaration(
 
   // Generate the main tagged union struct
   emitter.emitDeclarationLine(
-    `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)}`
+    `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)}`,
   );
 
   emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
@@ -1088,7 +1088,7 @@ export function generateEnumDeclaration(
 export function generateDynDeclaration(
   dynType: DynType,
   cName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): void {
   const emitter = context.emitter;
 
@@ -1097,7 +1097,7 @@ export function generateDynDeclaration(
   const vtableName = `${cName}_vtable`;
 
   emitter.emitDeclarationLine(
-    `typedef struct { // Vtable for ${typeToString(dynType)}`
+    `typedef struct { // Vtable for ${typeToString(dynType)}`,
   );
 
   // Generate function pointers in the correct order: base module methods first, then user module methods
@@ -1129,7 +1129,7 @@ export function generateDynDeclaration(
 
       // Call function takes void* self as first parameter, then user parameters
       emitter.emitDeclarationLine(
-        `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Call function pointer`
+        `  ${returnTypeStr} (*call)(void* self${paramList ? ", " + paramList : ""}); // Call function pointer`,
       );
       processedMethods.add("call");
       continue;
@@ -1167,7 +1167,7 @@ export function generateDynDeclaration(
             // This is a method that should be included in the vtable
             const returnTypeStr = getTypeString(
               functionType.return.type,
-              context
+              context,
             );
 
             // Generate the complete parameter list for the function pointer
@@ -1186,7 +1186,7 @@ export function generateDynDeclaration(
               .join(", ");
 
             emitter.emitDeclarationLine(
-              `  ${returnTypeStr} (*${methodName})(${paramList}); // Method pointer for ${field.label}`
+              `  ${returnTypeStr} (*${methodName})(${paramList}); // Method pointer for ${field.label}`,
             );
           }
           // Skip functions that don't have 'self' as first parameter
@@ -1195,7 +1195,7 @@ export function generateDynDeclaration(
         // For non-function fields, treat as data members (shouldn't happen for trait methods)
         const elementTypeStr = getTypeString(field.type, context);
         emitter.emitDeclarationLine(
-          `  ${elementTypeStr} ${methodName}; // Non-function member ${field.label}`
+          `  ${elementTypeStr} ${methodName}; // Non-function member ${field.label}`,
         );
       }
     }
@@ -1209,13 +1209,13 @@ export function generateDynDeclaration(
   // The data pointer points to a boxed value that has yo_ref_header_t
   // The vtable pointer points to a static vtable instance (one per impl)
   emitter.emitDeclarationLine(
-    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (value type - fat pointer)`
+    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (value type - fat pointer)`,
   );
   emitter.emitDeclarationLine(
-    `  void* data; // Pointer to boxed data (with yo_ref_header_t)`
+    `  void* data; // Pointer to boxed data (with yo_ref_header_t)`,
   );
   emitter.emitDeclarationLine(
-    `  const ${vtableName}* vtable; // Pointer to static vtable (no allocation needed)`
+    `  const ${vtableName}* vtable; // Pointer to static vtable (no allocation needed)`,
   );
   emitter.emitDeclarationLine(`} ${cName};`);
   emitter.emitDeclarationLine(""); // Add blank line for readability
@@ -1301,7 +1301,7 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
   emitter.emitDeclarationLine("");
   emitter.emitDeclarationLine("// === Dyn Box Types ===");
   emitter.emitDeclarationLine(
-    "// These structs wrap concrete types for dynamic dispatch"
+    "// These structs wrap concrete types for dynamic dispatch",
   );
   emitter.emitDeclarationLine("");
 
@@ -1331,7 +1331,7 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
 
     // Generate box constructor declaration
     emitter.emitDeclarationLine(
-      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
+      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`,
     );
 
     // Generate box dispose declaration

@@ -60,7 +60,7 @@ export function evaluateDynType({
       !isModuleType(evaluatedModule.$.value.value)
     ) {
       throw new Error(
-        `Expected a module type for argument ${i + 1} of 'dyn' expression.`
+        `Expected a module type for argument ${i + 1} of 'dyn' expression.`,
       );
     }
     env = evaluatedModule.$.env;
@@ -99,9 +99,9 @@ export function evaluateDynType({
             throw formatErrorMessage({
               token: expr.token,
               errorMessage: `Module types ${typeToString(
-                moduleTypeA
+                moduleTypeA,
               )} and ${typeToString(
-                moduleTypeB
+                moduleTypeB,
               )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
             });
           }
@@ -126,7 +126,7 @@ export function evaluateDynType({
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Module type ${typeToString(
-            moduleType
+            moduleType,
           )} cannot have function '${element.label}' as it is reserved in 'dyn' expression.`,
         });
       }

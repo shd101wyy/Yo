@@ -61,7 +61,7 @@ export function evaluateYoVarIsOwningTheRcValue({
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_var_is_owning_the_rc_value,
-    1
+    1,
   );
 
   const varExpr = expr.args[0]!;
@@ -105,7 +105,7 @@ export function evaluateYoVarHasOtherAliases({
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_var_has_other_aliases,
-    1
+    1,
   );
 
   const varExpr = expr.args[0]!;

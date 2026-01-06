@@ -202,7 +202,7 @@ export function evaluateMatch({
           throw formatErrorMessage({
             token: matchArmExpr.token,
             errorMessage: `Expected identifier for enum variant, got ${exprToString(
-              variantNameExpr
+              variantNameExpr,
             )}`,
           });
         }
@@ -219,7 +219,7 @@ export function evaluateMatch({
         throw formatErrorMessage({
           token: matchArmExpr.token,
           errorMessage: `Enum variant "${variantName}" not found in ${typeToString(
-            enumType
+            enumType,
           )}`,
         });
       }
@@ -292,7 +292,7 @@ export function evaluateMatch({
         throw formatErrorMessage({
           token: bodyExpr.token,
           errorMessage: `Expected type for match result expression, got ${exprToString(
-            bodyExpr
+            bodyExpr,
           )}`,
         });
       }
@@ -375,7 +375,7 @@ export function evaluateMatch({
         } else if (
           !areTypesCompatible(
             { type: resultType.type, env: caseEnv },
-            { type: evaluatedBody.$?.type, env }
+            { type: evaluatedBody.$?.type, env },
           )
         ) {
           // Check if the types match when converting to runtime type
@@ -393,7 +393,7 @@ export function evaluateMatch({
               {
                 type: evaluatedBody.$.type,
                 env: caseEnv,
-              }
+              },
             )
           ) {
             resultType = { type: evaluatedBody.$.type, env: caseEnv };
@@ -460,7 +460,7 @@ export function evaluateMatch({
         // For positional destructuring, we require exact match
         const hasLabeledParams = destructuringParams.some(
           (param) =>
-            exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+            exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2),
         );
 
         if (
@@ -529,7 +529,7 @@ export function evaluateMatch({
 
             // Find the field with matching label
             const fieldIndex = variant.fields.findIndex(
-              (elem) => elem.label === label
+              (elem) => elem.label === label,
             );
             if (fieldIndex === -1) {
               throw formatErrorMessage({
@@ -721,7 +721,7 @@ export function evaluateMatch({
         } else if (
           !areTypesCompatible(
             { type: resultType.type, env: caseEnv },
-            { type: evaluatedBody.$?.type, env }
+            { type: evaluatedBody.$?.type, env },
           )
         ) {
           // Check if the types match when converting to runtime type
@@ -739,7 +739,7 @@ export function evaluateMatch({
               {
                 type: evaluatedBody.$.type,
                 env: caseEnv,
-              }
+              },
             )
           ) {
             resultType = { type: evaluatedBody.$.type, env: caseEnv };
@@ -803,7 +803,7 @@ Supported patterns:
     // Perform exhaustiveness check
     if (!checkedVariantNames.has("_")) {
       const missingVariants = enumType.variants.filter(
-        (variant) => !checkedVariantNames.has(variant.name)
+        (variant) => !checkedVariantNames.has(variant.name),
       );
       if (missingVariants.length > 0) {
         throw formatErrorMessage({
@@ -818,7 +818,7 @@ Supported patterns:
     // Merge and check all environments
     env = mergeAndCheckEnvs(
       env,
-      bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+      bodies.filter((body) => body.$ && body.$.controlFlow !== "return"),
     );
 
     // Set the type and value of the match expression
@@ -878,7 +878,7 @@ Supported patterns:
           context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
             "function-body" &&
           isFunctionTypeAndReturnsComptValue(
-            context.isEvaluatingFunctionBodyOrAsyncBlock.type
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type,
           )
             ? createUnknownValue(returnType)
             : undefined,

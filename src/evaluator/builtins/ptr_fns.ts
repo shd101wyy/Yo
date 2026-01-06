@@ -54,7 +54,7 @@ export function evaluateAddressCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for reference:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -66,7 +66,7 @@ export function evaluateAddressCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Cannot create a pointer to a type. Did you mean to use "*"?\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }

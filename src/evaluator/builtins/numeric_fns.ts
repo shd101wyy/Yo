@@ -69,7 +69,7 @@ function extractNumericValue(value?: Value): number | bigint | null {
 // Helper function to create a numeric value of the given type
 function createNumericValue(
   value: number | bigint,
-  type: Type
+  type: Type,
 ): Value | undefined {
   // Handle compt_int and compt_float separately
   if (type.tag === TypeTag.ComptInt) {
@@ -134,7 +134,7 @@ function checkOverflow(
   operation: string,
   lhs: number | bigint,
   rhs: number | bigint,
-  token: Token
+  token: Token,
 ): void {
   const bounds = getNumericBounds(type);
   if (bounds === undefined) {
@@ -182,7 +182,7 @@ function checkOverflow(
 // Helper function to apply numeric bounds based on type
 function applyNumericBounds(
   value: number | bigint,
-  type: Type
+  type: Type,
 ): number | bigint {
   // Convert to the appropriate type for 64-bit integers
   if (
@@ -233,7 +233,7 @@ function performArithmeticOp(
   lhsValue: Value,
   rhsValue: Value,
   resultType: Type,
-  op: (a: number | bigint, b: number | bigint) => number | bigint
+  op: (a: number | bigint, b: number | bigint) => number | bigint,
 ): Value {
   const lhs = extractNumericValue(lhsValue);
   const rhs = extractNumericValue(rhsValue);
@@ -251,7 +251,7 @@ function performArithmeticOp(
 function performComparisonOp(
   lhsValue: Value,
   rhsValue: Value,
-  op: (a: number | bigint, b: number | bigint) => boolean
+  op: (a: number | bigint, b: number | bigint) => boolean,
 ): Value {
   const lhs = extractNumericValue(lhsValue);
   const rhs = extractNumericValue(rhsValue);
@@ -274,7 +274,7 @@ function performComparisonOp(
 function performUnaryOp(
   value: Value,
   resultType: Type,
-  op: (a: number | bigint) => number | bigint
+  op: (a: number | bigint) => number | bigint,
 ): Value {
   const num = extractNumericValue(value);
 

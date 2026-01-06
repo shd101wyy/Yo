@@ -9,6 +9,7 @@ This document outlines the plan to migrate Yo's `ModuleType` from structural typ
 ### Structural Module Type
 
 Currently, `ModuleType` is a **structural type** (as stated in `definitions.ts` line 392):
+
 ```typescript
 /**
  * ModuleType is a structural type that represents a module. It's not a nominal type like Struct/Enum/Union.
@@ -19,6 +20,7 @@ export interface ModuleType extends Type {
 ```
 
 In `areTypesCompatible`, modules are compared structurally by checking:
+
 1. If both types are modules
 2. FnModule/FutureModule special cases
 3. Field-by-field comparison (label, type, assignedValue)
@@ -38,6 +40,7 @@ Modules should be identified by their **unique id**, not by their structure. Two
 ### Orphan Rule
 
 Following Rust's coherence rules:
+
 - A module implementation is only allowed if:
   1. The module is defined in the current crate/package, OR
   2. The target type is defined in the current crate/package
@@ -76,6 +79,7 @@ export interface ModuleType extends Type {
 In `evaluateModuleTypeExpr` (or wherever modules are created), set the `definedInModulePath` from context.
 
 Files to modify:
+
 - `src/evaluator/types/module.ts` - Set definedInModulePath when creating ModuleType
 
 ### Phase 2: Update Type Compatibility (areTypesCompatible)
@@ -85,6 +89,7 @@ Files to modify:
 In `src/types/compatibility.ts`, update the `isModuleType(expected.type)` branch:
 
 **Current behavior (structural)**:
+
 ```typescript
 if (isModuleType(expected.type)) {
   // ... structural comparison of fields ...
@@ -96,30 +101,31 @@ if (isModuleType(expected.type)) {
 ```
 
 **New behavior (nominal)**:
+
 ```typescript
 if (isModuleType(expected.type) && isModuleType(given.type)) {
   // Primary check: same module id = same module
   if (expected.type.id === given.type.id) {
     return true;
   }
-  
+
   // Special case: FnModuleType and FutureModuleType use structural comparison
   // because they are parameterized (Fn(x: i32) -> i32 vs Fn(y: i32) -> i32)
   if (isFnModuleType(expected.type) && isFnModuleType(given.type)) {
     return areFunctionTypesCompatible(
       { type: expected.type.isFn.callType, env: expected.env },
       { type: given.type.isFn.callType, env: given.env },
-      requireExactMatch
+      requireExactMatch,
     );
   }
-  
+
   if (isFutureModuleType(expected.type) && isFutureModuleType(given.type)) {
     return areTypesCompatible(
       { type: expected.type.isFuture.outputType, env: expected.env },
-      { type: given.type.isFuture.outputType, env: given.env }
+      { type: given.type.isFuture.outputType, env: given.env },
     );
   }
-  
+
   // Different ids = different modules (nominal typing)
   return false;
 }
@@ -158,16 +164,17 @@ function checkDuplicateImpl(
   receiverType: Type,
   moduleType: ModuleType,
   currentModulePath: string,
-  expr: Expr
+  expr: Expr,
 ): void {
   const typeId = receiverType.id;
   const impls = typeImplRegistry.get(typeId) || [];
-  
-  const existing = impls.find(impl => impl.moduleTypeId === moduleType.id);
+
+  const existing = impls.find((impl) => impl.moduleTypeId === moduleType.id);
   if (existing) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Module "${moduleType.typeName ?? moduleType.id}" is already implemented for type "${typeToString(receiverType)}".\n` +
+      errorMessage:
+        `Module "${moduleType.typeName ?? moduleType.id}" is already implemented for type "${typeToString(receiverType)}".\n` +
         `First implementation was in: ${existing.modulePath}`,
     });
   }
@@ -183,15 +190,20 @@ function checkOrphanRule(
   receiverType: Type,
   moduleType: ModuleType,
   currentModulePath: string,
-  expr: Expr
+  expr: Expr,
 ): void {
-  const moduleDefinedHere = moduleType.definedInModulePath === currentModulePath;
-  const typeDefinedHere = isTypeDefinedInModule(receiverType, currentModulePath);
-  
+  const moduleDefinedHere =
+    moduleType.definedInModulePath === currentModulePath;
+  const typeDefinedHere = isTypeDefinedInModule(
+    receiverType,
+    currentModulePath,
+  );
+
   if (!moduleDefinedHere && !typeDefinedHere) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Orphan impl: Cannot implement foreign module "${moduleType.typeName}" for foreign type "${typeToString(receiverType)}".\n` +
+      errorMessage:
+        `Orphan impl: Cannot implement foreign module "${moduleType.typeName}" for foreign type "${typeToString(receiverType)}".\n` +
         `At least one of the module or the type must be defined in this module.`,
     });
   }
@@ -210,7 +222,7 @@ function isTypeDefinedInModule(type: Type, modulePath: string): boolean {
 ```typescript
 export interface Type {
   // ... existing fields ...
-  
+
   /**
    * The module path where this type was defined.
    * Used for orphan rule checks.
@@ -224,16 +236,19 @@ export interface Type {
 #### 5.1 Update `typeImplementsModule`
 
 In `src/evaluator/exprs/subtype_of.ts`:
+
 - Change module matching to use id comparison instead of structural
 
 #### 5.2 Update `findMatchingGenericImpl`
 
 In `src/evaluator/values/module.ts`:
+
 - Update matching logic to use nominal module comparison
 
 #### 5.3 Update codegen
 
 Files in `src/codegen/`:
+
 - Update any module type comparisons to use id-based matching
 
 ### Phase 6: Handle Special Cases
@@ -251,6 +266,7 @@ This is correct behavior - `Container(i32)` and `Container(string)` should be di
 #### 6.3 FnModuleType and FutureModuleType
 
 Keep structural comparison for these because:
+
 - They are anonymous/parameterized
 - `Fn(x: i32) -> i32` should be the same regardless of parameter names
 
@@ -259,20 +275,24 @@ Keep structural comparison for these because:
 ## Files to Modify
 
 ### Core Type System
+
 - [x] `src/types/definitions.ts` - Add `definedInModulePath` field
 - [ ] `src/types/compatibility.ts` - Change to nominal comparison
 - [ ] `src/types/creators.ts` - Set `definedInModulePath` when creating types
 
 ### Evaluator
+
 - [ ] `src/evaluator/types/module.ts` - Set origin when creating modules
 - [ ] `src/evaluator/values/module.ts` - Add duplicate/orphan checks
 - [ ] `src/evaluator/exprs/subtype_of.ts` - Update `typeImplementsModule`
 - [ ] `src/evaluator/builtins/impl_constraint.ts` - May need updates
 
 ### Context
+
 - [ ] `src/evaluator/context.ts` - Ensure `currentModulePath` is available
 
 ### Tests
+
 - [ ] Create test cases for:
   - Nominal module identity
   - Duplicate impl detection
@@ -291,10 +311,12 @@ Keep structural comparison for these because:
 ## Migration Strategy
 
 1. **Phase 1-2**: Core changes (nominal typing)
+
    - Low impact on user code
    - Internal behavior change
 
 2. **Phase 3**: Duplicate impl detection
+
    - Will surface existing duplicate impls as errors
    - May require user code changes
 
@@ -308,12 +330,15 @@ Keep structural comparison for these because:
 ## Questions to Resolve
 
 1. **Should generic impls be subject to orphan rules?**
+
    - `impl(forall(T), Data(T), Copy())` - Data is local but T is any type
 
 2. **How to handle re-exports?**
+
    - If module A re-exports module B's type, which module is "local"?
 
 3. **Should prelude be exempt from orphan rules?**
+
    - Currently it has special handling for anonymous module impls
 
 4. **Error recovery for duplicate impls during development?**

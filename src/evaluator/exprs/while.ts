@@ -65,7 +65,7 @@ export function evaluateWhile({
     throw formatErrorMessage({
       token: conditionExpr.token,
       errorMessage: `Expected bool type for condition expression, got:\n${exprToString(
-        conditionExpr
+        conditionExpr,
       )}`,
     });
   }

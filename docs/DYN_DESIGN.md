@@ -18,7 +18,7 @@ main :: (fn() -> unit) {
   // Value types must be boxed
   use_id(dyn(box(42)));
   use_id(dyn(box(true)));
-  
+
   // Object types can be used directly
   point := Point(3, 4);
   use_id(dyn(point));
@@ -39,6 +39,7 @@ typedef struct {
 ```
 
 **Key Points:**
+
 - `Dyn` is a **value type** - copied by value like a struct
 - `data` **must** point to an object type (always has ref_header)
 - When you copy a `Dyn`, you `___dup` the `data` pointer
@@ -60,6 +61,7 @@ void* data = point;                // Store Point pointer
 ```
 
 **Box Type Definition:**
+
 ```yo
 Box :: (fn(compt(V) : Type) -> compt(Type))
   object(
@@ -72,6 +74,7 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 ```
 
 **Why this constraint?**
+
 - Simplifies `Dyn`: No ref_header needed
 - Single RC layer: Only `data` is reference counted
 - Uniform handling: All `data` pointers have the same memory layout
@@ -87,21 +90,25 @@ typedef struct {
 ```
 
 **Wrapper Functions:**
+
 - **Object types**: Use direct casts (no wrapper needed)
 - **Boxed value types**: Generate wrappers to unwrap `Box(T)` before calling impl
 
 ## Object-Safety Constraint (Following Rust)
 
 **Constraint**: Modules used with `Dyn()` **cannot** have methods that:
+
 1. Take `Self` by value - must use `self : *(Self)` instead
-2. Return `Self` 
+2. Return `Self`
 3. Return types containing `Self` (like `Option(Self)`, `Result(Self, E)`, etc.)
 
 This follows Rust's "object-safety" rules (dyn-compatibility). The reasons:
+
 - Taking `Self` by value: Different concrete types have different sizes (i32 vs MyBox*), impossible to pass through uniform `void*` parameter
 - Returning `Self`: Different concrete types produce different return types, making uniform vtable signatures impossible
 
 **Valid** for dynamic dispatch:
+
 ```yo
 TestDyn :: module(
   return_i32 : fn(self : *(Self)) -> i32,  // Takes *(Self), returns concrete type - OK!
@@ -110,6 +117,7 @@ TestDyn :: module(
 ```
 
 **Invalid** for dynamic dispatch (object-safety violations):
+
 ```yo
 TestDyn :: module(
   by_value : fn(self : Self) -> unit,      // Takes Self by value - NOT object-safe!
@@ -126,6 +134,7 @@ The constraint is **enforced at method call time**, not at module definition. Yo
 **Rationale**: The `data` field in `Dyn` must point to reference-counted memory. This ensures safe memory management without adding a ref_header to `Dyn` itself.
 
 **Examples:**
+
 ```yo
 // Value types must be boxed
 dyn(box(42));           // OK: box(42) returns Box(i32), which is an object type
@@ -244,6 +253,7 @@ void __yo_drop_dyn_module_Id(yo_dyn_module_Id dyn) {
 ```
 
 **Key Points:**
+
 - No type-specific dup/drop needed - `data` is always an object pointer
 - The `data` object's dispose function handles cleanup (Box or regular object)
 - `Dyn` itself is never heap-allocated, so no dispose function needed
@@ -251,20 +261,23 @@ void __yo_drop_dyn_module_Id(yo_dyn_module_Id dyn) {
 ## Implementation Plan
 
 ### Phase 1: Collection & Analysis
+
 - Track `dyn()` call sites during expression analysis
 - Collect: `{ dynType, concreteType, implModuleValue }[]`
 - Store in `context.dynImpls` or similar
 
 ### Phase 2: Generate Wrapper Functions
+
 **Location**: `src/codegen/functions/generation.ts`
 
 For boxed value types, generate wrappers to unwrap `Box(T)` before calling impl:
+
 ```typescript
 function generateDynMethodWrapper(
   implType: Type,
   method: Method,
   moduleType: ModuleType,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): string {
   if (isObjectType(implType)) {
     // Object type: no wrapper needed, return direct cast
@@ -272,92 +285,106 @@ function generateDynMethodWrapper(
     const returnType = getTypeString(method.returnType, context);
     return `(${returnType}(*)(void*))${methodFuncId}`;
   }
-  
+
   // Value type: generate wrapper to unwrap Box(T)
   const implCName = getTypeCName(implType, context);
   const wrapperName = `wrapper_Box_${implCName}_${method.name}`;
   const returnType = getTypeString(method.returnType, context);
   const methodFuncId = getMethodFunctionId(implType, method.name);
-  
+
   emitter.emitLine(`${returnType} ${wrapperName}(void* self_ptr) {`);
   emitter.emitLine(`  Box_${implCName}* box = (Box_${implCName}*)self_ptr;`);
   emitter.emitLine(`  return ${methodFuncId}(&box->value);`);
   emitter.emitLine(`}`);
-  
+
   return wrapperName;
 }
 ```
 
 ### Phase 3: Generate Static Vtables
+
 **Location**: `src/codegen/functions/generation.ts`
 
 For each dyn impl, generate static vtable using wrappers or direct casts:
+
 ```typescript
 function generateStaticVtable(
   implType: Type,
   dynType: DynType,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
 ) {
   const vtableName = `yo_vtable_${implCName}_${moduleCName}`;
-  
+
   emitter.emitLine(`static const ${dynVtableType} ${vtableName} = {`);
-  
+
   for (const method of moduleType.fields) {
     // Generate wrapper (or direct cast for object types)
-    const funcPtr = generateDynMethodWrapper(implType, method, moduleType, context);
+    const funcPtr = generateDynMethodWrapper(
+      implType,
+      method,
+      moduleType,
+      context,
+    );
     emitter.emitLine(`  .${method.name} = ${funcPtr},`);
   }
-  
+
   emitter.emitLine(`};`);
 }
 ```
 
 ### Phase 4: Update dyn() Call Generation
+
 **Location**: `src/codegen/expressions/generation.ts`
 
 ```typescript
-function generateDynCall(expr: FuncCallExpr, indent: string, context: CodeGenContext): string {
+function generateDynCall(
+  expr: FuncCallExpr,
+  indent: string,
+  context: CodeGenContext,
+): string {
   const valueExpr = expr.args[0];
   const dynType = expr.$.type as DynType;
   const valueType = valueExpr.$.type;
-  
+
   // valueExpr must be an object type (pointer with ref_header)
-  if (valueType.kind !== 'pointer' || valueType.baseType.kind !== 'object') {
-    throw new Error('dyn() requires object type (use box() for value types)');
+  if (valueType.kind !== "pointer" || valueType.baseType.kind !== "object") {
+    throw new Error("dyn() requires object type (use box() for value types)");
   }
-  
+
   const concreteType = valueType.baseType;
-  
+
   // Generate value (this is an object pointer)
   const valueCode = generateExpr(valueExpr, indent, context);
-  
+
   // Create Dyn struct on stack
   const dynVar = expr.$.variableName || generateTempName();
   const dynCName = getTypeCName(dynType, context);
   const vtableName = `yo_vtable_${getTypeCName(concreteType, context)}_${dynType.moduleName}`;
-  
+
   context.emitter.emitLine(`${indent}${dynCName} ${dynVar} = {`);
   context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
   context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);
   context.emitter.emitLine(`${indent}};`);
-  
+
   return dynVar;
 }
 ```
 
 ### Phase 5: Update Method Call on Dyn
+
 **Location**: `src/codegen/expressions/generation.ts`
 
 When calling a method on Dyn value (which is a struct):
+
 ```typescript
 function generateMethodCallOnDyn(
   receiver: Expr,
   methodName: string,
   dynType: DynType,
-  context: CodeGenContext
+  context: CodeGenContext,
 ): string {
   const receiverCode = generateExpr(receiver, indent, context);
-  
+
   // receiver is a struct: yo_dyn_module_TestDyn
   // Generate: receiver.vtable->method(receiver.data)
   return `${receiverCode}.vtable->${methodName}(${receiverCode}.data)`;
@@ -365,6 +392,7 @@ function generateMethodCallOnDyn(
 ```
 
 ### Phase 6: Generate Dup/Drop Functions
+
 **Location**: `src/codegen/functions/generation.ts`
 
 Since `Dyn` is a value type, generate dup/drop functions that operate on the `data` pointer:
@@ -372,7 +400,7 @@ Since `Dyn` is a value type, generate dup/drop functions that operate on the `da
 ```typescript
 function generateDynDupDrop(dynType: DynType, context: CodeGenContext) {
   const dynCName = getTypeCName(dynType, context);
-  
+
   // Generate dup function
   emitter.emitLine(`${dynCName} __yo_dup_${dynCName}(${dynCName} dyn) {`);
   emitter.emitLine(`  if (dyn.data) {`);
@@ -380,7 +408,7 @@ function generateDynDupDrop(dynType: DynType, context: CodeGenContext) {
   emitter.emitLine(`  }`);
   emitter.emitLine(`  return dyn;`);
   emitter.emitLine(`}`);
-  
+
   // Generate drop function
   emitter.emitLine(`void __yo_drop_${dynCName}(${dynCName} dyn) {`);
   emitter.emitLine(`  if (dyn.data) {`);

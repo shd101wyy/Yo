@@ -1,7 +1,6 @@
 > https://www.youtube.com/watch?v=6OFhD_mHtKA&ab_channel=ACMSIGPLAN
 > Paper: https://www.microsoft.com/en-us/research/uploads/prod/2021/06/perceus-pldi21.pdf
 
-
 <!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
 
 <!-- code_chunk_output -->
@@ -11,8 +10,6 @@
   - [Finally](#finally)
 
 <!-- /code_chunk_output -->
-
-
 
 ## Trailing lambdas
 
@@ -112,6 +109,6 @@ function testFinally() {
 
 ## Effect Types
 
-- Every function has an input type, a return type, and an effect type.  
-- Effect typing fits naturally with HM type inference using polymorphic row-types.  
-- Algebraic effects and handlers fit naturally for user defined effects.  
+- Every function has an input type, a return type, and an effect type.
+- Effect typing fits naturally with HM type inference using polymorphic row-types.
+- Algebraic effects and handlers fit naturally for user defined effects.

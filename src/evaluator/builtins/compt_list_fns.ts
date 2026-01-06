@@ -47,7 +47,7 @@ export function evaluateYoComptListCar({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -55,7 +55,7 @@ export function evaluateYoComptListCar({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -65,7 +65,7 @@ export function evaluateYoComptListCar({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -116,7 +116,7 @@ export function evaluateYoComptListCdr({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -124,7 +124,7 @@ export function evaluateYoComptListCdr({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -135,7 +135,7 @@ export function evaluateYoComptListCdr({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -189,7 +189,7 @@ export function evaluateYoComptListCons({
     throw formatErrorMessage({
       token: carArg.token,
       errorMessage: `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
-        carArg
+        carArg,
       )}`,
     });
   }
@@ -199,7 +199,7 @@ export function evaluateYoComptListCons({
     throw formatErrorMessage({
       token: carArg.token,
       errorMessage: `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
-        carArg
+        carArg,
       )}`,
     });
   }
@@ -215,7 +215,7 @@ export function evaluateYoComptListCons({
     throw formatErrorMessage({
       token: cdrArg.token,
       errorMessage: `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
-        cdrArg
+        cdrArg,
       )}`,
     });
   }
@@ -224,7 +224,7 @@ export function evaluateYoComptListCons({
     throw formatErrorMessage({
       token: cdrArg.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
-        cdrArg
+        cdrArg,
       )}`,
     });
   }
@@ -233,7 +233,7 @@ export function evaluateYoComptListCons({
     throw formatErrorMessage({
       token: cdrArg.token,
       errorMessage: `Expected ComptList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
-        cdrArg
+        cdrArg,
       )}`,
     });
   }
@@ -245,7 +245,7 @@ export function evaluateYoComptListCons({
         type: carArgType,
         env,
       },
-      { type: comptListType.childType, env }
+      { type: comptListType.childType, env },
     )
   ) {
     throw formatErrorMessage({
@@ -285,7 +285,7 @@ export function evaluateYoComptListAppend({
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_compt_list_append,
-    2
+    2,
   );
 
   const firstListArg = evaluateExpression({
@@ -300,7 +300,7 @@ export function evaluateYoComptListAppend({
     throw formatErrorMessage({
       token: firstListArg.token,
       errorMessage: `Failed to evaluate the first argument expression for "${expr.func.token.value}":\n${exprToString(
-        firstListArg
+        firstListArg,
       )}`,
     });
   }
@@ -309,7 +309,7 @@ export function evaluateYoComptListAppend({
     throw formatErrorMessage({
       token: firstListArg.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" first argument, got:\n${exprToString(
-        firstListArg
+        firstListArg,
       )}`,
     });
   }
@@ -318,7 +318,7 @@ export function evaluateYoComptListAppend({
     throw formatErrorMessage({
       token: firstListArg.token,
       errorMessage: `Expected Expr value for "${expr.func.token.value}" first argument, got:\n${exprToString(
-        firstListArg
+        firstListArg,
       )}`,
     });
   }
@@ -334,7 +334,7 @@ export function evaluateYoComptListAppend({
     throw formatErrorMessage({
       token: secondListArg.token,
       errorMessage: `Failed to evaluate the second argument expression for "${expr.func.token.value}":\n${exprToString(
-        secondListArg
+        secondListArg,
       )}`,
     });
   }
@@ -343,7 +343,7 @@ export function evaluateYoComptListAppend({
     throw formatErrorMessage({
       token: secondListArg.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
-        secondListArg
+        secondListArg,
       )}`,
     });
   }
@@ -352,7 +352,7 @@ export function evaluateYoComptListAppend({
     throw formatErrorMessage({
       token: secondListArg.token,
       errorMessage: `Expected ComptList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
-        secondListArg
+        secondListArg,
       )}`,
     });
   }
@@ -366,7 +366,7 @@ export function evaluateYoComptListAppend({
         type: firstComptListType,
         env,
       },
-      { type: secondComptListType, env }
+      { type: secondComptListType, env },
     )
   ) {
     throw formatErrorMessage({
@@ -392,7 +392,7 @@ export function evaluateYoComptListAppend({
       ];
       expr.$.value = createComptListValue(
         firstComptListType.childType,
-        newElements
+        newElements,
       );
     } else {
       // cdrValue is unknown
@@ -416,7 +416,7 @@ export function evaluateYoComptListLength({
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_compt_list_length,
-    1
+    1,
   );
 
   const argExpr = expr.args[0]!;
@@ -431,7 +431,7 @@ export function evaluateYoComptListLength({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -439,7 +439,7 @@ export function evaluateYoComptListLength({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -448,7 +448,7 @@ export function evaluateYoComptListLength({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -482,7 +482,7 @@ export function evaluateYoComptListElementType({
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_compt_list_element_type,
-    1
+    1,
   );
 
   const argExpr = expr.args[0]!;
@@ -497,7 +497,7 @@ export function evaluateYoComptListElementType({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -505,7 +505,7 @@ export function evaluateYoComptListElementType({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        argExpr
+        argExpr,
       )}`,
     });
   }
@@ -515,7 +515,7 @@ export function evaluateYoComptListElementType({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${typeToString(
-        comptListType
+        comptListType,
       )}`,
     });
   }

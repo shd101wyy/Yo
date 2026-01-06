@@ -59,7 +59,7 @@ export function evaluateSizeOf({
   } else {
     typeSizeValue = createNumberValue(
       ValueTag.Usize,
-      Math.ceil(typeSizeInBits / 8) // Convert bits to bytes
+      Math.ceil(typeSizeInBits / 8), // Convert bits to bytes
     );
   }
 

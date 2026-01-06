@@ -205,7 +205,7 @@ export function handleMemberDestructuring({
         throw formatErrorMessage({
           token: leftSide.token,
           errorMessage: `Expected identifier for label in destructuring pattern, got ${exprToString(
-            leftSide
+            leftSide,
           )}`,
         });
       }
@@ -215,7 +215,7 @@ export function handleMemberDestructuring({
 
       // Find the member with matching label
       const matchingMemberIndex = rhsFields.findIndex(
-        (member) => member.label === label
+        (member) => member.label === label,
       );
 
       if (matchingMemberIndex === -1) {
@@ -290,7 +290,7 @@ export function handleMemberDestructuring({
         throw formatErrorMessage({
           token: lhsField.token,
           errorMessage: `Cannot destructure union type with positional destructuring, got ${typeToString(
-            rhsType
+            rhsType,
           )}`,
         });
       }
@@ -475,7 +475,7 @@ export function evaluateDestructuringAssignment({
     }
 
     const selectedVariant = rhsType.variants.find(
-      (variant) => variant.name === selectedVariantName
+      (variant) => variant.name === selectedVariantName,
     );
     if (!selectedVariant) {
       throw formatErrorMessage({

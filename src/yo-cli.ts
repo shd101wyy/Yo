@@ -31,7 +31,7 @@ yo add <package>@<version>       Install a specific version of a package
 yo remove <package>              Uninstall a package
 
 yo run <script>                  Run a script defined in 'yo.json'
-`
+`,
   )
   .option("o", {
     alias: "output",
@@ -163,7 +163,7 @@ yo run <script>                  Run a script defined in 'yo.json'
         allocator: argv.allocator as "mimalloc" | "libc",
         sanitize: argv.sanitize as "address" | "leak" | undefined,
       });
-    }
+    },
   )
   .command(
     "test [path]",
@@ -225,7 +225,7 @@ yo run <script>                  Run a script defined in 'yo.json'
 
       // Exit with non-zero code if any tests failed
       process.exit(summary.failed > 0 ? 1 : 0);
-    }
+    },
   )
   .demandCommand(1, "You need to specify a command (e.g., 'compile')")
   .strict()

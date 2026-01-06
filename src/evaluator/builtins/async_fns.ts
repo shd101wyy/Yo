@@ -142,7 +142,7 @@ export function evaluateAsync({
         type: expectedFutureModuleType.isFuture.outputType,
         env: context.expectedType!.env,
       },
-      true
+      true,
     )
   ) {
     futureModuleType = expectedFutureModuleType;
@@ -190,7 +190,7 @@ export function evaluateAsync({
   if (captureType) {
     const outerVarNames = new Set(captureType.fields.map((f) => f.label));
     awaitAnalysis.capturedVariables = awaitAnalysis.capturedVariables.filter(
-      (v) => !outerVarNames.has(v.name)
+      (v) => !outerVarNames.has(v.name),
     );
   }
 
@@ -228,7 +228,7 @@ export function evaluateAsync({
     "", // Name for the SomeType
     undefined,
     [futureModuleType], // requiredModules
-    undefined // negativeModules
+    undefined, // negativeModules
   );
   finalType.resolvedConcreteType = captureType;
 

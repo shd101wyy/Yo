@@ -37,7 +37,7 @@ export function createFunctionBodyEvaluationContext(
   context: EvaluatorContext,
   functionType: FunctionType,
   functionValue: FunctionValue,
-  env: Environment
+  env: Environment,
 ): {
   evaluationContext: EvaluatorContext;
   functionBodyContext: FunctionEvaluationContext;
@@ -115,7 +115,7 @@ export function tryToImplementFunctionByFunctionType({
     expectedType.parameters.length === functionType.parameters.length &&
     expectedType.parameters.some(
       (expectedParam, i) =>
-        expectedParam.label !== functionType.parameters[i]!.label
+        expectedParam.label !== functionType.parameters[i]!.label,
     );
 
   let env = pushEnvFrame(
@@ -123,7 +123,7 @@ export function tryToImplementFunctionByFunctionType({
     // For regular functions, we only keep top-level frame and compile-time variables
     isInClosureContext
       ? callerEnv
-      : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv)
+      : keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv),
   );
 
   // If we need parameter aliasing, manually add parameters with aliases
@@ -226,7 +226,7 @@ export function tryToImplementFunctionByFunctionType({
     { ...context, capturedVariables: undefined },
     newFunctionType,
     functionValue,
-    env
+    env,
   );
 
   const evaluatedFunctionBody = evaluateBeginExpression({
@@ -254,7 +254,7 @@ export function tryToImplementFunctionByFunctionType({
   if (
     !areTypesCompatible(
       { type: newFunctionType.return.type, env },
-      { type: functionBodyReturnType, env }
+      { type: functionBodyReturnType, env },
     )
   ) {
     // console.trace();

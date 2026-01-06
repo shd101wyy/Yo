@@ -269,9 +269,11 @@ fn create() -> Point {
 ```
 
 ### Rule 4: Scope Exit
+
 **Call `___dup` when a value leaves its scope:**
 
 **Begin blocks:**
+
 ```yo
 x := box(1);
 y := {
@@ -282,6 +284,7 @@ y := {
 ```
 
 **Match expressions:**
+
 ```yo
 optional := Option(Box(i32)).Some(box(42)); // optional owns
 x := match(optional,
@@ -496,8 +499,8 @@ After the memcpy, **both the source and destination exist as separate values**. 
 ```typescript
 // In begin.ts optimization:
 const isValueTypeWithRCFields =
-  !isObjectType(baseVariable.type) &&  // Not a pointer type
-  typeContainsRcType(baseVariable.type);  // Contains RC fields
+  !isObjectType(baseVariable.type) && // Not a pointer type
+  typeContainsRcType(baseVariable.type); // Contains RC fields
 
 if (dupCalls && dupCalls.length > 0 && !isValueTypeWithRCFields) {
   // Safe to optimize: either pointer type or no RC fields

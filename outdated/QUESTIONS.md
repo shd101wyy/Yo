@@ -35,14 +35,13 @@ let main = ()=> {
 
 3. Disallow `read/write` for type that contains `read/write`?
 
-
 ```typescript
 type Holder = {
   x: write Data;
 }
 
 let useHolder = (holder: read Holder) {
-  holder.x = malloc(); // Confusion here if we allow `read Holder`.  
+  holder.x = malloc(); // Confusion here if we allow `read Holder`.
 }
 ```
 

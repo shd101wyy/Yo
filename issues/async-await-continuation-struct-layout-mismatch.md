@@ -13,6 +13,7 @@ Async blocks were not completing and continuations were never being spawned afte
 The `yo_async_register_continuation()` function attempted to register continuations on futures using a generic `void*` pointer with a cast to a specific struct type. However, different future types have different memory layouts:
 
 1. **I/O futures (`yo_io_future_t`):**
+
    ```c
    struct {
      yo_ref_header_t header;  // 24 bytes
@@ -74,6 +75,7 @@ For unit-type futures (returning `unit`), we now always include a `uint8_t resul
 ## Verification
 
 After the fix:
+
 - Async blocks properly complete and are freed (RC goes from 2→1→0)
 - Continuations are registered and spawned correctly
 - I/O completion handlers successfully resume waiting tasks

@@ -64,7 +64,7 @@ import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
 export function throwRhsContainsControlFlowExpressionError(
   rhs: Expr,
-  controlFlow: ControlFlowKind
+  controlFlow: ControlFlowKind,
 ) {
   let errorMessage = `Right-hand side contains "${controlFlow}" from function.`;
   if (
@@ -99,7 +99,7 @@ export function throwRhsContainsControlFlowExpressionError(
  */
 function resolveUnknownValuesAndSomeTypeInType(
   type: Type,
-  env: Environment
+  env: Environment,
 ): Type {
   if (isArrayType(type) && isUnknownValue(type.length)) {
     const unknownLength = type.length;
@@ -260,7 +260,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
         throw formatErrorMessage({
           token: rhs.token,
           errorMessage: `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
-            rhs
+            rhs,
           )}\n${e}`,
         });
       }
@@ -300,7 +300,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
           if (
             areTypesCompatible(
               { type: variable.type, env: synthesizedEnv },
-              { type: synthesizedRhsType, env: synthesizedEnv }
+              { type: synthesizedRhsType, env: synthesizedEnv },
             )
           ) {
             rhs = synthesizedRhs;
@@ -310,7 +310,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
             // After synthesis, resolve any unknown values in the variable type
             const resolvedVariableType = resolveUnknownValuesAndSomeTypeInType(
               variable.type,
-              env
+              env,
             );
 
             // Update the variable in the environment with the resolved type
@@ -472,7 +472,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       const rhsOwningVariable = findRcValueOwnerRelationship(
         rhs,
         env,
-        env.modulePath
+        env.modulePath,
       );
 
       // If the RHS owning variable was consumed (moved), LHS becomes the primary owner
@@ -536,7 +536,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
             variable.frameLevel,
             usageType,
             lhs.token,
-            context
+            context,
           );
         }
       }
@@ -566,7 +566,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       const rhsOwningVariable = findRcValueOwnerRelationship(
         rhs,
         env,
-        env.modulePath
+        env.modulePath,
       );
 
       // If the RHS owning variable was consumed (moved), LHS becomes the primary owner
@@ -626,7 +626,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         oldVariableIsOwningTheSameRcValueAs?.frameLevel ===
           env.frames.length - 1
           ? oldVariableIsOwningTheSameRcValueAs
-          : undefined
+          : undefined,
       );
     }
 
@@ -672,7 +672,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                 variable.frameLevel,
                 "write",
                 lhs.token,
-                context
+                context,
               );
             }
           }
@@ -729,7 +729,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         throw formatErrorMessage({
           token: rhs.token,
           errorMessage: `(evaluateAssignment) Failed to synthesize type for expression: ${exprToString(
-            rhs
+            rhs,
           )}\n${e}`,
         });
       }
@@ -772,7 +772,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
               // Find the field index
               const structType = variable.type as StructType | TupleType;
               const fieldIndex = structType.fields.findIndex(
-                (element) => element.label === fieldOrIndex
+                (element) => element.label === fieldOrIndex,
               );
 
               if (fieldIndex >= 0 && rhs.$?.value) {
@@ -791,7 +791,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   // and update them all to maintain reference semantics
                   const allVariables = getVariablesFromEnvByFilter(
                     env,
-                    (v) => v.isCompileTimeOnly && v.value === currentValue
+                    (v) => v.isCompileTimeOnly && v.value === currentValue,
                   );
                   for (const sharedVariable of allVariables) {
                     env = updateExistingVariable(env, sharedVariable, {
@@ -808,12 +808,12 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   if (isStructValue(currentValue)) {
                     newValue = createStructValue(
                       structType as StructType,
-                      newFields
+                      newFields,
                     );
                   } else {
                     newValue = createTupleValue(
                       structType as TupleType,
-                      newFields
+                      newFields,
                     );
                   }
 
@@ -854,13 +854,13 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
 
               // Find the selected variant
               const selectedVariant = enumType.variants.find(
-                (variant) => variant.name === currentValue.variantName
+                (variant) => variant.name === currentValue.variantName,
               );
 
               if (selectedVariant) {
                 // Find the field index in the variant
                 const fieldIndex = (selectedVariant.fields ?? []).findIndex(
-                  (element) => element.label === fieldOrIndex
+                  (element) => element.label === fieldOrIndex,
                 );
 
                 if (fieldIndex >= 0 && rhs.$?.value) {
@@ -871,7 +871,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   const newValue = createEnumValue(
                     enumType,
                     currentValue.variantName,
-                    newFields
+                    newFields,
                   );
 
                   // Value semantics - only update the specific variable

@@ -50,7 +50,7 @@ export function evaluateConcreteType({
     throw formatErrorMessage({
       token: concreteTypeExpr.token,
       errorMessage: `Failed to evaluate the concrete type expression for Concrete:\n${exprToString(
-        concreteTypeExpr
+        concreteTypeExpr,
       )}`,
     });
   }
@@ -61,7 +61,7 @@ export function evaluateConcreteType({
     throw formatErrorMessage({
       token: concreteTypeExpr.token,
       errorMessage: `Concrete type constructor expects a type as its argument, but got:\n${exprToString(
-        concreteTypeExpr
+        concreteTypeExpr,
       )}`,
     });
   }
