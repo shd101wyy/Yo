@@ -438,6 +438,8 @@ export function findMethodsFromGenericImpls({
                   evaluationEnv: specializedEnv,
                 },
                 functionReturnImplConcreteType: [], // Fresh array for each specialization
+                // Set SelfType to the concrete type from substitutions
+                SelfType: match.substitutions.get("Self"),
               } as EvaluatorContext,
               variablesToAdd: [],
               isEvaluatingFunctionBodyBeginBlock: true,
@@ -620,6 +622,8 @@ export function findMethodFromGenericImplForModule({
                 evaluationEnv: specializedEnv,
               },
               functionReturnImplConcreteType: [], // Fresh array for each specialization
+              // Set SelfType to the concrete type from substitutions
+              SelfType: match.substitutions.get("Self"),
             } as EvaluatorContext,
             variablesToAdd: [],
             isEvaluatingFunctionBodyBeginBlock: true,

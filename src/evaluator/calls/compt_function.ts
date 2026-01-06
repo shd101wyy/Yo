@@ -145,9 +145,12 @@ export function evaluateComptFunctionCall({
       // Only set isExecuting=true if we're not in validation mode
       isExecuting: context.isValidatingFunctionDefinition ? false : true,
       functionReturnImplConcreteType: [], // Fresh array for each call
+      // Propagate SelfType from function type if available
+      SelfType: functionType.SelfType ?? context.SelfType,
     },
     variablesToAdd: [],
   });
+
   if (!evaluatedFunctionBody.$) {
     throw formatErrorMessage({
       token: functionValue.body.token,
