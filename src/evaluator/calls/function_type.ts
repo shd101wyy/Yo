@@ -13,6 +13,7 @@ import {
   areTypesCompatible,
   FunctionType,
   isFunctionType,
+  isSomeType,
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
@@ -263,6 +264,17 @@ export function tryToImplementFunctionByFunctionType({
 - Expected: ${typeToString(newFunctionType.return.type)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
     });
+  }
+
+  // If the return type is a SomeType (Impl) without resolvedConcreteType,
+  // and the function body returns a concrete type that implements the required modules,
+  // set the resolvedConcreteType for proper codegen
+  if (
+    isSomeType(newFunctionType.return.type) &&
+    !newFunctionType.return.type.resolvedConcreteType &&
+    !isSomeType(functionBodyReturnType)
+  ) {
+    newFunctionType.return.type.resolvedConcreteType = functionBodyReturnType;
   }
 
   if (
