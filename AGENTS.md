@@ -9,7 +9,7 @@ Usually don't modify the `fixme.yo` unless I tell you to do so.
 
 Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so. 
 
-You can comment out the existing code in `src/tests/examples/fixme.yo` and create new one there. But don't create `.yo` file for testing.  
+You can comment out the existing code in `src/tests/fixme.yo` and create new one there. But don't create `.yo` file for testing.  
 
 Do not use `npm` command, only use `bun` command.
 
@@ -17,9 +17,9 @@ Never hardcode any typescript or yo when you are trying to solve a problem.
 
 Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
-To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/examples/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/examples/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
+To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
-Or you can run `./yo-cli compile src/tests/examples/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
+Or you can run `./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
 
 For debugging running command, always use `| head` or `| tail` to limit the output.
 
@@ -32,7 +32,7 @@ For debugging running command, always use `| head` or `| tail` to limit the outp
 
 - `--sanitize address` - Enable AddressSanitizer for memory error and leak detection
 - `--sanitize leak` - Enable LeakSanitizer for leak detection only
-- Example: `./yo-cli compile src/tests/examples/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
+- Example: `./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
 
 **Running Tests:**
 
@@ -79,8 +79,6 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
 Ignore the `DESIGN.md` and other markdown files because they are out of date.
-
-Ignore the Yo files in `src/tests/examples/` except `fixme.yo`. They are all out of date.  
 
 No need to read fixme.test.ts
 
