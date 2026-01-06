@@ -1111,7 +1111,14 @@ function tryMatchGenericImpl({
         const variables = getVariablesFromEnv(expectedEnv, param.name);
         const variable = variables[variables.length - 1];
         if (variable && variable.value && !isUnknownValue(variable.value)) {
-          valueSubstitutions.set(param.name, variable.value);
+          // IMPORTANT: Use the parameter's declared type, not the value's type
+          // For example, if forall(U : usize) and the value is 3 (compt_int),
+          // we should store it as 3 with type usize, not compt_int
+          const valueWithCorrectType = {
+            ...variable.value,
+            type: param.type,
+          };
+          valueSubstitutions.set(param.name, valueWithCorrectType);
         }
       }
     }
