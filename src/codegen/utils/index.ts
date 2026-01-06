@@ -332,7 +332,7 @@ export function getTypeString(
       return "double";
     case TypeTag.ComptInt:
       // compt_int is a compile-time integer with infinite precision
-      // For C generation, we'll use a reasonable default like int64_t
+      // For C generation, we'll use a reasonable default like int32_t
       // In a more sophisticated implementation, we might analyze the actual value
       return "int32_t";
     case TypeTag.ComptFloat:

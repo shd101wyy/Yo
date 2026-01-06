@@ -1117,7 +1117,7 @@ function tryMatchGenericImpl({
           const valueWithCorrectType = {
             ...variable.value,
             type: param.type,
-          };
+          } as Value;
           valueSubstitutions.set(param.name, valueWithCorrectType);
         }
       }
