@@ -338,9 +338,10 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   for (const funcId in context.functions) {
     const { value, cName } = context.functions[funcId]!;
 
-    // If the function is generic, we will handle it later
+    // If the function is generic or has been specialized, we will handle it later
     if (
       isGenericFunction(value) ||
+      value.specializedType || // Skip if this is a specialized version - it will be generated in generateSpecializedFunctions
       isComptFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
@@ -507,10 +508,12 @@ export function generateFunction(
 
   // For functions returning Impl(Module) (SomeType), use the concrete type from the body
   // This is for static dispatch - the body's actual return type is the function's return type
+  // BUT: Don't do this for specialized functions - their specializedType is already correct
   if (
     functionValue.body &&
     isSomeType(functionType.return.type) &&
-    !typeImplementsFuture(functionType.return.type)
+    !typeImplementsFuture(functionType.return.type) &&
+    !functionValue.specializedType // Don't override for specialized functions
   ) {
     // The body should have the concrete return type
     if (functionValue.body.$?.type) {
@@ -521,6 +524,9 @@ export function generateFunction(
   // For specialized functions where the body's return type is more specific than the signature's
   // (e.g., when generic type parameters have been substituted but the signature still uses generic types)
   // Use the body's concrete return type
+  // SKIP THIS: The body type might not be properly updated during specialization
+  // The specializedType is already correct, so just use it
+  /*
   if (
     !overrideReturnType &&
     functionValue.body &&
@@ -539,6 +545,7 @@ export function generateFunction(
       overrideReturnType = bodyReturnTypeCName;
     }
   }
+  */
 
   // Regular function generation (async blocks within the function handle their own state machines)
   const functionPrototype = overrideReturnType
@@ -790,7 +797,10 @@ export function generateFunctionBody(
           ) {
             // First, generate the expression and store it in its temp variable
             if (lastExpr.$?.variableName) {
-              const exprType = getTypeString(lastExpr.$.type!, context);
+              // const exprType = getTypeString(lastExpr.$.type!, context);
+              // Use the function's return type instead of expression type for specialized functions
+              // because the expression type might still have unresolved type parameters
+              const exprType = getTypeString(functionType.return.type, context);
               const exprTempVar = getVariableNameForCodegen(
                 lastExpr.$.variableName,
                 lastExpr.$.env

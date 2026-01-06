@@ -43,6 +43,7 @@ import {
   ModuleType,
   SomeType,
   Type,
+  typeContainsUnknownValue,
   typeToString,
 } from "../../types";
 import {
@@ -362,11 +363,28 @@ export function findMethodsFromGenericImpls({
           // NOTE: We re-evaluate when there are VALUE substitutions OR TYPE substitutions.
           // Type substitutions need re-evaluation so that expressions like `__yo_iso_extract(self)`
           // get the correct specialized types (e.g., Iso(Box(i32)) instead of Iso(T)).
+          //
+          // IMPORTANT: We should NOT create specialized function values when the concreteType
+          // contains Unknown values. This happens during initial function definition when
+          // parameters are still Unknown. In this case, just return the substituted type
+          // with undefined value - no specialized function body is created.
+          // The proper specialization will happen later when called with concrete values.
+          //
+          // Why? If we create a specialized function with Unknown types, it gets collected
+          // but then skipped during codegen (because its body contains UnknownValue).
+          // Later when called with concrete types, a NEW specialized function is created
+          // (after collection phase), but it's never collected, causing "implicit declaration" errors.
           let value: Value | undefined = originalValue;
-          if (
+
+          // Check if we should create a specialized function value
+          const hasUnknownTypes = typeContainsUnknownValue(concreteType);
+          const shouldCreateSpecializedValue =
             isFunctionValue(originalValue) &&
-            (match.valueSubstitutions.size > 0 || match.substitutions.size > 0)
-          ) {
+            (match.valueSubstitutions.size > 0 ||
+              match.substitutions.size > 0) &&
+            !hasUnknownTypes;
+
+          if (shouldCreateSpecializedValue) {
             // Clone the function body for re-evaluation
             const clonedBody = cloneExpr(originalValue.body);
 
@@ -382,7 +400,27 @@ export function findMethodsFromGenericImpls({
               specializedType.parametersFrame
             );
 
-            // Add value substitutions (compile-time values like U=3)
+            // Add type substitutions to the environment first (like T=i32, U=usize, Self=[i32; 5])
+            // These must come BEFORE value substitutions so that value expressions can reference the types
+            for (const [paramName, paramType] of match.substitutions) {
+              // Include Self - it's needed for method bodies that reference it
+              const { env: nextEnv } = addVariableToEnv({
+                env: specializedEnv,
+                variable: {
+                  name: paramName,
+                  type: createType0(),
+                  isCompileTimeOnly: true,
+                  value: createTypeValue(paramType),
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+              });
+              specializedEnv = nextEnv;
+            }
+
+            // Add value substitutions (compile-time values like n=3)
             for (const [paramName, paramValue] of match.valueSubstitutions) {
               const { env: nextEnv } = addVariableToEnv({
                 env: specializedEnv,
@@ -398,26 +436,6 @@ export function findMethodsFromGenericImpls({
                 },
               });
               specializedEnv = nextEnv;
-            }
-
-            // Also add type substitutions to the environment (like T=Box(i32))
-            for (const [paramName, paramType] of match.substitutions) {
-              if (paramName !== "Self") {
-                const { env: nextEnv } = addVariableToEnv({
-                  env: specializedEnv,
-                  variable: {
-                    name: paramName,
-                    type: createType0(),
-                    isCompileTimeOnly: true,
-                    value: createTypeValue(paramType),
-                    token: PlaceholderToken,
-                    initializedAtToken: PlaceholderToken,
-                    consumedAtToken: undefined,
-                    isOwningTheRcValue: false,
-                  },
-                });
-                specializedEnv = nextEnv;
-              }
             }
 
             // Re-evaluate the function body with the concrete values
@@ -445,19 +463,10 @@ export function findMethodsFromGenericImpls({
               isEvaluatingFunctionBodyBeginBlock: true,
             });
 
-            // Update specializedType with the body's actual return type
-            // The re-evaluated body will have the correct concrete types from the type registry
-            // while substituteInFunctionType creates types with the wrong IDs
-            let finalSpecializedType = specializedType;
-            if (specializedBody.$?.type) {
-              finalSpecializedType = {
-                ...specializedType,
-                return: {
-                  ...specializedType.return,
-                  type: specializedBody.$.type,
-                },
-              };
-            }
+            // Use the specializedType from substituteInFunctionType
+            // Don't override with specializedBody.$.type because the body might still
+            // have unresolved type parameters from nested generic calls
+            const finalSpecializedType = specializedType;
 
             // Create a specialized function value with the re-evaluated body
             const specializedFunctionValue: FunctionValue = {
@@ -474,6 +483,10 @@ export function findMethodsFromGenericImpls({
 
             // Also update the type pushed to methods
             methods.push({ type: finalSpecializedType, value });
+          } else if (hasUnknownTypes) {
+            // Don't create specialized value when types are Unknown
+            // Just return the substituted type with undefined value
+            methods.push({ type: specializedType, value: undefined });
           } else if (isFunctionValue(originalValue)) {
             // No substitutions needed, just set the specialized type
             const specializedFunctionValue: FunctionValue = {

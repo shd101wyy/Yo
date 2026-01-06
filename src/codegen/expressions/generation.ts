@@ -2956,7 +2956,10 @@ function generateFuncCall(
                     cTypeString = getTypeString(returnType, context);
                   }
                 } else {
-                  cTypeString = getTypeString(exprType ?? returnType, context);
+                  // cTypeString = getTypeString(exprType ?? returnType, context);
+                  // Use returnType (from function signature) instead of exprType (from expression metadata)
+                  // because exprType might have unresolved type parameters from nested generic calls
+                  cTypeString = getTypeString(returnType ?? exprType, context);
                 }
 
                 context.emitter.emitLine(

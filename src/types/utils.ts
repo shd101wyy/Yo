@@ -499,6 +499,42 @@ export function typeContainsSomeType(
 }
 
 /**
+ * Check if a type contains any Unknown values (e.g., array length is Unknown).
+ * Used to determine if we should fully specialize a generic impl method or not.
+ */
+export function typeContainsUnknownValue(type: Type): boolean {
+  if (isArrayType(type)) {
+    if (isUnknownValue(type.length)) {
+      return true;
+    }
+    return typeContainsUnknownValue(type.childType);
+  }
+  if (isPtrType(type)) {
+    return typeContainsUnknownValue(type.childType);
+  }
+  if (isSliceType(type)) {
+    return typeContainsUnknownValue(type.childType);
+  }
+  if (isTupleType(type)) {
+    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+  }
+  if (isStructType(type)) {
+    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+  }
+  if (isEnumType(type)) {
+    return type.variants.some((v) =>
+      v.fields?.some((param) => typeContainsUnknownValue(param.type))
+    );
+  }
+  if (isUnionType(type)) {
+    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+  }
+
+  // Add other cases as needed
+  return false;
+}
+
+/**
  * Get all SomeTypes contained within a type.
  * @param type
  */

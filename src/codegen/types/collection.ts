@@ -129,7 +129,7 @@ export function collectTypesFromExpr(
       } else {
         context.functions[functionValue.funcId] = {
           value: functionValue,
-          cName: functionValue.funcId,
+          cName: sanitizeForCIdentifier(functionValue.funcId),
         };
         // Collect types from the function signature
         collectTypesFromFunctionType(functionValue.type, context);

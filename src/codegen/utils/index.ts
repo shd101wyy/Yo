@@ -454,6 +454,7 @@ export function getTypeString(
       const arrayType = type as ArrayType;
       const childType = arrayType.childType;
       const length = arrayType.length;
+
       if (isNumberValue(length)) {
         // Generate struct wrapper for arrays to make them returnable by value
         const elementTypeString = getTypeString(childType, context);
