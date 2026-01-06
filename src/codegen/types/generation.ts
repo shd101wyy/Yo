@@ -8,6 +8,7 @@ import {
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
+  isSomeType,
   isStructType,
   isTupleType,
   isUnionType,
@@ -345,8 +346,14 @@ typedef struct yo_io_future_t {
     if (kind === "struct" && isStructType(type)) {
       // Check if struct contains enums or value structs by value
       for (const field of type.fields) {
-        if (isEnumType(field.type)) {
-          const depCName = getTypeString(field.type, context);
+        // Resolve SomeType to concrete type if possible
+        let fieldType = field.type;
+        if (isSomeType(fieldType) && fieldType.resolvedConcreteType) {
+          fieldType = fieldType.resolvedConcreteType;
+        }
+
+        if (isEnumType(fieldType)) {
+          const depCName = getTypeString(fieldType, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
             depTypeId &&
@@ -358,11 +365,11 @@ typedef struct yo_io_future_t {
         }
         // Value structs (non-object, non-newtype) need to be defined first
         else if (
-          isStructType(field.type) &&
-          !field.type.isReferenceSemantics &&
-          !field.type.isNewtype
+          isStructType(fieldType) &&
+          !fieldType.isReferenceSemantics &&
+          !fieldType.isNewtype
         ) {
-          const depCName = getTypeString(field.type, context);
+          const depCName = getTypeString(fieldType, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
             depTypeId &&
@@ -373,8 +380,8 @@ typedef struct yo_io_future_t {
           }
         }
         // Tuples used by value need to be defined first
-        else if (isTupleType(field.type)) {
-          const depCName = getTypeString(field.type, context);
+        else if (isTupleType(fieldType)) {
+          const depCName = getTypeString(fieldType, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
             depTypeId &&

@@ -1,27 +1,230 @@
-some_condition :: (fn() -> bool) true;
+open import "std/libc/stdio.yo";
 
-main :: (fn() -> unit) {
-  compt_expect_error({
-    arr : Array(i32, _);
-    cond(
-      some_condition() => {
-        arr = [1, 2, 3];
-      },
-      true => {
-        arr = [2, 3, 4];
-      }
-    );
-    arr(0) = 5;
+MyBox :: object(
+  (*) : i32,
+
+  dispose :: ((fn(self : Self)-> unit) {
+    printf("Disposing Boxed i32 with value: %d\n", self.*);
+  })
+);
+
+test "Test ClosureType({...}) to create closure value", {
+  x := 1;
+
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  T :: Type.to_string(ClosureType);
+  closure := (ClosureType {
+    x = (x + y);
+    return x;
   });
 
-  arr := cond(
-    some_condition() => [1, 2, 3],
-    // true => {
-    //   x := [1, 2, 3];
-    //   x
-    // },
-    true => [1, 2, 3]
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure(1); // 3
+
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
+  assert(x == 1, "Captured variable x should remain unchanged outside closure");
+  assert(result == 5, "Expected final result to be 5");
+};
+
+test "Test anonymous closure value =>", {
+  x := 1;
+
+  (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
+    x = (x + y);
+    return x;
+  });
+
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure(1); // 3
+
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
+  assert(x == 1, "Captured variable x should remain unchanged outside closure");
+  assert(result == 5, "Expected final result to be 5");
+};
+
+some_cond :: (fn() -> bool) {
+  return true;
+};
+
+// This should fail
+test "Test multiple expected errors", {
+  compt_expect_error({
+    closure : Impl(Fn(y : i32) -> i32);
+    cond(
+      some_cond() => {
+        a := 1;
+        closure = ((y) => {
+          return y + a;
+        });
+      },
+      true => {
+        b := 1;
+        closure = ((y) => {
+          return y + b;
+        });
+      }
+    );
+  });
+
+  compt_expect_error({
+    closure : Impl(Fn(y : i32) -> i32);
+    cond(
+      some_cond() => {
+        a := 1;
+        closure = ((y) => {
+          return y + a;
+        });
+      },
+      true => {
+        a := 2;
+        closure = ((y) => {
+          return y + a;
+        });
+      }
+    );
+  }, "no two closures, even if identical, have the same type");
+
+  compt_expect_error(
+    (closure : Impl(Fn(y : i32) -> i32)) =
+    cond(
+      some_cond() => {
+        a := 1;
+        ((y) => {
+          return y + a;
+        })
+      },
+      true => {
+        a := 2;
+        ((y) => {
+          return y + a;
+        })
+      }
+    )
   );
+
+  // This should fail - sequential reassignment to closures with different capture types
+  compt_expect_error({
+    a := 1;
+    b := 2;
+    closure : Impl(Fn(y : i32) -> i32);
+    closure = ((y) => (y + a));
+    closure = ((y) => (y + b));
+  }, "cannot reassign to variable of Impl");
+  compt_expect_error({
+    a := 1;
+    (closure : Impl(Fn(y : i32) -> i32)) = ((y) => (y + a));
+    closure = ((y) => (y + a));
+  }, "cannot reassign to variable of Impl");
+};
+
+
+test "Test closure with Dyn", {
+  x := 1;
+
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
+    x = (x + y);
+    return x;
+  });
+
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure2(1); // 3
+
+  result := closure(2); // 5
+  printf("Final result: %d\n", result);
+  assert(x == 1, "Captured variable x should remain unchanged outside closure");
+  assert(result == 5, "Expected final result to be 5");
+};
+
+test "Test closure with Impl that captures Rc object", {
+  x := MyBox(1);
+
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  closure := (ClosureType {
+    x.* = (x.* + y);
+    return x.*;
+  });
+
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure(1); // 3
+  result := closure(2); // 5
+
+  printf("Final result: %d\n", result);
+  assert(x.* == 5, "Captured boxed variable should be 5");
+  assert(x.* == result, "Expected final result to be 5");
+};
+
+
+test "Test anonymous closure value with Impl that captures Rc object", {
+  x := MyBox(1);
+
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  (closure : ClosureType) = ((y) => {
+    x.* = (x.* + y);
+    return x.*;
+  });
+
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure(1); // 3
+  result := closure(2); // 5
+
+  printf("Final result: %d\n", result);
+  assert(x.* == 5, "Captured boxed variable should be 5");
+  assert(x.* == result, "Expected final result to be 5");
+};
+
+test "Test anonymous closure value with Dyn that captures Rc object", {
+  x := MyBox(1);
+
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
+    x.* = (x.* + y);
+    return x.*;
+  });
+
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure2(1); // 3
+  result := closure(2); // 5
+
+  printf("Final result: %d\n", result);
+  assert(x.* == 5, "Captured boxed variable should be 5");
+  assert(x.* == result, "Expected final result to be 5");
+};
+
+test "Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
+  x := MyBox(1);
+
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => { // without explicitly calling `box`
+    x.* = (x.* + y);
+    return x.*;
+  });
+
+  closure2 := closure;  // Test dup on closure
+
+  closure(1); // 2
+  closure2(1); // 3
+  result := closure(2); // 5
+
+  printf("Final result: %d\n", result);
+  assert(x.* == 5, "Captured boxed variable should be 5");
+  assert(x.* == result, "Expected final result to be 5");
+};
+
+// Auto-generated main function for test: Test closure with Dyn
+main :: (fn() -> unit) {
+  begin(x := 1, (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box(y => begin(x = (x + y), return(x), ()))), closure2 := closure, closure(1), closure2(1), result := closure(2), printf("Final result: %d\n", result), assert(x == 1, "Captured variable x should remain unchanged outside closure"), assert(result == 5, "Expected final result to be 5"), ());
 };
 
 export main;
