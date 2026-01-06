@@ -31,6 +31,7 @@ import {
   evaluateYoSomeTypeDrop,
   evaluateYoSomeTypeDup,
 } from "../builtins/arc_fns";
+import { evaluateYoArrayFill } from "../builtins/array_fns";
 import { evaluateAsync } from "../builtins/async_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
@@ -420,6 +421,15 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Array)) {
       // Array type
       return evaluateArrayType({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_array_fill, 2)
+    ) {
+      // __yo_array_fill
+      return evaluateYoArrayFill({
         expr,
         env,
         context: { ...context },

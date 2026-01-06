@@ -76,7 +76,6 @@ import {
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
-import { generateArrayFillCall, isArrayFillMethodCall } from "./array";
 
 /**
  * Check if a variable is captured by the closure or is a local variable.
@@ -1362,10 +1361,44 @@ function generateFuncCall(
     }
   }
 
-  // TODO: Remove this and move the logic to prelude.yo
-  // Array.fill method call (macro-like expansion)
-  if (isArrayFillMethodCall(expr)) {
-    return generateArrayFillCall(expr, indent, context);
+  // __yo_array_fill builtin (handled similarly to Array.fill)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_array_fill, 2)) {
+    const arrayTypeArg = expr.args[0]!;
+    const fillValueArg = expr.args[1]!;
+
+    // Get the ArrayType from the first argument's value
+    const arrayTypeValue = arrayTypeArg.$?.value;
+    if (
+      !arrayTypeValue ||
+      !isTypeValue(arrayTypeValue) ||
+      !isArrayType(arrayTypeValue.value)
+    ) {
+      return "/* ERROR: __yo_array_fill first argument must be an ArrayType */";
+    }
+
+    const arrayType = arrayTypeValue.value;
+    const length = arrayType.length;
+    if (!isNumberValue(length)) {
+      return "/* ERROR: __yo_array_fill requires compile-time known array length */";
+    }
+
+    // Generate the array fill code (macro expansion)
+    const arrayTypeName = getTypeString(arrayType, context);
+    const fillValueCode = generateExpr(fillValueArg, indent, context);
+    const tempVarName = expr.$?.variableName || `temp_array_${Date.now()}`;
+    const indexVarName = `i_${randomId()}`;
+
+    // Generate array declaration and fill loop
+    emitter.emitLine(`${indent}${arrayTypeName} ${tempVarName};`);
+    emitter.emitLine(
+      `${indent}for (int ${indexVarName} = 0; ${indexVarName} < ${length.value}; ${indexVarName}++) {`
+    );
+    emitter.emitLine(
+      `${indent}  ${tempVarName}.data[${indexVarName}] = ${fillValueCode};`
+    );
+    emitter.emitLine(`${indent}}`);
+
+    return tempVarName;
   }
 
   // compile-time variable
