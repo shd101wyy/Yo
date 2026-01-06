@@ -8,25 +8,22 @@ test "Test Array declaration with inferred length", {
 
   {
     some_condition :: (fn() -> bool) true;
-    arr : Array(i32, _);
-    compt_expect_error(
+    compt_expect_error({
+      arr : Array(i32, _); // Not allow to have Array with unknown length in binding
       cond(
         some_condition() => {
           arr = [1, 2, 3];
         },
         true => {
-          arr = [1, 2, 3, 4];
+          arr = [2, 3, 4];
         }
-      )
-    );
+      );
+      arr(0) = 5;
+    });
 
-    cond(
-      some_condition() => {
-        arr = [1, 2, 3];
-      },
-      true => {
-        arr = [2, 3, 4];
-      }
+    arr := cond(
+      some_condition() => [1, 2, 3],
+      true => [2, 3, 4]
     );
   };
 
