@@ -1,25 +1,31 @@
-open import "std/libc/stdio.yo";
-
-RetI32 :: module(
-  return_i32 : (fn(self : *(Self)) -> i32)
-);
-
-impl(bool, RetI32(
-  return_i32 : ((self) ->
-    cond(
-      self.* => 1,
-      true => return 0
-    )
-  )
-));
-
-ret_boolean_i32 :: (fn() -> Impl(RetI32)) {
-  return true;
-};
-
-
 main :: (fn() -> unit) {
-  b := ret_boolean_i32();
+  SomeModule :: impl {
+    id :: (fn(x: i32)-> i32) x;
+    implicit_id :: (fn(x: i32)-> i32) x;
+    x :: 1;
+    y :: 2;
+    export id, implicit_id, x, y;
+  };
+
+  {
+    // Use ... to destructure all exports
+    { ... } :: SomeModule;
+    v := id(3);
+
+
+    Point :: struct(a: i32, b: i32);
+    p :: Point 3, 4;
+    { ... } :: p;
+    x2 := id(a);
+  };
+
+  {
+    // Use ...(given) to destructure all implicits // NOTE: "given" is no longer supported
+    open SomeModule;
+    
+    implicit_id(3);
+    id(3);
+  }
 };
 
 export main;
