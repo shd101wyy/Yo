@@ -56,7 +56,7 @@ test "Test assignments", {
     x : i32;
     
     // Initialize a variable defined outside the function body is not allowed
-    test :: (fn() -> unit) {
+    test1 :: (fn() -> unit) {
       compt_expect_error(
         x = 12,
         "Cannot initialize a variable that is defined outside the function body."
@@ -163,6 +163,37 @@ test "Test bindings", {
   };
 };
 
+test "Test variable shadowing", {
+  {
+    (x : i32) = 12;
+    compt_expect_error(
+      x := 13 // Not allowed, because `x` already exists at the current frame.
+    );
+    assert(x == 12);
+
+    {
+      (x : i32) = 14; // Allowed, because we now are in a new frame.
+      compt_expect_error(
+        x := 15 // Not allowed, because `x` already exists at the current frame.
+      );
+      assert(x == 14);
+
+      x = 16; // should not affect outer `x`
+      assert(x == 16);
+    };
+    assert(x == 12);
+    
+    {
+      x := x; // Allowed, because we are in a new frame.
+      assert(x == 12);
+
+      x = (x + 1); // Should not affect outer `x`
+      assert(x == 13);
+    };
+    assert(x == 12);
+  };
+};
+
 test "Test compt", {
   compt_12 :: (fn() -> compt(i32))(
     12
@@ -190,7 +221,7 @@ test "Test compt", {
   };
 };
 
-test "Test cond", {
+test "Test 'cond'", {
   {
     max :: (fn(x : i32, y : i32) -> i32)
       cond(
@@ -208,6 +239,26 @@ test "Test cond", {
     x := 5;
     y := 10;
     assert(max(x, y) == 10);
+  };
+};
+
+test "Test 'while'", {
+  // multiple steps in while
+  {
+    test_multi_steps :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      j := i32(0);
+      
+      while i < max, begin(i = (i + 1), j = (j + 2)), {
+        result = ((result + i) + j);
+      };
+
+      return result;
+    };
+
+    result := test_multi_steps(5);
+    assert(result == 30);
   };
 };
 
@@ -367,6 +418,257 @@ test "Test struct", {
       b;
     };
   };
+
+  // nomimal type
+  {
+    Point1 :: struct(x : i32, y : i32);
+    Point2 :: struct(x : i32, y : i32);
+
+    x := Point1(3, 4);
+    (y : Point2) = _(5, 6);
+
+    compt_expect_error(
+      (z : Point1) := (3, 4),
+      "error: type Mismatch"
+    );
+
+    Point3 :: Point1;
+
+    (z : Point2) = y;
+    (z2 : Point3) = x;
+    compt_expect_error(
+      (z3 : Point2) = x,
+      "error: type Mismatch"
+    );
+
+    assert(x.x == 3);
+    assert(x.y == 4);
+
+    assert(y.x == 5);
+    assert(y.y == 6);
+
+    assert(z.x == 5);
+    assert(z.y == 6);
+
+    assert(z2.x == 3);
+    assert(z2.y == 4);
+  };
+
+  // anonymous struct
+  {
+    p := (struct(x: i32, y: i32))(3, 4);
+    (p2: struct(x: i32, y: i32)) = _(3, 4);
+
+    assert(p.x == 3);
+    assert(p.y == 4);
+    assert(p2.x == 3);
+    assert(p2.y == 4);
+  };
+
+  // struct default field values
+  {
+    Point :: struct
+      (x: i32) ?= 0,
+      (y: i32) ?= 0
+    ;
+
+    p := Point(y: 1, x: 2);
+    p2 := Point();
+    p3 := Point(13);
+    p4 := Point(x: 2);
+    p5 := Point(y: 3);
+
+    assert(p.x == 2);
+    assert(p.y == 1);
+
+    assert(p2.x == 0);
+    assert(p2.y == 0);
+
+    assert(p3.x == 13);
+    assert(p3.y == 0);
+
+    assert(p4.x == 2);
+    assert(p4.y == 0);
+
+    assert(p5.x == 0);
+    assert(p5.y == 3);
+  };
+
+  // struct in tuple
+  {
+    { 
+      SomeStruct :: struct(x: i32, y: bool);
+      Complex :: Tuple(s: SomeStruct);
+
+      x := SomeStruct(1, true);
+      (y: SomeStruct) = _(1, false);
+
+      (c: Complex) = (_(3, true),);
+
+      assert(x.x == 1);
+      assert(x.y == true);
+      assert(y.x == 1);
+      assert(y.y == false);
+      assert(c.0.x == 3);
+      assert(c.0.y == true);
+    };
+
+    {
+      Complex :: struct(x: Tuple(i32, bool), y: i32);
+      (c: Complex) = _((3, true), 4);
+      assert(c.x.0 == 3);
+      assert(c.x.1 == true);
+      assert(c.y == 4);        
+    };
+
+    {
+      SomeStruct :: struct(x: i32, y: bool);
+      Complex0 :: Tuple(SomeStruct);
+      Complex :: Tuple(Complex0);
+
+      (c: SomeStruct) = _(3, false);
+      (c2: Complex0) = (_(3, true),);
+      (c3: Complex) = ((_(3, true),),);
+      (c4: Complex) = ((_(y: true, x: 1),),);
+
+      assert(c.x == 3);
+      assert(c.y == false);
+
+      assert(c2.0.x == 3);
+      assert(c2.0.y == true);
+
+      assert(c3.0.0.x == 3);
+      assert(c3.0.0.y == true);
+
+      assert(c4.0.0.x == 1);
+      assert(c4.0.0.y == true);
+    };
+  };
+
+  // type methods
+  {
+    Withdraw :: struct(
+      balance: i32,
+
+      withdraw :: (fn(self: *(Self), amount: i32) -> i32) {
+        if self.balance >= amount, {
+          self.balance = (self.balance - amount);
+          return self.balance;
+        }, else: {
+          return 0; // insufficient balance
+        };
+      }
+    );
+
+    make_widthdraw_balance_100 :: (fn() -> Withdraw) {
+      (balance : i32) = 100;
+      return { balance };
+    };
+
+    bank := make_widthdraw_balance_100();
+    left := bank.withdraw(50);
+    left2 := bank.withdraw(30);
+    left3 := bank.withdraw(40);
+
+    assert(left == 50);
+    assert(left2 == 20);
+    assert(left3 == 0);
+  };
+};
+
+test "Test enum", {
+  {
+    Color :: enum(Red, Green, Blue);
+    (r : Color) = Color.Red;
+    r2 := Color.Blue;
+
+    Shape :: enum(
+      Circle(r: i32),
+      Rectangle(w: i32, h: i32)
+    );
+    (c : Shape) = Shape.Circle(5);
+    c2 := Shape.Rectangle(h: 1, w: 2);
+  };
+
+  // Anonymous enum
+  {
+    color := (enum(Red, Green, Blue)).Red;
+    (color2 : enum(Red, Green, Blue)) = .Blue;
+
+    shape := (enum(
+      Circle(r: i32),
+      Rectangle(w: i32, h: i32)
+    )).Circle(5);
+    (shape2 : enum(
+      Circle(r: i32),
+      Rectangle(w: i32, h: i32)
+    )) = .Rectangle(h: 1, w: 2);
+  };
+
+  // Type methods
+  {
+    Shape :: enum(
+      Circle(radius: i32),
+      Rectangle(width: i32, height: i32),
+      Triangle(base: i32, height: i32),
+
+      new_circle :: (
+        (fn(radius: i32) -> Self)
+          .Circle(radius)
+      ),
+      id :: ((fn(self: Self)-> Self)
+        self
+      )
+    );
+
+    c := Shape.new_circle(5);
+    c2 := c.id();
+    c2.radius = 10;
+
+    assert(c.radius == 5);
+    assert(c2.radius == 10);
+  };
+
+  // Nested enum
+  {
+    NestedEnum :: enum
+      Level1(
+        x: enum Level2(value: i32)
+      );
+
+    n := NestedEnum.Level1(.Level2(3));
+    (n2 : NestedEnum) = .Level1(.Level2(3));
+  };
+};
+
+test "Test union", {
+  SomeUnion :: union
+    x : i32,
+    y : bool,
+
+    new :: ((fn()-> Self) Self(x : 0)) 
+  ;
+
+  v1 := SomeUnion( x : 12 );
+  v2 := SomeUnion( y : true );
+  v3 := SomeUnion.new();
+
+  {
+    a := v1.x;
+    assert(a == 12);
+
+    b := v2.y;
+    assert(b == true);
+
+    c := v3.x;
+    assert(c == 0);
+  };
+
+  {
+    { x } := v1;
+    assert(x == 12);
+    { y : z } := v1; // unsafe access
+  };
 };
 
 test "Test tuple", {
@@ -383,9 +685,104 @@ test "Test tuple", {
     assert(t3.0 == 12);
     assert(t3.1 == 16);
   };
+
+  // unit
+  {
+    // Unit type
+    UnitType :: unit;
+    UnitType2 :: Tuple();
+
+    // Unit value
+    unit_value :: ();
+    unit_value2 := ();
+    unit_value3 := tuple();
+  };
 };
 
-test "Test cond", {
+test "Test raw pointer, {
+  // allocate and free
+  {
+    { GlobalAllocator } :: open import "std/allocator";
+    open GlobalAllocator;
+
+    {
+      ptr := malloc(sizeof(i32) * 2).unwrap().cast(*(i32));
+      ptr.* = 42;
+      (ptr + 1).* = 84;
+
+      assert(ptr.* == 42);
+      assert((ptr + 1).* == 84);
+
+      free(.Some(ptr));
+    };
+  };
+
+  // mutate pointer
+  {
+    x := 12;
+
+    // pointer
+    {
+      I32Ptr :: *(i32);
+      p : *(i32);
+      p = &(x);
+      (p2 : *(i32)) = &(x); // Create pointer
+      p3 := &(x); // Create pointer
+      q := p.*; // Dereference pointer
+
+      assert(p.* == 12);
+      assert(p2.* == 12);
+      assert(p3.* == 12);
+      assert(q == 12);
+    
+      p.* = 16;
+      assert(x == 16);
+      assert(p.* == 16);
+      assert(p2.* == 16);
+      assert(p3.* == 16);
+      assert(q == 12); // q is a copy
+    };
+  };
+
+  // void pointer
+  {
+    compt_expect_error(
+      FuncType :: 
+        fn() -> void // Cannot use DST directly in function return type
+    );
+
+    use_void_ptr :: (fn(ptr : *(void)) -> unit) {
+      compt_expect_error(
+        x := ptr.*,
+        "Cannot use DST directly"
+      );
+
+      // Dereference a void pointer is prohibited.
+      // We need to cast it to a specific type first.
+      i32_ptr := *(i32)(ptr);
+    };
+
+    mutate_void_ptr :: (fn(ptr : *(void)) -> unit) {
+      compt_expect_error(
+        x := ptr.*,
+        "Cannot use DST directly"
+      );
+      
+      i32_ptr := *(i32)(ptr);
+      i32_ptr.* = 16;
+    };
+
+    x := 12;
+    
+    use_void_ptr(*(void)(&(x)));
+    assert(x == 12);
+
+    mutate_void_ptr(*(void)(&(x)));
+    assert(x == 16);
+  };
+};
+
+test "Test 'cond'", {
   compt_expect_error(
     x := cond(
       (3 > 4) => 5,
@@ -400,6 +797,226 @@ test "Test cond", {
     true => 7 // the last case expects to be always compile-time known "true"
   );
   assert(x == 7);
+};
+
+test "Test 'match'", {
+  Color :: enum(Red, Green, Blue);
+
+  color_to_i32 :: (fn(color : Color) -> i32)
+    match(color,
+      .Red   => 0,
+      .Green => 1,
+      .Blue  => 2
+    )
+  ;
+
+  Shape :: enum(
+    Circle(r: i32),
+    Rectangle(w: i32, h: i32)
+  );
+
+  area :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(r) =>
+        (3 * (r * r)),
+      .Rectangle(w, h) =>
+        (w * h)
+    )
+  ;
+
+  // Test labeled destructuring
+  area_with_labels :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(r : radius) =>
+        (3 * (radius * radius)),
+      .Rectangle(h : height, w : width) =>
+        (height * width)
+    )
+  ;
+
+  // Test partial labeled destructuring with ignore
+  area_partial :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(_) =>
+        100,
+      .Rectangle(w : _, h : height) =>
+        height
+    )
+  ;
+
+  // Test pointer as match input
+  area_ptr :: (fn(shape_ptr: *(Shape)) -> i32)
+    match(shape_ptr, // automatic dereference
+      .Circle(r) =>
+        (3 * (r * r)),
+      .Rectangle(w, h) =>
+        (w * h)
+    )
+  ;
+
+  // This should now fail - trying to use .Circle without destructuring
+  compt_expect_error(
+    invalid_area :: (fn(shape: Shape) -> i32)
+      match shape,
+        .Circle => 0,  // ERROR: Circle has fields and must be destructured
+        .Rectangle => 0  // ERROR: Rectangle has fields and must be destructured
+  );
+
+
+  c1 := Color.Red;
+  c2 := Color.Green;
+  c3 := Color.Blue;
+  assert(color_to_i32(c1) == 0);
+  assert(color_to_i32(c2) == 1);
+  assert(color_to_i32(c3) == 2);
+
+  s1 := Shape.Circle(3);
+  s2 := Shape.Rectangle(4, 5);
+  assert(area(s1) == 27);
+  assert(area(s2) == 20);
+  assert(area_with_labels(s1) == 27);
+  assert(area_with_labels(s2) == 20);
+  assert(area_partial(s1) == 100);
+  assert(area_partial(s2) == 5);
+  assert(area_ptr(&(s1)) == 27);
+  assert(area_ptr(&(s2)) == 20);
+};
+
+test "Test 'while'", {
+  // without step expression
+  {
+    // runtime evaluation of sum
+    sum :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i <= max, {
+        result = (result + i);
+        i = (i + 1);
+      };
+
+      return result;
+    };
+
+    // compile-time evaluation of sum
+    sum_compt :: (fn(compt(max) : i32) -> compt(i32)) {
+      result :: i32(0);
+      i :: i32(0);
+      while i <= max, {
+        result = (result + i);
+        i = (i + 1);
+      };
+      return result;
+    };
+
+    x :: sum_compt(10);
+    compt_assert(x == 55);
+
+    y := sum(10);
+    assert(y == 55);
+  };
+
+  // with step expression
+  {
+    sum :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i <= max, i = (i + 1), {
+        result = (result + i);
+        continue;
+      };
+
+      return result;
+    };
+
+    // compile-time evaluation of sum
+    sum_compt :: (fn(compt(max) : i32) -> compt(i32)) {
+      result :: i32(0);
+      i :: i32(0);
+      while i <= max, i = (i + 1), {
+        result = (result + i);
+        continue;
+      };
+      return result;
+    };
+
+    x :: sum_compt(10);
+    compt_assert(x == 55);
+
+    y := sum(10);
+    assert(y == 55);
+  };
+
+  // multiple tests
+  {
+    // Test 1: continue statement - skip even numbers
+    sum_odd :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i < max, {
+        i = (i + 1);
+        cond(
+          ((i % 2) == 0) => continue, 
+          true => {
+            result = (result + i);
+          }
+        );
+      };
+      return result;
+    };
+
+    // Test 2: break statement - stop at first number > 5
+    find_first_greater_than_five :: (fn(max : i32) -> i32) {
+      result := -(1);
+      i := i32(0);
+      while i < max, {
+        i = (i + 1);
+        cond(
+          (i > 5) => {
+            result = i;
+            break;
+          }, 
+          true => () // continue loop
+        );
+      };
+      return result;
+    };
+
+    // Test 3: return statement - early return when condition met
+    search_value :: (fn(target : i32, max : i32) -> i32) {
+      i := i32(0);
+      while i < max, {
+        i = (i + 1);
+        cond(
+          (i == target) => { 
+            return(i); 
+          }, 
+          true => () // continue loop
+        );
+      };
+      return -(1); // not found
+    };
+
+    // Test 4: while loop with step and continue
+    sum_with_step :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i < max, i = (i + 1), {
+        cond(
+          ((i % 3) == 0) => continue,
+          true => {
+            result = (result + i);
+          }
+        );
+      };
+      return result;
+    };
+
+    assert(sum_odd(10) == 25); // 1 + 3 + 5 + 7 + 9 = 25
+    assert(find_first_greater_than_five(20) == 6);
+    assert(search_value(7, 10) == 7);
+    assert(search_value(15, 10) == -1);
+    assert(sum_with_step(10) == 37); // 1 + 2 + 4 + 5 + 7 + 8 + 10 = 37
+  };
 };
 
 test "Test control flows", {
@@ -845,5 +1462,117 @@ test "Test destructuring by ... spread operator", {
     
     implicit_id(3);
     id(3);
+  };
+};
+
+test "Test extending modules by ... spread operator", {
+  ModuleA :: impl {
+    a :: 1;
+    b :: 2;
+    export a, b;
+  };
+
+  ModuleB :: impl {
+    c :: 3;
+    export ...(ModuleA), c;
+  };
+
+  ModuleC :: impl {
+    d :: 4;
+    export ...(ModuleB), d;
+  };
+
+  {
+    open ModuleC;
+
+    assert(a == 1);
+    assert(b == 2);
+    assert(c == 3);
+    assert(d == 4);
+  };
+};
+
+test, "Test 'open' statements", {
+  // Open a compt struct
+  {
+    anony :: { x : 12, y : 13 };
+    open anony;
+    compt_assert(x == 12);
+    compt_assert(y == 13);
+  };
+
+  // Open a runtime struct
+  {
+    anony := { x : 12, y : 13 };
+    open anony;
+    assert(x == 12);
+    assert(y == 13);
+  };
+
+  // Open a module
+  {
+    my_module :: impl {
+      x :: 6;
+      y :: 2;
+      export x, y;
+    };
+    open my_module;
+    
+    compt_assert(x == 6);
+    compt_assert(y == 2);
+
+    assert(x == 6);
+    assert(y == 2);
+  };
+};
+
+test "Test 'Impl'", {
+  {
+    Id :: module(
+      id : (fn(self : Self) -> Self)
+    );
+
+    ImplId :: Impl(Id);
+
+    // Test with custom label
+    ImplIdLabeled :: Impl(MyId : Id);
+
+    test1 :: (fn(x : ImplId) -> ImplId) {
+      y := typeof(x).Id.id(x);
+      return y.id();
+    };
+
+    test2 :: (fn(x : ImplIdLabeled) -> ImplIdLabeled) {
+      y := typeof(x).MyId.id(x);
+      return y.id();
+    };
+    // TODO: add assertions
+  };
+
+  {
+    Id :: module(
+      id : (fn(self : Self) -> Self)
+    );
+
+    test1 :: (fn(forall(T := Impl(Id)), x : T) -> T) {
+      y := typeof(x).Id.id(x);
+      return y.id();
+    };
+
+    test2 :: (fn(forall((T : Type) = Impl(SomeId : Id)), x : T) -> T) {
+      y := typeof(x).SomeId.id(x);
+      return y.id();
+    };
+
+    test3 :: (fn(compt(T) := Impl(Id), x : T) -> T) {
+      y := typeof(x).Id.id(x);
+      return y.id();
+    };
+
+    test4 :: (fn((compt(T) : Type) = Impl(SomeId : Id), x : T) -> T) {
+      y := typeof(x).SomeId.id(x);
+      return y.id();
+    };
+    // TODO: add assertions
   };
 };

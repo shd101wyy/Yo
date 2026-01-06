@@ -3016,6 +3016,20 @@ MaybeUninit :: (fn(compt(BaseType): Type) -> compt(Type))
   )
 ;
 
+/* EXAMPLE:
+
+extern "C",
+  time_t : Type,
+  time : 
+    fn(timer: ?*(time_t)) -> time_t
+;
+
+uninitialized_timer := MaybeUninit(time_t).new(); // Create an uninitialized MaybeUninit(time_t)
+ptr := uninitialized_timer.as_ptr(); // ptr has type *(time_t)
+time(.Some(ptr)); // initialize the timer
+timer := uninitialized_timer.assume_init(); // now we can assume it's initialized
+
+*/
 export
   MaybeUninit
 ;

@@ -95,6 +95,162 @@ test "Test simple functions", {
     assert(test5(flag : 2) == 200);
     assert(test5(100) == 300);
   };
+
+  // function scope
+  {
+    a := 4;
+    MyI32 :: i32;
+    // inner scope implicit add
+    add2 :: (fn(x : i32, y : i32) -> i32) {
+      (z : MyI32) = 13; // Can use the comptime variables from the outer scope
+      
+      compt_expect_error(x + a, "Cannot use `a` from outer scope");
+      // To capture the outer scope variable, we need to use closure.
+
+      (x + z)
+    };
+  };
+
+  // no runtime value in compt fn
+  {
+    no_runtime_in_compt_fn :: (fn() -> compt(unit)) {
+      // This is a compt function.
+      compt_expect_error(
+        a : i32 // runtime variable not allowed
+      );
+      compt_expect_error(
+        b := 12 // runtime variable not allowed
+      );
+
+      (compt(c) : i32) = 1;
+      d :: 13;
+    };
+  };
+
+  // return self
+  {
+    ReturnSelf :: (fn() -> compt(Type)) {
+      return struct(
+        test :: ((fn() -> Self) {
+          s := Self();
+          return s;
+        })
+      );
+    };
+
+    ReturnSelf();
+  };
+
+  // return in different places
+  {
+    max :: (fn(x: i32, y: i32) -> i32)
+      cond(
+        (x > y) => {
+          return x;
+        },
+        true => {
+          return y;
+        };
+      )
+    ;
+
+    max2 :: (fn(x: i32, y: i32) -> i32) {
+      max := 
+        cond(
+          (x > y) => {
+            return x;
+          },
+          true => y
+        );
+      return max;
+    };
+
+    assert(max(10, 20) == 20);
+    assert(max2(30, 15) == 30);
+
+    Color :: enum(Red, Green, Blue);
+
+    color_to_i32 :: (fn(color: Color) -> i32)
+      match(color,
+        .Red => {
+          return 0;
+        },
+        .Green => {
+          return 1;
+        },
+        .Blue => {
+          return 2;
+        }
+      )
+    ;
+
+    color_to_i32_2 :: (fn(color: Color) -> i32) {
+      color := match(color,
+        .Red => 0,
+        .Green => {
+          return 1;
+        },
+        .Blue => {
+          return 2;
+        }
+      );
+      return color;
+    };
+
+    assert(color_to_i32(.Red) == 0);
+    assert(color_to_i32(.Green) == 1);
+    assert(color_to_i32(.Blue) == 2);
+    assert(color_to_i32_2(.Red) == 0);
+    assert(color_to_i32_2(.Green) == 1);
+    assert(color_to_i32_2(.Blue) == 2);
+
+    compt_return_in_while :: (fn(compt(flag): bool) -> compt(i32)) {
+      while(flag, {
+        cond(
+          flag => {
+            x :: 1;
+            return x;
+          },
+          true => {
+            x :: 2;
+          }
+        );
+        return 4;
+      });
+      
+      16
+    };
+
+    x :: compt_return_in_while(true);
+    y :: compt_return_in_while(false);
+    compt_assert(x == 1);
+    compt_assert(y == 16);
+  };
+};
+
+test "Test function default parameters", {
+  {
+    // Default parameters
+    // The default value for a parameter has to be compile-time known.
+    MyAdd ::
+      (fn( compt(Lhs): Type, 
+        (compt(Rhs): Type) ?= Lhs, 
+        compt(Output) ?= Lhs
+      )-> compt(Module))
+      module
+        (Self: Type) = Lhs,
+        (+): (fn(lhs: Lhs, rhs: Rhs)-> Output)
+    ;
+
+    // _ is used as the inferred, not the default value.
+    // Default value is only used when the parameter is not provided.
+    IntAdd :: MyAdd(i32);
+    IntAdd2 :: MyAdd(i32, undefined);
+    IntAdd3 :: MyAdd(i32, undefined, undefined);
+    BoolAdd :: MyAdd(bool);
+    BoolAdd2 :: MyAdd(bool, undefined);
+    BoolAdd3 :: MyAdd(bool, undefined, undefined);
+  };
 };
 
 test "Test callback regular function", {
@@ -283,6 +439,71 @@ test "Test generic functions", {
     assert(y == 3);
     assert(z == 5);
   };
+
+  {
+    // anonymous function
+    id : (fn(forall(T : Type), x : T) -> T);
+    id = ((a) -> a);
+    assert(id(12) == 12);
+    assert(id(true) == true);
+    assert(id(3.14) == 3.14);
+  };
+
+  {
+    // tuple parameter
+    tuple_func :: (fn(
+      forall(T : Type, Y : Type),
+      x : Tuple(T, Y),
+      a : T,
+      b : Y
+    ) -> Tuple(T, Y)) {
+      return (a, b);
+    };
+    t1 := tuple((12, true), 1, false);
+    assert(t1.0 == 1);
+    assert(t1.1 == false);
+  };
+
+  {
+    // container struct
+    Container :: (fn(compt(T) : Type)-> compt(Type))
+      struct(value: T)
+    ;
+
+    use_container :: (fn(
+      forall(X : Type), 
+      c : Container(X), 
+      x : X
+    ) -> X) {
+      return x;
+    };
+
+    i32_container_value := Container(i32)(12);
+    x11 := use_container(i32_container_value, 13);
+    x12 := use_container(Container(i32)(13), 12);
+    x13 := use_container(Container(bool)(true), false);
+
+    assert(x11 == 13);
+    assert(x12 == 12);
+    assert(x13 == false);
+  };
+
+  {
+    // parameter that contains function type
+    generic_fn :: (fn(
+      forall(T : Type),
+      x : T,
+      callback : (fn(v : T)-> T)
+    ) -> T)
+      callback(x)
+    ;
+
+    a := generic_fn(1, (x)-> (x + 1));
+    b := generic_fn(true, (x)-> !(x));
+
+    assert(a == 2);
+    assert(b == false);
+  };
 };
 
 test "Test generic function callback", {
@@ -375,4 +596,74 @@ test "Test compt function", {
     );
     p4 :: compt_add_points(p1, p2); // allowed, comptime
   };
+};
+
+test "Test function overloading using module Call", {
+  add :: impl {
+    add1 :: (fn(x : i32) -> i32) x;
+    add2 :: (fn(x : i32, y : i32) -> i32) (x + y);
+    add3 :: (fn(x : i32, y : i32, z : i32) -> i32) ((x + y) + z);
+    add4 :: (fn(x : i32, y : i32, z : i32, w : i32) -> i32) (((x + y) + z) + w);
+    
+    Call :: (add1, add2, add3); // Allow calling the module like a function
+    export Call;
+  };
+  assert(add(1) == 1);
+  assert(add(2, 3) == 5);
+  assert(add(3, 4, 5) == 12);
+  compt_expect_error(
+    add(4, 5, 6, 7) // This will not work because add4 is not used in "Call".
+  );
+};
+
+test "Test mutual recursion", {
+  // Mutual recursion
+  compt(is_even) : (fn(n : i32) -> bool);
+  compt(is_odd) : (fn(n : i32) -> bool);
+
+  is_even = _
+    cond
+      (n == 0) => true,
+      true     => is_odd(n - 1)
+  ;
+
+  is_odd  = _
+    cond
+      (n == 0) => false,
+      true     => is_even(n - 1)
+  ;
+
+  assert(is_even(10) == true);
+  assert(is_odd(10) == false);
+  assert(is_even(11) == false);
+  assert(is_odd(11) == true);
+};
+
+// TODO:
+test "Test variadic function", {
+  /*
+AddFunc :: (fn(count : i32, ...) -> i32);
+
+add :: AddFunc {
+  args : va_list;
+  va_start(args, count); // Initialize the va_list with the count of arguments
+  result := 0;
+  i := 0;
+  while i < count, {
+    result = (result + va_arg(args, i32)); // Get the next argument as i32
+    i = (i + 1);
+  };
+  va_end(args); // Clean up the va_list
+  return result; // Return the sum of the arguments
+};
+
+x := add(3, 1, 2, 3); // Call the variadic function with 3 arguments
+y := add(5, 1, 2, 3, 4, 5); // Call the variadic function with 5 arguments
+z := add(8); // Call the variadic function with no arguments
+
+assert(x == 6);
+assert(y == 15);
+assert(z == 0);
+  */
+  ();
 };
