@@ -77,6 +77,20 @@ export function collectRequiredTypes(
       collectTypesFromFunctionType(func.value.specializedType, context);
     }
     collectTypesFromExpr(func.value.body, context);
+
+    // Collect types from compile-time function call caches
+    // When a compt function is called, the result is cached with concrete types
+    // We need to collect those concrete types (e.g., [i32; 10] from cache, not [i32; n] from generic body)
+    if (func.value.calledComptFunctionCaches) {
+      for (const cache of func.value.calledComptFunctionCaches) {
+        // Collect types from the cached return value
+        if (cache.value && cache.value.type) {
+          collectType(cache.value.type, context);
+        }
+        // Also collect from the evaluated body which has concrete types
+        collectTypesFromExpr(cache.body, context);
+      }
+    }
   }
 }
 
@@ -154,6 +168,14 @@ export function collectTypesFromExpr(
   // If this is a macro expansion, recursively collect from the expanded expression
   if (expr.$ && expr.$.macroExpansion) {
     collectTypesFromExpr(expr.$.macroExpansion, context);
+  }
+
+  // Collect types from runtime destructurings
+  // These occur when compile-time values are converted to runtime (e.g., compt array -> runtime array)
+  if (expr.$ && expr.$.runtimeDestructurings) {
+    for (const { type } of expr.$.runtimeDestructurings) {
+      collectType(type, context);
+    }
   }
 
   // For closure and async block expressions, collect the capture struct type

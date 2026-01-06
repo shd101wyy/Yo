@@ -339,9 +339,14 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const { value, cName } = context.functions[funcId]!;
 
     // If the function is generic or has been specialized, we will handle it later
+    // EXCEPTION: Specialized functions from impl methods (not generic at function level)
+    // should be generated here, not in generateSpecializedFunctions
+    const isSpecializedImplMethod =
+      value.specializedType && !isGenericFunction(value);
+
     if (
       isGenericFunction(value) ||
-      value.specializedType || // Skip if this is a specialized version - it will be generated in generateSpecializedFunctions
+      (value.specializedType && !isSpecializedImplMethod) ||
       isComptFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
