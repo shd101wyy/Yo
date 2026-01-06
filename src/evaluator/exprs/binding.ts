@@ -9,6 +9,7 @@ import {
   FuncCallExpr,
 } from "../../expr";
 import {
+  isArrayType,
   prohibitVoidType,
   typeContainsRcType,
   typeProhibitsComptModifier,
@@ -16,7 +17,7 @@ import {
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { createUnknownValue, isTypeValue } from "../../value";
+import { createUnknownValue, isTypeValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
@@ -64,6 +65,16 @@ ${exprToString(rhs)}`,
     });
   }
   const userDefinedType = typeValue.value;
+
+  // Prohibit array types with inferred length (_) in type annotations
+  // Array length must be explicit or determined from initialization
+  if (isArrayType(userDefinedType) && isUnknownValue(userDefinedType.length)) {
+    throw formatErrorMessage({
+      token: rhs.token,
+      errorMessage: `Array type with inferred length '_' is not allowed in type annotations.
+Use explicit length like 'Array(i32, 3)' or omit the type annotation and initialize with 'arr := Array(i32, _)(1, 2, 3)'`,
+    });
+  }
 
   // Prohibit the user defined type to be DST
   prohibitVoidType(userDefinedType, evaluatedRhs.token);
