@@ -1,14 +1,63 @@
 main :: (fn() -> unit) {
-  add :: impl {
-    add1 :: (fn(x : i32) -> i32) x;
-    add2 :: (fn(x : i32, y : i32) -> i32) (x + y);
-    add3 :: (fn(x : i32, y : i32, z : i32) -> i32) ((x + y) + z);
-    add4 :: (fn(x : i32, y : i32, z : i32, w : i32) -> i32) (((x + y) + z) + w);
-    
-    Call :: (add1, add2, add3); // Allow calling the module like a function
-    export Call;
+  {
+    Color :: enum(Red, Green, Blue);
+
+    color_to_i32 :: (fn(color: Color) -> i32)
+      match(color,
+        .Red => {
+          return 0;
+        },
+        .Green => {
+          return 1;
+        },
+        .Blue => {
+          return 2;
+        }
+      )
+    ;
+
+    color_to_i32_2 :: (fn(color: Color) -> i32) {
+      result := match(color,
+        .Red => 0,
+        .Green => {
+          return 1;
+        },
+        .Blue => {
+          return 2;
+        }
+      );
+      return result;
+    };
+
+    assert(color_to_i32(.Red) == 0);
+    assert(color_to_i32(.Green) == 1);
+    assert(color_to_i32(.Blue) == 2);
+    assert(color_to_i32_2(.Red) == 0);
+    assert(color_to_i32_2(.Green) == 1);
+    assert(color_to_i32_2(.Blue) == 2);
+    /*
+    compt_return_in_while :: (fn(compt(flag): bool) -> compt(i32)) {
+      while(flag, {
+        cond(
+          flag => {
+            x :: 1;
+            return x;
+          },
+          true => {
+            x :: 2;
+          }
+        );
+        return 4;
+      });
+      
+      16
+    };
+
+    x :: compt_return_in_while(true);
+    y :: compt_return_in_while(false);
+    compt_assert(x == 1);
+    compt_assert(y == 16);
+    */
   };
-  
-  assert(add(2, 3) == 5);
 };
 export main;

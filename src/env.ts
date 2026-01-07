@@ -237,14 +237,12 @@ export function addVariableToEnv({
   variable,
   deltaFrame,
   variableId,
-  skipCheckingFunctionOverloading,
   addToBeginBlockFrame,
 }: {
   env: Environment;
   variable: Omit<Variable, "id" | "frameLevel">;
   deltaFrame?: number;
   variableId?: string;
-  skipCheckingFunctionOverloading?: boolean;
   /**
    * If true, the variable will be added to the nearest begin block frame
    * instead of the top frame. This is used for temp variables that hold
@@ -265,26 +263,21 @@ export function addVariableToEnv({
     // If no begin block frame found, fall back to top frame
   }
 
-  // Prevent the function overloading
-  if (!skipCheckingFunctionOverloading && isFunctionType(variable.type)) {
-    const existingFunctionVariables = getVariablesFromEnv(
-      env,
-      variable.name,
-      (variable) =>
-        isFunctionType(variable.type) && variable.frameLevel === frameLevel
-    );
-    if (existingFunctionVariables.length > 0) {
-      throw formatErrorMessages([
-        {
-          token: variable.token,
-          errorMessage: `Failed to define function "${variable.name}" as overloading is not allowed:`,
-        },
-        {
-          token: existingFunctionVariables[0]!.token,
-          errorMessage: `Function "${existingFunctionVariables[0]!.name}" is already defined here:`,
-        },
-      ]);
-    }
+  // Prevent variable shadowing across all scopes
+  // Variables with the same name cannot exist in different frames
+  const existingVariables = getVariablesFromEnv(env, variable.name);
+  if (existingVariables.length > 0) {
+    const existingVariable = existingVariables[existingVariables.length - 1]!;
+    throw formatErrorMessages([
+      {
+        token: variable.token,
+        errorMessage: `Failed to define variable "${variable.name}":`,
+      },
+      {
+        token: existingVariable.token,
+        errorMessage: `Variable "${variable.name}" is already defined here (variable shadowing is not allowed):`,
+      },
+    ]);
   }
 
   const frame = env.frames[frameLevel];

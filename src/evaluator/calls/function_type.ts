@@ -143,7 +143,6 @@ export function tryToImplementFunctionByFunctionType({
           consumedAtToken: undefined,
           isOwningTheRcValue: false,
         },
-        skipCheckingFunctionOverloading: true,
       });
       env = nextEnv;
     }
@@ -174,7 +173,6 @@ export function tryToImplementFunctionByFunctionType({
               ? expectedParamName
               : undefined,
         },
-        skipCheckingFunctionOverloading: true,
       });
       env = nextEnv;
     }

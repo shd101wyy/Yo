@@ -203,7 +203,6 @@ Got:      "${paramName}"`,
         consumedAtToken: undefined,
         isOwningTheRcValue: false,
       },
-      skipCheckingFunctionOverloading: true,
     });
     env = nextEnv;
 
@@ -267,7 +266,6 @@ Got:      "${paramName}"`,
             ? expectedParamName
             : undefined,
       },
-      skipCheckingFunctionOverloading: true,
     });
     env = nextEnv;
 

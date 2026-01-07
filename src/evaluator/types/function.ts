@@ -471,7 +471,6 @@ use_id :: (fn(forall(T : Type),
       isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
       isReassignable: false, // Mark as not reassigable
     },
-    skipCheckingFunctionOverloading: true,
   });
   env = nextEnv;
 
