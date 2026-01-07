@@ -1536,6 +1536,18 @@ function generateFuncCall(
         return `// Error: No type information for variable ${varName}\n`;
       }
 
+      // Check if the variable being assigned to is compile-time
+      // If so, skip code generation (compile-time variables don't exist at runtime)
+      if (lhs.$?.env) {
+        const variables = getVariablesFromEnv(lhs.$.env, varName);
+        if (
+          variables.length > 0 &&
+          variables[variables.length - 1]!.isCompileTimeOnly
+        ) {
+          return "";
+        }
+      }
+
       // Check if we're in a state machine context and this is a captured variable
       const functionContext = context as FunctionGenerationContext;
 
@@ -1892,6 +1904,19 @@ function generateFuncCall(
             return "";
           }
         }
+      }
+    }
+
+    // Check if LHS is a simple variable name that refers to a compile-time variable
+    if (exprIsAtom(lhs) && lhs.$?.env) {
+      const varName = lhs.token.value;
+      const variables = getVariablesFromEnv(lhs.$.env, varName);
+      if (
+        variables.length > 0 &&
+        variables[variables.length - 1]!.isCompileTimeOnly
+      ) {
+        // Compile-time variable - skip code generation
+        return "";
       }
     }
 

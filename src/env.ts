@@ -1363,13 +1363,22 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
   }
 
   const topFrame = env.frames[env.frames.length - 1]!;
-  const variables = topFrame.variables.filter(
-    (variable) =>
-      !variable.consumedAtToken &&
-      // !variable.isCompileTimeOnly &&
-      variable.isOwningTheRcValue &&
-      typeContainsRcType(variable.type)
-  );
+  const variables = topFrame.variables.filter((variable) => {
+    if (variable.consumedAtToken) return false;
+    if (!variable.isOwningTheRcValue) return false;
+    if (!typeContainsRcType(variable.type)) return false;
+
+    // Skip variables whose types contain unresolved SomeTypes.
+    // We can't generate proper drop code for abstract type parameters.
+    // This handles cases like compile-time generic functions: `compt(id) : (fn(forall(T), x: T) -> T)`
+    // where temp variables may have type `T` that isn't resolved to a concrete type.
+    const varType = variable.type;
+    if (isSomeType(varType) && !varType.resolvedConcreteType) {
+      return false;
+    }
+
+    return true;
+  });
 
   // Return in reverse order (end to start) for proper drop order
   return variables.reverse();
