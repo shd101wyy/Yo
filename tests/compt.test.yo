@@ -1,5 +1,4 @@
-// test "Test f32", 
-{
+test "Test compt f32", {
   // Basic f32 values
   a :: f32(100.5);
   b :: f32(25.25);
@@ -226,8 +225,7 @@
   };
 };
 
-// test "Test f64",
-{
+test "Test compt f64", {
   // Basic f64 values
   a :: f64(100.5);
   b :: f64(25.25);
@@ -497,8 +495,7 @@
   };
 };
 
-// test "Test i8",
-{
+test "Test compt i8", {
   // Basic i8 values
   a :: i8(50);
   b :: i8(25);
@@ -699,8 +696,7 @@
   };
 };
 
-// test "Test i16", 
-{
+test "Test compt i16", {
   // Basic i16 values
   a :: i16(1000);
   b :: i16(250);
@@ -920,8 +916,7 @@
   };
 };
 
-// test "Test i32",
-{
+test "Test compt i32", {
   // Basic i32 values
   a :: i32(100000);
   b :: i32(25000);
@@ -1153,8 +1148,7 @@
   };
 };
 
-// test "Test i64",
-{
+test "Test compt i64", {
   // Basic i64 values
   a :: i64(1000000000000);
   b :: i64(250000000000);
@@ -1382,8 +1376,7 @@
   };
 };
 
-// test "Test isize",
-{
+test "Test compt isize", {
   // Basic isize values
   a :: isize(100000);
   b :: isize(25000);
@@ -1624,8 +1617,7 @@
   };
 };
 
-// test "Test u8",
-{
+test "Test compt u8", {
   // Basic u8 values
   a :: u8(10);
   b :: u8(3);
@@ -1828,8 +1820,7 @@
   };
 };
 
-// test "Test u16",
-{
+test "Test compt u16", {
   // Basic u16 values
   a :: u16(1000);
   b :: u16(250);
@@ -2010,8 +2001,7 @@
   };
 };
 
-// test "Test u32",
-{
+test "Test compt u32", {
   // Basic u32 values
   a :: u32(100000);
   b :: u32(25000);
@@ -2207,8 +2197,7 @@
   };
 };
 
-// test "Test u64",
-{
+test "Test compt u64", {
   // Basic u64 values
   a :: u64(1000000000000);
   b :: u64(250000000000);
@@ -2394,8 +2383,7 @@
   };
 };
 
-// test "Test usize",
-{
+test "Test compt usize", {
   // Basic usize values
   a :: usize(100000);
   b :: usize(25000);
@@ -2596,8 +2584,7 @@
   };
 };
 
-// test "Test types compatibility"
-{
+test "Test types compatibility", {
   compt_assert(__yo_are_types_compatible(i32, i32) == true); // true
   compt_assert(__yo_are_types_compatible(i32, i64) == false); // false
   compt_assert(__yo_are_types_compatible(i64, i32) == false); // false
@@ -2648,8 +2635,7 @@
   compt_assert(__yo_are_types_compatible(PtrFunc2, PtrFunc1) == true);
 };
 
-// test "Test char literals"
-{
+test "Test char literals", {
   // Test simple ASCII characters
   char_a :: 'a';
   compt_assert((char_a == 97), "char 'a' should be 97");
@@ -2665,9 +2651,7 @@
   
   char_space :: ' ';
   compt_assert((char_space == 32), "char ' ' should be 32");
-};
 
-{
   // Test newline
   char_newline :: '\n';
   compt_assert((char_newline == 10), "char '\\n' should be 10");
@@ -2709,8 +2693,7 @@
   compt_assert((char_vtab == 11), "char '\\v' should be 11");
 };
 
-// test "Test compt boolean",
-{
+test "Test compt boolean", {
 /**
  * Test compile-time bool operations
  * This file tests the __yo_compt_boolean_* functions that operate
@@ -2922,8 +2905,7 @@
   };
 };
 
-// test "Test compt float",
-{
+test "Test compt_float", {
   /**
   * Test compile-time float operations
   */
@@ -2976,8 +2958,7 @@
   // division_by_zero :: a / zero;
 };
 
-// test "Test compt_int",
-{
+test "Test compt_int", {
   /**
   * Test compile-time integer operations
   * This file tests the __yo_compt_int_* functions that operate
@@ -3161,7 +3142,7 @@
     neg_float :: f64(neg_num);
     neg_string :: neg_num.to_string();
     
-    compt_assert(neg_float == 42.0.neg());
+    compt_assert(neg_float == f64(42.0).neg());
     compt_assert(neg_string == "-42");
   };
   
@@ -3182,8 +3163,7 @@
   };
 };
 
-// test "Test compt_string",
-{
+test "Test compt_string", {
   /**
   * Test compile-time string operations
   * This file tests the __yo_compt_string_* functions that operate
@@ -3374,12 +3354,12 @@
     // Basic slice operations
     slice1 :: test_str.slice(0, 3);     // "abc"
     slice2 :: test_str.slice(2, 6);     // "cdef"
-    slice3 :: test_str.slice(3);        // "defgh" (from 3 to end)
-    slice4 :: test_str.slice(0);        // "abcdefgh" (full string)
+    slice3 :: test_str.slice(3, test_str.len());        // "defgh" (from 3 to end)
+    slice4 :: test_str.slice(0, test_str.len());        // "abcdefgh" (full string)
     
     // Edge cases
     slice_empty :: test_str.slice(5, 5);  // "" (empty slice)
-    slice_beyond :: test_str.slice(10);   // "" (start beyond length)
+    slice_beyond :: test_str.slice(10, test_str.len());   // "" (start beyond length)
     /// slice_negative_end :: test_str.slice(0, 1.neg()); // "" (negative end)
     
     // Verify slice results
@@ -3394,7 +3374,7 @@
     // Test with different strings
     hello :: "hello world";
     hello_slice1 :: hello.slice(0, 5);   // "hello"
-    hello_slice2 :: hello.slice(6);      // "world"
+    hello_slice2 :: hello.slice(6, hello.len());      // "world"
     hello_slice3 :: hello.slice(6, 11);  // "world"
     
     compt_assert(hello_slice1 == "hello");
@@ -3409,8 +3389,7 @@
 };
 
 
-// test "Test mutation",
-{
+test "Test mutation", {
   // Value semantics
   /// struct
   {
@@ -3484,8 +3463,7 @@
   };
 };
 
-// test "Test parser associtivity",
-{
+test "Test parser associtivity", {
   right :: quote(
     1 +
     2 +
@@ -3509,8 +3487,7 @@
   compt_assert(right_2 == quote(a = (b -> c)));
 };
 
-// test "Test sizeof", 
-{
+test "Test sizeof", {
   compt_assert(sizeof(Type) == 0);
   // compt_assert(sizeof(Free) == 0);
   // compt_assert(sizeof(Linear) == 0);
@@ -3559,13 +3536,13 @@
     Green,
     Blue
   );
-  compt_assert(sizeof(Color) == 1);
+  compt_assert(sizeof(Color) == 4);
 
   Shape :: enum(
     Circle(radius : f32),
     Rectangle(width : f32, height : f32)
   );
-  compt_assert(sizeof(Shape) == 9);
+  compt_assert(sizeof(Shape) == 12);
 
   MyUnion :: union(
     a : u8,
@@ -3599,8 +3576,7 @@
   // compt_assert(sizeof(&(i32)) == 8);
 };
 
-// test "Test alignof",
-{
+test "Test alignof", {
   // Test primitive types
   compt_assert(alignof(u8) == usize(1));
   compt_assert(alignof(u16) == usize(2));

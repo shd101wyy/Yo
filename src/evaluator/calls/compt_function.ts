@@ -126,30 +126,39 @@ export function evaluateComptFunctionCall({
   functionValue.calledComptFunctionCaches.push(tempCache);
   const tempCacheIndex = functionValue.calledComptFunctionCaches.length - 1;
 
-  // NOTE: We should use the env from the function, not the current env.
-  const evaluatedFunctionBody = evaluateBeginExpression({
-    expr: tempCache.body,
-    env: calleeEnv,
-    context: {
-      ...context,
-      isEvaluatingFunctionBodyOrAsyncBlock: {
-        kind: "function-body",
-        type: functionType,
-        value: functionValue,
+  let evaluatedFunctionBody;
+  try {
+    // NOTE: We should use the env from the function, not the current env.
+    evaluatedFunctionBody = evaluateBeginExpression({
+      expr: tempCache.body,
+      env: calleeEnv,
+      context: {
+        ...context,
+        isEvaluatingFunctionBodyOrAsyncBlock: {
+          kind: "function-body",
+          type: functionType,
+          value: functionValue,
 
-        evaluationEnv: calleeEnv,
+          evaluationEnv: calleeEnv,
+        },
+        capturedVariables: context.capturedVariables
+          ? context.capturedVariables
+          : undefined,
+        // Only set isExecuting=true if we're not in validation mode
+        isExecuting: context.isValidatingFunctionDefinition ? false : true,
+        functionReturnImplConcreteType: [], // Fresh array for each call
+        // Propagate SelfType from function type if available
+        SelfType: functionType.SelfType ?? context.SelfType,
       },
-      capturedVariables: context.capturedVariables
-        ? context.capturedVariables
-        : undefined,
-      // Only set isExecuting=true if we're not in validation mode
-      isExecuting: context.isValidatingFunctionDefinition ? false : true,
-      functionReturnImplConcreteType: [], // Fresh array for each call
-      // Propagate SelfType from function type if available
-      SelfType: functionType.SelfType ?? context.SelfType,
-    },
-    variablesToAdd: [],
-  });
+      variablesToAdd: [],
+    });
+  } catch (error) {
+    // If an error is thrown during evaluation, remove the temp cache entry
+    // to ensure the error is properly re-thrown on subsequent calls with
+    // the same arguments
+    functionValue.calledComptFunctionCaches.splice(tempCacheIndex, 1);
+    throw error;
+  }
 
   if (!evaluatedFunctionBody.$) {
     throw formatErrorMessage({
