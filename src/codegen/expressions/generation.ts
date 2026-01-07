@@ -5310,15 +5310,42 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
   }
 
-  // Check if this atom refers to a function by looking it up in functionContext.functions
-  // This handles mutually recursive functions where we need to use the mangled function name
-  const functionName = expr.token.value;
-  const functionEntry = Object.values(functionContext.functions).find(
-    (entry) => entry.value.funcName === functionName
-  );
+  // Check if this is a function variable - if so, use its C function name
+  // This handles mutually recursive functions where the value might be UnknownValue
+  if (expr.$?.env) {
+    const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
 
-  if (functionEntry) {
-    return functionEntry.cName;
+      // Check if the variable has a function value (or UnknownValue with function type)
+      if (variable.value && isFunctionValue(variable.value)) {
+        // Look up the C function name
+        const cFuncName = context.functions[variable.value.funcId]?.cName;
+        if (cFuncName) {
+          return cFuncName;
+        }
+      } else if (
+        isFunctionType(variable.type) &&
+        (isUnknownValue(variable.value) || variable.value === undefined)
+      ) {
+        // For UnknownValue or undefined with function type (mutual recursion case),
+        // we need to find the function ID another way.
+        // The function should have been registered in context.functions
+        // Try to find it by matching the variable name
+        const functionEntry = Object.entries(context.functions).find(
+          ([_funcId, entry]) => {
+            // Check if this function's definition matches our variable
+            // This is a heuristic - we match by checking if any specialization
+            // of the function has a matching variable name
+            return entry.value.funcName === expr.token.value;
+          }
+        );
+
+        if (functionEntry) {
+          return functionEntry[1].cName;
+        }
+      }
+    }
   }
 
   // Check if this variable has a parameterAlias (used in anonymous functions
