@@ -1875,6 +1875,26 @@ function generateFuncCall(
       return "";
     }
 
+    // Check if LHS is a field/index access into a compile-time variable
+    // e.g., p1.x = 5 where p1 is compile-time
+    // e.g., arr(0) = 10 where arr is compile-time
+    if (lhs.$?.pathCollection && lhs.$?.pathCollection.length > 0) {
+      const path = lhs.$.pathCollection[0];
+      if (path && path.length >= 2) {
+        const baseVariableName = path[0];
+        if (typeof baseVariableName === "string" && lhs.$?.env) {
+          const variables = getVariablesFromEnv(lhs.$.env, baseVariableName);
+          if (
+            variables.length > 0 &&
+            variables[variables.length - 1]!.isCompileTimeOnly
+          ) {
+            // Base variable is compile-time, so this assignment should not generate code
+            return "";
+          }
+        }
+      }
+    }
+
     if (!lhs.$?.type) {
       return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
     }

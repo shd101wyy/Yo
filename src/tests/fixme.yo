@@ -1,15 +1,21 @@
-{
-  // Basic i8 values
-  a :: i8(50);
-  b :: i8(25);
-  compt_expect_error(prod :: (a * b));       // 1250i8 (may overflow)
-};
-
 main :: (fn() -> unit) {
-  // Basic i8 values
-  c :: i8(50);
-  d :: i8(25);
-  compt_expect_error(prod :: (c * d));       // 1250i8 (may overflow)
+  // Value semantics
+  /// struct
+  {
+    Point :: struct(
+      x : i32,
+      y : i32
+    );
+
+    p1 :: Point(3, 4);
+    p2 :: p1;
+    p1.x = 5;
+  };
+
+  {
+    arr :: [1, 2, 3];
+    arr(0) = 10;
+  };
 };
 
 export main;
