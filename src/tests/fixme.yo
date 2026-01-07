@@ -1,26 +1,24 @@
 main :: (fn() -> unit) {
-  // parameter that contains function type
-  generic_fn :: (fn(
-    forall(T : Type),
-    x : T,
-    callback : (fn(v : T)-> T)
-  ) -> T)
-    callback(x)
+  // Mutual recursion
+  compt(is_even) : (fn(n : i32) -> bool);
+  compt(is_odd) : (fn(n : i32) -> bool);
+
+  is_even = _
+    cond
+      (n == 0) => true,
+      true     => is_odd(n - 1)
   ;
 
-  a := generic_fn(1, (x)-> (x + 1));
-  b := generic_fn(true, (x)-> !(x));
+  is_odd  = _
+    cond
+      (n == 0) => false,
+      true     => is_even(n - 1)
+  ;
 
-  assert(a == 2);
-  assert(b == false);
-
-  // Test that functions with compile-time parameters are rejected
-  // This should be compile-time error:
-  // test_compt_param :: (fn(
-  //   callback : (fn(compt(x) : i32) -> i32)
-  // ) -> unit)
-  //   ()
-  // ;
+  assert(is_even(10) == true);
+  assert(is_odd(10) == false);
+  assert(is_even(11) == false);
+  assert(is_odd(11) == true);
 };
 
 export main;

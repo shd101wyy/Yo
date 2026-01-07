@@ -5246,13 +5246,14 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   // So this code path should never actually inline a value for variables
   if (expr.$?.value) {
     if (isUnknownValue(expr.$.value)) {
-      throw new Error(
-        `Cannot generate code for unknown compile-time value of atom: ${exprToString(expr)}`
-      );
+      // For unknown values (like mutually recursive function references), we should NOT inline
+      // Instead, fall through to use the variable name from the token
+      // This handles cases like is_even referencing is_odd before is_odd is defined
+    } else {
+      // Only inline if this is NOT a variable (e.g., it's a literal constant without a variable name)
+      // But all variables should have been handled above, so this is just for safety
+      return generateComptValue(expr.$.value, context, expr);
     }
-    // Only inline if this is NOT a variable (e.g., it's a literal constant without a variable name)
-    // But all variables should have been handled above, so this is just for safety
-    return generateComptValue(expr.$.value, context, expr);
   }
 
   const isClosureCaptured =
@@ -5307,6 +5308,17 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         return `((${captureStructName}*)closure_context->data)->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
       }
     }
+  }
+
+  // Check if this atom refers to a function by looking it up in functionContext.functions
+  // This handles mutually recursive functions where we need to use the mangled function name
+  const functionName = expr.token.value;
+  const functionEntry = Object.values(functionContext.functions).find(
+    (entry) => entry.value.funcName === functionName
+  );
+
+  if (functionEntry) {
+    return functionEntry.cName;
   }
 
   // Check if this variable has a parameterAlias (used in anonymous functions
