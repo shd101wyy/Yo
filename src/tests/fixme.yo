@@ -1,24 +1,14 @@
-// container struct
-Container :: (fn(compt(T) : Type)-> compt(Type))
-  struct(value: T)
-;
-
-use_container :: (fn(
-  forall(T : Type), 
-  c : Container(T), 
-  x : T
-) -> T) {
-  return x;
-};
-
 main :: (fn() -> unit) {
-  i32_container_value := Container(i32)(12);
-  x11 := use_container(i32_container_value, 13);
-  x12 := use_container(Container(i32)(13), 12);
-  x13 := use_container(Container(bool)(true), false);
-   
-  assert(x11 == 13);
-  assert(x12 == 12);
-  assert(x13 == false);
+  add :: impl {
+    add1 :: (fn(x : i32) -> i32) x;
+    add2 :: (fn(x : i32, y : i32) -> i32) (x + y);
+    add3 :: (fn(x : i32, y : i32, z : i32) -> i32) ((x + y) + z);
+    add4 :: (fn(x : i32, y : i32, z : i32, w : i32) -> i32) (((x + y) + z) + w);
+    
+    Call :: (add1, add2, add3); // Allow calling the module like a function
+    export Call;
+  };
+  
+  assert(add(2, 3) == 5);
 };
 export main;

@@ -540,6 +540,43 @@ export function tryToCallFunctionWithArguments({
   // Regular parameters come first, implicit parameters come after
   const regularArgCount = functionType.parameters.length;
 
+  // Check argument count BEFORE slicing - this ensures we catch too many/few args
+  const regularArgsToCheck = argExprs.slice(regularArgStartIndex);
+  if (!functionType.variadicParameter) {
+    if (regularArgsToCheck.length > regularArgCount) {
+      // Check if the last function parameter is quote with ExprList
+      // If not then we throw error
+      const lastParameter = functionType.parameters.at(-1);
+      if (
+        lastParameter &&
+        lastParameter.isQuote &&
+        isExprListType(lastParameter.type)
+      ) {
+        // Allowed to have more args here
+      } else {
+        throw formatErrorMessage({
+          token: functionCalleeExpr?.token ?? PlaceholderToken,
+          errorMessage: `Too many arguments for function call:
+Expected: ${regularArgCount} arguments
+Got:   ${regularArgsToCheck.length} arguments`,
+        });
+      }
+    } else if (regularArgsToCheck.length < regularArgCount) {
+      // Check if missing parameters have default values
+      const hasDefaultsForMissing = functionType.parameters
+        .slice(regularArgsToCheck.length)
+        .every((param) => param.exprs.defaultValueExpr !== undefined);
+      if (!hasDefaultsForMissing) {
+        throw formatErrorMessage({
+          token: functionCalleeExpr?.token ?? PlaceholderToken,
+          errorMessage: `Too few arguments for function call:
+Expected: ${regularArgCount} arguments
+Got:   ${regularArgsToCheck.length} arguments`,
+        });
+      }
+    }
+  }
+
   const regularArgExprs = argExprs.slice(
     regularArgStartIndex,
     regularArgStartIndex + regularArgCount
@@ -792,28 +829,6 @@ Got:   ${typeToString(typeValue.type)}`,
         value: typeValue,
         argType: typeValue.type,
         parameterType: evaluatedForallParameterType,
-      });
-    }
-  }
-
-  const expectedArgCount = functionType.parameters.length;
-
-  if (!functionType.variadicParameter && argExprs.length > expectedArgCount) {
-    // Check if the last function parameter is quote with ExprList
-    // If not then we throw error
-    const lastParameter = functionType.parameters.at(-1);
-    if (
-      lastParameter &&
-      lastParameter.isQuote &&
-      isExprListType(lastParameter.type)
-    ) {
-      // Allowed to have more args here
-    } else {
-      throw formatErrorMessage({
-        token: functionCalleeExpr?.token ?? PlaceholderToken,
-        errorMessage: `Too many arguments for function call:
-Expected: ${expectedArgCount} arguments
-Got:   ${argExprs.length} arguments`,
       });
     }
   }
