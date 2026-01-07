@@ -2650,7 +2650,8 @@ function generateFuncCall(
       expr,
       BuiltinFunctions.__yo_var_is_owning_the_rc_value
     ) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases)
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases) ||
+    exprIsFunctionCallOf(expr, BuiltinKeywords.open)
   ) {
     // no-op in C, just return empty string
     return "";

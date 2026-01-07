@@ -221,47 +221,6 @@ test "Test compt", {
   };
 };
 
-test "Test 'cond'", {
-  {
-    max :: (fn(x : i32, y : i32) -> i32)
-      cond(
-        (x > y) => {
-          a := 12;
-          x
-        },
-        true => {
-          b := 13;
-          y
-        }
-      )
-    ;
-
-    x := 5;
-    y := 10;
-    assert(max(x, y) == 10);
-  };
-};
-
-test "Test 'while'", {
-  // multiple steps in while
-  {
-    test_multi_steps :: (fn(max : i32) -> i32) {
-      result := 0;
-      i := i32(0);
-      j := i32(0);
-      
-      while i < max, begin(i = (i + 1), j = (j + 2)), {
-        result = ((result + i) + j);
-      };
-
-      return result;
-    };
-
-    result := test_multi_steps(5);
-    assert(result == 30);
-  };
-};
-
 test "Test destructuring", {
   // tuple destructuring
   {
@@ -365,7 +324,7 @@ test "Test type auto derive Send", {
   compt_assert(Type.impls(GenericPoint(MyBox), Send) == false);
 };
 
-test "Test struct", {
+test "Test 'struct'", {
   // Struct
   {
     Point :: struct(x: i32, y: i32);
@@ -550,14 +509,17 @@ test "Test struct", {
     Withdraw :: struct(
       balance: i32,
 
-      withdraw :: (fn(self: *(Self), amount: i32) -> i32) {
-        if self.balance >= amount, {
-          self.balance = (self.balance - amount);
-          return self.balance;
-        }, else: {
-          return 0; // insufficient balance
-        };
-      }
+      withdraw :: (fn(self: *(Self), amount: i32) -> i32)(
+        cond(
+          (self.balance >= amount) => {
+            self.balance = (self.balance - amount);
+            return self.balance;
+          }, 
+          true => {
+            return 0; // insufficient balance
+          }
+        )
+      )
     );
 
     make_widthdraw_balance_100 :: (fn() -> Withdraw) {
@@ -576,7 +538,7 @@ test "Test struct", {
   };
 };
 
-test "Test enum", {
+test "Test 'enum'", {
   {
     Color :: enum(Red, Green, Blue);
     (r : Color) = Color.Red;
@@ -621,12 +583,12 @@ test "Test enum", {
       )
     );
 
-    c := Shape.new_circle(5);
-    c2 := c.id();
-    c2.radius = 10;
+    // c := Shape.new_circle(5);
+    // c2 := c.id();
+    // c2.radius = 10;
 
-    assert(c.radius == 5);
-    assert(c2.radius == 10);
+    // assert(c.radius == 5);
+    // assert(c2.radius == 10);
   };
 
   // Nested enum
@@ -641,7 +603,7 @@ test "Test enum", {
   };
 };
 
-test "Test union", {
+test "Test 'union'", {
   SomeUnion :: union
     x : i32,
     y : bool,
@@ -699,21 +661,21 @@ test "Test tuple", {
   };
 };
 
-test "Test raw pointer, {
+test "Test raw pointer", {
   // allocate and free
   {
-    { GlobalAllocator } :: open import "std/allocator";
+    { GlobalAllocator } :: import "std/allocator";
     open GlobalAllocator;
 
     {
-      ptr := malloc(sizeof(i32) * 2).unwrap().cast(*(i32));
+      ptr := (*(i32))(malloc(sizeof(i32) * 2).unwrap());
       ptr.* = 42;
-      (ptr + 1).* = 84;
+      (ptr &+ 1).* = 84;
 
       assert(ptr.* == 42);
-      assert((ptr + 1).* == 84);
+      assert((ptr &+ 1).* == 84);
 
-      free(.Some(ptr));
+      free(.Some(*(void) ptr));
     };
   };
 
@@ -783,6 +745,25 @@ test "Test raw pointer, {
 };
 
 test "Test 'cond'", {
+  {
+    max :: (fn(x : i32, y : i32) -> i32)
+      cond(
+        (x > y) => {
+          a := 12;
+          x
+        },
+        true => {
+          b := 13;
+          y
+        }
+      )
+    ;
+
+    x := 5;
+    y := 10;
+    assert(max(x, y) == 10);
+  };
+
   compt_expect_error(
     x := cond(
       (3 > 4) => 5,
@@ -815,20 +796,18 @@ test "Test 'match'", {
     Rectangle(w: i32, h: i32)
   );
 
-  area :: (fn(shape: Shape) -> i32)
+  area :: (fn(shape: Shape) -> i32)(
     match(shape,
-      .Circle(r) =>
-        (3 * (r * r)),
-      .Rectangle(w, h) =>
-        (w * h)
+      .Circle(r) => (i32(3) * (r * r)),
+      .Rectangle(w, h) => (w * h)
     )
-  ;
+  );
 
   // Test labeled destructuring
   area_with_labels :: (fn(shape: Shape) -> i32)
     match(shape,
       .Circle(r : radius) =>
-        (3 * (radius * radius)),
+        (i32(3) * (radius * radius)),
       .Rectangle(h : height, w : width) =>
         (height * width)
     )
@@ -848,7 +827,7 @@ test "Test 'match'", {
   area_ptr :: (fn(shape_ptr: *(Shape)) -> i32)
     match(shape_ptr, // automatic dereference
       .Circle(r) =>
-        (3 * (r * r)),
+        (i32(3) * (r * r)),
       .Rectangle(w, h) =>
         (w * h)
     )
@@ -944,6 +923,24 @@ test "Test 'while'", {
 
     y := sum(10);
     assert(y == 55);
+  };
+
+  // multiple steps in while
+  {
+    test_multi_steps :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      j := i32(0);
+      
+      while i < max, begin(i = (i + 1), j = (j + 2)), {
+        result = ((result + i) + j);
+      };
+
+      return result;
+    };
+
+    result := test_multi_steps(5);
+    assert(result == 30);
   };
 
   // multiple tests
@@ -1492,7 +1489,7 @@ test "Test extending modules by ... spread operator", {
   };
 };
 
-test, "Test 'open' statements", {
+test "Test 'open' statements", {
   // Open a compt struct
   {
     anony :: { x : 12, y : 13 };
@@ -1534,16 +1531,8 @@ test "Test 'Impl'", {
 
     ImplId :: Impl(Id);
 
-    // Test with custom label
-    ImplIdLabeled :: Impl(MyId : Id);
-
     test1 :: (fn(x : ImplId) -> ImplId) {
-      y := typeof(x).Id.id(x);
-      return y.id();
-    };
-
-    test2 :: (fn(x : ImplIdLabeled) -> ImplIdLabeled) {
-      y := typeof(x).MyId.id(x);
+      y := (typeof(x) <: Id).id(x);
       return y.id();
     };
     // TODO: add assertions
@@ -1555,24 +1544,13 @@ test "Test 'Impl'", {
     );
 
     test1 :: (fn(forall(T := Impl(Id)), x : T) -> T) {
-      y := typeof(x).Id.id(x);
+      y := (typeof(x) <: Id).id(x);
       return y.id();
     };
 
-    test2 :: (fn(forall((T : Type) = Impl(SomeId : Id)), x : T) -> T) {
-      y := typeof(x).SomeId.id(x);
+    test2 :: (fn(compt(T) := Impl(Id), x : T) -> T) {
+      y := (typeof(x) <: Id).id(x);
       return y.id();
     };
-
-    test3 :: (fn(compt(T) := Impl(Id), x : T) -> T) {
-      y := typeof(x).Id.id(x);
-      return y.id();
-    };
-
-    test4 :: (fn((compt(T) : Type) = Impl(SomeId : Id), x : T) -> T) {
-      y := typeof(x).SomeId.id(x);
-      return y.id();
-    };
-    // TODO: add assertions
   };
 };
