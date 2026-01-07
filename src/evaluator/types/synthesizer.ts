@@ -266,9 +266,10 @@ export function synthesizeTypes(
     // Check if the env has
     const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
     if (
-      //type === expected.type
       isSomeType(type) &&
-      type.id === expected.type.id
+      (type.id === expected.type.id ||
+        // QUESTION: Is this condition below needed?
+        type.name === expected.type.name)
     ) {
       // Occurs check: prevent infinite types like T = Option(T)
       if (occursCheck(expected.type.id, given.type)) {
@@ -278,7 +279,6 @@ export function synthesizeTypes(
       }
 
       const value = createTypeValue(given.type);
-      // console.log("(1) addVariableToEnv");
 
       // Check if the same variable already exists in the env
       const existingVariables = getVariablesFromEnv(
@@ -383,17 +383,22 @@ export function synthesizeTypes(
       expected.env = expectedEnv;
       given.env = givenEnv;
     }
-  } else if (
-    isStructType(expected.type) &&
-    isStructType(given.type) &&
-    (expected.type.id === given.type.id ||
+  } else if (isStructType(expected.type) && isStructType(given.type)) {
+    if (
+      expected.type.id === given.type.id ||
       (expected.type.functionValue &&
         given.type.functionValue &&
-        expected.type.functionValue === given.type.functionValue))
-    // NOTE: The typeId might not match
-    // They might be different structs that both are returned from the same function.
-    // We removed the typeName condition since it fails for Data(boolean) vs Data(A1)
-  ) {
+        expected.type.functionValue === given.type.functionValue)
+    ) {
+      // NOTE: The typeId might not match
+      // They might be different structs that both are returned from the same function.
+      // We removed the typeName condition since it fails for Data(boolean) vs Data(A1)
+    } else {
+      throw new Error(
+        `Cannot unify incompatible struct types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`
+      );
+    }
+
     for (let i = 0; i < expected.type.fields.length; i++) {
       const expectedElement = expected.type.fields[i]!;
       const givenElement = given.type.fields[i]!;
