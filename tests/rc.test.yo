@@ -134,3 +134,23 @@ test "Test Rc in different data structures", {
     assert(n.0.0.0.0.* == 3, "n.0.0.0.0.* == 3");
   };
 };
+
+test "Test Rc with Iso", {
+  {
+    x := box(123);
+    z := ^(x);
+    match(z,
+      .Some(_) => assert(true),
+      .None => assert(false, "unreachable")
+    );
+  };
+  {
+    x := box(123);
+    y := { x };
+    z := ^(x);
+    match(z,
+      .Some(_) => assert(false, "unreachable"),
+      .None => assert(true)
+    );
+  };
+};

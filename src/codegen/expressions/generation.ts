@@ -2604,7 +2604,21 @@ function generateFuncCall(
   }
   // consume
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
-    return generateExpr(expr.args[0]!, indent, context);
+    const argExpr = expr.args[0]!;
+    const argCode = generateExpr(argExpr, indent, context);
+    const argType = argExpr.$?.type;
+
+    // Generate drop code for the consumed value
+    // consume() marks the value as moved in the evaluator, so we must drop it in codegen
+    if (argType && argCode) {
+      const dropCode = generateDropCodeForValue(argCode, argType, context);
+      if (dropCode) {
+        const emitter = context.emitter;
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+
+    return argCode;
   }
   // functions that should be skipped
   // compt_expect_error
@@ -3756,6 +3770,10 @@ function generateDropCodeForValue(
     isSomeType(valueType) && valueType.resolvedConcreteType
       ? valueType.resolvedConcreteType
       : valueType;
+
+  if (!typeContainsRcType(concreteType)) {
+    return "";
+  }
 
   // Handle arrays recursively
   if (isArrayType(concreteType)) {
