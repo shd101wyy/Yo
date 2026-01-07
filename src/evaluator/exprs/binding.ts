@@ -10,6 +10,7 @@ import {
 } from "../../expr";
 import {
   isArrayType,
+  isFunctionType,
   prohibitVoidType,
   typeContainsRcType,
   typeProhibitsComptModifier,
@@ -128,6 +129,23 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
   }
 
   const variableName = lhs.token.value;
+
+  // Validate that runtime variables with generic function types are prohibited
+  // Generic functions can't be represented as runtime function pointers in C
+  if (
+    !isCompileTimeOnly &&
+    isFunctionType(userDefinedType) &&
+    userDefinedType.forallParameters.length > 0
+  ) {
+    throw formatErrorMessage({
+      token: lhs.token,
+      errorMessage: `Runtime variables with generic function types are not allowed:
+${typeToString(userDefinedType)}
+
+Generic functions must be compile-time known to enable monomorphization. Consider using:
+compt(${variableName}) : ${typeToString(userDefinedType)}`,
+    });
+  }
   // Add the variable to the env
   // console.log("(5) addVariableToEnv");
   const { env: nextEnv } = addVariableToEnv({
