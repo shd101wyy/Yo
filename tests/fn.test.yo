@@ -440,13 +440,42 @@ test "Test generic functions", {
     assert(z == 5);
   };
 
+  // Define function using :: directly
   {
-    // anonymous function
-    id : (fn(forall(T : Type), x : T) -> T);
+    id :: (fn(forall(T : Type), x : T) -> T)(x);
+    
+    x := id(true);
+    y := id(12);
+    z := id(3.14);
+    
+    assert(x == true);
+    assert(y == 12);
+    assert(z == 3.14);
+  };
+
+  {
+    // Test with compile-time variable and anonymous function - should infer types automatically
+    compt(id) : (fn(forall(T : Type), x : T) -> T);
     id = ((a) -> a);
-    assert(id(12) == 12);
-    assert(id(true) == true);
-    assert(id(3.14) == 3.14);
+    
+    x := id(true);
+    y := id(12);
+    z := id(3.14);
+    
+    assert(x == true);
+    assert(y == 12);
+    assert(z == 3.14);
+  };
+
+  {
+    // Disallow to have generic function assigned to runtime variable
+    compt_expect_error(id : (fn(forall(T : Type), x : T) -> T));
+  
+    // Disallow to runtime function parameter with generic function type
+    compt_expect_error(test_fn :: (fn(f : (fn(forall(T : Type), x : T) -> T)) -> unit) {
+      x := f(42);
+      assert(x == 42);
+    });
   };
 
   {

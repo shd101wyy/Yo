@@ -42,7 +42,6 @@ import {
   getVariableNameForCodegen,
   isComptFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
-  isGenericFunction,
   sanitizeForCIdentifier,
 } from "../utils";
 import { FunctionGenerationContext } from "./context";
@@ -108,7 +107,7 @@ export function generateFunctionDeclarations(
     const { cName, value } = context.functions[funcId]!;
 
     if (
-      isGenericFunction(value) ||
+      isFunctionSpecializable(value.type) ||
       isComptFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
@@ -342,10 +341,10 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // EXCEPTION: Specialized functions from impl methods (not generic at function level)
     // should be generated here, not in generateSpecializedFunctions
     const isSpecializedImplMethod =
-      value.specializedType && !isGenericFunction(value);
+      value.specializedType && !isFunctionSpecializable(value.type);
 
     if (
-      isGenericFunction(value) ||
+      isFunctionSpecializable(value.type) ||
       (value.specializedType && !isSpecializedImplMethod) ||
       isComptFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
@@ -889,7 +888,10 @@ export function generateSpecializedFunctionDeclarations(
       continue;
     }
 
-    if (!specializedFunctionType || !isGenericFunction(functionValue)) {
+    if (
+      !specializedFunctionType ||
+      !isFunctionSpecializable(functionValue.type)
+    ) {
       continue; // Skip non-generic functions
     }
 
@@ -927,7 +929,10 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     }
 
     // Skip if not a generic function
-    if (!functionValue.specializedType || !isGenericFunction(functionValue)) {
+    if (
+      !functionValue.specializedType ||
+      !isFunctionSpecializable(functionValue.type)
+    ) {
       continue;
     }
 

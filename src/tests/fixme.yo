@@ -1,5 +1,4 @@
 main :: (fn() -> unit) {
-  /*
   // Define function using :: directly
   {
     id :: (fn(forall(T : Type), x : T) -> T)(x);
@@ -12,8 +11,6 @@ main :: (fn() -> unit) {
     assert(y == 12);
     assert(z == 3.14);
   };
-  */
-  /*
   {
     // Test with compile-time variable - should infer types automatically
     compt(id) : (fn(forall(T : Type), x : T) -> T);
@@ -27,17 +24,15 @@ main :: (fn() -> unit) {
     assert(y == 12);
     assert(z == 3.14);
   };
-  */
   {
-    // Test with runtime variable - should also infer types automatically
-    id : (fn(forall(T : Type), x : T) -> T);
-    id = ((a) -> a);
-    
-    x := id(false);
-    y := id(42);
-    
-    assert(x == false);
-    assert(y == 42);
+    // Disallow to have generic function assigned to runtime variable
+    compt_expect_error(id : (fn(forall(T : Type), x : T) -> T));
+  
+    // Disallow to runtime function parameter with generic function type
+    compt_expect_error(test_fn :: (fn(f : (fn(forall(T : Type), x : T) -> T)) -> unit) {
+      x := f(42);
+      assert(x == 42);
+    });
   };
 };
 

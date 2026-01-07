@@ -14,7 +14,6 @@ import {
   extractFutureModuleFromType,
   FunctionType,
   isEnumType,
-  isFunctionSpecializable,
   isObjectType,
   IsoType,
   isPtrType,
@@ -708,13 +707,6 @@ export function getEnumVariantCName(
     );
   }
   return `${enumCName.toUpperCase()}_${variantName.toUpperCase()}`;
-}
-
-/**
- * Check if a function is generic (has compile-time type parameters)
- */
-export function isGenericFunction(functionValue: FunctionValue): boolean {
-  return isFunctionSpecializable(functionValue.type);
 }
 
 /**

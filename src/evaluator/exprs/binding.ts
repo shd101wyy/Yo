@@ -10,6 +10,7 @@ import {
 } from "../../expr";
 import {
   isArrayType,
+  isFunctionSpecializable,
   isFunctionType,
   prohibitVoidType,
   typeContainsRcType,
@@ -135,7 +136,7 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
   if (
     !isCompileTimeOnly &&
     isFunctionType(userDefinedType) &&
-    userDefinedType.forallParameters.length > 0
+    isFunctionSpecializable(userDefinedType)
   ) {
     throw formatErrorMessage({
       token: lhs.token,

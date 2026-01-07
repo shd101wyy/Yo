@@ -32,6 +32,8 @@ import {
   isExprListType,
   isExprType,
   isFnModuleType,
+  isFunctionSpecializable,
+  isFunctionType,
   isModuleType,
   isSomeType,
   ModuleType,
@@ -392,6 +394,23 @@ ${typeToString(parameterType)}`,
         errorMessage: `Unexpected "compt" for parameter of type ${typeToString(
           parameterType
         )} which can only be used at runtime.`,
+      });
+    }
+
+    // Validate that runtime parameters with generic function types are prohibited
+    // Generic functions can't be represented as runtime function pointers in C
+    if (
+      !isCompileTimeOnly &&
+      isFunctionType(parameterType) &&
+      isFunctionSpecializable(parameterType)
+    ) {
+      throw formatErrorMessage({
+        token: lhsExpr?.token ?? expr.token,
+        errorMessage: `Runtime function parameters with generic function types are not allowed:
+${typeToString(parameterType)}
+
+Generic functions must be compile-time known to enable monomorphization. Consider using:
+compt(${label}) : ${typeToString(parameterType)}`,
       });
     }
   }
