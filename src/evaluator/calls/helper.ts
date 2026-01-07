@@ -1140,7 +1140,7 @@ Got:   ${typeToString(typeValue.type)}`,
 
   validateFunctionReturnType({
     returnType,
-    env: callerEnv, // Use callerEnv directly to check SomeTypes are in scope
+    env: calleeEnv, // Use calleeEnv to check SomeTypes inferred from forall parameters
     expr,
     context,
   });

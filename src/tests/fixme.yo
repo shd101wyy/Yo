@@ -1,14 +1,44 @@
-  Container :: (fn(compt(T): Type) -> compt(Type))(
-    object(
-      value : T,
+main :: (fn() -> unit) {
+  /*
+  // Define function using :: directly
+  {
+    id :: (fn(forall(T : Type), x : T) -> T)(x);
+    
+    x := id(true);
+    y := id(12);
+    z := id(3.14);
+    
+    assert(x == true);
+    assert(y == 12);
+    assert(z == 3.14);
+  };
+  */
+  {
+    // Test with compile-time variable - should infer types automatically
+    compt(id) : (fn(forall(T : Type), x : T) -> T);
+    id = ((a) -> a);
+    
+    x := id(true);
+    y := id(12);
+    z := id(3.14);
+    
+    assert(x == true);
+    assert(y == 12);
+    assert(z == 3.14);
+  };
+  /*
+  {
+    // Test with runtime variable - should also infer types automatically
+    id : (fn(forall(T : Type), x : T) -> T);
+    id = ((a) -> a);
+    
+    x := id(false);
+    y := id(42);
+    
+    assert(x == false);
+    assert(y == 42);
+  };
+  */
+};
 
-      // This function has where(T <: Eq(T))
-      equals :: (fn(
-        self: Self, 
-        other: T,
-        where(T <: Eq(T))
-      ) -> bool)(
-        self.value == other
-      )
-    )
-  );
+export main;

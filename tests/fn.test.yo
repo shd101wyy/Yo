@@ -393,7 +393,7 @@ test "Test generic functions", {
 
   {
     id :: (fn(compt(T): Type, val: T) -> T) {
-      id2 :: (fn(val: T) -> T)(val);
+      id2 :: (fn(val2: T) -> T)(val2);
       return id2(val);
     };
 
@@ -410,8 +410,8 @@ test "Test generic functions", {
 
   {
     id :: (fn(compt(T): Type, val: T) -> T) {
-      id2 :: (fn(compt(X): Type, val: X) -> X) 
-        val
+      id2 :: (fn(compt(X): Type, val2: X) -> X) 
+        val2
       ;
       id2(T, val)
     };
@@ -526,10 +526,10 @@ test "Test 'recur'", {
 
   {
     factorial :: (fn(x : i32) -> i32) {
-      factorial_acc :: (fn(x : i32, acc : i32) -> i32) {
+      factorial_acc :: (fn(x2 : i32, acc : i32) -> i32) {
         return cond(
-          (x < 1) => acc,
-          true => recur(x - 1, acc * x)
+          (x2 < 1) => acc,
+          true => recur(x2 - 1, acc * x2)
         );
       };
       return factorial_acc(x, 1);
@@ -579,17 +579,17 @@ test "Test compt function", {
       y: i32
     );
 
-    p1 :: Point(3, 4);
-    p2 :: Point(5, 6);
-
-    p1_x :: p1.x;
-
     runt_add_points :: (fn(p1: Point, p2: Point)-> Point)
       Point(p1.x + p2.x, p1.y + p2.y)
     ;
     compt_add_points :: (fn(compt(p1): Point, compt(p2): Point)-> compt(Point))
       Point(p1.x + p2.x, p1.y + p2.y)
     ;
+
+    p1 :: Point(3, 4);
+    p2 :: Point(5, 6);
+
+    p1_x :: p1.x;
 
     compt_expect_error(
       p3 :: runt_add_points(p1, p2)

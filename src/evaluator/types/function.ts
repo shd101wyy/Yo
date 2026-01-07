@@ -1569,7 +1569,13 @@ export function evaluateFunctionReturnTypeAgain({
 }): { returnType: Type; calleeEnv: Environment } {
   const functionReturn = functionType.return;
   if (!functionReturn.expr) {
-    return { returnType: functionReturn.type, calleeEnv };
+    // Even without an expr, we still need to resolve SomeTypes in the return type
+    // This is important for anonymous functions where return.expr is undefined
+    let returnType = functionReturn.type;
+    if (isSomeType(returnType)) {
+      returnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
+    }
+    return { returnType, calleeEnv };
   }
   const evaluatedFunctionReturnExpr = evaluateExpression({
     expr: cloneExpr(functionReturn.expr),
