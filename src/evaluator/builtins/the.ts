@@ -79,7 +79,7 @@ export function evaluateThe({
   if (
     !areTypesCompatible(
       { type: expectedType, env },
-      { type: evaluatedValueExpr.$.type, env },
+      { type: evaluatedValueExpr.$.type, env }
     )
   ) {
     // Only try synthesis if the expected type contains unknown values that could be resolved
@@ -101,7 +101,7 @@ export function evaluateThe({
         if (
           areTypesCompatible(
             { type: expectedType, env: synthesizedEnv },
-            { type: synthesizedValueType, env: synthesizedEnv },
+            { type: synthesizedValueType, env: synthesizedEnv }
           )
         ) {
           // Use the synthesized result

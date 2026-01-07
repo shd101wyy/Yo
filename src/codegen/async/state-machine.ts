@@ -35,12 +35,12 @@ import {
  */
 export function getFutureFieldName(
   awaitPoint: AwaitPoint,
-  analysis: AwaitAnalysisResult,
+  analysis: AwaitAnalysisResult
 ): string {
   if (awaitPoint.futureVariableId) {
     // Find the captured variable
     const capturedVar = analysis.capturedVariables.find(
-      (v) => v.id === awaitPoint.futureVariableId,
+      (v) => v.id === awaitPoint.futureVariableId
     );
     if (capturedVar) {
       // Use the captured variable's field name
@@ -82,11 +82,11 @@ export interface StateMachineInfo {
  */
 export function generateResumeFunctionDeclaration(
   info: StateMachineInfo,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
   emitter.emitDeclarationLine(
-    `void ${info.resumeFunctionName}(${info.structName}* sm);`,
+    `void ${info.resumeFunctionName}(${info.structName}* sm);`
   );
 }
 
@@ -96,7 +96,7 @@ export function generateResumeFunctionDeclaration(
  */
 export function getStateMachineFieldName(
   variableId: string,
-  kind?: "outer" | "local",
+  kind?: "outer" | "local"
 ): string {
   if (kind === "outer") {
     // Outer captured variables are accessed through __capture struct
@@ -118,7 +118,7 @@ export function generateAsyncBlockResumeFunction(
   analysis: AwaitAnalysisResult,
   futureType: SomeType | DynType,
   captureType: StructType | undefined,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -137,7 +137,7 @@ export function generateAsyncBlockResumeFunction(
   emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
   emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
   emitter.emitLine(
-    `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`,
+    `  ASYNC_DEBUG("${asyncBlockId}_resume: state=%d\\n", sm->state);`
   );
   emitter.emitLine(`  switch (sm->state) {`);
 
@@ -155,7 +155,7 @@ export function generateAsyncBlockResumeFunction(
 
     emitter.emitLine(`    case ${stateNumber}: { // State ${stateNumber}`);
     emitter.emitLine(
-      `      ASYNC_DEBUG("${asyncBlockId}: Entering state ${stateNumber}\\n");`,
+      `      ASYNC_DEBUG("${asyncBlockId}: Entering state ${stateNumber}\\n");`
     );
 
     // If this is not the first state, extract the result from the previous await
@@ -165,13 +165,13 @@ export function generateAsyncBlockResumeFunction(
 
       if (prevAwait && !isUnitType(prevAwait.resultType)) {
         emitter.emitLine(
-          `      // Extract result from await ${stateNumber - 1}`,
+          `      // Extract result from await ${stateNumber - 1}`
         );
         emitter.emitLine(
-          `      int state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire);`,
+          `      int state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire);`
         );
         emitter.emitLine(
-          `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`,
+          `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
 
         // If the result contains Rc-managed data, we need to dup it before copying
@@ -179,24 +179,24 @@ export function generateAsyncBlockResumeFunction(
         if (typeContainsRcType(prevAwait.resultType)) {
           const dupFunctionName = getDupFunctionForType(
             prevAwait.resultType,
-            context,
+            context
           );
           if (dupFunctionName) {
             emitter.emitLine(
-              `      sm->await_result_${stateNumber - 1} = ${dupFunctionName}(sm->${prevFutureFieldName}->result);`,
+              `      sm->await_result_${stateNumber - 1} = ${dupFunctionName}(sm->${prevFutureFieldName}->result);`
             );
           } else {
             emitter.emitLine(
-              `      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`,
+              `      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`
             );
             emitter.emitLine(
-              `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`,
+              `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
             );
           }
         } else {
           // For non-Rc types (primitives), simple copy is fine
           emitter.emitLine(
-            `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`,
+            `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
           );
         }
 
@@ -204,10 +204,10 @@ export function generateAsyncBlockResumeFunction(
         if (prevAwait.targetVariableId) {
           const fieldName = getStateMachineFieldName(
             prevAwait.targetVariableId,
-            "local",
+            "local"
           );
           emitter.emitLine(
-            `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`,
+            `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
           );
         }
 
@@ -224,7 +224,7 @@ export function generateAsyncBlockResumeFunction(
           const futureType = futureArg?.$?.type;
           if (futureType && (isSomeType(futureType) || isDynType(futureType))) {
             emitter.emitLine(
-              `      if (sm->${prevFutureFieldName} != NULL) { __yo_decr_rc((void*)sm->${prevFutureFieldName}); sm->${prevFutureFieldName} = NULL; }`,
+              `      if (sm->${prevFutureFieldName} != NULL) { __yo_decr_rc((void*)sm->${prevFutureFieldName}); sm->${prevFutureFieldName} = NULL; }`
             );
             emitter.emitLine(``);
           }
@@ -236,21 +236,21 @@ export function generateAsyncBlockResumeFunction(
       const functionContext = context as FunctionGenerationContext;
       if (prevAwait) {
         const condBranchData = functionContext.condBranchInfo?.get(
-          prevAwait.index,
+          prevAwait.index
         );
         if (condBranchData && condBranchData.branches.some((b) => b.hasAwait)) {
           emitter.emitLine(
-            `      // Execute remaining code from chosen cond branch`,
+            `      // Execute remaining code from chosen cond branch`
           );
           emitter.emitLine(
-            `      switch (sm->cond_branch_${prevAwait.index}) {`,
+            `      switch (sm->cond_branch_${prevAwait.index}) {`
           );
 
           for (const branch of condBranchData.branches) {
             if (branch.hasAwait) {
               emitter.emitLine(`        case ${branch.index}: {`);
               emitter.emitLine(
-                `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`,
+                `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
               );
 
               // If there are remaining expressions, generate them
@@ -302,7 +302,7 @@ export function generateAsyncBlockResumeFunction(
                     const dropCode = generateExpr(
                       dropExpr,
                       "          ",
-                      context,
+                      context
                     );
                     // Skip drops that don't use state machine fields (sm->var_*)
                     // These are temp variables from the original scope that aren't accessible
@@ -329,11 +329,11 @@ export function generateAsyncBlockResumeFunction(
           if (condBranchData.targetVariableId) {
             const fieldName = getStateMachineFieldName(
               condBranchData.targetVariableId,
-              "local",
+              "local"
             );
             emitter.emitLine(`      // Assign cond result to target variable`);
             emitter.emitLine(
-              `      sm->${fieldName} = sm->await_result_${prevAwait.index};`,
+              `      sm->${fieldName} = sm->await_result_${prevAwait.index};`
             );
           }
 
@@ -343,14 +343,14 @@ export function generateAsyncBlockResumeFunction(
         // Check if this await was part of a while loop
         // If so, we need to execute remaining body expressions, then re-evaluate the loop condition
         const whileLoopData = functionContext.whileLoopInfo?.get(
-          prevAwait.index,
+          prevAwait.index
         );
         if (whileLoopData) {
           emitter.emitLine(
-            `      // Execute remaining code from while loop body and continue loop`,
+            `      // Execute remaining code from while loop body and continue loop`
           );
           emitter.emitLine(
-            `      if (sm->while_loop_${prevAwait.index}_active) {`,
+            `      if (sm->while_loop_${prevAwait.index}_active) {`
           );
 
           // If there are remaining expressions after the await, generate them
@@ -406,7 +406,7 @@ export function generateAsyncBlockResumeFunction(
 
           // Re-evaluate the loop condition
           emitter.emitLine(
-            `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`,
+            `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
           );
 
           // Set up state machine context for condition evaluation
@@ -438,7 +438,7 @@ export function generateAsyncBlockResumeFunction(
           const condCode = generateExpr(
             whileLoopData.conditionExpr,
             "        ",
-            context,
+            context
           );
 
           // Restore context
@@ -447,25 +447,25 @@ export function generateAsyncBlockResumeFunction(
 
           emitter.emitLine(`        if (!(${condCode})) {`);
           emitter.emitLine(
-            `          sm->while_loop_${prevAwait.index}_active = false;`,
+            `          sm->while_loop_${prevAwait.index}_active = false;`
           );
           emitter.emitLine(
-            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`,
+            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
           );
           emitter.emitLine(`        } else {`);
           emitter.emitLine(
-            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`,
+            `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
           );
 
           // Transition back to the state where the while loop started
           // The while loop is in the state that contains the await - which is prevAwait.index
           const whileLoopStateNumber = prevAwait.index;
           emitter.emitLine(
-            `          // Loop back by transitioning to while loop state`,
+            `          // Loop back by transitioning to while loop state`
           );
           emitter.emitLine(`          sm->state = ${whileLoopStateNumber};`);
           emitter.emitLine(
-            `          goto while_loop_${whileLoopStateNumber}_start;`,
+            `          goto while_loop_${whileLoopStateNumber}_start;`
           );
 
           emitter.emitLine(`        }`);
@@ -523,7 +523,7 @@ export function generateAsyncBlockResumeFunction(
       segment,
       "      ",
       context,
-      isLastSegmentWithResult,
+      isLastSegmentWithResult
     );
 
     // Restore pending deferred drops
@@ -545,10 +545,10 @@ export function generateAsyncBlockResumeFunction(
       if (isInsideWhile) {
         const whileLoopIndex = segment.awaitPoint.index;
         emitter.emitLine(
-          `      // Only await if while loop is still active (not broken)`,
+          `      // Only await if while loop is still active (not broken)`
         );
         emitter.emitLine(
-          `      if (sm->while_loop_${whileLoopIndex}_active) {`,
+          `      if (sm->while_loop_${whileLoopIndex}_active) {`
         );
       }
 
@@ -557,26 +557,26 @@ export function generateAsyncBlockResumeFunction(
       emitter.emitLine(``);
       emitter.emitLine(`      // Check if future is ready`);
       emitter.emitLine(
-        `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`,
+        `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
       );
       emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
       emitter.emitLine(
-        `        // Yield once even when ready (microtask semantics), then resume in next tick`,
+        `        // Yield once even when ready (microtask semantics), then resume in next tick`
       );
       emitter.emitLine(
-        `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`,
+        `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
       );
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      } else {`);
       // Register continuation directly on the future (type-specific access)
       emitter.emitLine(
-        `        // Register continuation to be called when future completes`,
+        `        // Register continuation to be called when future completes`
       );
       emitter.emitLine(
-        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`,
+        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
       );
       emitter.emitLine(
-        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`,
+        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
       );
       emitter.emitLine(`        return;`);
       emitter.emitLine(`      }`);
@@ -586,7 +586,7 @@ export function generateAsyncBlockResumeFunction(
         // Add else branch to jump to code after while loop when broken
         emitter.emitLine(`      } else {`);
         emitter.emitLine(
-          `        // While loop was broken, jump to code after loop`,
+          `        // While loop was broken, jump to code after loop`
         );
         emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
         emitter.emitLine(`      }`);
@@ -594,7 +594,7 @@ export function generateAsyncBlockResumeFunction(
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>
-        exprIsFunctionCallOf(expr, "return"),
+        exprIsFunctionCallOf(expr, "return")
       );
 
       if (!hasReturnStatement) {
@@ -613,45 +613,45 @@ export function generateAsyncBlockResumeFunction(
 
         emitter.emitLine(`      // Final state - complete the Future`);
         emitter.emitLine(
-          `      atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`,
+          `      atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
         );
 
         emitter.emitLine(``);
         emitter.emitLine(`      // Check if there's a continuation to invoke`);
         emitter.emitLine(
-          `      void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`,
+          `      void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
         );
         emitter.emitLine(
-          `      void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`,
+          `      void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
         );
         emitter.emitLine(``);
         emitter.emitLine(`      if (continuation_fn != NULL) {`);
         emitter.emitLine(
-          `        ASYNC_DEBUG("Future %p completed, spawning continuation: resume_fn=%p, sm=%p\\n", (void*)sm, (void*)continuation_fn, continuation_sm);`,
+          `        ASYNC_DEBUG("Future %p completed, spawning continuation: resume_fn=%p, sm=%p\\n", (void*)sm, (void*)continuation_fn, continuation_sm);`
         );
         emitter.emitLine(``);
         emitter.emitLine(
-          `        // Clear the continuation (prevent double-spawn)`,
+          `        // Clear the continuation (prevent double-spawn)`
         );
         emitter.emitLine(
-          `        atomic_store_explicit(&sm->continuation_fn, NULL, memory_order_relaxed);`,
+          `        atomic_store_explicit(&sm->continuation_fn, NULL, memory_order_relaxed);`
         );
         emitter.emitLine(
-          `        atomic_store_explicit(&sm->continuation_sm, NULL, memory_order_relaxed);`,
+          `        atomic_store_explicit(&sm->continuation_sm, NULL, memory_order_relaxed);`
         );
         emitter.emitLine(``);
         emitter.emitLine(`        // Spawn the continuation as a new task`);
         emitter.emitLine(
-          `        yo_async_spawn_task(continuation_fn, continuation_sm);`,
+          `        yo_async_spawn_task(continuation_fn, continuation_sm);`
         );
         emitter.emitLine(`      }`);
         emitter.emitLine(``);
 
         emitter.emitLine(
-          `      // Release event loop's reference now that task is complete`,
+          `      // Release event loop's reference now that task is complete`
         );
         emitter.emitLine(
-          `      // This balances the __yo_incr_rc in yo_async_spawn_task`,
+          `      // This balances the __yo_incr_rc in yo_async_spawn_task`
         );
         emitter.emitLine(`      __yo_decr_rc((void*)sm);`);
 

@@ -145,7 +145,7 @@ export const IdentifierRegex =
  */
 export function findMatchingBracketTokenIndex(
   tokens: Token[],
-  index: number,
+  index: number
 ): number {
   let endBracketType = TokenType.RParen;
   if (!tokens[index]) {

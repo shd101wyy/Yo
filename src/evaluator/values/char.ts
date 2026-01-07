@@ -6,7 +6,7 @@ import { createComptIntValue } from "../../value";
 
 export function evaluateCharLiteral(
   expr: AtomExpr,
-  env: Environment,
+  env: Environment
 ): AtomExpr {
   if (expr.token.type === TokenType.Char) {
     const charCode = parseCharLiteral(expr.token.value);

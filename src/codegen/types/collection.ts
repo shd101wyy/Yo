@@ -51,7 +51,7 @@ import {
  */
 export function collectRequiredTypes(
   moduleValue: ModuleValue,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): void {
   // Start with exports functions and collect types used in their signatures and bodies
   for (let i = 0; i < moduleValue.fields.length; i++) {
@@ -99,7 +99,7 @@ export function collectRequiredTypes(
  */
 export function collectTypesFromFunctionType(
   functionType: FunctionType,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): void {
   // Collect types from parameters
   for (const param of functionType.parameters) {
@@ -118,7 +118,7 @@ export function collectTypesFromFunctionType(
  */
 export function collectTypesFromExpr(
   expr: Expr,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): void {
   // If the expression has type information, collect it
   if (expr.$ && expr.$.type) {
@@ -135,7 +135,7 @@ export function collectTypesFromExpr(
       const paramTypes = functionValue.type.parameters.map((p) => p.type);
       const hasSomeTypeWithoutResolved = paramTypes.some(
         (t) =>
-          isSomeType(t) && typeImplementsFuture(t) && !t.resolvedConcreteType,
+          isSomeType(t) && typeImplementsFuture(t) && !t.resolvedConcreteType
       );
       if (hasSomeTypeWithoutResolved) {
         // Don't collect this function - it's a generic SomeType ARC wrapper

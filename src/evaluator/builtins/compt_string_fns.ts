@@ -51,7 +51,7 @@ export function evaluateYoComptStringFunctions({
       throw formatErrorMessage({
         token: arg.token,
         errorMessage: `Expected compt_string type for "${expr.func.token.value}" argument, got:\n${exprToString(
-          arg,
+          arg
         )}`,
       });
     }
@@ -127,7 +127,7 @@ export function evaluateYoComptStringFunctions({
       throw formatErrorMessage({
         token: stringArg.token,
         errorMessage: `Expected compt_string type for "${expr.func.token.value}" string argument, got:\n${exprToString(
-          stringArg,
+          stringArg
         )}`,
       });
     }
@@ -146,7 +146,7 @@ export function evaluateYoComptStringFunctions({
       throw formatErrorMessage({
         token: startArg.token,
         errorMessage: `Expected compt_int type for "${expr.func.token.value}" start argument, got:\n${exprToString(
-          startArg,
+          startArg
         )}`,
       });
     }
@@ -167,7 +167,7 @@ export function evaluateYoComptStringFunctions({
         throw formatErrorMessage({
           token: endArg.token,
           errorMessage: `Expected compt_int type for "${expr.func.token.value}" end argument, got:\n${exprToString(
-            endArg,
+            endArg
           )}`,
         });
       }
@@ -221,7 +221,7 @@ export function evaluateYoComptStringFunctions({
       throw formatErrorMessage({
         token: lhs.token,
         errorMessage: `Expected compt_string type for "${expr.func.token.value}" first argument, got:\n${exprToString(
-          lhs,
+          lhs
         )}`,
       });
     }
@@ -239,7 +239,7 @@ export function evaluateYoComptStringFunctions({
       throw formatErrorMessage({
         token: rhs.token,
         errorMessage: `Expected compt_string type for "${expr.func.token.value}" second argument, got:\n${exprToString(
-          rhs,
+          rhs
         )}`,
       });
     }
@@ -320,9 +320,7 @@ export function evaluateYoComptStringFunctions({
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Unexpected function call for compt_string operations: ${exprToString(
-          expr,
-        )}`,
+        errorMessage: `Unexpected function call for compt_string operations: ${exprToString(expr)}`,
       });
     }
 

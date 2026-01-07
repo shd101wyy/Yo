@@ -54,7 +54,7 @@ export function tryToCallTypeWithArguments({
 
   const checkedMemberElements: Set<TypeField> = new Set();
   const values: (Value | undefined)[] = Array(typeFields.length).fill(
-    undefined,
+    undefined
   );
   const runtimeArgExprsInOrder: Expr[] = [];
 
@@ -84,7 +84,7 @@ export function tryToCallTypeWithArguments({
       const label = labelExpr.token.value;
       // Find the matching label in the expectedType
       const paramElement_ = typeFields.find(
-        (element) => element.label === label,
+        (element) => element.label === label
       );
       if (!paramElement_) {
         throw formatErrorMessage({
@@ -144,7 +144,7 @@ ${tupleFieldToString(paramElement_)}`,
     if (
       !areTypesCompatible(
         { type: memberElement.type, env: callerEnv },
-        { type: argType, env: callerEnv },
+        { type: argType, env: callerEnv }
       )
     ) {
       throw formatErrorMessage({

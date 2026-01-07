@@ -41,12 +41,12 @@ import { evaluateExpression } from "../exprs/expr";
 function createOptionType(
   innerType: Type,
   env: Environment,
-  context: EvaluatorContext,
+  context: EvaluatorContext
 ): { optionType: EnumType; env: Environment } {
   // Look up the Option type constructor from environment
   const optionVariables = getVariablesFromEnv(env, "Option");
   const optionVariable = optionVariables.find(
-    (v) => v.value && isFunctionValue(v.value) && isFunctionType(v.type),
+    (v) => v.value && isFunctionValue(v.value) && isFunctionType(v.type)
   );
 
   if (
@@ -142,7 +142,7 @@ export function evaluateYoDecrRc({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_decr_rc[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -184,7 +184,7 @@ export function evaluateYoIncrRc({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_incr_rc[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -228,7 +228,7 @@ export function evaluateYoIncrRcAtomic({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_incr_rc_atomic[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -272,7 +272,7 @@ export function evaluateYoDecrRcAtomic({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_decr_rc_atomic[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -316,7 +316,7 @@ export function evaluateYoRcOwn({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_incr_rc[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -362,7 +362,7 @@ export function evaluateYoDynVtableDrop({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_dyn_drop[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -405,7 +405,7 @@ export function evaluateYoDynVtableDup({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_dyn_dup[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -448,7 +448,7 @@ export function evaluateYoSomeTypeDrop({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_sometype_drop[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -491,7 +491,7 @@ export function evaluateYoSomeTypeDup({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_sometype_dup[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -526,7 +526,7 @@ export function evaluateYoIsoExtract({
   expectExprToBeFunctionCallOf(
     expr,
     [BuiltinFunctions.__yo_iso_extract[0]!],
-    1,
+    1
   );
 
   const argExpr = expr.args[0]!;
@@ -542,7 +542,7 @@ export function evaluateYoIsoExtract({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_iso_extract[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -570,7 +570,7 @@ export function evaluateYoIsoExtract({
   const { optionType, env: envWithOption } = createOptionType(
     innerType,
     env,
-    context,
+    context
   );
   env = envWithOption;
 
@@ -616,7 +616,7 @@ export function evaluateYoIsoDispose({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_iso_dispose[0]!}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -653,7 +653,7 @@ export function evaluateYoDropArrayElement({
   expectExprToBeFunctionCallOf(
     expr,
     [BuiltinFunctions.__yo_drop_array_element[0]!],
-    2,
+    2
   );
 
   const arrayArgExpr = expr.args[0]!;
@@ -672,7 +672,7 @@ export function evaluateYoDropArrayElement({
     throw formatErrorMessage({
       token: arrayArgExpr.token,
       errorMessage: `Failed to evaluate the array argument for "${BuiltinFunctions.__yo_drop_array_element[0]!}":\n${exprToString(
-        arrayArgExpr,
+        arrayArgExpr
       )}`,
     });
   }
@@ -691,7 +691,7 @@ export function evaluateYoDropArrayElement({
     throw formatErrorMessage({
       token: indexArgExpr.token,
       errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_drop_array_element[0]!}":\n${exprToString(
-        indexArgExpr,
+        indexArgExpr
       )}`,
     });
   }
@@ -730,7 +730,7 @@ export function evaluateYoDupArrayElement({
   expectExprToBeFunctionCallOf(
     expr,
     [BuiltinFunctions.__yo_dup_array_element[0]!],
-    2,
+    2
   );
 
   const arrayArgExpr = expr.args[0]!;
@@ -749,7 +749,7 @@ export function evaluateYoDupArrayElement({
     throw formatErrorMessage({
       token: arrayArgExpr.token,
       errorMessage: `Failed to evaluate the array argument for "${BuiltinFunctions.__yo_dup_array_element[0]!}":\n${exprToString(
-        arrayArgExpr,
+        arrayArgExpr
       )}`,
     });
   }
@@ -768,7 +768,7 @@ export function evaluateYoDupArrayElement({
     throw formatErrorMessage({
       token: indexArgExpr.token,
       errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_dup_array_element[0]!}":\n${exprToString(
-        indexArgExpr,
+        indexArgExpr
       )}`,
     });
   }
@@ -819,7 +819,7 @@ export function evaluateYoDropTupleElement({
   expectExprToBeFunctionCallOf(
     expr,
     [BuiltinFunctions.__yo_drop_tuple_element[0]!],
-    2,
+    2
   );
 
   const tupleArgExpr = expr.args[0]!;
@@ -838,7 +838,7 @@ export function evaluateYoDropTupleElement({
     throw formatErrorMessage({
       token: tupleArgExpr.token,
       errorMessage: `Failed to evaluate the tuple argument for "${BuiltinFunctions.__yo_drop_tuple_element[0]!}":\n${exprToString(
-        tupleArgExpr,
+        tupleArgExpr
       )}`,
     });
   }
@@ -857,7 +857,7 @@ export function evaluateYoDropTupleElement({
     throw formatErrorMessage({
       token: indexArgExpr.token,
       errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_drop_tuple_element[0]!}":\n${exprToString(
-        indexArgExpr,
+        indexArgExpr
       )}`,
     });
   }
@@ -897,7 +897,7 @@ export function evaluateYoDupTupleElement({
   expectExprToBeFunctionCallOf(
     expr,
     [BuiltinFunctions.__yo_dup_tuple_element[0]!],
-    2,
+    2
   );
 
   const tupleArgExpr = expr.args[0]!;
@@ -916,7 +916,7 @@ export function evaluateYoDupTupleElement({
     throw formatErrorMessage({
       token: tupleArgExpr.token,
       errorMessage: `Failed to evaluate the tuple argument for "${BuiltinFunctions.__yo_dup_tuple_element[0]!}":\n${exprToString(
-        tupleArgExpr,
+        tupleArgExpr
       )}`,
     });
   }
@@ -935,7 +935,7 @@ export function evaluateYoDupTupleElement({
     throw formatErrorMessage({
       token: indexArgExpr.token,
       errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_dup_tuple_element[0]!}":\n${exprToString(
-        indexArgExpr,
+        indexArgExpr
       )}`,
     });
   }

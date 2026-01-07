@@ -20,7 +20,7 @@ export function generateNewTempVariableName(modulePath: string): string {
 }
 export function isTempVariableName(
   modulePath: string,
-  variableName: string,
+  variableName: string
 ): boolean {
   return variableName.startsWith(generateTempVariableNamePrefix(modulePath));
 }
@@ -34,7 +34,7 @@ const IdMap = new Map<string, number>();
  */
 export function generateVarialeId(
   modulePath: string,
-  variableName: string,
+  variableName: string
 ): string {
   let sanitizedVariableName = "";
   for (let i = 0; i < variableName.length; i++) {

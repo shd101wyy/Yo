@@ -41,7 +41,7 @@ export function evaluateTupleElementsType({
     // Check if there is duplicate labels
     if (field.label) {
       const duplicateLabel = tupleFields.find(
-        (elem) => elem.label === field.label,
+        (elem) => elem.label === field.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({

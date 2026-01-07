@@ -45,16 +45,14 @@ export function evaluateGensym({
       throw formatErrorMessage({
         token: prefixArg.token,
         errorMessage: `Failed to evaluate the prefix argument for "gensym":\n${exprToString(
-          prefixArg,
+          prefixArg
         )}`,
       });
     }
     if (!isComptStringValue(evaluatedPrefixArg.$.value)) {
       throw formatErrorMessage({
         token: prefixArg.token,
-        errorMessage: `Expected compt_string for prefix argument, got:\n${exprToString(
-          prefixArg,
-        )}`,
+        errorMessage: `Expected compt_string for prefix argument, got:\n${exprToString(prefixArg)}`,
       });
     }
     const prefixArgValue = evaluatedPrefixArg.$.value;

@@ -277,7 +277,7 @@ function generateDynMethodWrapper(
   implType: Type,
   method: Method,
   moduleType: ModuleType,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   if (isObjectType(implType)) {
     // Object type: no wrapper needed, return direct cast
@@ -311,7 +311,7 @@ For each dyn impl, generate static vtable using wrappers or direct casts:
 function generateStaticVtable(
   implType: Type,
   dynType: DynType,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ) {
   const vtableName = `yo_vtable_${implCName}_${moduleCName}`;
 
@@ -323,7 +323,7 @@ function generateStaticVtable(
       implType,
       method,
       moduleType,
-      context,
+      context
     );
     emitter.emitLine(`  .${method.name} = ${funcPtr},`);
   }
@@ -340,7 +340,7 @@ function generateStaticVtable(
 function generateDynCall(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const valueExpr = expr.args[0];
   const dynType = expr.$.type as DynType;
@@ -381,7 +381,7 @@ function generateMethodCallOnDyn(
   receiver: Expr,
   methodName: string,
   dynType: DynType,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const receiverCode = generateExpr(receiver, indent, context);
 

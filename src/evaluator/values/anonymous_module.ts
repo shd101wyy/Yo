@@ -120,7 +120,7 @@ export function evaluateAnonymousModuleBeginExprs({
                 const label = excludeMembersExpr.token.value;
                 // Check if the label is in the extended module type
                 const existingElement = extendedModuleType.fields.find(
-                  (e) => e.label === label,
+                  (e) => e.label === label
                 );
                 if (!existingElement) {
                   throw formatErrorMessage({
@@ -142,7 +142,7 @@ export function evaluateAnonymousModuleBeginExprs({
                   exprIsFunctionCall(excludeMembersExpr) &&
                   exprIsFunctionCallOf(
                     excludeMembersExpr,
-                    BuiltinKeywords.tuple,
+                    BuiltinKeywords.tuple
                   )
                 ) {
                   // Iterate over the fields of the tuple
@@ -156,7 +156,7 @@ export function evaluateAnonymousModuleBeginExprs({
                     const label = memberExpr.token.value;
                     // Check if the label is in the extended module type
                     const existingElement = extendedModuleType.fields.find(
-                      (e) => e.label === label,
+                      (e) => e.label === label
                     );
                     if (!existingElement) {
                       throw formatErrorMessage({
@@ -177,7 +177,7 @@ export function evaluateAnonymousModuleBeginExprs({
                   throw formatErrorMessage({
                     token: excludeMembersExpr.token,
                     errorMessage: `Expected identifier or tuple for excluded labels, got:\n${exprToString(
-                      excludeMembersExpr,
+                      excludeMembersExpr
                     )}`,
                   });
                 }
@@ -196,7 +196,7 @@ export function evaluateAnonymousModuleBeginExprs({
               // Check if there is duplicate labels
               // If yes, then throw an error
               const existingElementIndex = moduleType.fields.findIndex(
-                (e) => e.label === extendedStructField.label,
+                (e) => e.label === extendedStructField.label
               );
               if (existingElementIndex >= 0) {
                 throw formatErrorMessage({
@@ -307,7 +307,7 @@ export function evaluateAnonymousModuleBeginExprs({
 
             // Check if the same variable is already exported
             const existingElementIndex = moduleType.fields.findIndex(
-              (e) => e.label === givenVariableName,
+              (e) => e.label === givenVariableName
             );
             if (existingElementIndex >= 0) {
               // Throw error if the variable is already exported
@@ -395,7 +395,7 @@ export function evaluateAnonymousModuleBeginExprs({
   // Create the module value
   const moduleValue = createModuleValue(
     { ...moduleType, receiverType: receiverType },
-    moduleElementValues,
+    moduleElementValues
   );
 
   return {

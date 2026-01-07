@@ -223,7 +223,7 @@ export function valueToString(value?: Value): string {
       }
 
       const variant = value.type.variants.find(
-        (variant) => variant.name === value.variantName,
+        (variant) => variant.name === value.variantName
       );
       return `.${value.variantName}(${value.fields
         .map((element, index) => {
@@ -389,7 +389,7 @@ export function createComptStringValue(value: string): ComptStringValue {
 
 export function createComptListValue(
   childType: Type,
-  elements: Value[],
+  elements: Value[]
 ): ComptListValue {
   return {
     tag: ValueTag.ComptList,
@@ -401,7 +401,7 @@ export function createComptListValue(
 // TODO: Check the value boundaries for number values
 export function createNumberValue(
   tag: NumberValue["tag"],
-  value: number | bigint,
+  value: number | bigint
 ) {
   let numberType: Type;
   if (tag === ValueTag.ComptInt) {
@@ -465,15 +465,13 @@ export function createUnknownValue(
   recursiveTypeRef?: {
     functionValue: FunctionValue;
     argValues: Value[];
-  },
+  }
 ): UnknownValue | TypeValue {
   if (isTypeHierarchyType(type) && type.level === 0) {
     if (!variableName) {
       console.trace("!variableName bug found in createUnknownValue");
       throw new Error(
-        `createUnknownValue expects a variable name for type ${typeToString(
-          type,
-        )}`,
+        `createUnknownValue expects a variable name for type ${typeToString(type)}`
       );
     }
 
@@ -484,7 +482,7 @@ export function createUnknownValue(
       undefined,
       undefined,
       undefined,
-      recursiveTypeRef,
+      recursiveTypeRef
     );
     return createTypeValue(someType);
   }
@@ -498,7 +496,7 @@ export function createUnknownValue(
 
 export function createStructValue(
   type: StructType,
-  fields: Value[],
+  fields: Value[]
 ): StructValue {
   return {
     tag: ValueTag.Struct,
@@ -509,7 +507,7 @@ export function createStructValue(
 
 export function createModuleValue(
   type: ModuleType,
-  fields: (Value | undefined)[],
+  fields: (Value | undefined)[]
 ): ModuleValue {
   return {
     tag: ValueTag.Module,
@@ -529,7 +527,7 @@ export function createTupleValue(type: TupleType, fields: Value[]): TupleValue {
 export function createEnumValue(
   type: EnumType,
   variantName: string,
-  fields: Value[],
+  fields: Value[]
 ): EnumValue {
   return {
     tag: ValueTag.Enum,
@@ -541,7 +539,7 @@ export function createEnumValue(
 
 export function createArrayValue(
   type: ArrayType,
-  elements: Value[],
+  elements: Value[]
 ): ArrayValue {
   return {
     tag: ValueTag.Array,
@@ -566,7 +564,7 @@ export function areValuesEqual(
   given: {
     value: Value | undefined;
     env: Environment;
-  },
+  }
 ): boolean {
   const value1 = expected.value;
   const value2 = given.value;
@@ -583,7 +581,7 @@ export function areValuesEqual(
     return areTypesCompatible(
       { type: value1.value, env: expected.env },
       { type: value2.value, env: given.env },
-      true,
+      true
     );
   } else if (isComptStringValue(value1) && isComptStringValue(value2)) {
     return value1.value === (value2 as ComptStringValue).value;
@@ -595,7 +593,7 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
-          { value: value2.elements[i], env: given.env },
+          { value: value2.elements[i], env: given.env }
         )
       ) {
         return false;
@@ -624,7 +622,7 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
-          { value: value2.elements[i], env: given.env },
+          { value: value2.elements[i], env: given.env }
         )
       ) {
         return false;
@@ -639,7 +637,7 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.fields[i], env: expected.env },
-          { value: value2.fields[i], env: given.env },
+          { value: value2.fields[i], env: given.env }
         )
       ) {
         return false;
@@ -652,7 +650,7 @@ export function areValuesEqual(
       !areTypesCompatible(
         { type: value1.type, env: expected.env },
         { type: value2.type, env: given.env },
-        true,
+        true
       )
     ) {
       return false;
@@ -661,7 +659,7 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.fields[i], env: expected.env },
-          { value: value2.fields[i], env: given.env },
+          { value: value2.fields[i], env: given.env }
         )
       ) {
         return false;
@@ -674,7 +672,7 @@ export function areValuesEqual(
       !areTypesCompatible(
         { type: value1.type, env: expected.env },
         { type: value2.type, env: given.env },
-        true,
+        true
       ) ||
       value1.variantName !== (value2 as EnumValue).variantName
     ) {
@@ -684,7 +682,7 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.fields[i], env: expected.env },
-          { value: value2.fields[i], env: given.env },
+          { value: value2.fields[i], env: given.env }
         )
       ) {
         return false;
@@ -697,7 +695,7 @@ export function areValuesEqual(
       !areTypesCompatible(
         { type: value1.type, env: expected.env },
         { type: value2.type, env: given.env },
-        true,
+        true
       )
     ) {
       return false;
@@ -706,7 +704,7 @@ export function areValuesEqual(
       if (
         !areValuesEqual(
           { value: value1.fields[i], env: expected.env },
-          { value: value2.fields[i], env: given.env },
+          { value: value2.fields[i], env: given.env }
         )
       ) {
         return false;
@@ -748,7 +746,7 @@ export function areValuesEqual(
     if (resolvedValue1 && resolvedValue2) {
       return areValuesEqual(
         { value: resolvedValue1, env: expected.env },
-        { value: resolvedValue2, env: given.env },
+        { value: resolvedValue2, env: given.env }
       );
     }
 
@@ -765,7 +763,7 @@ export function areValuesEqual(
     return areTypesCompatible(
       { type: value1.type, env: expected.env },
       { type: value2.type, env: given.env },
-      true,
+      true
     );
   }
   // Handle the case where only one value is unknown - try to resolve it
@@ -778,7 +776,7 @@ export function areValuesEqual(
         if (variable1.value && !isUnknownValue(variable1.value)) {
           return areValuesEqual(
             { value: variable1.value, env: expected.env },
-            { value: value2, env: given.env },
+            { value: value2, env: given.env }
           );
         }
       }
@@ -793,7 +791,7 @@ export function areValuesEqual(
         if (variable2.value && !isUnknownValue(variable2.value)) {
           return areValuesEqual(
             { value: value1, env: expected.env },
-            { value: variable2.value, env: given.env },
+            { value: variable2.value, env: given.env }
           );
         }
       }

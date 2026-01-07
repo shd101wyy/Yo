@@ -36,17 +36,13 @@ function generateTupleDropCall(tupleExpr: Expr): string {
   if (!tupleExpr.$?.type || !isTupleType(tupleExpr.$.type)) {
     throw formatErrorMessage({
       token: tupleExpr.token,
-      errorMessage: `Expected tuple type for drop generation:\n${exprToString(
-        tupleExpr,
-      )}`,
+      errorMessage: `Expected tuple type for drop generation:\n${exprToString(tupleExpr)}`,
     });
   }
   if (!tupleExpr.$.variableName) {
     throw formatErrorMessage({
       token: tupleExpr.token,
-      errorMessage: `Expected variable name for drop generation:\n${exprToString(
-        tupleExpr,
-      )}`,
+      errorMessage: `Expected variable name for drop generation:\n${exprToString(tupleExpr)}`,
     });
   }
 
@@ -58,7 +54,7 @@ function generateTupleDropCall(tupleExpr: Expr): string {
       needsDrop: typeContainsRcType(
         isSomeType(element.type) && element.type.resolvedConcreteType
           ? element.type.resolvedConcreteType
-          : element.type,
+          : element.type
       ),
     }))
     .filter(({ needsDrop }) => needsDrop);
@@ -72,7 +68,7 @@ function generateTupleDropCall(tupleExpr: Expr): string {
   const dropCalls = fieldsNeedingDrop
     .map(
       ({ index }) =>
-        `${BuiltinFunctions.__yo_drop_tuple_element[0]!}(${tupleExpr.$!.variableName}, ${index})`,
+        `${BuiltinFunctions.__yo_drop_tuple_element[0]!}(${tupleExpr.$!.variableName}, ${index})`
     )
     .join(",\n  ");
 
@@ -88,17 +84,13 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   if (!arrayExpr.$?.type || !isArrayType(arrayExpr.$.type)) {
     throw formatErrorMessage({
       token: arrayExpr.token,
-      errorMessage: `Expected array type for drop generation:\n${exprToString(
-        arrayExpr,
-      )}`,
+      errorMessage: `Expected array type for drop generation:\n${exprToString(arrayExpr)}`,
     });
   }
   if (!arrayExpr.$.variableName) {
     throw formatErrorMessage({
       token: arrayExpr.token,
-      errorMessage: `Expected variable name for drop generation:\n${exprToString(
-        arrayExpr,
-      )}`,
+      errorMessage: `Expected variable name for drop generation:\n${exprToString(arrayExpr)}`,
     });
   }
 
@@ -126,7 +118,7 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   // This is necessary because y(0) creates a borrowed reference which can't be dropped
   for (let i = 0; i < arrayLength; i++) {
     dropCalls.push(
-      `${BuiltinFunctions.__yo_drop_array_element[0]!}(${arrayExpr.$.variableName}, ${i})`,
+      `${BuiltinFunctions.__yo_drop_array_element[0]!}(${arrayExpr.$.variableName}, ${i})`
     );
   }
 
@@ -165,7 +157,7 @@ export function evaluateDrop({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.___drop[0]}":\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -176,7 +168,7 @@ export function evaluateDrop({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___drop[0]}":\n${exprToString(
-        evaluatedArgExpr,
+        evaluatedArgExpr
       )}\n\nOriginal expression:\n${exprToString(argExpr)}`,
     });
   }
@@ -201,7 +193,7 @@ export function evaluateDrop({
       const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);
       if (tupleDropCode) {
         const tupleDropExpr = generateExprFromCode(
-          tupleDropCode,
+          tupleDropCode
         ) as FuncCallExpr;
 
         // Set the expression as consumed
@@ -237,7 +229,7 @@ export function evaluateDrop({
       const arrayDropCode = generateArrayDropCall(evaluatedArgExpr);
       if (arrayDropCode) {
         const arrayDropExpr = generateExprFromCode(
-          arrayDropCode,
+          arrayDropCode
         ) as FuncCallExpr;
 
         // Set the expression as consumed
@@ -272,7 +264,7 @@ export function evaluateDrop({
     } else {
       // Handle struct types and other types with ___drop methods
       const dropMethodCallExpr = generateExprFromCode(
-        `(${exprToString(evaluatedArgExpr)}).___drop()`,
+        `(${exprToString(evaluatedArgExpr)}).___drop()`
       ) as FuncCallExpr;
 
       // Convert this ___drop(x) to x.___drop() and evaluate the function call
@@ -288,7 +280,7 @@ export function evaluateDrop({
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Failed to get updated environment after evaluating "${BuiltinFunctions.___drop[0]}" method call:\n${exprToString(
-            dropMethodCallExpr,
+            dropMethodCallExpr
           )}`,
         });
       }
@@ -297,14 +289,14 @@ export function evaluateDrop({
 
       const variables = getVariablesFromEnv(
         evaluatedDropMethodCallExpr.$.env,
-        variableName,
+        variableName
       );
       const variable = variables.at(-1);
       if (!variable) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Variable "${variableName}" not found in environment after evaluating "${BuiltinFunctions.___drop[0]}" method call:\n${exprToString(
-            dropMethodCallExpr,
+            dropMethodCallExpr
           )}`,
         });
       }
@@ -314,7 +306,7 @@ export function evaluateDrop({
         {
           ...variable,
           consumedAtToken: expr.token,
-        },
+        }
       );
 
       evaluatedDropMethodCallExpr.$.env = nextEnv;

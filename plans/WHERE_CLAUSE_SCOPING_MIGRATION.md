@@ -190,7 +190,7 @@ export function getMethodsByNameFromEnv(
   methodName: string,
   receiverType: Type,
   isInfixOperatorCall: boolean,
-  currentFunctionType?: FunctionType, // NEW PARAMETER
+  currentFunctionType?: FunctionType // NEW PARAMETER
 ): MethodLookupResult[] {
   // ... existing logic ...
 
@@ -200,7 +200,7 @@ export function getMethodsByNameFromEnv(
 
     // Check function-scoped where clause constraints (NEW)
     const whereConstraints = currentFunctionType?.whereClauseConstraints?.get(
-      dereferencedReceiverType,
+      dereferencedReceiverType
     );
 
     const allRequiredModules = [
@@ -228,7 +228,7 @@ const methods = getMethodsByNameFromEnv(
   // Extract function type from context
   context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
     ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-    : undefined,
+    : undefined
 );
 ```
 

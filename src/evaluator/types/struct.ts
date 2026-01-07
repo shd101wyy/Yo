@@ -111,7 +111,7 @@ export function evaluateStructType({
             field as ModuleField,
             exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
+              : arg.token
           );
         }
 

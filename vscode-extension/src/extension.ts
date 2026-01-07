@@ -54,7 +54,7 @@ for (const key in TypeTag) {
 const findTokenAtPosition = (
   tokens: Token[],
   line: number,
-  character: number,
+  character: number
 ): Token | null => {
   return (
     tokens.find((token) => {
@@ -73,7 +73,7 @@ const findTokenAtPosition = (
 const collectExpressionCandidates = (
   exprs: Expr[],
   targetToken: Token,
-  candidateExprs: AtomExpr[],
+  candidateExprs: AtomExpr[]
 ): void => {
   const findExprWithToken = (expr: Expr) => {
     if (
@@ -102,7 +102,7 @@ const collectExpressionCandidates = (
 
 const sortExpressionCandidates = (
   candidateExprs: AtomExpr[],
-  currentLine: number,
+  currentLine: number
 ): AtomExpr[] => {
   return candidateExprs.sort((a, b) => {
     // First, check if the candidates are within a function scope (after "main :: " line)
@@ -184,7 +184,7 @@ const sortExpressionCandidates = (
 const findBestExpressionMatch = (
   exprs: Expr[],
   tokenAtPosition: Token,
-  currentLine: number,
+  currentLine: number
 ): AtomExpr | null => {
   const candidateExprs: AtomExpr[] = [];
 
@@ -195,7 +195,7 @@ const findBestExpressionMatch = (
     // Sort and return the best candidate
     const sortedCandidates = sortExpressionCandidates(
       candidateExprs,
-      currentLine,
+      currentLine
     );
     return sortedCandidates[0] || null;
   }
@@ -271,14 +271,14 @@ export function activate(context: vscode.ExtensionContext) {
             row,
             column,
             row,
-            column + token.value.length,
+            column + token.value.length
           );
 
           // Create a diagnostic
           const diagnostic = new vscode.Diagnostic(
             range,
             message,
-            vscode.DiagnosticSeverity.Error,
+            vscode.DiagnosticSeverity.Error
           );
 
           diagnostics.push(diagnostic);
@@ -307,7 +307,7 @@ export function activate(context: vscode.ExtensionContext) {
         const diagnostic = new vscode.Diagnostic(
           range,
           message,
-          vscode.DiagnosticSeverity.Error,
+          vscode.DiagnosticSeverity.Error
         );
 
         diagnostics.push(diagnostic);
@@ -318,14 +318,14 @@ export function activate(context: vscode.ExtensionContext) {
           document.lineCount - 1,
           document.lineAt(document.lineCount - 1).text.length,
           document.lineCount - 1,
-          document.lineAt(document.lineCount - 1).text.length + 1,
+          document.lineAt(document.lineCount - 1).text.length + 1
         );
 
         // Create a diagnostic
         const diagnostic = new vscode.Diagnostic(
           range,
           error.toString(),
-          vscode.DiagnosticSeverity.Error,
+          vscode.DiagnosticSeverity.Error
         );
 
         diagnostics.push(diagnostic);
@@ -377,7 +377,7 @@ export function activate(context: vscode.ExtensionContext) {
       let foundExpr = findBestExpressionMatch(
         exprs,
         tokenAtPosition,
-        position.line,
+        position.line
       );
 
       // If no exact expression match was found, try to find variable in scope using fallback
@@ -414,7 +414,7 @@ export function activate(context: vscode.ExtensionContext) {
           try {
             const variables = getVariablesFromEnv(
               bestEnv as Parameters<typeof getVariablesFromEnv>[0],
-              tokenAtPosition.value,
+              tokenAtPosition.value
             );
 
             if (variables && variables.length > 0) {
@@ -585,7 +585,7 @@ export function activate(context: vscode.ExtensionContext) {
         const createCompletionItem = (
           name: string,
           bestCandidate: AtomExpr,
-          kind: vscode.CompletionItemKind,
+          kind: vscode.CompletionItemKind
         ) => {
           let detail = "";
           let documentation = "";
@@ -670,7 +670,7 @@ export function activate(context: vscode.ExtensionContext) {
                 ? vscode.CompletionItemKind.Function
                 : vscode.CompletionItemKind.Variable;
               completionItems.push(
-                createCompletionItem(varName, candidates[0]!, kind),
+                createCompletionItem(varName, candidates[0]!, kind)
               );
             } else {
               // Multiple candidates, prioritize them
@@ -727,7 +727,7 @@ export function activate(context: vscode.ExtensionContext) {
                 ? vscode.CompletionItemKind.Function
                 : vscode.CompletionItemKind.Variable;
               completionItems.push(
-                createCompletionItem(varName, bestCandidate, kind),
+                createCompletionItem(varName, bestCandidate, kind)
               );
             }
           }
@@ -737,7 +737,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (builtin.toLowerCase().includes(prefix.toLowerCase())) {
               const item = new vscode.CompletionItem(
                 builtin,
-                vscode.CompletionItemKind.Keyword,
+                vscode.CompletionItemKind.Keyword
               );
 
               // Sort priority: items starting with prefix get higher priority
@@ -761,13 +761,13 @@ export function activate(context: vscode.ExtensionContext) {
     // Trigger characters for completion
     ".",
     ":",
-    "(",
+    "("
   );
 
   // Helper function to provide basic completion items
   const getBasicCompletionItems = (
     document: vscode.TextDocument,
-    position: vscode.Position,
+    position: vscode.Position
   ) => {
     const range = document.getWordRangeAtPosition(position);
     const prefix = range ? document.getText(range) : "";
@@ -777,7 +777,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (keyword.toLowerCase().includes(prefix.toLowerCase())) {
         const item = new vscode.CompletionItem(
           keyword,
-          vscode.CompletionItemKind.Keyword,
+          vscode.CompletionItemKind.Keyword
         );
 
         // Sort priority: items starting with prefix get higher priority
@@ -802,7 +802,7 @@ export function activate(context: vscode.ExtensionContext) {
       moduleValue: ModuleValue;
       moduleError: Error | undefined;
       evaluator: Evaluator;
-    },
+    }
   ): vscode.CompletionItem[] => {
     const completionItems: vscode.CompletionItem[] = [];
 
@@ -865,7 +865,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const ta = a as { position: { row: number } };
                 const tb = b as { position: { row: number } };
                 return tb.position.row - ta.position.row; // Descending order (most recent first)
-              },
+              }
             );
 
             tokenBeforeDot = sortedCandidates[0];
@@ -971,7 +971,7 @@ export function activate(context: vscode.ExtensionContext) {
             try {
               const variables = getVariablesFromEnv(
                 evalInfo.env as Parameters<typeof getVariablesFromEnv>[0],
-                atomExpr.token.value,
+                atomExpr.token.value
               );
 
               if (variables && variables.length > 0) {
@@ -1030,7 +1030,7 @@ export function activate(context: vscode.ExtensionContext) {
           try {
             const variables = getVariablesFromEnv(
               bestEnv as Parameters<typeof getVariablesFromEnv>[0],
-              token.value,
+              token.value
             );
 
             if (variables && variables.length > 0) {
@@ -1153,7 +1153,7 @@ export function activate(context: vscode.ExtensionContext) {
                   const foundMethods = getMethodsByNameFromEnv(
                     env as Parameters<typeof getMethodsByNameFromEnv>[0],
                     methodName,
-                    originalReceiverType, // Use original type for method calls
+                    originalReceiverType // Use original type for method calls
                   );
 
                   if (foundMethods && foundMethods.length > 0) {
@@ -1182,7 +1182,7 @@ export function activate(context: vscode.ExtensionContext) {
                             if (
                               areTypesCompatible(
                                 receiverTypeInfo,
-                                paramTypeInfo,
+                                paramTypeInfo
                               )
                             ) {
                               methods.push({
@@ -1276,7 +1276,7 @@ export function activate(context: vscode.ExtensionContext) {
         for (const method of methods) {
           const item = new vscode.CompletionItem(
             method.name,
-            vscode.CompletionItemKind.Method,
+            vscode.CompletionItemKind.Method
           );
 
           item.detail = method.detail;
@@ -1305,14 +1305,14 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Analyze when a document is opened
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(analyzeYoFile),
+    vscode.workspace.onDidOpenTextDocument(analyzeYoFile)
   );
 
   // Analyze when a document is changed
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
       analyzeYoFile(event.document);
-    }),
+    })
   );
 
   // Analyze when the active editor changes
@@ -1321,7 +1321,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (editor) {
         analyzeYoFile(editor.document);
       }
-    }),
+    })
   );
 
   // Register definition provider for Yo language
@@ -1354,7 +1354,7 @@ export function activate(context: vscode.ExtensionContext) {
       const foundExpr = findBestExpressionMatch(
         exprs,
         tokenAtPosition,
-        position.line,
+        position.line
       );
 
       if (foundExpr && exprIsAtom(foundExpr)) {
@@ -1374,7 +1374,7 @@ export function activate(context: vscode.ExtensionContext) {
             let definitionUri: vscode.Uri;
             if (definitionModulePath.startsWith("file://")) {
               definitionUri = vscode.Uri.file(
-                definitionModulePath.replace("file://", ""),
+                definitionModulePath.replace("file://", "")
               );
             } else {
               // Handle relative paths or other formats
@@ -1384,7 +1384,7 @@ export function activate(context: vscode.ExtensionContext) {
             // Create the position for the definition
             const definitionPosition = new vscode.Position(
               definitionToken.position.row,
-              definitionToken.position.column,
+              definitionToken.position.column
             );
 
             // Create the range for the definition
@@ -1392,8 +1392,8 @@ export function activate(context: vscode.ExtensionContext) {
               definitionPosition,
               new vscode.Position(
                 definitionToken.position.row,
-                definitionToken.position.column + definitionToken.value.length,
-              ),
+                definitionToken.position.column + definitionToken.value.length
+              )
             );
 
             return new vscode.Location(definitionUri, definitionRange);
@@ -1408,7 +1408,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Helper function to find variable definition in environment
   const findVariableDefinition = (
     env: Environment,
-    variableName: string,
+    variableName: string
   ): { definitionToken: Token; definitionModulePath: string } | null => {
     try {
       // Search through environment frames to find the variable

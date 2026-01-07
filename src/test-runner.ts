@@ -60,7 +60,7 @@ export function findTestFiles(targetPath: string): string[] {
 
   if (!fs.existsSync(absolutePath)) {
     console.error(
-      `${colors.red}Error: Path does not exist: ${absolutePath}${colors.reset}`,
+      `${colors.red}Error: Path does not exist: ${absolutePath}${colors.reset}`
     );
     return [];
   }
@@ -73,7 +73,7 @@ export function findTestFiles(targetPath: string): string[] {
       return [absolutePath];
     } else {
       console.error(
-        `${colors.red}Error: File is not a .yo file: ${absolutePath}${colors.reset}`,
+        `${colors.red}Error: File is not a .yo file: ${absolutePath}${colors.reset}`
       );
       return [];
     }
@@ -98,7 +98,7 @@ function findTestFilesRecursive(dir: string): string[] {
       // Skip node_modules, vendor, .git, etc.
       if (
         !["node_modules", "vendor", ".git", "vscode-extension"].includes(
-          entry.name,
+          entry.name
         )
       ) {
         results.push(...findTestFilesRecursive(fullPath));
@@ -130,16 +130,13 @@ export function extractTests(filePath: string): TestDeclaration[] {
 
     const { moduleError } = moduleManager.loadModule(modulePath);
     if (moduleError) {
-      console.error(
-        `${colors.red}Error evaluating ${filePath}: ${moduleError}${colors.reset}`,
-      );
-      return tests;
+      throw new Error(`Error evaluating module: ${moduleError}`);
     }
 
     const moduleData = moduleManager.modules.get(modulePath);
     if (!moduleData) {
       console.error(
-        `${colors.red}Error: Module not found after loading: ${filePath}${colors.reset}`,
+        `${colors.red}Error: Module not found after loading: ${filePath}${colors.reset}`
       );
       return tests;
     }
@@ -181,7 +178,7 @@ export function extractTests(filePath: string): TestDeclaration[] {
     }
   } catch (error) {
     console.error(
-      `${colors.red}Error parsing ${filePath}: ${error}${colors.reset}`,
+      `${colors.red}Error parsing ${filePath}: ${error}${colors.reset}`
     );
   }
 
@@ -197,11 +194,11 @@ export function extractTests(filePath: string): TestDeclaration[] {
  */
 function generateTestProgram(
   test: TestDeclaration,
-  originalFileContent: string,
+  originalFileContent: string
 ): string {
   // The test body is a begin block, so we wrap it in a main function
   const testBodyString = exprToString(
-    test.bodyExpr.$?.originalExpr ?? test.bodyExpr,
+    test.bodyExpr.$?.originalExpr ?? test.bodyExpr
   );
 
   // Append main function to the original file content
@@ -224,7 +221,7 @@ export main;
 function runSingleTest(
   test: TestDeclaration,
   originalFileContent: string,
-  cCompiler: string,
+  cCompiler: string
 ): TestResult {
   const startTime = Date.now();
   const sanitizedName = test.name.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -317,7 +314,7 @@ function runSingleTest(
         compileArgs.splice(-2, 0, "-luring");
       } catch (error) {
         console.warn(
-          "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions.",
+          "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
         );
       }
     }
@@ -366,7 +363,7 @@ function runSingleTest(
       if (hasMemoryLeak) {
         // Extract just the leak summary for a cleaner error message
         const leakMatch = combinedOutput.match(
-          /=+\n([\s\S]*?SUMMARY[\s\S]*?)(\n=+|$)/,
+          /=+\n([\s\S]*?SUMMARY[\s\S]*?)(\n=+|$)/
         );
         const leakInfo = leakMatch ? leakMatch[1] : combinedOutput;
         errorMessage = `Memory leak detected:\n${leakInfo}`;
@@ -413,7 +410,7 @@ async function runTestsWithConcurrency(
   options: {
     verbose?: boolean;
     bail?: boolean;
-  },
+  }
 ): Promise<{
   results: TestResult[];
   passedTests: number;
@@ -436,12 +433,12 @@ async function runTestsWithConcurrency(
       if (result.passed) {
         passedTests++;
         console.log(
-          `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`,
+          `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
         );
       } else {
         failedTests++;
         console.log(
-          `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`,
+          `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
         );
         if (result.errorMessage && options.verbose) {
           const indentedError = result.errorMessage
@@ -502,11 +499,11 @@ async function runTestsWithConcurrency(
 
       if (result.passed) {
         console.log(
-          `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`,
+          `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
         );
       } else {
         console.log(
-          `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`,
+          `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
         );
         if (result.errorMessage && options.verbose) {
           const indentedError = result.errorMessage
@@ -536,7 +533,7 @@ export async function runTests(
     bail?: boolean;
     testNamePattern?: string;
     parallel?: number;
-  } = {},
+  } = {}
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
   const cCompiler = options.cCompiler ?? "cc";
@@ -561,7 +558,7 @@ export async function runTests(
       testNameRegex = new RegExp(options.testNamePattern);
     } catch (e) {
       console.error(
-        `${colors.red}Error: Invalid regex pattern: ${options.testNamePattern}${colors.reset}`,
+        `${colors.red}Error: Invalid regex pattern: ${options.testNamePattern}${colors.reset}`
       );
       return {
         totalTests: 0,
@@ -574,11 +571,11 @@ export async function runTests(
   }
 
   console.log(
-    `\n${colors.bold}${colors.cyan}Running Yo Tests${colors.reset}${concurrency > 1 ? ` ${colors.dim}(${concurrency} workers)${colors.reset}` : ""}\n`,
+    `\n${colors.bold}${colors.cyan}Running Yo Tests${colors.reset}${concurrency > 1 ? ` ${colors.dim}(${concurrency} workers)${colors.reset}` : ""}\n`
   );
   if (testNameRegex) {
     console.log(
-      `${colors.dim}Filtering tests matching: ${options.testNamePattern}${colors.reset}\n`,
+      `${colors.dim}Filtering tests matching: ${options.testNamePattern}${colors.reset}\n`
     );
   }
 
@@ -586,10 +583,38 @@ export async function runTests(
   const testsByFile: Map<string, TestToRun[]> = new Map();
   let _totalTests = 0;
 
+  // Initialize result tracking variables early so they can be used in error handling
+  const allResults: TestResult[] = [];
+  let passedTests = 0;
+  let failedTests = 0;
+  let bailed = false;
+
   for (const filePath of testFiles) {
     const relativePath = path.relative(process.cwd(), filePath);
     const originalContent = fs.readFileSync(filePath, "utf-8");
-    let tests = extractTests(filePath);
+
+    let tests: TestDeclaration[];
+    try {
+      tests = extractTests(filePath);
+    } catch (error) {
+      // Module evaluation failed - treat as a single failed test for this file
+      console.log(`${colors.dim}${relativePath}${colors.reset}`);
+      console.log(`  ${colors.red}✗${colors.reset} Module evaluation failed`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.log(`    ${colors.red}${errorMessage}${colors.reset}`);
+      console.log();
+
+      allResults.push({
+        testName: "Module evaluation",
+        filePath,
+        passed: false,
+        errorMessage,
+        duration: 0,
+      });
+      failedTests++;
+      continue;
+    }
 
     if (testNameRegex) {
       tests = tests.filter((test) => testNameRegex.test(test.name));
@@ -607,11 +632,6 @@ export async function runTests(
   }
 
   // Run tests file by file (parallel within each file if concurrency > 1)
-  const allResults: TestResult[] = [];
-  let passedTests = 0;
-  let failedTests = 0;
-  let bailed = false;
-
   for (const [relativePath, testsToRun] of testsByFile) {
     if (bailed) break;
 
@@ -630,7 +650,7 @@ export async function runTests(
       {
         verbose: options.verbose,
         bail: options.bail,
-      },
+      }
     );
 
     allResults.push(...result.results);
@@ -640,7 +660,7 @@ export async function runTests(
 
     if (bailed) {
       console.log(
-        `\n${colors.yellow}Bailing out early due to test failure (--bail)${colors.reset}\n`,
+        `\n${colors.yellow}Bailing out early due to test failure (--bail)${colors.reset}\n`
       );
     }
 
@@ -659,7 +679,7 @@ export async function runTests(
     console.log(`${colors.red}${failedTests} failed${colors.reset}`);
   }
   console.log(
-    `${colors.dim}${passedTests + failedTests} total (${totalDuration}ms)${colors.reset}`,
+    `${colors.dim}${passedTests + failedTests} total (${totalDuration}ms)${colors.reset}`
   );
   console.log();
 

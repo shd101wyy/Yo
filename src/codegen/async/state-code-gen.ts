@@ -53,7 +53,7 @@ export interface StateSegment {
  */
 export function splitIntoStateSegments(
   body: Expr,
-  awaitPoints: AwaitPoint[],
+  awaitPoints: AwaitPoint[]
 ): StateSegment[] {
   const segments: StateSegment[] = [];
 
@@ -181,7 +181,7 @@ export function generateStateSegmentCode(
   segment: StateSegment,
   indent: string,
   context: FunctionGenerationContext,
-  captureLastExprResult: boolean = false,
+  captureLastExprResult: boolean = false
 ): void {
   const emitter = context.emitter;
 
@@ -209,7 +209,7 @@ export function generateStateSegmentCode(
         segment.awaitPoint,
         segment.stateNumber,
         indent,
-        context,
+        context
       );
     } else if (isLastExpr && captureLastExprResult) {
       // Last expression in final segment - capture its value in sm->result
@@ -244,7 +244,7 @@ function generateAwaitExpression(
   awaitPoint: AwaitPoint,
   _stateNumber: number,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -266,15 +266,15 @@ function generateAwaitExpression(
     if (awaitPoint.futureVariableId === undefined) {
       const futureCode = generateExpr(futureExpr, indent, context);
       emitter.emitLine(
-        `${indent}// Store pattern-matched Future for await ${awaitPoint.index}`,
+        `${indent}// Store pattern-matched Future for await ${awaitPoint.index}`
       );
       emitter.emitLine(
-        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`,
+        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
       );
     } else {
       // The future is already stored in a state machine variable field
       emitter.emitLine(
-        `${indent}// Prepare for await (future already stored in state machine variable)`,
+        `${indent}// Prepare for await (future already stored in state machine variable)`
       );
     }
 
@@ -317,15 +317,15 @@ function generateAwaitExpression(
       if (awaitPoint.futureVariableId === undefined) {
         const futureCode = generateExpr(futureExpr, indent, context);
         emitter.emitLine(
-          `${indent}// Store Future for await (variable: ${varName})`,
+          `${indent}// Store Future for await (variable: ${varName})`
         );
         emitter.emitLine(
-          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`,
+          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
         );
       } else {
         // The future is already stored in a state machine variable field
         emitter.emitLine(
-          `${indent}// Store Future for await (variable: ${varName}) - future already in state machine`,
+          `${indent}// Store Future for await (variable: ${varName}) - future already in state machine`
         );
       }
 
@@ -357,7 +357,7 @@ function generateAwaitExpression(
         awaitPoint,
         indent,
         context,
-        targetVarId,
+        targetVarId
       );
       return;
     }
@@ -392,10 +392,10 @@ function generateAwaitExpression(
 
   // Handle other patterns - error, not supported
   emitter.emitLine(
-    `${indent}// ERROR: Unsupported pattern for await expression`,
+    `${indent}// ERROR: Unsupported pattern for await expression`
   );
   emitter.emitLine(
-    `${indent}// Expression type: ${expr.tag}, function: ${expr.tag === ExprTag.FuncCall ? (expr.func.tag === ExprTag.Atom ? expr.func.token?.value : expr.func.tag) : "N/A"}`,
+    `${indent}// Expression type: ${expr.tag}, function: ${expr.tag === ExprTag.FuncCall ? (expr.func.tag === ExprTag.Atom ? expr.func.token?.value : expr.func.tag) : "N/A"}`
   );
 }
 
@@ -412,7 +412,7 @@ function generateCondWithAwait(
   awaitPoint: AwaitPoint,
   indent: string,
   context: FunctionGenerationContext,
-  targetVariableId?: string, // Variable that receives the cond result
+  targetVariableId?: string // Variable that receives the cond result
 ): void {
   const emitter = context.emitter;
 
@@ -472,7 +472,7 @@ function generateCondWithAwait(
 
     if (condCode) {
       emitter.emitLine(
-        `${indent}${i === 0 ? "if" : "else if"} (${condCode}) {`,
+        `${indent}${i === 0 ? "if" : "else if"} (${condCode}) {`
       );
     } else {
       emitter.emitLine(`${indent}${i === 0 ? "{" : "else {"}`);
@@ -484,14 +484,14 @@ function generateCondWithAwait(
     if (branchContainsAwait) {
       // Store which branch was taken
       emitter.emitLine(
-        `${indent}  sm->cond_branch_${awaitPoint.index} = ${i};`,
+        `${indent}  sm->cond_branch_${awaitPoint.index} = ${i};`
       );
       // This branch contains an await - generate code to spawn and store Future
       const remainingExprs = generateCondBranchWithAwait(
         value,
         awaitPoint,
         `${indent}  `,
-        context,
+        context
       );
       // Store branch info with remaining expressions and deferred drops from the branch's begin block
       branchesWithAwait.push({
@@ -517,10 +517,10 @@ function generateCondWithAwait(
           if (argCode === "break" && awaitPoint.isInsideWhile) {
             // In async while loops, break needs to set the active flag and jump to end
             emitter.emitLine(
-              `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`,
+              `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
             );
             emitter.emitLine(
-              `${indent}  goto while_loop_${awaitPoint.index}_end;`,
+              `${indent}  goto while_loop_${awaitPoint.index}_end;`
             );
           } else {
             // Emit control flow statements always
@@ -554,10 +554,10 @@ function generateCondWithAwait(
         if (code === "break" && awaitPoint.isInsideWhile) {
           // In async while loops, break needs to set the active flag and jump to end
           emitter.emitLine(
-            `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`,
+            `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
           );
           emitter.emitLine(
-            `${indent}  goto while_loop_${awaitPoint.index}_end;`,
+            `${indent}  goto while_loop_${awaitPoint.index}_end;`
           );
         } else {
           // Emit control flow statements (break, continue, return) always
@@ -629,7 +629,7 @@ function generateMatchWithAwait(
   matchExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -647,7 +647,7 @@ function generateMatchWithAwait(
 
   if (!matchedValueExpr || cases.length === 0) {
     emitter.emitLine(
-      `${indent}// Error: match must have a value and at least one case`,
+      `${indent}// Error: match must have a value and at least one case`
     );
     return;
   }
@@ -742,24 +742,24 @@ function generateMatchWithAwait(
           if (isStateMachineVar && varId) {
             // Store directly in state machine variable
             emitter.emitLine(
-              `${indent}  sm->var_${varId} = ${matchedValueCode};`,
+              `${indent}  sm->var_${varId} = ${matchedValueCode};`
             );
           } else {
             // Local variable not crossing await - declare locally
             emitter.emitLine(
-              `${indent}  ${getTypeString(nullablePointerType, context)} ${pointerVarName} = ${matchedValueCode};`,
+              `${indent}  ${getTypeString(nullablePointerType, context)} ${pointerVarName} = ${matchedValueCode};`
             );
           }
         }
 
         emitter.emitLine(
-          `${indent}  sm->cond_branch_${awaitPoint.index} = ${pointerCaseIndex};`,
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${pointerCaseIndex};`
         ); // Process the case body looking for await
         const remainingExprs = generateCondBranchWithAwait(
           caseBody,
           awaitPoint,
           indent + "  ",
-          context,
+          context
         );
 
         // Store remaining expressions for resume state
@@ -771,8 +771,10 @@ function generateMatchWithAwait(
           }
 
           const branchData = functionContext.condBranchInfo.get(
-            awaitPoint.index,
-          ) || { branches: [] };
+            awaitPoint.index
+          ) || {
+            branches: [],
+          };
 
           branchData.branches.push({
             index: pointerCaseIndex,
@@ -797,7 +799,7 @@ function generateMatchWithAwait(
         const caseBody = caseExpr.args[1]!;
 
         emitter.emitLine(
-          `${indent}  sm->cond_branch_${awaitPoint.index} = ${nullCaseIndex};`,
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${nullCaseIndex};`
         );
 
         // Check if null case also has await
@@ -806,7 +808,7 @@ function generateMatchWithAwait(
             caseBody,
             awaitPoint,
             indent + "  ",
-            context,
+            context
           );
 
           if (remainingExprs.length > 0) {
@@ -816,8 +818,10 @@ function generateMatchWithAwait(
             }
 
             const branchData = functionContext.condBranchInfo.get(
-              awaitPoint.index,
-            ) || { branches: [] };
+              awaitPoint.index
+            ) || {
+              branches: [],
+            };
 
             branchData.branches.push({
               index: nullCaseIndex,
@@ -888,7 +892,7 @@ function generateMatchWithAwait(
       const variantTag = `${enumCName.toUpperCase()}_${variantName.toUpperCase()}`;
       emitter.emitLine(`${indent}  case ${variantTag}: {`);
       emitter.emitLine(
-        `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`,
+        `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
       );
 
       // Handle destructuring patterns like .Some(task)
@@ -934,20 +938,20 @@ function generateMatchWithAwait(
 
                 const fieldLabel = sanitizeForCIdentifier(
                   variantField.label,
-                  variantField.type.isExtern === "c",
+                  variantField.type.isExtern === "c"
                 );
                 const accessExpr = `${matchedValueCode}.data.${variantName}.${fieldLabel}`;
 
                 if (isStateMachineVar && varId) {
                   // Store in state machine variable
                   emitter.emitLine(
-                    `${indent}    sm->var_${varId} = ${accessExpr};`,
+                    `${indent}    sm->var_${varId} = ${accessExpr};`
                   );
                 } else {
                   // Local variable - declare it
                   const fieldType = getTypeString(variantField.type, context);
                   emitter.emitLine(
-                    `${indent}    ${fieldType} ${varName} = ${accessExpr};`,
+                    `${indent}    ${fieldType} ${varName} = ${accessExpr};`
                   );
                 }
               }
@@ -962,7 +966,7 @@ function generateMatchWithAwait(
           caseBody,
           awaitPoint,
           indent + "    ",
-          context,
+          context
         );
 
         if (remainingExprs.length > 0) {
@@ -972,8 +976,10 @@ function generateMatchWithAwait(
           }
 
           const branchData = functionContext.condBranchInfo.get(
-            awaitPoint.index,
-          ) || { branches: [] };
+            awaitPoint.index
+          ) || {
+            branches: [],
+          };
 
           branchData.branches.push({
             index: i,
@@ -1015,7 +1021,7 @@ function generateCondBranchWithAwait(
   branchValue: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): Expr[] {
   const emitter = context.emitter;
   const remainingExprs: Expr[] = [];
@@ -1026,7 +1032,7 @@ function generateCondBranchWithAwait(
     !exprIsFunctionCallOf(branchValue, "begin")
   ) {
     emitter.emitLine(
-      `${indent}// Error: Expected begin block in cond branch with await`,
+      `${indent}// Error: Expected begin block in cond branch with await`
     );
     return remainingExprs;
   }
@@ -1063,10 +1069,10 @@ function generateCondBranchWithAwait(
             // Generate: sm->await_future_X = <futureExpr>;
             const futureCode = generateExpr(futureExpr, indent, context);
             emitter.emitLine(
-              `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`,
+              `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`
             );
             emitter.emitLine(
-              `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`,
+              `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
             );
           }
         }
@@ -1081,15 +1087,15 @@ function generateCondBranchWithAwait(
           if (awaitPoint.futureVariableId === undefined) {
             const futureCode = generateExpr(futureExpr, indent, context);
             emitter.emitLine(
-              `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`,
+              `${indent}// Store Future for await ${awaitPoint.index} (cond branch)`
             );
             emitter.emitLine(
-              `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`,
+              `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
             );
           } else {
             // The future is already stored in a state machine variable
             emitter.emitLine(
-              `${indent}// Await will use Future from sm->var_${awaitPoint.futureVariableId}`,
+              `${indent}// Await will use Future from sm->var_${awaitPoint.futureVariableId}`
             );
           }
         }
@@ -1125,7 +1131,7 @@ function generateWhileWithAwait(
   whileExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1142,7 +1148,7 @@ function generateWhileWithAwait(
   const args = whileExpr.args;
   if (args.length !== 2) {
     emitter.emitLine(
-      `${indent}// Error: while must have exactly 2 arguments (condition, body)`,
+      `${indent}// Error: while must have exactly 2 arguments (condition, body)`
     );
     return;
   }
@@ -1152,7 +1158,7 @@ function generateWhileWithAwait(
 
   // Initialize loop as active
   emitter.emitLine(
-    `${indent}sm->while_loop_${awaitPoint.index}_active = true;`,
+    `${indent}sm->while_loop_${awaitPoint.index}_active = true;`
   );
 
   // Generate label for loop start (so we can jump back after await)
@@ -1162,7 +1168,7 @@ function generateWhileWithAwait(
   const condCode = generateExpr(conditionExpr, indent, context);
   emitter.emitLine(`${indent}if (!(${condCode})) {`);
   emitter.emitLine(
-    `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`,
+    `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
   );
   emitter.emitLine(`${indent}  goto while_loop_${awaitPoint.index}_end;`);
   emitter.emitLine(`${indent}}`);
@@ -1172,7 +1178,7 @@ function generateWhileWithAwait(
     bodyExpr,
     awaitPoint,
     indent,
-    context,
+    context
   );
 
   // Generate label for loop end
@@ -1197,7 +1203,7 @@ function generateWhileBodyWithAwait(
   bodyExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): Expr[] {
   const emitter = context.emitter;
   const remainingExprs: Expr[] = [];
@@ -1226,7 +1232,7 @@ function generateWhileBodyWithAwait(
   if (awaitFoundIndex === -1) {
     // No await in body - this shouldn't happen
     emitter.emitLine(
-      `${indent}// Error: Expected await in while loop body but none found`,
+      `${indent}// Error: Expected await in while loop body but none found`
     );
     return remainingExprs;
   }
@@ -1254,10 +1260,10 @@ function generateWhileBodyWithAwait(
       if (futureExpr) {
         const futureCode = generateExpr(futureExpr, indent, context);
         emitter.emitLine(
-          `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`,
+          `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
         );
         emitter.emitLine(
-          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`,
+          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
         );
       }
     }
@@ -1270,10 +1276,10 @@ function generateWhileBodyWithAwait(
     if (futureExpr) {
       const futureCode = generateExpr(futureExpr, indent, context);
       emitter.emitLine(
-        `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`,
+        `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
       );
       emitter.emitLine(
-        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`,
+        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
       );
     }
   } else if (

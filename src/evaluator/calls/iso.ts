@@ -40,9 +40,7 @@ export function evaluateIsoTypeCall({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate the argument expression for Iso:\n${exprToString(
-        argExpr,
-      )}`,
+      errorMessage: `Failed to evaluate the argument expression for Iso:\n${exprToString(argExpr)}`,
     });
   }
   env = evaluatedArgExpr.$.env;
@@ -51,9 +49,7 @@ export function evaluateIsoTypeCall({
   if (!isTypeValue(evaluatedArgExpr.$.value)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Iso expects a type as argument, but got:\n${exprToString(
-        argExpr,
-      )}`,
+      errorMessage: `Iso expects a type as argument, but got:\n${exprToString(argExpr)}`,
     });
   }
 
@@ -120,7 +116,7 @@ export function evaluateIsoValueCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for Iso value constructor:\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -139,8 +135,7 @@ export function evaluateIsoValueCall({
       const allVariables = env.frames.flatMap((frame) => frame.variables);
       const aliases = allVariables.filter(
         (v) =>
-          v.isOwningTheSameRcValueAs?.id === variable.id &&
-          v.id !== variable.id,
+          v.isOwningTheSameRcValueAs?.id === variable.id && v.id !== variable.id
       );
 
       if (aliases.length > 0) {

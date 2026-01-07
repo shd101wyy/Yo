@@ -209,7 +209,7 @@ The where clause constraint lookup used Map's direct key lookup with object iden
 
 ```typescript
 const constraints = currentFunctionType.whereClauseConstraints.get(
-  dereferencedReceiverType,
+  dereferencedReceiverType
 );
 ```
 
@@ -226,7 +226,7 @@ Modified the constraint lookup to iterate through all constraints and check type
 if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
   // First try direct lookup
   let constraints = currentFunctionType.whereClauseConstraints.get(
-    dereferencedReceiverType,
+    dereferencedReceiverType
   );
 
   // If direct lookup fails and receiver is a SomeType, try to find a compatible
@@ -244,7 +244,7 @@ if (methods.length === 0 && currentFunctionType?.whereClauseConstraints) {
         areTypesCompatible(
           { type: constrainedType, env },
           { type: dereferencedReceiverType, env },
-          false, // Allow type parameter unification
+          false // Allow type parameter unification
         )
       ) {
         constraints = typeConstraints;
@@ -308,13 +308,13 @@ Modified the constraint lookup to traverse the chain of parent function types:
 if (methods.length === 0) {
   // Helper function to find constraints from a function type
   const findConstraintsInFunction = (
-    funcType: FunctionType | undefined,
+    funcType: FunctionType | undefined
   ): { requiredModules: ModuleType[] } | undefined => {
     if (!funcType?.whereClauseConstraints) return undefined;
 
     // First try direct lookup
     let constraints = funcType.whereClauseConstraints.get(
-      dereferencedReceiverType,
+      dereferencedReceiverType
     );
 
     // If direct lookup fails and receiver is a SomeType, try to find a compatible
@@ -329,7 +329,7 @@ if (methods.length === 0) {
           areTypesCompatible(
             { type: constrainedType, env },
             { type: dereferencedReceiverType, env },
-            false, // Allow type parameter unification
+            false // Allow type parameter unification
           )
         ) {
           constraints = typeConstraints;

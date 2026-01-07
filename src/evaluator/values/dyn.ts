@@ -57,12 +57,12 @@ import { addRcFunctionsToDynType } from "../types/utils";
 function createBoxedType(
   innerType: Type,
   env: Environment,
-  context: EvaluatorContext,
+  context: EvaluatorContext
 ): { boxType: StructType; env: Environment } {
   // Look up the Box type constructor from environment
   const boxVariables = getVariablesFromEnv(env, "Box");
   const boxVariable = boxVariables.find(
-    (v) => v.value && isFunctionValue(v.value) && isFunctionType(v.type),
+    (v) => v.value && isFunctionValue(v.value) && isFunctionType(v.type)
   );
 
   if (
@@ -119,7 +119,7 @@ function createBoxedType(
       callerEnv: env,
       calleeEnv: calleeEnvWithParam,
       context,
-    },
+    }
   );
 
   if (!isTypeValue(boxTypeValue) || !isObjectType(boxTypeValue.value)) {
@@ -135,7 +135,7 @@ function createBoxedType(
 function isBoxFunctionCall(
   funcExpr: Expr,
   env: Environment,
-  context: EvaluatorContext,
+  context: EvaluatorContext
 ): boolean {
   try {
     // Evaluate the function expression to get its value
@@ -155,7 +155,7 @@ function isBoxFunctionCall(
       // Check if the funcValue matches the `box` function in the env
       const boxVariables = getVariablesFromEnv(env, "box");
       const findBoxFunction = boxVariables.find(
-        (v) => v.value && isFunctionValue(v.value) && v.value === funcValue,
+        (v) => v.value && isFunctionValue(v.value) && v.value === funcValue
       );
       return Boolean(findBoxFunction);
     } else if (isTypeValue(funcValue)) {
@@ -195,7 +195,7 @@ export function evaluateDynValue({
       "",
       undefined,
       expectedDynType.requiredModules,
-      expectedDynType.negativeModules,
+      expectedDynType.negativeModules
     );
 
     // Special handling for dyn(box(...)) pattern:
@@ -387,7 +387,7 @@ export function evaluateDynValue({
       if (
         areTypesCompatible(
           { type: requiredModuleType, env },
-          { type: negativeModule, env },
+          { type: negativeModule, env }
         )
       ) {
         throw formatErrorMessage({
@@ -416,7 +416,7 @@ export function evaluateDynValue({
         if (
           areTypesCompatible(
             { type: requiredModuleType, env },
-            { type: someTypeModule, env },
+            { type: someTypeModule, env }
           )
         ) {
           // Create a module value from the SomeType's required module
@@ -424,13 +424,13 @@ export function evaluateDynValue({
           for (let i = 0; i < requiredModuleType.fields.length; i++) {
             const field = requiredModuleType.fields[i]!;
             const someTypeModuleFieldIndex = someTypeModule.fields.findIndex(
-              (e) => e.label === field.label,
+              (e) => e.label === field.label
             );
             if (someTypeModuleFieldIndex === -1) {
               fields.push(undefined);
             } else {
               fields.push(
-                someTypeModule.fields[someTypeModuleFieldIndex]!.assignedValue,
+                someTypeModule.fields[someTypeModuleFieldIndex]!.assignedValue
               );
             }
           }
@@ -464,7 +464,7 @@ export function evaluateDynValue({
             if (
               areTypesCompatible(
                 { type: requiredModuleType, env },
-                { type: field.assignedValue.type, env },
+                { type: field.assignedValue.type, env }
               )
             ) {
               moduleValues.push(field.assignedValue);
@@ -502,8 +502,8 @@ export function evaluateDynValue({
     const moduleValueIndex = moduleTypes.findIndex((moduleType) =>
       areTypesCompatible(
         { type: expectedModuleType, env },
-        { type: moduleType, env },
-      ),
+        { type: moduleType, env }
+      )
     );
 
     if (moduleValueIndex === -1) {

@@ -50,7 +50,7 @@ export function evaluateRawPointerCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Failed to evaluate the argument expression for pointer:\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }
@@ -78,7 +78,7 @@ export function evaluateRawPointerCall({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Cannot create a pointer to a value. Use "&" to create a pointer to a value:\n${exprToString(
-        argExpr,
+        argExpr
       )}`,
     });
   }

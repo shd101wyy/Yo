@@ -111,7 +111,7 @@ export function tryToImplementArrayByArrayType({
         // Update the final array type with the concrete element type
         finalArrayType = createArrayType(
           expectedElementType,
-          finalArrayType.length,
+          finalArrayType.length
         );
       }
     }
@@ -120,7 +120,7 @@ export function tryToImplementArrayByArrayType({
     if (
       !areTypesCompatible(
         { type: expectedElementType, env },
-        { type: evaluatedArg.$.type, env },
+        { type: evaluatedArg.$.type, env }
       )
     ) {
       throw formatErrorMessage({

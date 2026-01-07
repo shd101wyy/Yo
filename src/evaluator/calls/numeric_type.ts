@@ -38,7 +38,7 @@ import { evaluateExpression } from "../exprs/expr";
  * Returns [min, max] for the type, or undefined if the type has no fixed bounds.
  */
 export function getNumericBounds(
-  type: Type,
+  type: Type
 ): { min: number | bigint; max: number | bigint } | undefined {
   switch (type.tag) {
     case TypeTag.U8:
@@ -158,7 +158,7 @@ function isComptNumberValue(value?: Value): boolean {
 function createComptValueOfType(
   numericValue: number | bigint,
   targetType: Type,
-  errorToken: Expr["token"],
+  errorToken: Expr["token"]
 ): Value {
   // Check bounds for integer types at compile time
   const bounds = getNumericBounds(targetType);
@@ -302,7 +302,7 @@ export function tryToConvertToNumericType({
     const resultValue = createComptValueOfType(
       comptValue,
       targetType,
-      expr.token,
+      expr.token
     );
     expr.$ = {
       env,
@@ -363,7 +363,7 @@ export function tryToConvertToNumericType({
     const resultValue = createComptValueOfType(
       comptValue,
       targetType,
-      expr.token,
+      expr.token
     );
     expr.$ = {
       env,

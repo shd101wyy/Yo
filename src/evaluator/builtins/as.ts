@@ -40,9 +40,7 @@ export function evaluateAs({
   if (!valueExpr.$) {
     throw formatErrorMessage({
       token: valueExpr.token,
-      errorMessage: `Failed to evaluate value argument for "as":\n${exprToString(
-        valueExpr,
-      )}`,
+      errorMessage: `Failed to evaluate value argument for "as":\n${exprToString(valueExpr)}`,
     });
   }
 
@@ -58,9 +56,7 @@ export function evaluateAs({
   if (!typeExpr.$) {
     throw formatErrorMessage({
       token: typeExpr.token,
-      errorMessage: `Failed to evaluate type argument for "as":\n${exprToString(
-        typeExpr,
-      )}`,
+      errorMessage: `Failed to evaluate type argument for "as":\n${exprToString(typeExpr)}`,
     });
   }
 
@@ -68,9 +64,7 @@ export function evaluateAs({
   if (!isTypeValue(typeExpr.$.value)) {
     throw formatErrorMessage({
       token: typeExpr.token,
-      errorMessage: `Second argument to "as" must be a type, got:\n${exprToString(
-        typeExpr,
-      )}`,
+      errorMessage: `Second argument to "as" must be a type, got:\n${exprToString(typeExpr)}`,
     });
   }
 

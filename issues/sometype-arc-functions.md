@@ -39,7 +39,7 @@ if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_drop)) {
     // Dispatch to concrete type's ___drop
     const concreteType = argType.resolvedConcreteType;
     const dropFn = concreteType.module?.fields.find(
-      (f) => f.label === "___drop",
+      (f) => f.label === "___drop"
     );
     // ... generate call to dropFn
   }

@@ -60,7 +60,7 @@ export function tryToImplementComptListByComptListType({
     if (
       !areTypesCompatible(
         { type: expectedElementType, env },
-        { type: evaluatedArg.$.type, env },
+        { type: evaluatedArg.$.type, env }
       )
     ) {
       throw formatErrorMessage({
@@ -85,7 +85,7 @@ export function tryToImplementComptListByComptListType({
   // Create the compt list value
   const comptListValue = createComptListValue(
     comptListType.childType,
-    elements,
+    elements
   );
 
   // Set the result

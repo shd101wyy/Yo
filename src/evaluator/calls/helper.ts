@@ -106,7 +106,7 @@ function generateDeferredDropExpressions({
   for (const variable of variablesToDrop) {
     // Create a drop expression: ___drop(varName)
     const dropExpr: Expr = generateExprFromCode(
-      `${BuiltinFunctions.___drop[0]!}(${variable.name})`,
+      `${BuiltinFunctions.___drop[0]!}(${variable.name})`
     );
 
     // Evaluate the dropExpr to ensure it's properly typed and processed
@@ -126,7 +126,7 @@ function generateDeferredDropExpressions({
       throw formatErrorMessage({
         token: dropExpr.token,
         errorMessage: `Failed to evaluate "___drop" expression for variable "${variable.name}":\n${exprToString(
-          dropExpr,
+          dropExpr
         )}`,
       });
     }
@@ -264,7 +264,7 @@ export function checkIfFunctionParameterMatchesArgument({
         throw formatErrorMessage({
           token: argExpr.token,
           errorMessage: `Expected "Expr" type for "quote" parameter "${parameter.label}", got:\n${typeToString(
-            parameterType,
+            parameterType
           )}`,
         });
       }
@@ -310,7 +310,7 @@ export function checkIfFunctionParameterMatchesArgument({
           callerEnv = setExprAsConsumed(
             evaluatedArgExpr,
             callerEnv,
-            true, // NOTE: Allow to consume again here is necessary.
+            true // NOTE: Allow to consume again here is necessary.
           );
         } else {
           // Argument is borrowed/non-owning: materialize ownership via ___dup and pass the temp.
@@ -323,7 +323,7 @@ export function checkIfFunctionParameterMatchesArgument({
           callerEnv = setExprAsConsumed(
             evaluatedArgExpr,
             callerEnv,
-            true, // NOTE: Allow to consume again here is necessary.
+            true // NOTE: Allow to consume again here is necessary.
           );
         }
       }
@@ -371,7 +371,7 @@ export function checkIfFunctionParameterMatchesArgument({
       throw formatErrorMessage({
         token: argExpr?.token ?? PlaceholderToken,
         errorMessage: `Cannot convert compile-time type to runtime type for argument:\n${exprToString(
-          evaluatedArgExpr,
+          evaluatedArgExpr
         )}`,
       });
     }
@@ -398,7 +398,7 @@ export function checkIfFunctionParameterMatchesArgument({
     // Synthesize the types
     const { expectedEnv } = synthesizeTypes(
       { type: parameterType, env: calleeEnv },
-      { type: argType, env: callerEnv },
+      { type: argType, env: callerEnv }
     );
     calleeEnv = expectedEnv;
     // NOTE: Do NOT update callerEnv with givenEnv!
@@ -432,7 +432,7 @@ ${(error as Error).message}`,
       { type: resolvedParameterType, env: calleeEnv },
       { type: argType, env: callerEnv },
       // It's the receiver:
-      argIndex === 0 && isMethodCall,
+      argIndex === 0 && isMethodCall
     )
   ) {
     throw formatErrorMessage({
@@ -457,7 +457,7 @@ ${(error as Error).message}`,
  * Note: Closures are runtime-only values, so we can't extract FunctionValue from them at compile time
  */
 export function extractFunctionValue(
-  value: Value | undefined,
+  value: Value | undefined
 ): FunctionValue | undefined {
   if (!value) {
     return undefined;
@@ -542,10 +542,10 @@ export function tryToCallFunctionWithArguments({
 
   const regularArgExprs = argExprs.slice(
     regularArgStartIndex,
-    regularArgStartIndex + regularArgCount,
+    regularArgStartIndex + regularArgCount
   );
   const variadicArgExprs = argExprs.slice(
-    regularArgStartIndex + regularArgCount,
+    regularArgStartIndex + regularArgCount
   );
 
   // Replace argExprs with just regular args for the rest of the function
@@ -593,7 +593,7 @@ export function tryToCallFunctionWithArguments({
           isCompileTimeOnly: true,
           value: createUnknownValue(
             forallParameter.type,
-            forallParameter.label,
+            forallParameter.label
           ),
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
@@ -734,7 +734,7 @@ export function tryToCallFunctionWithArguments({
       // Synthesize the types
       const { expectedEnv, givenEnv } = synthesizeTypes(
         { type: evaluatedForallParameterType, env: calleeEnv },
-        { type: typeValue.type, env: callerEnv },
+        { type: typeValue.type, env: callerEnv }
       );
       calleeEnv = expectedEnv;
       callerEnv = givenEnv;
@@ -743,7 +743,7 @@ export function tryToCallFunctionWithArguments({
       if (
         !areTypesCompatible(
           { type: evaluatedForallParameterType, env: calleeEnv },
-          { type: typeValue.type, env: callerEnv },
+          { type: typeValue.type, env: callerEnv }
         )
       ) {
         throw formatErrorMessage({
@@ -839,7 +839,7 @@ Got:   ${argExprs.length} arguments`,
 
       const { expectedEnv } = synthesizeTypes(
         { type: tempReturnType, env: tempCalleeEnv },
-        { type: context.expectedType.type, env: context.expectedType.env },
+        { type: context.expectedType.type, env: context.expectedType.env }
       );
       calleeEnv = expectedEnv;
     } catch {
@@ -924,7 +924,7 @@ Got:   ${argExprs.length} arguments`,
   if (context.expectedType && !functionType.return.isUnquote) {
     const { expectedEnv } = synthesizeTypes(
       { type: returnType, env: calleeEnv },
-      { type: context.expectedType.type, env: context.expectedType.env },
+      { type: context.expectedType.type, env: context.expectedType.env }
     );
     calleeEnv = expectedEnv;
 
@@ -945,7 +945,7 @@ Got:   ${argExprs.length} arguments`,
     if (
       areTypesCompatible(
         { type: context.expectedType.type, env: context.expectedType.env },
-        { type: returnType, env: calleeEnv },
+        { type: returnType, env: calleeEnv }
       )
     ) {
       returnType = context.expectedType.type;
@@ -1014,7 +1014,7 @@ Got:   ${argExprs.length} arguments`,
       // Create the ExprList and add that to environment
       const exprListValue = createComptListValue(
         createExprType(),
-        variadicArgs.map((arg) => arg.value as ExprValue),
+        variadicArgs.map((arg) => arg.value as ExprValue)
       );
 
       // Add to env
@@ -1101,12 +1101,12 @@ Got:   ${argExprs.length} arguments`,
             const someType = createSomeType(
               returnType as TypeHierarchyType,
               functionType.return.label,
-              someTypeId,
+              someTypeId
             );
             someType.functionApplication = expr;
             const newReturnType = getValueOfSomeTypeFromEnv(
               calleeEnv,
-              someType,
+              someType
             );
             returnValue = createTypeValue(newReturnType);
           } else {
@@ -1262,7 +1262,7 @@ function createSpecializedFunctionInline({
           const currentValue = compileTimeArgValues[index]!;
           return areValuesEqual(
             { value: cachedValue, env: cache.env },
-            { value: currentValue, env: callerEnv },
+            { value: currentValue, env: callerEnv }
           );
         });
 
@@ -1280,12 +1280,12 @@ function createSpecializedFunctionInline({
           return areTypesCompatible(
             { type: cachedType, env: cache.env },
             { type: currentType, env: callerEnv },
-            true, // requireExactMatch: use strict type ID comparison
+            true // requireExactMatch: use strict type ID comparison
           );
         });
 
       return runtimeMatch;
-    },
+    }
   );
 
   if (existingCache) {
@@ -1366,7 +1366,7 @@ function createSpecializedFunctionInline({
     if (index < argValues.forallArgs.length) {
       const arg = argValues.forallArgs[index]!;
       compileTimeSignatureParts.push(
-        sanitizeForCIdentifier(valueToSignatureString(arg.value)),
+        sanitizeForCIdentifier(valueToSignatureString(arg.value))
       );
     } else {
       const label = param.label;
@@ -1376,8 +1376,8 @@ function createSpecializedFunctionInline({
       if (variables.length > 0 && variables[variables.length - 1]?.value) {
         compileTimeSignatureParts.push(
           sanitizeForCIdentifier(
-            valueToSignatureString(variables[variables.length - 1]!.value!),
-          ),
+            valueToSignatureString(variables[variables.length - 1]!.value!)
+          )
         );
       } else {
         compileTimeSignatureParts.push("unknown");
@@ -1391,7 +1391,7 @@ function createSpecializedFunctionInline({
       const arg = argValues.args[index];
       if (arg) {
         compileTimeSignatureParts.push(
-          sanitizeForCIdentifier(valueToSignatureString(arg.value!)),
+          sanitizeForCIdentifier(valueToSignatureString(arg.value!))
         );
       } else {
         compileTimeSignatureParts.push("unknown");
@@ -1409,7 +1409,7 @@ function createSpecializedFunctionInline({
       typeContainsSomeType(paramType)
     ) {
       compileTimeSignatureParts.push(
-        `rtparam${index}_${sanitizeForCIdentifier(typeToString(paramType))}_id${paramType.id}`,
+        `rtparam${index}_${sanitizeForCIdentifier(typeToString(paramType))}_id${paramType.id}`
       );
     }
   });

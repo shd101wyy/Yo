@@ -699,7 +699,7 @@ export function createTupleType(fields: TypeField[]): TupleType {
 export function createStructType(
   env: Environment,
   isReferenceSemantics: boolean = false,
-  isNewtype: boolean = false,
+  isNewtype: boolean = false
 ): StructType {
   const module = createModuleType(env);
 
@@ -858,12 +858,12 @@ export function createSomeType(
   recursiveTypeRef?: {
     functionValue: FunctionValue;
     argValues: Value[];
-  },
+  }
 ): SomeType {
   if (type.level !== 0) {
     console.trace();
     throw new Error(
-      `createSomeType expects a type with level 0, got level ${type.level}`,
+      `createSomeType expects a type with level 0, got level ${type.level}`
     );
   }
 
@@ -913,7 +913,7 @@ const cachedTypeMap: Map<
 > = new Map();
 export function createTypeHierarchy(
   level: number,
-  baseType?: Type,
+  baseType?: Type
 ): TypeHierarchyType {
   // Check if already exists
   if (cachedTypeMap.has(level)) {
@@ -956,12 +956,12 @@ export function getFunctionParameterExprs({
 }): FunctionParameterExprs {
   if (!labelExpr && !typeExpr && !defaultValueExpr && !assignedValueExpr) {
     throw new Error(
-      `At least one of labelExpr, typeExpr, defaultValueExpr or assignedValueExpr must be defined`,
+      `At least one of labelExpr, typeExpr, defaultValueExpr or assignedValueExpr must be defined`
     );
   }
   if (!typeExpr && !defaultValueExpr && !assignedValueExpr) {
     throw new Error(
-      `Expected either typeExpr, defaultValueExpr or assignedValueExpr to be defined`,
+      `Expected either typeExpr, defaultValueExpr or assignedValueExpr to be defined`
     );
   }
   return {
@@ -979,7 +979,7 @@ export function getFunctionParameterExprs({
  */
 export function createFnModuleType(
   fnType: FunctionType,
-  env: Environment,
+  env: Environment
 ): FnModuleType {
   const fnModuleId = `fn_module_${fnType.id}`;
   const module = createModuleType(env);
@@ -1003,7 +1003,7 @@ let futureModuleCounter = 0;
 
 export function createFutureModuleType(
   outputType: Type,
-  env: Environment,
+  env: Environment
 ): FutureModuleType {
   // Create a unique ID for each async block's FutureModuleType
   // This ensures different async blocks with the same output type don't share the same FutureModuleType
@@ -1042,7 +1042,7 @@ function createModuleSignature(moduleType: ModuleType): string {
 export function createDynType(
   requiredModules: ModuleType[],
   env: Environment,
-  negativeModules?: ModuleType[],
+  negativeModules?: ModuleType[]
 ): DynType {
   const module = createModuleType(env);
 

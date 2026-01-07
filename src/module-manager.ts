@@ -102,14 +102,14 @@ export class ModuleManager {
   public loadModule(
     modulePath: string,
     inputString?: string,
-    parentModule?: string,
+    parentModule?: string
   ): {
     moduleValue: ModuleValue;
     moduleError: Error | undefined;
   } {
     if (!modulePath.match(/^file:\/\//)) {
       throw new Error(
-        `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `,
+        `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `
       );
     }
 
@@ -145,7 +145,7 @@ export class ModuleManager {
   public deleteModule(modulePath: string): void {
     if (!modulePath.match(/^file:\/\//)) {
       throw new Error(
-        `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `,
+        `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `
       );
     }
 
@@ -182,7 +182,7 @@ export class ModuleManager {
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
       allocator?: "mimalloc" | "libc";
-    } = {},
+    } = {}
   ) {
     // console.log(`= Compiling module ${modulePath}`);
     const { moduleValue, moduleError } = this.loadModule(modulePath);

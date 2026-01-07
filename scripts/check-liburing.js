@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* eslint-disable no-undef */
+/* eslint-disable @typescript-eslint/no-var-requires */
 
 const { execSync } = require("child_process");
 const os = require("os");
@@ -73,12 +75,12 @@ function checkLiburing() {
     console.log("    sudo apk add liburing-dev\n");
   } else {
     console.log(
-      "  Please install liburing-dev (or liburing-devel) for your distribution.\n",
+      "  Please install liburing-dev (or liburing-devel) for your distribution.\n"
     );
   }
 
   console.log(
-    "ℹ️  Yo will work without liburing, but async I/O operations will not be available.",
+    "ℹ️  Yo will work without liburing, but async I/O operations will not be available."
   );
   // console.log('   You can compile with --allocator libc to avoid any io_uring dependencies.\n');
 }

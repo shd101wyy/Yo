@@ -216,9 +216,7 @@ export function evaluateFunctionParameter({
     if (!exprIsAtom(lhsExpr) || !isValidVariableName(lhsExpr)) {
       throw formatErrorMessage({
         token: lhsExpr.token,
-        errorMessage: `Expected identifier for parameter label, got ${exprToString(
-          lhsExpr,
-        )}`,
+        errorMessage: `Expected identifier for parameter label, got ${exprToString(lhsExpr)}`,
       });
     }
     label = lhsExpr.token.value;
@@ -337,7 +335,7 @@ export function evaluateFunctionParameter({
         throw formatErrorMessage({
           token: defaultValueExpr.token,
           errorMessage: `Expected a compile-time known value for default parameter, got ${exprToString(
-            defaultValueExpr,
+            defaultValueExpr
           )}`,
         });
       }
@@ -349,7 +347,7 @@ export function evaluateFunctionParameter({
         if (
           !areTypesCompatible(
             { type: parameterType, env },
-            { type: defaultValue.type, env },
+            { type: defaultValue.type, env }
           )
         ) {
           throw formatErrorMessage({
@@ -392,7 +390,7 @@ ${typeToString(parameterType)}`,
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
         errorMessage: `Unexpected "compt" for parameter of type ${typeToString(
-          parameterType,
+          parameterType
         )} which can only be used at runtime.`,
       });
     }
@@ -850,7 +848,7 @@ export function evaluateFunctionParameters({
 
         // Check if there is duplicate labels
         const duplicateLabel = forallParameters.find(
-          (element) => element.label === parameter.label,
+          (element) => element.label === parameter.label
         );
         if (duplicateLabel) {
           throw formatErrorMessage({
@@ -955,7 +953,7 @@ export function evaluateFunctionParameters({
               throw formatErrorMessage({
                 token: argExpr.token,
                 errorMessage: `Expected a valid variable name for variadic parameter, got ${exprToString(
-                  argExpr,
+                  argExpr
                 )}`,
               });
             }
@@ -974,7 +972,7 @@ export function evaluateFunctionParameters({
           throw formatErrorMessage({
             token: parameterExpr.token,
             errorMessage: `Expected a name for variadic parameter, got ${exprToString(
-              parameterExpr,
+              parameterExpr
             )}`,
           });
         }
@@ -1048,7 +1046,7 @@ export function evaluateFunctionParameters({
 
       // Check if there is duplicate labels
       const duplicateLabel = parameters.find(
-        (element) => element.label === parameter.label,
+        (element) => element.label === parameter.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
@@ -1226,7 +1224,7 @@ export function evaluateFunctionType({
       throw formatErrorMessage({
         token: returnLabelExpr.token,
         errorMessage: `Expected a valid variable name for return label, got ${exprToString(
-          returnLabelExpr,
+          returnLabelExpr
         )}`,
       });
     }
@@ -1308,7 +1306,7 @@ export function evaluateFunctionType({
     throw formatErrorMessage({
       token: returnTypeExpr.token,
       errorMessage: `Expected a type for function return type, got:\n${exprToString(
-        returnTypeExpr,
+        returnTypeExpr
       )}`,
     });
   }
@@ -1344,7 +1342,7 @@ ${typeToString(returnType)}`,
     throw formatErrorMessage({
       token: returnTypeExpr.token,
       errorMessage: `Unexpected "compt"  for return type of ${typeToString(
-        returnType,
+        returnType
       )} which can only be used at runtime.`,
     });
   }
@@ -1367,9 +1365,7 @@ ${typeToString(returnType)}`,
   if (isReturnTypeUnquote && !isExprType(returnType)) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Expected Expr type for "unquote" return type, got ${typeToString(
-        returnType,
-      )}`,
+      errorMessage: `Expected Expr type for "unquote" return type, got ${typeToString(returnType)}`,
     });
   }
 

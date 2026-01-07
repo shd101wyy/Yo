@@ -57,7 +57,7 @@ Got:\n${exprToString(expr)}`,
     throw formatErrorMessage({
       token: elementTypeExpr.token,
       errorMessage: `Failed to evaluate the element type expression:\n${exprToString(
-        elementTypeExpr,
+        elementTypeExpr
       )}`,
     });
   }
@@ -77,7 +77,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
     const lengthPlaceholderName = `_array_length_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const unknownLength = createUnknownValue(
       createUsizeType(),
-      lengthPlaceholderName,
+      lengthPlaceholderName
     );
 
     // Add the unknown variable to the environment
@@ -134,7 +134,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
       {
         type: evaluatedLengthExpr.$.type,
         env,
-      },
+      }
     )
   ) {
     throw formatErrorMessage({

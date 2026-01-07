@@ -204,7 +204,7 @@ ${exprToString(expr)}`,
             ...context,
             isUnsafeFunctionType: exprIsFunctionCallOf(
               expr.args[0],
-              BuiltinKeywords.unsafe_fn,
+              BuiltinKeywords.unsafe_fn
             ),
           },
         });
@@ -745,7 +745,7 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(
         expr,
         BuiltinFunctions.__yo_compt_boolean_to_string,
-        1,
+        1
       )
     ) {
       return evaluateYoComptBooleanFunctions({
@@ -759,7 +759,7 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(
         expr,
         BuiltinFunctions.__yo_compt_string_concat,
-        2,
+        2
       ) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_eq, 2) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_neq, 2) ||
@@ -770,17 +770,17 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(
         expr,
         BuiltinFunctions.__yo_compt_string_length,
-        1,
+        1
       ) ||
       exprIsFunctionCallOf(
         expr,
         BuiltinFunctions.__yo_compt_string_to_upper,
-        1,
+        1
       ) ||
       exprIsFunctionCallOf(
         expr,
         BuiltinFunctions.__yo_compt_string_to_lower,
-        1,
+        1
       ) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_slice)
     ) {
@@ -822,7 +822,7 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(
         expr,
         BuiltinFunctions.__yo_type_can_form_rc_cycle,
-        1,
+        1
       )
     ) {
       // __yo_type_can_form_rc_cycle
@@ -854,7 +854,7 @@ ${exprToString(expr)}`,
     } else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_var_is_owning_the_rc_value,
+        BuiltinFunctions.__yo_var_is_owning_the_rc_value
       )
     ) {
       // __yo_var_is_owning_the_rc_value

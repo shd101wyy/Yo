@@ -30,7 +30,7 @@ export function emitCIncludes(context: CodeGenContext): void {
   context.emitter.emitHeaderLine(`#ifndef _WIN32`);
   context.emitter.emitHeaderLine(`#define _DEFAULT_SOURCE`);
   context.emitter.emitHeaderLine(
-    `#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux`,
+    `#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux`
   );
   context.emitter.emitHeaderLine(`#endif`);
   context.emitter.emitHeaderLine(``);
@@ -43,7 +43,7 @@ export function emitCIncludes(context: CodeGenContext): void {
   context.emitter.emitHeaderLine(``);
   if (context.allocator === "mimalloc") {
     context.emitter.emitHeaderLine(
-      `// Mimalloc compatibility layer - try mimalloc first, fallback to stdlib`,
+      `// Mimalloc compatibility layer - try mimalloc first, fallback to stdlib`
     );
     context.emitter.emitHeaderLine(`#ifdef __has_include`);
     context.emitter.emitHeaderLine(`  #if __has_include(<mimalloc.h>)`);
@@ -53,7 +53,7 @@ export function emitCIncludes(context: CodeGenContext): void {
     context.emitter.emitHeaderLine(`    #define __yo_realloc mi_realloc`);
     context.emitter.emitHeaderLine(`    #define __yo_free mi_free`);
     context.emitter.emitHeaderLine(
-      `    #define __yo_aligned_alloc mi_aligned_alloc`,
+      `    #define __yo_aligned_alloc mi_aligned_alloc`
     );
     context.emitter.emitHeaderLine(`  #else`);
     context.emitter.emitHeaderLine(`    #define __yo_malloc malloc`);
@@ -61,19 +61,19 @@ export function emitCIncludes(context: CodeGenContext): void {
     context.emitter.emitHeaderLine(`    #define __yo_realloc realloc`);
     context.emitter.emitHeaderLine(`    #define __yo_free free`);
     context.emitter.emitHeaderLine(
-      `    #define __yo_aligned_alloc aligned_alloc`,
+      `    #define __yo_aligned_alloc aligned_alloc`
     );
     context.emitter.emitHeaderLine(`  #endif`);
     context.emitter.emitHeaderLine(`#else`);
     context.emitter.emitHeaderLine(
-      `  // Fallback for older compilers without __has_include`,
+      `  // Fallback for older compilers without __has_include`
     );
     context.emitter.emitHeaderLine(`  #define __yo_malloc malloc`);
     context.emitter.emitHeaderLine(`  #define __yo_calloc calloc`);
     context.emitter.emitHeaderLine(`  #define __yo_realloc realloc`);
     context.emitter.emitHeaderLine(`  #define __yo_free free`);
     context.emitter.emitHeaderLine(
-      `  #define __yo_aligned_alloc aligned_alloc`,
+      `  #define __yo_aligned_alloc aligned_alloc`
     );
     context.emitter.emitHeaderLine(`#endif`);
   } else {

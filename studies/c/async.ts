@@ -21,7 +21,7 @@ let x = 0;
 
 function resumeCoroutine<SelfContext>(
   optionalCoro: Coroutine<SelfContext> | null,
-  value: number,
+  value: number
 ) {
   if (optionalCoro !== null) {
     const coro = optionalCoro;
@@ -34,7 +34,7 @@ function resumeCoroutine<SelfContext>(
 
 function abortCoroutine<SelfContext>(
   optionalCoro: Coroutine<SelfContext> | null,
-  value: number,
+  value: number
 ) {
   if (optionalCoro !== null) {
     const coro = optionalCoro;

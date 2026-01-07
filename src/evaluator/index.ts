@@ -61,7 +61,7 @@ export default class Evaluator {
 
     if (!this.modulePath.match(/^file:\/\//)) {
       throw new Error(
-        `Invalid file protocol: ${this.modulePath}. Only file:// is supported for now.  `,
+        `Invalid file protocol: ${this.modulePath}. Only file:// is supported for now.  `
       );
     }
     try {
@@ -69,7 +69,7 @@ export default class Evaluator {
         inputString ??
         readFileSync(
           modulePath.replace(/^file:\/\//, ""), // NOTE: We only support local file for now
-          "utf-8",
+          "utf-8"
         );
 
       // Parse the module
@@ -81,7 +81,7 @@ export default class Evaluator {
       this.evaluateProgram(stdPath, loadModule);
     } catch (error) {
       throw new Error(
-        `Failed to import module "${modulePath}":\n${error instanceof YoError ? error.toString() : error instanceof Error ? error.message : String(error)}`,
+        `Failed to import module "${modulePath}":\n${error instanceof YoError ? error.toString() : error instanceof Error ? error.message : String(error)}`
       );
     }
   }

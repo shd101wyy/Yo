@@ -50,11 +50,11 @@ export class CodeGeneratorC {
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
       allocator?: "mimalloc" | "libc";
-    } = {},
+    } = {}
   ): void {
     this.emitter.emitDeclarationLine(`\n// Module ${modulePath}`);
     this.emitter.emitDeclarationLine(
-      `// Module ID: ${generateModuleId(modulePath)}`,
+      `// Module ID: ${generateModuleId(modulePath)}`
     );
 
     // Create contexts for the modular functions

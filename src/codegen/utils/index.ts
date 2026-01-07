@@ -295,7 +295,7 @@ export function shouldAvoidConst(type: Type): boolean {
  */
 export function getTypeString(
   type: Type | undefined,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   if (!type) return "int32_t"; // fallback
 
@@ -373,7 +373,7 @@ export function getTypeString(
       // Check if this enum can be optimized as a nullable pointer
       if (type.tag === TypeTag.Enum) {
         const nullablePointerType = canOptimizeAsNullablePointer(
-          type as EnumType,
+          type as EnumType
         );
         if (nullablePointerType) {
           // Return the pointer type directly without looking up in context.types
@@ -402,7 +402,7 @@ export function getTypeString(
       const cTypeName = context.types[type.id]?.cName;
       if (!cTypeName) {
         throw new Error(
-          `No C type name found for ${kind} ${typeToString(type)}`,
+          `No C type name found for ${kind} ${typeToString(type)}`
         );
       }
 
@@ -447,7 +447,7 @@ export function getTypeString(
       const cTypeName = context.types[type.id]?.cName;
       if (!cTypeName) {
         throw new Error(
-          `No C type name found for dynamic dispatch type ${typeToString(type)}`,
+          `No C type name found for dynamic dispatch type ${typeToString(type)}`
         );
       }
       // Dyn is a value type (struct with data pointer and vtable pointer)
@@ -485,7 +485,7 @@ export function getTypeString(
       // Generate slice struct type name: Slice_ElementType
       const sliceType = type as SliceType;
       const elementTypeStr = sanitizeForCIdentifier(
-        getTypeString(sliceType.childType, context),
+        getTypeString(sliceType.childType, context)
       );
       const sliceTypeName = `Slice_${elementTypeStr}`;
 
@@ -512,7 +512,7 @@ export function getTypeString(
         if (someType.resolvedConcreteType?.isExtern) {
           const externTypeName = getTypeString(
             someType.resolvedConcreteType,
-            context,
+            context
           );
           // Extern futures are heap-backed - use pointer type
           return `${externTypeName}*`;
@@ -569,7 +569,7 @@ export function getTypeString(
         throw new Error(
           `Impl(Future) type has no registered concrete type. ` +
             `SomeType ID: ${someType.id}, FutureModule: ${futureModule?.id ?? "none"}. ` +
-            `Ensure async blocks are properly analyzed and their state machine types are registered.`,
+            `Ensure async blocks are properly analyzed and their state machine types are registered.`
         );
       }
 
@@ -685,7 +685,7 @@ export function getTypeString(
 export function getVariableTypeString(
   type: Type,
   varName: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   // Sanitize the variable name to avoid C reserved words/macros like errno
   const sanitizedVarName = sanitizeForCIdentifier(varName);
@@ -699,12 +699,12 @@ export function getVariableTypeString(
 export function getEnumVariantCName(
   enumType: EnumType,
   variantName: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const enumCName = context.types[enumType.id]?.cName;
   if (!enumCName) {
     throw new Error(
-      `No C type name found for enum ${enumType.typeName} (${typeToString(enumType)})`,
+      `No C type name found for enum ${enumType.typeName} (${typeToString(enumType)})`
     );
   }
   return `${enumCName.toUpperCase()}_${variantName.toUpperCase()}`;
@@ -733,7 +733,7 @@ export function isComptFunction(functionValue: FunctionValue): boolean {
  * argument expressions that need proper parameter substitution.
  */
 export function isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(
-  functionValue: FunctionValue,
+  functionValue: FunctionValue
 ): string | null {
   const body = functionValue.body;
   let operatorName: string | null = null;
@@ -833,7 +833,7 @@ export function canOptimizeAsSimpleEnum(enumType: EnumType): boolean {
  */
 export function getVariableNameForCodegen(
   variableName: string,
-  env: Environment | undefined,
+  env: Environment | undefined
 ): string {
   if (!env) {
     return sanitizeForCIdentifier(variableName);
@@ -845,12 +845,12 @@ export function getVariableNameForCodegen(
     if (variable.parameterAlias) {
       return sanitizeForCIdentifier(
         variable.parameterAlias,
-        variable.type.isExtern === "c",
+        variable.type.isExtern === "c"
       );
     } else {
       return sanitizeForCIdentifier(
         variable.name,
-        variable.type.isExtern === "c",
+        variable.type.isExtern === "c"
       );
     }
   }

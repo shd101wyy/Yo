@@ -79,7 +79,7 @@ export function evaluateEnumType({
 
       // Check if there is duplicate labels
       const duplicateLabel = moduleFields.find(
-        (elem) => elem.label === field.label,
+        (elem) => elem.label === field.label
       );
       if (duplicateLabel) {
         throw formatErrorMessage({
@@ -99,9 +99,7 @@ export function evaluateEnumType({
       if (!field.isCompileTimeOnly) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Expected compile-time only field, got:\n${exprToString(
-            field.exprs.expr,
-          )}`,
+          errorMessage: `Expected compile-time only field, got:\n${exprToString(field.exprs.expr)}`,
         });
       }
 
@@ -147,9 +145,7 @@ export function evaluateEnumType({
         if (!isValidVariableName(enumArg)) {
           throw formatErrorMessage({
             token: enumArg.token,
-            errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-              enumArg,
-            )}`,
+            errorMessage: `Expected identifier for enum variant, got:\n${exprToString(enumArg)}`,
           });
         }
         variants.push({
@@ -168,7 +164,7 @@ export function evaluateEnumType({
           throw formatErrorMessage({
             token: enumArg.func.token,
             errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-              enumArg.func,
+              enumArg.func
             )}`,
           });
         }
@@ -186,7 +182,7 @@ export function evaluateEnumType({
 
           // Check if there is duplicate labels
           const duplicateLabel = fields.find(
-            (elem) => elem.label === field.label,
+            (elem) => elem.label === field.label
           );
           if (duplicateLabel) {
             throw formatErrorMessage({

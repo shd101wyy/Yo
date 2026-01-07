@@ -50,7 +50,7 @@ export function evaluateYoTypeToString({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -58,7 +58,7 @@ export function evaluateYoTypeToString({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Expected TypeHierarchy type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -67,7 +67,7 @@ export function evaluateYoTypeToString({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -141,7 +141,7 @@ export function evaluateYoAreTypesCompatible({
   // Check if the types are compatible
   const compatible = areTypesCompatible(
     { type: expectedType, env },
-    { type: givenType, env },
+    { type: givenType, env }
   );
 
   // Attach info to the expr
@@ -167,7 +167,7 @@ export function evaluateYoTypeContainsRcType({
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_type_contains_rc_type,
-    1,
+    1
   );
 
   const arg = evaluateExpression({
@@ -181,7 +181,7 @@ export function evaluateYoTypeContainsRcType({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -189,7 +189,7 @@ export function evaluateYoTypeContainsRcType({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Expected TypeHierarchy type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -198,7 +198,7 @@ export function evaluateYoTypeContainsRcType({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -229,7 +229,7 @@ export function evaluateYoTypeCanFormRcCycle({
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_type_can_form_rc_cycle,
-    1,
+    1
   );
 
   const arg = evaluateExpression({
@@ -243,7 +243,7 @@ export function evaluateYoTypeCanFormRcCycle({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Failed to evaluate the argument expression for "${expr.func.token.value}":\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -251,7 +251,7 @@ export function evaluateYoTypeCanFormRcCycle({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Expected TypeHierarchy type for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -260,7 +260,7 @@ export function evaluateYoTypeCanFormRcCycle({
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Expected type value for "${expr.func.token.value}" argument, got:\n${exprToString(
-        arg,
+        arg
       )}`,
     });
   }
@@ -310,7 +310,7 @@ export function evaluateYoTypeImpls({
     throw formatErrorMessage({
       token: typeArg.token,
       errorMessage: `Failed to evaluate the type argument for "${expr.func.token.value}":\n${exprToString(
-        typeArg,
+        typeArg
       )}`,
     });
   }
@@ -318,7 +318,7 @@ export function evaluateYoTypeImpls({
     throw formatErrorMessage({
       token: typeArg.token,
       errorMessage: `Expected Type for first argument of "${expr.func.token.value}", got:\n${exprToString(
-        typeArg,
+        typeArg
       )}`,
     });
   }
@@ -327,7 +327,7 @@ export function evaluateYoTypeImpls({
     throw formatErrorMessage({
       token: typeArg.token,
       errorMessage: `Expected type value for first argument of "${expr.func.token.value}", got:\n${exprToString(
-        typeArg,
+        typeArg
       )}`,
     });
   }
@@ -346,7 +346,7 @@ export function evaluateYoTypeImpls({
     throw formatErrorMessage({
       token: moduleArg.token,
       errorMessage: `Failed to evaluate the module argument for "${expr.func.token.value}":\n${exprToString(
-        moduleArg,
+        moduleArg
       )}`,
     });
   }
@@ -383,7 +383,7 @@ export function evaluateYoTypeImpls({
     throw formatErrorMessage({
       token: moduleArg.token,
       errorMessage: `Expected module type for second argument of "${expr.func.token.value}", got:\n${exprToString(
-        moduleArg,
+        moduleArg
       )}`,
     });
   }
@@ -412,7 +412,7 @@ export function evaluateYoTypeImpls({
       if (
         areTypesCompatible(
           { type: expectedModuleWithReceiver, env },
-          { type: fieldModuleType, env },
+          { type: fieldModuleType, env }
         )
       ) {
         impls = true;

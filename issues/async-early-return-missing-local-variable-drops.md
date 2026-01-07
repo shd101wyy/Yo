@@ -119,7 +119,7 @@ if (
     expr.$.deferredDropExpressions.length === 0)
 ) {
   context.emitter.emitLine(
-    `${indent}// Drop local variables before early completion`,
+    `${indent}// Drop local variables before early completion`
   );
   for (const dropExpr of functionContext.pendingDeferredDrops) {
     const dropCode = generateExpr(dropExpr, indent, context);

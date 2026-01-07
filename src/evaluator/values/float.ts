@@ -10,7 +10,7 @@ import { EvaluatorContext } from "../context";
 export function evaluateFloatLiteral(
   expr: AtomExpr,
   env: Environment,
-  context: EvaluatorContext,
+  context: EvaluatorContext
 ): AtomExpr {
   if (expr.token.type === TokenType.Float) {
     const floatValue = parseFloat(expr.token.value);

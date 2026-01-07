@@ -97,7 +97,7 @@ export function generateFunctionBody(
   expr: Expr,
   functionType: FunctionType,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   if (
     exprIsFunctionCall(expr) &&
@@ -161,7 +161,7 @@ if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
       expr.$.deferredDropExpressions.length === 0)
   ) {
     context.emitter.emitLine(
-      `${indent}// Drop local variables before early return`,
+      `${indent}// Drop local variables before early return`
     );
     for (const dropExpr of functionContext.pendingDeferredDrops) {
       const dropCode = generateExpr(dropExpr, indent, context);

@@ -127,7 +127,7 @@ export function processUnquotesInExpr({
           if (isExprListValue(exprListValue)) {
             if (exprListValue.elements.every((el) => isExprValue(el))) {
               unquoteSplicingArgs = exprListValue.elements.map(
-                (el) => el.value,
+                (el) => el.value
               );
             }
           } else {
@@ -149,7 +149,7 @@ export function processUnquotesInExpr({
               context: {
                 ...context,
               },
-            }),
+            })
           );
         }
       }

@@ -73,7 +73,7 @@ function walkExprForAwaits(
   awaitPoints: AwaitPoint[],
   capturedVariables: Map<string, CapturedVariable>,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  parentExpr?: Expr,
+  parentExpr?: Expr
 ): void {
   switch (expr.tag) {
     case ExprTag.Atom:
@@ -183,7 +183,7 @@ function walkExprForAwaits(
             // Remove duplicate entries, keeping only the first one
             awaitPoints.splice(
               initialAwaitCount + 1,
-              newAwaitCount - initialAwaitCount - 1,
+              newAwaitCount - initialAwaitCount - 1
             );
           }
         }
@@ -221,7 +221,7 @@ function walkExprForAwaits(
             // Remove duplicate entries, keeping only the first one
             awaitPoints.splice(
               initialAwaitCount + 1,
-              newAwaitCount - initialAwaitCount - 1,
+              newAwaitCount - initialAwaitCount - 1
             );
           }
         }
@@ -257,7 +257,7 @@ function walkExprForAwaits(
             const futureVarName = awaitArg.token.value;
             const futureVariables = getVariablesFromEnv(
               awaitArg.$.env,
-              futureVarName,
+              futureVarName
             );
             if (futureVariables.length > 0) {
               const futureVar = futureVariables[futureVariables.length - 1]!;
@@ -342,7 +342,7 @@ export function getLocalVariablesFromBody(body: Expr): CapturedVariable[] {
 function collectVariableBindings(
   expr: Expr,
   variables: CapturedVariable[],
-  seen: Set<string>,
+  seen: Set<string>
 ): void {
   switch (expr.tag) {
     case ExprTag.Atom:

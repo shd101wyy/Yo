@@ -367,7 +367,7 @@ export interface FunctionToCall {
 }
 
 export function getFunctionCallResult(
-  functionToCall: FunctionToCall,
+  functionToCall: FunctionToCall
 ): FunctionCallResult {
   if (functionToCall.result.kind !== "function") {
     throw new Error("Expected function call result");
@@ -376,7 +376,7 @@ export function getFunctionCallResult(
 }
 
 export function getTypeCallResult(
-  functionToCall: FunctionToCall,
+  functionToCall: FunctionToCall
 ): TypeCallResult {
   if (functionToCall.result.kind !== "type") {
     throw new Error("Expected type call result");
@@ -385,7 +385,7 @@ export function getTypeCallResult(
 }
 
 export function getModuleTypeCallResult(
-  functionToCall: FunctionToCall,
+  functionToCall: FunctionToCall
 ): ModuleTypeCallResult {
   if (functionToCall.result.kind !== "module-type") {
     throw new Error("Expected module type call result");
@@ -394,7 +394,7 @@ export function getModuleTypeCallResult(
 }
 
 export function getArrayCallResult(
-  functionToCall: FunctionToCall,
+  functionToCall: FunctionToCall
 ): ArrayCallResult {
   if (functionToCall.result.kind !== "array") {
     throw new Error("Expected array call result");
@@ -403,7 +403,7 @@ export function getArrayCallResult(
 }
 
 export function getPointerTypeCallResult(
-  functionToCall: FunctionToCall,
+  functionToCall: FunctionToCall
 ): PointerTypeCallResult {
   if (functionToCall.result.kind !== "pointer-type") {
     throw new Error("Expected pointer type call result");
@@ -430,7 +430,7 @@ export function trackVariableUsage(
   frameLevel: number,
   usageType: "read" | "write" | "own",
   token: Token,
-  context: EvaluatorContext,
+  context: EvaluatorContext
 ): void {
   // Only track for closures or async blocks
   if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
@@ -457,7 +457,7 @@ export function trackVariableUsage(
 
   for (let i = 0; i < evaluationEnv.frames.length; i++) {
     const found = evaluationEnv.frames[i]?.variables.find(
-      (v) => v.name === variableName,
+      (v) => v.name === variableName
     );
     if (found) {
       variable = found;

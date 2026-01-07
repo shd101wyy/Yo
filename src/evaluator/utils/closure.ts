@@ -85,7 +85,7 @@ export function consumeCapturedVariables({
  * @returns PathCollection containing paths to all captured variables
  */
 export function buildPathCollectionFromCapturedVariables(
-  capturedVariables: Map<string, CapturedVariableInfo>,
+  capturedVariables: Map<string, CapturedVariableInfo>
 ): string[][] {
   const pathCollection: string[][] = [];
 
@@ -131,7 +131,7 @@ export function createCaptureTypeAndValue({
 
       // Create fields from captured variables
       const captureFields: TypeField[] = Array.from(
-        capturedVariablesWithValues.entries(),
+        capturedVariablesWithValues.entries()
       ).map(([varName, captureInfo]) => {
         return {
           label: varName,
@@ -162,12 +162,12 @@ export function createCaptureTypeAndValue({
 
       // Create a struct value if all captured values are compile-time known
       const captureValues = Array.from(
-        capturedVariablesWithValues.values(),
+        capturedVariablesWithValues.values()
       ).map((info) => info.value);
       if (captureValues.every((value) => value !== undefined)) {
         captureValue = createStructValue(
           inferredCaptureType,
-          captureValues as Value[],
+          captureValues as Value[]
         );
       } else {
         // Some values are runtime-only, use undefined for runtime-unknown captures
@@ -195,7 +195,7 @@ export function createCaptureTypeAndValue({
       // Validate that all captured variables exist as fields in the expected struct
       const capturedVarNames = Array.from(capturedVariablesWithValues.keys());
       const expectedFieldNames = expectedStruct.fields.map(
-        (elem) => elem.label,
+        (elem) => elem.label
       );
 
       for (const capturedVar of capturedVarNames) {
@@ -223,13 +223,13 @@ export function createCaptureTypeAndValue({
         captureInfo,
       ] of capturedVariablesWithValues.entries()) {
         const expectedField = expectedStruct.fields.find(
-          (elem) => elem.label === varName,
+          (elem) => elem.label === varName
         );
         if (
           expectedField &&
           !areTypesCompatible(
             { type: expectedField.type, env },
-            { type: captureInfo.type, env },
+            { type: captureInfo.type, env }
           )
         ) {
           throw formatErrorMessage({
@@ -241,12 +241,12 @@ export function createCaptureTypeAndValue({
 
       // Create a struct value from captured variables
       const captureValues = Array.from(
-        capturedVariablesWithValues.values(),
+        capturedVariablesWithValues.values()
       ).map((info) => info.value);
       if (captureValues.every((value) => value !== undefined)) {
         captureValue = createStructValue(
           captureType as StructType,
-          captureValues as Value[],
+          captureValues as Value[]
         );
       } else {
         // Some values are runtime-only
@@ -334,7 +334,7 @@ export function generateCapturedVariableDupExpressions({
       if (typeContainsRcType(captureInfo.type)) {
         // Create an expression: varName.___dup()
         const dupExpr: Expr = generateExprFromCode(
-          `${BuiltinFunctions.___dup[0]!}(${varName})`,
+          `${BuiltinFunctions.___dup[0]!}(${varName})`
         );
 
         // Evaluate the dupExpr to ensure it's properly typed and processed

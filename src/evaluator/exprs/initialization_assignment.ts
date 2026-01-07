@@ -180,7 +180,7 @@ export function evaluateInitializationAssignment({
         throw formatErrorMessage({
           token: rhs.token,
           errorMessage: `(evaluateInitializationAssignment) Failed to synthesize type for expression: ${exprToString(
-            rhs,
+            rhs
           )}\n${e}`,
         });
       }
@@ -291,7 +291,7 @@ ${exprToString(rhs)}`,
     const rhsOwningVariable = findRcValueOwnerRelationship(
       rhs,
       env,
-      env.modulePath,
+      env.modulePath
     );
 
     // If the RHS owning variable was consumed (moved), then the LHS should become

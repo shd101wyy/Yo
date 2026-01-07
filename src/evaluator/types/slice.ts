@@ -36,7 +36,7 @@ export function evaluateSliceType({
     throw formatErrorMessage({
       token: elementTypeExpr.token,
       errorMessage: `Failed to evaluate the element type expression:\n${exprToString(
-        elementTypeExpr,
+        elementTypeExpr
       )}`,
     });
   }

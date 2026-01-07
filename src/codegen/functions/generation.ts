@@ -51,7 +51,7 @@ import { FunctionGenerationContext } from "./context";
  * Generate function declarations (prototypes)
  */
 export function generateFunctionDeclarations(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
   emitter.emitDeclarationLine(`// Function declarations`);
@@ -77,7 +77,7 @@ export function generateFunctionDeclarations(
   // Generate forward declarations for async runtime functions
   emitter.emitDeclarationLine(`/// Async runtime functions`);
   emitter.emitDeclarationLine(
-    `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`,
+    `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
   );
   // NOTE: yo_async_register_continuation removed - continuation registration is now inline
   emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
@@ -139,7 +139,7 @@ export function generateFunctionDeclarations(
       cName,
       false,
       context,
-      value.body,
+      value.body
     );
   }
 
@@ -156,7 +156,7 @@ export function generateFunctionPrototype(
   functionType: FunctionType,
   cFunctionName: string,
   context: CodeGenContext,
-  overrideReturnType?: string,
+  overrideReturnType?: string
 ): string {
   // For non-main functions, generate based on function type
   const returnTypeStr =
@@ -164,7 +164,7 @@ export function generateFunctionPrototype(
 
   // Generate parameter list (excluding compile-time parameters)
   const runtimeParams = functionType.parameters.filter(
-    (param) => !param.isCompileTimeOnly,
+    (param) => !param.isCompileTimeOnly
   );
   const paramStrings: string[] = [];
 
@@ -183,7 +183,7 @@ export function generateFunctionPrototype(
       const functionPointerType = generateFunctionPrototype(
         param.type,
         "(*)",
-        context,
+        context
       ).replace(" (*)(", ` (*${paramName})(`);
 
       return functionPointerType;
@@ -197,7 +197,7 @@ export function generateFunctionPrototype(
             `Impl(Future) parameter '${param.label}' has no resolvedConcreteType. ` +
               `Function: ${cFunctionName}. ` +
               `SomeType ID: ${param.type.id}. ` +
-              `This indicates the function wasn't properly specialized - generic Impl(Future) functions should not reach codegen.`,
+              `This indicates the function wasn't properly specialized - generic Impl(Future) functions should not reach codegen.`
           );
         }
         // Use the concrete state machine pointer type
@@ -250,7 +250,7 @@ export function generateFunctionDeclaration(
   cFunctionName: string,
   isExtern: boolean,
   context: CodeGenContext,
-  functionBody?: Expr,
+  functionBody?: Expr
 ): void {
   // For functions returning Impl(Future(T)), find the async block that produces the return value
   // and use its state machine struct name as the return type
@@ -287,7 +287,7 @@ export function generateFunctionDeclaration(
   ) {
     const signatureReturnTypeCName = getTypeString(
       functionType.return.type,
-      context,
+      context
     );
     const bodyReturnTypeCName = getTypeString(functionBody.$.type, context);
     if (signatureReturnTypeCName !== bodyReturnTypeCName) {
@@ -300,13 +300,13 @@ export function generateFunctionDeclaration(
         functionType,
         cFunctionName,
         context,
-        overrideReturnType,
+        overrideReturnType
       )
     : generateFunctionPrototype(functionType, cFunctionName, context);
 
   const yoTypeStr = typeToString(functionType);
   context.emitter.emitDeclarationLine(
-    `${isExtern ? "extern " : ""}${functionPrototype}; // ${yoTypeStr}`,
+    `${isExtern ? "extern " : ""}${functionPrototype}; // ${yoTypeStr}`
   );
 }
 
@@ -410,7 +410,7 @@ export function generateDynDupDrop(context: FunctionGenerationContext): void {
 
     // Dup
     emitter.emitLine(
-      `${dynTypeCName} __yo_dup_${dynTypeCName}(${dynTypeCName} dyn) {`,
+      `${dynTypeCName} __yo_dup_${dynTypeCName}(${dynTypeCName} dyn) {`
     );
     emitter.emitLine(`  if (dyn.data) {`);
     emitter.emitLine(`    __yo_incr_rc(dyn.data);`);
@@ -461,7 +461,7 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
     throw new Error(
       `main function must return unit , but it returns ${typeToString(returnType)}. ` +
         `Use 'main :: (fn() -> unit)' instead. ` +
-        `For exit codes, use 'exit(code)' from std/libc/stdlib.yo`,
+        `For exit codes, use 'exit(code)' from std/libc/stdlib.yo`
     );
   }
 
@@ -492,7 +492,7 @@ int main(void) {
 export function generateFunction(
   functionValue: FunctionValue,
   cFunctionName: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -558,7 +558,7 @@ export function generateFunction(
         functionType,
         cFunctionName,
         context,
-        overrideReturnType,
+        overrideReturnType
       )
     : generateFunctionPrototype(functionType, cFunctionName, context);
 
@@ -639,7 +639,7 @@ export function generateFunctionBody(
   expr: Expr,
   functionType: FunctionType,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -688,7 +688,7 @@ export function generateFunctionBody(
         // If it is, we should return it directly without wrapping
         const isAsyncBlock = exprIsFunctionCallOf(
           lastExpr,
-          BuiltinFunctions.async,
+          BuiltinFunctions.async
         );
 
         // Check if the last expression already returns a Future type
@@ -808,12 +808,12 @@ export function generateFunctionBody(
               const exprType = getTypeString(functionType.return.type, context);
               const exprTempVar = getVariableNameForCodegen(
                 lastExpr.$.variableName,
-                lastExpr.$.env,
+                lastExpr.$.env
               );
               const rawCode = generateExpr(lastExpr, indent, context);
               if (exprTempVar !== rawCode) {
                 emitter.emitLine(
-                  `${indent}${exprType} ${exprTempVar} = ${rawCode};`,
+                  `${indent}${exprType} ${exprTempVar} = ${rawCode};`
                 );
               }
             }
@@ -876,7 +876,7 @@ export function generateFunctionBody(
  * Generate declarations for specialized (monomorphized) functions
  */
 export function generateSpecializedFunctionDeclarations(
-  context: CodeGenContext,
+  context: CodeGenContext
 ): void {
   const generated = new Set<FuncValueId>(); // Track already generated declarations
   for (const funcId in context.functions) {
@@ -908,7 +908,7 @@ export function generateSpecializedFunctionDeclarations(
 
     // Emit the function declaration
     context.emitter.emitDeclarationLine(
-      `${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`,
+      `${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
     );
   }
 }
@@ -945,36 +945,36 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
  * Generate constructor function declarations for objects
  */
 export function generateObjectConstructorDeclarations(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
   // Generate builtin reference counting functions
   emitter.emitDeclarationLine(
-    `void __yo_decr_rc(void* ptr); // Decrement reference count`,
+    `void __yo_decr_rc(void* ptr); // Decrement reference count`
   );
   emitter.emitDeclarationLine(
-    `void* __yo_incr_rc(void* ptr); // Increment reference count`,
+    `void* __yo_incr_rc(void* ptr); // Increment reference count`
   );
 
   // Generate GC function declarations
   emitter.emitDeclarationLine(
-    `void __yo_gc_register(void* ptr); // Register object for cycle detection`,
+    `void __yo_gc_register(void* ptr); // Register object for cycle detection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`,
+    `void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_collect(); // Trigger garbage collection`,
+    `void __yo_gc_collect(); // Trigger garbage collection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`,
+    `void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`
   );
   emitter.emitDeclarationLine(
-    `void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`,
+    `void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
   );
   emitter.emitDeclarationLine(
-    `static void yo_init_process_cleanup(void); // Initialize process cleanup`,
+    `static void yo_init_process_cleanup(void); // Initialize process cleanup`
   );
 
   // Generate constructor declarations for each object
@@ -983,7 +983,7 @@ export function generateObjectConstructorDeclarations(
     if (isStructType(type) && type.isReferenceSemantics) {
       // Skip generic structs that contain SomeType parameters
       const hasGenericTypes = type.fields.some((field) =>
-        typeContainsSomeType(field.type),
+        typeContainsSomeType(field.type)
       );
 
       if (hasGenericTypes) {
@@ -1001,14 +1001,14 @@ export function generateObjectConstructorDeclarations(
         .join(", ");
 
       emitter.emitDeclarationLine(
-        `${cName}* ${constructorName}(${paramTypes}); // Constructor`,
+        `${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
     }
   }
 }
 
 export function generateClosureConstructorDeclarations(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   // No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls.
   // Dyn(Fn(...)) uses dyn constructors (generated elsewhere).
@@ -1019,7 +1019,7 @@ export function generateClosureConstructorDeclarations(
  * Generate declarations for capture-specific dispose functions
  */
 export function generateCaptureDisposeFunctionDeclarations(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1029,7 +1029,7 @@ export function generateCaptureDisposeFunctionDeclarations(
     for (const [closureInstanceId] of context.closureCaptureMap) {
       const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
       emitter.emitDeclarationLine(
-        `void ${disposeFunctionName}(void* closure_ptr);`,
+        `void ${disposeFunctionName}(void* closure_ptr);`
       );
     }
   }
@@ -1039,7 +1039,7 @@ export function generateCaptureDisposeFunctionDeclarations(
  * Generate vtable instance declarations for closures
  */
 export function generateClosureVtableDeclarations(
-  _context: FunctionGenerationContext,
+  _context: FunctionGenerationContext
 ): void {
   // No static vtable instances - closures will create vtables dynamically
   // Each closure instance will have its own vtable with appropriate drop function
@@ -1051,7 +1051,7 @@ export function generateClosureVtableDeclarations(
  * See CYCLE_COLLECTION.md for design details.
  */
 function generateAtomicGCRuntimeFunctions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1472,7 +1472,7 @@ static void yo_init_process_cleanup(void) {
  * Generate traversal functions for objects (used by GC for marking)
  */
 function generateRefStructTraversalFunctions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1481,7 +1481,7 @@ function generateRefStructTraversalFunctions(
     if (isStructType(type) && type.isReferenceSemantics) {
       // Skip generic structs that contain SomeType parameters
       const hasGenericTypes = type.fields.some((field) =>
-        typeContainsSomeType(field.type),
+        typeContainsSomeType(field.type)
       );
 
       if (hasGenericTypes) {
@@ -1491,7 +1491,7 @@ function generateRefStructTraversalFunctions(
       // Generate traversal function for this struct type
       const traversalFunctionName = `__yo_traverse_${cName}`;
       emitter.emitLine(
-        `void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`,
+        `void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
       );
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
 
@@ -1532,10 +1532,10 @@ function generateRefStructTraversalFunctions(
                     const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
                     emitter.emitLine(`  case ${enumConstantName}:`);
                     emitter.emitLine(
-                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)}) {`,
+                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)}) {`
                     );
                     emitter.emitLine(
-                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)});`,
+                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)});`
                     );
                     emitter.emitLine(`    }`);
                     emitter.emitLine(`    break;`);
@@ -1559,7 +1559,7 @@ function generateRefStructTraversalFunctions(
  * Generate constructor function implementations for objects and ref enums
  */
 export function generateRefStructConstructorFunctions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1572,7 +1572,7 @@ export function generateRefStructConstructorFunctions(
     if (isStructType(type) && type.isReferenceSemantics) {
       // Skip generic structs that contain SomeType parameters
       const hasGenericTypes = type.fields.some((field) =>
-        typeContainsSomeType(field.type),
+        typeContainsSomeType(field.type)
       );
 
       if (hasGenericTypes) {
@@ -1591,11 +1591,11 @@ export function generateRefStructConstructorFunctions(
 
       emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
       emitter.emitLine(
-        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`,
+        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
       );
       // Initialize non-atomic RC fields
       emitter.emitLine(
-        `  obj->header.ref_count = 1;  // Start with one reference`,
+        `  obj->header.ref_count = 1;  // Start with one reference`
       );
       emitter.emitLine(`  obj->header.gc_flags = 0;`);
       emitter.emitLine(`  obj->header.gc_mark = YO_GC_UNMARKED;`);
@@ -1608,7 +1608,7 @@ export function generateRefStructConstructorFunctions(
         (field) =>
           field.label === BuiltinFunctions.___dispose[0]! &&
           field.assignedValue &&
-          isFunctionValue(field.assignedValue),
+          isFunctionValue(field.assignedValue)
       );
 
       if (
@@ -1621,7 +1621,7 @@ export function generateRefStructConstructorFunctions(
           context.functions[disposeFunctionValue.funcId]?.cName ||
           disposeFunctionValue.funcId;
         emitter.emitLine(
-          `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`,
+          `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`
         );
       } else {
         // Fallback to NULL if no ___dispose function found
@@ -1654,7 +1654,7 @@ export function generateRefStructConstructorFunctions(
  * Generate constructor function implementations for closures and their Rc functions
  */
 export function generateClosureConstructorFunctions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   // No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls.
   // Dyn(Fn(...)) uses dyn constructors (generated elsewhere).
@@ -1674,7 +1674,7 @@ export function generateClosureConstructorFunctions(
  * 5. Frees the capture data
  */
 export function generateClosureDisposeFunctions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1683,7 +1683,7 @@ export function generateClosureDisposeFunctions(
   }
 
   emitter.emitLine(
-    `// Closure dispose functions - one per closure instance (closure type + capture type)`,
+    `// Closure dispose functions - one per closure instance (closure type + capture type)`
   );
   emitter.emitLine(``);
 
@@ -1691,7 +1691,7 @@ export function generateClosureDisposeFunctions(
   for (const [closureInstanceId] of context.closureCaptureMap) {
     const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
     emitter.emitDeclarationLine(
-      `void ${disposeFunctionName}(void* closure_ptr);`,
+      `void ${disposeFunctionName}(void* closure_ptr);`
     );
   }
 
@@ -1704,7 +1704,7 @@ export function generateClosureDisposeFunctions(
 
     // Get the drop function for the capture type
     const dropFunction = captureType.module.fields.find(
-      (field) => field.label === BuiltinFunctions.___drop[0],
+      (field) => field.label === BuiltinFunctions.___drop[0]
     );
 
     if (!dropFunction || !dropFunction.assignedValue) {
@@ -1729,18 +1729,18 @@ export function generateClosureDisposeFunctions(
     // This function receives the CLOSURE pointer (not capture pointer),
     // extracts the capture data, and calls drop (no free needed for stack-allocated capture)
     emitter.emitLine(
-      `void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName} (Impl closure - value type)`,
+      `void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName} (Impl closure - value type)`
     );
     emitter.emitLine(`  if (closure_ptr) {`);
     emitter.emitLine(
-      `    ${closureCName}* closure = (${closureCName}*)closure_ptr;`,
+      `    ${closureCName}* closure = (${closureCName}*)closure_ptr;`
     );
     emitter.emitLine(`    if (closure->data) {`);
     emitter.emitLine(
-      `      ${dropFunctionCName}(*(${captureCName}*)closure->data); // Drop the capture struct (dereference pointer to pass by value)`,
+      `      ${dropFunctionCName}(*(${captureCName}*)closure->data); // Drop the capture struct (dereference pointer to pass by value)`
     );
     emitter.emitLine(
-      `      // Note: capture data is stack-allocated for Impl closures, no __yo_free needed`,
+      `      // Note: capture data is stack-allocated for Impl closures, no __yo_free needed`
     );
     emitter.emitLine(`    }`);
     emitter.emitLine(`  }`);
@@ -1753,7 +1753,7 @@ export function generateClosureDisposeFunctions(
  * Generate box constructor and dispose functions for dyn implementations
  */
 export function generateDynBoxFunctions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1785,10 +1785,10 @@ export function generateDynBoxFunctions(
 
     // Generate box constructor
     emitter.emitLine(
-      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`,
+      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`
     );
     emitter.emitLine(
-      `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`,
+      `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`
     );
     emitter.emitLine(`  box->header.ref_count = 1;`);
     emitter.emitLine(`  box->header.gc_flags = 0;`);
@@ -1797,7 +1797,7 @@ export function generateDynBoxFunctions(
     emitter.emitLine(`  box->header.gc_prev = NULL;`);
     emitter.emitLine(`  box->header.dispose_fn = __yo_dispose_${boxTypeName};`);
     emitter.emitLine(
-      `  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types`,
+      `  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types`
     );
     emitter.emitLine(`  box->value = value;`);
     emitter.emitLine(`  return box;`);
@@ -1816,7 +1816,7 @@ export function generateDynBoxFunctions(
         : impl.concreteType;
 
     const dropFn = concreteType.module?.fields.find(
-      (field) => field.label === BuiltinFunctions.___drop[0],
+      (field) => field.label === BuiltinFunctions.___drop[0]
     );
     if (
       dropFn &&
@@ -1838,7 +1838,7 @@ export function generateDynBoxFunctions(
  * Generate wrapper functions for dyn method dispatch
  */
 export function generateDynWrapperFunctions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -1849,7 +1849,7 @@ export function generateDynWrapperFunctions(
   emitter.emitDeclarationLine("");
   emitter.emitDeclarationLine("// === Dyn Wrapper Functions ===");
   emitter.emitDeclarationLine(
-    "// Wrappers that unwrap boxed values and call impl methods",
+    "// Wrappers that unwrap boxed values and call impl methods"
   );
   emitter.emitDeclarationLine("");
 
@@ -1881,7 +1881,7 @@ export function generateDynWrapperFunctions(
       }
 
       emitter.emitDeclarationLine(
-        `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`,
+        `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
       );
 
       if (isBoxedType(dataType)) {
@@ -1889,7 +1889,7 @@ export function generateDynWrapperFunctions(
           context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
         const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
         emitter.emitDeclarationLine(
-          `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`,
+          `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
         );
 
         // `Box(Impl(Fn...))` stores the capture struct by value.
@@ -1928,11 +1928,11 @@ export function generateDynWrapperFunctions(
 
           if (isVoidType(callType.return.type)) {
             emitter.emitDeclarationLine(
-              `  ${discoveredClosureCName}(${callArgs.join(", ")});`,
+              `  ${discoveredClosureCName}(${callArgs.join(", ")});`
             );
           } else {
             emitter.emitDeclarationLine(
-              `  return ${discoveredClosureCName}(${callArgs.join(", ")});`,
+              `  return ${discoveredClosureCName}(${callArgs.join(", ")});`
             );
           }
         } else {
@@ -1944,11 +1944,11 @@ export function generateDynWrapperFunctions(
 
           if (isVoidType(callType.return.type)) {
             emitter.emitDeclarationLine(
-              `  box->${fieldName}.call(${callArgs.join(", ")});`,
+              `  box->${fieldName}.call(${callArgs.join(", ")});`
             );
           } else {
             emitter.emitDeclarationLine(
-              `  return box->${fieldName}.call(${callArgs.join(", ")});`,
+              `  return box->${fieldName}.call(${callArgs.join(", ")});`
             );
           }
         }
@@ -1956,7 +1956,7 @@ export function generateDynWrapperFunctions(
         // Non-box Dyn(Fn(...)) is not expected for anonymous closures; keep a clear failure mode.
         // (Dyn design requires `.data` to always point at an object type; closures are value types -> must be boxed.)
         emitter.emitDeclarationLine(
-          `  (void)self_ptr; /* Dyn(Fn): expected Box(...) data */`,
+          `  (void)self_ptr; /* Dyn(Fn): expected Box(...) data */`
         );
         for (let i = 0; i < callType.parameters.length; i++) {
           emitter.emitDeclarationLine(`  (void)arg${i + 1};`);
@@ -1965,7 +1965,7 @@ export function generateDynWrapperFunctions(
           emitter.emitDeclarationLine(`  return;`);
         } else {
           emitter.emitDeclarationLine(
-            `  ${returnTypeStr} zero = (${returnTypeStr})0;`,
+            `  ${returnTypeStr} zero = (${returnTypeStr})0;`
           );
           emitter.emitDeclarationLine(`  return zero;`);
         }
@@ -1992,7 +1992,7 @@ export function generateDynWrapperFunctions(
       const moduleValue = impl.moduleValues[moduleIndex];
       if (!moduleValue) {
         emitter.emitDeclarationLine(
-          `/* Warning: Module value missing for module ${moduleIndex} */`,
+          `/* Warning: Module value missing for module ${moduleIndex} */`
         );
         continue;
       }
@@ -2017,7 +2017,7 @@ export function generateDynWrapperFunctions(
 
         if (!fieldValue || !isFunctionValue(fieldValue)) {
           emitter.emitDeclarationLine(
-            `/* Warning: Module field ${field.label} is not a function value */`,
+            `/* Warning: Module field ${field.label} is not a function value */`
           );
           continue;
         }
@@ -2025,7 +2025,7 @@ export function generateDynWrapperFunctions(
         const funcType = field.type;
         if (!isFunctionType(funcType)) {
           emitter.emitDeclarationLine(
-            `/* Warning: Module field ${field.label} is not a function type */`,
+            `/* Warning: Module field ${field.label} is not a function type */`
           );
           continue;
         }
@@ -2035,7 +2035,7 @@ export function generateDynWrapperFunctions(
         const implFuncCName = context.functions[implFuncId]?.cName;
         if (!implFuncCName) {
           emitter.emitDeclarationLine(
-            `/* Warning: Impl function for ${field.label} not found */`,
+            `/* Warning: Impl function for ${field.label} not found */`
           );
           continue;
         }
@@ -2053,7 +2053,7 @@ export function generateDynWrapperFunctions(
         }
 
         emitter.emitDeclarationLine(
-          `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`,
+          `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
         );
 
         // Unwrap the boxed value and prepare first argument
@@ -2068,7 +2068,7 @@ export function generateDynWrapperFunctions(
             context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
           const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
           emitter.emitDeclarationLine(
-            `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`,
+            `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
           );
 
           // If the impl expects a borrow, pass pointer to the field inside Box.
@@ -2081,7 +2081,7 @@ export function generateDynWrapperFunctions(
           // Dyn wraps a normal object type (already a pointer in C).
           const concreteTypeStr = getTypeString(impl.concreteType, context);
           emitter.emitDeclarationLine(
-            `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`,
+            `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
           );
 
           // If the impl expects a pointer to the object type, take the address
@@ -2101,11 +2101,11 @@ export function generateDynWrapperFunctions(
         // Call the impl function
         if (isVoidType(funcType.return.type)) {
           emitter.emitDeclarationLine(
-            `  ${implFuncCName}(${args.join(", ")});`,
+            `  ${implFuncCName}(${args.join(", ")});`
           );
         } else {
           emitter.emitDeclarationLine(
-            `  return ${implFuncCName}(${args.join(", ")});`,
+            `  return ${implFuncCName}(${args.join(", ")});`
           );
         }
 
@@ -2141,10 +2141,10 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     const vtableTypeName = `${dynTypeCName}_vtable`;
 
     emitter.emitDeclarationLine(
-      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.typeName || "?").join(" + ")})`,
+      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.typeName || "?").join(" + ")})`
     );
     emitter.emitDeclarationLine(
-      `static const ${vtableTypeName} ${vtableName} = {`,
+      `static const ${vtableTypeName} ${vtableName} = {`
     );
 
     // Initialize vtable slots in the exact same way the vtable type is generated in generateDynDeclaration.
@@ -2186,7 +2186,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
             if (firstParam && firstParam.label === "self") {
               const wrapperName = `yo_wrap_${implKey}_${field.label}`;
               emitter.emitDeclarationLine(
-                `  .${sanitizeForCIdentifier(field.label)} = ${wrapperName},`,
+                `  .${sanitizeForCIdentifier(field.label)} = ${wrapperName},`
               );
             }
           }

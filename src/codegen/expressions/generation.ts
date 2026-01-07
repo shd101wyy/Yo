@@ -86,7 +86,7 @@ import {
 function checkVariableIsClosureCaptured(
   variableName: string,
   env: Environment,
-  closureCaptureFrameLevel: number,
+  closureCaptureFrameLevel: number
 ): boolean {
   // Get all variables with this name, ordered from oldest to newest
   const variables = getVariablesFromEnv(env, variableName);
@@ -143,15 +143,15 @@ function allocateClosureCapture(
   sourceExpr: Expr,
   indent: string,
   context: CodeGenContext,
-  useStackAllocation: boolean = false,
+  useStackAllocation: boolean = false
 ): ClosureCaptureResult | null {
   const captureTypeEntry = Object.values(context.types).find(
-    (entry) => entry.type === captureType,
+    (entry) => entry.type === captureType
   );
 
   if (!captureTypeEntry) {
     context.emitter.emitLine(
-      `${indent}/* Error: Capture type not found for closure */`,
+      `${indent}/* Error: Capture type not found for closure */`
     );
     return null;
   }
@@ -233,15 +233,15 @@ function allocateClosureCapture(
   if (useStackAllocation) {
     // Stack-allocate capture data (for Impl closures - value type semantics)
     context.emitter.emitLine(
-      `${indent}${captureCName} ${captureTempVar} = ${captureDataCode};`,
+      `${indent}${captureCName} ${captureTempVar} = ${captureDataCode};`
     );
   } else {
     // Heap-allocate capture data (for Dyn closures - reference type semantics)
     context.emitter.emitLine(
-      `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_malloc(sizeof(${captureCName}));`,
+      `${indent}${captureCName}* ${captureTempVar} = (${captureCName}*)__yo_malloc(sizeof(${captureCName}));`
     );
     context.emitter.emitLine(
-      `${indent}*${captureTempVar} = ${captureDataCode};`,
+      `${indent}*${captureTempVar} = ${captureDataCode};`
     );
   }
 
@@ -254,7 +254,7 @@ function allocateClosureCapture(
 export function generateExpr(
   expr: Expr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   let result: string;
 
@@ -276,7 +276,7 @@ export function generateExpr(
 function generateFuncCall(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const emitter = context.emitter;
 
@@ -380,7 +380,7 @@ function generateFuncCall(
         expr,
         indent,
         context,
-        useStackAllocation,
+        useStackAllocation
       );
 
       if (!captureResult) {
@@ -430,7 +430,7 @@ function generateFuncCall(
             // Represent as an empty literal for the concrete capture struct.
             const concreteCName = getTypeString(
               someType.resolvedConcreteType,
-              context,
+              context
             );
             return `(${concreteCName}){}`;
           }
@@ -505,7 +505,7 @@ function generateFuncCall(
       // Generate inline drop code using ___drop recursively
       const emitter = (context as FunctionGenerationContext).emitter;
       emitter.emitLine(
-        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`,
+        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
       );
       // Create a fake expression for the nested array element to recursively call ___drop codegen
       const nestedArrayElement = `(${arrayCode}).data[${indexCode}].data[${loopVar}]`;
@@ -513,7 +513,7 @@ function generateFuncCall(
       const dropCode = generateDropCodeForValue(
         nestedArrayElement,
         concreteElementType.childType,
-        context,
+        context
       );
       if (dropCode) {
         emitter.emitLine(`    ${dropCode};`);
@@ -568,16 +568,16 @@ function generateFuncCall(
       const elementCName = getTypeString(concreteElementType, context);
       const emitter = (context as FunctionGenerationContext).emitter;
       emitter.emitLine(
-        `${elementCName} ${tempVar} = (${arrayCode}).data[${indexCode}];`,
+        `${elementCName} ${tempVar} = (${arrayCode}).data[${indexCode}];`
       );
       emitter.emitLine(
-        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`,
+        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
       );
       // Recursively generate dup code for nested array elements
       const dupCode = generateDupCodeForValue(
         `${tempVar}.data[${loopVar}]`,
         concreteElementType.childType,
-        context,
+        context
       );
       emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${dupCode};`);
       emitter.emitLine(`}`);
@@ -635,7 +635,7 @@ function generateFuncCall(
       const dropCode = generateDropCodeForValue(
         elementAccessCode,
         concreteElementType,
-        context,
+        context
       );
       return dropCode;
     }
@@ -691,7 +691,7 @@ function generateFuncCall(
       const dupCode = generateDupCodeForValue(
         elementAccessCode,
         concreteElementType,
-        context,
+        context
       );
       return dupCode;
     }
@@ -816,7 +816,7 @@ function generateFuncCall(
     const tempVar = expr.$?.variableName;
     if (tempVar && returnType) {
       context.emitter.emitLine(
-        `${indent}${getTypeString(returnType, context)} ${tempVar} = ${extractCall};`,
+        `${indent}${getTypeString(returnType, context)} ${tempVar} = ${extractCall};`
       );
       return tempVar;
     }
@@ -895,7 +895,7 @@ function generateFuncCall(
       // Dispatch to concrete type's ___drop
       const concreteType = argType.resolvedConcreteType;
       const dropFn = concreteType.module?.fields.find(
-        (f) => f.label === BuiltinFunctions.___drop[0],
+        (f) => f.label === BuiltinFunctions.___drop[0]
       );
       if (
         dropFn &&
@@ -932,7 +932,7 @@ function generateFuncCall(
       // Dispatch to concrete type's ___dup
       const concreteType = argType.resolvedConcreteType;
       const dupFn = concreteType.module?.fields.find(
-        (f) => f.label === BuiltinFunctions.___dup[0],
+        (f) => f.label === BuiltinFunctions.___dup[0]
       );
       if (
         dupFn &&
@@ -1000,7 +1000,7 @@ function generateFuncCall(
       if (messageArg.$?.value && isComptStringValue(messageArg.$.value)) {
         const message = messageArg.$.value.value;
         emitter.emitLine(
-          `${indent}fprintf(stderr, "%s\\n", ${JSON.stringify(message)});`,
+          `${indent}fprintf(stderr, "%s\\n", ${JSON.stringify(message)});`
         );
         emitter.emitLine(`${indent}abort();`);
       } else {
@@ -1153,12 +1153,12 @@ function generateFuncCall(
           const argType = getTypeString(arg.$.type!, context);
           const argTempVar = getVariableNameForCodegen(
             savedVariableName,
-            arg.$.env,
+            arg.$.env
           );
 
           if (argTempVar !== rawArgCode) {
             context.emitter.emitLine(
-              `${indent}${argType} ${argTempVar} = ${rawArgCode};`,
+              `${indent}${argType} ${argTempVar} = ${rawArgCode};`
             );
           }
           argCode = argTempVar;
@@ -1180,7 +1180,7 @@ function generateFuncCall(
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
           argCode = getVariableNameForCodegen(
             dupExpr.$.variableName,
-            dupExpr.$.env,
+            dupExpr.$.env
           );
           handledDeferredDup = true;
         }
@@ -1203,7 +1203,7 @@ function generateFuncCall(
         returnTempVar !== argCode // Prevent something like: int32_t counter = counter;
       ) {
         context.emitter.emitLine(
-          `${indent}${returnType} ${returnTempVar} = ${argCode};`,
+          `${indent}${returnType} ${returnTempVar} = ${argCode};`
         );
       }
 
@@ -1230,7 +1230,7 @@ function generateFuncCall(
             expr.$.deferredDropExpressions.length === 0)
         ) {
           context.emitter.emitLine(
-            `${indent}// Drop local variables before early completion`,
+            `${indent}// Drop local variables before early completion`
           );
           for (const dropExpr of functionContext.pendingDeferredDrops) {
             const dropCode = generateExpr(dropExpr, indent, context);
@@ -1241,10 +1241,10 @@ function generateFuncCall(
         }
 
         context.emitter.emitLine(
-          `${indent}// Final state - complete the result Future`,
+          `${indent}// Final state - complete the result Future`
         );
         context.emitter.emitLine(
-          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Completing async function\\n");`,
+          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Completing async function\\n");`
         );
 
         // Store the result if not unit
@@ -1260,41 +1260,41 @@ function generateFuncCall(
         // Set state to COMPLETED with release semantics
         // This ensures the result write above is visible to other threads
         context.emitter.emitLine(
-          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`,
+          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`
         );
         context.emitter.emitLine(
-          `${indent}atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`,
+          `${indent}atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
         );
 
         // Check if there's a continuation waiting (with acquire semantics to see the continuation registration)
         context.emitter.emitLine(``);
         context.emitter.emitLine(
-          `${indent}// Check if there's a continuation waiting for this Future to complete`,
+          `${indent}// Check if there's a continuation waiting for this Future to complete`
         );
         context.emitter.emitLine(
-          `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`,
+          `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
         );
         context.emitter.emitLine(
-          `${indent}void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`,
+          `${indent}void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
         );
         context.emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
         context.emitter.emitLine(
-          `${indent}  ASYNC_DEBUG("${context.currentFunctionName}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`,
+          `${indent}  ASYNC_DEBUG("${context.currentFunctionName}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
         );
         context.emitter.emitLine(
-          `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`,
+          `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
         );
         context.emitter.emitLine(`${indent}}`);
 
         context.emitter.emitLine(
-          `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`,
+          `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`
         );
         context.emitter.emitLine(``);
         context.emitter.emitLine(
-          `${indent}// Release the "running task" reference now that task is complete`,
+          `${indent}// Release the "running task" reference now that task is complete`
         );
         context.emitter.emitLine(
-          `${indent}// This balances the __yo_incr_rc in the constructor`,
+          `${indent}// This balances the __yo_incr_rc in the constructor`
         );
         context.emitter.emitLine(`${indent}__yo_decr_rc((void*)sm);`);
         context.emitter.emitLine(``);
@@ -1317,7 +1317,7 @@ function generateFuncCall(
           expr.$.deferredDropExpressions.length === 0)
       ) {
         context.emitter.emitLine(
-          `${indent}// Drop local variables before early return`,
+          `${indent}// Drop local variables before early return`
         );
         for (const dropExpr of functionContext.pendingDeferredDrops) {
           const dropCode = generateExpr(dropExpr, indent, context);
@@ -1347,7 +1347,7 @@ function generateFuncCall(
       // Generate pending deferred drops for unit return as well
       if (functionContext.pendingDeferredDrops) {
         context.emitter.emitLine(
-          `${indent}// Drop local variables before early return`,
+          `${indent}// Drop local variables before early return`
         );
         for (const dropExpr of functionContext.pendingDeferredDrops) {
           const dropCode = generateExpr(dropExpr, indent, context);
@@ -1391,10 +1391,10 @@ function generateFuncCall(
     // Generate array declaration and fill loop
     emitter.emitLine(`${indent}${arrayTypeName} ${tempVarName};`);
     emitter.emitLine(
-      `${indent}for (int ${indexVarName} = 0; ${indexVarName} < ${length.value}; ${indexVarName}++) {`,
+      `${indent}for (int ${indexVarName} = 0; ${indexVarName} < ${length.value}; ${indexVarName}++) {`
     );
     emitter.emitLine(
-      `${indent}  ${tempVarName}.data[${indexVarName}] = ${fillValueCode};`,
+      `${indent}  ${tempVarName}.data[${indexVarName}] = ${fillValueCode};`
     );
     emitter.emitLine(`${indent}}`);
 
@@ -1425,7 +1425,7 @@ function generateFuncCall(
 
     context.emitter.emitLine(
       // NOTE: We cannot assign "const" here.
-      `${indent}${varTypeAndName};`,
+      `${indent}${varTypeAndName};`
     );
     return "";
   }
@@ -1457,12 +1457,12 @@ function generateFuncCall(
       const lhsIsStateMachineVar =
         functionContext.stateMachineVariables &&
         Array.from(functionContext.stateMachineVariables.values()).some(
-          (v) => v.name === lhsName,
+          (v) => v.name === lhsName
         );
       const rhsIsStateMachineVar =
         functionContext.stateMachineVariables &&
         Array.from(functionContext.stateMachineVariables.values()).some(
-          (v) => v.name === rhsName,
+          (v) => v.name === rhsName
         );
 
       // Skip if both sides reference state machine variables with the same name
@@ -1486,12 +1486,12 @@ function generateFuncCall(
         // Sanitize the variable name for C
         const sanitizedVariableName = sanitizeForCIdentifier(
           variableName,
-          type.isExtern === "c",
+          type.isExtern === "c"
         );
         const varTypeAndName = getVariableTypeString(
           type,
           sanitizedVariableName,
-          context,
+          context
         );
 
         // Handle newtype destructuring - just use the value itself
@@ -1505,7 +1505,7 @@ function generateFuncCall(
           if (singleField && singleField.label === label) {
             // For newtype, destructuring the single field just returns the value itself
             context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode}; // Destructuring ${label} (newtype)`,
+              `${indent}${varTypeAndName} = ${rhsCode}; // Destructuring ${label} (newtype)`
             );
             return;
           }
@@ -1524,7 +1524,7 @@ function generateFuncCall(
         const memberAccessOp = rhsType && isObjectType(rhsType) ? "->" : ".";
 
         context.emitter.emitLine(
-          `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`,
+          `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
         );
       });
       return "";
@@ -1583,10 +1583,10 @@ function generateFuncCall(
             const varTypeAndName = getVariableTypeString(
               lhs.$.type,
               varName,
-              context,
+              context
             );
             context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`,
+              `${indent}${varTypeAndName} = ${rhsCode};`
             );
           }
         } else {
@@ -1596,7 +1596,7 @@ function generateFuncCall(
           if (rhs.$?.variableName) {
             const tempVarName = getVariableNameForCodegen(
               rhs.$.variableName,
-              rhs.$.env,
+              rhs.$.env
             );
 
             const rhsExprCode = generateExpr(rhs, indent, context);
@@ -1606,11 +1606,11 @@ function generateFuncCall(
               const tempVarType = getVariableTypeString(
                 rhs.$.type!,
                 tempVarName,
-                context,
+                context
               );
               if (tempVarName !== rhsExprCode) {
                 context.emitter.emitLine(
-                  `${indent}${tempVarType} = ${rhsExprCode};`,
+                  `${indent}${tempVarType} = ${rhsExprCode};`
                 );
               }
             }
@@ -1628,10 +1628,10 @@ function generateFuncCall(
             const varTypeAndName = getVariableTypeString(
               lhs.$.type,
               varName,
-              context,
+              context
             );
             context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`,
+              `${indent}${varTypeAndName} = ${rhsCode};`
             );
           }
         }
@@ -1653,12 +1653,12 @@ function generateFuncCall(
         if (rhs.$?.variableName) {
           const tempVarName = getVariableNameForCodegen(
             rhs.$.variableName,
-            rhs.$.env,
+            rhs.$.env
           );
 
           const sanitizedVarName = getVariableNameForCodegen(
             varName,
-            lhs.$.env,
+            lhs.$.env
           );
 
           // Skip temp variable creation if temp var name matches the actual variable name
@@ -1678,7 +1678,7 @@ function generateFuncCall(
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                 rhsCode = getVariableNameForCodegen(
                   dupExpr.$.variableName,
-                  dupExpr.$.env,
+                  dupExpr.$.env
                 );
               }
             }
@@ -1701,7 +1701,7 @@ function generateFuncCall(
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                 rhsCode = getVariableNameForCodegen(
                   dupExpr.$.variableName,
-                  dupExpr.$.env,
+                  dupExpr.$.env
                 );
               }
             }
@@ -1712,14 +1712,14 @@ function generateFuncCall(
               exprIsAtom(rhs) &&
               functionContext.currentClosureCaptures &&
               functionContext.currentClosureCaptures.includes(
-                rhs.token.value,
+                rhs.token.value
               ) &&
               rhs.$?.env &&
               functionContext.currentClosureCaptureFrameLevel !== undefined &&
               checkVariableIsClosureCaptured(
                 rhs.token.value,
                 rhs.$.env,
-                functionContext.currentClosureCaptureFrameLevel,
+                functionContext.currentClosureCaptureFrameLevel
               )
             ) {
               // This is a captured variable, don't create a temp variable for it
@@ -1727,7 +1727,7 @@ function generateFuncCall(
               const currentClosureType = functionContext.currentClosureType;
               if (currentClosureType && currentClosureType.isClosure) {
                 const closureTypeEntry = Object.values(
-                  functionContext.types,
+                  functionContext.types
                 ).find((entry) => entry.type === currentClosureType);
                 if (closureTypeEntry) {
                   // Note: captureType is no longer on ClosureType, so we use a naming convention
@@ -1751,10 +1751,10 @@ function generateFuncCall(
                 const tempVarType = getVariableTypeString(
                   rhs.$.type!,
                   tempVarName,
-                  context,
+                  context
                 );
                 context.emitter.emitLine(
-                  `${indent}${tempVarType} = ${rhsExprCode};`,
+                  `${indent}${tempVarType} = ${rhsExprCode};`
                 );
               }
 
@@ -1771,7 +1771,7 @@ function generateFuncCall(
                 if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                   rhsCode = getVariableNameForCodegen(
                     dupExpr.$.variableName,
-                    dupExpr.$.env,
+                    dupExpr.$.env
                   );
                 } else {
                   // Use temp variable for the main assignment
@@ -1799,7 +1799,7 @@ function generateFuncCall(
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               rhsCode = getVariableNameForCodegen(
                 dupExpr.$.variableName,
-                dupExpr.$.env,
+                dupExpr.$.env
               );
             }
           }
@@ -1816,10 +1816,10 @@ function generateFuncCall(
             const varTypeAndName = getVariableTypeString(
               sliceType,
               varName,
-              context,
+              context
             );
             context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`,
+              `${indent}${varTypeAndName} = ${rhsCode};`
             );
           }
         } else {
@@ -1831,13 +1831,13 @@ function generateFuncCall(
             // Check if RHS is a temp variable with a registered async struct name
             const rhsIsTempVar = isTempVariableName(
               rhs.$!.env.modulePath,
-              rhsCode.trim(),
+              rhsCode.trim()
             );
             let cTypeString: string;
 
             if (rhsIsTempVar && context.tempVarAsyncStructNames) {
               const asyncStructName = context.tempVarAsyncStructNames.get(
-                rhsCode.trim(),
+                rhsCode.trim()
               );
               if (asyncStructName) {
                 cTypeString = `${asyncStructName}*`;
@@ -1849,7 +1849,7 @@ function generateFuncCall(
             }
 
             context.emitter.emitLine(
-              `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`,
+              `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
             );
           }
         }
@@ -1893,19 +1893,19 @@ function generateFuncCall(
         const tempVarNameAndType = getVariableTypeString(
           lhs.$.type,
           tempVarName,
-          context,
+          context
         );
 
         // Handle array assignment specially
         if (isArrayType(lhs.$.type)) {
           // For array, use direct struct assignment
           context.emitter.emitLine(
-            `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`,
+            `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
           );
         } else {
           if (!isUnitType(lhs.$.type)) {
             context.emitter.emitLine(
-              `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`,
+              `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
             );
           }
         }
@@ -1936,13 +1936,13 @@ function generateFuncCall(
         if (rhs.$?.variableName && rhs.$?.type) {
           const rhsVarName = getVariableNameForCodegen(
             rhs.$.variableName,
-            rhs.$.env,
+            rhs.$.env
           );
           // Only emit the variable declaration if it's not the same as rhsCode
           if (rhsVarName !== rhsCode.trim()) {
             const rhsTypeStr = getTypeString(rhs.$.type, context);
             context.emitter.emitLine(
-              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`,
+              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
             );
           }
         }
@@ -1953,7 +1953,7 @@ function generateFuncCall(
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
           finalRhsCode = getVariableNameForCodegen(
             dupExpr.$.variableName,
-            dupExpr.$.env,
+            dupExpr.$.env
           );
         }
       }
@@ -1963,10 +1963,10 @@ function generateFuncCall(
         const varTypeAndName = getVariableTypeString(
           lhs.$.type,
           generateExpr(lhs, indent, context),
-          context,
+          context
         );
         context.emitter.emitLine(
-          `${indent}${varTypeAndName} = ${finalRhsCode};`,
+          `${indent}${varTypeAndName} = ${finalRhsCode};`
         );
       } else {
         // For assignment to existing array variable, use direct struct assignment
@@ -1995,13 +1995,13 @@ function generateFuncCall(
         if (rhs.$?.variableName && rhs.$?.type) {
           const rhsVarName = getVariableNameForCodegen(
             rhs.$.variableName,
-            rhs.$.env,
+            rhs.$.env
           );
           // Only emit the variable declaration if it's not the same as rhsCode
           if (rhsVarName !== rhsCode.trim()) {
             const rhsTypeStr = getTypeString(rhs.$.type, context);
             context.emitter.emitLine(
-              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`,
+              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
             );
           }
         }
@@ -2012,7 +2012,7 @@ function generateFuncCall(
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
           finalRhsCode = getVariableNameForCodegen(
             dupExpr.$.variableName,
-            dupExpr.$.env,
+            dupExpr.$.env
           );
         }
       }
@@ -2043,13 +2043,13 @@ function generateFuncCall(
         // Temp variables have the pattern _yoXXXXXXXX_temp_NNNNN
         const rhsIsTempVar = isTempVariableName(
           rhs.$!.env.modulePath,
-          finalRhsCode.trim(),
+          finalRhsCode.trim()
         );
 
         // If RHS is a temp variable, check if it has a stored async struct name
         if (rhsIsTempVar && context.tempVarAsyncStructNames) {
           rhsAsyncStructName = context.tempVarAsyncStructNames.get(
-            finalRhsCode.trim(),
+            finalRhsCode.trim()
           );
         }
 
@@ -2080,12 +2080,12 @@ function generateFuncCall(
         } else {
           cTypeString = getTypeString(
             shouldUseFutureType ? rhsType! : lhsType,
-            context,
+            context
           );
         }
 
         context.emitter.emitLine(
-          `${indent}${isInitialization ? cTypeString + " " : ""}${lhsCode} = ${finalRhsCode};`,
+          `${indent}${isInitialization ? cTypeString + " " : ""}${lhsCode} = ${finalRhsCode};`
         );
       }
     }
@@ -2115,7 +2115,7 @@ function generateFuncCall(
       // Expression form: begin block that returns a value
       if (!isUnitType(valueType) && !expr.$?.controlFlow) {
         context.emitter.emitLine(
-          `${indent}${getTypeString(valueType, context)} ${tempVariableName};`,
+          `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
         );
       }
 
@@ -2169,12 +2169,12 @@ function generateFuncCall(
             const argType = getTypeString(lastArg.$.type!, context);
             const argTempVar = getVariableNameForCodegen(
               savedVariableName,
-              lastArg.$.env,
+              lastArg.$.env
             );
 
             if (argTempVar !== rawArgCode) {
               context.emitter.emitLine(
-                `${indent}  ${argType} ${argTempVar} = ${rawArgCode};`,
+                `${indent}  ${argType} ${argTempVar} = ${rawArgCode};`
               );
             }
             lastArgCode = argTempVar;
@@ -2185,13 +2185,13 @@ function generateFuncCall(
           if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
             lastArgCode = getVariableNameForCodegen(
               dupExpr.$.variableName,
-              dupExpr.$.env,
+              dupExpr.$.env
             );
           }
         }
 
         context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${lastArgCode};`,
+          `${indent}  ${tempVariableName} = ${lastArgCode};`
         );
       }
 
@@ -2222,7 +2222,7 @@ function generateFuncCall(
       functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
 
       const argsCode = expr.args.map((arg) =>
-        generateExpr(arg, indent + "  ", context),
+        generateExpr(arg, indent + "  ", context)
       );
       argsCode.forEach((argCode) => {
         if (argCode) {
@@ -2285,7 +2285,7 @@ function generateFuncCall(
             context.sliceStructTypes.set(sliceTypeName, {
               childType: getTypeString(
                 (funcType as ArrayType).childType,
-                context,
+                context
               ),
             });
           }
@@ -2395,7 +2395,7 @@ function generateFuncCall(
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               finalArgValue = getVariableNameForCodegen(
                 dupExpr.$.variableName,
-                dupExpr.$.env,
+                dupExpr.$.env
               );
             }
           }
@@ -2411,7 +2411,7 @@ function generateFuncCall(
         const varTypeAndName = getVariableTypeString(
           expr.$.type,
           tempVar,
-          context,
+          context
         );
         context.emitter.emitLine(`${indent}${varTypeAndName} = ${tupleValue};`);
         return tempVar;
@@ -2441,7 +2441,7 @@ function generateFuncCall(
         const varTypeAndName = getVariableTypeString(
           expr.$.type,
           tempVar,
-          context,
+          context
         );
         context.emitter.emitLine(`${indent}${varTypeAndName} = ${tupleValue};`);
         return tempVar;
@@ -2475,7 +2475,7 @@ function generateFuncCall(
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               return getVariableNameForCodegen(
                 dupExpr.$.variableName,
-                dupExpr.$.env,
+                dupExpr.$.env
               );
             }
           }
@@ -2491,7 +2491,7 @@ function generateFuncCall(
         const varTypeAndName = getVariableTypeString(
           expr.$.type,
           tempVar,
-          context,
+          context
         );
         context.emitter.emitLine(`${indent}${varTypeAndName} = ${arrayValue};`);
         return tempVar;
@@ -2522,7 +2522,7 @@ function generateFuncCall(
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
               return getVariableNameForCodegen(
                 dupExpr.$.variableName,
-                dupExpr.$.env,
+                dupExpr.$.env
               );
             }
           }
@@ -2568,7 +2568,7 @@ function generateFuncCall(
           if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
             return getVariableNameForCodegen(
               dupExpr.$.variableName,
-              dupExpr.$.env,
+              dupExpr.$.env
             );
           }
         }
@@ -2580,7 +2580,7 @@ function generateFuncCall(
         expr.func.token.value,
         args,
         expr,
-        context,
+        context
       );
     }
   }
@@ -2628,7 +2628,7 @@ function generateFuncCall(
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info) ||
     exprIsFunctionCallOf(
       expr,
-      BuiltinFunctions.__yo_var_is_owning_the_rc_value,
+      BuiltinFunctions.__yo_var_is_owning_the_rc_value
     ) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases)
   ) {
@@ -2667,7 +2667,7 @@ function generateFuncCall(
             const isClosureCapturedVariable =
               functionContext.currentClosureCaptures &&
               functionContext.currentClosureCaptures.includes(
-                arg.$.variableName,
+                arg.$.variableName
               ) &&
               exprIsAtom(arg) &&
               arg.$.env &&
@@ -2675,7 +2675,7 @@ function generateFuncCall(
               checkVariableIsClosureCaptured(
                 arg.token.value,
                 arg.$.env,
-                functionContext.currentClosureCaptureFrameLevel,
+                functionContext.currentClosureCaptureFrameLevel
               );
 
             // Generate the argument expression and declare it as a temp variable
@@ -2698,16 +2698,16 @@ function generateFuncCall(
               // 4. It's not a redundant self-assignment (e.g., int32_t errno_ = errno_)
               const sanitizedVarName = getVariableNameForCodegen(
                 arg.$.variableName,
-                arg.$.env,
+                arg.$.env
               );
               if (argCode !== sanitizedVarName) {
                 const varTypeAndName = getVariableTypeString(
                   arg.$.type,
                   arg.$.variableName,
-                  context,
+                  context
                 );
                 context.emitter.emitLine(
-                  `${indent}${varTypeAndName} = ${argCode};`,
+                  `${indent}${varTypeAndName} = ${argCode};`
                 );
               }
             }
@@ -2727,7 +2727,7 @@ function generateFuncCall(
               const argTargets = new Set<string>();
               if (arg.$?.variableName) {
                 argTargets.add(
-                  getVariableNameForCodegen(arg.$.variableName, arg.$.env),
+                  getVariableNameForCodegen(arg.$.variableName, arg.$.env)
                 );
               }
               if (argCode) {
@@ -2735,7 +2735,7 @@ function generateFuncCall(
               }
               if (exprIsAtom(arg)) {
                 argTargets.add(
-                  getVariableNameForCodegen(arg.token.value, arg.$.env),
+                  getVariableNameForCodegen(arg.token.value, arg.$.env)
                 );
               }
 
@@ -2743,7 +2743,7 @@ function generateFuncCall(
                 const target = getDeferredDupTargetAtomName(e);
                 if (!target) return false;
                 return argTargets.has(
-                  getVariableNameForCodegen(target, e.$?.env),
+                  getVariableNameForCodegen(target, e.$?.env)
                 );
               });
 
@@ -2755,7 +2755,7 @@ function generateFuncCall(
                 ) {
                   finalArgVarName = getVariableNameForCodegen(
                     matchingDupExpr.$.variableName,
-                    matchingDupExpr.$.env,
+                    matchingDupExpr.$.env
                   );
                 }
               }
@@ -2777,7 +2777,7 @@ function generateFuncCall(
                   const methodName = methodExpr.token.value;
                   // Check if this method exists in the dyn type's module
                   const dynMethod = dynType.module.fields.find(
-                    (field) => field.label === methodName,
+                    (field) => field.label === methodName
                   );
 
                   if (dynMethod) {
@@ -2821,7 +2821,7 @@ function generateFuncCall(
                   const methodName = methodExpr.token.value;
                   // Check if this method exists in the dyn type's module
                   const dynMethod = dynType.module.fields.find(
-                    (field) => field.label === methodName,
+                    (field) => field.label === methodName
                   );
 
                   if (dynMethod) {
@@ -2853,7 +2853,7 @@ function generateFuncCall(
               externFuncName,
               args,
               expr,
-              context,
+              context
             );
           } else if (externFuncName === "__yo_thread_spawn") {
             // Special handling for __yo_thread_spawn(cb : Impl(Fn() -> unit, Send))
@@ -2869,7 +2869,7 @@ function generateFuncCall(
           } else if (isUnitType(functionType.return.type)) {
             // If the function returns unit, just call it without assignment
             context.emitter.emitLine(
-              `${indent}${externFuncName}(${argsList});`,
+              `${indent}${externFuncName}(${argsList});`
             );
 
             // Handle deferred drop expressions if they exist
@@ -2892,7 +2892,7 @@ function generateFuncCall(
               operatorFunctionName,
               args,
               expr,
-              context,
+              context
             );
           }
 
@@ -2964,7 +2964,7 @@ function generateFuncCall(
                     }
                     context.tempVarAsyncStructNames.set(
                       tempVar,
-                      asyncStructName,
+                      asyncStructName
                     );
                   } else {
                     // Fallback to getTypeString on return type
@@ -2978,7 +2978,7 @@ function generateFuncCall(
                 }
 
                 context.emitter.emitLine(
-                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`,
+                  `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`
                 );
 
                 // Handle deferred drop expressions if they exist
@@ -3034,7 +3034,7 @@ function generateFuncCall(
                     : (exprType ?? returnType); // Otherwise use expr type or fallback to return type
 
                 context.emitter.emitLine(
-                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${funcCode}(${argsList});`,
+                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${funcCode}(${argsList});`
                 );
 
                 // Handle deferred drop expressions if they exist
@@ -3070,7 +3070,7 @@ function generateFuncCall(
               const isClosureCapturedVariable =
                 functionContext.currentClosureCaptures &&
                 functionContext.currentClosureCaptures.includes(
-                  arg.$.variableName,
+                  arg.$.variableName
                 ) &&
                 exprIsAtom(arg) &&
                 arg.$.env &&
@@ -3078,7 +3078,7 @@ function generateFuncCall(
                 checkVariableIsClosureCaptured(
                   arg.token.value,
                   arg.$.env,
-                  functionContext.currentClosureCaptureFrameLevel,
+                  functionContext.currentClosureCaptureFrameLevel
                 );
 
               // Generate the argument expression and declare it as a temp variable
@@ -3101,10 +3101,10 @@ function generateFuncCall(
                 const varTypeAndName = getVariableTypeString(
                   arg.$.type,
                   arg.$.variableName,
-                  context,
+                  context
                 );
                 context.emitter.emitLine(
-                  `${indent}${varTypeAndName} = ${argCode};`,
+                  `${indent}${varTypeAndName} = ${argCode};`
                 );
               }
             }
@@ -3118,7 +3118,7 @@ function generateFuncCall(
               const isClosureCapturedVariable =
                 functionContext.currentClosureCaptures &&
                 functionContext.currentClosureCaptures.includes(
-                  arg.$.variableName,
+                  arg.$.variableName
                 ) &&
                 exprIsAtom(arg) &&
                 arg.$.env &&
@@ -3126,7 +3126,7 @@ function generateFuncCall(
                 checkVariableIsClosureCaptured(
                   arg.token.value,
                   arg.$.env,
-                  functionContext.currentClosureCaptureFrameLevel,
+                  functionContext.currentClosureCaptureFrameLevel
                 );
 
               if (isClosureCapturedVariable) {
@@ -3150,7 +3150,7 @@ function generateFuncCall(
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                     finalArgVarName = getVariableNameForCodegen(
                       dupExpr.$.variableName,
-                      dupExpr.$.env,
+                      dupExpr.$.env
                     );
                   }
                 }
@@ -3214,7 +3214,7 @@ function generateFuncCall(
             const tempVar = expr.$?.variableName;
             if (tempVar) {
               context.emitter.emitLine(
-                `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`,
+                `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
               );
 
               // Handle deferred drop expressions if they exist
@@ -3259,10 +3259,10 @@ function generateFuncCall(
               const varTypeAndName = getVariableTypeString(
                 expr.$.type,
                 tempVar,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${newtypeValue};`,
+                `${indent}${varTypeAndName} = ${newtypeValue};`
               );
               return tempVar;
             } else {
@@ -3288,7 +3288,7 @@ function generateFuncCall(
                   if (arg.$?.variableName && arg.$?.type) {
                     const argVarName = getVariableNameForCodegen(
                       arg.$.variableName,
-                      arg.$.env,
+                      arg.$.env
                     );
                     // Only emit the declaration if argCode is different from the variable name
                     // to avoid generating code like: prev_opt = prev_opt;
@@ -3297,7 +3297,7 @@ function generateFuncCall(
                       const argTypeStr = getTypeString(argType, context);
                       // Emit the variable declaration and assignment
                       context.emitter.emitLine(
-                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`,
+                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`
                       );
                     }
                   }
@@ -3308,7 +3308,7 @@ function generateFuncCall(
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                     return getVariableNameForCodegen(
                       dupExpr.$.variableName,
-                      dupExpr.$.env,
+                      dupExpr.$.env
                     );
                   }
                 }
@@ -3325,10 +3325,10 @@ function generateFuncCall(
               const varTypeAndName = getVariableTypeString(
                 expr.$.type,
                 tempVar,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${structValue};`,
+                `${indent}${varTypeAndName} = ${structValue};`
               );
               return tempVar;
             } else {
@@ -3347,7 +3347,7 @@ function generateFuncCall(
                   ? `_${index}`
                   : sanitizeForCIdentifier(
                       labels[index]!,
-                      structType.isExtern === "c",
+                      structType.isExtern === "c"
                     );
 
                 // Handle deferred dup expressions for struct fields
@@ -3361,7 +3361,7 @@ function generateFuncCall(
                   if (arg.$?.variableName && arg.$?.type) {
                     const argVarName = getVariableNameForCodegen(
                       arg.$.variableName,
-                      arg.$.env,
+                      arg.$.env
                     );
                     const argType = arg.$.type;
                     const argTypeStr = getTypeString(argType, context);
@@ -3369,7 +3369,7 @@ function generateFuncCall(
                     // to prevent self-assignment like: var = var;
                     if (argCode !== argVarName) {
                       context.emitter.emitLine(
-                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`,
+                        `${indent}${argTypeStr} ${argVarName} = ${argCode};`
                       );
                     }
                   }
@@ -3380,7 +3380,7 @@ function generateFuncCall(
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                     finalArgValue = getVariableNameForCodegen(
                       dupExpr.$.variableName,
-                      dupExpr.$.env,
+                      dupExpr.$.env
                     );
                   }
                 }
@@ -3395,10 +3395,10 @@ function generateFuncCall(
               const varTypeAndName = getVariableTypeString(
                 expr.$.type,
                 tempVar,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${structValue};`,
+                `${indent}${varTypeAndName} = ${structValue};`
               );
               return tempVar;
             } else {
@@ -3430,7 +3430,7 @@ function generateFuncCall(
             const label = labelExpr.token.value;
             const sanitizedLabel = getVariableNameForCodegen(
               label,
-              labelExpr.$?.env,
+              labelExpr.$?.env
             );
             const fieldCode = generateExpr(fieldExpr, indent, context);
 
@@ -3443,14 +3443,14 @@ function generateFuncCall(
               generateDeferredDupExpressions(
                 fieldExpr,
                 indent,
-                functionContext,
+                functionContext
               );
               // Use the dup result variable instead of the original
               const dupExpr = fieldExpr.$.deferredDupExpressions[0]!;
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
                 finalFieldValue = getVariableNameForCodegen(
                   dupExpr.$.variableName,
-                  dupExpr.$.env,
+                  dupExpr.$.env
                 );
               }
             }
@@ -3462,10 +3462,10 @@ function generateFuncCall(
               const varTypeAndName = getVariableTypeString(
                 expr.$.type,
                 tempVar,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${unionValue};`,
+                `${indent}${varTypeAndName} = ${unionValue};`
               );
               return tempVar;
             } else {
@@ -3487,7 +3487,7 @@ function generateFuncCall(
           if (nullablePointerType) {
             const variantName = enumType.selectedVariantName;
             const variant = enumType.variants.find(
-              (v) => v.name === variantName,
+              (v) => v.name === variantName
             );
 
             if (variant) {
@@ -3498,10 +3498,10 @@ function generateFuncCall(
                   const varTypeAndName = getVariableTypeString(
                     expr.$.type,
                     tempVar,
-                    context,
+                    context
                   );
                   context.emitter.emitLine(
-                    `${indent}${varTypeAndName} = ${enumValue};`,
+                    `${indent}${varTypeAndName} = ${enumValue};`
                   );
                   return tempVar;
                 } else {
@@ -3512,16 +3512,16 @@ function generateFuncCall(
                 const pointerValue = generateExpr(
                   runtimeArgExprs[0]!,
                   indent,
-                  context,
+                  context
                 );
                 if (tempVar && expr.$?.type) {
                   const varTypeAndName = getVariableTypeString(
                     expr.$.type,
                     tempVar,
-                    context,
+                    context
                   );
                   context.emitter.emitLine(
-                    `${indent}${varTypeAndName} = ${pointerValue};`,
+                    `${indent}${varTypeAndName} = ${pointerValue};`
                   );
                   return tempVar;
                 } else {
@@ -3539,16 +3539,16 @@ function generateFuncCall(
             const enumValue = getEnumVariantCName(
               enumType,
               variantName,
-              context,
+              context
             );
             if (tempVar && expr.$?.type) {
               const varTypeAndName = getVariableTypeString(
                 expr.$.type,
                 tempVar,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${enumValue};`,
+                `${indent}${varTypeAndName} = ${enumValue};`
               );
               return tempVar;
             } else {
@@ -3574,7 +3574,7 @@ function generateFuncCall(
                     const argCode = generateExpr(arg, indent, context);
                     const sanitizedLabel = getVariableNameForCodegen(
                       field.label,
-                      arg.$?.env,
+                      arg.$?.env
                     );
 
                     // Handle deferred dup expressions for enum variant fields
@@ -3586,7 +3586,7 @@ function generateFuncCall(
                       generateDeferredDupExpressions(
                         arg,
                         indent,
-                        functionContext,
+                        functionContext
                       );
                       // Use the dup result variable instead of the original
                       const dupExpr = arg.$.deferredDupExpressions[0]!;
@@ -3596,7 +3596,7 @@ function generateFuncCall(
                       ) {
                         finalArgValue = getVariableNameForCodegen(
                           dupExpr.$.variableName,
-                          dupExpr.$.env,
+                          dupExpr.$.env
                         );
                       }
                     }
@@ -3620,10 +3620,10 @@ function generateFuncCall(
               const varTypeAndName = getVariableTypeString(
                 expr.$.type,
                 tempVar,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${enumValue};`,
+                `${indent}${varTypeAndName} = ${enumValue};`
               );
               return tempVar;
             } else {
@@ -3652,7 +3652,7 @@ function generateFuncCall(
           context.sliceStructTypes.set(sliceTypeName, {
             childType: getTypeString(
               (functionType as ArrayType).childType,
-              context,
+              context
             ),
           });
         }
@@ -3707,7 +3707,7 @@ function generateFuncCall(
           context.sliceStructTypes.set(sliceTypeName, {
             childType: getTypeString(
               (functionType as SliceType).childType,
-              context,
+              context
             ),
           });
         }
@@ -3726,7 +3726,7 @@ function generateFuncCall(
           context.sliceStructTypes.set(sliceTypeName, {
             childType: getTypeString(
               (functionType as SliceType).childType,
-              context,
+              context
             ),
           });
         }
@@ -3764,7 +3764,7 @@ function generateFuncCall(
 function generateDropCodeForValue(
   valueCode: string,
   valueType: Type,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const concreteType =
     isSomeType(valueType) && valueType.resolvedConcreteType
@@ -3786,7 +3786,7 @@ function generateDropCodeForValue(
     const elementDropCode = generateDropCodeForValue(
       `(${valueCode}).data[i]`,
       concreteType.childType,
-      context,
+      context
     );
     if (elementDropCode) {
       emitter.emitLine(`  ${elementDropCode};`);
@@ -3808,7 +3808,7 @@ function generateDropCodeForValue(
         const fieldDropCode = generateDropCodeForValue(
           `(${valueCode})._${i}`,
           fieldType,
-          context,
+          context
         );
         if (fieldDropCode) {
           emitter.emitLine(`${fieldDropCode};`);
@@ -3845,7 +3845,7 @@ function generateDropCodeForValue(
 function generateDupCodeForValue(
   valueCode: string,
   valueType: Type,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const concreteType =
     isSomeType(valueType) && valueType.resolvedConcreteType
@@ -3864,12 +3864,12 @@ function generateDupCodeForValue(
     const emitter = (context as FunctionGenerationContext).emitter;
     emitter.emitLine(`${arrayCName} ${tempVar} = ${valueCode};`);
     emitter.emitLine(
-      `for (size_t ${loopVar} = 0; ${loopVar} < ${arrayLength.value}; ${loopVar}++) {`,
+      `for (size_t ${loopVar} = 0; ${loopVar} < ${arrayLength.value}; ${loopVar}++) {`
     );
     const elementDupCode = generateDupCodeForValue(
       `${tempVar}.data[${loopVar}]`,
       concreteType.childType,
-      context,
+      context
     );
     emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${elementDupCode};`);
     emitter.emitLine(`}`);
@@ -3892,7 +3892,7 @@ function generateDupCodeForValue(
         const fieldDupCode = generateDupCodeForValue(
           `${tempVar}._${i}`,
           fieldType,
-          context,
+          context
         );
         emitter.emitLine(`${tempVar}._${i} = ${fieldDupCode};`);
       }
@@ -3930,7 +3930,7 @@ function generateDupCodeForValue(
  */
 function getDropFunctionForType(
   type: Type,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string | undefined {
   // For types that have a module with ___drop function
   if (
@@ -3941,7 +3941,7 @@ function getDropFunctionForType(
     isIsoType(type)
   ) {
     const dropFunction = type.module.fields.find(
-      (field) => field.label === BuiltinFunctions.___drop[0],
+      (field) => field.label === BuiltinFunctions.___drop[0]
     );
 
     if (
@@ -3964,7 +3964,7 @@ function getDropFunctionForType(
  */
 export function getDupFunctionForType(
   type: Type,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string | undefined {
   // For types that have a module with ___dup function
   if (
@@ -3975,7 +3975,7 @@ export function getDupFunctionForType(
     isIsoType(type)
   ) {
     const dupFunction = type.module.fields.find(
-      (field) => field.label === BuiltinFunctions.___dup[0],
+      (field) => field.label === BuiltinFunctions.___dup[0]
     );
 
     if (
@@ -4000,7 +4000,7 @@ export function getDupFunctionForType(
 function generateAsyncBlock(
   expr: FuncCallExpr,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): string {
   const bodyExpr = expr.args[0];
   if (!bodyExpr) {
@@ -4041,7 +4041,7 @@ function generateAsyncBlock(
   const analysis = expr.$?.awaitAnalysis;
   if (!analysis) {
     throw new Error(
-      `Missing await analysis for async block. This should have been computed during evaluation.`,
+      `Missing await analysis for async block. This should have been computed during evaluation.`
     );
   }
 
@@ -4053,7 +4053,7 @@ function generateAsyncBlock(
 
   // Generate forward declaration for state machine dispose function
   emitter.emitDeclarationLine(
-    `void ${disposeFunctionName}(void* sm_ptr);  // Dispose function for state machine`,
+    `void ${disposeFunctionName}(void* sm_ptr);  // Dispose function for state machine`
   );
   emitter.emitDeclarationLine(``);
 
@@ -4066,13 +4066,13 @@ function generateAsyncBlock(
   if (expr.$?.captureType) {
     const captureType = expr.$.captureType;
     const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType,
+      (entry) => entry.type === captureType
     );
     const captureStructName = existingCaptureTypeEntry
       ? existingCaptureTypeEntry.cName
       : `async_capture_${captureType.id}`;
     emitter.emitDeclarationLine(
-      `${structName}* ${constructorName}(${captureStructName} __capture);`,
+      `${structName}* ${constructorName}(${captureStructName} __capture);`
     );
   } else {
     emitter.emitDeclarationLine(`${structName}* ${constructorName}();`);
@@ -4105,7 +4105,7 @@ function generateAsyncBlock(
   if (captureType) {
     // We have captured variables in a struct
     const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType,
+      (entry) => entry.type === captureType
     );
     const captureStructName = existingCaptureTypeEntry
       ? existingCaptureTypeEntry.cName
@@ -4193,10 +4193,10 @@ function generateAsyncBlock(
       const varTypeAndName = getVariableTypeString(
         expr.$.type,
         resultVar,
-        context,
+        context
       );
       context.emitter.emitLine(
-        `${indent}${varTypeAndName} = ${constructorCall};`,
+        `${indent}${varTypeAndName} = ${constructorCall};`
       );
       return resultVar;
     } else {
@@ -4211,10 +4211,10 @@ function generateAsyncBlock(
       const varTypeAndName = getVariableTypeString(
         expr.$.type,
         resultVar,
-        context,
+        context
       );
       context.emitter.emitLine(
-        `${indent}${varTypeAndName} = ${constructorCall};`,
+        `${indent}${varTypeAndName} = ${constructorCall};`
       );
       return resultVar;
     } else {
@@ -4232,7 +4232,7 @@ function emitAsyncBlockStructDefinition(
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
   },
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
   const {
@@ -4245,44 +4245,44 @@ function emitAsyncBlockStructDefinition(
   } = asyncBlockInfo;
 
   emitter.emitDeclarationLine(
-    `// State machine for async block ${asyncBlockId} - implements Future(${typeToString(resultType)})`,
+    `// State machine for async block ${asyncBlockId} - implements Future(${typeToString(resultType)})`
   );
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
 
   // Reference counting header - must be first for yo_ref_header_t* casting
   emitter.emitDeclarationLine(
-    `  yo_ref_header_t header;  // Reference counting header (must be first)`,
+    `  yo_ref_header_t header;  // Reference counting header (must be first)`
   );
 
   emitter.emitDeclarationLine(
-    `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`,
+    `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
   );
 
   // Always include a result field to keep continuation_fn/continuation_sm at consistent offsets
   // For unit type, use uint8_t as a dummy (cannot use void in struct)
   if (isUnitType(resultType)) {
     emitter.emitDeclarationLine(
-      `  uint8_t result;  // Dummy result for unit type`,
+      `  uint8_t result;  // Dummy result for unit type`
     );
   } else {
     emitter.emitDeclarationLine(
-      `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`,
+      `  ${resultTypeCName} result;  // The result value of type ${typeToString(resultType)}`
     );
   }
 
   // Continuation tracking fields for await chaining
   emitter.emitDeclarationLine(
-    `  _Atomic(void (*)(void*)) continuation_fn;  // Resume function of awaiting task`,
+    `  _Atomic(void (*)(void*)) continuation_fn;  // Resume function of awaiting task`
   );
   emitter.emitDeclarationLine(
-    `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`,
+    `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`
   );
   emitter.emitDeclarationLine(``);
 
   // Capture struct field
   if (captureType) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType,
+      (entry) => entry.type === captureType
     );
     const captureStructName = existingCaptureTypeEntry
       ? existingCaptureTypeEntry.cName
@@ -4299,7 +4299,7 @@ function emitAsyncBlockStructDefinition(
       const varTypeCName = getTypeString(variable.type, context);
       const fieldName = getStateMachineFieldName(variable.id, "local");
       emitter.emitDeclarationLine(
-        `  ${varTypeCName} ${fieldName};  // ${variable.name}`,
+        `  ${varTypeCName} ${fieldName};  // ${variable.name}`
       );
     }
     emitter.emitDeclarationLine(``);
@@ -4317,7 +4317,7 @@ function emitAsyncBlockStructDefinition(
 
         if (awaitPoint.futureType) {
           const futureModuleType = extractFutureModuleFromType(
-            awaitPoint.futureType,
+            awaitPoint.futureType
           );
           if (futureModuleType) {
             // Use the Future's output type as the await_result type
@@ -4327,7 +4327,7 @@ function emitAsyncBlockStructDefinition(
 
         const awaitResultTypeCName = getTypeString(awaitResultType, context);
         emitter.emitDeclarationLine(
-          `  ${awaitResultTypeCName} await_result_${awaitPoint.index};`,
+          `  ${awaitResultTypeCName} await_result_${awaitPoint.index};`
         );
       }
     }
@@ -4337,7 +4337,7 @@ function emitAsyncBlockStructDefinition(
   // await_future_X fields (used when awaiting an expression that isn't a captured Future variable)
   if (analysis.awaitPoints.length > 0) {
     const awaitPointsNeedingFutureStorage = analysis.awaitPoints.filter(
-      (ap) => ap.futureVariableId === undefined,
+      (ap) => ap.futureVariableId === undefined
     );
     if (awaitPointsNeedingFutureStorage.length > 0) {
       emitter.emitDeclarationLine(`  // Future references for awaits`);
@@ -4350,12 +4350,12 @@ function emitAsyncBlockStructDefinition(
         const futureType = futureExpr?.$?.type;
         if (!futureType) {
           throw new Error(
-            `Internal error: await expression missing type info for future argument in async block ${asyncBlockId}`,
+            `Internal error: await expression missing type info for future argument in async block ${asyncBlockId}`
           );
         }
         const awaitedFutureTypeCName = getTypeString(futureType, context);
         emitter.emitDeclarationLine(
-          `  ${awaitedFutureTypeCName} await_future_${awaitPoint.index};`,
+          `  ${awaitedFutureTypeCName} await_future_${awaitPoint.index};`
         );
       }
       emitter.emitDeclarationLine(``);
@@ -4366,11 +4366,11 @@ function emitAsyncBlockStructDefinition(
   const condAwaitPoints = analysis.awaitPoints.filter((ap) => ap.isInsideCond);
   if (condAwaitPoints.length > 0) {
     emitter.emitDeclarationLine(
-      `  // Branch tracking for cond expressions with await`,
+      `  // Branch tracking for cond expressions with await`
     );
     for (const awaitPoint of condAwaitPoints) {
       emitter.emitDeclarationLine(
-        `  int cond_branch_${awaitPoint.index};  // Which branch was taken in cond with await ${awaitPoint.index}`,
+        `  int cond_branch_${awaitPoint.index};  // Which branch was taken in cond with await ${awaitPoint.index}`
       );
     }
     emitter.emitDeclarationLine(``);
@@ -4378,15 +4378,15 @@ function emitAsyncBlockStructDefinition(
 
   // while_loop_X_active fields
   const whileAwaitPoints = analysis.awaitPoints.filter(
-    (ap) => ap.isInsideWhile,
+    (ap) => ap.isInsideWhile
   );
   if (whileAwaitPoints.length > 0) {
     emitter.emitDeclarationLine(
-      `  // Loop state tracking for while loops with await`,
+      `  // Loop state tracking for while loops with await`
     );
     for (const awaitPoint of whileAwaitPoints) {
       emitter.emitDeclarationLine(
-        `  _Bool while_loop_${awaitPoint.index}_active;  // Whether while loop ${awaitPoint.index} should continue`,
+        `  _Bool while_loop_${awaitPoint.index}_active;  // Whether while loop ${awaitPoint.index} should continue`
       );
     }
     emitter.emitDeclarationLine(``);
@@ -4397,7 +4397,7 @@ function emitAsyncBlockStructDefinition(
 }
 
 function emitDeferredAsyncBlockStructDefinitions(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   if (
     !context.deferredAsyncBlocks ||
@@ -4518,7 +4518,7 @@ function emitDeferredAsyncBlockStructDefinitions(
         captureType: b.captureType,
         analysis: b.analysis,
       },
-      context,
+      context
     );
   }
 }
@@ -4541,38 +4541,38 @@ function generateAsyncBlockStateDisposeFunction(
   resultType: Type,
   captureType: StructType | undefined,
   analysis: AwaitAnalysisResult,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
   emitter.emitLine(
-    `// Dispose function for async block ${asyncBlockId} state machine`,
+    `// Dispose function for async block ${asyncBlockId} state machine`
   );
   emitter.emitLine(
-    `// Called by __yo_decr_rc when refcount hits 0 - do NOT call __yo_free here`,
+    `// Called by __yo_decr_rc when refcount hits 0 - do NOT call __yo_free here`
   );
   emitter.emitLine(`void ${disposeFunctionName}(void* sm_ptr) {`);
   emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
   emitter.emitLine(
-    `  ASYNC_DEBUG("${disposeFunctionName}: Disposing state machine\\n");`,
+    `  ASYNC_DEBUG("${disposeFunctionName}: Disposing state machine\\n");`
   );
   emitter.emitLine(``);
 
   // Drop capture struct (like closures do)
   if (captureType && typeContainsRcType(captureType)) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType,
+      (entry) => entry.type === captureType
     );
     if (!existingCaptureTypeEntry) {
       emitter.emitLine(
-        `  /* Error: capture struct type not found in context */`,
+        `  /* Error: capture struct type not found in context */`
       );
     } else {
       const captureTypeName = existingCaptureTypeEntry.cName;
 
       // Find the ___drop function for the capture struct
       const dropFunction = captureType.module.fields.find(
-        (field) => field.label === BuiltinFunctions.___drop[0],
+        (field) => field.label === BuiltinFunctions.___drop[0]
       );
       if (
         dropFunction &&
@@ -4587,7 +4587,7 @@ function generateAsyncBlockStateDisposeFunction(
         }
       } else {
         emitter.emitLine(
-          `  /* Warning: ___drop function not found for capture struct ${captureTypeName} */`,
+          `  /* Warning: ___drop function not found for capture struct ${captureTypeName} */`
         );
       }
     }
@@ -4602,10 +4602,10 @@ function generateAsyncBlockStateDisposeFunction(
     const resultTypeCName = getTypeString(resultType, context);
 
     emitter.emitLine(
-      `  // Drop result field if it was set (state == -1 means completed)`,
+      `  // Drop result field if it was set (state == -1 means completed)`
     );
     emitter.emitLine(
-      `  int final_state = atomic_load_explicit(&sm->state, memory_order_acquire);`,
+      `  int final_state = atomic_load_explicit(&sm->state, memory_order_acquire);`
     );
     emitter.emitLine(`  if (final_state == -1) {`);
     emitter.emitLine(`    ASYNC_DEBUG("  Dropping result field\\n");`);
@@ -4616,7 +4616,7 @@ function generateAsyncBlockStateDisposeFunction(
       emitter.emitLine(`    ${dropFunctionName}(sm->result);`);
     } else {
       emitter.emitLine(
-        `    /* Warning: No ___drop function found for result type ${resultTypeCName} */`,
+        `    /* Warning: No ___drop function found for result type ${resultTypeCName} */`
       );
     }
 
@@ -4631,7 +4631,7 @@ function generateAsyncBlockStateDisposeFunction(
   // Memory is freed by __yo_decr_rc after this function returns.
 
   emitter.emitLine(
-    `  // Memory freed by __yo_decr_rc after this function returns`,
+    `  // Memory freed by __yo_decr_rc after this function returns`
   );
   emitter.emitLine(`}`);
 }
@@ -4662,7 +4662,7 @@ function generateAsyncBlockConstructor(
   resultType: Type,
   resultTypeCName: string,
   captureType: StructType | undefined,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
 
@@ -4671,13 +4671,13 @@ function generateAsyncBlockConstructor(
   // Generate constructor signature - returns pointer
   if (captureType) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
-      (entry) => entry.type === captureType,
+      (entry) => entry.type === captureType
     );
     const captureStructName = existingCaptureTypeEntry
       ? existingCaptureTypeEntry.cName
       : `async_capture_${captureType.id}`;
     emitter.emitLine(
-      `${structName}* ${constructorName}(${captureStructName} __capture) {`,
+      `${structName}* ${constructorName}(${captureStructName} __capture) {`
     );
   } else {
     emitter.emitLine(`${structName}* ${constructorName}() {`);
@@ -4685,10 +4685,10 @@ function generateAsyncBlockConstructor(
 
   // Allocate + initialize async block state machine
   emitter.emitLine(
-    `  // Allocate async block state machine (heap-backed, ref-counted)`,
+    `  // Allocate async block state machine (heap-backed, ref-counted)`
   );
   emitter.emitLine(
-    `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`,
+    `  ${structName}* sm = (${structName}*)__yo_malloc(sizeof(${structName}));`
   );
   emitter.emitLine(`  memset(sm, 0, sizeof(${structName}));`);
   emitter.emitLine(``);
@@ -4696,20 +4696,20 @@ function generateAsyncBlockConstructor(
   // Initialize reference counting header
   emitter.emitLine(`  // Initialize reference counting header`);
   emitter.emitLine(
-    `  sm->header.ref_count = 1;  // Caller owns initial reference`,
+    `  sm->header.ref_count = 1;  // Caller owns initial reference`
   );
   emitter.emitLine(
-    `  GC_DEBUG("AsyncBlock ${structName}: Created ptr=%p RC=1\\n", (void*)sm);`,
+    `  GC_DEBUG("AsyncBlock ${structName}: Created ptr=%p RC=1\\n", (void*)sm);`
   );
   emitter.emitLine(`  sm->header.gc_flags = 0;`);
   emitter.emitLine(`  sm->header.gc_mark = YO_GC_UNMARKED;`);
   emitter.emitLine(`  sm->header.gc_next = NULL;`);
   emitter.emitLine(`  sm->header.gc_prev = NULL;`);
   emitter.emitLine(
-    `  sm->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`,
+    `  sm->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
   );
   emitter.emitLine(
-    `  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed`,
+    `  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed`
   );
   emitter.emitLine(``);
 
@@ -4728,7 +4728,7 @@ function generateAsyncBlockConstructor(
   // Initialize result to default/zero value
   // For now, we just zero-initialize
   emitter.emitLine(
-    `  // Initialize result (will be set when async block completes)`,
+    `  // Initialize result (will be set when async block completes)`
   );
   if (isUnitType(resultType)) {
     emitter.emitLine(`  // Result is unit type, no initialization needed`);
@@ -4740,17 +4740,17 @@ function generateAsyncBlockConstructor(
   // Eager execution: start running the async block immediately
   // Execute until the first await point or completion
   emitter.emitLine(
-    `  // Eager execution: start running immediately (C#/C++ style)`,
+    `  // Eager execution: start running immediately (C#/C++ style)`
   );
   emitter.emitLine(
-    `  // Before running, increment refcount for the "running task" reference`,
+    `  // Before running, increment refcount for the "running task" reference`
   );
   emitter.emitLine(
-    `  // This ensures the task stays alive until completion, even if user drops early`,
+    `  // This ensures the task stays alive until completion, even if user drops early`
   );
   emitter.emitLine(`  __yo_incr_rc((void*)sm);  // refcount: 1 -> 2`);
   emitter.emitLine(
-    `  GC_DEBUG("AsyncBlock ${structName}: Eager increment ptr=%p RC=2\\n", (void*)sm);`,
+    `  GC_DEBUG("AsyncBlock ${structName}: Eager increment ptr=%p RC=2\\n", (void*)sm);`
   );
   emitter.emitLine(`  ${resumeFunctionName}(sm);`);
   emitter.emitLine(``);
@@ -4772,7 +4772,7 @@ function generateAsyncBlockConstructor(
 function generateThreadSpawnCall(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
   if (!runtimeArgExprs || runtimeArgExprs.length !== 1) {
@@ -4830,7 +4830,7 @@ function generateThreadSpawnCall(
   // The thread entry wrapper will free this after the closure runs
   const heapDataVar = `_thread_closure_data_${randomId()}`;
   context.emitter.emitLine(
-    `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`,
+    `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
   context.emitter.emitLine(`${indent}*${heapDataVar} = ${cbVarName};`);
 
@@ -4838,7 +4838,7 @@ function generateThreadSpawnCall(
   const tempVar = expr.$?.variableName;
   if (tempVar) {
     context.emitter.emitLine(
-      `${indent}__yo_thread_t ${tempVar} = __yo_thread_spawn(${closureFunctionCName}, ${heapDataVar});`,
+      `${indent}__yo_thread_t ${tempVar} = __yo_thread_spawn(${closureFunctionCName}, ${heapDataVar});`
     );
     return tempVar;
   } else {
@@ -4856,7 +4856,7 @@ function generateThreadSpawnCall(
 function generateWorkerSpawnCall(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
   if (!runtimeArgExprs || runtimeArgExprs.length !== 1) {
@@ -4910,13 +4910,13 @@ function generateWorkerSpawnCall(
   // The worker thread will free this after the task runs
   const heapDataVar = `_worker_closure_data_${randomId()}`;
   context.emitter.emitLine(
-    `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`,
+    `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
   context.emitter.emitLine(`${indent}*${heapDataVar} = ${cbVarName};`);
 
   // __yo_worker_spawn returns void (unit), so just emit the call
   context.emitter.emitLine(
-    `${indent}__yo_worker_spawn(${closureFunctionCName}, ${heapDataVar});`,
+    `${indent}__yo_worker_spawn(${closureFunctionCName}, ${heapDataVar});`
   );
 
   return "";
@@ -4928,7 +4928,7 @@ function generateWorkerSpawnCall(
 function generateDynCall(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   if (!expr.$?.dynCallModuleValues || expr.$.dynCallModuleValues.length === 0) {
     return `/* Error: dyn() call missing module values */`;
@@ -5007,7 +5007,7 @@ function generateDynCall(
     const varTypeAndName = getVariableTypeString(
       valueExpr.$.type!,
       valueExpr.$.variableName,
-      context,
+      context
     );
     context.emitter.emitLine(`${indent}${varTypeAndName} = ${valueCode};`);
     valueCode = valueExpr.$.variableName;
@@ -5180,7 +5180,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       checkVariableIsClosureCaptured(
         expr.token.value,
         expr.$.env,
-        functionContext.currentClosureCaptureFrameLevel,
+        functionContext.currentClosureCaptureFrameLevel
       )
     ) {
       // Don't return early - let it fall through to closure capture logic
@@ -5188,7 +5188,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       // Check if this variable has a parameterAlias
       const varNameToUse = getVariableNameForCodegen(
         expr.$.variableName,
-        expr.$?.env,
+        expr.$?.env
       );
       return varNameToUse; // Already sanitized
     }
@@ -5201,7 +5201,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   if (expr.$?.value) {
     if (isUnknownValue(expr.$.value)) {
       throw new Error(
-        `Cannot generate code for unknown compile-time value of atom: ${exprToString(expr)}`,
+        `Cannot generate code for unknown compile-time value of atom: ${exprToString(expr)}`
       );
     }
     // Only inline if this is NOT a variable (e.g., it's a literal constant without a variable name)
@@ -5214,7 +5214,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       ? checkVariableIsClosureCaptured(
           expr.token.value,
           expr.$.env,
-          functionContext.currentClosureCaptureFrameLevel,
+          functionContext.currentClosureCaptureFrameLevel
         )
       : false;
 
@@ -5243,7 +5243,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   ) {
     // Find the function value being generated
     const currentFunctionEntry = Object.values(functionContext.functions).find(
-      (entry) => entry.cName === functionContext.currentFunctionName,
+      (entry) => entry.cName === functionContext.currentFunctionName
     );
 
     if (currentFunctionEntry && currentFunctionEntry.value.type.isClosure) {
@@ -5252,7 +5252,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         (t) =>
           isFunctionType(t.type) &&
           t.type.isClosure &&
-          t.type === currentFunctionEntry.value.type,
+          t.type === currentFunctionEntry.value.type
       );
 
       if (closureTypeEntry) {
@@ -5275,7 +5275,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
 function generateComptValue(
   value: Value,
   context: CodeGenContext,
-  _sourceExpr?: Expr,
+  _sourceExpr?: Expr
 ): string {
   if (isNumberValue(value)) {
     // For numbers, we can directly return the value as a string
@@ -5309,7 +5309,7 @@ function generateComptValue(
     if (nullablePointerType) {
       // Generate optimized nullable pointer construction
       const variant = enumType.variants.find(
-        (v) => v.name === value.variantName,
+        (v) => v.name === value.variantName
       );
       if (!variant) {
         return `// Error: Variant ${value.variantName} not found in enum`;
@@ -5340,7 +5340,7 @@ function generateComptValue(
     const variantTag = getEnumVariantCName(
       enumType,
       value.variantName,
-      context,
+      context
     );
 
     if (!value.fields || value.fields.length === 0) {
@@ -5349,7 +5349,7 @@ function generateComptValue(
     } else {
       // Variant with data
       const variant = enumType.variants.find(
-        (v) => v.name === value.variantName,
+        (v) => v.name === value.variantName
       );
       if (!variant || !variant.fields) {
         return `// Error: Variant ${value.variantName} not found or has no fields`;
@@ -5413,7 +5413,7 @@ function generateComptValue(
       if (type.isReferenceSemantics) {
         // For object compile-time values, use constructor function
         const fieldValues = value.fields.map((field) =>
-          generateComptValue(field, context),
+          generateComptValue(field, context)
         );
 
         const constructorName = `__yo_new_${cName}`;
@@ -5439,7 +5439,7 @@ function generateComptValue(
     const arrayType = value.type;
     const arrayTypeName = getTypeString(arrayType, context);
     const elementCodes = value.elements.map((element) =>
-      generateComptValue(element, context),
+      generateComptValue(element, context)
     );
     return `(${arrayTypeName}){ .data = { ${elementCodes.join(", ")} } }`;
   } else if (isFunctionValue(value)) {
@@ -5471,7 +5471,7 @@ function generateComptValue(
 function generateFieldAccess(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   if (expr.args.length !== 2) {
     return "/* ERROR: field access requires exactly 2 arguments */";
@@ -5526,7 +5526,7 @@ function generateFieldAccess(
           (field) =>
             field.label === fieldName &&
             field.assignedValue &&
-            isFunctionValue(field.assignedValue),
+            isFunctionValue(field.assignedValue)
         );
 
         if (functionElement && isFunctionValue(functionElement.assignedValue)) {
@@ -5663,7 +5663,7 @@ function generateFieldAccess(
         return `${objectCode}._${fieldName}`;
       } else {
         const index = objectType.fields.findIndex(
-          (field) => field.label === fieldName,
+          (field) => field.label === fieldName
         );
         return `${objectCode}._${index}`;
       }
@@ -5695,7 +5695,7 @@ function generateFieldAccess(
 function generateCondExpression(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   // Check if the cond expression has been evaluated and has a variable name
   if (expr.$) {
@@ -5829,10 +5829,10 @@ function generateCondExpression(
               const conditionCode = generateExpr(
                 condition,
                 currentIndent,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${currentIndent}if (${conditionCode}) {`,
+                `${currentIndent}if (${conditionCode}) {`
               );
             }
             hasEmittedBranch = true;
@@ -5854,10 +5854,10 @@ function generateCondExpression(
               const conditionCode = generateExpr(
                 condition,
                 currentIndent,
-                context,
+                context
               );
               context.emitter.emitLine(
-                `${currentIndent}if (${conditionCode}) {`,
+                `${currentIndent}if (${conditionCode}) {`
               );
             }
           }
@@ -5905,13 +5905,13 @@ function generateCondExpression(
                 generateDeferredDupExpressions(
                   finalExpr,
                   valueIndent,
-                  context as FunctionGenerationContext,
+                  context as FunctionGenerationContext
                 );
               }
               const finalExprCode = generateExpr(
                 finalExpr,
                 valueIndent,
-                context,
+                context
               );
 
               if (finalExprCode) {
@@ -5928,7 +5928,7 @@ function generateCondExpression(
                   context.emitter.emitLine(`${valueIndent}${finalExprCode};`);
                 } else if (tempVar && !isUnit) {
                   context.emitter.emitLine(
-                    `${valueIndent}${tempVar} = ${finalExprCode};`,
+                    `${valueIndent}${tempVar} = ${finalExprCode};`
                   );
                 }
               }
@@ -5944,7 +5944,7 @@ function generateCondExpression(
               generateDeferredDupExpressions(
                 value,
                 valueIndent,
-                context as FunctionGenerationContext,
+                context as FunctionGenerationContext
               );
             }
             // Generate the value expression INSIDE the conditional block
@@ -5967,7 +5967,7 @@ function generateCondExpression(
               // For regular expressions, assign to temp variable (only if not unit type)
               if (!isUnit) {
                 context.emitter.emitLine(
-                  `${valueIndent}${tempVar} = ${valueCode};`,
+                  `${valueIndent}${tempVar} = ${valueCode};`
                 );
               }
             }
@@ -6004,7 +6004,7 @@ function generateCondExpression(
 function generateMatchExpression(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   if (!expr.$) {
     return `/* "match" expression is not evaluated */`;
@@ -6105,7 +6105,7 @@ function generateMatchExpression(
 
     // Generate the optimized if/else structure
     context.emitter.emitLine(
-      `${indent}if (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode} != NULL) {`,
+      `${indent}if (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode} != NULL) {`
     );
 
     if (pointerCase) {
@@ -6123,7 +6123,7 @@ function generateMatchExpression(
           const varType = nullablePointerType;
           // Declare and bind the destructured variable to the pointer
           context.emitter.emitLine(
-            `${indent}  ${getTypeString(varType, context)} ${destructuredVarName} = ${matchedValueCode};`,
+            `${indent}  ${getTypeString(varType, context)} ${destructuredVarName} = ${matchedValueCode};`
           );
         }
       }
@@ -6140,7 +6140,7 @@ function generateMatchExpression(
       const bodyCode = generateCaseBody(
         pointerCase.caseBody,
         indent + "  ",
-        context,
+        context
       );
 
       // Remove destructured variable from localShadowedVariables after generating body
@@ -6159,7 +6159,7 @@ function generateMatchExpression(
         // If bodyCode is empty or just returns the matched value itself, use the matched value
         const resultCode = bodyCode || matchedValueCode;
         context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${resultCode};`,
+          `${indent}  ${tempVariableName} = ${resultCode};`
         );
       } else if (bodyCode && bodyCode !== "") {
         context.emitter.emitLine(`${indent}  ${bodyCode};`);
@@ -6172,7 +6172,7 @@ function generateMatchExpression(
       const bodyCode = generateCaseBody(
         nullCase.caseBody,
         indent + "  ",
-        context,
+        context
       );
       // Check if body has control flow (return, break, continue) - don't assign temp in that case
       const hasControlFlow =
@@ -6182,7 +6182,7 @@ function generateMatchExpression(
         bodyCode.includes("return");
       if (!isUnit && tempVariableName && !hasControlFlow) {
         context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${bodyCode};`,
+          `${indent}  ${tempVariableName} = ${bodyCode};`
         );
       } else if (bodyCode && bodyCode !== "") {
         context.emitter.emitLine(`${indent}  ${bodyCode};`);
@@ -6198,7 +6198,7 @@ function generateMatchExpression(
   if (simpleEnumOptimizable) {
     // Generate optimized simple enum matching
     context.emitter.emitLine(
-      `${indent}switch (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode}) {`,
+      `${indent}switch (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode}) {`
     );
 
     const caseExprs = expr.args.slice(1);
@@ -6222,7 +6222,7 @@ function generateMatchExpression(
           const variantTag = getEnumVariantCName(
             enumType,
             variantName,
-            context,
+            context
           );
 
           // Generate the case label
@@ -6232,7 +6232,7 @@ function generateMatchExpression(
           const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
           if (!isUnit && tempVariableName && bodyCode) {
             context.emitter.emitLine(
-              `${indent}  ${tempVariableName} = ${bodyCode};`,
+              `${indent}  ${tempVariableName} = ${bodyCode};`
             );
           } else if (bodyCode) {
             context.emitter.emitLine(`${indent}  ${bodyCode};`);
@@ -6241,7 +6241,7 @@ function generateMatchExpression(
           // Check if we need to break out of the loop instead of just the switch
           if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
             context.emitter.emitLine(
-              `${indent}  goto ${context.currentLoopLabel};`,
+              `${indent}  goto ${context.currentLoopLabel};`
             );
           } else if (caseBody.$?.controlFlow === "continue") {
             // For continue, we need to break out of the switch first
@@ -6249,7 +6249,7 @@ function generateMatchExpression(
             // Then add a goto to the continue label (if it exists for 3-argument while loops)
             if (context.currentContinueLabel) {
               context.emitter.emitLine(
-                `${indent}  goto ${context.currentContinueLabel};`,
+                `${indent}  goto ${context.currentContinueLabel};`
               );
             }
           } else {
@@ -6265,7 +6265,7 @@ function generateMatchExpression(
 
   // Original tagged union matching
   context.emitter.emitLine(
-    `${indent}switch (${ptrOrRefType === "ref_semantics" || ptrOrRefType ? matchedValueCode + "->tag" : "(" + matchedValueCode + ").tag"}) {`,
+    `${indent}switch (${ptrOrRefType === "ref_semantics" || ptrOrRefType ? matchedValueCode + "->tag" : "(" + matchedValueCode + ").tag"}) {`
   );
 
   const caseExprs = expr.args.slice(1);
@@ -6323,10 +6323,10 @@ function generateMatchExpression(
                 const accessPrefix =
                   ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
                 context.emitter.emitLine(
-                  `${indent}  /* MARKER: Generating destructured variable ${varName} */`,
+                  `${indent}  /* MARKER: Generating destructured variable ${varName} */`
                 );
                 context.emitter.emitLine(
-                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`,
+                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                 );
                 // Check if this variable needs to be stored in the state machine
                 // For async contexts, pattern-matched variables that are used across await points
@@ -6348,7 +6348,7 @@ function generateMatchExpression(
                     // Try to look up in environment
                     const vars = getVariablesFromEnv(
                       destructuredVar.$.env,
-                      varName,
+                      varName
                     );
                     if (vars.length > 0) {
                       varId = vars[vars.length - 1]!.id;
@@ -6361,7 +6361,7 @@ function generateMatchExpression(
                   ) {
                     // This variable crosses an await boundary, store it in state machine
                     context.emitter.emitLine(
-                      `${indent}  sm->var_${varId} = ${varName};`,
+                      `${indent}  sm->var_${varId} = ${varName};`
                     );
                   }
                 }
@@ -6376,7 +6376,7 @@ function generateMatchExpression(
         ) {
           const renameExpr = caseBody.args[0]!;
           context.emitter.emitLine(
-            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`,
+            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`
           );
 
           caseBody = caseBody.args[1]!; // Get the value part of the case
@@ -6386,7 +6386,7 @@ function generateMatchExpression(
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
         if (!isUnit && tempVariableName && bodyCode) {
           context.emitter.emitLine(
-            `${indent}  ${tempVariableName} = ${bodyCode};`,
+            `${indent}  ${tempVariableName} = ${bodyCode};`
           );
         } else if (bodyCode) {
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
@@ -6395,13 +6395,13 @@ function generateMatchExpression(
         // Check if we need to break out of the loop instead of just the switch
         if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
           context.emitter.emitLine(
-            `${indent}  goto ${context.currentLoopLabel};`,
+            `${indent}  goto ${context.currentLoopLabel};`
           );
         } else if (caseBody.$?.controlFlow === "continue") {
           context.emitter.emitLine(`${indent}  break;`);
           if (context.currentContinueLabel) {
             context.emitter.emitLine(
-              `${indent}  goto ${context.currentContinueLabel};`,
+              `${indent}  goto ${context.currentContinueLabel};`
             );
           }
         } else {
@@ -6447,13 +6447,13 @@ function generateMatchExpression(
                 // This allows the variable name to be "declared" without generating invalid C
                 if (isUnitType(variantElement.type)) {
                   context.emitter.emitLine(
-                    `${indent}  // ${varName} is unit type (no value)`,
+                    `${indent}  // ${varName} is unit type (no value)`
                   );
                   // Register this as a unit variable so expression generation can handle it
                   // (Expression generation should skip generating references to unit variables)
                 } else {
                   const fieldName = sanitizeForCIdentifier(
-                    variantElement.label,
+                    variantElement.label
                   );
                   const fieldType = getTypeString(variantElement.type, context);
 
@@ -6463,7 +6463,7 @@ function generateMatchExpression(
                       ? "->"
                       : ".";
                   context.emitter.emitLine(
-                    `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`,
+                    `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                   );
 
                   // Check if this variable needs to be stored in the state machine
@@ -6480,7 +6480,7 @@ function generateMatchExpression(
                     if (destructuredVar.$?.env) {
                       const vars = getVariablesFromEnv(
                         destructuredVar.$.env,
-                        varName,
+                        varName
                       );
                       if (vars.length > 0) {
                         varId = vars[vars.length - 1]!.id;
@@ -6493,7 +6493,7 @@ function generateMatchExpression(
                     ) {
                       // This variable crosses an await boundary, store it in state machine
                       context.emitter.emitLine(
-                        `${indent}  sm->var_${varId} = ${varName};`,
+                        `${indent}  sm->var_${varId} = ${varName};`
                       );
                     }
                   }
@@ -6509,7 +6509,7 @@ function generateMatchExpression(
         ) {
           const renameExpr = caseBody.args[0]!;
           context.emitter.emitLine(
-            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`,
+            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`
           );
 
           caseBody = caseBody.args[1]!; // Get the value part of the case
@@ -6519,7 +6519,7 @@ function generateMatchExpression(
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
         if (!isUnit && tempVariableName && bodyCode) {
           context.emitter.emitLine(
-            `${indent}  ${tempVariableName} = ${bodyCode};`,
+            `${indent}  ${tempVariableName} = ${bodyCode};`
           );
         } else if (bodyCode) {
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
@@ -6528,13 +6528,13 @@ function generateMatchExpression(
         // Check if we need to break out of the loop instead of just the switch
         if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
           context.emitter.emitLine(
-            `${indent}  goto ${context.currentLoopLabel};`,
+            `${indent}  goto ${context.currentLoopLabel};`
           );
         } else if (caseBody.$?.controlFlow === "continue") {
           context.emitter.emitLine(`${indent}  break;`);
           if (context.currentContinueLabel) {
             context.emitter.emitLine(
-              `${indent}  goto ${context.currentContinueLabel};`,
+              `${indent}  goto ${context.currentContinueLabel};`
             );
           }
         } else {
@@ -6561,7 +6561,7 @@ function generateMatchExpression(
 export function generateReturnStatement(
   expr: Expr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): void {
   switch (expr.tag) {
     case ExprTag.Atom: {
@@ -6576,14 +6576,14 @@ export function generateReturnStatement(
         generateDeferredDupExpressions(
           expr,
           indent,
-          context as FunctionGenerationContext,
+          context as FunctionGenerationContext
         );
         // Use the duped value's variable name instead of the original
         const dupExpr = expr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
           atomCode = getVariableNameForCodegen(
             dupExpr.$.variableName,
-            dupExpr.$.env,
+            dupExpr.$.env
           );
         }
       }
@@ -6610,7 +6610,7 @@ export function generateReturnStatement(
           const exprTempVar = sanitizeForCIdentifier(savedVariableName);
           if (exprTempVar !== rawCode) {
             context.emitter.emitLine(
-              `${indent}${exprType} ${exprTempVar} = ${rawCode};`,
+              `${indent}${exprType} ${exprTempVar} = ${rawCode};`
             );
           }
         } else {
@@ -6623,7 +6623,7 @@ export function generateReturnStatement(
         generateDeferredDupExpressions(
           expr,
           indent,
-          context as FunctionGenerationContext,
+          context as FunctionGenerationContext
         );
 
         // Use the duped value's variable name for the return
@@ -6631,7 +6631,7 @@ export function generateReturnStatement(
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
           const dupedValue = getVariableNameForCodegen(
             dupExpr.$.variableName,
-            dupExpr.$.env,
+            dupExpr.$.env
           );
           context.emitter.emitLine(`${indent}return ${dupedValue};`);
         } else {
@@ -6660,7 +6660,7 @@ function generateYoInlineFunctionCall(
   functionName: string,
   args: string[],
   expr: FuncCallExpr,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   // +
   if (BuiltinFunctions.__yo_op_add.includes(functionName)) {
@@ -6821,7 +6821,7 @@ usleep((${args[0]!}) * 1000)
  */
 function generateStepExpression(
   stepExpr: Expr,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   // Handle begin blocks specially for multiple step expressions
   if (
@@ -6872,7 +6872,7 @@ function generateStepExpression(
 function generateLoopBody(
   bodyExpr: Expr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): void {
   // Handle begin blocks specially for loop bodies
   if (
@@ -6912,7 +6912,7 @@ function generateLoopBody(
 function generateCaseBody(
   bodyExpr: Expr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   // Handle begin blocks specially
   if (
@@ -6942,14 +6942,14 @@ function generateCaseBody(
         generateDeferredDupExpressions(
           finalExpr,
           indent,
-          context as FunctionGenerationContext,
+          context as FunctionGenerationContext
         );
         // Use the duped value's variable name instead of the original expression
         const dupExpr = finalExpr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
           finalExprCode = getVariableNameForCodegen(
             dupExpr.$.variableName,
-            dupExpr.$.env,
+            dupExpr.$.env
           );
         } else {
           finalExprCode = generateExpr(finalExpr, indent, context);
@@ -6971,7 +6971,7 @@ function generateCaseBody(
       generateDeferredDupExpressions(
         bodyExpr,
         indent,
-        context as FunctionGenerationContext,
+        context as FunctionGenerationContext
       );
     }
     return generateExpr(bodyExpr, indent, context);
@@ -6986,7 +6986,7 @@ function generateCaseBody(
 function generateWhileLoop(
   expr: FuncCallExpr,
   indent: string,
-  context: CodeGenContext,
+  context: CodeGenContext
 ): string {
   const args = expr.args;
 
@@ -7047,7 +7047,7 @@ function generateWhileLoop(
     return "";
   } else {
     context.emitter.emitLine(
-      `${indent}/* Error: while loop expects 2 or 3 arguments, got ${args.length} */`,
+      `${indent}/* Error: while loop expects 2 or 3 arguments, got ${args.length} */`
     );
     return "";
   }
@@ -7056,7 +7056,7 @@ function generateWhileLoop(
 export function generateDeferredDropExpressions(
   expr: Expr,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ) {
   const emitter = context.emitter;
 
@@ -7079,7 +7079,7 @@ export function generateDeferredDropExpressions(
 export function generateDeferredDupExpressions(
   expr: Expr,
   indent: string,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ) {
   const emitter = context.emitter;
 
@@ -7101,7 +7101,7 @@ export function generateDeferredDupExpressions(
  * struct names are already registered in context.types.
  */
 export function preRegisterAsyncBlockTypes(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   // Iterate through all functions and find async blocks
   for (const funcId in context.functions) {
@@ -7117,7 +7117,7 @@ export function preRegisterAsyncBlockTypes(
  */
 function preRegisterAsyncBlocksInExpr(
   expr: Expr,
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   if (!expr) return;
 
@@ -7155,7 +7155,7 @@ function preRegisterAsyncBlocksInExpr(
           // Emit forward declaration for the state machine struct
           // The full struct definition will be emitted later during generateAsyncBlock
           context.emitter.emitDeclarationLine(
-            `typedef struct ${structName}_struct ${structName}; // Forward declaration for async state machine`,
+            `typedef struct ${structName}_struct ${structName}; // Forward declaration for async state machine`
           );
         }
       }
@@ -7174,7 +7174,7 @@ function preRegisterAsyncBlocksInExpr(
  * so that async block resume/constructor functions don't get nested inside other functions.
  */
 export function generateDeferredAsyncBlocks(
-  context: FunctionGenerationContext,
+  context: FunctionGenerationContext
 ): void {
   if (
     !context.deferredAsyncBlocks ||
@@ -7215,7 +7215,7 @@ export function generateDeferredAsyncBlocks(
       resultType,
       captureType,
       analysis,
-      context,
+      context
     );
 
     emitter.emitLine(``);
@@ -7229,7 +7229,7 @@ export function generateDeferredAsyncBlocks(
       analysis,
       futureType,
       captureType,
-      context,
+      context
     );
 
     emitter.emitLine(``);
@@ -7245,7 +7245,7 @@ export function generateDeferredAsyncBlocks(
       resultType,
       resultTypeCName,
       captureType,
-      context,
+      context
     );
 
     emitter.emitLine(``);

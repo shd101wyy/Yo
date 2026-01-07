@@ -96,7 +96,7 @@ export function tryToCallArrayWithArguments({
           {
             type: startType,
             env: callerEnv,
-          },
+          }
         )
       ) {
         throw formatErrorMessage({
@@ -132,7 +132,7 @@ export function tryToCallArrayWithArguments({
           {
             type: endType,
             env: callerEnv,
-          },
+          }
         )
       ) {
         throw formatErrorMessage({
@@ -177,7 +177,7 @@ export function tryToCallArrayWithArguments({
         {
           type: argType,
           env: callerEnv,
-        },
+        }
       )
     ) {
       throw formatErrorMessage({

@@ -160,7 +160,7 @@ export function isStructType(type?: Type): type is StructType {
 }
 
 export function isObjectType(
-  type?: Type,
+  type?: Type
 ): type is StructType & { isReferenceSemantics: true } {
   return (
     type?.tag === TypeTag.Struct && (type as StructType).isReferenceSemantics
@@ -168,7 +168,7 @@ export function isObjectType(
 }
 
 export function isNewtypeType(
-  type?: Type,
+  type?: Type
 ): type is StructType & { isNewtype: true } {
   return type?.tag === TypeTag.Struct && (type as StructType).isNewtype;
 }
@@ -415,7 +415,7 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
     (p) =>
       !p.isCompileTimeOnly &&
       isSomeType(p.type) &&
-      !typeImplementsFuture(p.type),
+      !typeImplementsFuture(p.type)
   );
 
   return hasCompileTimeParams || hasSomeTypeParams;
@@ -427,7 +427,7 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
  * @returns
  */
 export function isBoxedType(
-  type: Type,
+  type: Type
 ): type is StructType & { isReferenceSemantics: true; __isBoxed: true } {
   if (!isObjectType(type)) {
     return false;

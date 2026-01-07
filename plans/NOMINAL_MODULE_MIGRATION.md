@@ -115,14 +115,14 @@ if (isModuleType(expected.type) && isModuleType(given.type)) {
     return areFunctionTypesCompatible(
       { type: expected.type.isFn.callType, env: expected.env },
       { type: given.type.isFn.callType, env: given.env },
-      requireExactMatch,
+      requireExactMatch
     );
   }
 
   if (isFutureModuleType(expected.type) && isFutureModuleType(given.type)) {
     return areTypesCompatible(
       { type: expected.type.isFuture.outputType, env: expected.env },
-      { type: given.type.isFuture.outputType, env: given.env },
+      { type: given.type.isFuture.outputType, env: given.env }
     );
   }
 
@@ -164,7 +164,7 @@ function checkDuplicateImpl(
   receiverType: Type,
   moduleType: ModuleType,
   currentModulePath: string,
-  expr: Expr,
+  expr: Expr
 ): void {
   const typeId = receiverType.id;
   const impls = typeImplRegistry.get(typeId) || [];
@@ -190,13 +190,13 @@ function checkOrphanRule(
   receiverType: Type,
   moduleType: ModuleType,
   currentModulePath: string,
-  expr: Expr,
+  expr: Expr
 ): void {
   const moduleDefinedHere =
     moduleType.definedInModulePath === currentModulePath;
   const typeDefinedHere = isTypeDefinedInModule(
     receiverType,
-    currentModulePath,
+    currentModulePath
   );
 
   if (!moduleDefinedHere && !typeDefinedHere) {

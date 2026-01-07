@@ -55,7 +55,7 @@ function determineTypeUniverse(
    *     next : Self
    *   ;
    */
-  checkedTupleElements: TypeField[],
+  checkedTupleElements: TypeField[]
 ): Type {
   let meetTypeTag = false;
   let maxTypeLevel = 0;
@@ -117,7 +117,7 @@ export function typeOfType(
    *     next : Self
    *   ;
    */
-  checkedTupleElements: TypeField[] = [],
+  checkedTupleElements: TypeField[] = []
 ): Type {
   if (isDynType(type)) {
     return createType0(type); // All types are now level 0
@@ -152,13 +152,13 @@ export function typeOfType(
     return determineTypeUniverse(
       type,
       type.fields.filter((element) => !element.isCompileTimeOnly),
-      checkedTupleElements,
+      checkedTupleElements
     );
   } else if (isStructType(type)) {
     return determineTypeUniverse(
       type,
       type.fields.filter((element) => !element.isCompileTimeOnly),
-      checkedTupleElements,
+      checkedTupleElements
     );
   } else if (isEnumType(type)) {
     // For enums, check all variant
@@ -166,7 +166,7 @@ export function typeOfType(
     for (const variant of type.variants) {
       if (variant.fields) {
         fields.push(
-          ...variant.fields.filter((element) => !element.isCompileTimeOnly),
+          ...variant.fields.filter((element) => !element.isCompileTimeOnly)
         );
       }
     }
@@ -176,7 +176,7 @@ export function typeOfType(
     return determineTypeUniverse(
       type,
       type.fields.filter((element) => !element.isCompileTimeOnly),
-      checkedTupleElements,
+      checkedTupleElements
     );
   } else if (isModuleType(type)) {
     return createTypeHierarchy(1, type);

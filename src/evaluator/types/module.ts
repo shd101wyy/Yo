@@ -123,9 +123,7 @@ All module fields are compile-time only by default.`,
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple field label, got ${exprToString(
-          labelExpr,
-        )}`,
+        errorMessage: `Expected identifier for tuple field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -150,17 +148,13 @@ All module fields are compile-time only by default.`,
     if (!isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(
-          labelExpr,
-        )}`,
+        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
       });
     }
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(
-          labelExpr,
-        )}`,
+        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -244,7 +238,7 @@ ${typeToString(expectedType)}`
       throw formatErrorMessage({
         token: assignedValueExpr.token,
         errorMessage: `Failed to evaluate required value expression: ${exprToString(
-          assignedValueExpr,
+          assignedValueExpr
         )}`,
       });
     }
@@ -255,7 +249,7 @@ ${typeToString(expectedType)}`
       throw formatErrorMessage({
         token: assignedValueExpr.token,
         errorMessage: `Expected compile-time known value for required value, got ${exprToString(
-          assignedValueExpr,
+          assignedValueExpr
         )}`,
       });
     }
@@ -267,7 +261,7 @@ ${typeToString(expectedType)}`
       if (
         !areTypesCompatible(
           { type: expectedType.type, env },
-          { type: assignedValueType, env },
+          { type: assignedValueType, env }
         )
       ) {
         throw formatErrorMessage({
@@ -305,7 +299,7 @@ Given type: ${typeToString(assignedValueType)}`,
       throw formatErrorMessage({
         token: defaultValueExpr.token,
         errorMessage: `Failed to evaluate default value expression: ${exprToString(
-          defaultValueExpr,
+          defaultValueExpr
         )}`,
       });
     }
@@ -316,7 +310,7 @@ Given type: ${typeToString(assignedValueType)}`,
       throw formatErrorMessage({
         token: defaultValueExpr.token,
         errorMessage: `Expected compile-time known value for default value, got ${exprToString(
-          defaultValueExpr,
+          defaultValueExpr
         )}`,
       });
     }
@@ -328,7 +322,7 @@ Given type: ${typeToString(assignedValueType)}`,
       if (
         !areTypesCompatible(
           { type: expectedType.type, env },
-          { type: defaultValueType, env },
+          { type: defaultValueType, env }
         )
       ) {
         throw formatErrorMessage({
@@ -478,7 +472,7 @@ export function evaluateModuleType({
           // Check if there is duplicate labels
           // If yes, then override the field
           const duplicateLabelIndex = fields.findIndex(
-            (e) => e.label === extendedModuleField.label,
+            (e) => e.label === extendedModuleField.label
           );
           if (duplicateLabelIndex >= 0) {
             // Check if they have the same value.
@@ -487,13 +481,13 @@ export function evaluateModuleType({
                 extendedModuleField.assignedValue &&
                 areValuesEqual(
                   { value: fields[duplicateLabelIndex]!.assignedValue, env },
-                  { value: extendedModuleField.assignedValue, env },
+                  { value: extendedModuleField.assignedValue, env }
                 )) ||
               (!fields[duplicateLabelIndex]!.assignedValue &&
                 !extendedModuleField.assignedValue &&
                 areTypesCompatible(
                   { type: fields[duplicateLabelIndex]!.type, env },
-                  { type: extendedModuleField.type, env },
+                  { type: extendedModuleField.type, env }
                 ))
             ) {
               continue;
@@ -501,7 +495,7 @@ export function evaluateModuleType({
 
             console.log(
               !!fields[duplicateLabelIndex]!.assignedValue,
-              !!extendedModuleField.assignedValue,
+              !!extendedModuleField.assignedValue
             );
             console.log(
               typeToString(fields[duplicateLabelIndex]!.type),
@@ -510,8 +504,8 @@ export function evaluateModuleType({
               "\n",
               areTypesCompatible(
                 { type: fields[duplicateLabelIndex]!.type, env },
-                { type: extendedModuleField.type, env },
-              ),
+                { type: extendedModuleField.type, env }
+              )
             );
 
             throw formatErrorMessage({
@@ -536,7 +530,7 @@ export function evaluateModuleType({
 
           // Check if there is a duplicate label
           const duplicateLabelIndex = fields.findIndex(
-            (e) => e.label === extendedModuleField.label,
+            (e) => e.label === extendedModuleField.label
           );
           if (duplicateLabelIndex >= 0) {
             // Check if they have the same value.
@@ -545,13 +539,13 @@ export function evaluateModuleType({
                 extendedModuleField.assignedValue &&
                 areValuesEqual(
                   { value: fields[duplicateLabelIndex]!.assignedValue, env },
-                  { value: extendedModuleField.assignedValue, env },
+                  { value: extendedModuleField.assignedValue, env }
                 )) ||
               (!fields[duplicateLabelIndex]!.assignedValue &&
                 !extendedModuleField.assignedValue &&
                 areTypesCompatible(
                   { type: fields[duplicateLabelIndex]!.type, env },
-                  { type: extendedModuleField.type, env },
+                  { type: extendedModuleField.type, env }
                 ))
             ) {
               continue;
@@ -574,7 +568,7 @@ export function evaluateModuleType({
         throw formatErrorMessage({
           token: extendedModuleExpr.token,
           errorMessage: `Expected a Module type or value for extending, got ${exprToString(
-            extendedModuleExpr,
+            extendedModuleExpr
           )}`,
         });
       }
@@ -686,7 +680,7 @@ export function evaluateModuleType({
           ) {
             if (isNegated) {
               moduleType.negativeSelfConstraints.push(
-                evaluatedModule.$.value.value,
+                evaluatedModule.$.value.value
               );
             } else {
               moduleType.selfConstraints.push(evaluatedModule.$.value.value);

@@ -271,7 +271,7 @@ export function addVariableToEnv({
       env,
       variable.name,
       (variable) =>
-        isFunctionType(variable.type) && variable.frameLevel === frameLevel,
+        isFunctionType(variable.type) && variable.frameLevel === frameLevel
     );
     if (existingFunctionVariables.length > 0) {
       throw formatErrorMessages([
@@ -291,10 +291,10 @@ export function addVariableToEnv({
   if (!frame) {
     // print traceback
     console.trace(
-      `Frame at level ${frameLevel} does not exist in the environment.`,
+      `Frame at level ${frameLevel} does not exist in the environment.`
     );
     throw new Error(
-      `Frame at level ${frameLevel} does not exist in the environment.`,
+      `Frame at level ${frameLevel} does not exist in the environment.`
     );
   }
 
@@ -346,7 +346,7 @@ export function addVariableToFrame({
   // Check if there is already a value with the same variableName
   // but is uninitialized
   const existingUndefinedVariableIndex = frame.variables.findIndex(
-    (value_) => value_.name === variable.name && !value_.initializedAtToken,
+    (value_) => value_.name === variable.name && !value_.initializedAtToken
   );
   if (existingUndefinedVariableIndex > -1) {
     const newVariables = frame.variables.slice();
@@ -368,7 +368,7 @@ export function addVariableToFrame({
 export function getVariablesFromFrame(
   frame: Frame,
   variableName: string,
-  variableFilter?: (variable: Variable) => boolean,
+  variableFilter?: (variable: Variable) => boolean
 ): Variable[] {
   const variables = frame.variables.filter((variable) => {
     return variable.name === variableName;
@@ -393,7 +393,7 @@ export function getVariablesFromFrame(
 export function getVariablesFromEnv(
   env: Environment,
   variableName: string,
-  variableFilter?: (variable: Variable) => boolean,
+  variableFilter?: (variable: Variable) => boolean
 ): Variable[] {
   const variables: Variable[] = [];
   for (let i = 0; i < env.frames.length; i++) {
@@ -401,7 +401,7 @@ export function getVariablesFromEnv(
     const variablesInFrame = getVariablesFromFrame(
       frame,
       variableName,
-      variableFilter,
+      variableFilter
     );
     variables.push(...variablesInFrame);
   }
@@ -414,7 +414,7 @@ export function getVariablesFromEnv(
 
 export function getVariablesFromEnvByFilter(
   env: Environment,
-  variableFilter: (variable: Variable) => boolean,
+  variableFilter: (variable: Variable) => boolean
 ): Variable[] {
   const variables: Variable[] = [];
   for (let i = 0; i < env.frames.length; i++) {
@@ -432,7 +432,7 @@ export function pushEnvFrame(
     variables: [],
     isBeginBlockFrame: false,
   },
-  isBeginBlockFrame?: boolean,
+  isBeginBlockFrame?: boolean
 ): Environment {
   const newFrame: Frame = isBeginBlockFrame
     ? { ...frame, isBeginBlockFrame: true }
@@ -452,7 +452,7 @@ export function popEnvFrame(
    * when withFunctionBody is false, we push fake frame for holding the parameters.
    * In this case, when we pop the frame, we need to **ignoreCheck**
    */
-  ignoreCheck = false,
+  ignoreCheck = false
 ): Environment {
   if (!ignoreCheck) {
     const frameToPop = env.frames[env.frames.length - 1]!;
@@ -460,7 +460,7 @@ export function popEnvFrame(
     const unconsumedVariables = getVariablesNeedingDrop(env);
 
     const undefinedVariables = frameToPop.variables.filter(
-      (variable) => !variable.initializedAtToken,
+      (variable) => !variable.initializedAtToken
     );
     if (unconsumedVariables.length > 0) {
       throw formatErrorMessages(
@@ -470,7 +470,7 @@ export function popEnvFrame(
             errorMessage: `Variable "${variable.name}" was not consumed. It is supposed to be consumed before going out of scope.
 Typeof "${variable.name}": ${typeToString(variable.type)}`,
           };
-        }),
+        })
       );
     } else if (undefinedVariables.length > 0) {
       throw formatErrorMessages(
@@ -479,7 +479,7 @@ Typeof "${variable.name}": ${typeToString(variable.type)}`,
             token: variable.token,
             errorMessage: `Variable "${variable.name}" is undefined.`,
           };
-        }),
+        })
       );
     }
   }
@@ -496,7 +496,7 @@ Typeof "${variable.name}": ${typeToString(variable.type)}`,
 export function updateExistingVariable(
   env: Environment,
   oldVariable: Variable,
-  newVariable: Variable,
+  newVariable: Variable
 ): Environment {
   const frames: Frame[] = env.frames.map((frame) => {
     const variables = frame.variables.map((variable) => {
@@ -522,7 +522,7 @@ export function printEnvVarNames(env: Environment) {
   console.log(
     env.frames.map((frame) => {
       return frame.variables.map(getVariableInfo);
-    }),
+    })
   );
 }
 
@@ -562,7 +562,7 @@ export function getMethodsByNameFromEnv(
   methodName: string,
   receiverType: Type,
   isInfixOperatorCall = false,
-  currentFunctionType?: FunctionType,
+  currentFunctionType?: FunctionType
 ): {
   type: Type;
   value: Value | undefined;
@@ -616,7 +616,7 @@ export function getMethodsByNameFromEnv(
     const method = moduleType.fields.find(
       (field) =>
         field.label === methodName &&
-        (isFunctionType(field.type) || isModuleType(field.type)),
+        (isFunctionType(field.type) || isModuleType(field.type))
     );
 
     if (method) {
@@ -626,7 +626,7 @@ export function getMethodsByNameFromEnv(
           value = createUnknownValue(method.type, method.label);
         } else if (isModuleValue(moduleValue)) {
           const index = moduleType.fields.findIndex(
-            (field) => field.label === method.label,
+            (field) => field.label === method.label
           );
           value = moduleValue.fields[index];
         }
@@ -654,7 +654,7 @@ export function getMethodsByNameFromEnv(
 
   function checkModuleSelfCall(moduleValue: ModuleValue) {
     const selfTypeIndex = moduleValue.type.fields.findIndex(
-      (field) => field.label === "Call",
+      (field) => field.label === "Call"
     );
     if (selfTypeIndex >= 0) {
       const selfType = moduleValue.type.fields[selfTypeIndex]!;
@@ -682,7 +682,7 @@ export function getMethodsByNameFromEnv(
       type: Type;
       value: Value | undefined;
       needsPointerConversion?: boolean;
-    }[],
+    }[]
   ): {
     type: Type;
     value: Value | undefined;
@@ -706,7 +706,7 @@ export function getMethodsByNameFromEnv(
               env: method.type.env,
             },
             { type: receiverType, env },
-            true, // isMethodReceiver
+            true // isMethodReceiver
           );
 
           if (receiverCompatibleWithPtrChild) {
@@ -745,7 +745,7 @@ export function getMethodsByNameFromEnv(
               env: method.type.env,
             },
             { type: receiverType.resolvedConcreteType, env },
-            true, // isMethodReceiver
+            true // isMethodReceiver
           )
         ) {
           return true;
@@ -775,7 +775,7 @@ export function getMethodsByNameFromEnv(
           const isRuntimeCompatible = areTypesCompatible(
             { type: methodFirstParamType, env: method.type.env },
             { type: runtimeReceiverType, env },
-            true, // isMethodReceiver
+            true // isMethodReceiver
           );
           if (isRuntimeCompatible) {
             return true;
@@ -813,7 +813,7 @@ export function getMethodsByNameFromEnv(
             if (
               typeContainsSelfTypeForDynamicDispatchCheck(
                 returnType,
-                method.type.SelfType,
+                method.type.SelfType
               )
             ) {
               return false;
@@ -828,7 +828,7 @@ export function getMethodsByNameFromEnv(
             env: method.type.env,
           },
           { type: receiverType, env },
-          true, // isMethodReceiver
+          true // isMethodReceiver
         );
 
         return isCompatible;
@@ -843,7 +843,7 @@ export function getMethodsByNameFromEnv(
   function checkModuleForMethod(
     moduleType: ModuleType,
     methodName: string,
-    visitedModules: Set<string> = new Set(),
+    visitedModules: Set<string> = new Set()
   ): void {
     // Prevent infinite recursion for circular module references
     if (visitedModules.has(moduleType.id)) {
@@ -853,7 +853,7 @@ export function getMethodsByNameFromEnv(
 
     // First, check direct methods in this module
     const directMethod = moduleType.fields.find(
-      (field) => field.label === methodName && isFunctionType(field.type),
+      (field) => field.label === methodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -879,7 +879,7 @@ export function getMethodsByNameFromEnv(
   if (receiverType !== dereferencedReceiverType && receiverType.module) {
     // First check direct methods
     const directMethod = receiverType.module.fields.find(
-      (field) => field.label === methodName && isFunctionType(field.type),
+      (field) => field.label === methodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -920,7 +920,7 @@ export function getMethodsByNameFromEnv(
   ) {
     // First check direct methods
     const directMethod = dereferencedReceiverType.module.fields.find(
-      (field) => field.label === methodName && isFunctionType(field.type),
+      (field) => field.label === methodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -947,7 +947,7 @@ export function getMethodsByNameFromEnv(
           const implModuleType = implModuleValue.type;
           // Search for the method in the impl'd module
           const methodIndex = implModuleType.fields.findIndex(
-            (f) => f.label === methodName && isFunctionType(f.type),
+            (f) => f.label === methodName && isFunctionType(f.type)
           );
           if (methodIndex >= 0) {
             const method = implModuleType.fields[methodIndex]!;
@@ -1002,7 +1002,7 @@ export function getMethodsByNameFromEnv(
           const implModuleValue = field.assignedValue;
           const implModuleType = implModuleValue.type;
           const methodIndex = implModuleType.fields.findIndex(
-            (f) => f.label === methodName && isFunctionType(f.type),
+            (f) => f.label === methodName && isFunctionType(f.type)
           );
           if (methodIndex >= 0) {
             const method = implModuleType.fields[methodIndex]!;
@@ -1034,14 +1034,14 @@ export function getMethodsByNameFromEnv(
 
       // 1) Direct methods on the concrete type
       const directConcreteMethod = concreteModule?.fields.find(
-        (f) => f.label === methodName && isFunctionType(f.type),
+        (f) => f.label === methodName && isFunctionType(f.type)
       );
       if (directConcreteMethod && isFunctionType(directConcreteMethod.type)) {
         const value =
           directConcreteMethod.assignedValue ||
           createUnknownValue(
             directConcreteMethod.type,
-            directConcreteMethod.label,
+            directConcreteMethod.label
           );
         methods.push({ type: directConcreteMethod.type, value });
       }
@@ -1058,7 +1058,7 @@ export function getMethodsByNameFromEnv(
             const implModuleValue = field.assignedValue;
             const implModuleType = implModuleValue.type;
             const methodIndex = implModuleType.fields.findIndex(
-              (f) => f.label === methodName && isFunctionType(f.type),
+              (f) => f.label === methodName && isFunctionType(f.type)
             );
             if (methodIndex >= 0) {
               const method = implModuleType.fields[methodIndex]!;
@@ -1093,7 +1093,7 @@ export function getMethodsByNameFromEnv(
       for (const requiredModuleType of dereferencedReceiverType.requiredModules) {
         // Search for the method in the required module
         const method = requiredModuleType.fields.find(
-          (f) => f.label === methodName && isFunctionType(f.type),
+          (f) => f.label === methodName && isFunctionType(f.type)
         );
         if (method && isFunctionType(method.type)) {
           // Create a specialized method type with SelfType set to the receiver type
@@ -1117,13 +1117,13 @@ export function getMethodsByNameFromEnv(
     if (methods.length === 0) {
       // Helper function to find constraints from a function type
       const findConstraintsInFunction = (
-        funcType: FunctionType | undefined,
+        funcType: FunctionType | undefined
       ): { requiredModules: ModuleType[] } | undefined => {
         if (!funcType?.whereClauseConstraints) return undefined;
 
         // First try direct lookup
         let constraints = funcType.whereClauseConstraints.get(
-          dereferencedReceiverType,
+          dereferencedReceiverType
         );
 
         // If direct lookup fails and receiver is a SomeType, try to find a compatible
@@ -1141,7 +1141,7 @@ export function getMethodsByNameFromEnv(
               areTypesCompatible(
                 { type: constrainedType, env },
                 { type: dereferencedReceiverType, env },
-                false, // Allow type parameter unification
+                false // Allow type parameter unification
               )
             ) {
               constraints = typeConstraints;
@@ -1161,7 +1161,7 @@ export function getMethodsByNameFromEnv(
           for (const requiredModuleType of constraints.requiredModules) {
             // Search for the method in the required module
             const method = requiredModuleType.fields.find(
-              (f) => f.label === methodName && isFunctionType(f.type),
+              (f) => f.label === methodName && isFunctionType(f.type)
             );
             if (method && isFunctionType(method.type)) {
               // Create a specialized method type with SelfType set to the receiver type
@@ -1172,7 +1172,7 @@ export function getMethodsByNameFromEnv(
               // Create an unknown value since the actual implementation is not known
               const value = createUnknownValue(
                 specializedMethodType,
-                method.label,
+                method.label
               );
               methods.push({ type: specializedMethodType, value });
             }
@@ -1198,7 +1198,7 @@ export function getMethodsByNameFromEnv(
           const requiredModuleType = field.assignedValue.value;
           // Search for the method in the required module
           const method = requiredModuleType.fields.find(
-            (f) => f.label === methodName && isFunctionType(f.type),
+            (f) => f.label === methodName && isFunctionType(f.type)
           );
           if (method && isFunctionType(method.type)) {
             // Create an unknown value since the actual implementation is not known
@@ -1216,7 +1216,7 @@ export function getMethodsByNameFromEnv(
     const dynMethod = dereferencedReceiverType.module.fields.find(
       (field) =>
         field.label === methodName &&
-        (isFunctionType(field.type) || isModuleType(field.type)),
+        (isFunctionType(field.type) || isModuleType(field.type))
     );
     if (dynMethod && isFunctionType(dynMethod.type)) {
       // For dyn object's own methods, we can use the assigned value directly
@@ -1233,7 +1233,7 @@ export function getMethodsByNameFromEnv(
       const method = moduleType.fields.find(
         (field) =>
           field.label === methodName &&
-          (isFunctionType(field.type) || isModuleType(field.type)),
+          (isFunctionType(field.type) || isModuleType(field.type))
       );
       if (method && isFunctionType(method.type)) {
         // Check if the receiver type is compatible
@@ -1247,7 +1247,7 @@ export function getMethodsByNameFromEnv(
                 env: method.type.env,
               },
               { type: receiverType, env },
-              true, // isMethodReceiver
+              true // isMethodReceiver
             ))
         ) {
           // For dynamic dispatch, we create `undefined` to represent the method value
@@ -1325,7 +1325,7 @@ export function getMethodsByNameFromEnv(
  * @param env Environment
  */
 export function keepTopLevelFrameAndComptimeVariablesFromEnv(
-  env: Environment,
+  env: Environment
 ): Environment {
   const newFrames = env.frames.map((frame, index) => {
     if (index === 0) {
@@ -1367,7 +1367,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
       !variable.consumedAtToken &&
       // !variable.isCompileTimeOnly &&
       variable.isOwningTheRcValue &&
-      typeContainsRcType(variable.type),
+      typeContainsRcType(variable.type)
   );
 
   // Return in reverse order (end to start) for proper drop order
@@ -1391,7 +1391,7 @@ export function findNearestBeginBlockFrameLevel(env: Environment): number {
 
 export function variableExistsInEnvTopFrame(
   env: Environment,
-  variableName: string,
+  variableName: string
 ): boolean {
   if (env.frames.length === 0) {
     return false;

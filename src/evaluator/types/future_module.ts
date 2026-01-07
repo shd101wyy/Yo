@@ -51,7 +51,7 @@ export function evaluateFutureType({
     throw formatErrorMessage({
       token: elementTypeExpr.token,
       errorMessage: `Failed to evaluate the element type expression for Future:\n${exprToString(
-        elementTypeExpr,
+        elementTypeExpr
       )}`,
     });
   }
@@ -62,7 +62,7 @@ export function evaluateFutureType({
     throw formatErrorMessage({
       token: elementTypeExpr.token,
       errorMessage: `Future type constructor expects a type as its first argument, but got:\n${exprToString(
-        elementTypeExpr,
+        elementTypeExpr
       )}`,
     });
   }

@@ -31,7 +31,7 @@ export class YoError {
   constructor(
     tokenAndErrorList: TokenAndError[],
     isAssertionError?: boolean,
-    kind?: ErrorKind,
+    kind?: ErrorKind
   ) {
     this.tokenAndErrorList = tokenAndErrorList;
     this.isAssertionError = isAssertionError || false;
@@ -105,14 +105,14 @@ ${getLineAtToken({ token })}`;
       },
     ],
     isAssertionError,
-    kind,
+    kind
   );
 }
 
 export function formatErrorMessages(
   tokenAndErrorList: TokenAndError[],
   isAssertionError?: boolean,
-  kind?: ErrorKind,
+  kind?: ErrorKind
 ): YoError {
   if (tokenAndErrorList.length === 0) {
     throw new Error("tokenAndErrorList must not be empty");

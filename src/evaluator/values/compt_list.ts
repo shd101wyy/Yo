@@ -64,7 +64,7 @@ export function evaluateComptListValue({
       if (
         !areTypesCompatible(
           { type: childType, env },
-          { type: evaluatedArg.$.type, env },
+          { type: evaluatedArg.$.type, env }
         )
       ) {
         throw formatErrorMessage({

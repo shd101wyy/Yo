@@ -45,7 +45,7 @@ export function tryToImplementModuleWithArgumentsByModuleType({
   }
 
   const fields: (Value | undefined)[] = Array(moduleType.fields.length).fill(
-    undefined,
+    undefined
   );
 
   // Create a working module type that we'll progressively update with concrete values
@@ -132,9 +132,7 @@ impl Point, Id(Point)(
         if (moduleField.assignedValue) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Module member "${
-              moduleField.label
-            }" already has a assigned value:
+            errorMessage: `Module member "${moduleField.label}" already has a assigned value:
 ${valueToString(moduleField.assignedValue)}`,
           });
         }
@@ -150,7 +148,7 @@ ${valueToString(moduleField.assignedValue)}`,
             expr: cloneExpr(typeExpr),
             env: pushEnvFrame(
               moduleType.env,
-              callerEnv.frames[callerEnv.frames.length - 1],
+              callerEnv.frames[callerEnv.frames.length - 1]
             ),
             context: {
               ...context,
@@ -172,7 +170,7 @@ ${valueToString(moduleField.assignedValue)}`,
             expr: cloneExpr(defaultValueExpr),
             env: pushEnvFrame(
               moduleType.env,
-              callerEnv.frames[callerEnv.frames.length - 1],
+              callerEnv.frames[callerEnv.frames.length - 1]
             ),
             context: {
               ...context,
@@ -222,7 +220,7 @@ ${valueToString(moduleField.assignedValue)}`,
         if (
           !areTypesCompatible(
             { type: moduleFieldType, env: callerEnv },
-            { type: argType, env: callerEnv },
+            { type: argType, env: callerEnv }
           )
         ) {
           throw formatErrorMessage({
@@ -305,7 +303,7 @@ Got:   ${typeToString(argType)}`,
   // Create the module value
   const moduleValue = createModuleValue(
     { ...moduleType, receiverType },
-    fields,
+    fields
   );
   return { moduleValue, callerEnv };
 }

@@ -342,7 +342,7 @@ Got:      "${paramName}"`,
     },
     functionType,
     functionValue,
-    env,
+    env
   );
 
   const evaluatedBody = evaluateBeginExpression({
@@ -370,7 +370,7 @@ Got:      "${paramName}"`,
     evaluatedBodyReturnType &&
     !areTypesCompatible(
       { type: functionType.return.type, env },
-      { type: evaluatedBodyReturnType, env },
+      { type: evaluatedBodyReturnType, env }
     )
   ) {
     throw formatErrorMessage({
