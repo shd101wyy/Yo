@@ -32,7 +32,6 @@ import {
   isExprListType,
   isExprType,
   isFnModuleType,
-  isFunctionSpecializable,
   isFunctionType,
   isModuleType,
   isSomeType,
@@ -397,12 +396,16 @@ ${typeToString(parameterType)}`,
       });
     }
 
-    // Validate that runtime parameters with generic function types are prohibited
-    // Generic functions can't be represented as runtime function pointers in C
+    // Validate that runtime parameters with intrinsically generic function types are prohibited
+    // Functions that have their own forall parameters or compile-time parameters require
+    // specialization and cannot be represented as runtime function pointers.
+    // However, functions that merely reference type variables from enclosing scope are allowed (like Rust)
     if (
       !isCompileTimeOnly &&
       isFunctionType(parameterType) &&
-      isFunctionSpecializable(parameterType)
+      // NOTE: Don't use isFunctionSpecializable here. It's too broad.
+      (parameterType.forallParameters.length > 0 ||
+        parameterType.parameters.some((p) => p.isCompileTimeOnly))
     ) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
