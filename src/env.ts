@@ -238,19 +238,25 @@ export function addVariableToEnv({
   deltaFrame,
   variableId,
   addToBeginBlockFrame,
+  allowVariableShadowing,
 }: {
   env: Environment;
   variable: Omit<Variable, "id" | "frameLevel">;
   deltaFrame?: number;
   variableId?: string;
   /**
-   * If true, the variable will be added to the nearest begin block frame
-   * instead of the top frame. This is used for temp variables that hold
-   * intermediate results - they should be tracked at the begin block level
-   * so they get dropped when the begin block ends, not when a nested
+   * If true, variable will be added to a nearest begin block frame
+   * instead of top frame. This is used for temp variables that hold
+   * intermediate results - they should be tracked at begin block level
+   * so they get dropped when begin block ends, not when a nested
    * function call frame is popped.
    */
   addToBeginBlockFrame?: boolean;
+  /**
+   * If true, allow this variable to shadow a variable with the same name in an outer scope.
+   * This is used for type parameters in function signatures, which can be shadowed in nested functions.
+   */
+  allowVariableShadowing?: boolean;
 }): { env: Environment; variable: Variable } {
   let frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
 
@@ -265,9 +271,11 @@ export function addVariableToEnv({
 
   // Prevent variable shadowing across all scopes
   // Variables with the same name cannot exist in different frames
+  // EXCEPT: When allowVariableShadowing is true (for function type parameters)
   const existingVariables = getVariablesFromEnv(env, variable.name);
-  if (existingVariables.length > 0) {
+  if (existingVariables.length > 0 && !allowVariableShadowing) {
     const existingVariable = existingVariables[existingVariables.length - 1]!;
+    // console.trace("Variable shadowing detected:");
     throw formatErrorMessages([
       {
         token: variable.token,

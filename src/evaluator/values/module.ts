@@ -1007,6 +1007,7 @@ function tryMatchGenericImpl({
           consumedAtToken: undefined,
           isOwningTheRcValue: false,
         },
+        allowVariableShadowing: true,
       });
       unifyEnv = nextEnv;
     } else {
@@ -1023,6 +1024,7 @@ function tryMatchGenericImpl({
           consumedAtToken: undefined,
           isOwningTheRcValue: false,
         },
+        allowVariableShadowing: true,
       });
       unifyEnv = nextEnv;
     }
