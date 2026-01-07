@@ -640,8 +640,11 @@ export compt_string : _compt_string;
 /// bool
 impl(bool, Send());
 impl(bool, Eq(bool)(
-  (==): ((a, b) ->
+  (==) : ((a, b) ->
     __yo_op_eq(a, b)
+  ),
+  (!=) : ((a, b) ->
+    __yo_op_neq(a, b)
   )
 ));
 impl(bool, Clone(bool)(
@@ -660,6 +663,9 @@ impl(bool, Hash(
 impl(bool, ComptEq(bool)(
   (==) : (fn(compt(lhs): bool, compt(rhs): bool) -> compt(bool))(
     __yo_compt_boolean_eq(lhs, rhs)
+  ),
+  (!=) : (fn(compt(lhs): bool, compt(rhs): bool) -> compt(bool))(
+    __yo_compt_boolean_neq(lhs, rhs)
   )
 ));
 impl(bool, {
