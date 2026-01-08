@@ -232,6 +232,11 @@ export function isEvaluatingPreludeModule(): boolean {
   return _envContainingPrelude === null;
 }
 
+/**
+ * This is the special variable name that allows variable shadowing.
+ */
+export const YoSelf = "__yo_self";
+
 export function addVariableToEnv({
   env,
   variable,
@@ -272,20 +277,22 @@ export function addVariableToEnv({
   // Prevent variable shadowing across all scopes
   // Variables with the same name cannot exist in different frames
   // EXCEPT: When allowVariableShadowing is true (for function type parameters)
-  const existingVariables = getVariablesFromEnv(env, variable.name);
-  if (existingVariables.length > 0 && !allowVariableShadowing) {
-    const existingVariable = existingVariables[existingVariables.length - 1]!;
-    // console.trace("Variable shadowing detected:");
-    throw formatErrorMessages([
-      {
-        token: variable.token,
-        errorMessage: `Failed to define variable "${variable.name}":`,
-      },
-      {
-        token: existingVariable.token,
-        errorMessage: `Variable "${variable.name}" is already defined here (variable shadowing is not allowed):`,
-      },
-    ]);
+  if (variable.name !== YoSelf) {
+    const existingVariables = getVariablesFromEnv(env, variable.name);
+    if (existingVariables.length > 0 && !allowVariableShadowing) {
+      const existingVariable = existingVariables[existingVariables.length - 1]!;
+      console.trace("Variable shadowing detected:");
+      throw formatErrorMessages([
+        {
+          token: variable.token,
+          errorMessage: `Failed to define variable "${variable.name}":`,
+        },
+        {
+          token: existingVariable.token,
+          errorMessage: `Variable "${variable.name}" is already defined here (variable shadowing is not allowed):`,
+        },
+      ]);
+    }
   }
 
   const frame = env.frames[frameLevel];
