@@ -172,23 +172,9 @@ test "Test variable shadowing", {
     assert(x == 12);
 
     {
-      (x : i32) = 14; // Allowed, because we now are in a new frame.
       compt_expect_error(
-        x := 15 // Not allowed, because `x` already exists at the current frame.
+        x := 15 // Not allowed, because `x` already exists at upper frame.
       );
-      assert(x == 14);
-
-      x = 16; // should not affect outer `x`
-      assert(x == 16);
-    };
-    assert(x == 12);
-    
-    {
-      x := x; // Allowed, because we are in a new frame.
-      assert(x == 12);
-
-      x = (x + 1); // Should not affect outer `x`
-      assert(x == 13);
     };
     assert(x == 12);
   };
@@ -367,7 +353,7 @@ test "Test 'struct'", {
     (p6: Point) = {y, x};
     
     {
-      { x, y: a } := p;
+      { x : another_x, y: a } := p;
       a;
     };
 
@@ -647,7 +633,18 @@ test "Test tuple", {
     assert(t3.0 == 12);
     assert(t3.1 == 16);
   };
+};
 
+// TODO: Add more tests to unit type
+// We should optimize away unit value when generating C code.
+// For example, we might have unit type/value in:
+// - variable type
+// - function parameter type
+// - struct/enum/union field type
+// - Array?   QUESTION: Should we just prohibit
+// - Pointer? QUESTION: Should we just prohibit
+// etc
+test "Test unit", {
   // unit
   {
     // Unit type

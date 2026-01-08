@@ -281,7 +281,7 @@ export function addVariableToEnv({
     const existingVariables = getVariablesFromEnv(env, variable.name);
     if (existingVariables.length > 0 && !allowVariableShadowing) {
       const existingVariable = existingVariables[existingVariables.length - 1]!;
-      console.trace("Variable shadowing detected:");
+      // console.trace("Variable shadowing detected:");
       throw formatErrorMessages([
         {
           token: variable.token,

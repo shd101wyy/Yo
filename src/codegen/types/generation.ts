@@ -941,12 +941,19 @@ export function generateTupleDeclaration(
     `typedef struct { // ${tupleType.typeName} : ${typeToString(tupleType)}`
   );
 
-  for (let i = 0; i < tupleType.fields.length; i++) {
-    const field = tupleType.fields[i]!;
-    const fieldTypeStr = getTypeString(field.type, context);
-    // Tuples always use numeric field names _0, _1, _2... in C
-    const fieldName = `_${i}`;
-    emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+  if (tupleType.fields.length === 0) {
+    // Unit type (zero-sized type in Rust)
+    // C doesn't support zero-sized structs in standard C11
+    // Use a dummy byte to make it valid C (will be optimized away by compiler)
+    emitter.emitDeclarationLine(`  uint8_t _dummy; // zero-sized type marker`);
+  } else {
+    for (let i = 0; i < tupleType.fields.length; i++) {
+      const field = tupleType.fields[i]!;
+      const fieldTypeStr = getTypeString(field.type, context);
+      // Tuples always use numeric field names _0, _1, _2... in C
+      const fieldName = `_${i}`;
+      emitter.emitDeclarationLine(`  ${fieldTypeStr} ${fieldName};`);
+    }
   }
 
   emitter.emitDeclarationLine(`} ${cName};`);

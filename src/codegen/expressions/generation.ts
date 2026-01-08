@@ -1592,14 +1592,17 @@ function generateFuncCall(
             // In state machine - assign to sm->var_xxx field
             context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
-            const varTypeAndName = getVariableTypeString(
-              lhs.$.type,
-              varName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(lhs.$.type)) {
+              const varTypeAndName = getVariableTypeString(
+                lhs.$.type,
+                varName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${rhsCode};`
+              );
+            }
           }
         } else {
           // Copying from another array - use direct struct assignment
@@ -1637,14 +1640,17 @@ function generateFuncCall(
             // In state machine - assign to sm->var_xxx field
             context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
-            const varTypeAndName = getVariableTypeString(
-              lhs.$.type,
-              varName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(lhs.$.type)) {
+              const varTypeAndName = getVariableTypeString(
+                lhs.$.type,
+                varName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${rhsCode};`
+              );
+            }
           }
         }
       } else {
@@ -1825,14 +1831,17 @@ function generateFuncCall(
             // In state machine - assign to sm->var_xxx field
             context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
-            const varTypeAndName = getVariableTypeString(
-              sliceType,
-              varName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(sliceType)) {
+              const varTypeAndName = getVariableTypeString(
+                sliceType,
+                varName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${rhsCode};`
+              );
+            }
           }
         } else {
           // Normal initialization
@@ -1860,9 +1869,12 @@ function generateFuncCall(
               cTypeString = getTypeString(lhs.$.type, context);
             }
 
-            context.emitter.emitLine(
-              `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(lhs.$.type)) {
+              context.emitter.emitLine(
+                `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
+              );
+            }
           }
         }
       }
@@ -2464,7 +2476,9 @@ function generateFuncCall(
         return `(${cName}){ ${argsList} }`;
       }
     } else if (expr.args.length === 0) {
-      // unit
+      // unit value - optimize away like Rust (no storage, no code)
+      // If there's a temp variable, we don't declare it at all
+      // Just return empty string for inline use
       return "";
     } else {
       // Fallback: use expr.args directly if runtimeArgExprsInOrder is not set
