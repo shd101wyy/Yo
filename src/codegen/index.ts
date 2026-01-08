@@ -1,5 +1,6 @@
 import { execSync, spawnSync } from "child_process";
 import * as fs from "fs";
+import path from "path";
 import { ModuleManager } from "../module-manager";
 
 export class CodeGenerator {
@@ -180,8 +181,14 @@ export class CodeGenerator {
         // Add mimalloc if using mimalloc allocator
         const allocator = options.allocator ?? "mimalloc";
         if (allocator === "mimalloc") {
-          const mimallocStaticPath = "vendor/mimalloc/src/static.c";
-          const mimallocIncludePath = "vendor/mimalloc/include";
+          const stdPath = this.moduleManager.stdPath;
+          const vendorPath = path.join(path.dirname(stdPath), "vendor");
+
+          const mimallocStaticPath = path.join(
+            vendorPath,
+            "mimalloc/src/static.c"
+          );
+          const mimallocIncludePath = path.join(vendorPath, "mimalloc/include");
 
           if (fs.existsSync(mimallocStaticPath)) {
             compileArgs.splice(isMSVC ? -1 : -2, 0, mimallocStaticPath); // Add mimalloc static.c
