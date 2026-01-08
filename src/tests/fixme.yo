@@ -1,36 +1,3 @@
-main :: (fn() -> unit) {
-  {
-    // Mutual recursion
-    compt(is_even) : (fn(n : i32) -> bool);
-    compt(is_odd) : (fn(n : i32) -> bool);
+3 + 4;
+x :: (Type.contains_rc_type(i32));
 
-    is_even = _
-      cond
-        (n == 0) => true,
-        true     => is_odd(n - 1)
-    ;
-
-    is_odd  = _
-      cond
-        (n == 0) => false,
-        true     => is_even(n - 1)
-    ;
-
-    assert(is_even(10) == true);
-    assert(is_odd(10) == false);
-    assert(is_even(11) == false);
-    assert(is_odd(11) == true);
-  };
-
-  {
-    arr := [1, 2, 3, 4];
-
-    sli := (arr(1:3));
-    sli(0) = 20;
-
-    slice := (arr(1:3));
-    slice(0) = 30;
-  };
-};
-
-export main;
