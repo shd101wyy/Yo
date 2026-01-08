@@ -1,3 +1,4 @@
+import { execSync } from "child_process";
 import * as fs from "fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
@@ -5,10 +6,31 @@ import packageJson from "../package.json";
 import { CodeGenerator } from "./codegen";
 import { findTestFiles, runTests } from "./test-runner";
 
+function checkCompilerAvailable(compiler: string): boolean {
+  try {
+    execSync(`${compiler} --version`, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findAvailableCompiler(): string | null {
+  const compilers = ["cc", "gcc", "clang", "zig", "cl"];
+  for (const compiler of compilers) {
+    if (checkCompilerAvailable(compiler)) {
+      return compiler;
+    }
+  }
+  return null;
+}
+
 yargs(hideBin(process.argv))
   .wrap(null)
   .usage(
-    `Usage:
+    `The Yo Programming Language
+Version: ${packageJson.version}
+Usage:
 
 yo compile <file> [options]      Compile a '.yo' file
 Example:
@@ -42,11 +64,9 @@ yo run <script>                  Run a script defined in 'yo.json'
   })
   .option("cc", {
     alias: "c-compiler",
-    describe:
-      "C Compiler to use: 'cc' (default), 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+    describe: "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
     type: "string",
     demandOption: false,
-    default: "cc",
     choices: ["cc", "gcc", "clang", "zig", "cl"],
   })
   .option("t", {
@@ -135,21 +155,30 @@ yo run <script>                  Run a script defined in 'yo.json'
       });
     },
     (argv) => {
-      // console.log(argv);
       const file = argv.file as string;
       if (!fs.existsSync(file)) {
         console.log(`File ${file} does not exist`);
         return;
       }
 
-      // Get the absolute path of the file
+      let cCompiler = argv.cc as string | undefined;
+      if (!cCompiler) {
+        const availableCompiler = findAvailableCompiler();
+        if (!availableCompiler) {
+          console.error(
+            "Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag."
+          );
+          process.exit(1);
+        }
+        cCompiler = availableCompiler;
+      }
+
       const absolutePath = `file://` + fs.realpathSync(file);
-      // Add file:// to the path
 
       const codeGenerator = new CodeGenerator();
       codeGenerator.compileModule(absolutePath, {
         output: argv.o,
-        cCompiler: argv.cc,
+        cCompiler,
         target: argv.t as "c",
         extern: (argv.extern ?? []) as string[],
         emitC: argv.emitC,
@@ -215,15 +244,26 @@ yo run <script>                  Run a script defined in 'yo.json'
         process.exit(1);
       }
 
+      let cCompiler = argv.cc as string | undefined;
+      if (!cCompiler) {
+        const availableCompiler = findAvailableCompiler();
+        if (!availableCompiler) {
+          console.error(
+            "Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag."
+          );
+          process.exit(1);
+        }
+        cCompiler = availableCompiler;
+      }
+
       const summary = await runTests(testFiles, {
-        cCompiler: argv.cc,
+        cCompiler,
         verbose: argv.verbose as boolean,
         bail: argv.bail as boolean,
         testNamePattern: argv.testNamePattern as string | undefined,
         parallel,
       });
 
-      // Exit with non-zero code if any tests failed
       process.exit(summary.failed > 0 ? 1 : 0);
     }
   )

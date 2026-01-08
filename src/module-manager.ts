@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
 import { _evaluateExpression } from "./evaluator/exprs/_expr";
@@ -7,6 +8,26 @@ import Evaluator, {
   clearImplsFromModule,
 } from "./evaluator/index";
 import { ModuleValue } from "./value";
+
+function findStdDirectory(startPath: string): string {
+  let currentPath = startPath;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const potentialStdPath = path.join(currentPath, "std");
+    if (existsSync(potentialStdPath)) {
+      return potentialStdPath;
+    }
+
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) {
+      break;
+    }
+    currentPath = parentPath;
+  }
+
+  return path.join(__dirname, "../std");
+}
 
 export class ModuleManager {
   /**
@@ -32,7 +53,7 @@ export class ModuleManager {
    */
   private dependents: Map<string, Set<string>> = new Map();
 
-  public stdPath = path.join(__dirname, "../std");
+  public stdPath = findStdDirectory(__dirname);
   private codeGenratorC: CodeGeneratorC;
 
   constructor() {
@@ -131,7 +152,6 @@ export class ModuleManager {
       modulePath,
       stdPath: this.stdPath,
       loadModule: (childModulePath: string) => {
-        // Track that currentModulePath imports childModulePath
         return this.loadModule(childModulePath, undefined, currentModulePath);
       },
       inputString,
