@@ -212,7 +212,7 @@ export function tryToImplementFunctionByFunctionType({
     body: functionBodyExpr, // Use transformed body
     frameLevel: env.frames.length - 1,
     funcName: undefined,
-    funcId: `fn_${randomId()}`,
+    funcId: `fn_${randomId(env.modulePath)}`,
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],
   };

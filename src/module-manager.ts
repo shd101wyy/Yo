@@ -7,6 +7,7 @@ import Evaluator, {
   clearGenericImplsFromModule,
   clearImplsFromModule,
 } from "./evaluator/index";
+import { resetModuleIdCounter } from "./utils";
 import { ModuleValue } from "./value";
 
 function findStdDirectory(startPath: string): string {
@@ -182,6 +183,9 @@ export class ModuleManager {
 
       // Clear dependency tracking for this module
       this.clearDependencies(modPath);
+
+      // Clear the ID counter for this module
+      resetModuleIdCounter(modPath);
 
       // Delete the module from cache
       this.modules.delete(modPath);

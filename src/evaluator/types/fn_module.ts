@@ -116,7 +116,7 @@ export function evaluateFnModuleType({
       expr: returnTypeExpr,
       isCompileTimeOnly: false,
       isUnquote: false,
-      label: `fn_return_${randomId()}`,
+      label: `fn_return_${randomId(env.modulePath)}`,
     },
     env: popEnvFrame(envWithParams, true),
     parametersFrame: envWithParams.frames[envWithParams.frames.length - 1]!,

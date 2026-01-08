@@ -379,7 +379,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
 
   return {
     field: {
-      label: label ?? `$field_${randomId()}`,
+      label: label ?? `$field_${randomId(env.modulePath)}`,
       type: fieldType,
       exprs: {
         expr,

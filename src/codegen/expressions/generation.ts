@@ -1386,7 +1386,7 @@ function generateFuncCall(
     const arrayTypeName = getTypeString(arrayType, context);
     const fillValueCode = generateExpr(fillValueArg, indent, context);
     const tempVarName = expr.$?.variableName || `temp_array_${Date.now()}`;
-    const indexVarName = `i_${randomId()}`;
+    const indexVarName = `i_${randomId(expr.$?.env.modulePath ?? "")}`;
 
     // Generate array declaration and fill loop
     emitter.emitLine(`${indent}${arrayTypeName} ${tempVarName};`);
@@ -3904,8 +3904,8 @@ function generateDupCodeForValue(
     if (!isNumberValue(arrayLength)) {
       return `/* Error: array has non-constant length */`;
     }
-    const tempVar = `temp_dup_${randomId()}`; // Use randomId instead of Date.now
-    const loopVar = `i_${randomId()}`;
+    const tempVar = `temp_dup_${randomId("")}`; // Use randomId instead of Date.now
+    const loopVar = `i_${randomId("")}`;
     const arrayCName = getTypeString(concreteType, context);
     const emitter = (context as FunctionGenerationContext).emitter;
     emitter.emitLine(`${arrayCName} ${tempVar} = ${valueCode};`);
@@ -3925,7 +3925,7 @@ function generateDupCodeForValue(
   // Handle tuples - dup the RC fields
   if (isTupleType(concreteType)) {
     const emitter = (context as FunctionGenerationContext).emitter;
-    const tempVar = `temp_dup_tuple_${randomId()}`; // Use randomId instead of Date.now
+    const tempVar = `temp_dup_tuple_${randomId("")}`; // Use randomId instead of Date.now
     const tupleCName = getTypeString(concreteType, context);
     emitter.emitLine(`${tupleCName} ${tempVar} = ${valueCode};`);
     for (let i = 0; i < concreteType.fields.length; i++) {
@@ -4874,7 +4874,7 @@ function generateThreadSpawnCall(
 
   // Emit code to heap-allocate a copy of the closure data
   // The thread entry wrapper will free this after the closure runs
-  const heapDataVar = `_thread_closure_data_${randomId()}`;
+  const heapDataVar = `_thread_closure_data_${randomId(expr.$?.env.modulePath ?? "")}`;
   context.emitter.emitLine(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
@@ -4954,7 +4954,7 @@ function generateWorkerSpawnCall(
 
   // Emit code to heap-allocate a copy of the closure data
   // The worker thread will free this after the task runs
-  const heapDataVar = `_worker_closure_data_${randomId()}`;
+  const heapDataVar = `_worker_closure_data_${randomId(expr.$?.env.modulePath ?? "")}`;
   context.emitter.emitLine(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );

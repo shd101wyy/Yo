@@ -1,14 +1,38 @@
 import { createHash } from "crypto";
 import { charIsOperator, Operators } from "./token";
 
-let randomIdCounter = 0;
-export function randomId() {
-  return `id${randomIdCounter++}`;
-}
-
+/**
+ * Generate a module id based on the module path
+ * @param modulePath
+ * @returns
+ */
 export function generateModuleId(modulePath: string) {
   const hash = createHash("sha1").update(modulePath).digest("hex");
   return "yo" + hash.slice(0, 8);
+}
+
+/**
+ * key: modulePath
+ * value: counter
+ */
+const moduleIdCounters = new Map<string, number>();
+
+/**
+ * Generate a random id for the module
+ * @param modulePath
+ * @returns
+ */
+export function randomId(modulePath: string) {
+  let counter = moduleIdCounters.get(modulePath);
+  if (counter === undefined) {
+    counter = 0;
+  }
+  moduleIdCounters.set(modulePath, counter + 1);
+  return `${generateModuleId(modulePath)}_id_${counter}`;
+}
+
+export function resetModuleIdCounter(modulePath: string) {
+  moduleIdCounters.delete(modulePath);
 }
 
 let tempVariableNameCount = 1;

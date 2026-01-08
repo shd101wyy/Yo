@@ -59,7 +59,7 @@ export function evaluateGensym({
     prefix = prefixArgValue.value;
   }
 
-  const symbol = prefix + randomId();
+  const symbol = prefix + randomId(env.modulePath);
   const atomExpr: AtomExpr = {
     tag: ExprTag.Atom,
     token: {

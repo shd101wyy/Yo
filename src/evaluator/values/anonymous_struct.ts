@@ -232,7 +232,7 @@ export function evaluateAnonymousStructValue({
           assignedValueExpr: valueExpr,
         },
         type,
-        label: label ?? `$field_${randomId()}`,
+        label: label ?? `$field_${randomId(env.modulePath)}`,
         isCompileTimeOnly: false, // TODO: Fix this
       };
       fields.push(field);

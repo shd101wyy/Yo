@@ -323,7 +323,7 @@ Got:      "${paramName}"`,
     type: newFunctionType,
     body: functionBodyExpr,
     frameLevel: env.frames.length - 1,
-    funcId: `fn_${randomId()}`,
+    funcId: `fn_${randomId(env.modulePath)}`,
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],
   };
@@ -430,7 +430,7 @@ Got:      "${paramName}"`,
     env = updatedEnv;
 
     // Update the existing function value for closures
-    functionValue.funcId = `closure_${randomId()}`;
+    functionValue.funcId = `closure_${randomId(env.modulePath)}`;
 
     // Set the closure info for easy codegen access
     functionValue.closureInfo = {
