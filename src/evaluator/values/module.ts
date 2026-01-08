@@ -23,31 +23,18 @@ import { TypeValue } from "../../type-value";
 import {
   createType0,
   createTypeHierarchy,
-  EnumType,
   FunctionParameter,
   FunctionType,
-  isArrayType,
-  isComptListType,
-  isEnumType,
   isFunctionType,
-  isFutureModuleType,
-  isIsoType,
   isModuleType,
-  IsoType,
-  isPtrType,
-  isSliceType,
   isSomeType,
-  isStructType,
-  isTupleType,
   isType0,
-  isUnionType,
   ModuleField,
   ModuleType,
   SomeType,
   Type,
   typeContainsUnknownValue,
   typeToString,
-  UnionType,
 } from "../../types";
 import {
   createTypeValue,
@@ -70,6 +57,112 @@ import {
 } from "../exprs/subtype_of";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
+
+/**
+ * Re-evaluate a FunctionType's type expressions with substitutions bound in the environment.
+ * This is used for specializing generic methods - instead of structurally substituting types,
+ * we re-evaluate the original type expressions (e.g., `Option(T)`) with concrete type bindings
+ * to get properly constructed nominal types with correct funcIds.
+ *
+ * @param functionType The original function type with type expressions to re-evaluate
+ * @param specializedEnv Environment with type/value substitutions already bound
+ * @param SelfType The concrete Self type for method specialization
+ * @returns A new FunctionType with re-evaluated types
+ */
+function reEvaluateFunctionType({
+  functionType,
+  specializedEnv,
+  SelfType,
+}: {
+  functionType: FunctionType;
+  specializedEnv: Environment;
+  SelfType: Type | undefined;
+}): FunctionType {
+  // Re-evaluate each parameter's type expression
+  const newParameters: FunctionParameter[] = functionType.parameters.map(
+    (param) => {
+      if (!param.exprs.typeExpr) {
+        // No type expression to re-evaluate - keep the original type
+        // This shouldn't happen for module methods due to validation in evaluateModuleField
+        return param;
+      }
+
+      const typeExprClone = cloneExpr(param.exprs.typeExpr);
+      const evaluatedTypeExpr = evaluateExpression({
+        expr: typeExprClone,
+        env: specializedEnv,
+        context: {
+          isEvaluatingGenericImplSpecialization: true,
+          stdPath: "",
+          isEvaluatingFunctionType: true,
+          SelfType,
+        } as EvaluatorContext,
+      });
+
+      if (isTypeValue(evaluatedTypeExpr.$?.value)) {
+        // Clear typeExpr to prevent re-evaluation of already specialized type
+        return {
+          ...param,
+          type: evaluatedTypeExpr.$.value.value,
+          exprs: { ...param.exprs, typeExpr: undefined },
+        };
+      }
+
+      // Fallback to original type if re-evaluation doesn't produce a type
+      return param;
+    }
+  );
+
+  // Re-evaluate the return type expression
+  let newReturnType = functionType.return.type;
+  if (functionType.return.expr) {
+    const returnTypeExprClone = cloneExpr(functionType.return.expr);
+    const evaluatedReturnTypeExpr = evaluateExpression({
+      expr: returnTypeExprClone,
+      env: specializedEnv,
+      context: {
+        isEvaluatingGenericImplSpecialization: true,
+        stdPath: "",
+        isEvaluatingFunctionType: true,
+        SelfType,
+      } as EvaluatorContext,
+    });
+
+    if (isTypeValue(evaluatedReturnTypeExpr.$?.value)) {
+      newReturnType = evaluatedReturnTypeExpr.$.value.value;
+    }
+  }
+
+  // Re-evaluate SelfType if present (it's likely already concrete from substitutions)
+  let newSelfType = functionType.SelfType;
+  if (SelfType) {
+    newSelfType = SelfType;
+  }
+
+  // Create the new parametersFrame with re-evaluated types
+  const newParametersFrame = {
+    ...functionType.parametersFrame,
+    variables: functionType.parametersFrame.variables.map((v) => {
+      // Find the corresponding parameter in newParameters
+      const newParam = newParameters.find((p) => p.label === v.name);
+      const newType = newParam ? newParam.type : v.type;
+
+      if (newType !== v.type) {
+        return { ...v, type: newType };
+      }
+      return v;
+    }),
+  };
+
+  return {
+    ...functionType,
+    forallParameters: [], // Clear forall parameters since we've specialized them
+    parameters: newParameters,
+    parametersFrame: newParametersFrame,
+    return: { ...functionType.return, type: newReturnType, expr: undefined }, // Clear expr to prevent re-evaluation
+    SelfType: newSelfType,
+  };
+}
 
 /**
  * Registry of types that have impl fields from a specific module path.
@@ -351,37 +444,12 @@ export function findMethodsFromGenericImpls({
           // Get the actual function value from the module value
           const originalValue = moduleValue.fields[methodIndex];
 
-          // Substitute Self and type parameters with concrete types
-          const specializedType = substituteInFunctionType(
-            method.type,
-            match.substitutions,
-            match.valueSubstitutions,
-            new Set()
-          );
-
-          // If it's a function value, we need to:
-          // 1. Clone the function body
-          // 2. Create an environment with value/type substitutions bound
-          // 3. Re-evaluate the body to get correct type annotations
-          // 4. Create the specialized function value with the re-evaluated body
-          //
-          // NOTE: We re-evaluate when there are VALUE substitutions OR TYPE substitutions.
-          // Type substitutions need re-evaluation so that expressions like `__yo_iso_extract(self)`
-          // get the correct specialized types (e.g., Iso(Box(i32)) instead of Iso(T)).
-          //
+          // Check if we should create a specialized function value
           // IMPORTANT: We should NOT create specialized function values when the concreteType
           // contains Unknown values. This happens during initial function definition when
-          // parameters are still Unknown. In this case, just return the substituted type
+          // parameters are still Unknown. In this case, just return the original type
           // with undefined value - no specialized function body is created.
           // The proper specialization will happen later when called with concrete values.
-          //
-          // Why? If we create a specialized function with Unknown types, it gets collected
-          // but then skipped during codegen (because its body contains UnknownValue).
-          // Later when called with concrete types, a NEW specialized function is created
-          // (after collection phase), but it's never collected, causing "implicit declaration" errors.
-          let value: Value | undefined = originalValue;
-
-          // Check if we should create a specialized function value
           const hasUnknownTypes = typeContainsUnknownValue(concreteType);
           const shouldCreateSpecializedValue =
             isFunctionValue(originalValue) &&
@@ -390,20 +458,14 @@ export function findMethodsFromGenericImpls({
             !hasUnknownTypes;
 
           if (shouldCreateSpecializedValue) {
-            // Clone the function body for re-evaluation
-            const clonedBody = cloneExpr(originalValue.body);
-
             // Use the environment where the impl was originally defined
             // This ensures access to non-exported variables (like extern "Yo" functions)
             // that were available when the impl was created
             const baseEnv = impl.definitionEnv;
 
-            // Create a specialized environment with the specialized function parameters
-            // Push the parametersFrame which contains the function parameters (like `self`)
-            let specializedEnv = pushEnvFrame(
-              baseEnv,
-              specializedType.parametersFrame
-            );
+            // Create a specialized environment with type/value substitutions bound
+            // Start with a fresh frame
+            let specializedEnv = pushEnvFrame(baseEnv);
 
             // Add type substitutions to the environment first (like T=i32, U=usize, Self=[i32; 5])
             // These must come BEFORE value substitutions so that value expressions can reference the types
@@ -443,6 +505,23 @@ export function findMethodsFromGenericImpls({
               specializedEnv = nextEnv;
             }
 
+            // Re-evaluate the function type to get specialized types
+            // This properly handles nominal types like Option(T) -> Option(Box(i32))
+            const specializedType = reEvaluateFunctionType({
+              functionType: method.type,
+              specializedEnv,
+              SelfType: match.substitutions.get("Self"),
+            });
+
+            // Now add the parametersFrame with the specialized parameter types
+            specializedEnv = pushEnvFrame(
+              specializedEnv,
+              specializedType.parametersFrame
+            );
+
+            // Clone the function body for re-evaluation
+            const clonedBody = cloneExpr(originalValue.body);
+
             // Re-evaluate the function body with the concrete values
             const specializedBody = evaluateBeginExpression({
               expr: clonedBody,
@@ -468,15 +547,10 @@ export function findMethodsFromGenericImpls({
               isEvaluatingFunctionBodyBeginBlock: true,
             });
 
-            // Use the specializedType from substituteInFunctionType
-            // Don't override with specializedBody.$.type because the body might still
-            // have unresolved type parameters from nested generic calls
-            const finalSpecializedType = specializedType;
-
             // Create a specialized function value with the re-evaluated body
             const specializedFunctionValue: FunctionValue = {
               ...originalValue,
-              specializedType: finalSpecializedType,
+              specializedType: specializedType,
               body: specializedBody,
               // Create a unique funcId for this specialization (include both type and value substitutions)
               funcId: `${originalValue.funcId}_specialized_${[...match.substitutions.entries()].map(([k, v]) => `${k}_${typeToString(v)}`).join("_")}_${[...match.valueSubstitutions.entries()].map(([k, v]) => `${k}_${valueToString(v)}`).join("_")}`,
@@ -484,24 +558,27 @@ export function findMethodsFromGenericImpls({
                 ? `${originalValue.funcName}_specialized`
                 : undefined,
             };
-            value = specializedFunctionValue;
 
-            // Also update the type pushed to methods
-            methods.push({ type: finalSpecializedType, value });
+            methods.push({
+              type: specializedType,
+              value: specializedFunctionValue,
+            });
           } else if (hasUnknownTypes) {
             // Don't create specialized value when types are Unknown
-            // Just return the substituted type with undefined value
-            methods.push({ type: specializedType, value: undefined });
+            // Just return the original type with undefined value
+            methods.push({ type: method.type, value: undefined });
           } else if (isFunctionValue(originalValue)) {
             // No substitutions needed, just set the specialized type
             const specializedFunctionValue: FunctionValue = {
               ...originalValue,
-              specializedType: specializedType,
+              specializedType: method.type,
             };
-            value = specializedFunctionValue;
-            methods.push({ type: specializedType, value });
+            methods.push({
+              type: method.type,
+              value: specializedFunctionValue,
+            });
           } else {
-            methods.push({ type: specializedType, value });
+            methods.push({ type: method.type, value: originalValue });
           }
         }
       }
@@ -559,30 +636,35 @@ export function findMethodFromGenericImplForModule({
       if (isFunctionType(method.type)) {
         // Get the actual function value from the module value
         const originalValue = implModuleValue.fields[methodIndex];
-        // Substitute Self and type parameters with concrete types
-        const specializedType = substituteInFunctionType(
-          method.type,
-          match.substitutions,
-          match.valueSubstitutions
-        );
 
         // If it's a function value, we need to re-evaluate with concrete substitutions
-        let value: Value | undefined = originalValue;
         if (
           isFunctionValue(originalValue) &&
           (match.valueSubstitutions.size > 0 || match.substitutions.size > 0)
         ) {
-          // Clone the function body for re-evaluation
-          const clonedBody = cloneExpr(originalValue.body);
-
           // Use the environment where the impl was originally defined
           const baseEnv = impl.definitionEnv;
 
-          // Create a specialized environment with the specialized function parameters
-          let specializedEnv = pushEnvFrame(
-            baseEnv,
-            specializedType.parametersFrame
-          );
+          // Create a specialized environment with type/value substitutions bound
+          let specializedEnv = pushEnvFrame(baseEnv);
+
+          // Add type substitutions to the environment (like T=Box(i32), Self=...)
+          for (const [paramName, paramType] of match.substitutions) {
+            const { env: nextEnv } = addVariableToEnv({
+              env: specializedEnv,
+              variable: {
+                name: paramName,
+                type: createType0(),
+                isCompileTimeOnly: true,
+                value: createTypeValue(paramType),
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+            });
+            specializedEnv = nextEnv;
+          }
 
           // Add value substitutions (compile-time values like U=3)
           for (const [paramName, paramValue] of match.valueSubstitutions) {
@@ -602,25 +684,21 @@ export function findMethodFromGenericImplForModule({
             specializedEnv = nextEnv;
           }
 
-          // Also add type substitutions to the environment (like T=Box(i32))
-          for (const [paramName, paramType] of match.substitutions) {
-            if (paramName !== "Self") {
-              const { env: nextEnv } = addVariableToEnv({
-                env: specializedEnv,
-                variable: {
-                  name: paramName,
-                  type: createType0(),
-                  isCompileTimeOnly: true,
-                  value: createTypeValue(paramType),
-                  token: PlaceholderToken,
-                  initializedAtToken: PlaceholderToken,
-                  consumedAtToken: undefined,
-                  isOwningTheRcValue: false,
-                },
-              });
-              specializedEnv = nextEnv;
-            }
-          }
+          // Re-evaluate the function type to get specialized types
+          const specializedType = reEvaluateFunctionType({
+            functionType: method.type,
+            specializedEnv,
+            SelfType: match.substitutions.get("Self"),
+          });
+
+          // Now add the parametersFrame with the specialized parameter types
+          specializedEnv = pushEnvFrame(
+            specializedEnv,
+            specializedType.parametersFrame
+          );
+
+          // Clone the function body for re-evaluation
+          const clonedBody = cloneExpr(originalValue.body);
 
           // Re-evaluate the function body with the concrete values
           const specializedBody = evaluateBeginExpression({
@@ -647,41 +725,27 @@ export function findMethodFromGenericImplForModule({
             isEvaluatingFunctionBodyBeginBlock: true,
           });
 
-          // Update specializedType with the body's actual return type
-          let finalSpecializedType = specializedType;
-          if (specializedBody.$?.type) {
-            finalSpecializedType = {
-              ...specializedType,
-              return: {
-                ...specializedType.return,
-                type: specializedBody.$.type,
-              },
-            };
-          }
-
           // Create a specialized function value with the re-evaluated body
           const specializedFunctionValue: FunctionValue = {
             ...originalValue,
-            specializedType: finalSpecializedType,
+            specializedType: specializedType,
             body: specializedBody,
             funcId: `${originalValue.funcId}_specialized_${[...match.substitutions.entries()].map(([k, v]) => `${k}_${typeToString(v)}`).join("_")}_${[...match.valueSubstitutions.entries()].map(([k, v]) => `${k}_${valueToString(v)}`).join("_")}`,
             funcName: originalValue.funcName
               ? `${originalValue.funcName}_specialized`
               : undefined,
           };
-          value = specializedFunctionValue;
 
-          return { type: finalSpecializedType, value };
+          return { type: specializedType, value: specializedFunctionValue };
         } else if (isFunctionValue(originalValue)) {
           // No substitutions needed, just set the specialized type
           const specializedFunctionValue: FunctionValue = {
             ...originalValue,
-            specializedType: specializedType,
+            specializedType: method.type,
           };
-          value = specializedFunctionValue;
-          return { type: specializedType, value };
+          return { type: method.type, value: specializedFunctionValue };
         } else {
-          return { type: specializedType, value };
+          return { type: method.type, value: originalValue };
         }
       }
     }
@@ -697,482 +761,6 @@ interface GenericImplMatchResult {
   substitutions: Map<string, Type>;
   /** Map from value parameter name to the concrete value it was bound to */
   valueSubstitutions: Map<string, Value>;
-}
-
-/**
- * Helper function to substitute in a ModuleType's fields.
- * Returns the same module if no changes were made, or a new module with substituted fields.
- */
-function substituteInModuleFields(
-  module: ModuleType | undefined,
-  substitutions: Map<string, Type>,
-  valueSubstitutions: Map<string, Value>,
-  visited: Set<string>
-): ModuleType | undefined {
-  if (!module) {
-    return module;
-  }
-
-  let changed = false;
-  const newFields = module.fields.map((f) => {
-    const newFieldType = substituteInType(
-      f.type,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newFieldType !== f.type) {
-      changed = true;
-      return { ...f, type: newFieldType };
-    }
-    return f;
-  });
-
-  if (!changed) {
-    return module;
-  }
-
-  return { ...module, fields: newFields };
-}
-
-/**
- * Apply type substitutions to a Type recursively.
- * Substitutes SomeTypes whose name matches a key in the substitutions map.
- * Also substitutes value parameters (for array lengths, etc.).
- */
-function substituteInType(
-  type: Type,
-  substitutions: Map<string, Type>,
-  valueSubstitutions: Map<string, Value> = new Map(),
-  visited: Set<string> = new Set()
-): Type {
-  // Prevent infinite recursion on circular types
-  // Only check visited for compound types that can have circular references
-  // SomeTypes are terminal nodes and should always be processed
-  if (type.id && visited.has(type.id) && !isSomeType(type)) {
-    return type;
-  }
-
-  // Only add compound types to visited set (not SomeTypes)
-  if (type.id && !isSomeType(type)) {
-    visited.add(type.id);
-  }
-
-  if (isSomeType(type)) {
-    const substitute = substitutions.get(type.name);
-    if (substitute) {
-      return substitute;
-    }
-    return type;
-  }
-
-  if (isPtrType(type)) {
-    const newChildType = substituteInType(
-      type.childType,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newChildType === type.childType && newModule === type.module) {
-      return type;
-    }
-    return { ...type, childType: newChildType, module: newModule } as Type;
-  }
-
-  if (isArrayType(type)) {
-    const newChildType = substituteInType(
-      type.childType,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    // Also substitute the array length if it's an UnknownValue with a variable name
-    let newLength = type.length;
-    if (isUnknownValue(type.length) && type.length.variableName) {
-      const substituteLength = valueSubstitutions.get(type.length.variableName);
-      if (substituteLength) {
-        newLength = substituteLength;
-      }
-    }
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (
-      newChildType === type.childType &&
-      newLength === type.length &&
-      newModule === type.module
-    ) {
-      return type;
-    }
-    return {
-      ...type,
-      childType: newChildType,
-      length: newLength,
-      module: newModule,
-    } as Type;
-  }
-
-  if (isSliceType(type)) {
-    const newChildType = substituteInType(
-      type.childType,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newChildType === type.childType && newModule === type.module) {
-      return type;
-    }
-    return { ...type, childType: newChildType, module: newModule } as Type;
-  }
-
-  if (isComptListType(type)) {
-    const newChildType = substituteInType(
-      type.childType,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newChildType === type.childType && newModule === type.module) {
-      return type;
-    }
-    return { ...type, childType: newChildType, module: newModule } as Type;
-  }
-
-  if (isTupleType(type)) {
-    let changed = false;
-    const newFields = type.fields.map((f) => {
-      const newType = substituteInType(
-        f.type,
-        substitutions,
-        valueSubstitutions,
-        visited
-      );
-      if (newType !== f.type) {
-        changed = true;
-        return { ...f, type: newType };
-      }
-      return f;
-    });
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newModule !== type.module) {
-      changed = true;
-    }
-    if (!changed) {
-      return type;
-    }
-    return { ...type, fields: newFields, module: newModule } as Type;
-  }
-
-  if (isStructType(type)) {
-    let changed = false;
-    const newFields = type.fields.map((f) => {
-      const newType = substituteInType(
-        f.type,
-        substitutions,
-        valueSubstitutions,
-        visited
-      );
-      if (newType !== f.type) {
-        changed = true;
-        return { ...f, type: newType };
-      }
-      return f;
-    });
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newModule !== type.module) {
-      changed = true;
-    }
-    if (!changed) {
-      return type;
-    }
-    return { ...type, fields: newFields, module: newModule } as Type;
-  }
-
-  if (isEnumType(type)) {
-    let changed = false;
-    const newVariants = type.variants.map((v) => {
-      if (!v.fields) {
-        return v;
-      }
-      const newFields = v.fields.map((f) => {
-        const newType = substituteInType(
-          f.type,
-          substitutions,
-          valueSubstitutions,
-          visited
-        );
-        if (newType !== f.type) {
-          changed = true;
-          return { ...f, type: newType };
-        }
-        return f;
-      });
-      if (newFields !== v.fields) {
-        return { ...v, fields: newFields };
-      }
-      return v;
-    });
-
-    // IMPORTANT: Also substitute in the module's methods!
-    // Enum methods like unwrap() may reference type parameters like T
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newModule !== type.module) {
-      changed = true;
-    }
-
-    if (!changed) {
-      return type;
-    }
-
-    // Create the new type first, WITHOUT the old typeName
-    // We need to clear typeName so typeToString reconstructs it from the structure
-    const newType: EnumType = {
-      ...type,
-      variants: newVariants,
-      module: newModule!,
-      typeName: undefined, // Clear so typeToString reconstructs from structure
-    };
-
-    // Update the typeName to reflect the substitution
-    // This ensures that Option(T) becomes Option(Box(i32)) after substitution
-    if (type.typeName) {
-      newType.typeName = typeToString(newType);
-    }
-
-    return newType;
-  }
-
-  if (isUnionType(type)) {
-    let changed = false;
-    const newFields = type.fields.map((f) => {
-      const newType = substituteInType(
-        f.type,
-        substitutions,
-        valueSubstitutions,
-        visited
-      );
-      if (newType !== f.type) {
-        changed = true;
-        return { ...f, type: newType };
-      }
-      return f;
-    });
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newModule !== type.module) {
-      changed = true;
-    }
-    if (!changed) {
-      return type;
-    }
-
-    // Create the new type first, WITHOUT the old typeName
-    const newType: UnionType = {
-      ...type,
-      fields: newFields,
-      module: newModule!,
-      typeName: undefined, // Clear so typeToString reconstructs from structure
-    };
-
-    // Update the typeName to reflect the substitution
-    if (type.typeName) {
-      newType.typeName = typeToString(newType);
-    }
-
-    return newType;
-  }
-
-  if (isFutureModuleType(type)) {
-    const newChildType = substituteInType(
-      type.isFuture.outputType,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newChildType === type.isFuture.outputType) {
-      return type;
-    }
-    return { ...type, isFuture: { outputType: newChildType } } as Type;
-  }
-
-  if (isIsoType(type)) {
-    const newChildType = substituteInType(
-      type.childType,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    // Also substitute in module if present
-    const newModule = substituteInModuleFields(
-      type.module,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newChildType === type.childType && newModule === type.module) {
-      return type;
-    }
-
-    // Create the new type first, WITHOUT the old typeName
-    const newType: IsoType = {
-      ...type,
-      childType: newChildType,
-      module: newModule!,
-      typeName: undefined, // Clear so typeToString reconstructs from structure
-    };
-
-    // Update the typeName to reflect the substitution
-    if (type.typeName) {
-      newType.typeName = typeToString(newType);
-    }
-
-    return newType;
-  }
-
-  if (isFunctionType(type)) {
-    return substituteInFunctionType(
-      type,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-  }
-
-  return type;
-}
-
-/**
- * Apply type substitutions to a FunctionType.
- * This substitutes SomeTypes in parameters and return type.
- * Also substitutes value parameters (for array lengths, etc.).
- */
-function substituteInFunctionType(
-  functionType: FunctionType,
-  substitutions: Map<string, Type>,
-  valueSubstitutions: Map<string, Value> = new Map(),
-  visited: Set<string> = new Set()
-): FunctionType {
-  let changed = false;
-
-  // Substitute in parameters
-  const newParameters: FunctionParameter[] = functionType.parameters.map(
-    (p) => {
-      const newType = substituteInType(
-        p.type,
-        substitutions,
-        valueSubstitutions,
-        visited
-      );
-      if (newType !== p.type) {
-        changed = true;
-        return { ...p, type: newType };
-      }
-      return p;
-    }
-  );
-
-  // Substitute in return type
-  const newReturnType = substituteInType(
-    functionType.return.type,
-    substitutions,
-    valueSubstitutions,
-    visited
-  );
-  const returnChanged = newReturnType !== functionType.return.type;
-
-  // Substitute in SelfType if present
-  let newSelfType = functionType.SelfType;
-  if (functionType.SelfType) {
-    newSelfType = substituteInType(
-      functionType.SelfType,
-      substitutions,
-      valueSubstitutions,
-      visited
-    );
-    if (newSelfType !== functionType.SelfType) {
-      changed = true;
-    }
-  }
-
-  if (!changed && !returnChanged) {
-    return functionType;
-  }
-
-  // Also update the parametersFrame with substituted types
-  // This is critical for body re-evaluation where the frame variables need correct types
-  // Instead of re-substituting (which can be skipped due to visited set), just copy
-  // the already-substituted types from newParameters
-  const newParametersFrame = {
-    ...functionType.parametersFrame,
-    variables: functionType.parametersFrame.variables.map((v) => {
-      // Find the corresponding parameter in newParameters
-      const newParam = newParameters.find((p) => p.label === v.name);
-      const newType = newParam ? newParam.type : v.type;
-
-      if (newType !== v.type) {
-        return { ...v, type: newType };
-      }
-      return v;
-    }),
-  };
-
-  return {
-    ...functionType,
-    forallParameters: [], // Clear forall parameters since we've specialized them
-    parameters: newParameters,
-    parametersFrame: newParametersFrame,
-    return: returnChanged
-      ? { ...functionType.return, type: newReturnType, expr: undefined }
-      : functionType.return,
-    SelfType: newSelfType,
-  };
 }
 
 /**

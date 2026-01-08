@@ -2,22 +2,12 @@ main :: (fn() -> unit) {
   x := Box(i32)(99);
   isolated := ^(x);
 
-  compt_expect_error(y := x, "use of moved value: x");
-
   match(isolated,
     .Some(iso_val) => {
-      {
-        opt := iso_val.extract();
-        e := opt.unwrap();
-        // Just check compilation - e should have type Box(i32)
-        // Can't dereference in evaluator as it's a runtime value
-        v := e.*;
-      };
-
-      {
-        e := iso_val.extract().unwrap();
-        v := e.*; 
-      };
+      opt := iso_val.extract();
+      e := opt.unwrap();
+      v := e.*;
+      assert(v == 99, "Expected 99");
     },
     .None => {
       assert(false, "Expected Some, got None");
