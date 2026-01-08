@@ -180,6 +180,7 @@ export function extractTests(filePath: string): TestDeclaration[] {
     console.error(
       `${colors.red}Error parsing ${filePath}: ${error}${colors.reset}`
     );
+    throw error;
   }
 
   return tests;
