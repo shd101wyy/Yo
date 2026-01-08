@@ -28,8 +28,7 @@ function findAvailableCompiler(): string | null {
 yargs(hideBin(process.argv))
   .wrap(null)
   .usage(
-    `The Yo Programming Language
-Version: ${packageJson.version}
+    `The Yo Programming Language ${packageJson.version}
 Usage:
 
 yo compile <file> [options]      Compile a '.yo' file

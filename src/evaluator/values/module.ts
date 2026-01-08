@@ -23,6 +23,7 @@ import { TypeValue } from "../../type-value";
 import {
   createType0,
   createTypeHierarchy,
+  EnumType,
   FunctionParameter,
   FunctionType,
   isArrayType,
@@ -32,6 +33,7 @@ import {
   isFutureModuleType,
   isIsoType,
   isModuleType,
+  IsoType,
   isPtrType,
   isSliceType,
   isSomeType,
@@ -45,6 +47,7 @@ import {
   Type,
   typeContainsUnknownValue,
   typeToString,
+  UnionType,
 } from "../../types";
 import {
   createTypeValue,
@@ -347,11 +350,13 @@ export function findMethodsFromGenericImpls({
         if (isFunctionType(method.type)) {
           // Get the actual function value from the module value
           const originalValue = moduleValue.fields[methodIndex];
+
           // Substitute Self and type parameters with concrete types
           const specializedType = substituteInFunctionType(
             method.type,
             match.substitutions,
-            match.valueSubstitutions
+            match.valueSubstitutions,
+            new Set()
           );
 
           // If it's a function value, we need to:
@@ -695,6 +700,42 @@ interface GenericImplMatchResult {
 }
 
 /**
+ * Helper function to substitute in a ModuleType's fields.
+ * Returns the same module if no changes were made, or a new module with substituted fields.
+ */
+function substituteInModuleFields(
+  module: ModuleType | undefined,
+  substitutions: Map<string, Type>,
+  valueSubstitutions: Map<string, Value>,
+  visited: Set<string>
+): ModuleType | undefined {
+  if (!module) {
+    return module;
+  }
+
+  let changed = false;
+  const newFields = module.fields.map((f) => {
+    const newFieldType = substituteInType(
+      f.type,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newFieldType !== f.type) {
+      changed = true;
+      return { ...f, type: newFieldType };
+    }
+    return f;
+  });
+
+  if (!changed) {
+    return module;
+  }
+
+  return { ...module, fields: newFields };
+}
+
+/**
  * Apply type substitutions to a Type recursively.
  * Substitutes SomeTypes whose name matches a key in the substitutions map.
  * Also substitutes value parameters (for array lengths, etc.).
@@ -702,8 +743,21 @@ interface GenericImplMatchResult {
 function substituteInType(
   type: Type,
   substitutions: Map<string, Type>,
-  valueSubstitutions: Map<string, Value> = new Map()
+  valueSubstitutions: Map<string, Value> = new Map(),
+  visited: Set<string> = new Set()
 ): Type {
+  // Prevent infinite recursion on circular types
+  // Only check visited for compound types that can have circular references
+  // SomeTypes are terminal nodes and should always be processed
+  if (type.id && visited.has(type.id) && !isSomeType(type)) {
+    return type;
+  }
+
+  // Only add compound types to visited set (not SomeTypes)
+  if (type.id && !isSomeType(type)) {
+    visited.add(type.id);
+  }
+
   if (isSomeType(type)) {
     const substitute = substitutions.get(type.name);
     if (substitute) {
@@ -716,19 +770,28 @@ function substituteInType(
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
+      visited
     );
-    if (newChildType === type.childType) {
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newChildType === type.childType && newModule === type.module) {
       return type;
     }
-    return { ...type, childType: newChildType } as Type;
+    return { ...type, childType: newChildType, module: newModule } as Type;
   }
 
   if (isArrayType(type)) {
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
+      visited
     );
     // Also substitute the array length if it's an UnknownValue with a variable name
     let newLength = type.length;
@@ -738,34 +801,66 @@ function substituteInType(
         newLength = substituteLength;
       }
     }
-    if (newChildType === type.childType && newLength === type.length) {
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (
+      newChildType === type.childType &&
+      newLength === type.length &&
+      newModule === type.module
+    ) {
       return type;
     }
-    return { ...type, childType: newChildType, length: newLength } as Type;
+    return {
+      ...type,
+      childType: newChildType,
+      length: newLength,
+      module: newModule,
+    } as Type;
   }
 
   if (isSliceType(type)) {
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
+      visited
     );
-    if (newChildType === type.childType) {
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newChildType === type.childType && newModule === type.module) {
       return type;
     }
-    return { ...type, childType: newChildType } as Type;
+    return { ...type, childType: newChildType, module: newModule } as Type;
   }
 
   if (isComptListType(type)) {
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
+      visited
     );
-    if (newChildType === type.childType) {
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newChildType === type.childType && newModule === type.module) {
       return type;
     }
-    return { ...type, childType: newChildType } as Type;
+    return { ...type, childType: newChildType, module: newModule } as Type;
   }
 
   if (isTupleType(type)) {
@@ -774,7 +869,8 @@ function substituteInType(
       const newType = substituteInType(
         f.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
+        visited
       );
       if (newType !== f.type) {
         changed = true;
@@ -782,10 +878,20 @@ function substituteInType(
       }
       return f;
     });
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newModule !== type.module) {
+      changed = true;
+    }
     if (!changed) {
       return type;
     }
-    return { ...type, fields: newFields } as Type;
+    return { ...type, fields: newFields, module: newModule } as Type;
   }
 
   if (isStructType(type)) {
@@ -794,7 +900,8 @@ function substituteInType(
       const newType = substituteInType(
         f.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
+        visited
       );
       if (newType !== f.type) {
         changed = true;
@@ -802,10 +909,20 @@ function substituteInType(
       }
       return f;
     });
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newModule !== type.module) {
+      changed = true;
+    }
     if (!changed) {
       return type;
     }
-    return { ...type, fields: newFields } as Type;
+    return { ...type, fields: newFields, module: newModule } as Type;
   }
 
   if (isEnumType(type)) {
@@ -818,7 +935,8 @@ function substituteInType(
         const newType = substituteInType(
           f.type,
           substitutions,
-          valueSubstitutions
+          valueSubstitutions,
+          visited
         );
         if (newType !== f.type) {
           changed = true;
@@ -831,10 +949,39 @@ function substituteInType(
       }
       return v;
     });
+
+    // IMPORTANT: Also substitute in the module's methods!
+    // Enum methods like unwrap() may reference type parameters like T
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newModule !== type.module) {
+      changed = true;
+    }
+
     if (!changed) {
       return type;
     }
-    return { ...type, variants: newVariants } as Type;
+
+    // Create the new type first, WITHOUT the old typeName
+    // We need to clear typeName so typeToString reconstructs it from the structure
+    const newType: EnumType = {
+      ...type,
+      variants: newVariants,
+      module: newModule!,
+      typeName: undefined, // Clear so typeToString reconstructs from structure
+    };
+
+    // Update the typeName to reflect the substitution
+    // This ensures that Option(T) becomes Option(Box(i32)) after substitution
+    if (type.typeName) {
+      newType.typeName = typeToString(newType);
+    }
+
+    return newType;
   }
 
   if (isUnionType(type)) {
@@ -843,7 +990,8 @@ function substituteInType(
       const newType = substituteInType(
         f.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
+        visited
       );
       if (newType !== f.type) {
         changed = true;
@@ -851,38 +999,90 @@ function substituteInType(
       }
       return f;
     });
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newModule !== type.module) {
+      changed = true;
+    }
     if (!changed) {
       return type;
     }
-    return { ...type, fields: newFields } as Type;
+
+    // Create the new type first, WITHOUT the old typeName
+    const newType: UnionType = {
+      ...type,
+      fields: newFields,
+      module: newModule!,
+      typeName: undefined, // Clear so typeToString reconstructs from structure
+    };
+
+    // Update the typeName to reflect the substitution
+    if (type.typeName) {
+      newType.typeName = typeToString(newType);
+    }
+
+    return newType;
   }
 
   if (isFutureModuleType(type)) {
     const newChildType = substituteInType(
       type.isFuture.outputType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
+      visited
     );
     if (newChildType === type.isFuture.outputType) {
       return type;
     }
-    return { ...type, isFuture: { childType: newChildType } } as Type;
+    return { ...type, isFuture: { outputType: newChildType } } as Type;
   }
 
   if (isIsoType(type)) {
     const newChildType = substituteInType(
       type.childType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
+      visited
     );
-    if (newChildType === type.childType) {
+    // Also substitute in module if present
+    const newModule = substituteInModuleFields(
+      type.module,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
+    if (newChildType === type.childType && newModule === type.module) {
       return type;
     }
-    return { ...type, childType: newChildType } as Type;
+
+    // Create the new type first, WITHOUT the old typeName
+    const newType: IsoType = {
+      ...type,
+      childType: newChildType,
+      module: newModule!,
+      typeName: undefined, // Clear so typeToString reconstructs from structure
+    };
+
+    // Update the typeName to reflect the substitution
+    if (type.typeName) {
+      newType.typeName = typeToString(newType);
+    }
+
+    return newType;
   }
 
   if (isFunctionType(type)) {
-    return substituteInFunctionType(type, substitutions, valueSubstitutions);
+    return substituteInFunctionType(
+      type,
+      substitutions,
+      valueSubstitutions,
+      visited
+    );
   }
 
   return type;
@@ -896,7 +1096,8 @@ function substituteInType(
 function substituteInFunctionType(
   functionType: FunctionType,
   substitutions: Map<string, Type>,
-  valueSubstitutions: Map<string, Value> = new Map()
+  valueSubstitutions: Map<string, Value> = new Map(),
+  visited: Set<string> = new Set()
 ): FunctionType {
   let changed = false;
 
@@ -906,7 +1107,8 @@ function substituteInFunctionType(
       const newType = substituteInType(
         p.type,
         substitutions,
-        valueSubstitutions
+        valueSubstitutions,
+        visited
       );
       if (newType !== p.type) {
         changed = true;
@@ -920,7 +1122,8 @@ function substituteInFunctionType(
   const newReturnType = substituteInType(
     functionType.return.type,
     substitutions,
-    valueSubstitutions
+    valueSubstitutions,
+    visited
   );
   const returnChanged = newReturnType !== functionType.return.type;
 
@@ -930,7 +1133,8 @@ function substituteInFunctionType(
     newSelfType = substituteInType(
       functionType.SelfType,
       substitutions,
-      valueSubstitutions
+      valueSubstitutions,
+      visited
     );
     if (newSelfType !== functionType.SelfType) {
       changed = true;
@@ -943,14 +1147,15 @@ function substituteInFunctionType(
 
   // Also update the parametersFrame with substituted types
   // This is critical for body re-evaluation where the frame variables need correct types
+  // Instead of re-substituting (which can be skipped due to visited set), just copy
+  // the already-substituted types from newParameters
   const newParametersFrame = {
     ...functionType.parametersFrame,
     variables: functionType.parametersFrame.variables.map((v) => {
-      const newType = substituteInType(
-        v.type,
-        substitutions,
-        valueSubstitutions
-      );
+      // Find the corresponding parameter in newParameters
+      const newParam = newParameters.find((p) => p.label === v.name);
+      const newType = newParam ? newParam.type : v.type;
+
       if (newType !== v.type) {
         return { ...v, type: newType };
       }

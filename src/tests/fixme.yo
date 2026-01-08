@@ -1,9 +1,28 @@
-// File handle (reference-counted object)
-File :: object(
-  _fd : i32,
+main :: (fn() -> unit) {
+  x := Box(i32)(99);
+  isolated := ^(x);
 
-  // Read entire file asynchronously (returns bytes as ArrayList)
-  read_bytes_async :: (fn(self : Self) -> Impl(Future(unit)))(async {
-    return ();
-  })
-);
+  compt_expect_error(y := x, "use of moved value: x");
+
+  match(isolated,
+    .Some(iso_val) => {
+      {
+        opt := iso_val.extract();
+        e := opt.unwrap();
+        // Just check compilation - e should have type Box(i32)
+        // Can't dereference in evaluator as it's a runtime value
+        v := e.*;
+      };
+
+      {
+        e := iso_val.extract().unwrap();
+        v := e.*; 
+      };
+    },
+    .None => {
+      assert(false, "Expected Some, got None");
+    }
+  );
+};
+
+export main;

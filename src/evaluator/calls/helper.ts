@@ -503,8 +503,12 @@ export function tryToCallFunctionWithArguments({
 }): FunctionCallResult {
   if (functionValue) {
     // Use the specializedType if available (e.g., from generic impls)
-    // Otherwise fall back to the function value's type
-    functionType = functionValue.specializedType ?? functionValue.type;
+    // Only fall back to functionValue.type if specializedType exists
+    // Otherwise, keep the passed-in functionType which may already be specialized
+    // (e.g., when method is looked up from a concrete receiver type)
+    if (functionValue.specializedType) {
+      functionType = functionValue.specializedType;
+    }
     // Because it might be an anonymous function
     // the parameter names are different from the function type that it's implementing
   }
