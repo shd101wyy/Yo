@@ -564,9 +564,63 @@ export function findMethodsFromGenericImpls({
               value: specializedFunctionValue,
             });
           } else if (hasUnknownTypes) {
-            // Don't create specialized value when types are Unknown
-            // Just return the original type with undefined value
-            methods.push({ type: method.type, value: undefined });
+            // We have unknown types (like unknown array length), so we can't fully specialize
+            // the function body. However, we should still re-evaluate the function TYPE
+            // to properly substitute known type parameters (like T = i32).
+            // Without this, the parameter type would remain as the unspecialized SomeType "T"
+            // instead of being resolved to the concrete element type.
+
+            // Use the environment where the impl was originally defined
+            const baseEnv = impl.definitionEnv;
+
+            // Create a specialized environment with type/value substitutions bound
+            let specializedEnv = pushEnvFrame(baseEnv);
+
+            // Add type substitutions to the environment (like T=i32, U=usize, Self=[i32; N])
+            for (const [paramName, paramType] of match.substitutions) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: specializedEnv,
+                variable: {
+                  name: paramName,
+                  type: createType0(),
+                  isCompileTimeOnly: true,
+                  value: createTypeValue(paramType),
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+              });
+              specializedEnv = nextEnv;
+            }
+
+            // Add value substitutions (compile-time values like n=3)
+            for (const [paramName, paramValue] of match.valueSubstitutions) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: specializedEnv,
+                variable: {
+                  name: paramName,
+                  type: paramValue.type,
+                  isCompileTimeOnly: true,
+                  value: paramValue,
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+              });
+              specializedEnv = nextEnv;
+            }
+
+            // Re-evaluate the function type to get specialized parameter/return types
+            const specializedType = reEvaluateFunctionType({
+              functionType: method.type,
+              specializedEnv,
+              SelfType: match.substitutions.get("Self"),
+            });
+
+            // Return the specialized type but undefined value (body will be specialized at call site)
+            methods.push({ type: specializedType, value: undefined });
           } else if (isFunctionValue(originalValue)) {
             // No substitutions needed, just set the specialized type
             const specializedFunctionValue: FunctionValue = {

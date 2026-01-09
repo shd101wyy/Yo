@@ -1,31 +1,4 @@
-main :: (fn() -> unit) {
-  // Test 1: Open a runtime struct
-  {
-    anony := { x : 12, y : 13 };
-    open anony;
-    assert(x == 12);
-    assert(y == 13);
-  };
-
-  // Test 2: Open a runtime struct with more fields
-  {
-    point := { x : i32(5), y : i32(10), z : i32(15) };
-    open point;
-    sum := ((x + y) + z);
-    assert(sum == i32(30));
-  };
-
-  // Test 3: Open inside a function
-  {
-    Point :: struct(x: i32, y: i32);
-    calculate :: (fn(p : Point) -> i32) {
-      open p;
-      (x + y)
-    };
-
-    result := calculate(Point(7, 3));
-    assert(result == i32(10));
-  };
+return_array :: (fn(compt(N) : usize) -> [i32; N]) {
+  // return Array(i32, N).fill(i32(10)); // This works
+  return Array(i32, N).fill(10);         // FIXME: This does not work, but should
 };
-
-export main;

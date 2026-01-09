@@ -724,7 +724,9 @@ export function synthesizeTypes(
     // Check if they have the same tag as a basic compatibility check
     if (expected.type.tag !== given.type.tag) {
       throw new Error(
-        `Cannot unify incompatible types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`
+        `Cannot unify incompatible types:
+Expected: "${typeToString(expected.type)}"
+Given: "${typeToString(given.type)}"`
       );
     }
   }
