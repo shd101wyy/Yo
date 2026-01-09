@@ -800,6 +800,13 @@ test "Test 'match'", {
     )
   );
 
+  area_2 :: (fn(shape: Shape) -> i32)(
+    match(shape,
+      .Circle(radius) => (i32(3) * (radius * radius)),
+      .Rectangle(width, height) => (width * height)
+    )
+  );
+
   // Test labeled destructuring
   area_with_labels :: (fn(shape: Shape) -> i32)
     match(shape,
@@ -816,6 +823,16 @@ test "Test 'match'", {
       .Circle(_) =>
         100,
       .Rectangle(w : _, h : height) =>
+        height
+    )
+  ;
+
+  // Test partial destructuring
+  area_partial_2 :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(_) =>
+        100,
+      .Rectangle(h : height) =>
         height
     )
   ;
@@ -850,10 +867,14 @@ test "Test 'match'", {
   s2 := Shape.Rectangle(4, 5);
   assert(area(s1) == 27);
   assert(area(s2) == 20);
+  assert(area_2(s1) == 27);
+  assert(area_2(s2) == 20);
   assert(area_with_labels(s1) == 27);
   assert(area_with_labels(s2) == 20);
   assert(area_partial(s1) == 100);
   assert(area_partial(s2) == 5);
+  assert(area_partial_2(s1) == 100);
+  assert(area_partial_2(s2) == 5);
   assert(area_ptr(&(s1)) == 27);
   assert(area_ptr(&(s2)) == 20);
 };

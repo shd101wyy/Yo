@@ -6398,70 +6398,179 @@ function generateMatchExpression(
           // This is a destructuring pattern
           const variant = enumType.variants.find((v) => v.name === variantName);
           if (variant && variant.fields) {
-            // Generate local variable declarations for destructured fields
-            for (
-              let fieldIndex = 0;
-              fieldIndex <
-              Math.min(caseValue.args.length - 1, variant.fields.length);
-              fieldIndex++
-            ) {
-              const destructuredVar = caseValue.args[fieldIndex + 1]!; // Skip the variant name
-              const variantElement = variant.fields[fieldIndex];
+            // Get destructuring params (skip the variant name at index 0)
+            const destructuringParams = caseValue.args.slice(1);
 
-              if (exprIsAtom(destructuredVar) && variantElement) {
-                // Skip unit type fields - they don't exist in the generated struct
-                if (isUnitType(variantElement.type)) {
-                  continue;
-                }
+            // Check if we have labeled destructuring
+            const hasLabeledParams = destructuringParams.some(
+              (param) =>
+                exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+            );
 
-                const varName = destructuredVar.token.value;
-                const fieldName = sanitizeForCIdentifier(variantElement.label);
-                const fieldType = getTypeString(variantElement.type, context);
-
-                // Generate variable declaration and assignment
-                const accessPrefix =
-                  ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
-                context.emitter.emitLine(
-                  `${indent}  /* MARKER: Generating destructured variable ${varName} */`
-                );
-                context.emitter.emitLine(
-                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
-                );
-                // Check if this variable needs to be stored in the state machine
-                // For async contexts, pattern-matched variables that are used across await points
-                // need to be stored in the state machine structure
-                const functionContext = context as FunctionGenerationContext;
+            if (hasLabeledParams) {
+              // Handle labeled destructuring like .Circle(r : radius)
+              for (const param of destructuringParams) {
                 if (
-                  functionContext?.inStateMachine &&
-                  functionContext.stateMachineVariables
+                  exprIsFunctionCall(param) &&
+                  exprIsFunctionCallOf(param, ":", 2)
                 ) {
-                  // Find the variable ID by searching through state machine variables
-                  // The state machine tracks variables by their ID
-                  let varId: string | undefined;
+                  const labelExpr = param.args[0]!;
+                  const variableExpr = param.args[1]!;
 
-                  // Try to get ID from expr metadata if available
-                  // if (destructuredVar.$?.id) {
-                  //   varId = destructuredVar.$.id;
-                  // } else
-                  if (destructuredVar.$?.env) {
-                    // Try to look up in environment
-                    const vars = getVariablesFromEnv(
-                      destructuredVar.$.env,
-                      varName
-                    );
-                    if (vars.length > 0) {
-                      varId = vars[vars.length - 1]!.id;
-                    }
+                  if (!exprIsAtom(labelExpr)) {
+                    continue;
                   }
 
-                  if (
-                    varId &&
-                    functionContext.stateMachineVariables.has(varId)
-                  ) {
-                    // This variable crosses an await boundary, store it in state machine
-                    context.emitter.emitLine(
-                      `${indent}  sm->var_${varId} = ${varName};`
+                  const label = labelExpr.token.value;
+
+                  // Find the field with matching label
+                  const variantElement = variant.fields.find(
+                    (f) => f.label === label
+                  );
+                  if (!variantElement) {
+                    continue;
+                  }
+
+                  // Skip unit type fields - they don't exist in the generated struct
+                  if (isUnitType(variantElement.type)) {
+                    continue;
+                  }
+
+                  // Handle the variable part (could be identifier or _)
+                  if (exprIsAtom(variableExpr)) {
+                    const varName = variableExpr.token.value;
+
+                    // Skip if variable name is "_" (ignore pattern)
+                    if (varName !== "_") {
+                      const fieldName = sanitizeForCIdentifier(label);
+                      const fieldType = getTypeString(
+                        variantElement.type,
+                        context
+                      );
+
+                      // Generate variable declaration and assignment
+                      const accessPrefix =
+                        ptrOrRefType === "ref_semantics" || ptrOrRefType
+                          ? "->"
+                          : ".";
+                      context.emitter.emitLine(
+                        `${indent}  /* MARKER: Generating labeled destructured variable ${varName} from field ${label} */`
+                      );
+                      context.emitter.emitLine(
+                        `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                      );
+
+                      // Check if this variable needs to be stored in the state machine
+                      const functionContext =
+                        context as FunctionGenerationContext;
+                      if (
+                        functionContext?.inStateMachine &&
+                        functionContext.stateMachineVariables
+                      ) {
+                        let varId: string | undefined;
+
+                        if (variableExpr.$?.env) {
+                          const vars = getVariablesFromEnv(
+                            variableExpr.$.env,
+                            varName
+                          );
+                          if (vars.length > 0) {
+                            varId = vars[vars.length - 1]!.id;
+                          }
+                        }
+
+                        if (
+                          varId &&
+                          functionContext.stateMachineVariables.has(varId)
+                        ) {
+                          context.emitter.emitLine(
+                            `${indent}  sm->var_${varId} = ${varName};`
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // Handle positional destructuring
+              // Generate local variable declarations for destructured fields
+              for (
+                let fieldIndex = 0;
+                fieldIndex < destructuringParams.length &&
+                fieldIndex < variant.fields.length;
+                fieldIndex++
+              ) {
+                const destructuredVar = destructuringParams[fieldIndex]!;
+                const variantElement = variant.fields[fieldIndex];
+
+                if (exprIsAtom(destructuredVar) && variantElement) {
+                  // Skip unit type fields - they don't exist in the generated struct
+                  if (isUnitType(variantElement.type)) {
+                    continue;
+                  }
+
+                  const varName = destructuredVar.token.value;
+
+                  // Skip if variable name is "_" (ignore pattern)
+                  if (varName !== "_") {
+                    const fieldName = sanitizeForCIdentifier(
+                      variantElement.label
                     );
+                    const fieldType = getTypeString(
+                      variantElement.type,
+                      context
+                    );
+
+                    // Generate variable declaration and assignment
+                    const accessPrefix =
+                      ptrOrRefType === "ref_semantics" || ptrOrRefType
+                        ? "->"
+                        : ".";
+                    context.emitter.emitLine(
+                      `${indent}  /* MARKER: Generating destructured variable ${varName} */`
+                    );
+                    context.emitter.emitLine(
+                      `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                    );
+                    // Check if this variable needs to be stored in the state machine
+                    // For async contexts, pattern-matched variables that are used across await points
+                    // need to be stored in the state machine structure
+                    const functionContext =
+                      context as FunctionGenerationContext;
+                    if (
+                      functionContext?.inStateMachine &&
+                      functionContext.stateMachineVariables
+                    ) {
+                      // Find the variable ID by searching through state machine variables
+                      // The state machine tracks variables by their ID
+                      let varId: string | undefined;
+
+                      // Try to get ID from expr metadata if available
+                      // if (destructuredVar.$?.id) {
+                      //   varId = destructuredVar.$.id;
+                      // } else
+                      if (destructuredVar.$?.env) {
+                        // Try to look up in environment
+                        const vars = getVariablesFromEnv(
+                          destructuredVar.$.env,
+                          varName
+                        );
+                        if (vars.length > 0) {
+                          varId = vars[vars.length - 1]!.id;
+                        }
+                      }
+
+                      if (
+                        varId &&
+                        functionContext.stateMachineVariables.has(varId)
+                      ) {
+                        // This variable crosses an await boundary, store it in state machine
+                        context.emitter.emitLine(
+                          `${indent}  sm->var_${varId} = ${varName};`
+                        );
+                      }
+                    }
                   }
                 }
               }
@@ -6528,72 +6637,168 @@ function generateMatchExpression(
         // Generate local variable declarations for destructured fields
         const variant = enumType.variants.find((v) => v.name === variantName);
         if (variant && variant.fields && destructuringParams.length > 0) {
-          for (
-            let fieldIndex = 0;
-            fieldIndex <
-            Math.min(destructuringParams.length, variant.fields.length);
-            fieldIndex++
-          ) {
-            const destructuredVar = destructuringParams[fieldIndex]!;
-            const variantElement = variant.fields[fieldIndex];
+          // Check if we have labeled destructuring
+          const hasLabeledParams = destructuringParams.some(
+            (param) =>
+              exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+          );
 
-            if (destructuredVar.tag === ExprTag.Atom && variantElement) {
-              const varName = destructuredVar.token.value;
+          if (hasLabeledParams) {
+            // Handle labeled destructuring like .Circle(r : radius)
+            for (const param of destructuringParams) {
+              if (
+                exprIsFunctionCall(param) &&
+                exprIsFunctionCallOf(param, ":", 2)
+              ) {
+                const labelExpr = param.args[0]!;
+                const variableExpr = param.args[1]!;
 
-              // Skip if variable name is "_" (ignore pattern)
-              if (varName !== "_") {
-                // For unit type fields, generate a comment instead of a variable
-                // This allows the variable name to be "declared" without generating invalid C
-                if (isUnitType(variantElement.type)) {
-                  context.emitter.emitLine(
-                    `${indent}  // ${varName} is unit type (no value)`
-                  );
-                  // Register this as a unit variable so expression generation can handle it
-                  // (Expression generation should skip generating references to unit variables)
-                } else {
-                  const fieldName = sanitizeForCIdentifier(
-                    variantElement.label
-                  );
-                  const fieldType = getTypeString(variantElement.type, context);
+                if (!exprIsAtom(labelExpr)) {
+                  continue;
+                }
 
-                  // Generate variable declaration and assignment
-                  const accessPrefix =
-                    ptrOrRefType === "ref_semantics" || ptrOrRefType
-                      ? "->"
-                      : ".";
-                  context.emitter.emitLine(
-                    `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
-                  );
+                const label = labelExpr.token.value;
 
-                  // Check if this variable needs to be stored in the state machine
-                  const functionContext = context as FunctionGenerationContext;
-                  if (
-                    functionContext?.inStateMachine &&
-                    functionContext.stateMachineVariables
-                  ) {
-                    let varId: string | undefined;
+                // Find the field with matching label
+                const variantElement = variant.fields.find(
+                  (f) => f.label === label
+                );
+                if (!variantElement) {
+                  continue;
+                }
 
-                    // if (destructuredVar.$?.id) {
-                    //   varId = destructuredVar.$.id;
-                    // } else
-                    if (destructuredVar.$?.env) {
-                      const vars = getVariablesFromEnv(
-                        destructuredVar.$.env,
-                        varName
+                // Handle the variable part (could be identifier or _)
+                if (exprIsAtom(variableExpr)) {
+                  const varName = variableExpr.token.value;
+
+                  // Skip if variable name is "_" (ignore pattern)
+                  if (varName !== "_") {
+                    if (isUnitType(variantElement.type)) {
+                      context.emitter.emitLine(
+                        `${indent}  // ${varName} is unit type (no value)`
                       );
-                      if (vars.length > 0) {
-                        varId = vars[vars.length - 1]!.id;
+                    } else {
+                      const fieldName = sanitizeForCIdentifier(label);
+                      const fieldType = getTypeString(
+                        variantElement.type,
+                        context
+                      );
+
+                      // Generate variable declaration and assignment
+                      const accessPrefix =
+                        ptrOrRefType === "ref_semantics" || ptrOrRefType
+                          ? "->"
+                          : ".";
+                      context.emitter.emitLine(
+                        `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                      );
+
+                      // Check if this variable needs to be stored in the state machine
+                      const functionContext =
+                        context as FunctionGenerationContext;
+                      if (
+                        functionContext?.inStateMachine &&
+                        functionContext.stateMachineVariables
+                      ) {
+                        let varId: string | undefined;
+
+                        if (variableExpr.$?.env) {
+                          const vars = getVariablesFromEnv(
+                            variableExpr.$.env,
+                            varName
+                          );
+                          if (vars.length > 0) {
+                            varId = vars[vars.length - 1]!.id;
+                          }
+                        }
+
+                        if (
+                          varId &&
+                          functionContext.stateMachineVariables.has(varId)
+                        ) {
+                          context.emitter.emitLine(
+                            `${indent}  sm->var_${varId} = ${varName};`
+                          );
+                        }
                       }
                     }
+                  }
+                }
+              }
+            }
+          } else {
+            // Handle positional destructuring like .Circle(radius)
+            for (
+              let fieldIndex = 0;
+              fieldIndex <
+              Math.min(destructuringParams.length, variant.fields.length);
+              fieldIndex++
+            ) {
+              const destructuredVar = destructuringParams[fieldIndex]!;
+              const variantElement = variant.fields[fieldIndex];
 
+              if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+                const varName = destructuredVar.token.value;
+
+                // Skip if variable name is "_" (ignore pattern)
+                if (varName !== "_") {
+                  // For unit type fields, generate a comment instead of a variable
+                  // This allows the variable name to be "declared" without generating invalid C
+                  if (isUnitType(variantElement.type)) {
+                    context.emitter.emitLine(
+                      `${indent}  // ${varName} is unit type (no value)`
+                    );
+                    // Register this as a unit variable so expression generation can handle it
+                    // (Expression generation should skip generating references to unit variables)
+                  } else {
+                    const fieldName = sanitizeForCIdentifier(
+                      variantElement.label
+                    );
+                    const fieldType = getTypeString(
+                      variantElement.type,
+                      context
+                    );
+
+                    // Generate variable declaration and assignment
+                    const accessPrefix =
+                      ptrOrRefType === "ref_semantics" || ptrOrRefType
+                        ? "->"
+                        : ".";
+                    context.emitter.emitLine(
+                      `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                    );
+
+                    // Check if this variable needs to be stored in the state machine
+                    const functionContext =
+                      context as FunctionGenerationContext;
                     if (
-                      varId &&
-                      functionContext.stateMachineVariables.has(varId)
+                      functionContext?.inStateMachine &&
+                      functionContext.stateMachineVariables
                     ) {
-                      // This variable crosses an await boundary, store it in state machine
-                      context.emitter.emitLine(
-                        `${indent}  sm->var_${varId} = ${varName};`
-                      );
+                      let varId: string | undefined;
+
+                      // if (destructuredVar.$?.id) {
+                      //   varId = destructuredVar.$.id;
+                      // } else
+                      if (destructuredVar.$?.env) {
+                        const vars = getVariablesFromEnv(
+                          destructuredVar.$.env,
+                          varName
+                        );
+                        if (vars.length > 0) {
+                          varId = vars[vars.length - 1]!.id;
+                        }
+                      }
+
+                      if (
+                        varId &&
+                        functionContext.stateMachineVariables.has(varId)
+                      ) {
+                        // This variable crosses an await boundary, store it in state machine
+                        context.emitter.emitLine(
+                          `${indent}  sm->var_${varId} = ${varName};`
+                        );
+                      }
                     }
                   }
                 }

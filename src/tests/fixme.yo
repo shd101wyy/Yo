@@ -13,6 +13,36 @@ main :: (fn() -> unit) {
         (height * width)
     )
   ;
+
+  // Test positional destructuring for comparison
+  area_positional :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(radius) =>
+        (i32(3) * (radius * radius)),
+      .Rectangle(width, height) =>
+        (width * height)
+    )
+  ;
+
+  // Test the functions
+  circle := Shape.Circle(i32(5));
+  rect := Shape.Rectangle(i32(4), i32(6));
+
+  circle_area_labeled := area_with_labels(circle);
+  rect_area_labeled := area_with_labels(rect);
+
+  circle_area_pos := area_positional(circle);
+  rect_area_pos := area_positional(rect);
+
+  // Verify labeled destructuring: circle area = 3 * 5 * 5 = 75
+  assert((circle_area_labeled == i32(75)));
+  // Verify labeled destructuring: rectangle area = 6 * 4 = 24
+  assert((rect_area_labeled == i32(24)));
+
+  // Verify positional destructuring: circle area = 3 * 5 * 5 = 75
+  assert((circle_area_pos == i32(75)));
+  // Verify positional destructuring: rectangle area = 4 * 6 = 24
+  assert((rect_area_pos == i32(24)));
 };
 
 export main;
