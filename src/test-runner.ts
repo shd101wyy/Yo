@@ -29,6 +29,15 @@ const colors = {
   dim: "\x1b[2m",
 };
 
+/**
+ * Try to force garbage collection if running with --expose-gc flag
+ */
+function tryForceGC(): void {
+  if (typeof global.gc === "function") {
+    global.gc();
+  }
+}
+
 export interface TestDeclaration {
   name: string;
   bodyExpr: Expr;
@@ -118,6 +127,9 @@ function findTestFilesRecursive(dir: string): string[] {
 export function extractTests(filePath: string): TestDeclaration[] {
   const tests: TestDeclaration[] = [];
 
+  // Declare moduleManager outside try block so we can clean it up
+  let moduleManager: ModuleManager | null = null;
+
   try {
     // Clear global state before evaluating
     clearAllGlobalImplState();
@@ -125,11 +137,12 @@ export function extractTests(filePath: string): TestDeclaration[] {
     clearAllCachedTypes();
 
     // Use ModuleManager to evaluate the file and get the evaluated expressions
-    const moduleManager = new ModuleManager();
+    moduleManager = new ModuleManager();
     const modulePath = `file://${filePath}`;
 
     const { moduleError } = moduleManager.loadModule(modulePath);
     if (moduleError) {
+      moduleManager = null;
       throw new Error(`Error evaluating module: ${moduleError}`);
     }
 
@@ -138,6 +151,7 @@ export function extractTests(filePath: string): TestDeclaration[] {
       console.error(
         `${colors.red}Error: Module not found after loading: ${filePath}${colors.reset}`
       );
+      moduleManager = null;
       return tests;
     }
 
@@ -176,7 +190,12 @@ export function extractTests(filePath: string): TestDeclaration[] {
         }
       }
     }
+
+    // Clean up moduleManager to help GC
+    moduleManager = null;
   } catch (error) {
+    // Ensure moduleManager is cleaned up on error
+    moduleManager = null;
     console.error(
       `${colors.red}Error parsing ${filePath}: ${error}${colors.reset}`
     );
@@ -245,6 +264,9 @@ function runSingleTest(
     }
   };
 
+  // Declare moduleManager outside try block so we can clean it up
+  let moduleManager: ModuleManager | null = null;
+
   try {
     // Clear all global state before compiling each test
     // This ensures each test runs in a clean environment
@@ -257,7 +279,7 @@ function runSingleTest(
     fs.writeFileSync(testFilePath, testProgram);
 
     // Compile the test using ModuleManager with libc allocator (faster compilation)
-    const moduleManager = new ModuleManager();
+    moduleManager = new ModuleManager();
 
     try {
       moduleManager.compileModule(`file://${testFilePath}`, {
@@ -268,6 +290,8 @@ function runSingleTest(
         allocator: "libc",
       });
     } catch (compileError) {
+      // Clean up moduleManager before returning
+      moduleManager = null;
       cleanup();
       return {
         testName: test.name,
@@ -280,6 +304,10 @@ function runSingleTest(
 
     // Get the generated C code
     const generatedCode = moduleManager.getGeneratedCode();
+
+    // Explicitly release the moduleManager to help GC
+    moduleManager = null;
+
     fs.writeFileSync(testCPath, generatedCode);
 
     // Clean up temp .yo file after generating C code
@@ -666,6 +694,9 @@ export async function runTests(
     }
 
     console.log();
+
+    // Try to force garbage collection between files to prevent memory accumulation
+    tryForceGC();
   }
 
   const totalDuration = Date.now() - startTime;
