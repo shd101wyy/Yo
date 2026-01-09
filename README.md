@@ -20,6 +20,8 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - **C** interop.
 - etc.
 
+[Screencast From 2026-01-09 23-05-16.webm](https://github.com/user-attachments/assets/a6e47931-1b5f-431a-b4e4-6dbed627f695)
+
 ## Language Design
 
 For the design of the language, please refer to [DESIGN.md](./docs/DESIGN.md).
