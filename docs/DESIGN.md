@@ -231,13 +231,6 @@ func x, y  // same as above
 
 // Yo is case sensitive, so `X` and `x` are different identifiers
 
-// Operators in Yo are combination of the following characters:
-// = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
-// They can be used as infix operators with two arguments
-(x + y) * z
-// is the same as
-(* (+ x, y), z)
-
 // In Yo, everything is a function:
 x := true;
 y :: 14;
@@ -245,6 +238,7 @@ y :: 14;
 // can be written as:
 (:=)(x, true);
 (::)(y, 14);
+// although normally we won't write like this ^
 
 // There is no arithmetic precedence in Yo
 // Except for the "." which is not treated as an operator, but it has the highest precedence.
@@ -269,8 +263,13 @@ y :: 14;
 //
 // needs to be written as
 (3 + 4) + 5;
-// or
-(+ (+ 3, 4), 5); // Like in Lisp! But with commas separating the arguments
+
+// Operators in Yo are combination of the following characters:
+// = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
+// They can be used as infix operators with two arguments
+// But they will be translated as dot method call:
+(3 + 4) * 5; // is the same as
+3.(+)(4).(*)(5);
 
 // But there is a trick with newlines and operator positioning
 // to control associativity without parentheses!
@@ -2339,13 +2338,12 @@ MyInt :: i32;               // compt(Type)
 value := MyInt(100);        // Runtime i32
 
 // Compile-time computation
-factorial :: (fn(compt(n) : compt_int) -> compt_int)
+factorial :: (fn(compt(n) : compt_int) -> compt(compt_int))
   cond(
     (n <= 1) => 1,
-    true => (n * factorial(n - 1))
+    true => (n * recur(n - 1))
   )
 ;
-
 result :: factorial(5);     // Computed at compile time: 120
 ```
 

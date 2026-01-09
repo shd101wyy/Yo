@@ -1,7 +1,9 @@
-x :: quote(2);
+factorial :: (fn(compt(n) : compt_int) -> compt(compt_int))
+  cond(
+    (n <= 1) => 1,
+    true => (n * recur(n - 1))
+  )
+;
 
-l1 :: quote((1, unquote(x), 3));
-compt_print(l1); // prints (1, 2, 3)
+result :: factorial(5);
 
-l2 :: quote((0, unquote_splicing(l1.get_args()), 4));
-compt_print(l2); // prints (0, 1, 2, 3, 4)
