@@ -16,6 +16,7 @@ import {
 import { ModuleManager } from "./module-manager";
 import { TokenType } from "./token";
 import { clearAllCachedTypes } from "./types";
+import { clearAllModuleCounters } from "./utils";
 import { isComptStringValue } from "./value";
 
 // ANSI color codes for terminal output
@@ -135,6 +136,7 @@ export function extractTests(filePath: string): TestDeclaration[] {
     clearAllGlobalImplState();
     clearEnvContainingPrelude();
     clearAllCachedTypes();
+    clearAllModuleCounters();
 
     // Use ModuleManager to evaluate the file and get the evaluated expressions
     moduleManager = new ModuleManager();
@@ -273,6 +275,7 @@ function runSingleTest(
     clearAllGlobalImplState();
     clearEnvContainingPrelude();
     clearAllCachedTypes();
+    clearAllModuleCounters();
 
     // Generate test program
     const testProgram = generateTestProgram(test, originalFileContent);

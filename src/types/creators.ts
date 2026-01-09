@@ -1151,4 +1151,7 @@ export function clearAllCachedTypes(): void {
   cachedSliceTypeMap.clear();
   cachedVoidType = undefined;
   cachedTypeMap.clear();
+  // CRITICAL: Clear these caches to prevent memory leaks
+  ptrCache.clear();
+  isoCache.clear();
 }

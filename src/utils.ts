@@ -84,3 +84,13 @@ export function generateVarialeId(
 export function hashString(input: string): string {
   return createHash("sha1").update(input).digest("hex").slice(0, 10);
 }
+
+/**
+ * Clear all module-related counters and caches
+ * Call this between test runs to prevent memory accumulation
+ */
+export function clearAllModuleCounters(): void {
+  moduleIdCounters.clear();
+  IdMap.clear();
+  tempVariableNameCount = 1;
+}
