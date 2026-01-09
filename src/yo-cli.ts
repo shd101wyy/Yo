@@ -225,7 +225,7 @@ yo run <script>                  Run a script defined in 'yo.json'
           describe:
             "Number of tests to run in parallel (0 = auto/max CPUs, 1 = sequential)",
           type: "number",
-          default: 0,
+          default: 1,
         });
     },
     async (argv) => {

@@ -368,7 +368,7 @@ function runSingleTest(
     const runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
-      timeout: 120000, // 120 second timeout (increased for CI environments)
+      timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
       env: {
         ...process.env,
         ASAN_OPTIONS: "detect_leaks=1",
