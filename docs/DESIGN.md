@@ -357,7 +357,7 @@ p2 := p1;  // p2 is a copy of p1
 
 // Object type - heap-allocated, reference-counted
 String :: object(
-  _bytes: ArrayList(u8),
+  _bytes : ArrayList(u8),
   // methods...
 );
 s1 := String.from("Hello");
@@ -443,7 +443,7 @@ Variables can be shadowed in different block scopes:
 
 ```rust
 // String is an object type with automatic reference counting
-(my_string: String) = String.from("Hello, world"); // Heap-allocated
+(my_string : String) = String.from("Hello, world"); // Heap-allocated
 my_string_2 := my_string; // Both point to the same object (RC incremented)
 
 // Primitive types are copied
@@ -451,27 +451,27 @@ my_int := 1; // Stack-allocated
 my_int_2 := my_int; // my_int_2 is a copy
 
 // Fixed-size arrays are value types
-(my_int_array: Array(i32, 3)) = [1, 2, 3]; // Stack-allocated
+(my_int_array : Array(i32, 3)) = [1, 2, 3]; // Stack-allocated
 my_int_array := [1, 2, 3]; // Array(i32, 3)
 
 // ArrayList is an object type
-(my_array_list: ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
+(my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
 
 // Enum/ADT can be value or object type depending on definition
-Person :: struct(name: String, age: i32); // Value type (but contains object field)
-p := Person(name: String.from("Alice"), age: 30);
-_(name, age) := p; // name: String, age: i32
+Person :: struct(name : String, age : i32); // Value type (but contains object field)
+p := Person(name : String.from("Alice"), age : 30);
+_(name, age) := p; // name : String, age : i32
 ```
 
 #### Uninitialized variable
 
 ```rust
-x : i32; // x: i32, uninitialized
+x : i32; // x : i32, uninitialized
 
 // Compiler prevents using uninitialized variable.
 println(x); // Compiler Error: x is uninitialized.
 
-x = 1; // x: i32, initialized
+x = 1; // x : i32, initialized
 ```
 
 ## Function Declaration
@@ -651,21 +651,23 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```rust
-  fn(x: u32, acc: u32 = 1)->
+  (fn(x : u32, acc : u32) -> u32)
     if x == 1, then:
       acc
     else:
       recur(x - 1, acc * x)
+  ;
   ```
 
 - Without tail-call optimization
 
   ```rust
-  fn(x: u32)->
+  (fn(x : u32) -> u32)
     if x == 1, then:
       1
     else:
       x * recur(x - 1)
+  ;
   ```
 
 ### Object Types and Memory Management

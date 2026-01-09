@@ -1,11 +1,13 @@
 const { context, build } = require("esbuild");
 const { dependencies, devDependencies } = require("./package.json");
+const fs = require("fs");
+const path = require("path");
 
 /**
  * @type {import('esbuild').BuildOptions}
  */
 const sharedConfig = {
-  entryPoints: ["./src/index.ts", "./src/yo-cli.ts"],
+  entryPoints: ["./src/index.ts"],
   bundle: true,
   minify: true,
   // sourcemap: true,
@@ -41,6 +43,21 @@ const cjsConfig = {
 /**
  * @type {import('esbuild').BuildOptions}
  */
+const cjsCliConfig = {
+  ...sharedConfig,
+  entryPoints: ["./src/yo-cli.ts"],
+  platform: "node",
+  outdir: "./out/cjs",
+  outExtension: { ".js": ".cjs" },
+  target: "node16",
+  banner: {
+    js: "#!/usr/bin/env node",
+  },
+};
+
+/**
+ * @type {import('esbuild').BuildOptions}
+ */
 const esmConfig = {
   ...sharedConfig,
   entryPoints: ["./src/index.ts"],
@@ -53,10 +70,23 @@ const esmConfig = {
 
 async function main() {
   try {
+    // Delete the existing out directory to remove old files
+    const outDir = path.join(__dirname, "out");
+    if (fs.existsSync(outDir)) {
+      fs.rmSync(outDir, { recursive: true, force: true });
+      console.log("Cleaned out directory");
+    }
+
     if (process.argv.includes("--watch")) {
       // CommonJS
       const cjsContext = await context({
         ...cjsConfig,
+        sourcemap: true,
+      });
+
+      // CommonJS CLI
+      const cjsCliContext = await context({
+        ...cjsCliConfig,
         sourcemap: true,
       });
 
@@ -66,10 +96,17 @@ async function main() {
         sourcemap: true,
       });
 
-      await Promise.all([cjsContext.watch(), esmContext.watch()]);
+      await Promise.all([
+        cjsContext.watch(),
+        cjsCliContext.watch(),
+        esmContext.watch(),
+      ]);
     } else {
       // CommonJS
       await build(cjsConfig);
+
+      // CommonJS CLI
+      await build(cjsCliConfig);
 
       // ESM
       await build(esmConfig);
