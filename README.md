@@ -18,11 +18,11 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
 - Thread-per-core parallelism model (see [PARALLELISM.md](./docs/PARALLELISM.md)).
 - **C** interop.
-- etc
+- etc.
 
 ## Language Design
 
-For design of the language, please refer to the [DESIGN.md](./docs/DESIGN.md).
+For the design of the language, please refer to [DESIGN.md](./docs/DESIGN.md).
 
 ## Installation
 
@@ -86,7 +86,7 @@ Run the following command to build the project:
 $ bun run build
 ```
 
-Test some local yo-cli:
+Test the local yo-cli:
 
 ```bash
 $ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
@@ -95,9 +95,9 @@ $ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
 $ ./yo-cli compile src/tests/examples/fixme.yo
 ```
 
-## Editor support
+## Editor Support
 
-- VS Code Extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) that supports basic syntax highlighting. No LSP yet.
+- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) that supports basic syntax highlighting. No LSP yet.
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.

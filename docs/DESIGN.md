@@ -5,7 +5,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types `In Design`.
+**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](./IN_DESIGN.md).
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -38,11 +38,19 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
+  - [Pointer Arithmetic Operations](#pointer-arithmetic-operations)
+  - [Pointer Operators Reference](#pointer-operators-reference)
+  - [The consume Function](#the-consume-function)
   - [Nullable Pointers](#nullable-pointers)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
 - [Array & Slice](#array--slice)
   - [Range with `:`](#range-with-)
+  - [Array Methods](#array-methods)
+    - [Array.fill](#arrayfill)
+    - [Array.len](#arraylen)
+  - [Array Length Inference](#array-length-inference)
+  - [Array Assignment and Copying](#array-assignment-and-copying)
 - [Control Flow](#control-flow)
   - [if/else](#ifelse)
   - [cond](#cond)
@@ -63,18 +71,53 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [HashSet](#hashset)
   - [LinkedList](#linkedlist)
 - [Closure](#closure)
+  - [Basic Closure Syntax](#basic-closure-syntax)
+  - [Closure Capture Semantics](#closure-capture-semantics)
+  - [Closure Type Restrictions](#closure-type-restrictions)
+  - [Closures with Object Types](#closures-with-object-types)
+- [Box and Boxing](#box-and-boxing)
+  - [Box Type](#box-type)
+  - [Usage Examples](#usage-examples)
+  - [Box with Assignments](#box-with-assignments)
+  - [Box and Reference Counting](#box-and-reference-counting)
+  - [When to Use Box](#when-to-use-box)
+- [Impl Types](#impl-types)
+  - [Basic Usage](#basic-usage)
+  - [Impl as Return Type](#impl-as-return-type)
+  - [Impl with Multiple Modules](#impl-with-multiple-modules)
+  - [Impl vs Dyn](#impl-vs-dyn)
 - [Error handling](#error-handling)
   - [Error Propagation with match](#error-propagation-with-match)
 - [Closure](#closure-1)
 - [Async/Await](#asyncawait)
 - [Parallelism](#parallelism)
+- [Isolated Types](#isolated-types)
+- [Async IO](#async-io)
 - [Module importing and exporting](#module-importing-and-exporting)
 - [Dynamic Dispatch](#dynamic-dispatch)
   - [`Dyn` and `dyn`](#dyn-and-dyn)
   - [Examples](#examples)
 - [Naming Convention](#naming-convention)
+- [Testing](#testing)
+  - [Basic Test Syntax](#basic-test-syntax)
+  - [Running Tests](#running-tests)
+  - [Assertions](#assertions)
+    - [Runtime Assertions](#runtime-assertions)
+    - [Compile-Time Assertions](#compile-time-assertions)
+  - [Testing Expected Errors](#testing-expected-errors)
+  - [Test Organization](#test-organization)
+  - [Testing with Object Types](#testing-with-object-types)
+  - [Test Files](#test-files)
 - [Meta-programming](#meta-programming)
   - [Macro functions](#macro-functions)
+- [Compile-Time Evaluation](#compile-time-evaluation)
+  - [Compile-Time Variables](#compile-time-variables)
+  - [Compile-Time Arithmetic](#compile-time-arithmetic)
+  - [Compile-Time Arrays](#compile-time-arrays)
+  - [Compile-Time Assertions](#compile-time-assertions-1)
+  - [Compile-Time Expected Errors](#compile-time-expected-errors)
+  - [Compile-Time vs Runtime](#compile-time-vs-runtime)
+  - [Benefits of Compile-Time Evaluation](#benefits-of-compile-time-evaluation)
 - [In Design](#in-design)
 - [References](#references)
 
@@ -98,7 +141,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 
 ## Inspiration
 
-The **Yo** language is inspired by the followign programming languages and absorbs some of their good ideas:
+The **Yo** language is inspired by the following programming languages and absorbs some of their good ideas:
 
 - Lisp
   - [Scheme](https://www.scheme.com/)
@@ -174,8 +217,8 @@ yo format
   */
 */
 
-// Yo syntax is inspired by Lisp, so there is no keywords
-// It uses atom and function calls only
+// Yo syntax is inspired by Lisp, so there are no keywords
+// It uses atoms and function calls only
 x // an atom (identifier)
 func(x, y) // a function call with two arguments x and y.
            // Please note there is no space between function name and parentheses
@@ -190,7 +233,7 @@ func x, y  // same as above
 
 // Operators in Yo are combination of the following characters:
 // = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
-// They can be used as infix operators
+// They can be used as infix operators with two arguments
 (x + y) * z
 // is the same as
 (* (+ x, y), z)
@@ -204,7 +247,7 @@ y :: 14;
 (::)(y, 14);
 
 // There is no arithmetic precedence in Yo
-// Except for the "." is not taking as a operator, but it has the highest precedence.
+// Except for the "." which is not treated as an operator, but it has the highest precedence.
 // "." has its own parsing rules, for example a.b + c.d is parsed as (. a b) + (. c d)
 
 // Every infix operator takes two arguments on its left and right
@@ -360,7 +403,7 @@ compt(x) : i32; // Define a compile-time variable
 (=)((:)(y, i32), 14);
 (=)((:)(z, i32), 16);
 
-// They are equavalent to the following:
+// They are equivalent to the following:
 x :: 12;
 y := 14;
 z := 16;
@@ -368,11 +411,11 @@ z := 16;
 
 All variables are mutable by default.
 
-> Yo use to have `mut` keyword to denote mutable variables, but it was removed for simplicity.
+> Yo used to have a `mut` keyword to denote mutable variables, but it was removed for simplicity.
 
 #### No variable shadowing
 
-Yo disallow variable shadowing to avoid confusion
+Yo disallows variable shadowing to avoid confusion
 
 ```rust
 x := 1;
@@ -448,7 +491,7 @@ add :: (fn(x : i32, y : i32) -> i32)
 compt(add) : (fn(x : i32, y : i32) -> i32);
 add = _(x + y); // `_` here infers the function type from `add`
 
-// or define the function body with with anonymous function
+// or define the function body with anonymous function
 add = ((a, b) -> (a + b));  // Type inferred from usage. Can have different parameter names
 
 // With explicit return type
@@ -602,8 +645,8 @@ p.set_x(10);  // Automatically converts to &(p).set_x(10)
 
 ### recur
 
-Use the `recur` to call the function recursively.  
-This is useful for anonymous function.  
+Use `recur` to call the function recursively.  
+This is useful for anonymous functions.  
 If `recur` is the last expression, tail-call optimization will be applied.
 
 - With tail-call optimization
@@ -710,6 +753,59 @@ value := ptr2.*;  // value == 3
 float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 ```
 
+### Pointer Arithmetic Operations
+
+Yo provides a complete set of pointer arithmetic operators:
+
+```rust
+test "Pointer arithmetic", {
+  x := 12;
+  p := &(x);
+
+  // Addition and subtraction
+  q := (p &+ 2);   // Advance pointer by 2 elements
+  z := (q &- 2);   // Go back 2 elements
+
+  // Comparison operators
+  assert(q &> p);  // q is after p
+  assert(p &< q);  // p is before q
+  assert(q &>= p); // Greater or equal
+  assert(p &<= q); // Less or equal
+  assert(z &== p); // Equal (same address)
+  assert(p &!= q); // Not equal
+
+  // Pointer difference (distance between pointers)
+  diff := (q &/ p);  // Distance: 2 elements
+  assert(diff == 2);
+};
+```
+
+### Pointer Operators Reference
+
+- `&+` : Pointer addition (advance)
+- `&-` : Pointer subtraction (go back)
+- `&>` : Greater than comparison
+- `&<` : Less than comparison
+- `&>=` : Greater or equal comparison
+- `&<=` : Less or equal comparison
+- `&==` : Equality comparison
+- `&!=` : Inequality comparison
+- `&/` : Pointer difference (distance)
+
+### The consume Function
+
+`consume` tells the compiler that you're initializing memory, not overwriting an existing value. This prevents attempting to drop uninitialized memory:
+
+```rust
+// Without consume - Error: tries to drop uninitialized value
+ptr.* = some_value;  // Danger!
+
+// With consume - OK: initialization, no drop
+consume(ptr.* = some_value);
+```
+
+For more pointer examples, see [ptr.test.yo](../tests/ptr.test.yo).
+
 ### Nullable Pointers
 
 Yo uses `Option(*(T))` for nullable pointers:
@@ -744,7 +840,7 @@ test :: (fn() -> unit) {
 
 ## Tuple
 
-Tuple is defined as a sequence of elements of different types, separated by commas and enclosed in parentheses.
+A tuple is defined as a sequence of elements of different types, separated by commas and enclosed in parentheses.
 
 ```rust
 my_unit := (); // my_unit: unit.
@@ -763,7 +859,7 @@ a := mixed_tuple.0;
 b := mixed_tuple.1;
 c := mixed_tuple.2;
 
-// NOTE: for tuple that has only 1 element, we need to add a comma to make it a tuple.
+// NOTE: For a tuple that has only 1 element, we need to add a comma to make it a tuple.
 MyTuple := (i32)
 // is equivalent to
 MyTuple := i32;
@@ -814,6 +910,94 @@ slice3 := arr(2:);  // [3, 4, 5]
 // Full slice
 slice4 := arr(:);  // [1, 2, 3, 4, 5]
 ```
+
+### Array Methods
+
+Arrays in Yo come with useful methods:
+
+#### Array.fill
+
+Create an array filled with a value:
+
+```rust
+// Fill at runtime
+zeros := Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
+
+// Fill at compile-time
+ones :: Array(i32, 5).fill(1);    // [1,1,1,1,1]
+```
+
+#### Array.len
+
+Get the length of an array:
+
+```rust
+arr := [1, 2, 3, 4, 5];
+len := arr.len();  // 5 (compile-time for arrays, runtime for slices)
+
+// Works with generic arrays
+generic_len :: (fn(compt(T) : Type, compt(n) : usize, arr : [T; n]) -> usize)
+  arr.len()  // Returns n
+;
+```
+
+### Array Length Inference
+
+Yo can infer array lengths using `_`:
+
+```rust
+// Infer length from initializer
+arr1 := Array(i32, _)(1, 2, 3);         // Array(i32, 3)
+arr2 := [i32; _](10, 20, 30, 40);       // Array(i32, 4)
+
+// Literal syntax with inferred length
+arr3 := [1, 2, 3];                      // Array(i32, 3)
+
+// Empty array
+empty := Array(i32, _)();               // Array(i32, 0)
+
+// Nested arrays with inference
+nested := Array(Array(i32, _), _)(
+  Array(i32, _)(1, 2, 3),
+  Array(i32, _)(4, 5, 6)
+);                                       // Array(Array(i32, 3), 2)
+```
+
+**Restriction**: Cannot use `_` in variable bindings without initialization:
+
+```rust
+// Error: Cannot infer length
+arr : Array(i32, _);  // Not allowed!
+arr = [1, 2, 3];
+
+// Correct: Use concrete length or initialize immediately
+arr := Array(i32, _)(1, 2, 3);  // OK
+```
+
+### Array Assignment and Copying
+
+Arrays are value types and are copied on assignment:
+
+```rust
+// Create arrays
+arr1 := [1, 2, 3];
+arr2 := arr1;       // arr2 is a copy of arr1
+
+// Modify arr2
+arr2(0) = 10;
+
+assert(arr1(0) == 1);   // arr1 unchanged
+assert(arr2(0) == 10);  // arr2 modified
+
+// Assignment returns old value
+arr3 := [5, 6, 7];
+old := (arr3 = [8, 9, 10]);
+
+assert(arr3(0) == 8);   // arr3 has new value
+assert(old(0) == 5);    // old has previous value
+```
+
+For more array examples, see [array.test.yo](../tests/array.test.yo).
 
 ## Control Flow
 
@@ -1060,16 +1244,16 @@ State := enum(
 Week := enum(
   Monday, // 0
   Tuesday, // 1
-  Wednesay // 2
+  Wednesday // 2
 );
 
-day := Week.Wednessay;
+day := Week.Wednesday;
 printf("%d", day); // 2
 ```
 
 ## Modules
 
-Modules define collections of functions and types that can be implemented for types. They work similarly to Traits in Rust. Note that `impl` takes the receiver type as the first argument, followed by the module implementation.
+Modules define collections of functions and types that can be implemented for types. They work similarly to traits in Rust. Note that `impl` takes the receiver type as the first argument, followed by the module implementation.
 
 A module is defined as a function that returns a `Module` type containing field definitions.
 
@@ -1119,7 +1303,7 @@ notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit) {
 
 ## Pattern Matching
 
-The compiler implements an exhaustive check on the pattern matching.
+The compiler performs exhaustive checking on pattern matching.
 
 ```rust
 Coin :: enum(
@@ -1417,7 +1601,316 @@ assert(list.is_empty(), "List should be empty");
 
 ## Closure
 
-TO BE DOCUMENTED
+Yo supports closures (anonymous functions that capture their environment). Closures are automatically reference-counted and can capture variables from their surrounding scope.
+
+### Basic Closure Syntax
+
+There are two ways to create closures:
+
+1. **Using `Impl(Fn(...))`** - Explicit closure type:
+
+```rust
+test_closure :: (fn() -> unit) {
+  x := 1;
+
+  // Explicit closure type using Impl
+  (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
+    x = (x + y);
+    return x;
+  });
+
+  closure(1); // x is now 2
+  closure(1); // x is now 3
+  result := closure(2); // x is now 5
+
+  assert(result == 5);
+};
+```
+
+2. **Using `ClosureType({...})`** - Closure value from type:
+
+```rust
+test_closure :: (fn() -> unit) {
+  x := 1;
+
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  closure := (ClosureType {
+    x = (x + y);
+    return x;
+  });
+
+  result := closure(2);
+  assert(result == 3);
+};
+```
+
+### Closure Capture Semantics
+
+Closures capture variables from their environment:
+
+- **Value types** (primitives, structs) are captured by value (copied)
+- **Object types** (reference-counted) are captured by reference
+- Captured variables maintain their mutability
+
+```rust
+test_capture :: (fn() -> unit) {
+  // Value type - captured by value
+  counter := 0;
+
+  // Object type - captured by reference
+  data := Box(i32)(42);
+
+  closure := ((increment : i32) => {
+    counter = (counter + increment);  // Modifies local copy
+    data.* = (data.* + increment);     // Modifies shared object
+    return counter;
+  });
+
+  closure(5);
+  // counter is still 0 (closure has its own copy)
+  // data.* is now 47 (shared reference)
+};
+```
+
+### Closure Type Restrictions
+
+Each closure has a unique type, even if they look identical:
+
+```rust
+// This will fail - each closure has a distinct type
+test_error :: (fn() -> unit) {
+  closure : Impl(Fn(y : i32) -> i32);
+
+  cond(
+    some_condition() => {
+      a := 1;
+      closure = ((y) => (y + a));  // Type 1
+    },
+    true => {
+      b := 1;
+      closure = ((y) => (y + b));  // Type 2 - different!
+    }
+  );
+  // Error: no two closures, even if identical, have the same type
+};
+```
+
+### Closures with Object Types
+
+Closures work seamlessly with object types:
+
+```rust
+MyBox :: object(
+  (*) : i32,
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing: %d\n", self.*);
+  })
+);
+
+make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32)) {
+  return ((unit) => {
+    start.* = (start.* + 1);
+    return start.*;
+  });
+};
+
+test :: (fn() -> unit) {
+  counter := MyBox(0);
+  inc := make_incrementer(counter);
+
+  assert(inc(()) == 1);
+  assert(inc(()) == 2);
+  assert(counter.* == 2);
+};
+```
+
+For more examples, see [closure.test.yo](../tests/closure.test.yo).
+
+## Box and Boxing
+
+Yo provides `Box` and `box` for heap-allocating value types with automatic reference counting.
+
+### Box Type
+
+`Box(T)` is a generic object type that wraps any value type:
+
+```rust
+// Box is defined in std/prelude.yo
+Box :: (fn(compt(V) : Type) -> compt(Type))
+  object(
+    (*) : V
+  )
+;
+
+// box function creates a Box
+box :: (fn(forall(V : Type), value : V) -> Box(V))
+  Box(V)(value)
+;
+```
+
+### Usage Examples
+
+```rust
+// Box a primitive value
+i := box(42);              // i: Box(i32)
+assert(i.* == 42);         // Dereference with .*
+
+// Box a struct
+Point :: struct(x: i32, y: i32);
+p := box(Point(3, 4));     // p: Box(Point)
+assert(p.*.x == 3);
+
+// Box with explicit type
+b := Box(i32)(100);        // Same as box(100)
+
+// Modify boxed value
+m := box(10);
+m.* = 20;
+assert(m.* == 20);
+```
+
+### Box with Assignments
+
+```rust
+test "Box assignment behavior", {
+  x := box(1);
+  y := (x = box(2));  // y gets the old value
+
+  assert(x.* == 2);   // x now points to new Box
+  assert(y.* == 1);   // y has the old Box
+};
+```
+
+### Box and Reference Counting
+
+`Box(T)` is an object type, so it uses automatic reference counting:
+
+```rust
+test "Box reference counting", {
+  original := box(42);
+  copy := original;        // RC increment
+  another := copy;         // RC increment
+
+  // All three point to the same Box
+  assert(original.* == 42);
+  original.* = 100;
+  assert(copy.* == 100);   // Shared!
+  assert(another.* == 100);
+
+  // RC decrements when variables go out of scope
+};
+```
+
+### When to Use Box
+
+- **Heap allocation**: When you need a value type on the heap
+- **Shared mutability**: Multiple references to the same mutable value
+- **Dynamic dispatch**: Boxing value types for use with `Dyn`
+- **Recursive types**: Breaking cycles in type definitions
+
+```rust
+// Dynamic dispatch requires object types
+impl(i32, SomeTrait(...));
+
+// Value types must be boxed for Dyn
+use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) { ... };
+
+// Box the i32 for use with Dyn
+use_dyn(dyn box(42));
+```
+
+## Impl Types
+
+`Impl(ModuleName)` creates a type representing any type that implements the specified module(s). This is similar to `impl Trait` in Rust.
+
+### Basic Usage
+
+```rust
+// Define a module (trait)
+Id :: module(
+  id : (fn(self : Self) -> Self)
+);
+
+// Function accepting any type implementing Id
+use_id :: (fn(
+  forall(T : Type),
+  value : T,
+  where(T <: Id)
+) -> T) {
+  return value.id();
+};
+
+// Implement Id for i32
+impl(i32, Id(
+  id : ((self) -> {
+    printf("i32: %d\n", self);
+    return self;
+  })
+));
+
+// Use it
+result := use_id(42);  // Prints "i32: 42", returns 42
+```
+
+### Impl as Return Type
+
+`Impl` can be used in return types for static dispatch:
+
+```rust
+RetI32 :: module(
+  return_i32 : (fn(self : *(Self)) -> i32)
+);
+
+get_value :: (fn(use_bool : bool) -> Impl(RetI32)) {
+  cond(
+    use_bool => return true,   // bool implements RetI32
+    true => return i32(42)      // i32 implements RetI32
+  )
+};
+```
+
+**Important**: Each return path must return a concrete type, not different types that happen to implement the same module.
+
+### Impl with Multiple Modules
+
+```rust
+Speak :: module(
+  speak : (fn(self : Self) -> unit)
+);
+
+Run :: module(
+  run : (fn(self : Self) -> unit)
+);
+
+// Type must implement both Speak and Run
+perform :: (fn(
+  forall(T : Type),
+  actor : T,
+  where(T <: (Speak, Run))
+) -> unit) {
+  actor.speak();
+  actor.run();
+};
+```
+
+### Impl vs Dyn
+
+- **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
+- **Dyn**: Dynamic dispatch, runtime polymorphism, requires object types
+
+```rust
+// Impl - static dispatch (monomorphization)
+use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit) {
+  value.method();  // Statically dispatched
+};
+
+// Dyn - dynamic dispatch (vtable)
+use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) {
+  value.method();  // Dynamically dispatched
+};
+```
+
+For more examples, see [impl.test.yo](../tests/impl.test.yo).
 
 ## Error handling
 
@@ -1490,6 +1983,14 @@ See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.
 ## Parallelism
 
 Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programming in Yo.
+
+## Isolated Types
+
+Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
+
+## Async IO
+
+Please check [ASYNC_IO.md](./ASYNC_IO.md) for details on asynchronous IO in Yo.
 
 ## Module importing and exporting
 
@@ -1593,6 +2094,167 @@ main :: (fn() -> i32) {
 - `UPPER_SNAKE_CASE`
   - `constant`
 
+## Testing
+
+Yo has a built-in testing framework accessible via the `test` keyword.
+
+### Basic Test Syntax
+
+```rust
+test "Test description", {
+  // Test code here
+  x := 1 + 1;
+  assert(x == 2);
+};
+```
+
+### Running Tests
+
+Tests can be run using the Yo CLI:
+
+```bash
+# Run all tests in a file
+$ ./yo-cli test path/to/file.test.yo
+
+# Run specific test by pattern
+$ ./yo-cli test path/to/file.test.yo --test-name-pattern "Test addition"
+
+# Stop on first failure
+$ ./yo-cli test path/to/file.test.yo --bail
+
+# Verbose output
+$ ./yo-cli test path/to/file.test.yo -v
+```
+
+### Assertions
+
+#### Runtime Assertions
+
+```rust
+test "Runtime assertions", {
+  x := 42;
+
+  // Basic assertion
+  assert(x == 42);
+
+  // Assertion with message
+  assert(x > 0, "x should be positive");
+
+  // Complex assertions
+  arr := [1, 2, 3];
+  assert(arr.len() == 3, "Array should have 3 elements");
+};
+```
+
+#### Compile-Time Assertions
+
+Use `compt_assert` for compile-time verification:
+
+```rust
+test "Compile-time assertions", {
+  // These are checked during compilation
+  compt_assert((2 + 2) == 4);
+  compt_assert(Array(i32, 5).fill(0).len() == 5);
+  compt_assert(f32(3.14) > f32(3.0));
+
+  // Type-level assertions
+  T :: i32;
+  compt_assert(Type.to_string(T) == "i32");
+};
+```
+
+### Testing Expected Errors
+
+Verify that certain code produces compile-time errors:
+
+```rust
+test "Expected compile errors", {
+  // Expect an error without specific message
+  compt_expect_error({
+    x :: (1 / 0);  // Division by zero
+  });
+
+  // Expect an error with specific message
+  compt_expect_error(
+    {
+      arr : Array(i32, _);
+      arr = [1, 2, 3];
+    },
+    "Cannot infer array length in binding"
+  );
+
+  // Test that certain patterns are invalid
+  compt_expect_error({
+    closure1 := ((x) => (x + 1));
+    closure2 := ((x) => (x + 1));
+    // Each closure has unique type
+    (c : typeof(closure1)) = closure2;  // Error!
+  }, "no two closures have the same type");
+};
+```
+
+### Test Organization
+
+Organize related tests in the same file:
+
+```rust
+// arithmetic.test.yo
+
+test "Addition", {
+  assert((1 + 1) == 2);
+  assert((5 + 3) == 8);
+};
+
+test "Subtraction", {
+  assert((5 - 3) == 2);
+  assert((10 - 10) == 0);
+};
+
+test "Multiplication", {
+  assert((2 * 3) == 6);
+  assert((7 * 0) == 0);
+};
+
+test "Division", {
+  assert((10 / 2) == 5);
+  assert((9 / 3) == 3);
+};
+```
+
+### Testing with Object Types
+
+Test cleanup and disposal:
+
+```rust
+MyBox :: object(
+  (*) : i32,
+  dispose :: ((fn(self : Self) -> unit) {
+    printf("Disposing MyBox with value: %d\n", self.*);
+  })
+);
+
+test "Object disposal", {
+  // Box is automatically disposed at end of scope
+  b := MyBox(42);
+  assert(b.* == 42);
+  b.* = 100;
+  assert(b.* == 100);
+  // dispose() called automatically here
+};
+```
+
+### Test Files
+
+Yo test files typically use the `.test.yo` extension:
+
+- `basic.test.yo` - Basic language features
+- `array.test.yo` - Array operations
+- `closure.test.yo` - Closure functionality
+- `async_await.test.yo` - Async/await features
+- `collections/*.test.yo` - Collection types
+
+For comprehensive test examples, see the [tests/](../tests/) directory.
+
 ## Meta-programming
 
 `quote` is similar to the `quasiquote` in Lisp.  
@@ -1658,6 +2320,159 @@ unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
     if(not(unquote(condition)), unquote(do))
 ;
 ```
+
+## Compile-Time Evaluation
+
+Yo has powerful compile-time evaluation capabilities. You can perform computations, type manipulations, and code generation at compile time.
+
+### Compile-Time Variables
+
+Variables declared with `::` are compile-time constants:
+
+```rust
+// Compile-time integer
+x :: 42;                    // compt_int
+y :: (x + 10);              // compt_int = 52
+
+// Compile-time type
+MyInt :: i32;               // compt(Type)
+value := MyInt(100);        // Runtime i32
+
+// Compile-time computation
+factorial :: (fn(compt(n) : compt_int) -> compt_int)
+  cond(
+    (n <= 1) => 1,
+    true => (n * factorial(n - 1))
+  )
+;
+
+result :: factorial(5);     // Computed at compile time: 120
+```
+
+### Compile-Time Arithmetic
+
+All primitive operations can be performed at compile time:
+
+```rust
+// Integer operations
+a :: 100;
+b :: 25;
+sum :: (a + b);            // 125
+diff :: (a - b);           // 75
+prod :: (a * b);           // 2500
+quot :: (a / b);           // 4
+rem :: (a % b);            // 0
+
+// Comparison operations
+eq :: (a == b);            // false
+lt :: (b < a);             // true
+gte :: (a >= b);           // true
+
+// Floating-point operations
+pi :: f32(3.14159);
+radius :: f32(5.0);
+area :: (pi * (radius * radius));  // ~78.54
+
+// Boolean operations
+flag1 :: true;
+flag2 :: false;
+and_result :: (flag1 && flag2);    // false
+or_result :: (flag1 || flag2);     // true
+not_result :: not(flag1);          // false
+```
+
+### Compile-Time Arrays
+
+Arrays with compile-time known lengths:
+
+```rust
+// Inferred length
+arr :: [1, 2, 3, 4, 5];    // Array(i32, 5)
+len :: arr.len();          // 5 (compile-time)
+
+// Array.fill at compile time
+zeros :: Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
+
+// Generic array function
+create_array :: (fn(compt(T) : Type, compt(n) : usize, value : T) -> [T; n])
+  Array(T, n).fill(value)
+;
+
+int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
+```
+
+### Compile-Time Assertions
+
+Use `compt_assert` to verify compile-time conditions:
+
+```rust
+test "Compile-time assertions", {
+  // These are checked at compile time
+  compt_assert((2 + 2) == 4);
+  compt_assert(f32(100.5) > f32(50.0));
+  compt_assert(Array(i32, 5).fill(0).len() == 5);
+
+  // Compile-time type checks
+  T :: i32;
+  compt_assert(Type.to_string(T) == "i32");
+};
+```
+
+### Compile-Time Expected Errors
+
+Test that code produces compile-time errors:
+
+```rust
+test "Expected compile errors", {
+  // Verify that this code produces an error
+  compt_expect_error(
+    x :: (1 / 0),  // Division by zero
+    "Division by zero"
+  );
+
+  compt_expect_error({
+    arr : Array(i32, _);  // Cannot infer length in binding
+    arr = [1, 2, 3];
+  });
+};
+```
+
+### Compile-Time vs Runtime
+
+Understanding when things happen:
+
+```rust
+// Compile-time: declared with :: or compt(...)
+COMPT_VALUE :: 42;                // Computed at compile time
+ComptType :: i32;                 // Type selected at compile time
+
+// Runtime: declared with :=
+runtime_value := 42;              // Computed at runtime
+runtime_type := i32(100);         // Value created at runtime
+
+// Mixed: compile-time type, runtime value
+(x : i32) = 42;                   // Type known at compile time
+                                  // Value computed at runtime
+
+// Compile-time function parameter
+array_fn :: (fn(compt(n) : usize) -> Array(i32, n))
+  Array(i32, n).fill(0)
+;                                 // n must be known at compile time
+
+// Runtime function parameter
+increment :: (fn(x : i32) -> i32)
+  (x + 1)
+;                                 // x is runtime value
+```
+
+### Benefits of Compile-Time Evaluation
+
+1. **Zero runtime cost**: Computations done once at compile time
+2. **Type safety**: Catch errors before execution
+3. **Generic programming**: Type-level abstraction without runtime overhead
+4. **Metaprogramming**: Generate code based on compile-time information
+
+For more examples, see [compt.test.yo](../tests/compt.test.yo).
 
 ## In Design
 
