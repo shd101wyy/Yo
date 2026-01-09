@@ -348,7 +348,7 @@ Given type: ${typeToString(defaultValueType)}`,
   // Validate that function type parameters have typeExpr for re-evaluation support
   // This is required because we re-evaluate type expressions instead of substituting types
   // for nominal types like Option(T) to get correct funcIds
-  if (isFunctionType(fieldType)) {
+  if (isForEvaluatingModuleType && isFunctionType(fieldType)) {
     if (fieldType.variadicParameter) {
       throw formatErrorMessage({
         token: expr.token,

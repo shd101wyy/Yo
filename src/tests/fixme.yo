@@ -1,89 +1,18 @@
 main :: (fn() -> unit) {
-  // allocate and free
-  {
-    { GlobalAllocator } :: import "std/allocator";
-    open GlobalAllocator;
+  Shape :: enum(
+    Circle(r: i32),
+    Rectangle(w: i32, h: i32)
+  );
 
-    {
-      ptr := (*(i32))(malloc(sizeof(i32) * 2).unwrap());
-      ptr.* = 42;
-      (ptr &+ 1).* = 84;
-
-      assert(ptr.* == 42);
-      assert((ptr &+ 1).* == 84);
-
-      // void_ptr := *(void)(ptr); // This works
-      // free(.Some(void_ptr));
-
-      free(.Some(*(void)(ptr))); // FIXME:
-
-      // free(Option(*(void)).Some(*(void)(ptr))); // FIXME:
-    };
-  };
-
-  // mutate pointer
-  {
-    x := 12;
-
-    // pointer
-    {
-      I32Ptr :: *(i32);
-      p : *(i32);
-      p = &(x);
-      (p2 : *(i32)) = &(x); // Create pointer
-      p3 := &(x); // Create pointer
-      q := p.*; // Dereference pointer
-
-      assert(p.* == 12);
-      assert(p2.* == 12);
-      assert(p3.* == 12);
-      assert(q == 12);
-    
-      p.* = 16;
-      assert(x == 16);
-      assert(p.* == 16);
-      assert(p2.* == 16);
-      assert(p3.* == 16);
-      assert(q == 12); // q is a copy
-    };
-  };
-
-  // void pointer
-  {
-    compt_expect_error(
-      FuncType :: 
-        fn() -> void // Cannot use DST directly in function return type
-    );
-
-    use_void_ptr :: (fn(ptr : *(void)) -> unit) {
-      compt_expect_error(
-        x := ptr.*,
-        "Cannot use DST directly"
-      );
-
-      // Dereference a void pointer is prohibited.
-      // We need to cast it to a specific type first.
-      i32_ptr := *(i32)(ptr);
-    };
-
-    mutate_void_ptr :: (fn(ptr : *(void)) -> unit) {
-      compt_expect_error(
-        x := ptr.*,
-        "Cannot use DST directly"
-      );
-      
-      i32_ptr := *(i32)(ptr);
-      i32_ptr.* = 16;
-    };
-
-    x := 12;
-    
-    use_void_ptr(*(void)(&(x)));
-    assert(x == 12);
-
-    mutate_void_ptr(*(void)(&(x)));
-    assert(x == 16);
-  };
+  // Test labeled destructuring
+  area_with_labels :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(r : radius) =>
+        (i32(3) * (radius * radius)),
+      .Rectangle(h : height, w : width) =>
+        (height * width)
+    )
+  ;
 };
 
 export main;
