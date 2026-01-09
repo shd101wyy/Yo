@@ -254,7 +254,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
 
     _free_elements :: ((fn(self : Self) -> unit)
       cond(
-        Type.contains_gc_type(T) => {
+        Type.contains_rc_type(T) => {
           i := usize(0);
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
@@ -294,7 +294,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                 .Some(ptr) => {
                   // Free elements that will be removed if they contain ARC types
                   cond(
-                    Type.contains_gc_type(T) => {
+                    Type.contains_rc_type(T) => {
                       i := usize(0);
                       while(i < actual_count, i = (i + usize(1)), {
                         element_ptr := (ptr &+ (start + i));

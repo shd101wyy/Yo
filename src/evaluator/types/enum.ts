@@ -19,8 +19,8 @@ import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";
 import {
-  addARCFunctionSignaturesToEnumType,
-  addARCFunctionsToEnumType,
+  addRcFunctionSignaturesToEnumType,
+  addRcFunctionsToEnumType,
   autoDeriveSendForEnumType,
 } from "./utils";
 
@@ -42,7 +42,7 @@ export function evaluateEnumType({
 
   // Create enumType with empty variants
   const enumType = createEnumType(env);
-  addARCFunctionSignaturesToEnumType({ enumType, env, context });
+  addRcFunctionSignaturesToEnumType({ enumType, env, context });
 
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
@@ -99,9 +99,7 @@ export function evaluateEnumType({
       if (!field.isCompileTimeOnly) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Expected compile-time only field, got:\n${exprToString(
-            field.exprs.expr
-          )}`,
+          errorMessage: `Expected compile-time only field, got:\n${exprToString(field.exprs.expr)}`,
         });
       }
 
@@ -147,9 +145,7 @@ export function evaluateEnumType({
         if (!isValidVariableName(enumArg)) {
           throw formatErrorMessage({
             token: enumArg.token,
-            errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-              enumArg
-            )}`,
+            errorMessage: `Expected identifier for enum variant, got:\n${exprToString(enumArg)}`,
           });
         }
         variants.push({
@@ -225,7 +221,7 @@ export function evaluateEnumType({
   });
 
   // Auto-generate ARC functions using the systematic approach
-  env = addARCFunctionsToEnumType({
+  env = addRcFunctionsToEnumType({
     enumType,
     env,
     context,

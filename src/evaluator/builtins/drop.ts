@@ -8,7 +8,6 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
-  exprIsAtom,
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
@@ -20,7 +19,7 @@ import {
   isArrayType,
   isSomeType,
   isTupleType,
-  typeContainsGcType,
+  typeContainsRcType,
   typeImplementsFuture,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -37,17 +36,13 @@ function generateTupleDropCall(tupleExpr: Expr): string {
   if (!tupleExpr.$?.type || !isTupleType(tupleExpr.$.type)) {
     throw formatErrorMessage({
       token: tupleExpr.token,
-      errorMessage: `Expected tuple type for drop generation:\n${exprToString(
-        tupleExpr
-      )}`,
+      errorMessage: `Expected tuple type for drop generation:\n${exprToString(tupleExpr)}`,
     });
   }
   if (!tupleExpr.$.variableName) {
     throw formatErrorMessage({
       token: tupleExpr.token,
-      errorMessage: `Expected variable name for drop generation:\n${exprToString(
-        tupleExpr
-      )}`,
+      errorMessage: `Expected variable name for drop generation:\n${exprToString(tupleExpr)}`,
     });
   }
 
@@ -56,7 +51,7 @@ function generateTupleDropCall(tupleExpr: Expr): string {
     .map((element, index) => ({
       index,
       element,
-      needsDrop: typeContainsGcType(
+      needsDrop: typeContainsRcType(
         isSomeType(element.type) && element.type.resolvedConcreteType
           ? element.type.resolvedConcreteType
           : element.type
@@ -68,11 +63,12 @@ function generateTupleDropCall(tupleExpr: Expr): string {
     return ""; // No elements need dropping
   }
 
-  // Destructure the tuple and drop each ARC-containing element
+  // Use __yo_drop_tuple_element builtin to drop elements directly without borrowing
+  // This is necessary because tuple.0 creates a borrowed reference which can't be dropped
   const dropCalls = fieldsNeedingDrop
     .map(
       ({ index }) =>
-        `${BuiltinFunctions.___drop[0]!}(${tupleExpr.$!.variableName}.${index})`
+        `${BuiltinFunctions.__yo_drop_tuple_element[0]!}(${tupleExpr.$!.variableName}, ${index})`
     )
     .join(",\n  ");
 
@@ -88,17 +84,13 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   if (!arrayExpr.$?.type || !isArrayType(arrayExpr.$.type)) {
     throw formatErrorMessage({
       token: arrayExpr.token,
-      errorMessage: `Expected array type for drop generation:\n${exprToString(
-        arrayExpr
-      )}`,
+      errorMessage: `Expected array type for drop generation:\n${exprToString(arrayExpr)}`,
     });
   }
   if (!arrayExpr.$.variableName) {
     throw formatErrorMessage({
       token: arrayExpr.token,
-      errorMessage: `Expected variable name for drop generation:\n${exprToString(
-        arrayExpr
-      )}`,
+      errorMessage: `Expected variable name for drop generation:\n${exprToString(arrayExpr)}`,
     });
   }
 
@@ -110,7 +102,7 @@ function generateArrayDropCall(arrayExpr: Expr): string {
       ? childType.resolvedConcreteType
       : childType;
 
-  if (!typeContainsGcType(concreteChildType)) {
+  if (!typeContainsRcType(concreteChildType)) {
     return ""; // No elements need dropping
   }
 
@@ -121,9 +113,12 @@ function generateArrayDropCall(arrayExpr: Expr): string {
   }
   const arrayLength = arrayLengthValue.value;
   const dropCalls: string[] = [];
+
+  // Use __yo_drop_array_element builtin to drop elements directly without borrowing
+  // This is necessary because y(0) creates a borrowed reference which can't be dropped
   for (let i = 0; i < arrayLength; i++) {
     dropCalls.push(
-      `${BuiltinFunctions.___drop[0]!}(${arrayExpr.$.variableName}(${i}))`
+      `${BuiltinFunctions.__yo_drop_array_element[0]!}(${arrayExpr.$.variableName}, ${i})`
     );
   }
 
@@ -147,14 +142,9 @@ export function evaluateDrop({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___drop, 1);
 
   const argExpr = expr.args[0]!;
-  if (!exprIsAtom(argExpr)) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___drop[0]}":\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
+
+  // Evaluate the argument first to get its type and variable name
+  // This handles both simple variables (atoms) and complex expressions like array access
   const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
@@ -178,8 +168,8 @@ export function evaluateDrop({
     throw formatErrorMessage({
       token: argExpr.token,
       errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___drop[0]}":\n${exprToString(
-        argExpr
-      )}`,
+        evaluatedArgExpr
+      )}\n\nOriginal expression:\n${exprToString(argExpr)}`,
     });
   }
 
@@ -187,7 +177,7 @@ export function evaluateDrop({
 
   // For Impl(Future(T)), do NOT unwrap resolvedConcreteType
   // The state machine is ref-counted and uses __yo_sometype_drop
-  // which is generated for SomeType in addARCFunctionsToSomeType
+  // which is generated for SomeType in addRcFunctionsToSomeType
   const shouldUseConcreteType =
     isSomeType(argType) &&
     argType.resolvedConcreteType &&
@@ -197,7 +187,7 @@ export function evaluateDrop({
     : argType;
 
   // Check if there is `.___drop` method available to call or if it's a tuple/array needing drop
-  if (typeContainsGcType(concreteType)) {
+  if (typeContainsRcType(concreteType)) {
     // Handle tuple types specially since they don't have methods
     if (isTupleType(concreteType)) {
       const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);

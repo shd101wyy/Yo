@@ -59,7 +59,7 @@ export function tryToImplementArrayByArrayType({
     expectedLengthValue = argExprs.length;
 
     // Create a new array type with the inferred length
-    const inferredLength = createComptIntValue(expectedLengthValue);
+    const inferredLength = createComptIntValue(BigInt(expectedLengthValue));
     finalArrayType = createArrayType(arrayType.childType, inferredLength);
   } else {
     throw formatErrorMessage({

@@ -28,6 +28,7 @@ All platforms share a unified Yo API (`File.read_bytes_async`, `File.read_string
 liburing must be installed system-wide. The Yo compiler detects it via `pkg-config`.
 
 **Installation:**
+
 ```bash
 # Arch Linux / Manjaro / SteamOS
 sudo pacman -S liburing
@@ -47,6 +48,7 @@ sudo make install
 ```
 
 **Build integration:**
+
 ```bash
 # Linux compilation with liburing (detected via pkg-config)
 clang -std=c11 a.out.c \
@@ -60,12 +62,12 @@ clang -std=c11 a.out.c \
 
 ### Return Types
 
-| Function | Return Type | Description |
-|----------|-------------|-------------|
-| `File.read_bytes_async` | `Result([u8], IOError)` | Binary data as slice |
-| `File.read_string_async` | `Result(String, IOError)` | UTF-8 validated text |
-| `File.write_bytes_async` | `Result(unit, IOError)` | Write from slice |
-| `File.write_string_async` | `Result(unit, IOError)` | Write from String |
+| Function                  | Return Type               | Description          |
+| ------------------------- | ------------------------- | -------------------- |
+| `File.read_bytes_async`   | `Result([u8], IOError)`   | Binary data as slice |
+| `File.read_string_async`  | `Result(String, IOError)` | UTF-8 validated text |
+| `File.write_bytes_async`  | `Result(unit, IOError)`   | Write from slice     |
+| `File.write_string_async` | `Result(unit, IOError)`   | Write from String    |
 
 ### Why `[u8]` slice over `*u8` pointer
 
@@ -82,18 +84,22 @@ clang -std=c11 a.out.c \
 ## Prerequisites
 
 **Linux:**
+
 - Kernel 5.1+ (io_uring support)
 - No external dependencies (liburing vendored)
 
 **Windows:**
+
 - Windows Vista+ (for GetQueuedCompletionStatusEx)
 - Windows SDK
 
 **macOS:**
+
 - macOS 10.6+ (kqueue support)
 - No external dependencies
 
 **All platforms:**
+
 - Working async/await codegen with state machines
 
 ## Phase 1: Linux Implementation
@@ -103,6 +109,7 @@ clang -std=c11 a.out.c \
 **Status:** COMPLETED. System-wide liburing is detected via `pkg-config` in the Yo compiler.
 
 **Verification:**
+
 ```bash
 pkg-config liburing --cflags --libs
 ```
@@ -142,7 +149,7 @@ typedef struct yo_io_state {
 // Initialize io_uring (called once at event loop start)
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
-  
+
   int ret = io_uring_queue_init(256, &__yo_io_ring, 0);
   if (ret < 0) {
     fprintf(stderr, "[Yo] io_uring_queue_init failed: %s\n", strerror(-ret));
@@ -214,7 +221,7 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
 static int __yo_io_poll(void) {
   struct io_uring_cqe* cqe;
   int count = 0;
-  
+
   while (io_uring_peek_cqe(&__yo_io_ring, &cqe) == 0) {
     __yo_io_process_cqe(cqe);
     count++;
@@ -227,7 +234,7 @@ static int __yo_io_wait(void) {
   struct io_uring_cqe* cqe;
   int ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
   if (ret < 0) return 0;
-  
+
   __yo_io_process_cqe(cqe);
   return 1 + __yo_io_poll();  // Process any additional completions
 }
@@ -258,6 +265,7 @@ static int64_t __yo_file_size(int32_t fd) {
 **Status:** COMPLETED. Event loop has been updated to integrate io_uring polling.
 
 **Recent Fixes (2025-12-30):**
+
 - ✅ **Critical**: Fixed branch info pollution between nested async blocks
   - Problem: `context.condBranchInfo` was shared across all async blocks in a function, causing nested async blocks to generate code for branches from parent async blocks
   - Solution: Clear `context.condBranchInfo = new Map()` at start of `generateAsyncBlockResumeFunction()` to isolate each async block's branch tracking
@@ -265,12 +273,14 @@ static int64_t __yo_file_size(int32_t fd) {
   - File: [src/codegen/async/state-machine.ts](src/codegen/async/state-machine.ts#L130-L133)
 
 **Previously Fixed:**
+
 - ✅ Lazy io_uring initialization in `__yo_async_read_start()` and `__yo_async_write_start()` to support eager async block execution
 - ✅ Updated `__yo_async_wait_all()` to poll I/O events and wait for pending I/O completions
 - ✅ Fixed async block capture to properly dup borrowed variables from match destructuring
 - ✅ Fixed async block codegen to handle method-call style dup expressions `(varName.___dup)()`
 
 **Test Results:**
+
 ```bash
 $ ./yo-cli compile src/tests/examples/fixme.yo --release && ./a.out
 # Success! Program completes without errors
@@ -279,8 +289,9 @@ Hello async write!
 ```
 
 The async I/O implementation now correctly handles:
+
 - ✅ File write with async I/O
-- ✅ File read with async I/O  
+- ✅ File read with async I/O
 - ✅ Match expressions with await inside branches
 - ✅ Nested async blocks (write_string_async → write_bytes_async)
 - ✅ Variable scoping across await boundaries
@@ -293,48 +304,48 @@ void __yo_async_run_until_complete(void* future_ptr) {
   if (!yo_async_scheduler_initialized) {
     __yo_async_scheduler_init();
   }
-  
+
 #if defined(__linux__)
   __yo_io_init();  // Initialize io_uring
 #endif
 
   typedef struct { _Atomic int state; } generic_future_t;
   generic_future_t* future = (generic_future_t*)future_ptr;
-  
+
   while (atomic_load(&future->state) != -1) {
     // 1. Process ready tasks (up to 100 per iteration)
     int tasks_run = 0;
     while (tasks_run < 100) {
       yo_continuation_t* cont = yo_thread_async_queue.head;
       if (!cont) break;
-      
+
       yo_thread_async_queue.head = cont->next;
       if (!yo_thread_async_queue.head) {
         yo_thread_async_queue.tail = NULL;
       }
       yo_thread_async_queue.count--;
-      
+
       cont->resume_fn(cont->state_machine);
       __yo_free(cont);
       tasks_run++;
     }
-    
+
 #if defined(__linux__)
     // 2. Poll io_uring completions (non-blocking)
     __yo_io_poll();
-    
+
     // 3. If no ready tasks but pending I/O, block until completion
     if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
       __yo_io_wait();
     }
 #endif
-    
+
     // 4. If no tasks and no I/O, future must be waiting for something external
     if (!yo_thread_async_queue.head && !__yo_has_pending_io()) {
       break;
     }
   }
-  
+
 #if defined(__linux__)
   __yo_io_cleanup();
 #endif
@@ -350,6 +361,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
 **Status:** IN PROGRESS. Basic async I/O works for simple cases. Complex cases with nested async blocks in match expressions have issues.
 
 **Completed:**
+
 - ✅ `Concrete(T)` builtin module for explicit extern type resolution
 - ✅ `IOReadFuture` and `IOWriteFuture` types using `Impl(Concrete(yo_io_future_t), Future(i32))`
 - ✅ Fixed `getTypeString` to handle extern types vs async block capture structs
@@ -360,6 +372,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
 - ✅ Event loop I/O polling integration
 
 **Current Issues (blocking fixme.yo):**
+
 - ❌ **Critical**: Variables from match case destructuring (e.g., `write_file` from `.Ok(write_file)`) not stored in state machine when used after await points
 - ❌ **Critical**: Variables assigned in match cases (e.g., `write_result := await ...`) not stored in state machine across await boundaries
 - ❌ **Critical**: Missing `cond_branch_0` field in state machine structs - conditional branches inside async blocks after await points don't generate state machine fields
@@ -367,6 +380,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
 
 **Root Cause:**
 The await analysis and state machine variable tracking doesn't properly handle variables that are:
+
 1. Declared inside match cases via destructuring (`.Ok(file) => ...`)
 2. Assigned inside match cases before an await
 3. Used after the await point in subsequent code
@@ -383,16 +397,16 @@ typedef struct my_async_fn_state_t {
   _Atomic int state;
   _Atomic(void (*)(void*)) continuation_fn;
   _Atomic(void*) continuation_sm;
-  
+
   // Captured variables...
   int32_t fd;
   uint8_t* buffer;
   size_t size;
   int64_t offset;
-  
+
   // I/O state (for await __yo_async_read/write)
   yo_io_state_t io_state;
-  
+
   // Result
   int32_t io_result;
 } my_async_fn_state_t;
@@ -407,7 +421,7 @@ case STATE_AWAIT_IO_READ:
     sm->io_state.state_machine = sm;
     sm->io_state.resume_fn = (void(*)(void*))my_async_fn_resume;
     sm->io_state.completed = false;
-    
+
 ---
 
 ### Task 1.5: Yo Standard Library - File API ✓
@@ -418,7 +432,7 @@ case STATE_AWAIT_IO_READ:
 - ✅ `IOError` enum with error code mapping
 - ✅ Proper extern type declarations for io_uring futures
   }
-  
+
   // Resumed after I/O completion
   sm->io_result = sm->io_state.result;
   sm->io_state.completed = false;  // Reset for potential reuse
@@ -521,7 +535,7 @@ File :: object(
   })
 );
 
-export 
+export
   IOError,
   File,
   O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND
@@ -658,35 +672,35 @@ typedef struct yo_io_state {
 
 ### Week 1 (Phase 1 - Linux)
 
-| Day | Task |
-|-----|------|
-| 1 | Task 1.1: Vendor liburing |
-| 2 | Task 1.2: C Runtime I/O header |
-| 3 | Task 1.3: Update event loop |
+| Day | Task                              |
+| --- | --------------------------------- |
+| 1   | Task 1.1: Vendor liburing         |
+| 2   | Task 1.2: C Runtime I/O header    |
+| 3   | Task 1.3: Update event loop       |
 | 4-5 | Task 1.4: Codegen async I/O await |
 
 ### Week 2 (Phase 1 - Continued)
 
-| Day | Task |
-|-----|------|
-| 6 | Task 1.5: Yo standard library File API |
-| 7 | Task 1.6: Tests |
-| 8-9 | Bug fixes, refinements |
-| 10 | Documentation |
+| Day | Task                                   |
+| --- | -------------------------------------- |
+| 6   | Task 1.5: Yo standard library File API |
+| 7   | Task 1.6: Tests                        |
+| 8-9 | Bug fixes, refinements                 |
+| 10  | Documentation                          |
 
 ### Week 3-4 (Phase 2 - Windows, Optional)
 
-| Day | Task |
-|-----|------|
+| Day   | Task                   |
+| ----- | ---------------------- |
 | 11-13 | Task 2.1: IOCP backend |
-| 14-15 | Testing on Windows |
+| 14-15 | Testing on Windows     |
 
 ### Week 5-6 (Phase 3 - macOS, Optional)
 
-| Day | Task |
-|-----|------|
+| Day   | Task                     |
+| ----- | ------------------------ |
 | 16-18 | Task 3.1: kqueue backend |
-| 19-20 | Testing on macOS |
+| 19-20 | Testing on macOS         |
 
 ---
 
@@ -695,6 +709,7 @@ typedef struct yo_io_state {
 ### yo-cli Updates
 
 **Linux compilation:**
+
 ```bash
 clang -std=c11 -Wall -Wextra \
   a.out.c \
@@ -709,11 +724,14 @@ clang -std=c11 -Wall -Wextra \
 ```
 
 **Windows compilation:**
+
 ```bash
 cl /std:c11 a.out.c /link ws2_32.lib kernel32.lib /out:a.out.exe
 ```
+
 src/
 **macOS compilation:**
+
 ```bash
 clang -std=c11 -Wall -Wextra \
   a.out.c \
@@ -727,6 +745,7 @@ clang -std=c11 -Wall -Wextra \
 ## Success Criteria
 
 ### Phase 1 (Linux)
+
 - [x] liburing added as git submodule in `vendor/liburing/`
 - [ ] `File.open()`, `File.close()`, `File.size()` work synchronously
 - [ ] `__yo_async_read_submit()` submits to io_uring
@@ -735,11 +754,13 @@ clang -std=c11 -Wall -Wextra \
 - [ ] No memory leaks (AddressSanitizer clean)
 
 ### Phase 2 (Windows)
+
 - [ ] IOCP backend compiles and links
 - [ ] Same Yo API works on Windows
 - [ ] Tests pass on Windows
 
 ### Phase 3 (macOS)
+
 - [ ] kqueue backend compiles and links
 - [ ] Same Yo API works on macOS
 - [ ] Tests pass on macOS
@@ -748,19 +769,20 @@ clang -std=c11 -Wall -Wextra \
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
+| Risk                                | Impact | Mitigation                                             |
+| ----------------------------------- | ------ | ------------------------------------------------------ |
 | io_uring not available (old kernel) | Medium | Check kernel version at init, fallback to blocking I/O |
-| liburing vendoring issues | Low | liburing is header-heavy, minimal source files |
-| Complex codegen changes | Medium | Start with hardcoded C test before full codegen |
-| State machine memory leaks | Medium | Test with AddressSanitizer |
-| Windows HANDLE vs fd conversion | Medium | Use _get_osfhandle() |
+| liburing vendoring issues           | Low    | liburing is header-heavy, minimal source files         |
+| Complex codegen changes             | Medium | Start with hardcoded C test before full codegen        |
+| State machine memory leaks          | Medium | Test with AddressSanitizer                             |
+| Windows HANDLE vs fd conversion     | Medium | Use \_get_osfhandle()                                  |
 
 ---
 
 ## Testing Strategy
 
 ### Unit Tests
+
 ```bash
 # Run specific test
 ./yo-cli test tests/async_io.test.yo -v
@@ -770,6 +792,7 @@ clang -std=c11 -Wall -Wextra \
 ```
 
 ### Manual Testing
+
 ```bash
 # Compile and run async I/O example
 ./yo-cli compile src/tests/examples/async_file_read.yo --release -o test
@@ -777,6 +800,7 @@ clang -std=c11 -Wall -Wextra \
 ```
 
 ### Stress Testing
+
 ```bash
 # Concurrent file reads
 ./yo-cli compile tests/stress/concurrent_reads.yo --release -o stress
@@ -802,6 +826,7 @@ clang -std=c11 -Wall -Wextra \
 **Problem:** Nested async blocks were generating incorrect code because `context.condBranchInfo` was shared across all async blocks within a function. When the outer async block (e.g., in `main`) was generated first, it populated the branch tracking map. Then when nested async blocks (e.g., `write_bytes_async`) were generated, they reused the same map and tried to generate code for branches from the OUTER async block.
 
 **Example Error:**
+
 ```c
 // Inside write_bytes_async's state machine resume function:
 switch (sm->cond_branch_0) {  // ERROR: cond_branch_0 field doesn't exist!
@@ -812,19 +837,23 @@ switch (sm->cond_branch_0) {  // ERROR: cond_branch_0 field doesn't exist!
 **Root Cause:** The codegen in `generateAsyncBlockResumeFunction()` directly used the shared `context.condBranchInfo` without clearing it first. Each async block accumulated branch info from all previously generated async blocks.
 
 **Solution:** Clear `context.condBranchInfo = new Map()` at the start of `generateAsyncBlockResumeFunction()` to isolate each async block's branch tracking. This ensures:
+
 - Each async block only sees its own conditional branches
 - State machine structs only include fields for their own branches
 - Generated code only references variables from the correct scope
 
 **Files Changed:**
+
 - [src/codegen/async/state-machine.ts](src/codegen/async/state-machine.ts#L130-L133) - Added `context.condBranchInfo = new Map()` isolation
 
 **Test Case:** [src/tests/examples/fixme.yo](src/tests/examples/fixme.yo) - Nested async blocks with match expressions and await
+
 - Outer async: `main()` with File.open → await write → File.open → await read
 - Nested async: `write_bytes_async()` with buffer ptr match → await io_uring → cond result check
 - Result: Both compile and run correctly without branch info pollution
 
 **Memory Safety:**
+
 - ✅ No use-after-free errors
 - ✅ No invalid memory access
 - ✅ All async operations complete successfully

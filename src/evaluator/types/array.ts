@@ -91,7 +91,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
         token: lengthExpr.token,
         initializedAtToken: lengthExpr.token,
         consumedAtToken: undefined,
-        isOwningTheGcValue: false,
+        isOwningTheRcValue: false,
       },
     });
 
@@ -150,6 +150,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
       errorMessage: `Expected compile-time known value for length, got:\n${exprToString(lengthExpr)}`,
     });
   }
+
   if (isUnknownValue(lengthValue)) {
     // QUESTION: Should we do it this way?
     // Change its type to usize

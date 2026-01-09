@@ -7,7 +7,7 @@ When a compile-time function that returns `compt(Type)` uses `recur` to create r
 ```yo
 Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
   Child :: recur(B, A);  // Child = Worker(B, A)
-  
+
   // Case 1: Using Child INSIDE object definition (has SelfType)
   object(
     raw : *(void),
@@ -21,11 +21,11 @@ Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
 // Case 2: Using Child OUTSIDE object definition (no SelfType)
 Worker2 :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
   Child :: recur(B, A);
-  
+
   internal_wrapper :: (fn(raw : *(void)) -> unit) {
     Child(raw);  // Was ERROR, now OK with deferred constructor call
   };
-  
+
   object(raw : *(void))
 };
 ```
@@ -58,6 +58,7 @@ When inside an object/struct definition, use `context.SelfType` as a template. K
 ### Strategy 2: Deferred Constructor Call (outside object definition)
 
 When outside an object definition (no SelfType available), allow the SomeType to be used as a constructor by:
+
 1. Evaluating the arguments for type-checking
 2. Setting the expression's type to the SomeType
 3. Letting the actual type resolution happen later
@@ -65,6 +66,7 @@ When outside an object definition (no SelfType available), allow the SomeType to
 ### Implementation
 
 1. **Added `recursiveTypeRef` field to `SomeType`** (`src/types/definitions.ts`):
+
    ```typescript
    recursiveTypeRef?: {
      functionValue: FunctionValue;
@@ -73,6 +75,7 @@ When outside an object definition (no SelfType available), allow the SomeType to
    ```
 
 2. **Store recursive reference info when creating placeholder** (`src/evaluator/calls/compt_function.ts`):
+
    ```typescript
    value: createUnknownValue(
      functionType.return.type,
@@ -82,6 +85,7 @@ When outside an object definition (no SelfType available), allow the SomeType to
    ```
 
 3. **Resolve before type-checking** (`src/evaluator/calls/function.ts`):
+
    ```typescript
    function resolveRecursiveTypeRef(someType, callerEnv, context) {
      // Strategy 1: Look for exact matching cache entry with resolved type
@@ -89,18 +93,18 @@ When outside an object definition (no SelfType available), allow the SomeType to
      if (exactCache && !isSomeType(exactCache.value.value)) {
        return exactCache.value.value;
      }
-     
+
      // Strategy 2: Use context.SelfType if available
      if (context?.SelfType && isObjectType(context.SelfType)) {
        return context.SelfType;
      }
-     
+
      // Strategy 3: Look for ANY resolved cache entry (same structure)
      const anyResolvedCache = functionValue.calledComptFunctionCaches.find(...);
      if (anyResolvedCache) {
        return anyResolvedCache.value.value;
      }
-     
+
      return undefined;  // Will use deferred constructor call
    }
    ```
@@ -117,18 +121,23 @@ When outside an object definition (no SelfType available), allow the SomeType to
        const evaluatedArg = evaluateExpression({ expr: argExpr, env, context });
        runtimeArgExprsInOrder.push(evaluatedArg);
      }
-     return { kind: "type", result: { values, pathCollection, runtimeArgExprsInOrder, callerEnv } };
+     return {
+       kind: "type",
+       result: { values, pathCollection, runtimeArgExprsInOrder, callerEnv },
+     };
    }
    ```
 
 ### Why This Works
 
 **For Strategy 1 (SelfType resolution):**
+
 - `Worker(A, B)` and `Worker(B, A)` produce the same type structure
-- Type parameters only affect the *bindings* within that structure, not the structure itself
+- Type parameters only affect the _bindings_ within that structure, not the structure itself
 - The actual type parameter bindings are handled correctly because each instantiation has its own evaluation environment
 
 **For Strategy 2 (Deferred constructor):**
+
 - The SomeType placeholder carries enough information (recursiveTypeRef) to identify what type it will become
 - During function body validation, we only need to know the type structure for type-checking
 - The actual type resolution happens when the enclosing compt function completes and updates the cache
@@ -136,7 +145,9 @@ When outside an object definition (no SelfType available), allow the SomeType to
 ## Comparison with Other Languages
 
 ### Rust
+
 Rust doesn't have compile-time type-generating functions. Recursive types require indirection:
+
 ```rust
 // Error: recursive type has infinite size
 struct Node { child: Node }
@@ -146,19 +157,23 @@ struct Node { child: Box<Node> }
 ```
 
 ### Zig
+
 Zig has comptime functions that can generate types, but uses a different evaluation model that doesn't have this issue.
 
 ### TypeScript
+
 TypeScript's type system is declarative, not evaluative. Recursive types are allowed through nominal references:
+
 ```typescript
 type Worker<A, B> = {
-  child: Worker<B, A>;  // OK: nominal reference
-}
+  child: Worker<B, A>; // OK: nominal reference
+};
 ```
 
 ## Current Status
 
 ✅ **Implemented and working:**
+
 - Recursive type references inside object/struct definitions (SelfType resolution)
 - Recursive type references outside object definitions (deferred constructor call)
 - Type-checking of arguments when calling recursive type as constructor
@@ -168,11 +183,11 @@ type Worker<A, B> = {
 ```yo
 Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
   Child :: recur(B, A);
-  
+
   internal_wrapper :: (fn(raw : *(void)) -> unit) {
     Child(raw);  // ✅ Now works with deferred constructor call
   };
-  
+
   object(raw : *(void))
 };
 ```

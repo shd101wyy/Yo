@@ -84,11 +84,11 @@ export interface CapturedVariable {
   kind: "local" | "outer";
 
   /**
-   * If this variable is borrowing an Gc value from another variable,
+   * If this variable is borrowing an Rc value from another variable,
    * this field holds a reference to the owner variable.
    * This is used to resolve temporary variable names in deferred drops.
    */
-  isOwningTheSameGcValueAs: CapturedVariable | undefined;
+  isOwningTheSameRcValueAs: CapturedVariable | undefined;
 }
 
 /**

@@ -212,6 +212,10 @@ export function activate(context: vscode.ExtensionContext) {
   // Yo language module manager
   const moduleManager = new ModuleManager();
 
+  // Track in-flight analyses to avoid race conditions where an older run clears
+  // diagnostics produced by a newer run.
+  const analyzeGenerationByUri = new Map<string, number>();
+
   // Function to analyze Yo file and show diagnostics
   const analyzeYoFile = async (document: vscode.TextDocument) => {
     // Only analyze Yo files
@@ -219,28 +223,39 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    // Clear previous diagnostics for this file
-    diagnosticCollection.delete(document.uri);
+    const uriKey = document.uri.toString();
+    const generation = (analyzeGenerationByUri.get(uriKey) ?? 0) + 1;
+    analyzeGenerationByUri.set(uriKey, generation);
 
     const text = document.getText();
     const filePath = document.uri.fsPath;
+    const modulePath = "file://" + filePath;
 
     try {
-      // Include protocol in the file path
-      const modulePath = "file://" + filePath;
-
       // Clear any previous evaluation for this file
       moduleManager.deleteModule(modulePath);
 
       // Load the module again, passing the in-memory document content
       // This ensures we analyze the current editor content, not the saved file on disk
       const { moduleError } = moduleManager.loadModule(modulePath, text);
+
       if (moduleError) {
         throw moduleError;
       }
 
-      // If we get here, there were no errors
+      // Only the latest analysis run is allowed to change diagnostics.
+      if (analyzeGenerationByUri.get(uriKey) !== generation) {
+        return;
+      }
+
+      // No errors for the latest content -> clear diagnostics.
+      diagnosticCollection.delete(document.uri);
     } catch (error) {
+      // Only the latest analysis run is allowed to change diagnostics.
+      if (analyzeGenerationByUri.get(uriKey) !== generation) {
+        return;
+      }
+
       const diagnostics: vscode.Diagnostic[] = [];
 
       if (error instanceof YoError) {
@@ -332,8 +347,8 @@ export function activate(context: vscode.ExtensionContext) {
       // Get the module evaluator
       const module = moduleManager.modules.get(modulePath);
 
-      if (!module) {
-        return null; // No evaluated data for this file
+      if (!module || module.moduleError) {
+        return null; // No evaluated data for this file or module has errors
       }
 
       // NOTE: The code below will ignore operators like +, -, etc.
@@ -534,8 +549,8 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Get the module evaluator
         const module = moduleManager.modules.get(modulePath);
-        if (!module) {
-          // If no module is available, provide basic language keywords
+        if (!module || module.moduleError) {
+          // If no module is available or module has errors, provide basic language keywords
           return getBasicCompletionItems(document, position);
         }
 
@@ -1317,8 +1332,8 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Get the module evaluator
       const module = moduleManager.modules.get(modulePath);
-      if (!module) {
-        return null; // No evaluated data for this file
+      if (!module || module.moduleError) {
+        return null; // No evaluated data for this file or module has errors
       }
 
       // Get the text of the document and tokenize it

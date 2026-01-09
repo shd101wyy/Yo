@@ -13,6 +13,7 @@ import {
   areTypesCompatible,
   FunctionType,
   isFunctionType,
+  isSomeType,
   typeToString,
 } from "../../types";
 import { randomId } from "../../utils";
@@ -74,6 +75,7 @@ export function createFunctionBodyEvaluationContext(
 /**
  * expr should be the:
  * functionType(functionBody);
+ * Please note this is for regular functions only, closures are handled in closure_type.ts
  */
 export function tryToImplementFunctionByFunctionType({
   expr,
@@ -98,8 +100,10 @@ export function tryToImplementFunctionByFunctionType({
   const functionBodyExpr = argExprs[0]!;
 
   // Add parameters to the env new frame
-  // Check if we're in a closure context (caller already has capturedVariables set)
-  const isInClosureContext = !!context.capturedVariables;
+  // Regular functions (defined with `::`) do NOT capture outer variables.
+  // Only closures (defined with `=>`) track captures. So we always treat this as
+  // a non-closure context and clear any inherited capturedVariables.
+  const isInClosureContext = false;
 
   // Check if we need to set up parameter aliases
   // This happens when implementing a module trait method where the function type
@@ -137,9 +141,8 @@ export function tryToImplementFunctionByFunctionType({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
-        skipCheckingFunctionOverloading: true,
       });
       env = nextEnv;
     }
@@ -163,14 +166,13 @@ export function tryToImplementFunctionByFunctionType({
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
-          isOwningTheGcValue: anonymousParam.isOwningTheGcValue,
+          isOwningTheRcValue: anonymousParam.isOwningTheRcValue,
           // Set up parameter alias if names differ
           parameterAlias:
             anonymousParamName !== expectedParamName
               ? expectedParamName
               : undefined,
         },
-        skipCheckingFunctionOverloading: true,
       });
       env = nextEnv;
     }
@@ -210,14 +212,16 @@ export function tryToImplementFunctionByFunctionType({
     body: functionBodyExpr, // Use transformed body
     frameLevel: env.frames.length - 1,
     funcName: undefined,
-    funcId: `fn_${randomId()}`,
+    funcId: `fn_${randomId(env.modulePath)}`,
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],
   };
 
   // Create a mutable context that we can check after evaluation
+  // For regular functions (not closures), we clear capturedVariables to prevent
+  // outer variables from being incorrectly marked as captured/consumed.
   const { evaluationContext } = createFunctionBodyEvaluationContext(
-    context,
+    { ...context, capturedVariables: undefined },
     newFunctionType,
     functionValue,
     env
@@ -258,6 +262,17 @@ export function tryToImplementFunctionByFunctionType({
 - Expected: ${typeToString(newFunctionType.return.type)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
     });
+  }
+
+  // If the return type is a SomeType (Impl) without resolvedConcreteType,
+  // and the function body returns a concrete type that implements the required modules,
+  // set the resolvedConcreteType for proper codegen
+  if (
+    isSomeType(newFunctionType.return.type) &&
+    !newFunctionType.return.type.resolvedConcreteType &&
+    !isSomeType(functionBodyReturnType)
+  ) {
+    newFunctionType.return.type.resolvedConcreteType = functionBodyReturnType;
   }
 
   if (

@@ -32,6 +32,7 @@ import {
   isExprListType,
   isExprType,
   isFnModuleType,
+  isFunctionType,
   isModuleType,
   isSomeType,
   ModuleType,
@@ -76,7 +77,7 @@ export function evaluateFunctionParameter({
   let label: string | undefined = undefined;
   let isCompileTimeOnly: boolean = isParameterComptByDefault;
   let isQuote: boolean = false;
-  let isOwningTheGcValue: boolean = false;
+  let isOwningTheRcValue: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -180,7 +181,7 @@ export function evaluateFunctionParameter({
     }
 
     if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "own")) {
-      isOwningTheGcValue = true;
+      isOwningTheRcValue = true;
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: lhsExpr.token,
@@ -216,9 +217,7 @@ export function evaluateFunctionParameter({
     if (!exprIsAtom(lhsExpr) || !isValidVariableName(lhsExpr)) {
       throw formatErrorMessage({
         token: lhsExpr.token,
-        errorMessage: `Expected identifier for parameter label, got ${exprToString(
-          lhsExpr
-        )}`,
+        errorMessage: `Expected identifier for parameter label, got ${exprToString(lhsExpr)}`,
       });
     }
     label = lhsExpr.token.value;
@@ -396,6 +395,27 @@ ${typeToString(parameterType)}`,
         )} which can only be used at runtime.`,
       });
     }
+
+    // Validate that runtime parameters with intrinsically generic function types are prohibited
+    // Functions that have their own forall parameters or compile-time parameters require
+    // specialization and cannot be represented as runtime function pointers.
+    // However, functions that merely reference type variables from enclosing scope are allowed (like Rust)
+    if (
+      !isCompileTimeOnly &&
+      isFunctionType(parameterType) &&
+      // NOTE: Don't use isFunctionSpecializable here. It's too broad.
+      (parameterType.forallParameters.length > 0 ||
+        parameterType.parameters.some((p) => p.isCompileTimeOnly))
+    ) {
+      throw formatErrorMessage({
+        token: lhsExpr?.token ?? expr.token,
+        errorMessage: `Runtime function parameters with generic function types are not allowed:
+${typeToString(parameterType)}
+
+Generic functions must be compile-time known to enable monomorphization. Consider using:
+compt(${label}) : ${typeToString(parameterType)}`,
+      });
+    }
   }
 
   // If it's isQuote, then it has to be Expr type or ExprList type
@@ -469,11 +489,10 @@ use_id :: (fn(forall(T : Type),
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
-      isOwningTheGcValue: isOwningTheGcValue,
-      isOwningTheSameGcValueAs: undefined, // Parameters don't borrow from other variables
+      isOwningTheRcValue: isOwningTheRcValue,
+      isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
       isReassignable: false, // Mark as not reassigable
     },
-    skipCheckingFunctionOverloading: true,
   });
   env = nextEnv;
 
@@ -514,7 +533,7 @@ use_id :: (fn(forall(T : Type),
       }),
       isCompileTimeOnly,
       isQuote,
-      isOwningTheGcValue,
+      isOwningTheRcValue,
       assignedValue,
     },
     env,
@@ -993,7 +1012,7 @@ export function evaluateFunctionParameters({
         isQuote,
         label: parameterName,
         type: parameterType,
-        isOwningTheGcValue: false,
+        isOwningTheRcValue: false,
       };
 
       if (parameterName !== "...") {
@@ -1010,8 +1029,8 @@ export function evaluateFunctionParameters({
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
-            isOwningTheGcValue: variadicParameter.isOwningTheGcValue,
-            isOwningTheSameGcValueAs: undefined, // Parameters don't borrow from other variables
+            isOwningTheRcValue: variadicParameter.isOwningTheRcValue,
+            isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
           },
         });
@@ -1367,9 +1386,7 @@ ${typeToString(returnType)}`,
   if (isReturnTypeUnquote && !isExprType(returnType)) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Expected Expr type for "unquote" return type, got ${typeToString(
-        returnType
-      )}`,
+      errorMessage: `Expected Expr type for "unquote" return type, got ${typeToString(returnType)}`,
     });
   }
 
@@ -1383,7 +1400,7 @@ ${typeToString(returnType)}`,
       expr: returnTypeExpr,
       isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       isUnquote: isReturnTypeUnquote,
-      label: returnLabel ?? `fn_return_${randomId()}`,
+      label: returnLabel ?? `fn_return_${randomId(env.modulePath)}`,
     },
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,
@@ -1574,7 +1591,13 @@ export function evaluateFunctionReturnTypeAgain({
 }): { returnType: Type; calleeEnv: Environment } {
   const functionReturn = functionType.return;
   if (!functionReturn.expr) {
-    return { returnType: functionReturn.type, calleeEnv };
+    // Even without an expr, we still need to resolve SomeTypes in the return type
+    // This is important for anonymous functions where return.expr is undefined
+    let returnType = functionReturn.type;
+    if (isSomeType(returnType)) {
+      returnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
+    }
+    return { returnType, calleeEnv };
   }
   const evaluatedFunctionReturnExpr = evaluateExpression({
     expr: cloneExpr(functionReturn.expr),

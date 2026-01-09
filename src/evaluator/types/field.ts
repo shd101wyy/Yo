@@ -87,9 +87,7 @@ export function evaluateTypeField({
       if (!isValidVariableName(labelExpr)) {
         throw formatErrorMessage({
           token: labelExpr.token,
-          errorMessage: `Expected identifier for element label, got ${exprToString(
-            labelExpr
-          )}`,
+          errorMessage: `Expected identifier for element label, got ${exprToString(labelExpr)}`,
         });
       }
       label = labelExpr.token.value;
@@ -130,9 +128,7 @@ export function evaluateTypeField({
     if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for element label, got ${exprToString(
-          labelExpr
-        )}`,
+        errorMessage: `Expected identifier for element label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -154,9 +150,7 @@ export function evaluateTypeField({
     if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for element label, got ${exprToString(
-          labelExpr
-        )}`,
+        errorMessage: `Expected identifier for element label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;

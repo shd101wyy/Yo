@@ -45,7 +45,7 @@ export function evaluateWhile({
   }
 
   // NOTE: It's necessary to use evaluateBeginExpression here,
-  // because the condition might contain Gc values that need to be properly managed by `begin` block.
+  // because the condition might contain Rc values that need to be properly managed by `begin` block.
   // Evaluate the condition expression
   const evaluatedConditionExpr = evaluateBeginExpression({
     expr: conditionExpr,

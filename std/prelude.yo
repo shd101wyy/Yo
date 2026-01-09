@@ -466,11 +466,185 @@ Isolation :: module(
 export Isolation;
 
 // === Builtin types ===
+/// compt_int
+impl(compt_int, ComptAdd(compt_int)(
+  (+) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
+    __yo_compt_int_add(lhs, rhs)
+  )
+));
+impl(compt_int, ComptSub(compt_int)(
+  (-) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
+    __yo_compt_int_sub(lhs, rhs)
+  )
+));
+impl(compt_int, ComptMul(compt_int)(
+  (*) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
+    __yo_compt_int_mul(lhs, rhs)
+  )
+));
+impl(compt_int, ComptDiv(compt_int)(
+  (/) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
+    __yo_compt_int_div(lhs, rhs)
+  )
+));
+impl(compt_int, ComptMod(compt_int)(
+  (%) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
+    __yo_compt_int_mod(lhs, rhs)
+  )
+));
+impl(compt_int, ComptNegate(compt_int)(
+  (neg) : (fn(compt(self): compt_int) -> compt(compt_int))(
+    __yo_compt_int_neg(self)
+  )
+));
+impl(compt_int, ComptEq(compt_int)(
+  (==) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
+    __yo_compt_int_eq(lhs, rhs)
+  ),
+  (!=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
+    __yo_compt_int_neq(lhs, rhs)
+  )
+));
+impl(compt_int, ComptOrd(compt_int)(
+  (<) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
+    __yo_compt_int_lt(lhs, rhs)
+  ),
+  (<=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
+    __yo_compt_int_lte(lhs, rhs)
+  ),
+  (>) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
+    __yo_compt_int_gt(lhs, rhs)
+  ),
+  (>=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
+    __yo_compt_int_gte(lhs, rhs)
+  )
+));
+impl(compt_int, {
+  (to_string) :: (fn(compt(self): compt_int) -> compt(compt_string))(
+    __yo_compt_int_to_string(self)
+  );
+  export to_string;
+});
+_compt_int :: compt_int;
+export compt_int : _compt_int;
+
+/// compt_float
+impl(compt_float, ComptAdd(compt_float)(
+  (+) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
+    __yo_compt_float_add(lhs, rhs)
+  )
+));
+impl(compt_float, ComptSub(compt_float)(
+  (-) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
+    __yo_compt_float_sub(lhs, rhs)
+  )
+));
+impl(compt_float, ComptMul(compt_float)(
+  (*) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
+    __yo_compt_float_mul(lhs, rhs)
+  )
+));
+impl(compt_float, ComptDiv(compt_float)(
+  (/) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
+    __yo_compt_float_div(lhs, rhs)
+  )
+));
+impl(compt_float, ComptNegate(compt_float)(
+  (neg) : (fn(compt(self): compt_float) -> compt(compt_float))(
+    __yo_compt_float_neg(self)
+  )
+));
+impl(compt_float, ComptEq(compt_float)(
+  (==) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
+    __yo_compt_float_eq(lhs, rhs)
+  ),
+  (!=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
+    __yo_compt_float_neq(lhs, rhs)
+  )
+));
+impl(compt_float, ComptOrd(compt_float)(
+  (<) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
+    __yo_compt_float_lt(lhs, rhs)
+  ),
+  (<=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
+    __yo_compt_float_lte(lhs, rhs)
+  ),
+  (>) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
+    __yo_compt_float_gt(lhs, rhs)
+  ),
+  (>=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
+    __yo_compt_float_gte(lhs, rhs)
+  )
+));
+impl(compt_float, {
+  (to_string) :: (fn(compt(self): compt_float) -> compt(compt_string))(
+    __yo_compt_float_to_string(self)
+  );
+  export to_string;
+});
+_compt_float :: compt_float;
+export compt_float : _compt_float;
+
+/// compt_string
+impl(compt_string, ComptAdd(compt_string)(
+  (+) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(compt_string))(
+    __yo_compt_string_concat(lhs, rhs)
+  )
+));
+impl(compt_string, ComptEq(compt_string)(
+  (==) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
+    __yo_compt_string_eq(lhs, rhs)
+  ),
+  (!=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
+    __yo_compt_string_neq(lhs, rhs)
+  )
+));
+impl(compt_string, ComptOrd(compt_string)(
+  (<) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
+    __yo_compt_string_lt(lhs, rhs)
+  ),
+  (<=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
+    __yo_compt_string_lte(lhs, rhs)
+  ),
+  (>) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
+    __yo_compt_string_gt(lhs, rhs)
+  ),
+  (>=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
+    __yo_compt_string_gte(lhs, rhs)
+  )
+));
+impl(compt_string, {
+  len :: (fn(compt(self): compt_string) -> compt(compt_int))(
+    __yo_compt_string_length(self)
+  );
+  export len;
+
+  (to_upper) :: (fn(compt(self): compt_string) -> compt(compt_string))(
+    __yo_compt_string_to_upper(self)
+  );
+  export to_upper;
+
+  (to_lower) :: (fn(compt(self): compt_string) -> compt(compt_string))(
+    __yo_compt_string_to_lower(self)
+  );
+  export to_lower;
+
+  slice :: (fn(compt(self): compt_string, compt(start): compt_int, compt(end): compt_int) -> compt(compt_string))(
+    __yo_compt_string_slice(self, start, end)
+  );
+  export slice;
+});
+_compt_string :: compt_string;
+export compt_string : _compt_string;
+
 /// bool
 impl(bool, Send());
 impl(bool, Eq(bool)(
-  (==): ((a, b) ->
+  (==) : ((a, b) ->
     __yo_op_eq(a, b)
+  ),
+  (!=) : ((a, b) ->
+    __yo_op_neq(a, b)
   )
 ));
 impl(bool, Clone(bool)(
@@ -489,6 +663,9 @@ impl(bool, Hash(
 impl(bool, ComptEq(bool)(
   (==) : (fn(compt(lhs): bool, compt(rhs): bool) -> compt(bool))(
     __yo_compt_boolean_eq(lhs, rhs)
+  ),
+  (!=) : (fn(compt(lhs): bool, compt(rhs): bool) -> compt(bool))(
+    __yo_compt_boolean_neq(lhs, rhs)
   )
 ));
 impl(bool, {
@@ -501,6 +678,11 @@ _boolean :: bool;
 export bool : _boolean;
 
 /// i8
+impl(i8, {
+  MIN :: i8(-128);
+  MAX :: i8(127);
+  export MIN, MAX;
+});
 impl(i8, Send());
 impl(i8, Add(i8)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -619,6 +801,11 @@ _i8 :: i8;
 export i8 : _i8;
 
 /// i16
+impl(i16, {
+  MIN :: i16(-32768);
+  MAX :: i16(32767);
+  export MIN, MAX;
+});
 impl(i16, Send());
 impl(i16, Add(i16)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -737,6 +924,11 @@ _i16 :: i16;
 export i16 : _i16;
 
 /// i32
+impl(i32, {
+  MIN :: i32(-2147483648);
+  MAX :: i32(2147483647);
+  export MIN, MAX;
+});
 impl(i32, Send());
 impl(i32, Add(i32)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -860,6 +1052,11 @@ _i32 :: i32;
 export i32 : _i32;
 
 /// i64
+impl(i64, {
+  MIN :: i64(-9223372036854775808);
+  MAX :: i64(9223372036854775807);
+  export MIN, MAX;
+});
 impl(i64, Send());
 impl(i64, Add(i64)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -978,6 +1175,11 @@ _i64 :: i64;
 export i64 : _i64;
 
 /// u8
+impl(u8, {
+  MIN :: u8(0);
+  MAX :: u8(255);
+  export MIN, MAX;
+});
 impl(u8, Send());
 impl(u8, Add(u8)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -1091,6 +1293,11 @@ _u8 :: u8;
 export u8 : _u8;
 
 /// u16
+impl(u16, {
+  MIN :: u16(0);
+  MAX :: u16(65535);
+  export MIN, MAX;
+});
 impl(u16, Send());
 impl(u16, Add(u16)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -1204,6 +1411,11 @@ _u16 :: u16;
 export u16 : _u16;
 
 /// u32
+impl(u32, {
+  MIN :: u32(0);
+  MAX :: u32(4294967295);
+  export MIN, MAX;
+});
 impl(u32, Send());
 impl(u32, Add(u32)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -1317,6 +1529,11 @@ _u32 :: u32;
 export u32 : _u32;
 
 /// u64
+impl(u64, {
+  MIN :: u64(0);
+  MAX :: u64(18446744073709551615);
+  export MIN, MAX;
+});
 impl(u64, Send());
 impl(u64, Add(u64)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -1644,6 +1861,11 @@ _f64 :: f64;
 export f64 : _f64;
 
 /// isize
+impl(isize, {
+  MIN :: isize(-9223372036854775808);
+  MAX :: isize(9223372036854775807);
+  export MIN, MAX;
+});
 impl(isize, Send());
 impl(isize, Add(isize)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -1762,6 +1984,11 @@ _isize :: isize;
 export isize : _isize;
 
 /// usize
+impl(usize, {
+  MIN :: usize(0);
+  MAX :: usize(18446744073709551615);
+  export MIN, MAX;
+});
 impl(usize, Send());
 impl(usize, Add(usize)(
   (+): ((a, b) -> __yo_op_add(a, b))
@@ -2415,178 +2642,6 @@ impl(longdouble, Clone(longdouble)(
 _longdouble :: longdouble;
 export longdouble : _longdouble;
 
-
-/// compt_int
-impl(compt_int, ComptAdd(compt_int)(
-  (+) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_add(lhs, rhs)
-  )
-));
-impl(compt_int, ComptSub(compt_int)(
-  (-) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_sub(lhs, rhs)
-  )
-));
-impl(compt_int, ComptMul(compt_int)(
-  (*) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_mul(lhs, rhs)
-  )
-));
-impl(compt_int, ComptDiv(compt_int)(
-  (/) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_div(lhs, rhs)
-  )
-));
-impl(compt_int, ComptMod(compt_int)(
-  (%) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_mod(lhs, rhs)
-  )
-));
-impl(compt_int, ComptNegate(compt_int)(
-  (neg) : (fn(compt(self): compt_int) -> compt(compt_int))(
-    __yo_compt_int_neg(self)
-  )
-));
-impl(compt_int, ComptEq(compt_int)(
-  (==) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_eq(lhs, rhs)
-  ),
-  (!=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_neq(lhs, rhs)
-  )
-));
-impl(compt_int, ComptOrd(compt_int)(
-  (<) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_lt(lhs, rhs)
-  ),
-  (<=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_lte(lhs, rhs)
-  ),
-  (>) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_gt(lhs, rhs)
-  ),
-  (>=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_gte(lhs, rhs)
-  )
-));
-impl(compt_int, {
-  (to_string) :: (fn(compt(self): compt_int) -> compt(compt_string))(
-    __yo_compt_int_to_string(self)
-  );
-  export to_string;
-});
-_compt_int :: compt_int;
-export compt_int : _compt_int;
-
-/// compt_float
-impl(compt_float, ComptAdd(compt_float)(
-  (+) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_add(lhs, rhs)
-  )
-));
-impl(compt_float, ComptSub(compt_float)(
-  (-) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_sub(lhs, rhs)
-  )
-));
-impl(compt_float, ComptMul(compt_float)(
-  (*) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_mul(lhs, rhs)
-  )
-));
-impl(compt_float, ComptDiv(compt_float)(
-  (/) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_div(lhs, rhs)
-  )
-));
-impl(compt_float, ComptNegate(compt_float)(
-  (neg) : (fn(compt(self): compt_float) -> compt(compt_float))(
-    __yo_compt_float_neg(self)
-  )
-));
-impl(compt_float, ComptEq(compt_float)(
-  (==) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_eq(lhs, rhs)
-  ),
-  (!=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_neq(lhs, rhs)
-  )
-));
-impl(compt_float, ComptOrd(compt_float)(
-  (<) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_lt(lhs, rhs)
-  ),
-  (<=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_lte(lhs, rhs)
-  ),
-  (>) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_gt(lhs, rhs)
-  ),
-  (>=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_gte(lhs, rhs)
-  )
-));
-impl(compt_float, {
-  (to_string) :: (fn(compt(self): compt_float) -> compt(compt_string))(
-    __yo_compt_float_to_string(self)
-  );
-  export to_string;
-});
-_compt_float :: compt_float;
-export compt_float : _compt_float;
-
-/// compt_string
-impl(compt_string, ComptAdd(compt_string)(
-  (+) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(compt_string))(
-    __yo_compt_string_concat(lhs, rhs)
-  )
-));
-impl(compt_string, ComptEq(compt_string)(
-  (==) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_eq(lhs, rhs)
-  ),
-  (!=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_neq(lhs, rhs)
-  )
-));
-impl(compt_string, ComptOrd(compt_string)(
-  (<) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_lt(lhs, rhs)
-  ),
-  (<=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_lte(lhs, rhs)
-  ),
-  (>) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_gt(lhs, rhs)
-  ),
-  (>=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_gte(lhs, rhs)
-  )
-));
-impl(compt_string, {
-  len :: (fn(compt(self): compt_string) -> compt(compt_int))(
-    __yo_compt_string_length(self)
-  );
-  export len;
-
-  (to_upper) :: (fn(compt(self): compt_string) -> compt(compt_string))(
-    __yo_compt_string_to_upper(self)
-  );
-  export to_upper;
-
-  (to_lower) :: (fn(compt(self): compt_string) -> compt(compt_string))(
-    __yo_compt_string_to_lower(self)
-  );
-  export to_lower;
-
-  slice :: (fn(compt(self): compt_string, compt(start): compt_int, compt(end): compt_int) -> compt(compt_string))(
-    __yo_compt_string_slice(self, start, end)
-  );
-  export slice;
-});
-_compt_string :: compt_string;
-export compt_string : _compt_string;
-
 /// Ptr
 impl(forall(T : Type), where(T <: Send), *(T), Send());
 /*
@@ -2654,8 +2709,22 @@ impl(forall(T : Type, U : usize), Array(T, U), {
   len :: (fn(self : *(Self)) -> usize) {
     return U;
   };
-
   export len;
+
+  fill :: (fn(compt(val) : T) -> compt(Self)) {
+    return __yo_array_fill(Self, val);
+  };
+  export fill;
+
+  /*
+  // NOTE: Macro doesn't work yet.
+  fill :: (fn(quote(val) : Expr) -> unquote(Expr)) {
+    return quote(
+      __yo_array_fill(Self, unquote(val))
+    );
+  };
+  export fill;
+  */
 });
 
 /// Slice
@@ -2741,15 +2810,15 @@ impl(Type, {
   });
   export is_compatible_with;
 
-  contains_gc_type :: (fn(compt(self): Type) -> compt(bool))({
-    return __yo_type_contains_gc_type(self);
+  contains_rc_type :: (fn(compt(self): Type) -> compt(bool))({
+    return __yo_type_contains_rc_type(self);
   });
-  export contains_gc_type;
+  export contains_rc_type;
 
-  can_form_gc_cycle :: (fn(compt(self): Type) -> compt(bool))({
-    return __yo_type_can_form_gc_cycle(self);
+  can_form_rc_cycle :: (fn(compt(self): Type) -> compt(bool))({
+    return __yo_type_can_form_rc_cycle(self);
   });
-  export can_form_gc_cycle;
+  export can_form_rc_cycle;
 
   impls :: (fn(compt(self): Type, compt(marker): Module) -> compt(bool))({
     return __yo_type_impls(self, marker);
@@ -2768,10 +2837,10 @@ Var :: impl({
   };
   export print_info;
 
-  is_owning_the_gc_value :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
-    return quote __yo_var_is_owning_the_gc_value(unquote(variable));
+  is_owning_the_rc_value :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
+    return quote __yo_var_is_owning_the_rc_value(unquote(variable));
   };
-  export is_owning_the_gc_value;
+  export is_owning_the_rc_value;
 
   has_other_aliases :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
     return quote __yo_var_has_other_aliases(unquote(variable));
@@ -2859,7 +2928,7 @@ Box :: (fn(compt(V) : Type) -> compt(Type))
     (*) : V
   )
 ;
-box :: (fn(forall(V : Type), value : V) -> Box(V))
+box :: (fn(forall(V : Type), own(value) : V) -> Box(V))
   Box(V)(value)
 ;
 impl(forall(T : Type), Box(T), Isolation(
@@ -2894,14 +2963,14 @@ impl(forall(T : Type), Iso(T), {
     unquote(assignment);
     unquote(temp_type) :: typeof(unquote(temp));
     cond(
-      Type.contains_gc_type(unquote(temp_type)) =>  // compile-time check
+      Type.contains_rc_type(unquote(temp_type)) =>  // compile-time check
         cond(
-          Type.can_form_gc_cycle(unquote(temp_type)) => { // compile-time check
+          Type.can_form_rc_cycle(unquote(temp_type)) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type containing GC type that can form cycles");
+            compt_assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
             Option(Iso(unquote(temp_type))).None
           },
-          !(Var.is_owning_the_gc_value(unquote(temp))) => { // compile-time check
+          !(Var.is_owning_the_rc_value(unquote(temp))) => { // compile-time check
             consume(unquote(temp));
             compt_assert(false, "Cannot isolate value of type that is not owned");
             Option(Iso(unquote(temp_type))).None
@@ -2919,7 +2988,7 @@ impl(forall(T : Type), Iso(T), {
           }
         ),
       true => { // compile-time check
-        compt_assert(false, "Cannot isolate value type that does not contain GC type");
+        compt_assert(false, "Cannot isolate value type that does not contain Rc type");
         Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
       }
     )
@@ -2953,6 +3022,20 @@ MaybeUninit :: (fn(compt(BaseType): Type) -> compt(Type))
   )
 ;
 
+/* EXAMPLE:
+
+extern "C",
+  time_t : Type,
+  time : 
+    fn(timer: ?*(time_t)) -> time_t
+;
+
+uninitialized_timer := MaybeUninit(time_t).new(); // Create an uninitialized MaybeUninit(time_t)
+ptr := uninitialized_timer.as_ptr(); // ptr has type *(time_t)
+time(.Some(ptr)); // initialize the timer
+timer := uninitialized_timer.assume_init(); // now we can assume it's initialized
+
+*/
 export
   MaybeUninit
 ;

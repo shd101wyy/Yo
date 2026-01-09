@@ -74,7 +74,7 @@ export function evaluateOpen({
             field.exprs.labelExpr?.token ?? field.exprs.expr.token,
           consumedAtToken: undefined,
           isReassignable: false, // Destructured variables are not reassignable
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       env = nextEnv;
@@ -104,7 +104,7 @@ export function evaluateOpen({
               field.exprs.labelExpr?.token ?? field.exprs.expr.token,
             consumedAtToken: undefined,
             isReassignable: false, // Destructured variables are not reassignable
-            isOwningTheGcValue: false,
+            isOwningTheRcValue: false,
           },
         });
         env = nextEnv;

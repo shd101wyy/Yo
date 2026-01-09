@@ -208,9 +208,7 @@ export function evaluateYoExprGetCallee({
     } else {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Expected function call expression for argument, got:\n${exprToString(
-          expr
-        )}`,
+        errorMessage: `Expected function call expression for argument, got:\n${exprToString(expr)}`,
       });
     }
   }
@@ -282,9 +280,7 @@ export function evaluateYoExprGetArgs({
     } else {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Expected function call expression for argument, got:\n${exprToString(
-          expr
-        )}`,
+        errorMessage: `Expected function call expression for argument, got:\n${exprToString(expr)}`,
       });
     }
   }

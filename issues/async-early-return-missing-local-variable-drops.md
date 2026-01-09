@@ -13,11 +13,11 @@ Async state machines that complete early (via early return in conditional blocks
 ```yo
 async {
   buffer := ArrayList.with_capacity(size);
-  
+
   if (buffer.ptr() == null) {
     return .Err(...);  // Early return - buffer is NOT dropped!
   }
-  
+
   // ... use buffer
   return .Ok(...);  // Normal return - buffer IS dropped
 }
@@ -30,6 +30,7 @@ The async state machine codegen generates "drop local variables" code only at th
 ### Generated C Code (BEFORE FIX)
 
 **Early return (inside if/else):**
+
 ```c
 if (_yoa08d9b3a_temp_14350 != NULL) {
   // ... use buffer
@@ -43,10 +44,11 @@ if (_yoa08d9b3a_temp_14350 != NULL) {
 ```
 
 **Normal return (end of function):**
+
 ```c
 // Drop local variables before completion
-if (sm->var_yoa08d9b3a_io_future != NULL) { 
-  __yo_decr_rc((void*)sm->var_yoa08d9b3a_io_future); 
+if (sm->var_yoa08d9b3a_io_future != NULL) {
+  __yo_decr_rc((void*)sm->var_yoa08d9b3a_io_future);
 };
 fn_id31561___drop(sm->var_yoa08d9b3a_buffer_2);  // Properly dropped
 
@@ -59,10 +61,11 @@ return;
 ## Manifestation
 
 Memory leaks detected by AddressSanitizer:
+
 ```
 Direct leak of 72 byte(s) in 1 object(s) allocated from:
     #1 0x406d8e in _yoa08d9b3a_temp_14402_resume
-    
+
 Indirect leak of 46 byte(s) in 1 object(s) allocated from:
     #1 0x406a00 in fn_id30772_with_capacity
     #2 0x406cc5 in _yoa08d9b3a_temp_14402_resume
@@ -115,7 +118,9 @@ if (
   (!expr.$.deferredDropExpressions ||
     expr.$.deferredDropExpressions.length === 0)
 ) {
-  context.emitter.emitLine(`${indent}// Drop local variables before early completion`);
+  context.emitter.emitLine(
+    `${indent}// Drop local variables before early completion`
+  );
   for (const dropExpr of functionContext.pendingDeferredDrops) {
     const dropCode = generateExpr(dropExpr, indent, context);
     if (dropCode) {
@@ -143,7 +148,7 @@ case 1: { // State 1
     // ...
     return;
   }
-  
+
   // Normal deferred drops (for error path)
   if (sm->var_io_future != NULL) { __yo_decr_rc((void*)sm->var_io_future); };
   fn_drop(sm->var_buffer);

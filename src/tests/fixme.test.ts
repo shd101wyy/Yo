@@ -9,7 +9,7 @@ describe("Evaluate fixme.yo", () => {
     const moduleManager = new ModuleManager();
     const testFileName = "fixme.yo";
     const { moduleError } = moduleManager.loadModule(
-      "file://" + path.join(__dirname, `examples/${testFileName}`)
+      "file://" + path.join(__dirname, `/${testFileName}`)
     );
     if (moduleError) {
       printYoError(moduleError);

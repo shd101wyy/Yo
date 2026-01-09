@@ -8,7 +8,6 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   Expr,
-  exprIsAtom,
   exprIsFunctionCall,
   exprToString,
   FuncCallExpr,
@@ -19,7 +18,7 @@ import {
   isArrayType,
   isSomeType,
   isTupleType,
-  typeContainsGcType,
+  typeContainsRcType,
 } from "../../types";
 import { isNumberValue, NumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
@@ -36,9 +35,7 @@ function generateTupleDupCall(tupleExpr: Expr): string {
   if (!tupleExpr.$.variableName) {
     throw formatErrorMessage({
       token: tupleExpr.token,
-      errorMessage: `Expected variable name for drop generation:\n${exprToString(
-        tupleExpr
-      )}`,
+      errorMessage: `Expected variable name for drop generation:\n${exprToString(tupleExpr)}`,
     });
   }
 
@@ -46,18 +43,19 @@ function generateTupleDupCall(tupleExpr: Expr): string {
   const fieldsNeedingDup = tupleType.fields.map((element, index) => ({
     index,
     element,
-    needsDup: typeContainsGcType(element.type),
+    needsDup: typeContainsRcType(element.type),
   }));
 
   if (fieldsNeedingDup.every(({ needsDup }) => !needsDup)) {
     return ""; // No elements need duplication, return as-is
   }
 
-  // Destructure the tuple, dup ARC elements, and reconstruct
+  // Use __yo_dup_tuple_element builtin to dup elements directly without borrowing
+  // This is necessary because tuple.0 creates a borrowed reference which can't be duped
   const dupCalls = fieldsNeedingDup
     .map(({ index, needsDup }) =>
       needsDup
-        ? `${BuiltinFunctions.___dup[0]!}(${tupleExpr.$?.variableName}.${index})`
+        ? `${BuiltinFunctions.__yo_dup_tuple_element[0]!}(${tupleExpr.$?.variableName}, ${index})`
         : ""
     )
     .filter((x) => x.length > 0);
@@ -77,16 +75,14 @@ function generateArrayDupCall(arrayExpr: Expr): string {
   if (!arrayExpr.$.variableName) {
     throw formatErrorMessage({
       token: arrayExpr.token,
-      errorMessage: `Expected variable name for dup generation:\n${exprToString(
-        arrayExpr
-      )}`,
+      errorMessage: `Expected variable name for dup generation:\n${exprToString(arrayExpr)}`,
     });
   }
 
   const arrayType = arrayExpr.$.type;
   const childType = arrayType.childType;
 
-  if (!typeContainsGcType(childType)) {
+  if (!typeContainsRcType(childType)) {
     return ""; // No elements need duplication, return as-is
   }
 
@@ -96,11 +92,13 @@ function generateArrayDupCall(arrayExpr: Expr): string {
   if (isNumberValue(arrayType.length)) {
     const arrayLength = (arrayType.length as NumberValue).value;
     // Generate array constructor call with duplicated elements
+    // Use __yo_dup_array_element builtin to dup elements directly without borrowing
+    // This is necessary because y(0) creates a borrowed reference which can't be duped
     return `begin(
   ${Array.from(
     { length: Number(arrayLength) },
     (_, i) =>
-      `${BuiltinFunctions.___dup[0]!}(${arrayExpr.$?.variableName}(${i}))`
+      `${BuiltinFunctions.__yo_dup_array_element[0]!}(${arrayExpr.$?.variableName}, ${i})`
   ).join(", ")}
 )`;
   } else {
@@ -124,15 +122,9 @@ export function evaluateDup({
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.___dup, 1);
 
   const argExpr = expr.args[0]!;
-  if (!exprIsAtom(argExpr)) {
-    throw formatErrorMessage({
-      token: argExpr.token,
-      errorMessage: `Expected variable name as argument to "${BuiltinFunctions.___dup[0]}":\n${exprToString(
-        argExpr
-      )}`,
-    });
-  }
 
+  // Evaluate the argument first to get its type and variable name
+  // This handles both simple variables (atoms) and complex expressions like array access
   const evaluatedArgExpr = evaluateExpression({
     expr: argExpr,
     env,
@@ -158,7 +150,7 @@ export function evaluateDup({
       : argType;
 
   // Check if there is `.___dup` method available to call or if it's a tuple needing dup
-  if (typeContainsGcType(concreteType)) {
+  if (typeContainsRcType(concreteType)) {
     // Handle tuple types specially since they don't have methods
     if (isTupleType(concreteType)) {
       const tupleDupCode = generateTupleDupCall(evaluatedArgExpr);
@@ -250,13 +242,13 @@ export function evaluateDup({
       );
       if (variables.length) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheGcValue) {
+        if (variable.isOwningTheRcValue) {
           const nextEnv = updateExistingVariable(
             evaluatedDupMethodCallExpr.$.env,
             variable,
             {
               ...variable,
-              isOwningTheGcValue: false,
+              isOwningTheRcValue: false,
             }
           );
           evaluatedDupMethodCallExpr.$.env = nextEnv;

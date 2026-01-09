@@ -27,7 +27,13 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { areTypesCompatible, isSomeType, typeToString } from "../../types";
+import {
+  areTypesCompatible,
+  isObjectType,
+  isSomeType,
+  typeContainsRcType,
+  typeToString,
+} from "../../types";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -191,21 +197,39 @@ function searchRecursively(
       }
     }
 
-    // Only include dup calls that are present in ALL branches
+    // Only include dup calls that are present in ALL branches.
+    // CRITICAL: Since only ONE branch executes at runtime, all branch dup expressions
+    // count as ONE runtime dup. We wrap them in an array to mark them as a group.
     if (branchDupCalls.length > 0) {
       const firstBranchDups = branchDupCalls[0]!;
-      for (const [varName, _dupCallArray] of firstBranchDups) {
+      for (const [varName, _firstBranchDupArray] of firstBranchDups) {
         const isPresentInAllBranches = branchDupCalls.every((branchDups) =>
           branchDups.has(varName)
         );
 
         if (isPresentInAllBranches) {
-          // Collect all dup call expressions from all branches
-          const allDupCallsForVar: FuncCallExpr[] = [];
+          // Collect ALL dup call expressions from ALL branches.
+          // Mark them by wrapping in a special marker object.
+          // At runtime, only ONE executes (counts as 1 dup), but if we optimize it away,
+          // we must remove ALL of them from the AST.
+          const allBranchDupExprs: FuncCallExpr[] = [];
           for (const branchDups of branchDupCalls) {
-            allDupCallsForVar.push(...branchDups.get(varName)!);
+            const branchDupArray = branchDups.get(varName);
+            if (branchDupArray && branchDupArray.length > 0) {
+              allBranchDupExprs.push(...branchDupArray);
+            }
           }
-          dupCalls.set(varName, allDupCallsForVar);
+          // Store a special marker (negative index) followed by all the branch expressions.
+          // The marker helps us identify this as a branch group that counts as 1 runtime dup.
+          if (!dupCalls.has(varName)) {
+            dupCalls.set(varName, []);
+          }
+          // Use a marker object with a special property to identify branch groups
+          const marker = allBranchDupExprs[0]! as FuncCallExpr & {
+            __branchGroup?: FuncCallExpr[];
+          };
+          marker.__branchGroup = allBranchDupExprs;
+          dupCalls.get(varName)!.push(marker);
         }
       }
     }
@@ -261,18 +285,6 @@ function isUnitValueExpression(expr: Expr): boolean {
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.tuple, 0)
   );
-}
-
-/**
- * Helper to get the base variable ID by following the isOwningTheSameGcValueAs chain.
- * This is used for dup/drop optimization to identify which variables share the same ARC value.
- */
-function getBaseVariableId(variable: Variable): string {
-  let current = variable;
-  while (current.isOwningTheSameGcValueAs) {
-    current = current.isOwningTheSameGcValueAs;
-  }
-  return current.id;
 }
 
 /**
@@ -768,7 +780,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // When returning a variable from the current frame, mark it as consumed (ownership transfer)
   // When returning from an outer frame, call dup (borrowing)
   if (
-    returnVariable?.isOwningTheGcValue &&
+    returnVariable?.isOwningTheRcValue &&
     returnVariable.frameLevel === env.frames.length - 1 &&
     !returnVariable.consumedAtToken
   ) {
@@ -824,22 +836,74 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     const dupCallsToRemove = new Set<FuncCallExpr>(); // Track which dup calls to remove
 
     for (const variable of variablesNeedingDrop) {
-      const baseId = getBaseVariableId(variable);
+      // Follow the entire isOwningTheSameRcValueAs chain to get the root base variable
+      let baseVariable = variable;
+      while (baseVariable.isOwningTheSameRcValueAs) {
+        baseVariable = baseVariable.isOwningTheSameRcValueAs;
+      }
+      const baseId = baseVariable.id;
       const dupCalls = dupCallsByBaseVariable.get(baseId);
 
-      if (dupCalls && dupCalls.length > 0) {
+      // Special case: Don't optimize value type assignments with RC fields.
+      // When we do `y = temp_value` in C where both are value types (structs, enums, arrays),
+      // it's a memcpy (shallow copy). Both y and temp_value exist as separate values,
+      // and each needs its own drop call to properly decrement the RC of their inner fields.
+      // Optimizing away the dup/drop pair would cause use-after-free.
+      // Check the base variable (the temp being assigned from), not the derived variable.
+      // Only pointer types (object(...)) can be safely optimized here.
+      const isValueTypeWithRCFields =
+        !isObjectType(baseVariable.type) &&
+        typeContainsRcType(baseVariable.type);
+
+      if (dupCalls && dupCalls.length > 0 && !isValueTypeWithRCFields) {
+        // Count how many runtime dups we have.
+        // Branch groups (marked with __branchGroup) count as 1 dup each.
+        // Regular dups count as 1 dup each.
+        let runtimeDupCount = 0;
+        const allDupExprsToRemove: FuncCallExpr[] = [];
+
+        for (const dupCallExpr of dupCalls) {
+          const marker = dupCallExpr as FuncCallExpr & {
+            __branchGroup?: FuncCallExpr[];
+          };
+          if (marker.__branchGroup) {
+            // This is a branch group - counts as 1 runtime dup
+            runtimeDupCount++;
+            allDupExprsToRemove.push(...marker.__branchGroup);
+          } else {
+            // Regular dup call - counts as 1 runtime dup
+            runtimeDupCount++;
+            allDupExprsToRemove.push(dupCallExpr);
+          }
+        }
+
         // We can optimize: cancel one dup/drop pair
-        const dupCallToRemove = dupCalls[0]!;
-        dupCallsToRemove.add(dupCallToRemove);
+        // Remove ONE runtime dup (which may be multiple expressions if it's a branch group)
+        if (runtimeDupCount > 0) {
+          // Remove the first runtime dup
+          const firstDup = dupCalls[0]!;
+          const marker = firstDup as FuncCallExpr & {
+            __branchGroup?: FuncCallExpr[];
+          };
+          if (marker.__branchGroup) {
+            // Remove all expressions in the branch group
+            for (const expr of marker.__branchGroup) {
+              dupCallsToRemove.add(expr);
+            }
+          } else {
+            // Remove this single dup expression
+            dupCallsToRemove.add(firstDup);
+          }
 
-        // Remove this dup call from the list so it won't be matched again
-        dupCalls.shift();
+          // Remove from the list
+          dupCalls.shift();
 
-        // Mark the variable as consumed so it won't generate a drop call
-        env = updateExistingVariable(env, variable, {
-          ...variable,
-          consumedAtToken: lastExpr.token,
-        });
+          // Mark the variable as consumed so it won't generate a drop call
+          env = updateExistingVariable(env, variable, {
+            ...variable,
+            consumedAtToken: lastExpr.token,
+          });
+        }
       } else {
         // No matching dup call, this variable actually needs drop
         variablesActuallyNeedingDrop.push(variable);

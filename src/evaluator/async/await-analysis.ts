@@ -91,10 +91,10 @@ function walkExprForAwaits(
           // In state machines, we need to capture ALL local variables that are used
           // across await points, regardless of whether they're borrowing or owning.
           // This includes:
-          // - Variables owning Gc values
-          // - Variables borrowing Gc values (like task1_future, task2_future)
-          // - Temp variables owning Gc values
-          // - Non-Gc variables (primitives, etc.)
+          // - Variables owning Rc values
+          // - Variables borrowing Rc values (like task1_future, task2_future)
+          // - Temp variables owning Rc values
+          // - Non-Rc variables (primitives, etc.)
           // But skip compile-time-only values (types, compile-time functions, etc.)
           if (
             variable &&
@@ -102,8 +102,8 @@ function walkExprForAwaits(
             !variable.isCompileTimeOnly
           ) {
             // Check if this variable is borrowing from another variable
-            if (variable.isOwningTheSameGcValueAs) {
-              const ownerVar = variable.isOwningTheSameGcValueAs;
+            if (variable.isOwningTheSameRcValueAs) {
+              const ownerVar = variable.isOwningTheSameRcValueAs;
               // Only capture the owner variable, not the borrower
               // The borrower is just an alias and doesn't need separate storage
               if (!capturedVariables.has(ownerVar.id)) {
@@ -112,7 +112,7 @@ function walkExprForAwaits(
                   name: ownerVar.name,
                   type: ownerVar.type,
                   kind: "local",
-                  isOwningTheSameGcValueAs: undefined,
+                  isOwningTheSameRcValueAs: undefined,
                 };
                 capturedVariables.set(ownerVar.id, ownerCaptured);
               }
@@ -124,7 +124,7 @@ function walkExprForAwaits(
                 name: varName,
                 type: varType,
                 kind: "local",
-                isOwningTheSameGcValueAs: undefined,
+                isOwningTheSameRcValueAs: undefined,
               });
             }
           }
@@ -263,8 +263,8 @@ function walkExprForAwaits(
               const futureVar = futureVariables[futureVariables.length - 1]!;
               // If the Future variable is borrowing from another variable, use the owner's ID
               // This ensures we reference the correct field in the state machine struct
-              if (futureVar.isOwningTheSameGcValueAs) {
-                futureVariableId = futureVar.isOwningTheSameGcValueAs.id;
+              if (futureVar.isOwningTheSameRcValueAs) {
+                futureVariableId = futureVar.isOwningTheSameRcValueAs.id;
               } else {
                 futureVariableId = futureVar.id;
               }
@@ -369,7 +369,7 @@ function collectVariableBindings(
                 const variable = vars[vars.length - 1];
                 if (
                   variable &&
-                  !variable.isOwningTheSameGcValueAs &&
+                  !variable.isOwningTheSameRcValueAs &&
                   !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
@@ -378,7 +378,7 @@ function collectVariableBindings(
                     name: varName,
                     type: varType,
                     kind: "local",
-                    isOwningTheSameGcValueAs: undefined,
+                    isOwningTheSameRcValueAs: undefined,
                   });
                   seen.add(variable.id);
                 }
@@ -401,7 +401,7 @@ function collectVariableBindings(
                 const variable = vars[vars.length - 1];
                 if (
                   variable &&
-                  !variable.isOwningTheSameGcValueAs &&
+                  !variable.isOwningTheSameRcValueAs &&
                   !variable.isCompileTimeOnly &&
                   !seen.has(variable.id)
                 ) {
@@ -410,7 +410,7 @@ function collectVariableBindings(
                     name: varName,
                     type: varType,
                     kind: "local",
-                    isOwningTheSameGcValueAs: undefined,
+                    isOwningTheSameRcValueAs: undefined,
                   });
                   seen.add(variable.id);
                 }

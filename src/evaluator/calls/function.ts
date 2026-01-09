@@ -17,7 +17,6 @@ import { stringIsOperator, TokenType } from "../../token";
 import { TypeValue } from "../../type-value";
 import {
   areTypesCompatible,
-  ArrayType,
   createExprType,
   extractFnModuleFromType,
   isArrayType,
@@ -60,10 +59,6 @@ import {
   getTypeCallResult,
 } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import {
-  evaluateArrayFillMethod,
-  isArrayTypeFillMethodCall,
-} from "../utils/array-utils";
 import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
 import { tryToImplementArrayByArrayType } from "./array_type";
@@ -224,33 +219,6 @@ export function evaluateFunctionCall({
             });
           }
 
-          // Special case: Array type fill method
-          if (isArrayTypeFillMethodCall(receiverArg, methodExpr)) {
-            // Type assertion is safe because isArrayTypeFillMethodCall already validated this
-            const arrayType = (
-              receiverArg.$ as NonNullable<typeof receiverArg.$>
-            ).value as TypeValue & { value: ArrayType };
-
-            // Validate we have exactly one argument for the fill value
-            if (args.length !== 1) {
-              throw formatErrorMessage({
-                token: expr.token,
-                errorMessage: `Array.fill expects exactly 1 argument (fill value), got ${args.length}`,
-              });
-            }
-
-            // Use our helper function to handle the array fill logic
-            const result = evaluateArrayFillMethod({
-              expr,
-              arrayType: arrayType.value,
-              fillValueArg: args[0]!,
-              env,
-              context,
-            });
-
-            return result.expr;
-          }
-
           // The methodExpr should also be evaluated already
           // so it should have a type
           if (exprIsAtom(methodExpr)) {
@@ -342,9 +310,7 @@ export function evaluateFunctionCall({
         } else {
           throw formatErrorMessage({
             token: func.token,
-            errorMessage: `Expected type for function call, got ${exprToString(
-              functionToCall
-            )}`,
+            errorMessage: `Expected type for function call, got ${exprToString(functionToCall)}`,
           });
         }
       } else {
@@ -554,6 +520,19 @@ export function evaluateFunctionCall({
           },
         };
       } catch (error) {
+        // Re-throw overflow errors immediately - they should not be caught
+        if (error instanceof YoError && error.kind === "overflow") {
+          throw formatErrorMessages(
+            [
+              {
+                token: expr.token,
+                errorMessage: `Failed to call the function:\n`,
+              },
+              ...error.tokenAndErrorList,
+            ],
+            error.isAssertionError
+          );
+        }
         return {
           ...functionToCall,
           result: {
@@ -593,6 +572,19 @@ export function evaluateFunctionCall({
           },
         };
       } catch (error) {
+        // Re-throw overflow errors immediately - they should not be caught
+        if (error instanceof YoError && error.kind === "overflow") {
+          throw formatErrorMessages(
+            [
+              {
+                token: expr.token,
+                errorMessage: `Failed to call the function:\n`,
+              },
+              ...error.tokenAndErrorList,
+            ],
+            error.isAssertionError
+          );
+        }
         return {
           ...functionToCall,
           result: {
@@ -1235,9 +1227,7 @@ ${functionsToCall.length ? "Available functions:\n" : ""}`,
 ${exprToString(expr)}
 
 Found ${functionsWithMatchingTypes.length} matching calls:
-${functionsWithMatchingTypes
-  .map((func) => `${typeToString(func.type)}`)
-  .join("\n")}
+${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\n")}
 `,
     });
   }

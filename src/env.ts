@@ -16,7 +16,7 @@ import {
   isSomeType,
   ModuleType,
   Type,
-  typeContainsGcType,
+  typeContainsRcType,
   typeContainsSelfTypeForDynamicDispatchCheck,
   typeContainsSomeType,
   typeImplementsFuture,
@@ -74,24 +74,24 @@ export interface Variable {
   isCompileTimeOnly: boolean;
 
   /**
-   * Whether the variable is holding the Gc value or borrowing the Gc value.
-   * This is only relevant for types that are managed by Gc.
-   * If the value is not Gc managed, then it should be 'false'
+   * Whether the variable is holding the Rc value or borrowing the Rc value.
+   * This is only relevant for types that are managed by Rc.
+   * If the value is not Rc managed, then it should be 'false'
    *
    * Under the new simplified ownership model:
-   * - Variables created by := or = always own (isOwningTheGcValue: true)
-   * - Function parameters borrow by default (isOwningTheGcValue: false)
-   * - Function parameters with own() explicitly own (isOwningTheGcValue: true)
-   * - For non-Gc types, this is always false (no ownership tracking needed)
+   * - Variables created by := or = always own (isOwningTheRcValue: true)
+   * - Function parameters borrow by default (isOwningTheRcValue: false)
+   * - Function parameters with own() explicitly own (isOwningTheRcValue: true)
+   * - For non-Rc types, this is always false (no ownership tracking needed)
    */
-  isOwningTheGcValue: boolean;
+  isOwningTheRcValue: boolean;
 
   /**
-   * Tracks when this variable owns a share of the same Gc object as another variable.
+   * Tracks when this variable owns a share of the same Rc object as another variable.
    * This is used for dup/drop optimization across variable reassignments.
    *
    * When a temp variable is created to hold the old value during reassignment:
-   * - The temp variable's `isOwningTheSameGcValueAs` points to the original variable
+   * - The temp variable's `isOwningTheSameRcValueAs` points to the original variable
    * - This allows us to optimize away `dup(original) + drop(temp)` pairs
    *
    * Example:
@@ -101,10 +101,10 @@ export interface Variable {
    * x = MyBox(100);      // temp := x; x = MyBox(100); drop(temp)
    * ```
    *
-   * Here, `temp` would have `isOwningTheSameGcValueAs = y` because both own
+   * Here, `temp` would have `isOwningTheSameRcValueAs = y` because both own
    * shares of the same MyBox(42). We can then optimize away `dup(y) + drop(temp)`.
    */
-  isOwningTheSameGcValueAs?: Variable;
+  isOwningTheSameRcValueAs?: Variable;
 
   /**
    * Whether this variable is isReassignable or not.
@@ -232,27 +232,36 @@ export function isEvaluatingPreludeModule(): boolean {
   return _envContainingPrelude === null;
 }
 
+/**
+ * This is the special variable name that allows variable shadowing.
+ */
+export const YoSelf = "__yo_self";
+
 export function addVariableToEnv({
   env,
   variable,
   deltaFrame,
   variableId,
-  skipCheckingFunctionOverloading,
   addToBeginBlockFrame,
+  allowVariableShadowing,
 }: {
   env: Environment;
   variable: Omit<Variable, "id" | "frameLevel">;
   deltaFrame?: number;
   variableId?: string;
-  skipCheckingFunctionOverloading?: boolean;
   /**
-   * If true, the variable will be added to the nearest begin block frame
-   * instead of the top frame. This is used for temp variables that hold
-   * intermediate results - they should be tracked at the begin block level
-   * so they get dropped when the begin block ends, not when a nested
+   * If true, variable will be added to a nearest begin block frame
+   * instead of top frame. This is used for temp variables that hold
+   * intermediate results - they should be tracked at begin block level
+   * so they get dropped when begin block ends, not when a nested
    * function call frame is popped.
    */
   addToBeginBlockFrame?: boolean;
+  /**
+   * If true, allow this variable to shadow a variable with the same name in an outer scope.
+   * This is used for type parameters in function signatures, which can be shadowed in nested functions.
+   */
+  allowVariableShadowing?: boolean;
 }): { env: Environment; variable: Variable } {
   let frameLevel = env.frames.length - 1 + (deltaFrame ?? 0);
 
@@ -265,23 +274,22 @@ export function addVariableToEnv({
     // If no begin block frame found, fall back to top frame
   }
 
-  // Prevent the function overloading
-  if (!skipCheckingFunctionOverloading && isFunctionType(variable.type)) {
-    const existingFunctionVariables = getVariablesFromEnv(
-      env,
-      variable.name,
-      (variable) =>
-        isFunctionType(variable.type) && variable.frameLevel === frameLevel
-    );
-    if (existingFunctionVariables.length > 0) {
+  // Prevent variable shadowing across all scopes
+  // Variables with the same name cannot exist in different frames
+  // EXCEPT: When allowVariableShadowing is true (for function type parameters)
+  if (variable.name !== YoSelf) {
+    const existingVariables = getVariablesFromEnv(env, variable.name);
+    if (existingVariables.length > 0 && !allowVariableShadowing) {
+      const existingVariable = existingVariables[existingVariables.length - 1]!;
+      // console.trace("Variable shadowing detected:");
       throw formatErrorMessages([
         {
           token: variable.token,
-          errorMessage: `Failed to define function "${variable.name}" as overloading is not allowed:`,
+          errorMessage: `Failed to define variable "${variable.name}":`,
         },
         {
-          token: existingFunctionVariables[0]!.token,
-          errorMessage: `Function "${existingFunctionVariables[0]!.name}" is already defined here:`,
+          token: existingVariable.token,
+          errorMessage: `Variable "${variable.name}" is already defined here (variable shadowing is not allowed):`,
         },
       ]);
     }
@@ -539,8 +547,8 @@ export function getVariableInfo(variable: Variable) {
     value: valueToString(variable.value),
     isCompileTimeOnly: variable.isCompileTimeOnly,
     isUndefined: !variable.initializedAtToken,
-    isOwningTheGcValue: !!variable.isOwningTheGcValue,
-    isOwningTheSameGcValueAs: variable.isOwningTheSameGcValueAs?.name,
+    isOwningTheRcValue: !!variable.isOwningTheRcValue,
+    isOwningTheSameRcValueAs: variable.isOwningTheSameRcValueAs?.name,
     isReassignable: !!variable.isReassignable,
     isConsumed: !!variable.consumedAtToken,
   };
@@ -1212,7 +1220,7 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
-    // First, check the dyn object's own module for its Gc methods (___drop, ___dup, ___dispose)
+    // First, check the dyn object's own module for its Rc methods (___drop, ___dup, ___dispose)
     const dynMethod = dereferencedReceiverType.module.fields.find(
       (field) =>
         field.label === methodName &&
@@ -1362,13 +1370,22 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
   }
 
   const topFrame = env.frames[env.frames.length - 1]!;
-  const variables = topFrame.variables.filter(
-    (variable) =>
-      !variable.consumedAtToken &&
-      // !variable.isCompileTimeOnly &&
-      variable.isOwningTheGcValue &&
-      typeContainsGcType(variable.type)
-  );
+  const variables = topFrame.variables.filter((variable) => {
+    if (variable.consumedAtToken) return false;
+    if (!variable.isOwningTheRcValue) return false;
+    if (!typeContainsRcType(variable.type)) return false;
+
+    // Skip variables whose types contain unresolved SomeTypes.
+    // We can't generate proper drop code for abstract type parameters.
+    // This handles cases like compile-time generic functions: `compt(id) : (fn(forall(T), x: T) -> T)`
+    // where temp variables may have type `T` that isn't resolved to a concrete type.
+    const varType = variable.type;
+    if (isSomeType(varType) && !varType.resolvedConcreteType) {
+      return false;
+    }
+
+    return true;
+  });
 
   // Return in reverse order (end to start) for proper drop order
   return variables.reverse();

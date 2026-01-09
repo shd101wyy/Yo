@@ -292,15 +292,40 @@ export function checkIfFunctionParameterMatchesArgument({
       requireExprNotConsumed(evaluatedArgExpr, callerEnv);
 
       // If parameter takes ownership, call ___dup on borrowed ARC values
-      // and mark the argument as consumed at the call site
-      if (parameter.isOwningTheGcValue && !parameter.isCompileTimeOnly) {
-        setExprAsNeedsToCallDup(evaluatedArgExpr, context);
-        if (evaluatedArgExpr.$?.env) {
-          callerEnv = evaluatedArgExpr.$?.env;
-        }
+      // and/or mark the argument as consumed at the call site.
+      //
+      // Move-ownership semantics (Option B):
+      // - If the argument already owns the GC value, *move* it into the call: consume it, no dup.
+      // - If the argument is only borrowed/non-owning, create an owned temp via ___dup and pass that;
+      //   the original binding is still consumed (becomes unusable) to preserve linear/consuming-call semantics.
+      if (parameter.isOwningTheRcValue && !parameter.isCompileTimeOnly) {
+        const argVarName = evaluatedArgExpr.$?.variableName;
+        const argVars = argVarName
+          ? getVariablesFromEnv(callerEnv, argVarName)
+          : [];
+        const argVar = argVars.length ? argVars[argVars.length - 1] : undefined;
 
-        // Mark the argument as consumed (moved) at the call site
-        callerEnv = setExprAsConsumed(evaluatedArgExpr, callerEnv);
+        if (argVar?.isOwningTheRcValue) {
+          // Argument already owns: move it (no dup), and consume at call site.
+          callerEnv = setExprAsConsumed(
+            evaluatedArgExpr,
+            callerEnv,
+            true // NOTE: Allow to consume again here is necessary.
+          );
+        } else {
+          // Argument is borrowed/non-owning: materialize ownership via ___dup and pass the temp.
+          // Still consume the original argument binding so it can't be used after the call.
+          setExprAsNeedsToCallDup(evaluatedArgExpr, context);
+          if (evaluatedArgExpr.$?.env) {
+            callerEnv = evaluatedArgExpr.$.env;
+          }
+
+          callerEnv = setExprAsConsumed(
+            evaluatedArgExpr,
+            callerEnv,
+            true // NOTE: Allow to consume again here is necessary.
+          );
+        }
       }
     }
   }
@@ -364,7 +389,7 @@ export function checkIfFunctionParameterMatchesArgument({
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
-      isOwningTheGcValue: parameter.isOwningTheGcValue,
+      isOwningTheRcValue: parameter.isOwningTheRcValue,
     },
   });
   calleeEnv = nextEnv;
@@ -478,10 +503,18 @@ export function tryToCallFunctionWithArguments({
 }): FunctionCallResult {
   if (functionValue) {
     // Use the specializedType if available (e.g., from generic impls)
-    // Otherwise fall back to the function value's type
-    functionType = functionValue.specializedType ?? functionValue.type;
-    // Because it might be an anonymous function
-    // the parameter names are different from the function type that it's implementing
+    // Only fall back to functionValue.type if specializedType exists
+    // Otherwise, keep the passed-in functionType which may already be specialized
+    // (e.g., when method is looked up from a concrete receiver type)
+    if (functionValue.specializedType) {
+      functionType = functionValue.specializedType;
+    } else {
+      // Because it might be an anonymous function
+      // the parameter names are different from the function type that it's implementing
+      // We need to use the functionValue.type to get the correct parameter names
+      // so that the function body can reference them correctly.
+      functionType = functionValue.type;
+    }
   }
 
   let forallArgsExpr: FuncCallExpr | undefined = undefined;
@@ -515,6 +548,43 @@ export function tryToCallFunctionWithArguments({
   // Regular parameters come first, implicit parameters come after
   const regularArgCount = functionType.parameters.length;
 
+  // Check argument count BEFORE slicing - this ensures we catch too many/few args
+  const regularArgsToCheck = argExprs.slice(regularArgStartIndex);
+  if (!functionType.variadicParameter) {
+    if (regularArgsToCheck.length > regularArgCount) {
+      // Check if the last function parameter is quote with ExprList
+      // If not then we throw error
+      const lastParameter = functionType.parameters.at(-1);
+      if (
+        lastParameter &&
+        lastParameter.isQuote &&
+        isExprListType(lastParameter.type)
+      ) {
+        // Allowed to have more args here
+      } else {
+        throw formatErrorMessage({
+          token: functionCalleeExpr?.token ?? PlaceholderToken,
+          errorMessage: `Too many arguments for function call:
+Expected: ${regularArgCount} arguments
+Got:   ${regularArgsToCheck.length} arguments`,
+        });
+      }
+    } else if (regularArgsToCheck.length < regularArgCount) {
+      // Check if missing parameters have default values
+      const hasDefaultsForMissing = functionType.parameters
+        .slice(regularArgsToCheck.length)
+        .every((param) => param.exprs.defaultValueExpr !== undefined);
+      if (!hasDefaultsForMissing) {
+        throw formatErrorMessage({
+          token: functionCalleeExpr?.token ?? PlaceholderToken,
+          errorMessage: `Too few arguments for function call:
+Expected: ${regularArgCount} arguments
+Got:   ${regularArgsToCheck.length} arguments`,
+        });
+      }
+    }
+  }
+
   const regularArgExprs = argExprs.slice(
     regularArgStartIndex,
     regularArgStartIndex + regularArgCount
@@ -546,7 +616,7 @@ export function tryToCallFunctionWithArguments({
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
         value: typeValue,
-        isOwningTheGcValue: false,
+        isOwningTheRcValue: false,
       },
     });
     calleeEnv = nextEnv;
@@ -573,7 +643,7 @@ export function tryToCallFunctionWithArguments({
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       calleeEnv = nextEnv;
@@ -755,7 +825,7 @@ Got:   ${typeToString(typeValue.type)}`,
               token: token,
               initializedAtToken: token, // Set as initialized
               consumedAtToken: undefined,
-              isOwningTheGcValue: false,
+              isOwningTheRcValue: false,
             },
           });
           calleeEnv = nextEnv;
@@ -767,28 +837,6 @@ Got:   ${typeToString(typeValue.type)}`,
         value: typeValue,
         argType: typeValue.type,
         parameterType: evaluatedForallParameterType,
-      });
-    }
-  }
-
-  const expectedArgCount = functionType.parameters.length;
-
-  if (!functionType.variadicParameter && argExprs.length > expectedArgCount) {
-    // Check if the last function parameter is quote with ExprList
-    // If not then we throw error
-    const lastParameter = functionType.parameters.at(-1);
-    if (
-      lastParameter &&
-      lastParameter.isQuote &&
-      isExprListType(lastParameter.type)
-    ) {
-      // Allowed to have more args here
-    } else {
-      throw formatErrorMessage({
-        token: functionCalleeExpr?.token ?? PlaceholderToken,
-        errorMessage: `Too many arguments for function call:
-Expected: ${expectedArgCount} arguments
-Got:   ${argExprs.length} arguments`,
       });
     }
   }
@@ -1004,7 +1052,7 @@ Got:   ${argExprs.length} arguments`,
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
           consumedAtToken: undefined,
-          isOwningTheGcValue: false,
+          isOwningTheRcValue: false,
         },
       });
       calleeEnv = nextEnv;
@@ -1100,7 +1148,7 @@ Got:   ${argExprs.length} arguments`,
 
   validateFunctionReturnType({
     returnType,
-    env: callerEnv, // Use callerEnv directly to check SomeTypes are in scope
+    env: calleeEnv, // Use calleeEnv to check SomeTypes inferred from forall parameters
     expr,
     context,
   });

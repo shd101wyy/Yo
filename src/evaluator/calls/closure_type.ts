@@ -67,7 +67,7 @@ export function tryToImplementClosureByFnModuleType({
     body: closureBodyExpr,
     frameLevel: env.frames.length - 1,
     funcName: undefined,
-    funcId: `closure_${randomId()}`,
+    funcId: `closure_${randomId(env.modulePath)}`,
     calledComptFunctionCaches: [],
     specializedFunctionCaches: [],
   };

@@ -57,7 +57,6 @@ import {
   isFnModuleType,
   isFunctionType,
   isFutureModuleType,
-  isGcType,
   isI16Type,
   isI32Type,
   isI64Type,
@@ -67,6 +66,7 @@ import {
   isModuleType,
   isObjectType,
   isPtrType,
+  isRcType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -180,7 +180,7 @@ export function typeImplementsCopy(
  * Check if a type implements the Send trait.
  *
  * Send types can be safely transferred between threads.
- * Primitives, Send pointers (where T is not Gc and T implements Send),
+ * Primitives, Send pointers (where T is not Rc and T implements Send),
  * and structs where all fields are Send implement Send.
  */
 export function typeImplementsSend(
@@ -325,7 +325,7 @@ export function typeProhibitsComptModifier(type?: Type): boolean {
  * Check if the type contains `object` or `Dyn`
  * @param type
  */
-export function typeContainsGcType(
+export function typeContainsRcType(
   type?: Type,
   checkedTypes: Type[] = []
 ): boolean {
@@ -339,35 +339,40 @@ export function typeContainsGcType(
     checkedTypes.push(type);
   }
 
-  if (isGcType(type)) {
+  if (type.isExtern) {
+    // NOTE: Extern types, mostly the SomeType, don't need Rc
+    return false;
+  }
+
+  if (isRcType(type)) {
     return true;
   }
 
   // Recursively check in complex types
   switch (type.tag) {
     case TypeTag.Array:
-      return typeContainsGcType((type as ArrayType).childType, checkedTypes);
+      return typeContainsRcType((type as ArrayType).childType, checkedTypes);
     case TypeTag.Tuple:
       return (type as TupleType).fields.some((field) =>
-        typeContainsGcType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes)
       );
     case TypeTag.Union:
       return (type as UnionType).fields.some((field) =>
-        typeContainsGcType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
       return (type as StructType).fields.some((field) =>
-        typeContainsGcType(field.type, checkedTypes)
+        typeContainsRcType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>
         variant.fields?.some((param) =>
-          typeContainsGcType(param.type, checkedTypes)
+          typeContainsRcType(param.type, checkedTypes)
         )
       );
     case TypeTag.Iso:
       // Iso itself is GC type (atomic RC), check inner type
-      return typeContainsGcType((type as IsoType).childType, checkedTypes);
+      return typeContainsRcType((type as IsoType).childType, checkedTypes);
     case TypeTag.Module:
       return false; // Modules do not own references
     case TypeTag.Function: {
@@ -379,13 +384,13 @@ export function typeContainsGcType(
         return true; // All Future types are reference counted
       }
       if (someType.resolvedConcreteType) {
-        return typeContainsGcType(someType.resolvedConcreteType, checkedTypes);
+        return typeContainsRcType(someType.resolvedConcreteType, checkedTypes);
       } else {
         // Conservatively return true because we don't know at
         return true;
       }
     }
-    // case TypeTag.SomeType: { // NOTE: SomeType is now handled in isGcType
+    // case TypeTag.SomeType: { // NOTE: SomeType is now handled in isRcType
     //   // SomeType conservatively returns true because we don't know at
     //   // generation time whether the concrete type will contain GC types.
     //   // This ensures Box(SomeType_V) generates proper ___dispose code.
@@ -491,6 +496,42 @@ export function typeContainsSomeType(
     default:
       return false; // For other types, no SomeType is present
   }
+}
+
+/**
+ * Check if a type contains any Unknown values (e.g., array length is Unknown).
+ * Used to determine if we should fully specialize a generic impl method or not.
+ */
+export function typeContainsUnknownValue(type: Type): boolean {
+  if (isArrayType(type)) {
+    if (isUnknownValue(type.length)) {
+      return true;
+    }
+    return typeContainsUnknownValue(type.childType);
+  }
+  if (isPtrType(type)) {
+    return typeContainsUnknownValue(type.childType);
+  }
+  if (isSliceType(type)) {
+    return typeContainsUnknownValue(type.childType);
+  }
+  if (isTupleType(type)) {
+    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+  }
+  if (isStructType(type)) {
+    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+  }
+  if (isEnumType(type)) {
+    return type.variants.some((v) =>
+      v.fields?.some((param) => typeContainsUnknownValue(param.type))
+    );
+  }
+  if (isUnionType(type)) {
+    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+  }
+
+  // Add other cases as needed
+  return false;
 }
 
 /**
@@ -1160,9 +1201,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         return enumName;
       }
 
-      return `${
-        enumType.typeName ? `(${enumType.typeName}) ` : ""
-      }enum(${enumType.variants
+      return `${enumType.typeName ? `(${enumType.typeName}) ` : ""}enum(${enumType.variants
         .map((variant) => {
           return `${variant.name}${
             variant.fields
@@ -1649,7 +1688,7 @@ Please consider use 'unit' type instead.
  *
  * This uses a depth-first search with cycle detection to avoid infinite recursion.
  */
-export function canTypeFormGcCycle(
+export function canTypeFormRcCycle(
   type: Type,
   visitedTypes = new Set<string>()
 ): boolean {
@@ -1667,7 +1706,7 @@ export function canTypeFormGcCycle(
   try {
     // Check all fields in the struct
     for (const field of type.fields) {
-      if (typeCanFormCyclicGcReference(field.type, type, visitedTypes)) {
+      if (typeCanFormCyclicRcReference(field.type, type, visitedTypes)) {
         return true;
       }
     }
@@ -1682,7 +1721,7 @@ export function canTypeFormGcCycle(
  * Helper function to check if a type can reference back to a cyclic object.
  * This traverses through containers (enums, arrays, etc.) to find object references.
  */
-function typeCanFormCyclicGcReference(
+function typeCanFormCyclicRcReference(
   type: Type,
   originalRefStruct: StructType,
   visitedTypes: Set<string>
@@ -1694,7 +1733,7 @@ function typeCanFormCyclicGcReference(
 
   // If this is a different object, check if it could form cycles with the original
   if (isStructType(type) && type.isReferenceSemantics) {
-    return canTypeFormGcCycle(type, new Set(visitedTypes));
+    return canTypeFormRcCycle(type, new Set(visitedTypes));
   }
 
   // Check through enum variants
@@ -1703,7 +1742,7 @@ function typeCanFormCyclicGcReference(
       if (variant.fields) {
         for (const field of variant.fields) {
           if (
-            typeCanFormCyclicGcReference(
+            typeCanFormCyclicRcReference(
               field.type,
               originalRefStruct,
               visitedTypes
@@ -1718,7 +1757,7 @@ function typeCanFormCyclicGcReference(
 
   if (isSomeType(type)) {
     if (type.resolvedConcreteType) {
-      return typeCanFormCyclicGcReference(
+      return typeCanFormCyclicRcReference(
         type.resolvedConcreteType,
         originalRefStruct,
         visitedTypes
@@ -1730,7 +1769,7 @@ function typeCanFormCyclicGcReference(
 
   // Check through arrays
   if (isArrayType(type)) {
-    return typeCanFormCyclicGcReference(
+    return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
       visitedTypes
@@ -1739,7 +1778,7 @@ function typeCanFormCyclicGcReference(
 
   // Check through slices
   if (isSliceType(type)) {
-    return typeCanFormCyclicGcReference(
+    return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
       visitedTypes
@@ -1750,7 +1789,7 @@ function typeCanFormCyclicGcReference(
   if (isTupleType(type)) {
     for (const field of type.fields) {
       if (
-        typeCanFormCyclicGcReference(
+        typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
           visitedTypes
@@ -1765,7 +1804,7 @@ function typeCanFormCyclicGcReference(
   if (isUnionType(type)) {
     for (const field of type.fields) {
       if (
-        typeCanFormCyclicGcReference(
+        typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
           visitedTypes

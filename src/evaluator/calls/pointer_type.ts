@@ -10,7 +10,6 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import { isPtrType, Type, typeToString } from "../../types";
-import { createUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -79,7 +78,7 @@ export function tryToConvertToPointerType({
     $: {
       env,
       type: targetType,
-      value: createUnknownValue(targetType),
+      value: undefined, // Pointer casting is only available at runtime
       pathCollection: evaluatedArg.$.pathCollection,
       // Set runtimeArgExprsInOrder for codegen (only the value argument, not the type)
       runtimeArgExprsInOrder: [evaluatedArg],

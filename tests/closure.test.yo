@@ -143,7 +143,7 @@ test "Test closure with Dyn", {
   assert(result == 5, "Expected final result to be 5");
 };
 
-test "Test closure with Impl that captures Gc object", {
+test "Test closure with Impl that captures Rc object", {
   x := MyBox(1);
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
@@ -164,7 +164,7 @@ test "Test closure with Impl that captures Gc object", {
 };
 
 
-test "Test anonymous closure value with Impl that captures Gc object", {
+test "Test anonymous closure value with Impl that captures Rc object", {
   x := MyBox(1);
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
@@ -184,7 +184,7 @@ test "Test anonymous closure value with Impl that captures Gc object", {
   assert(x.* == result, "Expected final result to be 5");
 };
 
-test "Test anonymous closure value with Dyn that captures Gc object", {
+test "Test anonymous closure value with Dyn that captures Rc object", {
   x := MyBox(1);
 
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
@@ -203,7 +203,7 @@ test "Test anonymous closure value with Dyn that captures Gc object", {
   assert(x.* == result, "Expected final result to be 5");
 };
 
-test "Test anonymous closure value with Dyn that captures Gc object with auto boxing", {
+test "Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := MyBox(1);
 
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => { // without explicitly calling `box`

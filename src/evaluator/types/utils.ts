@@ -11,21 +11,24 @@ import {
   DynType,
   EnumType,
   isFunctionType,
-  isGcType,
   IsoType,
+  isRcType,
   ModuleField,
   SomeType,
   StructType,
-  typeContainsGcType,
+  typeContainsRcType,
   typeContainsSomeType,
   typeImplementsSend,
   typeOfType,
   typeToString,
   UnionType,
 } from "../../types";
+import { randomId } from "../../utils";
 import { isFunctionValue, isModuleValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+
+const YoSelf = "__yo_self";
 
 /**
  * Helper function to parse and evaluate a Yo code string in the context of a SelfType
@@ -193,9 +196,9 @@ export function addFunctionCodeToSelfTypeModule({
   return nextEnv;
 }
 
-export const DisposeFnSignature = "(fn(self : Self) -> unit)";
-export const DropFnSignature = "(fn(self : Self) -> unit)";
-export const DupFnSignature = "(fn(self : Self) -> Self)";
+export const DisposeFnSignature = `(fn(${YoSelf} : Self) -> unit)`;
+export const DropFnSignature = `(fn(${YoSelf} : Self) -> unit)`;
+export const DupFnSignature = `(fn(${YoSelf} : Self) -> Self)`;
 
 /**
  * Sanitize a field label to be a valid Yo identifier.
@@ -215,7 +218,7 @@ function isValidIdentifier(label: string): boolean {
 }
 
 /**
- * Generate destructuring and drop/dup expressions for ARC functions.
+ * Generate destructuring and drop/dup expressions for Rc functions.
  * Handles special field names like `*` by using aliased destructuring.
  */
 function generateDestructuringAndCalls(
@@ -231,22 +234,12 @@ function generateDestructuringAndCalls(
 
   for (const label of labels) {
     if (isValidIdentifier(label)) {
-      // Check if the field name is 'self' which would shadow the function parameter
-      // If so, we need to alias it to avoid shadowing
-      if (label === "self") {
-        const alias = "_self";
-        destructurings.push(`${label} : ${alias}`);
-        calls.push(`(${callFn})(${alias});`);
-      } else {
-        // Simple case: label is a valid identifier and doesn't shadow
-        destructurings.push(label);
-        // Use method call syntax (___dup(label)) instead of bare function call (___dup(label))
-        // This ensures Self is resolved in the context of the field's type, not the struct's type
-        calls.push(`(${callFn})(${label});`);
-      }
+      const alias = randomId("field_" + label);
+      destructurings.push(`${label} : ${alias}`);
+      calls.push(`(${callFn})(${alias});`);
     } else {
       // Need aliased destructuring: { (label) : alias }
-      const alias = sanitizeFieldLabel(label);
+      const alias = randomId("field_" + sanitizeFieldLabel(label));
       destructurings.push(`(${label}) : ${alias}`);
       // Use method call syntax for aliased fields too
       calls.push(`(${callFn})(${alias});`);
@@ -254,7 +247,7 @@ function generateDestructuringAndCalls(
   }
 
   return {
-    destructuringExpr: `{ ${destructurings.join(", ")} } := self;`,
+    destructuringExpr: `{ ${destructurings.join(", ")} } := ${YoSelf};`,
     callsExpr: calls.join("\n  "),
   };
 }
@@ -267,13 +260,13 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   code: string;
 } {
   const signature = DisposeFnSignature;
-  if (!isGcType(structType)) {
+  if (!isRcType(structType)) {
     return { signature, code: `(${signature} ())` };
   }
 
   const destructuringLabels = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsGcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
     )
     .map((field) => field.label);
 
@@ -300,7 +293,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   return {
     signature,
     code: `(${signature} { // ___dispose
-      ${hasDisposeFunction ? "Self.dispose(self);" : ""}
+      ${hasDisposeFunction ? `Self.dispose(${YoSelf});` : ""}
       ${dropDestructuringsExpr}
       return ();
   })`,
@@ -317,17 +310,17 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
   const signature = DropFnSignature;
   const destructuringLabels = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsGcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
     )
     .map((field) => field.label);
 
-  const decrRcExpr = isGcType(structType)
+  const decrRcExpr = isRcType(structType)
     ? `
-  ${BuiltinFunctions.__yo_decr_rc[0]!}(self);`
+  ${BuiltinFunctions.__yo_decr_rc[0]!}(${YoSelf});`
     : "";
 
   let dropDestructuringsExpr = "";
-  if (!isGcType(structType) && destructuringLabels.length) {
+  if (!isRcType(structType) && destructuringLabels.length) {
     const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
       destructuringLabels,
       BuiltinFunctions.___drop[0]!
@@ -338,13 +331,15 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 `;
   }
 
-  return {
-    signature,
-    code: `(${signature} { // ___drop
+  const finalCode = `(${signature} { // ___drop
   ${dropDestructuringsExpr}
   ${decrRcExpr}
   return ();
-})`,
+})`;
+
+  return {
+    signature,
+    code: finalCode,
   };
 }
 
@@ -358,17 +353,17 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   const signature = DupFnSignature;
   const destructuringLabels = structType.fields
     .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsGcType(field.type)
+      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
     )
     .map((field) => field.label);
 
-  const incrRcExpr = isGcType(structType)
+  const incrRcExpr = isRcType(structType)
     ? `
-  ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
+  ${BuiltinFunctions.__yo_incr_rc[0]!}(${YoSelf});`
     : "";
 
   let dupDestructuringsExpr = "";
-  if (!isGcType(structType) && destructuringLabels.length) {
+  if (!isRcType(structType) && destructuringLabels.length) {
     const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
       destructuringLabels,
       BuiltinFunctions.___dup[0]!
@@ -384,16 +379,16 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
     code: `(${signature} {  // ___dup
   ${dupDestructuringsExpr}
   ${incrRcExpr}
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
 })`,
   };
 }
 
 /**
- * Helper function to add ARC-related functions (___drop, ___dup, ___dispose) to a struct type
+ * Helper function to add Rc-related functions (___drop, ___dup, ___dispose) to a struct type
  * This should be called after all struct fields are processed and the struct type is complete
  */
-export function addARCFunctionsToStructType({
+export function addRcFunctionsToStructType({
   structType,
   env,
   context,
@@ -420,7 +415,7 @@ export function addARCFunctionsToStructType({
   /// console.log("struct drop: ", dropFunctionCode);
   /// console.log("struct dup: ", dupFunctionCode);
 
-  addARCFunctionSignaturesToStructType({ structType, env, context });
+  addRcFunctionSignaturesToStructType({ structType, env, context });
 
   // For structs containing SomeType fields, skip full function body evaluation
   // to avoid infinite recursion during recursive type construction.
@@ -459,7 +454,7 @@ export function addARCFunctionsToStructType({
   return env;
 }
 
-export function addARCFunctionSignaturesToStructType({
+export function addRcFunctionSignaturesToStructType({
   structType,
   env,
   context,
@@ -506,7 +501,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   code: string;
 } {
   const signature = DisposeFnSignature;
-  if (!isGcType(enumType)) {
+  if (!isRcType(enumType)) {
     return { signature, code: `(${signature} ())` };
   }
 
@@ -514,22 +509,22 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
     (field) => field.label === BuiltinFunctions.dispose[0]
   );
 
-  const variantsWithARCTypes = enumType.variants.filter(
+  const variantsWithRcTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsGcType(field.type))
+      variant.fields.some((field) => typeContainsRcType(field.type))
   );
 
-  if (!variantsWithARCTypes.length && !hasDisposeFunction) {
+  if (!variantsWithRcTypes.length && !hasDisposeFunction) {
     return { signature, code: `(${signature} ())` };
   }
 
-  const matchCases = variantsWithARCTypes
+  const matchCases = variantsWithRcTypes
     .map((variant) => {
       const destructurings = variant
         .fields!.filter(
           (field) =>
-            !field.isCompileTimeOnly && typeContainsGcType(field.type)
+            !field.isCompileTimeOnly && typeContainsRcType(field.type)
         )
         .map((field) => field.label);
 
@@ -547,15 +542,15 @@ ${dropStatements}
     .join(",\n    ");
 
   const defaultCase =
-    variantsWithARCTypes.length === enumType.variants.length
+    variantsWithRcTypes.length === enumType.variants.length
       ? ""
       : ",\n    _ => ()";
 
   return {
     signature,
     code: `(${signature} { // ___dispose
-      ${hasDisposeFunction ? "Self.dispose(self);" : ""}
-      match(self,
+      ${hasDisposeFunction ? `Self.dispose(${YoSelf});` : ""}
+      match(${YoSelf},
         ${matchCases}${defaultCase}
       );
       return ();
@@ -573,28 +568,28 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
 } {
   const signature = DropFnSignature;
 
-  const variantsWithARCTypes = enumType.variants.filter(
+  const variantsWithRcTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsGcType(field.type))
+      variant.fields.some((field) => typeContainsRcType(field.type))
   );
 
-  const decrRcExpr = isGcType(enumType)
+  const decrRcExpr = isRcType(enumType)
     ? `
-  ${BuiltinFunctions.__yo_decr_rc[0]!}(self);`
+  ${BuiltinFunctions.__yo_decr_rc[0]!}(${YoSelf});`
     : "";
 
-  const dropVariantsExpr = isGcType(enumType)
+  const dropVariantsExpr = isRcType(enumType)
     ? ""
-    : variantsWithARCTypes.length
+    : variantsWithRcTypes.length
       ? `
-  match(self,
-    ${variantsWithARCTypes
+  match(${YoSelf},
+    ${variantsWithRcTypes
       .map((variant) => {
         const destructurings = variant
           .fields!.filter(
             (field) =>
-              !field.isCompileTimeOnly && typeContainsGcType(field.type)
+              !field.isCompileTimeOnly && typeContainsRcType(field.type)
           )
           .map((field) => field.label);
 
@@ -610,7 +605,7 @@ ${dropStatements}
     }`;
       })
       .join(",\n    ")}${
-      variantsWithARCTypes.length === enumType.variants.length
+      variantsWithRcTypes.length === enumType.variants.length
         ? ""
         : ",\n    _ => ()"
     }
@@ -636,28 +631,28 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
 } {
   const signature = DupFnSignature;
 
-  const variantsWithARCTypes = enumType.variants.filter(
+  const variantsWithRcTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
-      variant.fields.some((field) => typeContainsGcType(field.type))
+      variant.fields.some((field) => typeContainsRcType(field.type))
   );
 
-  const incrRcExpr = isGcType(enumType)
+  const incrRcExpr = isRcType(enumType)
     ? `
-  ${BuiltinFunctions.__yo_incr_rc[0]!}(self);`
+  ${BuiltinFunctions.__yo_incr_rc[0]!}(${YoSelf});`
     : "";
 
-  const dupVariantsExpr = isGcType(enumType)
+  const dupVariantsExpr = isRcType(enumType)
     ? ""
-    : variantsWithARCTypes.length
+    : variantsWithRcTypes.length
       ? `
-  match(self,
-    ${variantsWithARCTypes
+  match(${YoSelf},
+    ${variantsWithRcTypes
       .map((variant) => {
         const destructurings = variant
           .fields!.filter(
             (field) =>
-              !field.isCompileTimeOnly && typeContainsGcType(field.type)
+              !field.isCompileTimeOnly && typeContainsRcType(field.type)
           )
           .map((field) => field.label);
 
@@ -673,7 +668,7 @@ ${dupStatements}
     }`;
       })
       .join(",\n    ")}${
-      variantsWithARCTypes.length === enumType.variants.length
+      variantsWithRcTypes.length === enumType.variants.length
         ? ""
         : ",\n    _ => ()"
     }
@@ -685,16 +680,16 @@ ${dupStatements}
     code: `(${signature} {  // ___dup
   ${dupVariantsExpr}
   ${incrRcExpr}
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
 })`,
   };
 }
 
 /**
- * Helper function to add ARC-related functions (___drop, ___dup, ___dispose) to an enum type
+ * Helper function to add Rc-related functions (___drop, ___dup, ___dispose) to an enum type
  * This should be called after all enum variants are processed and the enum type is complete
  */
-export function addARCFunctionsToEnumType({
+export function addRcFunctionsToEnumType({
   enumType,
   env,
   context,
@@ -721,7 +716,7 @@ export function addARCFunctionsToEnumType({
   /// console.log("enum drop: ", dropFunctionCode);
   /// console.log("enum dup: ", dupFunctionCode);
 
-  addARCFunctionSignaturesToEnumType({ enumType, env, context });
+  addRcFunctionSignaturesToEnumType({ enumType, env, context });
 
   // Add ___dispose function
   // env = addFunctionCodeToSelfTypeModule({
@@ -760,7 +755,7 @@ export function addARCFunctionsToEnumType({
   return env;
 }
 
-export function addARCFunctionSignaturesToEnumType({
+export function addRcFunctionSignaturesToEnumType({
   enumType,
   env,
   context,
@@ -794,10 +789,10 @@ export function addARCFunctionSignaturesToEnumType({
 }
 
 /**
- * Add ARC functions (___dup, ___drop) to a dyn type's module.
+ * Add Rc functions (___dup, ___drop) to a dyn type's module.
  * These functions operate on the dyn wrapper itself, not the wrapped object.
  */
-export function addARCFunctionsToDynType({
+export function addRcFunctionsToDynType({
   dynType,
   env,
   context,
@@ -806,7 +801,7 @@ export function addARCFunctionsToDynType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
-  // Generate ARC functions for the dyn wrapper
+  // Generate Rc functions for the dyn wrapper
   const dropFunctionCode = generateDropFunctionCodeForDynType(dynType);
   const dupFunctionCode = generateDupFunctionCodeForDynType(dynType);
 
@@ -841,8 +836,8 @@ export function addARCFunctionsToDynType({
 function generateDropFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, drop should use __yo_dyn_drop
   // This builtin function handles both the wrapped object cleanup and reference counting
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
-    ${BuiltinFunctions.__yo_dyn_drop[0]!}(self);
+  return `((fn(${YoSelf} : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
+    ${BuiltinFunctions.__yo_dyn_drop[0]!}(${YoSelf});
   })`;
 }
 
@@ -852,9 +847,9 @@ function generateDropFunctionCodeForDynType(_dynType: DynType): string {
 function generateDupFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, dup should use __yo_dyn_dup
   // This builtin function handles the dyn reference counting properly
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
-    ${BuiltinFunctions.__yo_dyn_dup[0]!}(self);
-    return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+  return `((fn(${YoSelf} : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
+    ${BuiltinFunctions.__yo_dyn_dup[0]!}(${YoSelf});
+    return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
   })`;
 }
 
@@ -864,8 +859,8 @@ function generateDupFunctionCodeForDynType(_dynType: DynType): string {
 function generateDropFunctionCodeForSomeType(someType: SomeType): string {
   // For SomeType, drop should use __yo_sometype_drop
   // This builtin function dispatches to resolvedConcreteType if available
-  return `((fn(self : Self) -> unit) { // ___drop for ${typeToString(someType)}
-    ${BuiltinFunctions.__yo_sometype_drop[0]!}(self);
+  return `((fn(${YoSelf} : Self) -> unit) { // ___drop for ${typeToString(someType)}
+    ${BuiltinFunctions.__yo_sometype_drop[0]!}(${YoSelf});
   })`;
 }
 
@@ -875,17 +870,17 @@ function generateDropFunctionCodeForSomeType(someType: SomeType): string {
 function generateDupFunctionCodeForSomeType(someType: SomeType): string {
   // For SomeType, dup should use __yo_sometype_dup
   // This builtin function dispatches to resolvedConcreteType if available
-  return `((fn(self : Self) -> Self) {  // ___dup for ${typeToString(someType)}
-    ${BuiltinFunctions.__yo_sometype_dup[0]!}(self);
-    return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+  return `((fn(${YoSelf} : Self) -> Self) {  // ___dup for ${typeToString(someType)}
+    ${BuiltinFunctions.__yo_sometype_dup[0]!}(${YoSelf});
+    return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
   })`;
 }
 
 /**
- * Add ARC functions (___drop, ___dup) to a SomeType's module.
+ * Add Rc functions (___drop, ___dup) to a SomeType's module.
  * These functions dispatch to resolvedConcreteType's methods in codegen.
  */
-export function addARCFunctionsToSomeType({
+export function addRcFunctionsToSomeType({
   someType,
   env,
   context,
@@ -894,7 +889,7 @@ export function addARCFunctionsToSomeType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
-  // Generate ARC functions for SomeType
+  // Generate Rc functions for SomeType
   const dropFunctionCode = generateDropFunctionCodeForSomeType(someType);
   const dupFunctionCode = generateDupFunctionCodeForSomeType(someType);
 
@@ -927,8 +922,8 @@ export function addARCFunctionsToSomeType({
 function generateDisposeFunctionCodeForIsoType(_isoType: IsoType): string {
   // The inner value needs to be dropped if not extracted
   // We use __yo_iso_dispose which checks the extracted flag and drops the inner value
-  return `((fn(self : Self) -> unit) { // ___dispose for Iso
-  ${BuiltinFunctions.__yo_iso_dispose[0]!}(self);
+  return `((fn(${YoSelf} : Self) -> unit) { // ___dispose for Iso
+  ${BuiltinFunctions.__yo_iso_dispose[0]!}(${YoSelf});
   return ();
 })`;
 }
@@ -938,8 +933,8 @@ function generateDisposeFunctionCodeForIsoType(_isoType: IsoType): string {
  * Uses atomic operations for thread-safe reference counting
  */
 function generateDropFunctionCodeForIsoType(_isoType: IsoType): string {
-  return `((fn(self : Self) -> unit) { // ___drop for Iso
-  ${BuiltinFunctions.__yo_decr_rc_atomic[0]!}(self);
+  return `((fn(${YoSelf} : Self) -> unit) { // ___drop for Iso
+  ${BuiltinFunctions.__yo_decr_rc_atomic[0]!}(${YoSelf});
   return ();
 })`;
 }
@@ -949,17 +944,17 @@ function generateDropFunctionCodeForIsoType(_isoType: IsoType): string {
  * Uses atomic operations for thread-safe reference counting
  */
 function generateDupFunctionCodeForIsoType(_isoType: IsoType): string {
-  return `((fn(self : Self) -> Self) {  // ___dup for Iso
-  ${BuiltinFunctions.__yo_incr_rc_atomic[0]!}(self);
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(self);
+  return `((fn(${YoSelf} : Self) -> Self) {  // ___dup for Iso
+  ${BuiltinFunctions.__yo_incr_rc_atomic[0]!}(${YoSelf});
+  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
 })`;
 }
 
 /**
- * Add ARC functions (___drop, ___dup, ___dispose) to an IsoType's module.
+ * Add Rc functions (___drop, ___dup, ___dispose) to an IsoType's module.
  * These functions use atomic operations for thread-safe reference counting.
  */
-export function addARCFunctionsToIsoType({
+export function addRcFunctionsToIsoType({
   isoType,
   env,
   context,
@@ -968,7 +963,7 @@ export function addARCFunctionsToIsoType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
-  // Generate ARC functions for IsoType using atomic operations
+  // Generate Rc functions for IsoType using atomic operations
   const disposeFunctionCode = generateDisposeFunctionCodeForIsoType(isoType);
   const dropFunctionCode = generateDropFunctionCodeForIsoType(isoType);
   const dupFunctionCode = generateDupFunctionCodeForIsoType(isoType);

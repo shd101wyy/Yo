@@ -17,6 +17,10 @@ import { evaluateAndOr } from "../builtins/and_or";
 import {
   evaluateYoDecrRc,
   evaluateYoDecrRcAtomic,
+  evaluateYoDropArrayElement,
+  evaluateYoDropTupleElement,
+  evaluateYoDupArrayElement,
+  evaluateYoDupTupleElement,
   evaluateYoDynVtableDrop,
   evaluateYoDynVtableDup,
   evaluateYoIncrRc,
@@ -27,6 +31,7 @@ import {
   evaluateYoSomeTypeDrop,
   evaluateYoSomeTypeDup,
 } from "../builtins/arc_fns";
+import { evaluateYoArrayFill } from "../builtins/array_fns";
 import { evaluateAsync } from "../builtins/async_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
@@ -66,15 +71,15 @@ import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
   evaluateYoAreTypesCompatible,
-  evaluateYoTypeCanFormGcCycle,
-  evaluateYoTypeContainsGcType,
+  evaluateYoTypeCanFormRcCycle,
+  evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
 } from "../builtins/type_fns";
 import { evaluateVaStart } from "../builtins/va_start";
 import {
   evaluateYoVarHasOtherAliases,
-  evaluateYoVarIsOwningTheGcValue,
+  evaluateYoVarIsOwningTheRcValue,
   evaluateYoVarPrintInfo,
 } from "../builtins/var_fns";
 import { evaluateFunctionCall } from "../calls/function";
@@ -420,6 +425,15 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_array_fill, 2)
+    ) {
+      // __yo_array_fill
+      return evaluateYoArrayFill({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Slice)) {
       // Slice type
       return evaluateSliceType({
@@ -533,6 +547,26 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_dispose)) {
       // __yo_iso_dispose (dispose inner value of Iso if not extracted)
       return evaluateYoIsoDispose({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_array_element)
+    ) {
+      // __yo_drop_array_element (drop array element at index without borrowing)
+      return evaluateYoDropArrayElement({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_array_element)
+    ) {
+      // __yo_dup_array_element (dup array element at index without borrowing)
+      return evaluateYoDupArrayElement({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_tuple_element)
+    ) {
+      // __yo_drop_tuple_element (drop tuple element at index without borrowing)
+      return evaluateYoDropTupleElement({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_tuple_element)
+    ) {
+      // __yo_dup_tuple_element (dup tuple element at index without borrowing)
+      return evaluateYoDupTupleElement({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
       // __yo_rc_own
       return evaluateYoRcOwn({ expr, env, context: { ...context } });
@@ -776,10 +810,10 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_contains_gc_type, 1)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_contains_rc_type, 1)
     ) {
-      // __yo_type_contains_gc_type
-      return evaluateYoTypeContainsGcType({
+      // __yo_type_contains_rc_type
+      return evaluateYoTypeContainsRcType({
         expr,
         env,
         context: { ...context },
@@ -787,12 +821,12 @@ ${exprToString(expr)}`,
     } else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_type_can_form_gc_cycle,
+        BuiltinFunctions.__yo_type_can_form_rc_cycle,
         1
       )
     ) {
-      // __yo_type_can_form_gc_cycle
-      return evaluateYoTypeCanFormGcCycle({
+      // __yo_type_can_form_rc_cycle
+      return evaluateYoTypeCanFormRcCycle({
         expr,
         env,
         context: { ...context },
@@ -820,11 +854,11 @@ ${exprToString(expr)}`,
     } else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_var_is_owning_the_gc_value
+        BuiltinFunctions.__yo_var_is_owning_the_rc_value
       )
     ) {
-      // __yo_var_is_owning_the_gc_value
-      return evaluateYoVarIsOwningTheGcValue({
+      // __yo_var_is_owning_the_rc_value
+      return evaluateYoVarIsOwningTheRcValue({
         expr,
         env,
         context: { ...context },

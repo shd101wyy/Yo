@@ -123,9 +123,7 @@ All module fields are compile-time only by default.`,
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for tuple field label, got ${exprToString(
-          labelExpr
-        )}`,
+        errorMessage: `Expected identifier for tuple field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -150,17 +148,13 @@ All module fields are compile-time only by default.`,
     if (!isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(
-          labelExpr
-        )}`,
+        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
       });
     }
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(
-          labelExpr
-        )}`,
+        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -351,6 +345,45 @@ Given type: ${typeToString(defaultValueType)}`,
     });
   }
 
+  // Validate that function type parameters have typeExpr for re-evaluation support
+  // This is required because we re-evaluate type expressions instead of substituting types
+  // for nominal types like Option(T) to get correct funcIds
+  if (isForEvaluatingModuleType && isFunctionType(fieldType)) {
+    if (fieldType.variadicParameter) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Variadic function parameters are not allowed in module field "${label ?? "unnamed"}".
+Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+      });
+    }
+    for (const param of fieldType.forallParameters) {
+      if (!param.exprs.typeExpr) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Function forall parameter "${param.label}" in module field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+        });
+      }
+    }
+    for (const param of fieldType.parameters) {
+      if (!param.exprs.typeExpr) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Function parameter "${param.label}" in module field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+        });
+      }
+    }
+    // Also validate return type has expr
+    if (!fieldType.return.expr) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Function in module field "${label ?? "unnamed"}" must have an explicit return type annotation.
+Type expressions are required for return types in module fields to support proper type specialization.`,
+      });
+    }
+  }
+
   // Validate default value expression restrictions
   if (isForEvaluatingModuleType && defaultValueExpr) {
     if (!isFunctionType(fieldType)) {
@@ -385,7 +418,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
 
   return {
     field: {
-      label: label ?? `$field_${randomId()}`,
+      label: label ?? `$field_${randomId(env.modulePath)}`,
       type: fieldType,
       exprs: {
         expr,

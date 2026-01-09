@@ -1,0 +1,3603 @@
+test "Test compt f32", {
+  // Basic f32 values
+  a :: f32(100.5);
+  b :: f32(25.25);
+  c :: f32(100.5);
+  zero :: f32(0.0);
+  neg_val :: -(f32(50.75));
+  one :: f32(1.0);
+  half :: f32(0.5);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125.75f32
+  diff :: (a - b);       // 75.25f32
+  prod :: (a * b);       // 2537.625f32
+  quot :: (a / b);       // 3.9801980198...f32 (approximately 3.98)
+  
+  // Unary operations
+  neg_a :: -(a);         // -100.5f32
+  neg_zero :: -(zero);   // -0.0f32 (negative zero)
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100.5f32 == 100.5f32)
+  eq_false :: (a == b);  // false (100.5f32 == 25.25f32)
+  neq_test :: (a != b);  // true (100.5f32 != 25.25f32)
+  neq_false :: (a != c); // false (100.5f32 != 100.5f32)
+  lt_test :: (b < a);    // true (25.25f32 < 100.5f32)
+  lt_false :: (a < b);   // false (100.5f32 < 25.25f32)
+  lte_test :: (b <= a);  // true (25.25f32 <= 100.5f32)
+  lte_equal :: (a <= c); // true (100.5f32 <= 100.5f32)
+  gt_test :: (a > b);    // true (100.5f32 > 25.25f32)
+  gt_false :: (b > a);   // false (25.25f32 > 100.5f32)
+  gte_test :: (a >= b);  // true (100.5f32 >= 25.25f32)
+  gte_equal :: (a >= c); // true (100.5f32 >= 100.5f32)
+  
+  // Type conversion operations
+  f32_to_f64 :: f64(a);      // 100.5f64
+  f32_to_i32 :: i32(a);      // 100i32 (truncated)
+  f32_to_u32 :: u32(a);      // 100u32 (truncated)
+  f32_to_string :: a.to_string(); // "100.5"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == (f32(125.75)));
+  compt_assert(diff == (f32(75.25)));
+  compt_assert(prod == (f32(2537.625)));
+  
+  // Unary operations
+  compt_assert(neg_a == (-(f32(100.5))));
+  compt_assert(neg_zero == (f32(0.0))); // -0.0 == 0.0 in IEEE 754
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(f32_to_f64 == (f64(100.5)));
+  compt_assert(f32_to_i32 == (i32(100)));
+  compt_assert(f32_to_u32 == (u32(100)));
+  compt_assert(f32_to_string == "100.5");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -50.75 + 100.5 = 49.75f32
+    neg_diff :: (neg_val - a);    // -50.75 - 100.5 = -151.25f32
+    neg_prod :: (neg_val * f32(2.0)); // -50.75 * 2.0 = -101.5f32
+    neg_quot :: (neg_val / f32(2.0)); // -50.75 / 2.0 = -25.375f32
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-50.75 < 100.5)
+    neg_gt :: (a > neg_val);      // true (100.5 > -50.75)
+    
+    compt_assert(neg_sum == (f32(49.75)));
+    compt_assert(neg_diff == (-(f32(151.25))));
+    compt_assert(neg_prod == (-(f32(101.5))));
+    compt_assert(neg_quot == (-(f32(25.375))));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100.5f32
+    zero_diff1 :: (a - zero);    // 100.5f32
+    zero_diff2 :: (zero - a);    // -100.5f32
+    zero_prod :: (zero * a);     // 0.0f32
+    
+    compt_assert(zero_sum == (f32(100.5)));
+    compt_assert(zero_diff1 == (f32(100.5)));
+    compt_assert(zero_diff2 == (-(f32(100.5))));
+    compt_assert(zero_prod == (f32(0.0)));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100.5f32
+    identity_prod :: (a * one);  // 100.5f32
+    
+    compt_assert(identity_sum == (f32(100.5)));
+    compt_assert(identity_prod == (f32(100.5)));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0.0f32
+    self_div :: (a / a);         // 1.0f32
+    
+    compt_assert(self_sub == (f32(0.0)));
+    compt_assert(self_div == (f32(1.0)));
+  };
+  
+  // Test fractional operations
+  {
+    frac1 :: f32(0.25);
+    frac2 :: f32(0.75);
+    
+    frac_sum :: (frac1 + frac2);     // 1.0f32
+    frac_diff :: (frac2 - frac1);    // 0.5f32
+    frac_prod :: (frac1 * frac2);    // 0.1875f32 (3/16)
+    frac_quot :: (frac2 / frac1);    // 3.0f32
+    
+    compt_assert(frac_sum == (f32(1.0)));
+    compt_assert(frac_diff == (f32(0.5)));
+    compt_assert(frac_prod == (f32(0.1875)));
+    compt_assert(frac_quot == (f32(3.0)));
+    
+    // Powers and roots (approximations)
+    square :: (frac2 * frac2);       // 0.5625f32 (0.75^2)
+    half_div :: (one / f32(2.0)); // 0.5f32
+    
+    compt_assert(square == (f32(0.5625)));
+    compt_assert(half_div == (f32(0.5)));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (f32(200.0) / f32(8.0));       // 25.0f32
+    div2 :: (f32(201.0) / f32(8.0));       // 25.125f32
+    div3 :: (f32(7.0) / f32(100.0));       // 0.07f32
+    
+    // Negative divisions
+    div4 :: (-(f32(200.0)) / f32(8.0));    // -25.0f32
+    div5 :: (f32(200.0) / -(f32(8.0)));    // -25.0f32
+    div6 :: (-(f32(200.0)) / -(f32(8.0))); // 25.0f32
+    
+    compt_assert(div1 == (f32(25.0)));
+    compt_assert(div2 == (f32(25.125)));
+    compt_assert(div3 == (f32(0.07)));
+    compt_assert(div4 == (-(f32(25.0))));
+    compt_assert(div5 == (-(f32(25.0))));
+    compt_assert(div6 == (f32(25.0)));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / f32(5.0));    // (100.5 + 25.25) / 5.0 = 25.15f32
+    chain2 :: (a + (b * f32(2.0)));    // 100.5 + (25.25 * 2.0) = 151.0f32
+    chain3 :: ((a / b) + f32(1.0));    // (100.5 / 25.25) + 1.0 ≈ 4.98f32
+    
+    compt_assert(chain1 == (f32(25.15)));
+    compt_assert(chain2 == (f32(151.0)));
+    // chain3 result depends on precise division
+  };
+  
+  // Test scientific notation values
+  {
+    small :: f32(0.001);         // 1e-3
+    large :: f32(1000.0);        // 1e3
+    
+    sci_prod :: (small * large);    // 1.0f32
+    sci_div :: (large / small);     // 1000000.0f32 (1e6)
+    
+    compt_assert(sci_prod == (f32(1.0)));
+    compt_assert(sci_div == (f32(1000000.0)));
+  };
+  
+  // Test precision limits (f32 has about 7 decimal digits of precision)
+  {
+    precise1 :: f32(1.234567);   // Within precision
+    precise2 :: f32(1.000001);   // Within precision
+    
+    precise_sum :: (precise1 + precise2);  // 2.234568f32
+    precise_diff :: (precise1 - precise2); // 0.234566f32
+    
+    compt_assert(precise_sum == f32(2.234568));
+    // compt_assert(precise_diff == (f32(0.234566)));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    frac_str :: (f32(0.125)).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-50.75");
+    compt_assert(frac_str == "0.125");
+  };
+  
+  // Test special arithmetic patterns
+  {
+    // Common fractions
+    third :: (f32(1.0) / f32(3.0));       // 0.333333...f32
+    two_thirds :: (f32(2.0) / f32(3.0));  // 0.666666...f32
+    
+    // Reciprocals
+    recip_2 :: (f32(1.0) / f32(2.0));     // 0.5f32
+    recip_4 :: (f32(1.0) / f32(4.0));     // 0.25f32
+    
+    compt_assert(recip_2 == (f32(0.5)));
+    compt_assert(recip_4 == (f32(0.25)));
+    
+    // Powers of 10
+    ten :: f32(10.0);
+    hundred :: (ten * ten);          // 100.0f32
+    thousand :: (hundred * ten);     // 1000.0f32
+    
+    compt_assert(hundred == (f32(100.0)));
+    compt_assert(thousand == (f32(1000.0)));
+  };
+};
+
+test "Test compt f64", {
+  // Basic f64 values
+  a :: f64(100.5);
+  b :: f64(25.25);
+  c :: f64(100.5);
+  zero :: f64(0.0);
+  neg_val :: f64(-50.75);
+  one :: f64(1.0);
+  half :: f64(0.5);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125.75f64
+  diff :: (a - b);       // 75.25f64
+  prod :: (a * b);       // 2537.625f64
+  quot :: (a / b);       // 3.9801980198019801...f64 (high precision)
+  
+  // Unary operations
+  neg_a :: -(a);         // -100.5f64
+  neg_zero :: -(zero);   // -0.0f64 (negative zero)
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100.5f64 == 100.5f64)
+  eq_false :: (a == b);  // false (100.5f64 == 25.25f64)
+  neq_test :: (a != b);  // true (100.5f64 != 25.25f64)
+  neq_false :: (a != c); // false (100.5f64 != 100.5f64)
+  lt_test :: (b < a);    // true (25.25f64 < 100.5f64)
+  lt_false :: (a < b);   // false (100.5f64 < 25.25f64)
+  lte_test :: (b <= a);  // true (25.25f64 <= 100.5f64)
+  lte_equal :: (a <= c); // true (100.5f64 <= 100.5f64)
+  gt_test :: (a > b);    // true (100.5f64 > 25.25f64)
+  gt_false :: (b > a);   // false (25.25f64 > 100.5f64)
+  gte_test :: (a >= b);  // true (100.5f64 >= 25.25f64)
+  gte_equal :: (a >= c); // true (100.5f64 >= 100.5f64)
+  
+  // Type conversion operations
+  f64_to_f32 :: f32(a);      // 100.5f32 (may lose precision)
+  f64_to_i64 :: i64(a);      // 100i64 (truncated)
+  f64_to_u64 :: u64(a);      // 100u64 (truncated)
+  f64_to_string :: a.to_string(); // "100.5"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == f64(125.75));
+  compt_assert(diff == f64(75.25));
+  compt_assert(prod == f64(2537.625));
+  
+  // Unary operations
+  compt_assert(neg_a == f64(-100.5));
+  compt_assert(neg_zero == f64(0.0)); // -0.0 == 0.0 in IEEE 754
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(f64_to_f32 == f32(100.5));
+  compt_assert(f64_to_i64 == i64(100));
+  compt_assert(f64_to_u64 == u64(100));
+  compt_assert(f64_to_string == "100.5");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -50.75 + 100.5 = 49.75f64
+    neg_diff :: (neg_val - a);    // -50.75 - 100.5 = -151.25f64
+    neg_prod :: (neg_val * f64(2.0)); // -50.75 * 2.0 = -101.5f64
+    neg_quot :: (neg_val / f64(2.0)); // -50.75 / 2.0 = -25.375f64
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-50.75 < 100.5)
+    neg_gt :: (a > neg_val);      // true (100.5 > -50.75)
+    
+    compt_assert(neg_sum == f64(49.75));
+    compt_assert(neg_diff == f64(-151.25));
+    compt_assert(neg_prod == f64(-101.5));
+    compt_assert(neg_quot == f64(-25.375));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100.5f64
+    zero_diff1 :: (a - zero);    // 100.5f64
+    zero_diff2 :: (zero - a);    // -100.5f64
+    zero_prod :: (zero * a);     // 0.0f64
+    
+    compt_assert(zero_sum == f64(100.5));
+    compt_assert(zero_diff1 == f64(100.5));
+    compt_assert(zero_diff2 == f64(-100.5));
+    compt_assert(zero_prod == f64(0.0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100.5f64
+    identity_prod :: (a * one);  // 100.5f64
+    
+    compt_assert(identity_sum == f64(100.5));
+    compt_assert(identity_prod == f64(100.5));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0.0f64
+    self_div :: (a / a);         // 1.0f64
+    
+    compt_assert(self_sub == f64(0.0));
+    compt_assert(self_div == f64(1.0));
+  };
+  
+  // Test fractional operations
+  {
+    frac1 :: f64(0.25);
+    frac2 :: f64(0.75);
+    
+    frac_sum :: (frac1 + frac2);     // 1.0f64
+    frac_diff :: (frac2 - frac1);    // 0.5f64
+    frac_prod :: (frac1 * frac2);    // 0.1875f64 (3/16)
+    frac_quot :: (frac2 / frac1);    // 3.0f64
+    
+    compt_assert(frac_sum == f64(1.0));
+    compt_assert(frac_diff == f64(0.5));
+    compt_assert(frac_prod == f64(0.1875));
+    compt_assert(frac_quot == f64(3.0));
+    
+    // Powers and roots (approximations)
+    square :: (frac2 * frac2);       // 0.5625f64 (0.75^2)
+    half_div :: (one / f64(2.0)); // 0.5f64
+    
+    compt_assert(square == f64(0.5625));
+    compt_assert(half_div == f64(0.5));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (f64(200.0) / f64(8.0));       // 25.0f64
+    div2 :: (f64(201.0) / f64(8.0));       // 25.125f64
+    div3 :: (f64(7.0) / f64(100.0));       // 0.07f64
+    
+    // Negative divisions
+    div4 :: (f64(-200.0) / f64(8.0));    // -25.0f64
+    div5 :: (f64(200.0) / f64(-8.0));    // -25.0f64
+    div6 :: (f64(-200.0) / f64(-8.0)); // 25.0f64
+    
+    compt_assert(div1 == f64(25.0));
+    compt_assert(div2 == f64(25.125));
+    compt_assert(div3 == f64(0.07));
+    compt_assert(div4 == f64(-25.0));
+    compt_assert(div5 == f64(-25.0));
+    compt_assert(div6 == f64(25.0));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / f64(5.0));    // (100.5 + 25.25) / 5.0 = 25.15f64
+    chain2 :: (a + (b * f64(2.0)));    // 100.5 + (25.25 * 2.0) = 151.0f64
+    chain3 :: ((a / b) + f64(1.0));    // (100.5 / 25.25) + 1.0 ≈ 4.980198...f64
+    
+    compt_assert(chain1 == f64(25.15));
+    compt_assert(chain2 == f64(151.0));
+    // chain3 result depends on precise division
+  };
+  
+  // Test scientific notation values
+  {
+    small :: f64(0.001);         // 1e-3
+    large :: f64(1000.0);        // 1e3
+    very_small :: f64(0.000001); // 1e-6
+    very_large :: f64(1000000.0); // 1e6
+    
+    sci_prod :: (small * large);    // 1.0f64
+    sci_div :: (large / small);     // 1000000.0f64 (1e6)
+    tiny_prod :: (very_small * very_large); // 1.0f64
+    
+    compt_assert(sci_prod == f64(1.0));
+    compt_assert(sci_div == f64(1000000.0));
+    compt_assert(tiny_prod == f64(1.0));
+  };
+  
+  // Test high precision (f64 has about 15-17 decimal digits of precision)
+  {
+    precise1 :: f64(1.23456789012345);   // Within precision
+    precise2 :: f64(1.00000000000001);   // Within precision
+    
+    precise_sum :: (precise1 + precise2);  // 2.23456789012346f64
+    precise_diff :: (precise1 - precise2); // 0.23456789012344f64
+    
+    compt_assert(precise_sum == f64(2.23456789012346));
+    // compt_assert(precise_diff == (f64(0.23456789012344.)));
+  };
+  
+  // Test very large and very small numbers
+  {
+    huge :: f64(1.0e15);         // 1 quadrillion
+    tiny :: f64(1.0e-15);        // 1 femto
+    
+    huge_ops :: (huge * f64(2.0));  // 2.0e15f64
+    tiny_ops :: (tiny * f64(1000.0)); // 1.0e-12f64
+    
+    compt_assert(huge_ops == f64(2.0e15));
+    compt_assert(tiny_ops == f64(1.0e-12));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    frac_str :: f64(0.125).to_string();
+    sci_str :: f64(1.25e-3).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-50.75");
+    compt_assert(frac_str == "0.125");
+    // sci_str format may vary based on implementation
+  };
+  
+  // Test special arithmetic patterns
+  {
+    // Common fractions with higher precision
+    third :: (f64(1.0) / f64(3.0));       // 0.333333333333333...f64
+    two_thirds :: (f64(2.0) / f64(3.0));  // 0.666666666666666...f64
+    pi_approx :: f64(3.141592653589793);     // High precision pi approximation
+    
+    // Reciprocals
+    recip_2 :: (f64(1.0) / f64(2.0));     // 0.5f64
+    recip_4 :: (f64(1.0) / f64(4.0));     // 0.25f64
+    recip_pi :: (f64(1.0) / pi_approx);      // 1/π
+    
+    compt_assert(recip_2 == f64(0.5));
+    compt_assert(recip_4 == f64(0.25));
+    
+    // Powers of 10
+    ten :: f64(10.0);
+    hundred :: (ten * ten);          // 100.0f64
+    thousand :: (hundred * ten);     // 1000.0f64
+    million :: (thousand * thousand); // 1000000.0f64
+    
+    compt_assert(hundred == f64(100.0));
+    compt_assert(thousand == f64(1000.0));
+    compt_assert(million == f64(1000000.0));
+  };
+  
+  // Test mathematical constants and relationships
+  {
+    e_approx :: f64(2.718281828459045);      // Euler's number approximation
+    sqrt2_approx :: f64(1.4142135623730951); // √2 approximation
+    
+    // Test some mathematical relationships
+    half_pi :: (f64(3.141592653589793) / f64(2.0));  // π/2
+    quarter_pi :: (half_pi / f64(2.0));                  // π/4
+    
+    // Golden ratio approximation
+    phi :: f64(1.618033988749895);
+    phi_recip :: (f64(1.0) / phi);                       // 1/φ ≈ φ - 1
+    
+    compt_assert(half_pi == f64(1.5707963267948966));
+    compt_assert(quarter_pi == f64(0.7853981633974483));
+    
+    // Test that φ * (1/φ) ≈ 1
+    phi_product :: (phi * phi_recip);
+    // compt_assert(phi_product == f64(1.0)); // Should be very close to 1.0
+  };
+};
+
+test "Test compt i8", {
+  // Basic i8 values
+  a :: i8(50);
+  b :: i8(25);
+  c :: i8(50);
+  zero :: i8(0);
+  neg_val :: i8((30).neg());
+  max_val :: i8.MAX;
+  min_val :: i8.MIN;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 75i8
+  diff :: (a - b);       // 25i8
+  compt_expect_error(prod :: (a * b));       // 1250i8 (may overflow)
+  quot :: (a / b);       // 2i8 (integer division)
+  remainder :: (a % b);  // 0i8 (50 % 25 = 0)
+  
+  // Unary operations
+  neg_a :: -(a);         // -50i8
+  neg_zero :: -(zero);   // 0i8
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (50i8 == 50i8)
+  eq_false :: (a == b);  // false (50i8 == 25i8)
+  neq_test :: (a != b);  // true (50i8 != 25i8)
+  neq_false :: (a != c); // false (50i8 != 50i8)
+  lt_test :: (b < a);    // true (25i8 < 50i8)
+  lt_false :: (a < b);   // false (50i8 < 25i8)
+  lte_test :: (b <= a);  // true (25i8 <= 50i8)
+  lte_equal :: (a <= c); // true (50i8 <= 50i8)
+  gt_test :: (a > b);    // true (50i8 > 25i8)
+  gt_false :: (b > a);   // false (25i8 > 50i8)
+  gte_test :: (a >= b);  // true (50i8 >= 25i8)
+  gte_equal :: (a >= c); // true (50i8 >= 50i8)
+  
+  // Type conversion operations
+  i8_to_i16 :: i16(a);      // 50i16
+  i8_to_u16 :: u16(a);      // 50u16
+  i8_to_f32 :: f32(a);      // 50.0f32
+  i8_to_string :: a.to_string(); // "50"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == i8(75));
+  compt_assert(diff == i8(25));
+  compt_assert(quot == i8(2));
+  compt_assert(remainder == i8(0));
+  
+  // Unary operations
+  compt_assert(neg_a == i8((50).neg()));
+  compt_assert(neg_zero == i8(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(i8_to_i16 == i16(50));
+  compt_assert(i8_to_u16 == u16(50));
+  compt_assert(i8_to_f32 == f32(50.0));
+  compt_assert(i8_to_string == "50");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -30 + 50 = 20i8
+    neg_diff :: (neg_val - a);    // -30 - 50 = -80i8
+    neg_prod :: (neg_val * i8(2)); // -30 * 2 = -60i8
+    neg_quot :: (neg_val / i8(5)); // -30 / 5 = -6i8
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-30 < 50)
+    neg_gt :: (a > neg_val);      // true (50 > -30)
+    
+    compt_assert(neg_sum == i8(20));
+    compt_assert(neg_diff == i8((80).neg()));
+    compt_assert(neg_prod == i8((60).neg()));
+    compt_assert(neg_quot == i8((6).neg()));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test boundary values
+  {
+    // Operations with min value
+    min_sum :: (min_val + i8(1));     // -127i8
+    compt_expect_error(min_val - i8(1));     // overflow behavior
+    min_neg :: -(min_val);               // overflow: -(-128) should be handled
+    
+    // Operations with max value
+    compt_expect_error(max_sum :: (max_val + i8(1)));     // overflow
+    max_sub :: (max_val - i8(1));     // 126i8
+    max_neg :: -(max_val);               // -127i8
+    
+    compt_assert(min_sum == i8((127).neg()));
+    compt_assert(max_sub == i8(126));
+    compt_assert(max_neg == i8((127).neg()));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 50i8
+    zero_diff1 :: (a - zero);    // 50i8
+    zero_diff2 :: (zero - a);    // -50i8
+    zero_prod :: (zero * a);     // 0i8
+    
+    compt_assert(zero_sum == i8(50));
+    compt_assert(zero_diff1 == i8(50));
+    compt_assert(zero_diff2 == i8((50).neg()));
+    compt_assert(zero_prod == i8(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 50i8
+    identity_prod :: (a * i8(1));  // 50i8
+    
+    compt_assert(identity_sum == i8(50));
+    compt_assert(identity_prod == i8(50));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0i8
+    self_div :: (a / a);         // 1i8
+    self_mod :: (a % a);         // 0i8
+    
+    compt_assert(self_sub == i8(0));
+    compt_assert(self_div == i8(1));
+    compt_assert(self_mod == i8(0));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (i8(60) / i8(5));       // 12i8
+    div2 :: (i8(61) / i8(5));       // 12i8 (integer division)
+    div3 :: (i8(3) / i8(10));       // 0i8
+    
+    // Negative divisions
+    div4 :: (i8((60).neg()) / i8(5));    // -12i8
+    div5 :: (i8(60) / i8((5).neg()));    // -12i8
+    div6 :: (i8((60).neg()) / i8((5).neg())); // 12i8
+    
+    compt_assert(div1 == i8(12));
+    compt_assert(div2 == i8(12));
+    compt_assert(div3 == i8(0));
+    compt_assert(div4 == i8((12).neg()));
+    compt_assert(div5 == i8((12).neg()));
+    compt_assert(div6 == i8(12));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (i8(17) % i8(5));        // 2i8
+    mod2 :: (i8(20) % i8(4));        // 0i8
+    mod3 :: (i8(7) % i8(10));        // 7i8
+    
+    // Negative modulo
+    mod4 :: (i8((17).neg()) % i8(5));     // behavior depends on implementation
+    mod5 :: (i8(17) % i8((5).neg()));     // behavior depends on implementation
+    
+    compt_assert(mod1 == i8(2));
+    compt_assert(mod2 == i8(0));
+    compt_assert(mod3 == i8(7));
+  };
+  
+  // Test chained operations
+  {
+    compt_expect_error(chain1 :: ((a + b) * i8(2)));   // (50i8 + 25i8) * 2i8 = 150i8 (may overflow)
+    chain2 :: (a + (b * i8(2)));   // 50i8 + (25i8 * 2i8) = 100i8
+    chain3 :: ((a / b) + i8(1));   // (50i8 / 25i8) + 1i8 = 3i8
+    
+    compt_assert(chain2 == i8(100));
+    compt_assert(chain3 == i8(3));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    max_str :: max_val.to_string();
+    min_str :: min_val.to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-30");
+    compt_assert(max_str == "127");
+    compt_assert(min_str == "-128");
+  };
+};
+
+test "Test compt i16", {
+  // Basic i16 values
+  a :: i16(1000);
+  b :: i16(250);
+  c :: i16(1000);
+  zero :: i16(0);
+  neg_val :: i16(-500);
+  max_val :: i16.MAX;
+  min_val :: i16.MIN;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 1250i16
+  diff :: (a - b);       // 750i16
+  compt_expect_error(prod :: (a * b));       // 250000i16 (may overflow)
+  quot :: (a / b);       // 4i16 (integer division)
+  remainder :: (a % b);  // 0i16 (1000 % 250 = 0)
+  
+  // Unary operations
+  neg_a :: -(a);         // -1000i16
+  neg_zero :: -(zero);   // 0i16
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (1000i16 == 1000i16)
+  eq_false :: (a == b);  // false (1000i16 == 250i16)
+  neq_test :: (a != b);  // true (1000i16 != 250i16)
+  neq_false :: (a != c); // false (1000i16 != 1000i16)
+  lt_test :: (b < a);    // true (250i16 < 1000i16)
+  lt_false :: (a < b);   // false (1000i16 < 250i16)
+  lte_test :: (b <= a);  // true (250i16 <= 1000i16)
+  lte_equal :: (a <= c); // true (1000i16 <= 1000i16)
+  gt_test :: (a > b);    // true (1000i16 > 250i16)
+  gt_false :: (b > a);   // false (250i16 > 1000i16)
+  gte_test :: (a >= b);  // true (1000i16 >= 250i16)
+  gte_equal :: (a >= c); // true (1000i16 >= 1000i16)
+  
+  // Type conversion operations
+  i16_to_i32 :: i32(a);      // 1000i32
+  i16_to_u32 :: u32(a);      // 1000u32
+  i16_to_f32 :: f32(a);      // 1000.0f32
+  i16_to_string :: a.to_string(); // "1000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == i16(1250));
+  compt_assert(diff == i16(750));
+  compt_assert(quot == i16(4));
+  compt_assert(remainder == i16(0));
+  
+  // Unary operations
+  n :: (-1000);
+  x :: i16(n);
+  compt_assert(neg_a == i16(-1000));
+  compt_assert(neg_zero == i16(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(i16_to_i32 == i32(1000));
+  compt_assert(i16_to_u32 == u32(1000));
+  compt_assert(i16_to_f32 == (f32(1000.0)));
+  compt_assert(i16_to_string == "1000");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -500 + 1000 = 500i16
+    neg_diff :: (neg_val - a);    // -500 - 1000 = -1500i16
+    neg_prod :: (neg_val * i16(2)); // -500 * 2 = -1000i16
+    neg_quot :: (neg_val / i16(5)); // -500 / 5 = -100i16
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-500 < 1000)
+    neg_gt :: (a > neg_val);      // true (1000 > -500)
+    
+    compt_assert(neg_sum == i16(500));
+    compt_assert(neg_diff == i16(-1500));
+    compt_assert(neg_prod == i16(-1000));
+    compt_assert(neg_quot == i16(-100));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test boundary values
+  {
+    // Operations with min value
+    min_sum :: (min_val + i16(1));     // -32767i16
+    compt_expect_error(min_sub :: (min_val - i16(1)));     // overflow behavior
+    min_neg :: -(min_val);               // overflow: -(-32768) should be handled
+    
+    // Operations with max value
+    compt_expect_error(max_sum :: (max_val + i16(1)));     // overflow
+    max_sub :: (max_val - i16(1));     // 32766i16
+    max_neg :: -(max_val);               // -32767i16
+    
+    compt_assert(min_sum == i16(-32767));
+    compt_assert(max_sub == i16(32766));
+    compt_assert(max_neg == i16(-32767));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 1000i16
+    zero_diff1 :: (a - zero);    // 1000i16
+    zero_diff2 :: (zero - a);    // -1000i16
+    zero_prod :: (zero * a);     // 0i16
+    
+    compt_assert(zero_sum == i16(1000));
+    compt_assert(zero_diff1 == i16(1000));
+    compt_assert(zero_diff2 == i16(-1000));
+    compt_assert(zero_prod == i16(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 1000i16
+    identity_prod :: (a * i16(1));  // 1000i16
+    
+    compt_assert(identity_sum == i16(1000));
+    compt_assert(identity_prod == i16(1000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0i16
+    self_div :: (a / a);         // 1i16
+    self_mod :: (a % a);         // 0i16
+    
+    compt_assert(self_sub == i16(0));
+    compt_assert(self_div == i16(1));
+    compt_assert(self_mod == i16(0));
+  };
+  
+  // Test large values
+  {
+    large1 :: i16(20000);
+    large2 :: i16(12000);
+    
+    large_sum :: (large1 + large2);     // 32000i16
+    large_diff :: (large1 - large2);    // 8000i16
+    large_div :: (large1 / i16(10)); // 2000i16
+    large_mod :: (large1 % i16(7));  // 6i16 (20000 % 7 = 1)
+    
+    compt_assert(large_sum == i16(32000));
+    compt_assert(large_diff == i16(8000));
+    compt_assert(large_div == i16(2000));
+    compt_assert(large_mod == i16(1));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (i16(2000) / i16(8));       // 250i16
+    div2 :: (i16(2001) / i16(8));       // 250i16 (integer division)
+    div3 :: (i16(7) / i16(100));        // 0i16
+    
+    // Negative divisions
+    div4 :: (i16(-2000) / i16(8));    // -250i16
+    div5 :: (i16(2000) / i16(-8));    // -250i16
+    div6 :: (i16(-2000) / i16(-8)); // 250i16
+    
+    compt_assert(div1 == i16(250));
+    compt_assert(div2 == i16(250));
+    compt_assert(div3 == i16(0));
+    compt_assert(div4 == i16(-250));
+    compt_assert(div5 == i16(-250));
+    compt_assert(div6 == i16(250));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (i16(17) % i16(5));        // 2i16
+    mod2 :: (i16(20) % i16(4));        // 0i16
+    mod3 :: (i16(7) % i16(10));        // 7i16
+    
+    // Negative modulo
+    mod4 :: (i16(-17) % i16(5));     // behavior depends on implementation
+    mod5 :: (i16(17) % i16(-5));     // behavior depends on implementation
+    
+    compt_assert(mod1 == i16(2));
+    compt_assert(mod2 == i16(0));
+    compt_assert(mod3 == i16(7));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / i16(2));   // (1000i16 + 250i16) / 2i16 = 625i16
+    chain2 :: (a + (b * i16(2)));   // 1000i16 + (250i16 * 2i16) = 1500i16
+    chain3 :: ((a / b) + i16(1));   // (1000i16 / 250i16) + 1i16 = 5i16
+    
+    compt_assert(chain1 == i16(625));
+    compt_assert(chain2 == i16(1500));
+    compt_assert(chain3 == i16(5));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    max_str :: max_val.to_string();
+    min_str :: min_val.to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-500");
+    compt_assert(max_str == "32767");
+    compt_assert(min_str == "-32768");
+  };
+};
+
+test "Test compt i32", {
+  // Basic i32 values
+  a :: i32(100000);
+  b :: i32(25000);
+  c :: i32(100000);
+  zero :: i32(0);
+  neg_val :: i32(-50000);
+  max_val :: i32.MAX;
+  min_val :: i32.MIN;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125000i32
+  diff :: (a - b);       // 75000i32
+  compt_expect_error(prod :: (a * b));       // 2500000000i32
+  quot :: (a / b);       // 4i32 (integer division)
+  remainder :: (a % b);  // 0i32 (100000 % 25000 = 0)
+  
+  // Unary operations
+  neg_a :: -(a);         // -100000i32
+  neg_zero :: -(zero);   // 0i32
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100000i32 == 100000i32)
+  eq_false :: (a == b);  // false (100000i32 == 25000i32)
+  neq_test :: (a != b);  // true (100000i32 != 25000i32)
+  neq_false :: (a != c); // false (100000i32 != 100000i32)
+  lt_test :: (b < a);    // true (25000i32 < 100000i32)
+  lt_false :: (a < b);   // false (100000i32 < 25000i32)
+  lte_test :: (b <= a);  // true (25000i32 <= 100000i32)
+  lte_equal :: (a <= c); // true (100000i32 <= 100000i32)
+  gt_test :: (a > b);    // true (100000i32 > 25000i32)
+  gt_false :: (b > a);   // false (25000i32 > 100000i32)
+  gte_test :: (a >= b);  // true (100000i32 >= 25000i32)
+  gte_equal :: (a >= c); // true (100000i32 >= 100000i32)
+  
+  // Type conversion operations
+  i32_to_i64 :: i64(a);      // 100000i64
+  i32_to_u64 :: u64(a);      // 100000u64
+  i32_to_f32 :: f32(a);      // 100000.0f32
+  i32_to_f64 :: f64(a);      // 100000.0f64
+  i32_to_string :: a.to_string(); // "100000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == i32(125000));
+  compt_assert(diff == i32(75000));
+  compt_assert(quot == i32(4));
+  compt_assert(remainder == i32(0));
+  
+  // Unary operations
+  compt_assert(neg_a == i32(-100000));
+  compt_assert(neg_zero == i32(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(i32_to_i64 == i64(100000));
+  compt_assert(i32_to_u64 == u64(100000));
+  compt_assert(i32_to_f32 == f32(100000.0));
+  compt_assert(i32_to_f64 == f64(100000.0));
+  compt_assert(i32_to_string == "100000");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -50000 + 100000 = 50000i32
+    neg_diff :: (neg_val - a);    // -50000 - 100000 = -150000i32
+    neg_prod :: (neg_val * i32(2)); // -50000 * 2 = -100000i32
+    neg_quot :: (neg_val / i32(10)); // -50000 / 10 = -5000i32
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-50000 < 100000)
+    neg_gt :: (a > neg_val);      // true (100000 > -50000)
+    
+    compt_assert(neg_sum == i32(50000));
+    compt_assert(neg_diff == i32(-150000));
+    compt_assert(neg_prod == i32(-100000));
+    compt_assert(neg_quot == i32(-5000));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test boundary values
+  {
+    // Operations with min value
+    min_sum :: (min_val + i32(1));     // -2147483647i32
+    compt_expect_error(min_sub :: (min_val - i32(1)));     // overflow behavior
+    min_neg :: -(min_val);               // overflow: -(-2147483648) should be handled
+    
+    // Operations with max value
+    compt_expect_error(max_sum :: (max_val + i32(1)));     // overflow
+    max_sub :: (max_val - i32(1));     // 2147483646i32
+    max_neg :: -(max_val);               // -2147483647i32
+    
+    compt_assert(min_sum == i32(-2147483647));
+    compt_assert(max_sub == i32(2147483646));
+    compt_assert(max_neg == i32(-2147483647));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100000i32
+    zero_diff1 :: (a - zero);    // 100000i32
+    zero_diff2 :: (zero - a);    // -100000i32
+    zero_prod :: (zero * a);     // 0i32
+    
+    compt_assert(zero_sum == i32(100000));
+    compt_assert(zero_diff1 == i32(100000));
+    compt_assert(zero_diff2 == i32(-100000));
+    compt_assert(zero_prod == i32(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100000i32
+    identity_prod :: (a * i32(1));  // 100000i32
+    
+    compt_assert(identity_sum == i32(100000));
+    compt_assert(identity_prod == i32(100000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0i32
+    self_div :: (a / a);         // 1i32
+    self_mod :: (a % a);         // 0i32
+    
+    compt_assert(self_sub == i32(0));
+    compt_assert(self_div == i32(1));
+    compt_assert(self_mod == i32(0));
+  };
+  
+  // Test large values
+  {
+    large1 :: i32(1000000000);
+    large2 :: i32(500000000);
+    
+    large_sum :: (large1 + large2);     // 1500000000i32
+    large_diff :: (large1 - large2);    // 500000000i32
+    large_div :: (large1 / i32(1000)); // 1000000i32
+    large_mod :: (large1 % i32(7));  // 6i32 (1000000000 % 7 = 6)
+    
+    compt_assert(large_sum == i32(1500000000));
+    compt_assert(large_diff == i32(500000000));
+    compt_assert(large_div == i32(1000000));
+    compt_assert(large_mod == i32(6));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (i32(200000) / i32(8));       // 25000i32
+    div2 :: (i32(200001) / i32(8));       // 25000i32 (integer division)
+    div3 :: (i32(7) / i32(1000));         // 0i32
+    
+    // Negative divisions
+    div4 :: (i32(-200000) / i32(8));    // -25000i32
+    div5 :: (i32(200000) / -i32(8));    // -25000i32
+    div6 :: (i32(-200000) / -i32(8)); // 25000i32
+    
+    compt_assert(div1 == i32(25000));
+    compt_assert(div2 == i32(25000));
+    compt_assert(div3 == i32(0));
+    compt_assert(div4 == i32(-25000));
+    compt_assert(div5 == i32(-25000));
+    compt_assert(div6 == i32(25000));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (i32(17) % i32(5));        // 2i32
+    mod2 :: (i32(20) % i32(4));        // 0i32
+    mod3 :: (i32(7) % i32(10));        // 7i32
+    
+    // Negative modulo
+    mod4 :: (i32(-17) % i32(5));     // behavior depends on implementation
+    mod5 :: (i32(17) % -i32(5));     // behavior depends on implementation
+    
+    compt_assert(mod1 == i32(2));
+    compt_assert(mod2 == i32(0));
+    compt_assert(mod3 == i32(7));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / i32(5));    // (100000i32 + 25000i32) / 5i32 = 25000i32
+    chain2 :: (a + (b * i32(2)));    // 100000i32 + (25000i32 * 2i32) = 150000i32
+    chain3 :: ((a / b) + i32(1));    // (100000i32 / 25000i32) + 1i32 = 5i32
+    
+    compt_assert(chain1 == i32(25000));
+    compt_assert(chain2 == i32(150000));
+    compt_assert(chain3 == i32(5));
+  };
+  
+  // Test powers of 2 (common in systems programming)
+  {
+    pow2_10 :: i32(1024);           // 2^10
+    pow2_20 :: i32(1048576);        // 2^20
+    
+    div_pow2 :: (pow2_20 / pow2_10);   // 1024i32
+    mod_pow2 :: (i32(1025) % pow2_10); // 1i32
+    
+    compt_assert(div_pow2 == i32(1024));
+    compt_assert(mod_pow2 == i32(1));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    max_str :: max_val.to_string();
+    min_str :: min_val.to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-50000");
+    compt_assert(max_str == "2147483647");
+    compt_assert(min_str == "-2147483648");
+  };
+};
+
+test "Test compt i64", {
+  // Basic i64 values
+  a :: i64(1000000000000);
+  b :: i64(250000000000);
+  c :: i64(1000000000000);
+  zero :: i64(0);
+  neg_val :: i64(-500000000000);
+  max_val :: i64.MAX;
+  min_val :: i64.MIN;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 1250000000000i64
+  diff :: (a - b);       // 750000000000i64
+  compt_expect_error(prod :: (a * b));       // 250000000000000000000000i64 (may overflow)
+  quot :: (a / b);       // 4i64 (integer division)
+  remainder :: (a % b);  // 0i64
+  
+  // Unary operations
+  neg_a :: -(a);         // -1000000000000i64
+  neg_zero :: -(zero);   // 0i64
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true
+  eq_false :: (a == b);  // false
+  neq_test :: (a != b);  // true
+  neq_false :: (a != c); // false
+  lt_test :: (b < a);    // true
+  lt_false :: (a < b);   // false
+  lte_test :: (b <= a);  // true
+  lte_equal :: (a <= c); // true
+  gt_test :: (a > b);    // true
+  gt_false :: (b > a);   // false
+  gte_test :: (a >= b);  // true
+  gte_equal :: (a >= c); // true
+  
+  // Type conversion operations
+  i64_to_f32 :: f32(a);      // 1000000000000.0f32 (may lose precision)
+  i64_to_f64 :: f64(a);      // 1000000000000.0f64
+  i64_to_string :: a.to_string(); // "1000000000000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == i64(1250000000000));
+  compt_assert(diff == i64(750000000000));
+  compt_assert(quot == i64(4));
+  compt_assert(remainder == i64(0));
+  
+  // Unary operations
+  compt_assert(neg_a == i64(-1000000000000));
+  compt_assert(neg_zero == i64(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(i64_to_f64 == f64(1000000000000.0));
+  compt_assert(i64_to_string == "1000000000000");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -500000000000 + 1000000000000 = 500000000000i64
+    neg_diff :: (neg_val - a);    // -500000000000 - 1000000000000 = -1500000000000i64
+    neg_prod :: (neg_val * i64(2)); // -500000000000 * 2 = -1000000000000i64
+    neg_quot :: (neg_val / i64(10)); // -500000000000 / 10 = -50000000000i64
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-500000000000 < 1000000000000)
+    neg_gt :: (a > neg_val);      // true (1000000000000 > -500000000000)
+    
+    compt_assert(neg_sum == i64(500000000000));
+    compt_assert(neg_diff == i64(-1500000000000));
+    compt_assert(neg_prod == i64(-1000000000000));
+    compt_assert(neg_quot == i64(-50000000000));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test boundary values
+  {
+    // Operations with min value
+    min_sum :: (min_val + i64(1));     // -9223372036854775807i64
+    compt_expect_error(min_sub :: (min_val - i64(1)));     // overflow behavior
+    min_neg :: -(min_val);               // overflow: -(-9223372036854775808) should be handled
+    
+    // Operations with max value
+    compt_expect_error(max_sum :: (max_val + i64(1)));     // overflow
+    max_sub :: (max_val - i64(1));     // 9223372036854775806i64
+    max_neg :: -(max_val);               // -9223372036854775807i64
+    
+    compt_assert(min_sum == i64(-9223372036854775807));
+    compt_assert(max_sub == i64(9223372036854775806));
+    compt_assert(max_neg == i64(-9223372036854775807));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 1000000000000i64
+    zero_diff1 :: (a - zero);    // 1000000000000i64
+    zero_diff2 :: (zero - a);    // -1000000000000i64
+    zero_prod :: (zero * a);     // 0i64
+    
+    compt_assert(zero_sum == i64(1000000000000));
+    compt_assert(zero_diff1 == i64(1000000000000));
+    compt_assert(zero_diff2 == i64(-1000000000000));
+    compt_assert(zero_prod == i64(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 1000000000000i64
+    identity_prod :: (a * i64(1));  // 1000000000000i64
+    
+    compt_assert(identity_sum == i64(1000000000000));
+    compt_assert(identity_prod == i64(1000000000000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0i64
+    self_div :: (a / a);         // 1i64
+    self_mod :: (a % a);         // 0i64
+    
+    compt_assert(self_sub == i64(0));
+    compt_assert(self_div == i64(1));
+    compt_assert(self_mod == i64(0));
+  };
+  
+  // Test very large values
+  {
+    huge1 :: i64(1000000000000000000);  // 10^18
+    huge2 :: i64(500000000000000000);   // 5 * 10^17
+    
+    huge_sum :: (huge1 + huge2);     // 1.5 * 10^18
+    huge_diff :: (huge1 - huge2);    // 5 * 10^17
+    huge_div :: (huge1 / i64(1000000)); // 10^12
+    huge_mod :: (huge1 % i64(7)); // 1i64 (10^18 % 7 = 1)
+    
+    compt_assert(huge_sum == i64(1500000000000000000));
+    compt_assert(huge_diff == i64(500000000000000000));
+    compt_assert(huge_div == i64(1000000000000));
+    compt_assert(huge_mod == i64(1));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (i64(2000000000000) / i64(8));       // 250000000000i64
+    div2 :: (i64(2000000000001) / i64(8));       // 250000000000i64 (integer division)
+    div3 :: (i64(7) / i64(1000000000000));       // 0i64
+    
+    // Negative divisions
+    div4 :: (i64(-2000000000000) / i64(8));    // -250000000000i64
+    div5 :: (i64(2000000000000) / i64(-8));    // -250000000000i64
+    div6 :: (i64(-2000000000000) / i64(-8)); // 250000000000i64
+    
+    compt_assert(div1 == i64(250000000000));
+    compt_assert(div2 == i64(250000000000));
+    compt_assert(div3 == i64(0));
+    compt_assert(div4 == i64(-250000000000));
+    compt_assert(div5 == i64(-250000000000));
+    compt_assert(div6 == i64(250000000000));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (i64(17) % i64(5));        // 2i64
+    mod2 :: (i64(20) % i64(4));        // 0i64
+    mod3 :: (i64(7) % i64(10));        // 7i64
+    
+    // Negative modulo
+    mod4 :: (i64(-17) % i64(5));     // behavior depends on implementation
+    mod5 :: (i64(17) % i64(-5));     // behavior depends on implementation
+    
+    compt_assert(mod1 == i64(2));
+    compt_assert(mod2 == i64(0));
+    compt_assert(mod3 == i64(7));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / i64(5));    // (10^12 + 2.5*10^11) / 5 = 2.5*10^11
+    chain2 :: (a + (b * i64(2)));    // 10^12 + (2.5*10^11 * 2) = 1.5*10^12
+    chain3 :: ((a / b) + i64(1));    // (10^12 / 2.5*10^11) + 1 = 5i64
+    
+    compt_assert(chain1 == i64(250000000000));
+    compt_assert(chain2 == i64(1500000000000));
+    compt_assert(chain3 == i64(5));
+  };
+  
+  // Test powers of 2 (important for i64)
+  {
+    pow2_32 :: i64(4294967296);        // 2^32
+    pow2_40 :: i64(1099511627776);     // 2^40
+    
+    div_pow2 :: (pow2_40 / pow2_32);      // 256i64 (2^8)
+    mod_pow2 :: (i64(4294967297) % pow2_32); // 1i64
+    
+    compt_assert(div_pow2 == i64(256));
+    compt_assert(mod_pow2 == i64(1));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    max_str :: max_val.to_string();
+    min_str :: min_val.to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-500000000000");
+    // FIXME: JavaScript number has limit, should use BitInt in this case.
+    // compt_assert(max_str == "9223372036854775807");
+    // compt_assert(min_str == "-9223372036854775808");
+  };
+};
+
+test "Test compt isize", {
+  // Basic isize values
+  a :: isize(100000);
+  b :: isize(25000);
+  c :: isize(100000);
+  zero :: isize(0);
+  neg_val :: isize(-50000);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125000isize
+  diff :: (a - b);       // 75000isize
+  prod :: (a * b);       // 2500000000isize
+  quot :: (a / b);       // 4isize (integer division)
+  remainder :: (a % b);  // 0isize (100000 % 25000 = 0)
+  
+  // Unary operations
+  neg_a :: -(a);         // -100000isize
+  neg_zero :: -(zero);   // 0isize
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100000isize == 100000isize)
+  eq_false :: (a == b);  // false (100000isize == 25000isize)
+  neq_test :: (a != b);  // true (100000isize != 25000isize)
+  neq_false :: (a != c); // false (100000isize != 100000isize)
+  lt_test :: (b < a);    // true (25000isize < 100000isize)
+  lt_false :: (a < b);   // false (100000isize < 25000isize)
+  lte_test :: (b <= a);  // true (25000isize <= 100000isize)
+  lte_equal :: (a <= c); // true (100000isize <= 100000isize)
+  gt_test :: (a > b);    // true (100000isize > 25000isize)
+  gt_false :: (b > a);   // false (25000isize > 100000isize)
+  gte_test :: (a >= b);  // true (100000isize >= 25000isize)
+  gte_equal :: (a >= c); // true (100000isize >= 100000isize)
+  
+  // Type conversion operations
+  isize_to_i64 :: i64(a);      // 100000i64
+  isize_to_u64 :: u64(a);      // 100000u64
+  isize_to_f32 :: f32(a);      // 100000.0f32
+  isize_to_f64 :: f64(a);      // 100000.0f64
+  isize_to_string :: a.to_string(); // "100000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == isize(125000));
+  compt_assert(diff == isize(75000));
+  compt_assert(prod == isize(2500000000));
+  compt_assert(quot == isize(4));
+  compt_assert(remainder == isize(0));
+  
+  // Unary operations
+  compt_assert(neg_a == isize(-100000));
+  compt_assert(neg_zero == isize(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(isize_to_i64 == i64(100000));
+  compt_assert(isize_to_u64 == u64(100000));
+  compt_assert(isize_to_f32 == f32(100000.0));
+  compt_assert(isize_to_f64 == f64(100000.0));
+  compt_assert(isize_to_string == "100000");
+  
+  // Test with negative numbers
+  {
+    neg_sum :: (neg_val + a);     // -50000 + 100000 = 50000isize
+    neg_diff :: (neg_val - a);    // -50000 - 100000 = -150000isize
+    neg_prod :: (neg_val * isize(2)); // -50000 * 2 = -100000isize
+    neg_quot :: (neg_val / isize(10)); // -50000 / 10 = -5000isize
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_val < a);      // true (-50000 < 100000)
+    neg_gt :: (a > neg_val);      // true (100000 > -50000)
+    
+    compt_assert(neg_sum == isize(50000));
+    compt_assert(neg_diff == isize(-150000));
+    compt_assert(neg_prod == isize(-100000));
+    compt_assert(neg_quot == isize(-5000));
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100000isize
+    zero_diff1 :: (a - zero);    // 100000isize
+    zero_diff2 :: (zero - a);    // -100000isize
+    zero_prod :: (zero * a);     // 0isize
+    
+    compt_assert(zero_sum == isize(100000));
+    compt_assert(zero_diff1 == isize(100000));
+    compt_assert(zero_diff2 == isize(-100000));
+    compt_assert(zero_prod == isize(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100000isize
+    identity_prod :: (a * isize(1));  // 100000isize
+    
+    compt_assert(identity_sum == isize(100000));
+    compt_assert(identity_prod == isize(100000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0isize
+    self_div :: (a / a);         // 1isize
+    self_mod :: (a % a);         // 0isize
+    
+    compt_assert(self_sub == isize(0));
+    compt_assert(self_div == isize(1));
+    compt_assert(self_mod == isize(0));
+  };
+  
+  // Test larger values (safe on all platforms)
+  {
+    large1 :: isize(1000000);
+    large2 :: isize(500000);
+    
+    large_sum :: (large1 + large2);     // 1500000isize
+    large_diff :: (large1 - large2);    // 500000isize
+    large_div :: (large1 / isize(1000)); // 1000isize
+    large_mod :: (large1 % isize(7));  // 6isize (1000000 % 7 = 1)
+    
+    compt_assert(large_sum == isize(1500000));
+    compt_assert(large_diff == isize(500000));
+    compt_assert(large_div == isize(1000));
+    compt_assert(large_mod == isize(1));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (isize(200000) / isize(8));       // 25000isize
+    div2 :: (isize(200001) / isize(8));       // 25000isize (integer division)
+    div3 :: (isize(7) / isize(1000));         // 0isize
+    
+    // Negative divisions
+    div4 :: (isize(-200000) / isize(8));    // -25000isize
+    div5 :: (isize(200000) / isize(-8));    // -25000isize
+    div6 :: (isize(-200000) / isize(-8)); // 25000isize
+    
+    compt_assert(div1 == isize(25000));
+    compt_assert(div2 == isize(25000));
+    compt_assert(div3 == isize(0));
+    compt_assert(div4 == isize(-25000));
+    compt_assert(div5 == isize(-25000));
+    compt_assert(div6 == isize(25000));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (isize(17) % isize(5));        // 2isize
+    mod2 :: (isize(20) % isize(4));        // 0isize
+    mod3 :: (isize(7) % isize(10));        // 7isize
+    
+    // Negative modulo
+    mod4 :: (isize(-17) % isize(5));     // behavior depends on implementation
+    mod5 :: (isize(17) % isize(-5));     // behavior depends on implementation
+    
+    compt_assert(mod1 == isize(2));
+    compt_assert(mod2 == isize(0));
+    compt_assert(mod3 == isize(7));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / isize(5));    // (100000isize + 25000isize) / 5isize = 25000isize
+    chain2 :: (a + (b * isize(2)));    // 100000isize + (25000isize * 2isize) = 150000isize
+    chain3 :: ((a / b) + isize(1));    // (100000isize / 25000isize) + 1isize = 5isize
+    
+    compt_assert(chain1 == isize(25000));
+    compt_assert(chain2 == isize(150000));
+    compt_assert(chain3 == isize(5));
+  };
+  
+  // Test powers of 2 (common for pointer arithmetic)
+  {
+    pow2_10 :: isize(1024);           // 2^10
+    pow2_16 :: isize(65536);          // 2^16
+    
+    div_pow2 :: (pow2_16 / pow2_10);     // 64isize (2^6)
+    mod_pow2 :: (isize(1025) % pow2_10); // 1isize
+    
+    compt_assert(div_pow2 == isize(64));
+    compt_assert(mod_pow2 == isize(1));
+  };
+  
+  // Test offset calculations (typical use case for isize)
+  {
+    base_offset :: isize(1000);
+    positive_offset :: isize(500);
+    negative_offset :: isize(-200);
+    
+    forward_pos :: (base_offset + positive_offset);   // 1500isize
+    forward_neg :: (base_offset + negative_offset);   // 800isize
+    backward_pos :: (base_offset - positive_offset);  // 500isize
+    backward_neg :: (base_offset - negative_offset);  // 1200isize
+    
+    compt_assert(forward_pos == isize(1500));
+    compt_assert(forward_neg == isize(800));
+    compt_assert(backward_pos == isize(500));
+    compt_assert(backward_neg == isize(1200));
+  };
+  
+  // Test difference calculations (common for pointer arithmetic)
+  {
+    ptr1 :: isize(1000);
+    ptr2 :: isize(1500);
+    ptr3 :: isize(800);
+    
+    diff1 :: (ptr2 - ptr1);    // 500isize (positive difference)
+    diff2 :: (ptr1 - ptr2);    // -500isize (negative difference)
+    diff3 :: (ptr1 - ptr3);    // 200isize (positive difference)
+    
+    abs_diff1 :: (diff2 * isize(-1)); // 500isize (absolute value simulation)
+    
+    compt_assert(diff1 == isize(500));
+    compt_assert(diff2 == isize(-500));
+    compt_assert(diff3 == isize(200));
+    compt_assert(abs_diff1 == isize(500));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    neg_str :: neg_val.to_string();
+    large_str :: isize(123456).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(neg_str == "-50000");
+    compt_assert(large_str == "123456");
+  };
+};
+
+test "Test compt u8", {
+  // Basic u8 values
+  a :: u8(10);
+  b :: u8(3);
+  c :: u8(10);
+  zero :: u8(0);
+  max_u8 :: u8(255);
+  one :: u8(1);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 13
+  diff :: (a - b);       // 7
+  prod :: (a * b);       // 30
+  quot :: (a / b);       // 3 (integer division)
+  remainder :: (a % b);  // 1
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (10 == 10)
+  eq_false :: (a == b);  // false (10 == 3)
+  neq_test :: (a != b);  // true (10 != 3)
+  neq_false :: (a != c); // false (10 != 10)
+  lt_test :: (b < a);    // true (3 < 10)
+  lt_false :: (a < b);   // false (10 < 3)
+  lte_test :: (b <= a);  // true (3 <= 10)
+  lte_equal :: (a <= c); // true (10 <= 10)
+  gt_test :: (a > b);    // true (10 > 3)
+  gt_false :: (b > a);   // false (3 > 10)
+  gte_test :: (a >= b);  // true (10 >= 3)
+  gte_equal :: (a >= c); // true (10 >= 10)
+  
+  // Type conversion operations
+  u8_to_string :: a.to_string(); // "10"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == u8(13));
+  compt_assert(diff == u8(7));
+  compt_assert(prod == u8(30));
+  compt_assert(quot == u8(3));
+  compt_assert(remainder == u8(1));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(u8_to_string == "10");
+  
+  // Test u8 boundary conditions
+  {
+    // Zero operations
+    zero_sum :: (zero + a);      // 10
+    zero_diff1 :: (a - zero);    // 10
+    zero_prod :: (zero * a);     // 0
+    
+    compt_assert(zero_sum == u8(10));
+    compt_assert(zero_diff1 == u8(10));
+    compt_assert(zero_prod == u8(0));
+    
+    // Max value operations
+    max_minus_one :: (max_u8 - one);      // 254
+    max_div_two :: (max_u8 / u8(2));    // 127
+    max_mod_ten :: (max_u8 % u8(10));   // 5 (255 % 10 = 5)
+    
+    compt_assert(max_minus_one == u8(254));
+    compt_assert(max_div_two == u8(127));
+    compt_assert(max_mod_ten == u8(5));
+    
+    // Test max value comparisons
+    max_gt_zero :: (max_u8 > zero);       // true
+    max_eq_255 :: (max_u8 == u8(255));  // true
+    zero_lt_max :: (zero < max_u8);       // true
+    
+    compt_assert(max_gt_zero == true);
+    compt_assert(max_eq_255 == true);
+    compt_assert(zero_lt_max == true);
+  };
+  
+  // Test identity operations
+  {
+    identity_sum :: (a + zero);  // 10
+    identity_prod :: (a * one);  // 10
+    
+    compt_assert(identity_sum == u8(10));
+    compt_assert(identity_prod == u8(10));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0
+    self_div :: (a / a);         // 1
+    self_mod :: (a % a);         // 0
+    
+    compt_assert(self_sub == u8(0));
+    compt_assert(self_div == u8(1));
+    compt_assert(self_mod == u8(0));
+  };
+  
+  // Test medium-sized numbers within u8 range
+  {
+    med1 :: u8(100);
+    med2 :: u8(50);
+    
+    med_sum :: (med1 + med2);        // 150
+    med_diff :: (med1 - med2);       // 50
+    med_prod :: (med2 * u8(2));    // 100
+    med_div :: (med1 / u8(5));     // 20
+    med_mod :: (med1 % u8(7));     // 2 (100 % 7 = 2)
+    
+    compt_assert(med_sum == u8(150));
+    compt_assert(med_diff == u8(50));
+    compt_assert(med_prod == u8(100));
+    compt_assert(med_div == u8(20));
+    compt_assert(med_mod == u8(2));
+    
+    // String conversion of medium numbers
+    med_str :: med1.to_string();
+    compt_assert(med_str == "100");
+  };
+  
+  // Test modulo with different numbers
+  {
+    mod_tests1 :: (u8(17) % u8(5));    // 2
+    mod_tests2 :: (u8(20) % u8(4));    // 0
+    mod_tests3 :: (u8(7) % u8(10));    // 7
+    
+    compt_assert(mod_tests1 == u8(2));
+    compt_assert(mod_tests2 == u8(0));
+    compt_assert(mod_tests3 == u8(7));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) * u8(2));        // (10 + 3) * 2 = 26
+    chain2 :: (a + (b * u8(2)));        // 10 + (3 * 2) = 16
+    chain3 :: ((a / b) + one);            // (10 / 3) + 1 = 3 + 1 = 4
+    
+    compt_assert(chain1 == u8(26));
+    compt_assert(chain2 == u8(16));
+    compt_assert(chain3 == u8(4));
+  };
+  
+  // Test conversion consistency
+  {
+    num :: u8(42);
+    string_conv :: num.to_string();
+    
+    compt_assert(string_conv == "42");
+    
+    // Test max value string conversion
+    max_string :: max_u8.to_string();
+    compt_assert(max_string == "255");
+    
+    // Test zero string conversion
+    zero_string :: zero.to_string();
+    compt_assert(zero_string == "0");
+  };
+  
+  // Test division edge cases
+  {
+    // Various divisions
+    div1 :: (u8(15) / u8(3));    // 5
+    div2 :: (u8(16) / u8(3));    // 5 (integer division)
+    div3 :: (u8(2) / u8(5));     // 0
+    
+    compt_assert(div1 == u8(5));
+    compt_assert(div2 == u8(5));
+    compt_assert(div3 == u8(0));
+    
+    // Test max value divisions
+    max_div_max :: (max_u8 / max_u8);    // 1
+    max_div_one :: (max_u8 / one);       // 255
+    
+    compt_assert(max_div_max == u8(1));
+    compt_assert(max_div_one == u8(255));
+  };
+  
+  // Test boundary arithmetic that should wrap/saturate
+  {
+    // Note: These tests assume the implementation handles overflow correctly
+    // For u8, values should wrap around or be clamped to 0-255 range
+    
+    near_max :: u8(250);
+    small_add :: (near_max + u8(3));     // Should be 253
+    
+    compt_assert(small_add == u8(253));
+    
+    // Test subtraction near zero
+    small_val :: u8(3);
+    small_sub :: (small_val - u8(2));    // Should be 1
+    
+    compt_assert(small_sub == u8(1));
+  };
+};
+
+test "Test compt u16", {
+  // Basic u16 values
+  a :: u16(1000);
+  b :: u16(250);
+  c :: u16(1000);
+  zero :: u16(0);
+  max_val :: u16.MAX;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 1250u16
+  diff :: (a - b);       // 750u16
+  compt_expect_error(prod :: (a * b));       // 250000u16 (may overflow and wrap)
+  quot :: (a / b);       // 4u16 (integer division)
+  remainder :: (a % b);  // 0u16 (1000 % 250 = 0)
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (1000u16 == 1000u16)
+  eq_false :: (a == b);  // false (1000u16 == 250u16)
+  neq_test :: (a != b);  // true (1000u16 != 250u16)
+  neq_false :: (a != c); // false (1000u16 != 1000u16)
+  lt_test :: (b < a);    // true (250u16 < 1000u16)
+  lt_false :: (a < b);   // false (1000u16 < 250u16)
+  lte_test :: (b <= a);  // true (250u16 <= 1000u16)
+  lte_equal :: (a <= c); // true (1000u16 <= 1000u16)
+  gt_test :: (a > b);    // true (1000u16 > 250u16)
+  gt_false :: (b > a);   // false (250u16 > 1000u16)
+  gte_test :: (a >= b);  // true (1000u16 >= 250u16)
+  gte_equal :: (a >= c); // true (1000u16 >= 1000u16)
+  
+  // Type conversion operations
+  u16_to_u32 :: u32(a);      // 1000u32
+  u16_to_i32 :: i32(a);      // 1000i32
+  u16_to_f32 :: f32(a);      // 1000.0f32
+  u16_to_string :: a.to_string(); // "1000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == u16(1250));
+  compt_assert(diff == u16(750));
+  compt_assert(quot == u16(4));
+  compt_assert(remainder == u16(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(u16_to_u32 == u32(1000));
+  compt_assert(u16_to_i32 == i32(1000));
+  compt_assert(u16_to_f32 == (f32(1000.0)));
+  compt_assert(u16_to_string == "1000");
+  
+  // Test boundary values
+  {
+    min_val :: u16(0);
+    
+    // Operations with min value
+    min_sum :: (min_val + u16(1));     // 1u16
+    compt_expect_error(min_sub :: (min_val - u16(1)));     // 65535u16 (underflow wraps)
+    min_mult :: (min_val * u16(500));  // 0u16
+    
+    // Operations with max value
+    compt_expect_error(max_sum :: (max_val + u16(1)));     // 0u16 (overflow wraps)
+    max_sub :: (max_val - u16(1));     // 65534u16
+    max_div :: (max_val / u16(13));    // 5041u16
+    max_mod :: (max_val % u16(100));   // 35u16 (65535 % 100 = 35)
+    
+    compt_assert(min_sum == u16(1));
+    compt_assert(min_mult == u16(0));
+    compt_assert(max_sub == u16(65534));
+    compt_assert(max_div == u16(5041));
+    compt_assert(max_mod == u16(35));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 1000u16
+    zero_diff1 :: (a - zero);    // 1000u16
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior
+    zero_prod :: (zero * a);     // 0u16
+    
+    compt_assert(zero_sum == u16(1000));
+    compt_assert(zero_diff1 == u16(1000));
+    compt_assert(zero_prod == u16(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 1000u16
+    identity_prod :: (a * u16(1));  // 1000u16
+    
+    compt_assert(identity_sum == u16(1000));
+    compt_assert(identity_prod == u16(1000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0u16
+    self_div :: (a / a);         // 1u16
+    self_mod :: (a % a);         // 0u16
+    
+    compt_assert(self_sub == u16(0));
+    compt_assert(self_div == u16(1));
+    compt_assert(self_mod == u16(0));
+  };
+  
+  // Test large values
+  {
+    large1 :: u16(50000);
+    large2 :: u16(15000);
+    
+    large_sum :: (large1 + large2);     // 65000u16
+    large_diff :: (large1 - large2);    // 35000u16
+    large_div :: (large1 / u16(10)); // 5000u16
+    large_mod :: (large1 % u16(7));  // 1u16 (50000 % 7 = 6)
+    
+    compt_assert(large_sum == u16(65000));
+    compt_assert(large_diff == u16(35000));
+    compt_assert(large_div == u16(5000));
+    compt_assert(large_mod == u16(6));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (u16(2000) / u16(8));       // 250u16
+    div2 :: (u16(2001) / u16(8));       // 250u16 (integer division)
+    div3 :: (u16(7) / u16(100));        // 0u16
+    
+    compt_assert(div1 == u16(250));
+    compt_assert(div2 == u16(250));
+    compt_assert(div3 == u16(0));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (u16(17) % u16(5));        // 2u16
+    mod2 :: (u16(20) % u16(4));        // 0u16
+    mod3 :: (u16(7) % u16(10));        // 7u16
+    mod4 :: (u16(65535) % u16(256));   // 255u16
+    
+    compt_assert(mod1 == u16(2));
+    compt_assert(mod2 == u16(0));
+    compt_assert(mod3 == u16(7));
+    compt_assert(mod4 == u16(255));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) * u16(2));   // (1000u16 + 250u16) * 2u16 = 2500u16
+    chain2 :: (a + (b * u16(2)));   // 1000u16 + (250u16 * 2u16) = 1500u16
+    chain3 :: ((a / b) + u16(1));   // (1000u16 / 250u16) + 1u16 = 5u16
+    
+    compt_assert(chain1 == u16(2500));
+    compt_assert(chain2 == u16(1500));
+    compt_assert(chain3 == u16(5));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    max_str :: max_val.to_string();
+    large_str :: u16(12345).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(max_str == "65535");
+    compt_assert(large_str == "12345");
+  };
+};
+
+test "Test compt u32", {
+  // Basic u32 values
+  a :: u32(100000);
+  b :: u32(25000);
+  c :: u32(100000);
+  zero :: u32(0);
+  max_val :: u32.MAX;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125000u32
+  diff :: (a - b);       // 75000u32
+  prod :: (a * b);       // 2500000000u32
+  quot :: (a / b);       // 4u32 (integer division)
+  remainder :: (a % b);  // 0u32 (100000 % 25000 = 0)
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100000u32 == 100000u32)
+  eq_false :: (a == b);  // false (100000u32 == 25000u32)
+  neq_test :: (a != b);  // true (100000u32 != 25000u32)
+  neq_false :: (a != c); // false (100000u32 != 100000u32)
+  lt_test :: (b < a);    // true (25000u32 < 100000u32)
+  lt_false :: (a < b);   // false (100000u32 < 25000u32)
+  lte_test :: (b <= a);  // true (25000u32 <= 100000u32)
+  lte_equal :: (a <= c); // true (100000u32 <= 100000u32)
+  gt_test :: (a > b);    // true (100000u32 > 25000u32)
+  gt_false :: (b > a);   // false (25000u32 > 100000u32)
+  gte_test :: (a >= b);  // true (100000u32 >= 25000u32)
+  gte_equal :: (a >= c); // true (100000u32 >= 100000u32)
+  
+  // Type conversion operations
+  u32_to_u64 :: u64(a);      // 100000u64
+  u32_to_i64 :: i64(a);      // 100000i64
+  u32_to_f32 :: f32(a);      // 100000.0f32
+  u32_to_f64 :: f64(a);      // 100000.0f64
+  u32_to_string :: a.to_string(); // "100000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == u32(125000));
+  compt_assert(diff == u32(75000));
+  compt_assert(prod == u32(2500000000));
+  compt_assert(quot == u32(4));
+  compt_assert(remainder == u32(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(u32_to_u64 == u64(100000));
+  compt_assert(u32_to_i64 == i64(100000));
+  compt_assert(u32_to_f32 == f32(100000.0));
+  compt_assert(u32_to_f64 == f64(100000.0));
+  compt_assert(u32_to_string == "100000");
+  
+  // Test boundary values
+  {
+    min_val :: u32(0);
+    
+    // Operations with min value
+    min_sum :: (min_val + u32(1));     // 1u32
+    compt_expect_error(min_sub :: (min_val - u32(1)));     // underflow wraps to max
+    min_mult :: (min_val * u32(500000));  // 0u32
+    
+    // Operations with max value
+    compt_expect_error(max_sum :: (max_val + u32(1)));     // 0u32 (overflow wraps)
+    max_sub :: (max_val - u32(1));     // 4294967294u32
+    max_div :: (max_val / u32(100));   // 42949672u32
+    max_mod :: (max_val % u32(1000));  // 295u32
+    
+    compt_assert(min_sum == u32(1));
+    compt_assert(min_mult == u32(0));
+    compt_assert(max_sub == u32(4294967294));
+    compt_assert(max_div == u32(42949672));
+    compt_assert(max_mod == u32(295));
+    
+    // Boundary comparisons
+    compt_assert(min_val < max_val);
+    compt_assert(max_val > min_val);
+    compt_assert(min_val <= max_val);
+    compt_assert(max_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100000u32
+    zero_diff1 :: (a - zero);    // 100000u32
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior
+    zero_prod :: (zero * a);     // 0u32
+    
+    compt_assert(zero_sum == u32(100000));
+    compt_assert(zero_diff1 == u32(100000));
+    compt_assert(zero_prod == u32(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100000u32
+    identity_prod :: (a * u32(1));  // 100000u32
+    
+    compt_assert(identity_sum == u32(100000));
+    compt_assert(identity_prod == u32(100000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0u32
+    self_div :: (a / a);         // 1u32
+    self_mod :: (a % a);         // 0u32
+    
+    compt_assert(self_sub == u32(0));
+    compt_assert(self_div == u32(1));
+    compt_assert(self_mod == u32(0));
+  };
+  
+  // Test large values
+  {
+    large1 :: u32(2000000000);
+    large2 :: u32(1500000000);
+    
+    large_sum :: (large1 + large2);     // 3500000000u32
+    large_diff :: (large1 - large2);    // 500000000u32
+    large_div :: (large1 / u32(1000)); // 2000000u32
+    large_mod :: (large1 % u32(7));  // 2u32 (2000000000 % 7 = 5)
+    
+    compt_assert(large_sum == u32(3500000000));
+    compt_assert(large_diff == u32(500000000));
+    compt_assert(large_div == u32(2000000));
+    compt_assert(large_mod == u32(5));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (u32(200000) / u32(8));       // 25000u32
+    div2 :: (u32(200001) / u32(8));       // 25000u32 (integer division)
+    div3 :: (u32(7) / u32(1000));         // 0u32
+    
+    compt_assert(div1 == u32(25000));
+    compt_assert(div2 == u32(25000));
+    compt_assert(div3 == u32(0));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (u32(17) % u32(5));        // 2u32
+    mod2 :: (u32(20) % u32(4));        // 0u32
+    mod3 :: (u32(7) % u32(10));        // 7u32
+    mod4 :: (u32(1000000) % u32(997)); // 9u32 (1000000 % 997 = 9)
+    
+    compt_assert(mod1 == u32(2));
+    compt_assert(mod2 == u32(0));
+    compt_assert(mod3 == u32(7));
+    compt_assert(mod4 == u32(9));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / u32(5));    // (100000u32 + 25000u32) / 5u32 = 25000u32
+    chain2 :: (a + (b * u32(2)));    // 100000u32 + (25000u32 * 2u32) = 150000u32
+    chain3 :: ((a / b) + u32(1));    // (100000u32 / 25000u32) + 1u32 = 5u32
+    
+    compt_assert(chain1 == u32(25000));
+    compt_assert(chain2 == u32(150000));
+    compt_assert(chain3 == u32(5));
+  };
+  
+  // Test powers of 2 (common in systems programming)
+  {
+    pow2_10 :: u32(1024);           // 2^10
+    pow2_20 :: u32(1048576);        // 2^20
+    
+    div_pow2 :: (pow2_20 / pow2_10);   // 1024u32
+    mod_pow2 :: (u32(1025) % pow2_10); // 1u32
+    
+    compt_assert(div_pow2 == u32(1024));
+    compt_assert(mod_pow2 == u32(1));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    max_str :: max_val.to_string();
+    large_str :: u32(123456789).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(max_str == "4294967295");
+    compt_assert(large_str == "123456789");
+  };
+};
+
+test "Test compt u64", {
+  // Basic u64 values
+  a :: u64(1000000000000);
+  b :: u64(250000000000);
+  c :: u64(1000000000000);
+  zero :: u64(0);
+  max_val :: u64.MAX;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 1250000000000u64
+  diff :: (a - b);       // 750000000000u64
+  compt_expect_error(prod :: (a * b));       // 250000000000000000000000u64 (may overflow)
+  quot :: (a / b);       // 4u64 (integer division)
+  remainder :: (a % b);  // 0u64
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true
+  eq_false :: (a == b);  // false
+  neq_test :: (a != b);  // true
+  neq_false :: (a != c); // false
+  lt_test :: (b < a);    // true
+  lt_false :: (a < b);   // false
+  lte_test :: (b <= a);  // true
+  lte_equal :: (a <= c); // true
+  gt_test :: (a > b);    // true
+  gt_false :: (b > a);   // false
+  gte_test :: (a >= b);  // true
+  gte_equal :: (a >= c); // true
+  
+  // Type conversion operations
+  u64_to_f32 :: f32(a);      // 1000000000000.0f32 (may lose precision)
+  u64_to_f64 :: f64(a);      // 1000000000000.0f64
+  u64_to_string :: a.to_string(); // "1000000000000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == u64(1250000000000));
+  compt_assert(diff == u64(750000000000));
+  compt_assert(quot == u64(4));
+  compt_assert(remainder == u64(0));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(u64_to_f64 == f64(1000000000000.0));
+  compt_assert(u64_to_string == "1000000000000");
+  
+  // Test boundary values
+  {
+    min_val :: u64(0);
+    
+    // Operations with min value
+    min_sum :: (min_val + u64(1));     // 1u64
+    compt_expect_error(min_sub :: (min_val - u64(1)));     // underflow wraps to max
+    min_mult :: (min_val * u64(5000000));  // 0u64
+    
+    // Operations with large values near max
+    large_val :: u64(9223372036854775807); // Close to max
+    large_sum :: (large_val + u64(1000));  // Still within range
+    large_mult :: (large_val / u64(1000)); // 9223372036854775u64
+    
+    compt_assert(min_sum == u64(1));
+    compt_assert(min_mult == u64(0));
+    compt_assert(large_sum == u64(9223372036854776807));
+    compt_assert(large_mult == u64(9223372036854775));
+    
+    // Boundary comparisons
+    compt_assert(min_val < large_val);
+    compt_assert(large_val > min_val);
+    compt_assert(min_val <= large_val);
+    compt_assert(large_val >= min_val);
+  };
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 1000000000000u64
+    zero_diff1 :: (a - zero);    // 1000000000000u64
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior
+    zero_prod :: (zero * a);     // 0u64
+    
+    compt_assert(zero_sum == u64(1000000000000));
+    compt_assert(zero_diff1 == u64(1000000000000));
+    compt_assert(zero_prod == u64(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 1000000000000u64
+    identity_prod :: (a * u64(1));  // 1000000000000u64
+    
+    compt_assert(identity_sum == u64(1000000000000));
+    compt_assert(identity_prod == u64(1000000000000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0u64
+    self_div :: (a / a);         // 1u64
+    self_mod :: (a % a);         // 0u64
+    
+    compt_assert(self_sub == u64(0));
+    compt_assert(self_div == u64(1));
+    compt_assert(self_mod == u64(0));
+  };
+  
+  // Test very large values
+  {
+    huge1 :: u64(1000000000000000000);  // 10^18
+    huge2 :: u64(500000000000000000);   // 5 * 10^17
+    
+    huge_sum :: (huge1 + huge2);     // 1.5 * 10^18
+    huge_diff :: (huge1 - huge2);    // 5 * 10^17
+    huge_div :: (huge1 / u64(1000000)); // 10^12
+    huge_mod :: (huge1 % u64(7)); // 1u64 (10^18 % 7 = 1)
+    
+    compt_assert(huge_sum == u64(1500000000000000000));
+    compt_assert(huge_diff == u64(500000000000000000));
+    compt_assert(huge_div == u64(1000000000000));
+    compt_assert(huge_mod == u64(1));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (u64(2000000000000) / u64(8));       // 250000000000u64
+    div2 :: (u64(2000000000001) / u64(8));       // 250000000000u64 (integer division)
+    div3 :: (u64(7) / u64(1000000000000));       // 0u64
+    
+    compt_assert(div1 == u64(250000000000));
+    compt_assert(div2 == u64(250000000000));
+    compt_assert(div3 == u64(0));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (u64(17) % u64(5));        // 2u64
+    mod2 :: (u64(20) % u64(4));        // 0u64
+    mod3 :: (u64(7) % u64(10));        // 7u64
+    mod4 :: (u64(1000000000000000000) % u64(997)); // Large modulo
+    
+    compt_assert(mod1 == u64(2));
+    compt_assert(mod2 == u64(0));
+    compt_assert(mod3 == u64(7));
+    // mod4 result depends on calculation
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / u64(5));    // (10^12 + 2.5*10^11) / 5 = 2.5*10^11
+    chain2 :: (a + (b * u64(2)));    // 10^12 + (2.5*10^11 * 2) = 1.5*10^12
+    chain3 :: ((a / b) + u64(1));    // (10^12 / 2.5*10^11) + 1 = 5u64
+    
+    compt_assert(chain1 == u64(250000000000));
+    compt_assert(chain2 == u64(1500000000000));
+    compt_assert(chain3 == u64(5));
+  };
+  
+  // Test powers of 2 (important for u64)
+  {
+    pow2_32 :: u64(4294967296);        // 2^32
+    pow2_40 :: u64(1099511627776);     // 2^40
+    
+    div_pow2 :: (pow2_40 / pow2_32);      // 256u64 (2^8)
+    mod_pow2 :: (u64(4294967297) % pow2_32); // 1u64
+    
+    compt_assert(div_pow2 == u64(256));
+    compt_assert(mod_pow2 == u64(1));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    large_str :: u64(123456789012345).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(large_str == "123456789012345");
+  };
+};
+
+test "Test compt usize", {
+  // Basic usize values
+  a :: usize(100000);
+  b :: usize(25000);
+  c :: usize(100000);
+  zero :: usize(0);
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 125000usize
+  diff :: (a - b);       // 75000usize
+  prod :: (a * b);       // 2500000000usize
+  quot :: (a / b);       // 4usize (integer division)
+  remainder :: (a % b);  // 0usize (100000 % 25000 = 0)
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (100000usize == 100000usize)
+  eq_false :: (a == b);  // false (100000usize == 25000usize)
+  neq_test :: (a != b);  // true (100000usize != 25000usize)
+  neq_false :: (a != c); // false (100000usize != 100000usize)
+  lt_test :: (b < a);    // true (25000usize < 100000usize)
+  lt_false :: (a < b);   // false (100000usize < 25000usize)
+  lte_test :: (b <= a);  // true (25000usize <= 100000usize)
+  lte_equal :: (a <= c); // true (100000usize <= 100000usize)
+  gt_test :: (a > b);    // true (100000usize > 25000usize)
+  gt_false :: (b > a);   // false (25000usize > 100000usize)
+  gte_test :: (a >= b);  // true (100000usize >= 25000usize)
+  gte_equal :: (a >= c); // true (100000usize >= 100000usize)
+  
+  // Type conversion operations
+  usize_to_u64 :: u64(a);      // 100000u64
+  usize_to_i64 :: i64(a);      // 100000i64
+  usize_to_f32 :: f32(a);      // 100000.0f32
+  usize_to_f64 :: f64(a);      // 100000.0f64
+  usize_to_string :: a.to_string(); // "100000"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == usize(125000));
+  compt_assert(diff == usize(75000));
+  compt_assert(prod == usize(2500000000));
+  compt_assert(quot == (usize(4)));
+  compt_assert(remainder == (usize(0)));
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(usize_to_u64 == u64(100000));
+  compt_assert(usize_to_i64 == i64(100000));
+  compt_assert(usize_to_f32 == f32(100000.0));
+  compt_assert(usize_to_f64 == f64(100000.0));
+  compt_assert(usize_to_string == "100000");
+  
+  // Test zero operations
+  {
+    zero_sum :: (zero + a);      // 100000usize
+    zero_diff1 :: (a - zero);    // 100000usize
+    compt_expect_error(zero_diff2 :: (zero - a));    // underflow behavior (wraps around)
+    zero_prod :: (zero * a);     // 0usize
+    
+    compt_assert(zero_sum == usize(100000));
+    compt_assert(zero_diff1 == usize(100000));
+    compt_assert(zero_prod == usize(0));
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 100000usize
+    identity_prod :: (a * usize(1));  // 100000usize
+    
+    compt_assert(identity_sum == usize(100000));
+    compt_assert(identity_prod == usize(100000));
+    
+    // Self operations
+    self_sub :: (a - a);         // 0usize
+    self_div :: (a / a);         // 1usize
+    self_mod :: (a % a);         // 0usize
+    
+    compt_assert(self_sub == (usize(0)));
+    compt_assert(self_div == (usize(1)));
+    compt_assert(self_mod == (usize(0)));
+  };
+  
+  // Test larger values (safe on all platforms)
+  {
+    large1 :: usize(1000000);
+    large2 :: usize(500000);
+    
+    large_sum :: (large1 + large2);     // 1500000usize
+    large_diff :: (large1 - large2);    // 500000usize
+    large_div :: (large1 / usize(1000)); // 1000usize
+    large_mod :: (large1 % usize(7));  // 6usize (1000000 % 7 = 1)
+    
+    compt_assert(large_sum == usize(1500000));
+    compt_assert(large_diff == usize(500000));
+    compt_assert(large_div == usize(1000));
+    compt_assert(large_mod == (usize(1)));
+  };
+  
+  // Test various divisions
+  {
+    div1 :: (usize(200000) / usize(8));       // 25000usize
+    div2 :: (usize(200001) / usize(8));       // 25000usize (integer division)
+    div3 :: (usize(7) / usize(1000));         // 0usize
+    
+    compt_assert(div1 == usize(25000));
+    compt_assert(div2 == usize(25000));
+    compt_assert(div3 == (usize(0)));
+  };
+  
+  // Test modulo operations
+  {
+    mod1 :: (usize(17) % usize(5));        // 2usize
+    mod2 :: (usize(20) % usize(4));        // 0usize
+    mod3 :: (usize(7) % usize(10));        // 7usize
+    mod4 :: (usize(1000000) % usize(997)); // 9usize (1000000 % 997 = 9)
+    
+    compt_assert(mod1 == (usize(2)));
+    compt_assert(mod2 == (usize(0)));
+    compt_assert(mod3 == (usize(7)));
+    compt_assert(mod4 == (usize(9)));
+  };
+  
+  // Test chained operations
+  {
+    chain1 :: ((a + b) / usize(5));    // (100000usize + 25000usize) / 5usize = 25000usize
+    chain2 :: (a + (b * usize(2)));    // 100000usize + (25000usize * 2usize) = 150000usize
+    chain3 :: ((a / b) + usize(1));    // (100000usize / 25000usize) + 1usize = 5usize
+    
+    compt_assert(chain1 == usize(25000));
+    compt_assert(chain2 == usize(150000));
+    compt_assert(chain3 == (usize(5)));
+  };
+  
+  // Test powers of 2 (common for array indexing)
+  {
+    pow2_10 :: usize(1024);           // 2^10
+    pow2_16 :: usize(65536);          // 2^16
+    
+    div_pow2 :: (pow2_16 / pow2_10);     // 64usize (2^6)
+    mod_pow2 :: (usize(1025) % pow2_10); // 1usize
+    
+    compt_assert(div_pow2 == usize(64));
+    compt_assert(mod_pow2 == (usize(1)));
+  };
+  
+  // Test memory-related sizes (typical use case for usize)
+  {
+    byte_size :: usize(1);
+    kb_size :: usize(1024);
+    mb_size :: usize(1048576);   // 1024 * 1024
+    
+    kb_in_bytes :: (kb_size / byte_size);    // 1024usize
+    mb_in_kb :: (mb_size / kb_size);         // 1024usize
+    partial_mb :: (usize(1500000) / mb_size); // 1usize (integer division)
+    
+    compt_assert(kb_in_bytes == usize(1024));
+    compt_assert(mb_in_kb == usize(1024));
+    compt_assert(partial_mb == (usize(1)));
+  };
+  
+  // Test string conversions
+  {
+    zero_str :: zero.to_string();
+    large_str :: usize(123456).to_string();
+    
+    compt_assert(zero_str == "0");
+    compt_assert(large_str == "123456");
+  };
+  
+  // Test array indexing scenarios (common usize usage)
+  {
+    // Simulate array bounds calculations
+    array_len :: usize(100);
+    index1 :: usize(50);
+    index2 :: usize(99);
+    
+    within_bounds1 :: (index1 < array_len);  // true
+    within_bounds2 :: (index2 < array_len);  // true
+    out_of_bounds :: (array_len < array_len); // false
+    
+    last_index :: (array_len - usize(1)); // 99usize
+    mid_index :: (array_len / usize(2));  // 50usize
+    
+    compt_assert(within_bounds1 == true);
+    compt_assert(within_bounds2 == true);
+    compt_assert(out_of_bounds == false);
+    compt_assert(last_index == usize(99));
+    compt_assert(mid_index == usize(50));
+  };
+};
+
+test "Test types compatibility", {
+  compt_assert(__yo_are_types_compatible(i32, i32) == true); // true
+  compt_assert(__yo_are_types_compatible(i32, i64) == false); // false
+  compt_assert(__yo_are_types_compatible(i64, i32) == false); // false
+
+  // Functions
+  compt_assert(__yo_are_types_compatible( // true
+    fn(x: i32, y: i32)-> i32,
+    fn(a: i32, y: i32)-> i32
+  ) == true);
+  compt_assert(__yo_are_types_compatible( // true
+    fn(forall(T: Type), x: T, y: T)-> T,
+    fn(forall(Z: Type), a: Z, b: Z)-> Z
+  ) == true);
+  compt_assert(__yo_are_types_compatible( // false
+    fn(forall(T: Type), x: T, y: T)-> T,
+    fn(a: i32, b: i32)-> i32
+  ) == false);
+  compt_assert(__yo_are_types_compatible( // false
+    fn(a: i32, b: i32)-> i32,
+    fn(forall(T: Type), x: T, y: T)-> T
+  ) == false);
+
+  MyBox :: (fn(compt(T): Type)-> compt(Type))
+    struct(value: T)
+  ;
+
+  compt_assert(__yo_are_types_compatible( // true
+    fn(forall(T: Type), x: T)-> MyBox(T),
+    fn(forall(Z: Type), a: Z)-> MyBox(Z)
+  ) == true);
+
+  Point :: (fn(compt(T): Type)-> compt(Type))
+    struct(x: T, y: T)
+  ;
+  compt_assert(__yo_are_types_compatible( // true
+    fn(forall(T: Type), x: T, y: T)-> Point(T),
+    fn(forall(Z: Type), a: Z, b: Z)-> Point(Z)
+  ) == true);
+
+  // Test pointer type compatibility
+  PtrFunc1 ::
+    fn(x : *(i32)) -> unit;
+
+  PtrFunc2 ::
+    fn(x : *(i32)) -> unit;
+
+  compt_assert(__yo_are_types_compatible(PtrFunc1, PtrFunc2) == true);
+  compt_assert(__yo_are_types_compatible(PtrFunc2, PtrFunc1) == true);
+};
+
+test "Test char literals", {
+  // Test simple ASCII characters
+  char_a :: 'a';
+  compt_assert((char_a == 97), "char 'a' should be 97");
+  
+  char_z :: 'z';
+  compt_assert((char_z == 122), "char 'z' should be 122");
+  
+  char_0 :: '0';
+  compt_assert((char_0 == 48), "char '0' should be 48");
+  
+  char_9 :: '9';
+  compt_assert((char_9 == 57), "char '9' should be 57");
+  
+  char_space :: ' ';
+  compt_assert((char_space == 32), "char ' ' should be 32");
+
+  // Test newline
+  char_newline :: '\n';
+  compt_assert((char_newline == 10), "char '\\n' should be 10");
+  
+  // Test tab
+  char_tab :: '\t';
+  compt_assert((char_tab == 9), "char '\\t' should be 9");
+  
+  // Test carriage return
+  char_cr :: '\r';
+  compt_assert((char_cr == 13), "char '\\r' should be 13");
+  
+  // Test backslash
+  char_backslash :: '\\';
+  compt_assert((char_backslash == 92), "char '\\\\' should be 92");
+  
+  // Test single quote
+  char_quote :: '\'';
+  compt_assert((char_quote == 39), "char '\\'' should be 39");
+  
+  // Test null character
+  char_null :: '\0';
+  compt_assert((char_null == 0), "char '\\0' should be 0");
+  
+  // Test bell
+  char_bell :: '\a';
+  compt_assert((char_bell == 7), "char '\\a' should be 7");
+  
+  // Test backspace
+  char_backspace :: '\b';
+  compt_assert((char_backspace == 8), "char '\\b' should be 8");
+  
+  // Test form feed
+  char_form_feed :: '\f';
+  compt_assert((char_form_feed == 12), "char '\\f' should be 12");
+  
+  // Test vertical tab
+  char_vtab :: '\v';
+  compt_assert((char_vtab == 11), "char '\\v' should be 11");
+};
+
+test "Test compt boolean", {
+/**
+ * Test compile-time bool operations
+ * This file tests the __yo_compt_boolean_* functions that operate
+ * on compile-time known bool values.
+ */
+  // Basic bool literals
+  true_val :: true;
+  false_val :: false;
+  
+  // Test logical AND operations
+  {
+    // All combinations of AND
+    and_tt :: (true_val && true_val);     // true
+    and_tf :: (true_val && false_val);    // false
+    and_ft :: (false_val && true_val);    // false
+    and_ff :: (false_val && false_val);   // false
+    
+    // Verify results with assertions
+    compt_assert(and_tt == true);
+    compt_assert(and_tf == false);
+    compt_assert(and_ft == false);
+    compt_assert(and_ff == false);
+  };
+  
+  // Test logical OR operations
+  {
+    // All combinations of OR
+    or_tt :: (true_val || true_val);      // true
+    or_tf :: (true_val || false_val);     // true
+    or_ft :: (false_val || true_val);     // true
+    or_ff :: (false_val || false_val);    // false
+    
+    // Verify results with assertions
+    compt_assert(or_tt == true);
+    compt_assert(or_tf == true);
+    compt_assert(or_ft == true);
+    compt_assert(or_ff == false);
+  };
+  
+  // Test logical NOT operations
+  {
+    not_true :: not(true_val);          // false
+    not_false :: not(false_val);        // true
+    
+    // Double negation
+    not_not_true :: not(not(true_val)); // true
+    not_not_false :: not(not(false_val)); // false
+    
+    // Verify results
+    compt_assert(not_true == false);
+    compt_assert(not_false == true);
+    compt_assert(not_not_true == true);
+    compt_assert(not_not_false == false);
+  };
+  
+  // Test equality operations
+  {
+    eq_tt :: (true_val == true_val);      // true
+    eq_tf :: (true_val == false_val);     // false
+    eq_ft :: (false_val == true_val);     // false
+    eq_ff :: (false_val == false_val);    // true
+    
+    // Verify results
+    compt_assert(eq_tt == true);
+    compt_assert(eq_tf == false);
+    compt_assert(eq_ft == false);
+    compt_assert(eq_ff == true);
+  };
+  
+  // Test inequality operations
+  {
+    neq_tt :: (true_val != true_val);     // false
+    neq_tf :: (true_val != false_val);    // true
+    neq_ft :: (false_val != true_val);    // true
+    neq_ff :: (false_val != false_val);   // false
+    
+    // Verify results
+    compt_assert(neq_tt == false);
+    compt_assert(neq_tf == true);
+    compt_assert(neq_ft == true);
+    compt_assert(neq_ff == false);
+  };
+  
+  // Test string conversion
+  {
+    true_str :: true_val.to_string();   // "true"
+    false_str :: false_val.to_string(); // "false"
+    
+    // Verify string conversions
+    compt_assert(true_str == "true");
+    compt_assert(false_str == "false");
+  };
+  
+  // Test complex bool expressions
+  {
+    // De Morgan's Laws
+    // !(A && B) == (!A || !B)
+    demorgan1_left :: not((true_val && false_val));
+    demorgan1_right :: (not(true_val) || not(false_val));
+    compt_assert(demorgan1_left == demorgan1_right);
+    
+    // !(A || B) == (!A && !B)
+    demorgan2_left :: not((true_val || false_val));
+    demorgan2_right :: (not(true_val) && not(false_val));
+    compt_assert(demorgan2_left == demorgan2_right);
+    
+    // Distributive properties
+    // A && (B || C) == (A && B) || (A && C)
+    a :: true_val;
+    b :: false_val;
+    c :: true_val;
+    
+    distrib_left :: (a && (b || c));
+    distrib_right :: ((a && b) || (a && c));
+    compt_assert(distrib_left == distrib_right);
+    
+    // Identity laws
+    // A && true == A
+    identity_and :: (a && true);
+    compt_assert(identity_and == a);
+    
+    // A || false == A
+    identity_or :: (a || false);
+    compt_assert(identity_or == a);
+    
+    // Annihilation laws
+    // A && false == false
+    annihil_and :: (a && false);
+    compt_assert(annihil_and == false);
+    
+    // A || true == true
+    annihil_or :: (a || true);
+    compt_assert(annihil_or == true);
+    
+    // Idempotent laws
+    // A && A == A
+    idemp_and :: (a && a);
+    compt_assert(idemp_and == a);
+    
+    // A || A == A
+    idemp_or :: (a || a);
+    compt_assert(idemp_or == a);
+  };
+  
+  // Test nested expressions
+  {
+    // Complex nested bool expression
+    complex1 :: ((true_val && false_val) || (not(false_val) && true_val));
+    compt_assert(complex1 == true);
+    
+    // Another complex expression
+    complex2 :: not(((true_val || false_val) && not((true_val == false_val))));
+    compt_assert(complex2 == false);
+    
+    // Triple nested expression
+    complex3 :: (((true_val && not(false_val)) || false_val) == (true_val || (false_val && not(true_val))));
+    compt_assert(complex3 == true);
+  };
+  
+  // Test with computed bool values
+  {
+    // Use results from other operations
+    computed1 :: (true_val == true_val);  // true
+    computed2 :: (false_val != true_val); // true
+    
+    and_computed :: (computed1 && computed2); // true && true = true
+    or_computed :: (computed1 || computed2);  // true || true = true
+    
+    compt_assert(and_computed == true);
+    compt_assert(or_computed == true);
+    
+    // Negation of computed values
+    not_computed1 :: not(computed1); // not(true) = false
+    not_computed2 :: not(computed2); // not(true) = false
+    
+    compt_assert(not_computed1 == false);
+    compt_assert(not_computed2 == false);
+  };
+  
+  // Exhaustive truth table tests
+  {
+    // AND truth table
+    compt_assert((true && true) == true);
+    compt_assert((true && false) == false);
+    compt_assert((false && true) == false);
+    compt_assert((false && false) == false);
+    
+    // OR truth table
+    compt_assert((true || true) == true);
+    compt_assert((true || false) == true);
+    compt_assert((false || true) == true);
+    compt_assert((false || false) == false);
+    
+    // NOT truth table
+    compt_assert(not(true) == false);
+    compt_assert(not(false) == true);
+    
+    // EQ truth table
+    compt_assert((true == true) == true);
+    compt_assert((true == false) == false);
+    compt_assert((false == true) == false);
+    compt_assert((false == false) == true);
+    
+    // NEQ truth table
+    compt_assert((true != true) == false);
+    compt_assert((true != false) == true);
+    compt_assert((false != true) == true);
+    compt_assert((false != false) == false);
+  };
+};
+
+test "Test compt_float", {
+  /**
+  * Test compile-time float operations
+  */
+  // Basic float operations
+  a :: 3.5;
+  b :: 2.5;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 6.0
+  diff :: (a - b);       // 1.0
+  prod :: (a * b);       // 8.75
+  quot :: (a / b);       // 1.4
+  
+  // Unary operations
+  neg_a :: a.neg();         // -3.5
+  
+  // Comparison operations
+  eq_test :: (a == b);   // false
+  neq_test :: (a != b);  // true
+  lt_test :: (a < b);    // false
+  lte_test :: (a <= b);  // false
+  gt_test :: (a > b);    // true
+  gte_test :: (a >= b);  // true
+  
+  // Type conversion operations
+  float_to_int :: i32(a);     // 3
+  float_to_string :: a.to_string(); // "3.5"
+  
+  // Test with compile-time assertions
+  compt_assert(sum == 6.0);
+  compt_assert(diff == 1.0);
+  compt_assert(prod == 8.75);
+  compt_assert(quot == 1.4);
+  compt_assert(neg_a == 3.5.neg());
+  
+  
+  compt_assert(eq_test == false);
+  compt_assert(neq_test == true);
+  compt_assert(lt_test == false);
+  compt_assert(lte_test == false);
+  compt_assert(gt_test == true);
+  compt_assert(gte_test == true);
+  
+  compt_assert(float_to_int == 3);
+  compt_assert(float_to_string == "3.5");
+  
+  // Test zero division error handling
+  // This should cause a compile-time error
+  // zero :: 0.0;
+  // division_by_zero :: a / zero;
+};
+
+test "Test compt_int", {
+  /**
+  * Test compile-time integer operations
+  * This file tests the __yo_compt_int_* functions that operate
+  * on compile-time known integer values.
+  */
+  // Basic integer operations
+  a :: 10;
+  b :: 3;
+  c :: 10;
+  zero :: 0;
+  
+  // Arithmetic operations
+  sum :: (a + b);        // 13
+  diff :: (a - b);       // 7
+  prod :: (a * b);       // 30
+  quot :: (a / b);       // 3 (integer division)
+  remainder :: (a % b);  // 1
+  
+  // Unary operations
+  neg_a :: -(a);       // -10
+  neg_zero :: zero.neg(); // 0
+  
+  // Comparison operations
+  eq_test :: (a == c);   // true (10 == 10)
+  eq_false :: (a == b);  // false (10 == 3)
+  neq_test :: (a != b);  // true (10 != 3)
+  neq_false :: (a != c); // false (10 != 10)
+  lt_test :: (b < a);    // true (3 < 10)
+  lt_false :: (a < b);   // false (10 < 3)
+  lte_test :: (b <= a);  // true (3 <= 10)
+  lte_equal :: (a <= c); // true (10 <= 10)
+  gt_test :: (a > b);    // true (10 > 3)
+  gt_false :: (b > a);   // false (3 > 10)
+  gte_test :: (a >= b);  // true (10 >= 3)
+  gte_equal :: (a >= c); // true (10 >= 10)
+  
+  // Type conversion operations
+  int_to_float :: f64(a);   // 10.0
+  int_to_string :: a.to_string(); // "10"
+  
+  // Test with compile-time assertions
+  // Arithmetic
+  compt_assert(sum == 13);
+  compt_assert(diff == 7);
+  compt_assert(prod == 30);
+  compt_assert(quot == 3);
+  compt_assert(remainder == 1);
+  
+  // Unary operations
+  compt_assert(neg_a == (10).neg());
+  compt_assert(neg_zero == 0);
+  
+  // Comparisons
+  compt_assert(eq_test == true);
+  compt_assert(eq_false == false);
+  compt_assert(neq_test == true);
+  compt_assert(neq_false == false);
+  compt_assert(lt_test == true);
+  compt_assert(lt_false == false);
+  compt_assert(lte_test == true);
+  compt_assert(lte_equal == true);
+  compt_assert(gt_test == true);
+  compt_assert(gt_false == false);
+  compt_assert(gte_test == true);
+  compt_assert(gte_equal == true);
+  
+  // Type conversions
+  compt_assert(int_to_float == 10.0);
+  compt_assert(int_to_string == "10");
+  
+  // Test with negative numbers
+  {
+    neg_num :: 5.neg();
+    pos_num :: 7;
+    
+    // Arithmetic with negatives
+    neg_sum :: (neg_num + pos_num);     // 2
+    neg_diff :: (neg_num - pos_num);    // -12
+    neg_prod :: (neg_num * pos_num);    // -35
+    neg_quot :: (neg_num / pos_num);    // 0 (integer division: -5/7 = 0)
+    
+    // Comparisons with negatives
+    neg_lt :: (neg_num < pos_num);      // true (-5 < 7)
+    neg_gt :: (pos_num > neg_num);      // true (7 > -5)
+    
+    compt_assert(neg_sum == 2);
+    compt_assert(neg_diff == 12.neg());
+    compt_assert(neg_prod == 35.neg());
+    compt_assert(neg_quot == 0);
+    compt_assert(neg_lt == true);
+    compt_assert(neg_gt == true);
+  };
+  
+  // Test edge cases
+  {
+    // Zero operations
+    zero_sum :: (zero + a);      // 10
+    zero_diff1 :: (a - zero);    // 10
+    zero_diff2 :: (zero - a);    // -10
+    zero_prod :: (zero * a);     // 0
+    
+    compt_assert(zero_sum == 10);
+    compt_assert(zero_diff1 == 10);
+    compt_assert(zero_diff2 == 10.neg());
+    compt_assert(zero_prod == 0);
+    
+    // Identity operations
+    identity_sum :: (a + zero);  // 10
+    identity_prod :: (a * 1);    // 10
+    
+    compt_assert(identity_sum == 10);
+    compt_assert(identity_prod == 10);
+    
+    // Self operations
+    self_sub :: (a - a);         // 0
+    self_div :: (a / a);         // 1
+    self_mod :: (a % a);         // 0
+    
+    compt_assert(self_sub == 0);
+    compt_assert(self_div == 1);
+    compt_assert(self_mod == 0);
+  };
+  
+  // Test larger numbers
+  {
+    large1 :: 1000;
+    large2 :: 999;
+    
+    large_sum :: (large1 + large2);     // 1999
+    large_diff :: (large1 - large2);    // 1
+    large_prod :: (large1 * 2);         // 2000
+    large_div :: (large1 / 10);         // 100
+    large_mod :: (large1 % 7);          // 6 (1000 % 7 = 6)
+    
+    compt_assert(large_sum == 1999);
+    compt_assert(large_diff == 1);
+    compt_assert(large_prod == 2000);
+    compt_assert(large_div == 100);
+    compt_assert(large_mod == 6);
+    
+    // String conversion of large numbers
+    large_str :: large1.to_string();
+    compt_assert(large_str == "1000");
+  };
+  
+  // Test modulo with different numbers
+  {
+    mod_tests1 :: (17 % 5);    // 2
+    mod_tests2 :: (20 % 4);    // 0
+    mod_tests3 :: (7 % 10);    // 7
+    
+    compt_assert(mod_tests1 == 2);
+    compt_assert(mod_tests2 == 0);
+    compt_assert(mod_tests3 == 7);
+  };
+  
+  // Test chained operations (order of operations)
+  {
+    // Note: In Yo, there's no operator precedence, so we need explicit parentheses
+    chain1 :: ((a + b) * 2);        // (10 + 3) * 2 = 26
+    chain2 :: (a + (b * 2));        // 10 + (3 * 2) = 16
+    chain3 :: ((a / b) + 1);        // (10 / 3) + 1 = 3 + 1 = 4
+    
+    compt_assert(chain1 == 26);
+    compt_assert(chain2 == 16);
+    compt_assert(chain3 == 4);
+  };
+  
+  // Test conversion consistency
+  {
+    num :: 42;
+    float_conv :: f64(num);
+    string_conv :: num.to_string();
+    
+    // Convert back through different paths
+    compt_assert(float_conv == 42.0);
+    compt_assert(string_conv == "42");
+    
+    // Test negative conversion
+    neg_num :: 42.neg();
+    neg_float :: f64(neg_num);
+    neg_string :: neg_num.to_string();
+    
+    compt_assert(neg_float == f64(42.0).neg());
+    compt_assert(neg_string == "-42");
+  };
+  
+  // Test division edge cases
+  {
+    // Positive division
+    div1 :: (15 / 3);    // 5
+    div2 :: (16 / 3);    // 5 (integer division)
+    div3 :: (2 / 5);     // 0
+    
+    compt_assert(div1 == 5);
+    compt_assert(div2 == 5);
+    compt_assert(div3 == 0);
+    
+    // Test that division by zero would cause compile-time error
+    // This should be commented out as it would cause compilation to fail:
+    // div_by_zero :: (a / zero);  // Should cause compile-time error
+  };
+};
+
+test "Test compt_string", {
+  /**
+  * Test compile-time string operations
+  * This file tests the __yo_compt_string_* functions that operate
+  * on compile-time known string values.
+  */
+  // Basic string literals
+  str1 :: "hello";
+  str2 :: "world";
+  str3 :: "hello";
+  empty_str :: "";
+  space_str :: " ";
+  
+  // Test string concatenation
+  {
+    concat1 :: (str1 + " ");     // "hello "
+    concat2 :: (concat1 + str2); // "hello world"
+    concat3 :: (str1 + str2);    // "helloworld"
+    concat4 :: (empty_str + str1); // "hello"
+    concat5 :: (str1 + empty_str); // "hello"
+    
+    // Verify concatenation results
+    compt_assert(concat1 == "hello ");
+    compt_assert(concat2 == "hello world");
+    compt_assert(concat3 == "helloworld");
+    compt_assert(concat4 == "hello");
+    compt_assert(concat5 == "hello");
+  };
+  
+  // Test string equality operations
+  {
+    eq_same :: (str1 == str3);      // true ("hello" == "hello")
+    eq_diff :: (str1 == str2);      // false ("hello" == "world")
+    eq_empty :: (empty_str == "");  // true
+    
+    // Verify equality results
+    compt_assert(eq_same == true);
+    compt_assert(eq_diff == false);
+    compt_assert(eq_empty == true);
+  };
+  
+  // Test string inequality operations
+  {
+    neq_same :: (str1 != str3);     // false ("hello" != "hello")
+    neq_diff :: (str1 != str2);     // true ("hello" != "world")
+    neq_empty :: (empty_str != "a"); // true
+    
+    // Verify inequality results
+    compt_assert(neq_same == false);
+    compt_assert(neq_diff == true);
+    compt_assert(neq_empty == true);
+  };
+  
+  // Test lexicographic comparison operations
+  {
+    // Test less than
+    lt_true :: (str1 < str2);       // true ("hello" < "world")
+    lt_false :: (str2 < str1);      // false ("world" < "hello")
+    lt_equal :: (str1 < str3);      // false ("hello" < "hello")
+    lt_empty :: (empty_str < str1); // true ("" < "hello")
+    
+    // Test less than or equal
+    lte_true :: (str1 <= str2);     // true ("hello" <= "world")
+    lte_equal :: (str1 <= str3);    // true ("hello" <= "hello")
+    lte_false :: (str2 <= str1);    // false ("world" <= "hello")
+    
+    // Test greater than
+    gt_true :: (str2 > str1);       // true ("world" > "hello")
+    gt_false :: (str1 > str2);      // false ("hello" > "world")
+    gt_equal :: (str1 > str3);      // false ("hello" > "hello")
+    
+    // Test greater than or equal
+    gte_true :: (str2 >= str1);     // true ("world" >= "hello")
+    gte_equal :: (str1 >= str3);    // true ("hello" >= "hello")
+    gte_false :: (str1 >= str2);    // false ("hello" >= "world")
+    
+    // Verify comparison results
+    compt_assert(lt_true == true);
+    compt_assert(lt_false == false);
+    compt_assert(lt_equal == false);
+    compt_assert(lt_empty == true);
+    
+    compt_assert(lte_true == true);
+    compt_assert(lte_equal == true);
+    compt_assert(lte_false == false);
+    
+    compt_assert(gt_true == true);
+    compt_assert(gt_false == false);
+    compt_assert(gt_equal == false);
+    
+    compt_assert(gte_true == true);
+    compt_assert(gte_equal == true);
+    compt_assert(gte_false == false);
+  };
+  
+  // Test string length operations
+  {
+    len_hello :: str1.len();      // 5
+    len_world :: str2.len();      // 5
+    len_empty :: empty_str.len(); // 0
+    len_space :: " ".len();       // 1
+    
+    // Verify length results
+    compt_assert(len_hello == 5);
+    compt_assert(len_world == 5);
+    compt_assert(len_empty == 0);
+    compt_assert(len_space == 1);
+  };
+  
+  // Test case conversion operations
+  {
+    mixed_case :: "HeLLo WoRLd";
+    uppercase :: mixed_case.to_upper(); // "HELLO WORLD"
+    lowercase :: mixed_case.to_lower(); // "hello world"
+    
+    // Test with already converted strings
+    upper_upper :: "HELLO".to_upper();   // "HELLO"
+    lower_lower :: "world".to_lower();   // "world"
+    
+    // Test with special characters and numbers
+    special :: "Hello123!@#".to_upper(); // "HELLO123!@#"
+    special_low :: "Hello123!@#".to_lower(); // "hello123!@#"
+    
+    // Verify case conversion results
+    compt_assert(uppercase == "HELLO WORLD");
+    compt_assert(lowercase == "hello world");
+    compt_assert(upper_upper == "HELLO");
+    compt_assert(lower_lower == "world");
+    compt_assert(special == "HELLO123!@#");
+    compt_assert(special_low == "hello123!@#");
+  };
+  
+  // Test complex string operations combining multiple features
+  {
+    // String building with concatenation and case conversion
+    greeting :: (("hello".to_upper() + " ") + "world".to_upper()); // "HELLO WORLD"
+    compt_assert(greeting == "HELLO WORLD");
+    compt_assert(greeting.len() == 11);
+    
+    // Comparison with constructed strings
+    // FIXME: The code below takes super long time to execute.
+    // constructed :: 
+    //   ((("HE" + "LLO") + " ") + "WO") + "RLD";
+    
+    constructed :: "HELLO WORLD";
+    compt_assert(constructed == greeting);
+    
+    // Mixed operations
+    phrase1 :: "programming";
+    phrase2 :: "is";
+    phrase3 :: "fun";
+    sentence :: 
+      (((phrase1.to_upper() + " ") + phrase2.to_upper()) + " ") + phrase3.to_upper();
+    compt_assert(sentence == "PROGRAMMING IS FUN");
+    compt_assert(sentence.len() == 18);
+  };
+  
+  // Test edge cases
+  {
+    // Single character strings
+    single_a :: "a";
+    single_z :: "z";
+    single_A :: "A";
+    
+    compt_assert(single_a < single_z);
+    compt_assert(single_A < single_a); // ASCII: 'A' (65) < 'a' (97)
+    compt_assert(single_a.len() == 1);
+    compt_assert(single_a.to_upper() == "A");
+    compt_assert(single_A.to_lower() == "a");
+    
+    // Unicode/special characters (basic ASCII)
+    newline :: "\n";
+    tab :: "\t";
+    compt_assert(newline.len() == 1);
+    compt_assert(tab.len() == 1);
+    
+    // Numbers as strings
+    num_str1 :: "123";
+    num_str2 :: "456";
+    num_concat :: (num_str1 + num_str2); // "123456"
+    compt_assert(num_concat == "123456");
+    compt_assert(num_str1 < num_str2); // Lexicographic: "123" < "456"
+  };
+  
+  // Test string slice operations
+  {
+    test_str :: "abcdefgh";
+    
+    // Basic slice operations
+    slice1 :: test_str.slice(0, 3);     // "abc"
+    slice2 :: test_str.slice(2, 6);     // "cdef"
+    slice3 :: test_str.slice(3, test_str.len());        // "defgh" (from 3 to end)
+    slice4 :: test_str.slice(0, test_str.len());        // "abcdefgh" (full string)
+    
+    // Edge cases
+    slice_empty :: test_str.slice(5, 5);  // "" (empty slice)
+    slice_beyond :: test_str.slice(10, test_str.len());   // "" (start beyond length)
+    /// slice_negative_end :: test_str.slice(0, 1.neg()); // "" (negative end)
+    
+    // Verify slice results
+    compt_assert(slice1 == "abc");
+    compt_assert(slice2 == "cdef");
+    compt_assert(slice3 == "defgh");
+    compt_assert(slice4 == "abcdefgh");
+    compt_assert(slice_empty == "");
+    compt_assert(slice_beyond == "");
+    /// compt_assert(slice_negative_end == "");
+    
+    // Test with different strings
+    hello :: "hello world";
+    hello_slice1 :: hello.slice(0, 5);   // "hello"
+    hello_slice2 :: hello.slice(6, hello.len());      // "world"
+    hello_slice3 :: hello.slice(6, 11);  // "world"
+    
+    compt_assert(hello_slice1 == "hello");
+    compt_assert(hello_slice2 == "world");
+    compt_assert(hello_slice3 == "world");
+    
+    // Combined with other operations
+    combined :: 
+      (hello_slice1.to_upper() + " ") + hello_slice2.to_upper();
+    compt_assert(combined == "HELLO WORLD");
+  };
+};
+
+
+test "Test mutation", {
+  // Value semantics
+  /// struct
+  {
+    Point :: struct(
+      x : i32,
+      y : i32
+    );
+
+    p1 :: Point(3, 4);
+    p2 :: p1;
+    p1.x = 5;
+
+    // compt_print("p1 ", p1);
+    // compt_print("p2 ", p2);
+    compt_assert(p1.x == 5);
+    compt_assert(p2.x == 3);
+  };
+
+  /// array
+  {
+    arr1 :: [1, 2, 3];
+    arr2 :: arr1;
+    index :: 0;
+    arr1(index) = 4;
+    // compt_print("arr1 ", arr1);
+    // compt_print("arr2 ", arr2);
+    compt_assert(arr1(0) == 4);
+    compt_assert(arr1(1) == 2);
+    compt_assert(arr1(2) == 3);
+    compt_assert(arr2(0) == 1);
+  };
+
+  /// tuple
+  {
+    t1 :: (1, 2.0);
+    t2 :: t1;
+    t1.0 = 4;
+
+    // compt_print("t1 ", t1);
+    // compt_print("t2 ", t2);
+    compt_assert(t1.0 == 4);
+    compt_assert(t2.0 == 1);
+  };
+
+  /// enum
+  {
+    Shape :: enum(
+      Circle(radius : f32),
+      Rectangle(width : f32, height : f32)
+    );
+
+    c1 :: Shape.Circle(5.0);
+    c2 :: c1;
+    c1.radius = 10.0;
+
+    // compt_print("c1 ", c1);
+    // compt_print("c2 ", c2);
+
+    compt_assert(c1.radius == 10.0);
+    compt_assert(c2.radius == 5.0); // c2 should remain unchanged with value semantics
+  };
+
+  // Refernce semantics are not allowed to be used in compile-time context
+  {
+    Point :: object( // Point now uses reference semantics
+      x : i32,
+      y : i32
+    );
+
+    compt_expect_error(p1 :: Point(3, 4));
+  };
+};
+
+test "Test parser associtivity", {
+  right :: quote(
+    1 +
+    2 +
+    3
+  );
+  compt_assert(right == quote((1 + (2 + 3))));
+
+  left :: quote(
+      1
+    + 2
+    + 3
+  );
+  compt_assert(left == quote((1 + 2) + 3));
+
+
+  right_2 :: quote(
+    a
+      =
+        (b -> c)
+  );
+  compt_assert(right_2 == quote(a = (b -> c)));
+};
+
+test "Test sizeof", {
+  compt_assert(sizeof(Type) == 0);
+  // compt_assert(sizeof(Free) == 0);
+  // compt_assert(sizeof(Linear) == 0);
+  compt_assert(sizeof(compt_int) == 0);
+  compt_assert(sizeof(compt_float) == 0);
+
+  compt_assert(sizeof(unit) == 0);
+
+  compt_assert(sizeof(u8) == 1);
+  compt_assert(sizeof(u16) == 2);
+  compt_assert(sizeof(u32) == 4);
+  compt_assert(sizeof(u64) == 8);
+  compt_assert(sizeof(i8) == 1);
+  compt_assert(sizeof(i16) == 2);
+  compt_assert(sizeof(i32) == 4);
+  compt_assert(sizeof(i64) == 8);
+  compt_assert(sizeof(f32) == 4);
+  compt_assert(sizeof(f64) == 8);
+  compt_assert(sizeof(bool) == 1);
+
+  MyTuple :: Tuple(
+    u8,
+    u16,
+    u32,
+    u64,
+    i8,
+    i16,
+    i32,
+    i64,
+    f32,
+    f64
+  );
+  compt_assert(sizeof(MyTuple) == 42);
+
+  MyArray :: Array(u8, 10);
+  compt_assert(sizeof(MyArray) == 10);
+
+  Point :: struct(
+    x : i32,
+    y : i32
+  );
+  compt_assert(sizeof(Point) == 8);
+
+  Color :: enum(
+    Red,
+    Green,
+    Blue
+  );
+  compt_assert(sizeof(Color) == 4);
+
+  Shape :: enum(
+    Circle(radius : f32),
+    Rectangle(width : f32, height : f32)
+  );
+  compt_assert(sizeof(Shape) == 12);
+
+  MyUnion :: union(
+    a : u8,
+    b : u16,
+    c : u32,
+    d : u64,
+    e : i8,
+    f : i16,
+    g : i32,
+    h : i64,
+    i : f32,
+    j : f64
+  );
+  compt_assert(sizeof(MyUnion) == 8);
+
+  test1 :: (fn(compt(T): Type) -> unit) {
+    x :: sizeof(T);
+  };
+
+  // All pointers now have unknown size
+  // compt_assert(sizeof(test1) == 8);
+
+  // compt_assert(sizeof(*(i32)) == 8);
+  // compt_assert(sizeof(*(f32)) == 8);
+  // compt_assert(sizeof(*(u8)) == 8);
+  // compt_assert(sizeof(*(i32)) == 8);
+  // 
+  // compt_assert(sizeof(&(f32)) == 8);
+  // compt_assert(sizeof(&(i32)) == 8);
+  // compt_assert(sizeof(&(u8)) == 8);
+  // compt_assert(sizeof(&(i32)) == 8);
+};
+
+test "Test alignof", {
+  // Test primitive types
+  compt_assert(alignof(u8) == usize(1));
+  compt_assert(alignof(u16) == usize(2));
+  compt_assert(alignof(u32) == usize(4));
+  compt_assert(alignof(u64) == usize(8));
+  compt_assert(alignof(i8) == usize(1));
+  compt_assert(alignof(i16) == usize(2));
+  compt_assert(alignof(i32) == usize(4));
+  compt_assert(alignof(i64) == usize(8));
+  compt_assert(alignof(f32) == usize(4));
+  compt_assert(alignof(f64) == usize(8));
+
+  // Test pointer types
+  compt_assert(alignof(*(u8)) == usize(8));
+  compt_assert(alignof(*(i32)) == usize(8));
+
+  // Test array types (should be same as element type)
+  compt_assert(alignof([u32; 10]) == usize(4));
+  compt_assert(alignof([u64; 5]) == usize(8));
+
+  // Test struct types
+  S :: struct(x: u64, y: u32);
+  compt_assert(alignof(S) == usize(8)); // Should be max alignment (u64 = 8)
+};

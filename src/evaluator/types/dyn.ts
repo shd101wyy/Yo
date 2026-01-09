@@ -18,7 +18,7 @@ import {
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToDynType } from "./utils";
+import { addRcFunctionsToDynType } from "./utils";
 
 export function evaluateDynType({
   expr,
@@ -94,14 +94,16 @@ export function evaluateDynType({
     for (let j = i + 1; j < moduleTypes.length; j++) {
       const moduleTypeB = moduleTypes[j]!;
       for (const elementA of moduleTypeA.fields) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `Module types ${typeToString(
-            moduleTypeA
-          )} and ${typeToString(
-            moduleTypeB
-          )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
-        });
+        for (const elementB of moduleTypeB.fields) {
+          if (elementA.label === elementB.label) {
+            throw formatErrorMessage({
+              token: expr.token,
+              errorMessage: `Module types ${typeToString(moduleTypeA)} and ${typeToString(
+                moduleTypeB
+              )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
+            });
+          }
+        }
       }
     }
   }
@@ -138,7 +140,7 @@ export function evaluateDynType({
   const dynType = createDynType(moduleTypes, env, negativeModules);
 
   // Add ARC functions to the dyn type's module
-  env = addARCFunctionsToDynType({
+  env = addRcFunctionsToDynType({
     dynType,
     env,
     context,

@@ -52,16 +52,14 @@ export function evaluateGensym({
     if (!isComptStringValue(evaluatedPrefixArg.$.value)) {
       throw formatErrorMessage({
         token: prefixArg.token,
-        errorMessage: `Expected compt_string for prefix argument, got:\n${exprToString(
-          prefixArg
-        )}`,
+        errorMessage: `Expected compt_string for prefix argument, got:\n${exprToString(prefixArg)}`,
       });
     }
     const prefixArgValue = evaluatedPrefixArg.$.value;
     prefix = prefixArgValue.value;
   }
 
-  const symbol = prefix + randomId();
+  const symbol = prefix + randomId(env.modulePath);
   const atomExpr: AtomExpr = {
     tag: ExprTag.Atom,
     token: {

@@ -1,4 +1,88 @@
-test "Array element access and length", {
+test "Test Array declaration with inferred length", {
+  {
+    arr1 := Array(i32, _)(1, 2, 3);
+    arr2 := [i32;_](1, 2, 3);
+    assert(arr1.len() == 3);
+    assert(arr2.len() == 3);
+  };
+
+  {
+    some_condition :: (fn() -> bool) true;
+    compt_expect_error({
+      arr : Array(i32, _); // Not allow to have Array with unknown length in binding
+      cond(
+        some_condition() => {
+          arr = [1, 2, 3];
+        },
+        true => {
+          arr = [2, 3, 4];
+        }
+      );
+      arr(0) = 5;
+    });
+
+    arr := cond(
+      some_condition() => [1, 2, 3],
+      true => [2, 3, 4]
+    );
+  };
+
+  {
+    // Test basic array type construction
+    IntArray :: Array(i32, 3);
+    arr := IntArray(1, 2, 3);
+    
+    // Test array access
+    first := arr(0);
+    second := arr(1);
+    third := arr(2);
+    
+    // Test different array types
+    FloatArray :: Array(f64, 2);
+    float_arr := FloatArray(1.5, 2.5);
+    
+    // Test nested array type construction
+    NestedArray :: Array(Array(i32, 2), 2);
+    nested := NestedArray(
+      Array(i32, 2)(1, 2),
+      Array(i32, 2)(3, 4)
+    );
+    
+    // Test zero-length array
+    EmptyArray :: Array(i32, 0);
+    empty := EmptyArray();
+
+    // Test inferred length - different sizes
+    inferred_arr4 := Array(i32, _)(1, 2, 3, 4);
+    inferred_arr2 := Array(f64, _)(1.5, 2.5);
+    inferred_arr1 := Array(bool, _)(true);
+    inferred_empty := Array(i32, _)();
+    
+    // Test nested inferred arrays
+    inferred_nested := Array(Array(i32, _), _)(
+      Array(i32, _)(1, 2, 3),
+      Array(i32, _)(4, 5, 6)
+    );
+
+    // Additional tests for array length inference
+    test_basic_inference := Array(i32, _)(10, 20, 30, 40, 50); // Should infer length 5
+    test_empty_inference := Array(f64, _)(); // Should infer length 0
+    test_single_inference := Array(bool, _)(true); // Should infer length 1
+    
+    // Test that inferred arrays work with array access
+    first_inferred := test_basic_inference(0); // Should be 10
+    last_inferred := test_basic_inference(4);  // Should be 50
+
+    // Test mutable
+    mutable_array := Array(i32, _)(1, 2, 3);
+    compt_expect_error(
+      mutable_array = [1, 2, 3, 4]
+    );
+    mutable_array = [2, 3, 4]; // Should be allowed
+  };
+};
+
+test "Test Array element access and length", {
   arr := [10, 20, 30, 40, 50];
   assert(arr.len() == 5);
   assert(arr(usize(0)) == 10);
@@ -8,7 +92,7 @@ test "Array element access and length", {
   assert(arr(usize(4)) == 50);
 };
 
-test "Array slice element access and length", {
+test "Test Array slice element access and length", {
   arr := [1, 2, 3, 4, 5];
   s := arr(1:arr.len());
   assert(s.len() == 4);
@@ -16,4 +100,102 @@ test "Array slice element access and length", {
   assert(s(usize(1)) == 3);
   assert(s(usize(2)) == 4);
   assert(s(usize(3)) == 5);
+};
+
+test "Test Array copy", {
+  // Create binding first, then assign value
+  arr1 : Array(i32, 3);
+  arr1 = [1, 2, 3];
+
+  // Create binding and assign value in one line
+  arr2 := [1, 2, 3];
+  arr2(0) = 12;
+
+  // Copy array
+  arr3 := arr1;
+  arr3(1) = 22; // This shouldn't affect arr1
+
+  assert(arr1(0) == 1);
+  assert(arr1(1) == 2);
+  assert(arr1(2) == 3);
+
+  assert(arr2(0) == 12);
+  assert(arr2(1) == 2);
+  assert(arr2(2) == 3);
+
+  assert(arr3(0) == 1);
+  assert(arr3(1) == 22);
+  assert(arr3(2) == 3);
+};
+
+test "Test Array fill method", {
+  return_array :: (fn(compt(n) : usize) -> [i32; n]) {
+    return Array(i32, n).fill(10);
+  };
+
+  return_array_2 :: (fn(compt(n) : usize) -> [i32; n])
+    Array(i32, n).fill(20)
+  ;
+
+  compt_return_array :: (fn(compt(n) : usize) -> compt([i32; n])) {
+    return Array(i32, n).fill(30);
+  };
+
+  compt_return_array_2 :: (fn(compt(n) : usize) -> compt([i32; n]))
+    Array(i32, n).fill(40)
+  ;
+
+  arr :: Array(i32, 6).fill(8);
+
+  arr2 := return_array(5);
+  assert(arr2.len() == 5);
+  assert(arr2(0) == 10);
+
+  arr2_2 := return_array_2(7);
+  assert(arr2_2.len() == 7);
+  assert(arr2_2(0) == 20);
+
+  arr3 := compt_return_array(10);
+  assert(arr3.len() == 10);
+  assert(arr3(0) == 30);
+
+  arr3_2 := compt_return_array_2(12);
+  assert(arr3_2.len() == 12);
+  assert(arr3_2(0) == 40);
+};
+
+test "Test array slice", {
+  arr := [1, 2, 3, 4];
+  arr_len := arr.len();
+  
+  (end : usize) = 3;
+
+  full_slice := arr(:);
+
+  slice := (arr(1:3));
+  slice(0) = 10;
+  slice(1) = 20;
+
+  slice_length := slice.len();
+  x := slice(0);
+
+  slice_of_slice := (slice(0:2));
+
+  assert(arr(0) == 1);
+  assert(arr(1) == 10);
+  assert(arr(2) == 20);
+  assert(arr(3) == 4);
+
+  assert(slice(0) == 10);
+  assert(slice(1) == 20);
+  assert(slice_length == 2);
+
+  assert(full_slice(0) == 1);
+  assert(full_slice(1) == 10);
+  assert(full_slice(2) == 20);
+  assert(full_slice(3) == 4);
+
+  assert(slice_of_slice(0) == 10);
+  assert(slice_of_slice(1) == 20);
+  assert(slice_of_slice.len() == 2);
 };

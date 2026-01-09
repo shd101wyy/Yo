@@ -40,13 +40,13 @@ function copyStdDirectory() {
   try {
     if (fs.existsSync(stdSrcPath)) {
       console.log("Copying std directory...");
-      
+
       // Remove the old std directory first to ensure clean copy
       if (fs.existsSync(stdDestPath)) {
         fs.rmSync(stdDestPath, { recursive: true, force: true });
         console.log("✓ Removed old std directory");
       }
-      
+
       copyDirectory(stdSrcPath, stdDestPath);
       console.log("✓ std directory copied successfully");
     } else {

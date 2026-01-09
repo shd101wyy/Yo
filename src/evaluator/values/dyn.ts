@@ -49,7 +49,7 @@ import {
 import { evaluateComptFunctionCall } from "../calls/compt_function";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addARCFunctionsToDynType } from "../types/utils";
+import { addRcFunctionsToDynType } from "../types/utils";
 
 /**
  * Helper function to construct Box(T) type by calling the compile-time Box function.
@@ -95,7 +95,7 @@ function createBoxedType(
       initializedAtToken: PlaceholderToken,
       consumedAtToken: undefined,
       value: innerTypeValue,
-      isOwningTheGcValue: false,
+      isOwningTheRcValue: false,
     },
   });
 
@@ -338,7 +338,7 @@ export function evaluateDynValue({
 
       expectedDynType = createDynType(implementedModuleTypes, env, []);
       // Add ARC functions to the DynType
-      env = addARCFunctionsToDynType({
+      env = addRcFunctionsToDynType({
         dynType: expectedDynType,
         env,
         context,
@@ -360,7 +360,7 @@ export function evaluateDynValue({
 
     expectedDynType = createDynType(implementedModuleTypes, env, []);
     // Add ARC functions to the DynType
-    env = addARCFunctionsToDynType({
+    env = addRcFunctionsToDynType({
       dynType: expectedDynType,
       env,
       context,

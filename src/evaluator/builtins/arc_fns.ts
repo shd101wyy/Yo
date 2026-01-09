@@ -17,13 +17,20 @@ import { PlaceholderToken } from "../../token";
 import {
   createType0,
   EnumType,
+  isArrayType,
   isFunctionType,
   isIsoType,
+  isTupleType,
   Type,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
-import { createTypeValue, isFunctionValue, isTypeValue } from "../../value";
+import {
+  createTypeValue,
+  isFunctionValue,
+  isNumberValue,
+  isTypeValue,
+} from "../../value";
 import { evaluateComptFunctionCall } from "../calls/compt_function";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -72,7 +79,7 @@ function createOptionType(
       initializedAtToken: PlaceholderToken,
       consumedAtToken: undefined,
       value: innerTypeValue,
-      isOwningTheGcValue: false,
+      isOwningTheRcValue: false,
     },
   });
 
@@ -621,5 +628,355 @@ export function evaluateYoIsoDispose({
     value: VUnit,
     pathCollection: [],
   };
+  return expr;
+}
+
+/**
+ * Evaluates __yo_drop_array_element builtin function.
+ * Drops an array element at a specific index without creating a borrowed reference.
+ * This is used internally when dropping arrays with GC-type elements.
+ *
+ * Usage: __yo_drop_array_element(array, index)
+ *
+ * This function is special because it directly drops the element in place,
+ * unlike array(index) which creates a borrowed reference that can't be dropped.
+ */
+export function evaluateYoDropArrayElement({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    [BuiltinFunctions.__yo_drop_array_element[0]!],
+    2
+  );
+
+  const arrayArgExpr = expr.args[0]!;
+  const indexArgExpr = expr.args[1]!;
+
+  // Evaluate array argument
+  const evaluatedArrayExpr = evaluateExpression({
+    expr: arrayArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArrayExpr.$) {
+    throw formatErrorMessage({
+      token: arrayArgExpr.token,
+      errorMessage: `Failed to evaluate the array argument for "${BuiltinFunctions.__yo_drop_array_element[0]!}":\n${exprToString(
+        arrayArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedArrayExpr.$.env;
+
+  // Evaluate index argument
+  const evaluatedIndexExpr = evaluateExpression({
+    expr: indexArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedIndexExpr.$) {
+    throw formatErrorMessage({
+      token: indexArgExpr.token,
+      errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_drop_array_element[0]!}":\n${exprToString(
+        indexArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedIndexExpr.$.env;
+
+  // This builtin only performs compile-time checks and returns unit
+  // The actual drop operation happens in the C codegen
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+
+  return expr;
+}
+/**
+ * Evaluates __yo_dup_array_element builtin function.
+ * Dups an array element at a specific index without creating a borrowed reference.
+ * This is used internally when duping arrays with GC-type elements.
+ *
+ * Usage: __yo_dup_array_element(array, index)
+ *
+ * This function is special because it directly dups the element in place,
+ * unlike array(index) which creates a borrowed reference that can't be duped.
+ */
+export function evaluateYoDupArrayElement({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    [BuiltinFunctions.__yo_dup_array_element[0]!],
+    2
+  );
+
+  const arrayArgExpr = expr.args[0]!;
+  const indexArgExpr = expr.args[1]!;
+
+  // Evaluate array argument
+  const evaluatedArrayExpr = evaluateExpression({
+    expr: arrayArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArrayExpr.$) {
+    throw formatErrorMessage({
+      token: arrayArgExpr.token,
+      errorMessage: `Failed to evaluate the array argument for "${BuiltinFunctions.__yo_dup_array_element[0]!}":\n${exprToString(
+        arrayArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedArrayExpr.$.env;
+
+  // Evaluate index argument
+  const evaluatedIndexExpr = evaluateExpression({
+    expr: indexArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedIndexExpr.$) {
+    throw formatErrorMessage({
+      token: indexArgExpr.token,
+      errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_dup_array_element[0]!}":\n${exprToString(
+        indexArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedIndexExpr.$.env;
+
+  // Get the array type to determine the return type (element type)
+  const arrayType = evaluatedArrayExpr.$.type;
+  if (!arrayType || !isArrayType(arrayType)) {
+    throw formatErrorMessage({
+      token: arrayArgExpr.token,
+      errorMessage: `Expected array type for "${BuiltinFunctions.__yo_dup_array_element[0]!}"`,
+    });
+  }
+
+  const elementType = arrayType.childType;
+
+  // This builtin returns the duped element
+  // The actual dup operation happens in the C codegen
+  expr.$ = {
+    env,
+    type: elementType,
+    value: undefined, // Runtime value only
+    pathCollection: [],
+  };
+
+  return expr;
+}
+
+/**
+ * Evaluates __yo_drop_tuple_element builtin function.
+ * Drops a tuple element at a specific index without creating a borrowed reference.
+ * This is used internally when dropping tuples with GC-type elements.
+ *
+ * Usage: __yo_drop_tuple_element(tuple, index)
+ *
+ * This function is special because it directly drops the element in place,
+ * unlike tuple.index which creates a borrowed reference that can't be dropped.
+ */
+export function evaluateYoDropTupleElement({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    [BuiltinFunctions.__yo_drop_tuple_element[0]!],
+    2
+  );
+
+  const tupleArgExpr = expr.args[0]!;
+  const indexArgExpr = expr.args[1]!;
+
+  // Evaluate tuple argument
+  const evaluatedTupleExpr = evaluateExpression({
+    expr: tupleArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedTupleExpr.$) {
+    throw formatErrorMessage({
+      token: tupleArgExpr.token,
+      errorMessage: `Failed to evaluate the tuple argument for "${BuiltinFunctions.__yo_drop_tuple_element[0]!}":\n${exprToString(
+        tupleArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedTupleExpr.$.env;
+
+  // Evaluate index argument
+  const evaluatedIndexExpr = evaluateExpression({
+    expr: indexArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedIndexExpr.$) {
+    throw formatErrorMessage({
+      token: indexArgExpr.token,
+      errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_drop_tuple_element[0]!}":\n${exprToString(
+        indexArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedIndexExpr.$.env;
+
+  // This builtin only performs compile-time checks and returns unit
+  // The actual drop operation happens in the C codegen
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+
+  return expr;
+}
+
+/**
+ * Evaluates __yo_dup_tuple_element builtin function.
+ * Dups a tuple element at a specific index without creating a borrowed reference.
+ * This is used internally when duping tuples with GC-type elements.
+ *
+ * Usage: __yo_dup_tuple_element(tuple, index)
+ *
+ * This function is special because it directly dups the element in place,
+ * unlike tuple.index which creates a borrowed reference that can't be duped.
+ */
+export function evaluateYoDupTupleElement({
+  expr,
+  env,
+  context,
+}: {
+  expr: FuncCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(
+    expr,
+    [BuiltinFunctions.__yo_dup_tuple_element[0]!],
+    2
+  );
+
+  const tupleArgExpr = expr.args[0]!;
+  const indexArgExpr = expr.args[1]!;
+
+  // Evaluate tuple argument
+  const evaluatedTupleExpr = evaluateExpression({
+    expr: tupleArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedTupleExpr.$) {
+    throw formatErrorMessage({
+      token: tupleArgExpr.token,
+      errorMessage: `Failed to evaluate the tuple argument for "${BuiltinFunctions.__yo_dup_tuple_element[0]!}":\n${exprToString(
+        tupleArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedTupleExpr.$.env;
+
+  // Evaluate index argument
+  const evaluatedIndexExpr = evaluateExpression({
+    expr: indexArgExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedIndexExpr.$) {
+    throw formatErrorMessage({
+      token: indexArgExpr.token,
+      errorMessage: `Failed to evaluate the index argument for "${BuiltinFunctions.__yo_dup_tuple_element[0]!}":\n${exprToString(
+        indexArgExpr
+      )}`,
+    });
+  }
+  env = evaluatedIndexExpr.$.env;
+
+  // Get the tuple type to determine the return type (element type)
+  const tupleType = evaluatedTupleExpr.$.type;
+  if (!tupleType || !isTupleType(tupleType)) {
+    throw formatErrorMessage({
+      token: tupleArgExpr.token,
+      errorMessage: `Expected tuple type for "${BuiltinFunctions.__yo_dup_tuple_element[0]!}"`,
+    });
+  }
+
+  // Get the element type from the tuple at the specified index
+  const indexValue = evaluatedIndexExpr.$.value;
+  if (!isNumberValue(indexValue)) {
+    throw formatErrorMessage({
+      token: indexArgExpr.token,
+      errorMessage: `Expected number value for index in "${BuiltinFunctions.__yo_dup_tuple_element[0]!}"`,
+    });
+  }
+
+  const index = Number(indexValue.value);
+  if (index < 0 || index >= tupleType.fields.length) {
+    throw formatErrorMessage({
+      token: indexArgExpr.token,
+      errorMessage: `Index out of bounds for tuple in "${BuiltinFunctions.__yo_dup_tuple_element[0]!}"`,
+    });
+  }
+
+  const elementType = tupleType.fields[index]!.type;
+
+  // This builtin returns the duped element
+  // The actual dup operation happens in the C codegen
+  expr.$ = {
+    env,
+    type: elementType,
+    value: undefined, // Runtime value only
+    pathCollection: [],
+  };
+
   return expr;
 }

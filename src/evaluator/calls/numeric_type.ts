@@ -37,9 +37,9 @@ import { evaluateExpression } from "../exprs/expr";
  * Get the numeric bounds for a type.
  * Returns [min, max] for the type, or undefined if the type has no fixed bounds.
  */
-function getNumericBounds(
+export function getNumericBounds(
   type: Type
-): { min: number; max: number } | undefined {
+): { min: number | bigint; max: number | bigint } | undefined {
   switch (type.tag) {
     case TypeTag.U8:
       return { min: 0, max: 255 };
@@ -54,13 +54,15 @@ function getNumericBounds(
     case TypeTag.I32:
       return { min: -2147483648, max: 2147483647 };
     case TypeTag.U64:
-      return { min: 0, max: Number.MAX_SAFE_INTEGER }; // JS limitation
+      return { min: 0n, max: 18446744073709551615n };
     case TypeTag.I64:
-      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER }; // JS limitation
+      return { min: -9223372036854775808n, max: 9223372036854775807n };
     case TypeTag.Usize:
-      return { min: 0, max: Number.MAX_SAFE_INTEGER }; // JS limitation
+      return { min: 0n, max: 18446744073709551615n };
     case TypeTag.Isize:
-      return { min: Number.MIN_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER }; // JS limitation
+      return { min: -9223372036854775808n, max: 9223372036854775807n };
+    case TypeTag.ComptInt:
+      return { min: -Infinity, max: Infinity }; // Unbounded
     case TypeTag.F32:
     case TypeTag.F64:
       return undefined; // No fixed bounds for floats
@@ -132,7 +134,7 @@ export function isConvertibleNumericType(type: Type): boolean {
 /**
  * Extract numeric value from a Value if it's compile-time known.
  */
-function extractComptNumericValue(value?: Value): number | undefined {
+function extractComptNumericValue(value?: Value): number | bigint | undefined {
   if (!value) return undefined;
   // isNumberValue includes ComptInt, ComptFloat, and all concrete numeric types
   if (isNumberValue(value)) {
@@ -154,14 +156,33 @@ function isComptNumberValue(value?: Value): boolean {
  * Create a compile-time value of the target type.
  */
 function createComptValueOfType(
-  numericValue: number,
+  numericValue: number | bigint,
   targetType: Type,
   errorToken: Expr["token"]
 ): Value {
   // Check bounds for integer types at compile time
   const bounds = getNumericBounds(targetType);
   if (bounds) {
-    if (numericValue < bounds.min || numericValue > bounds.max) {
+    // Handle mixed number/bigint comparisons
+    const value = numericValue;
+    const lessThan = (a: number | bigint, b: number | bigint): boolean => {
+      if (typeof a === "bigint" || typeof b === "bigint") {
+        const bigA = typeof a === "bigint" ? a : BigInt(Math.floor(a));
+        const bigB = typeof b === "bigint" ? b : BigInt(Math.floor(b));
+        return bigA < bigB;
+      }
+      return a < b;
+    };
+    const greaterThan = (a: number | bigint, b: number | bigint): boolean => {
+      if (typeof a === "bigint" || typeof b === "bigint") {
+        const bigA = typeof a === "bigint" ? a : BigInt(Math.floor(a));
+        const bigB = typeof b === "bigint" ? b : BigInt(Math.floor(b));
+        return bigA > bigB;
+      }
+      return a > b;
+    };
+
+    if (lessThan(value, bounds.min) || greaterThan(value, bounds.max)) {
       throw formatErrorMessage({
         token: errorToken,
         errorMessage: `Value ${numericValue} is out of range for type ${typeToString(targetType)} (${bounds.min} to ${bounds.max})`,
@@ -171,24 +192,48 @@ function createComptValueOfType(
 
   // Create the appropriate value type
   if (isComptIntType(targetType)) {
-    return createComptIntValue(Math.floor(numericValue));
+    const bigValue =
+      typeof numericValue === "bigint"
+        ? numericValue
+        : BigInt(Math.floor(numericValue));
+    return createComptIntValue(bigValue);
   }
   if (isComptFloatType(targetType)) {
-    return createComptFloatValue(numericValue);
+    const numValue =
+      typeof numericValue === "bigint" ? Number(numericValue) : numericValue;
+    return createComptFloatValue(numValue);
   }
   if (isFloatType(targetType)) {
     const tag = getValueTagFromType(targetType);
     if (tag) {
-      return createNumberValue(tag as NumberValue["tag"], numericValue);
+      const numValue =
+        typeof numericValue === "bigint" ? Number(numericValue) : numericValue;
+      return createNumberValue(tag as NumberValue["tag"], numValue);
     }
   }
   if (isIntegerType(targetType)) {
     const tag = getValueTagFromType(targetType);
     if (tag) {
-      return createNumberValue(
-        tag as NumberValue["tag"],
-        Math.floor(numericValue)
-      );
+      // For 64-bit types, keep as BigInt
+      const is64Bit =
+        tag === ValueTag.U64 ||
+        tag === ValueTag.I64 ||
+        tag === ValueTag.Usize ||
+        tag === ValueTag.Isize;
+
+      if (is64Bit) {
+        const bigValue =
+          typeof numericValue === "bigint"
+            ? numericValue
+            : BigInt(Math.floor(numericValue));
+        return createNumberValue(tag as NumberValue["tag"], bigValue);
+      } else {
+        const numValue =
+          typeof numericValue === "bigint"
+            ? Number(numericValue)
+            : Math.floor(numericValue);
+        return createNumberValue(tag as NumberValue["tag"], numValue);
+      }
     }
   }
 

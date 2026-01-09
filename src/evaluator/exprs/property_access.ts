@@ -203,9 +203,7 @@ export function evaluatePropertyAccess({
       if (!exprIsAtom(propertyExpr)) {
         throw formatErrorMessage({
           token: propertyExpr.token,
-          errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-            propertyExpr
-          )}`,
+          errorMessage: `Expected identifier for enum variant, got:\n${exprToString(propertyExpr)}`,
         });
       }
 
@@ -285,9 +283,7 @@ export function evaluatePropertyAccess({
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({
           token: propertyExpr.token,
-          errorMessage: `Expected identifier for type method, got:\n${exprToString(
-            propertyExpr
-          )}`,
+          errorMessage: `Expected identifier for type method, got:\n${exprToString(propertyExpr)}`,
         });
       }
       const propertyName = propertyExpr.token.value;
@@ -338,40 +334,12 @@ export function evaluatePropertyAccess({
         return expr;
       }
     }
-    // Accessing methods of an array type (e.g., Array(i32, 5).fill)
-    /*
-    else if (isArrayType(typeValue.value)) {
-      if (!exprIsAtom(propertyExpr)) {
-        throw formatErrorMessage({
-          token: propertyExpr.token,
-          errorMessage: `Expected identifier for array type method, got:\n${exprToString(
-            propertyExpr
-          )}`,
-        });
-      }
-      const propertyName = propertyExpr.token.value;
-
-      if (propertyName === "fill") {
-        // Signal to the function call handler that this is a special array fill method
-        // We'll return undefined so function.ts can handle the actual call with arguments
-        expr.$ = undefined;
-        return expr;
-      } else {
-        throw formatErrorMessage({
-          token: propertyExpr.token,
-          errorMessage: `Array type method "${propertyName}" not found. Available methods: fill`,
-        });
-      }
-    }
-    */
     // Accessing module field
     else if (isModuleType(typeValue.value)) {
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({
           token: propertyExpr.token,
-          errorMessage: `Expected identifier for type method, got:\n${exprToString(
-            propertyExpr
-          )}`,
+          errorMessage: `Expected identifier for type method, got:\n${exprToString(propertyExpr)}`,
         });
       }
       const propertyName = propertyExpr.token.value;
@@ -515,9 +483,7 @@ export function evaluatePropertyAccess({
         if (isNaN(index)) {
           throw formatErrorMessage({
             token: propertyExpr.token,
-            errorMessage: `Expected integer for tuple index, got:\n${exprToString(
-              propertyExpr
-            )}`,
+            errorMessage: `Expected integer for tuple index, got:\n${exprToString(propertyExpr)}`,
           });
         }
 

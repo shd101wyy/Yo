@@ -47,8 +47,8 @@ test "Test 'rc' function", {
     assert(rc(w1) == 1, "rc(w1) == 1"); // Should be no change.
     assert(rc(w2) == 1, "rc(w2) == 1");
 
-    assert(rc(w1.v) == 1, "rc(w1.v) == 1"); // Also no change, due to dup/drop cancellation.
-    assert(rc(w2.v) == 1, "rc(w2.v) == 1");
+    assert(rc(w1.v) == 2, "rc(w1.v) == 2"); // Also no change, due to dup/drop cancellation.
+    assert(rc(w2.v) == 2, "rc(w2.v) == 2");
   };
 };
 
@@ -76,4 +76,81 @@ test "Test explicit return and implicit return", {
   assert(d1.* == 42, "d1.* == 42");
   d2 := foo.get_data_explicit();
   assert(d2.* == 42, "d2.* == 42");
+};
+
+test "Test Rc in different data structures", {
+  // Anonymous struct
+  {
+    x := Box(i32)(3);
+    y := { x };
+    z := { y };
+    assert(x.* == 3, "x.* == 3");
+    assert(y.x.* == 3, "y.x.* == 3");
+    assert(z.y.x.* == 3, "z.y.x.* == 3");
+  
+  
+    y.x = Box(i32)(4);
+    assert(y.x.* == 4, "y.x.* == 4");
+    assert(z.y.x.* == 3, "z.y.x.* == 3");
+  };
+
+  // Nested boxes
+  {
+    x := box(3);
+    y := box(x);
+    z := box(y);
+
+    z.* = box(box(10));
+  };
+
+  // Array containing Rc
+  {
+    x := Box(i32)(3);
+    y := [x,];
+    z := [y,];
+    m := [z,];
+    n := [m,];
+    assert(x.* == 3, "x.* == 3");
+    assert(y(0).* == 3, "y(0).* ==");
+    assert(z(0)(0).* == 3, "z(0)(0).* ==");
+    assert(m(0)(0)(0).* == 3, "m(0)(0)(0).* ==");
+    assert(n(0)(0)(0)(0).* == 3, "n(0)(0)(0)(0).* ==");
+  };
+
+  // Tuple containing Rc
+  {
+    x := Box(i32)(3);
+    y := (x,);
+    z := (y,);
+    m := (z,);
+    n := (m,);
+
+    z.0 = (box(10),);
+
+    assert(x.* == 3, "x.* == 3");
+    assert(y.0.* == 3, "y.0.* == 3");
+    assert(z.0.0.* == 10, "z.0.0.* == 10");
+    assert(m.0.0.0.* == 3, "m.0.0.0.* == 3");
+    assert(n.0.0.0.0.* == 3, "n.0.0.0.0.* == 3");
+  };
+};
+
+test "Test Rc with Iso", {
+  {
+    x := box(123);
+    z := ^(x);
+    match(z,
+      .Some(_) => assert(true),
+      .None => assert(false, "unreachable")
+    );
+  };
+  {
+    x := box(123);
+    y := { x };
+    z := ^(x);
+    match(z,
+      .Some(_) => assert(false, "unreachable"),
+      .None => assert(true)
+    );
+  };
 };

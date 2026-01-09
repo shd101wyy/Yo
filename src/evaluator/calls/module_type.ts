@@ -132,9 +132,7 @@ impl Point, Id(Point)(
         if (moduleField.assignedValue) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Module member "${
-              moduleField.label
-            }" already has a assigned value:
+            errorMessage: `Module member "${moduleField.label}" already has a assigned value:
 ${valueToString(moduleField.assignedValue)}`,
           });
         }

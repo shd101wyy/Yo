@@ -1,5 +1,5 @@
 import { createEmptyEnv, Environment, Frame } from "../env";
-import { addARCFunctionsToSomeType } from "../evaluator/types/utils";
+import { addRcFunctionsToSomeType } from "../evaluator/types/utils";
 import { Expr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
@@ -704,7 +704,7 @@ export function createStructType(
   const module = createModuleType(env);
 
   const structType: StructType = {
-    id: `struct_${randomId()}`,
+    id: `struct_${randomId(env.modulePath)}`,
     tag: TypeTag.Struct,
     isReferenceSemantics,
     isNewtype,
@@ -720,7 +720,7 @@ export function createStructType(
 
 export function createModuleType(env: Environment): ModuleType {
   const moduleType: ModuleType = {
-    id: `module_${randomId()}`,
+    id: `module_${randomId(env.modulePath)}`,
     tag: TypeTag.Module,
     fields: [],
     env,
@@ -733,7 +733,7 @@ export function createEnumType(env: Environment): EnumType {
   const module = createModuleType(env);
 
   const enumType: EnumType = {
-    id: `enum_${randomId()}`,
+    id: `enum_${randomId(env.modulePath)}`,
     tag: TypeTag.Enum,
     variants: [],
     module,
@@ -749,7 +749,7 @@ export function createUnionType(env: Environment): UnionType {
   const module: ModuleType = createModuleType(env);
 
   const unionType: UnionType = {
-    id: `union_${randomId()}`,
+    id: `union_${randomId(env.modulePath)}`,
     tag: TypeTag.Union,
     fields: [],
     module,
@@ -786,7 +786,7 @@ export function createFunctionType({
   const module = createModuleType(emptyEnv);
 
   const functionType: FunctionType = {
-    id: `fn_${randomId()}`,
+    id: `fn_${randomId(env.modulePath)}`,
     tag: TypeTag.Function,
     parameters: parameters,
     forallParameters,
@@ -858,7 +858,8 @@ export function createSomeType(
   recursiveTypeRef?: {
     functionValue: FunctionValue;
     argValues: Value[];
-  }
+  },
+  env?: Environment
 ): SomeType {
   if (type.level !== 0) {
     console.trace();
@@ -867,11 +868,11 @@ export function createSomeType(
     );
   }
 
-  const emptyEnv = createEmptyEnv();
+  const emptyEnv = env ?? createEmptyEnv();
   const module: ModuleType = createModuleType(emptyEnv);
 
   const someType: SomeType = {
-    id: id ?? `sometype_${randomId()}`,
+    id: id ?? `sometype_${randomId(emptyEnv.modulePath)}`,
     tag: TypeTag.SomeType,
     name: variableName,
     parentType: type,
@@ -890,7 +891,7 @@ export function createSomeType(
   module.receiverType = someType;
 
   // Add ARC functions to SomeType - these dispatch to resolvedConcreteType at codegen time
-  addARCFunctionsToSomeType({
+  addRcFunctionsToSomeType({
     someType,
     env: emptyEnv,
     context: {
@@ -1150,4 +1151,7 @@ export function clearAllCachedTypes(): void {
   cachedSliceTypeMap.clear();
   cachedVoidType = undefined;
   cachedTypeMap.clear();
+  // CRITICAL: Clear these caches to prevent memory leaks
+  ptrCache.clear();
+  isoCache.clear();
 }

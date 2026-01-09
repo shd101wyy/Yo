@@ -63,7 +63,7 @@ export type NumberValue = {
     | ValueTag.Usize
     | ValueTag.Isize;
   type: Type;
-  value: number;
+  value: number | bigint;
 };
 
 export type BooleanValue = {
@@ -181,7 +181,9 @@ export function valueToString(value?: Value): string {
     case ValueTag.F64:
     case ValueTag.Usize:
     case ValueTag.Isize: {
-      return value.value.toString();
+      return typeof value.value === "bigint"
+        ? value.value.toString()
+        : value.value.toString();
     }
     case ValueTag.Bool: {
       return value.value.toString();
@@ -332,6 +334,11 @@ export function isFunctionValue(value?: Value): value is FunctionValue {
   return value?.tag === ValueTag.Function;
 }
 
+/**
+ * UnknownValue is a compile-time value, not runtime value.
+ * It's just we only know its type but not real value.
+ * @returns
+ */
 export function isUnknownValue(value?: Value): value is UnknownValue {
   return value?.tag === ValueTag.Unknown;
 }
@@ -392,7 +399,10 @@ export function createComptListValue(
 }
 
 // TODO: Check the value boundaries for number values
-export function createNumberValue(tag: NumberValue["tag"], value: number) {
+export function createNumberValue(
+  tag: NumberValue["tag"],
+  value: number | bigint
+) {
   let numberType: Type;
   if (tag === ValueTag.ComptInt) {
     numberType = createComptIntType();
@@ -433,7 +443,7 @@ export function createNumberValue(tag: NumberValue["tag"], value: number) {
   };
 }
 
-export function createComptIntValue(value: number): NumberValue {
+export function createComptIntValue(value: bigint): NumberValue {
   return createNumberValue(ValueTag.ComptInt, value);
 }
 
@@ -461,9 +471,7 @@ export function createUnknownValue(
     if (!variableName) {
       console.trace("!variableName bug found in createUnknownValue");
       throw new Error(
-        `createUnknownValue expects a variable name for type ${typeToString(
-          type
-        )}`
+        `createUnknownValue expects a variable name for type ${typeToString(type)}`
       );
     }
 
@@ -593,7 +601,17 @@ export function areValuesEqual(
     }
     return true;
   } else if (isNumberValue(value1) && isNumberValue(value2)) {
-    return value1.value === (value2 as NumberValue).value;
+    // Handle both number and bigint comparisons
+    const v1 = value1.value;
+    const v2 = value2.value;
+    // If both are bigint or both are number, compare directly
+    if (typeof v1 === typeof v2) {
+      return v1 === v2;
+    }
+    // If one is bigint and one is number, convert to bigint for comparison
+    const bigV1 = typeof v1 === "bigint" ? v1 : BigInt(v1);
+    const bigV2 = typeof v2 === "bigint" ? v2 : BigInt(v2);
+    return bigV1 === bigV2;
   } else if (isBooleanValue(value1) && isBooleanValue(value2)) {
     return value1.value === (value2 as BooleanValue).value;
   } else if (isArrayValue(value1) && isArrayValue(value2)) {

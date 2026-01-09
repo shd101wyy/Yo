@@ -1,0 +1,452 @@
+# Cycle Collection
+
+Yo uses **non-atomic reference counting** with **thread-local cycle collection** to reclaim cyclic structures. The cycle collector uses **QuickJS's trial deletion algorithm**, which is simpler than [Nim's ORC coloring approach](https://nim-works.github.io/nimskull/gc.html) while providing similar performance. The implementation is adapted for Yo's **isolated spawn model** where each thread has complete isolation with no shared memory.
+
+## Why Cycle Collection?
+
+Reference counting cannot reclaim cycles:
+
+```yo
+// Create a cycle
+node_a := object(value: 1, next: .None);
+node_b := object(value: 2, next: .Some(node_a));
+node_a.next = .Some(node_b);  // Creates cycle: A → B → A
+
+// Drop external references
+node_a = .None;  // RC of A: 2 → 1 (B still holds reference)
+node_b = .None;  // RC of B: 2 → 1 (A still holds reference)
+
+// Memory leak! Both objects have RC = 1 but are unreachable
+```
+
+## QuickJS-Inspired Algorithm
+
+QuickJS uses a **trial deletion** approach that works perfectly with non-atomic reference counting. This is simpler than [Nim's ORC coloring algorithm](https://nim-works.github.io/nimskull/gc.html) (which uses black/gray/white marking) but achieves similar O(N) performance with less complexity.
+
+### Phase 1: Mark Potential Garbage
+
+1. **Identify candidates**: Objects with RC > 0 but potentially in cycles
+2. **Trial deletion**: Temporarily decrement RC of all objects reachable from candidates
+3. **Check survivability**: If RC reaches 0 after trial deletion, object is garbage
+
+### Phase 2: Sweep
+
+1. **Restore live objects**: Increment RC back for objects still reachable from roots
+2. **Collect garbage**: Free objects that remain at RC = 0
+
+### Key Insight
+
+This works with non-atomic RC because:
+
+- Only the owning thread accesses these objects during collection
+- No concurrent modification during collection (thread-local or stop-the-world)
+- Simple increment/decrement operations, no atomics needed
+
+## Yo's Cycle Collector Design
+
+### Thread-Local Collection
+
+Each thread has its own cycle collector with complete isolation. No stop-the-world pauses are needed because Yo uses an **isolated spawn model** where threads share no memory.
+
+```c
+// Per-thread GC state
+typedef struct yo_thread_gc_state_t {
+  yo_ref_header_t* tracked_objects;  // Doubly-linked list of potentially cyclic objects
+  size_t tracked_count;              // Number of tracked objects
+  YO_THREAD_TYPE thread_id;          // Owning thread
+  size_t alloc_count;                // Allocations since last GC
+  struct yo_thread_gc_state_t* next; // For global thread list (cleanup only)
+  struct yo_thread_gc_state_t* prev;
+} yo_thread_gc_state_t;
+
+static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc;
+```
+
+### When to Collect: Adaptive Object Count Threshold
+
+Yo uses an **adaptive tracked object count threshold** to trigger cycle collection:
+
+1. **Initial threshold**: 256 objects
+2. **Trigger**: When `tracked_count >= threshold`, run cycle collection
+3. **Adaptive scaling**: After each collection, `threshold = max(256, 2 × remaining_objects)`
+
+This approach is similar to QuickJS and balances several concerns:
+
+- **Predictable**: Collects based on object count, not memory size
+- **Efficient**: Avoids frequent collection with few objects
+- **Adaptive**: Grows threshold for programs with many long-lived cyclic objects
+- **Simple**: No need to track per-object sizes
+
+**Example behavior:**
+
+```
+Initial: threshold = 256
+After creating 256 objects → GC runs, 10 survive → threshold = max(256, 20) = 256
+After creating 256 more objects → GC runs, 200 survive → threshold = max(256, 400) = 400
+After creating 400 more objects → GC runs, 300 survive → threshold = max(256, 600) = 600
+```
+
+**Why object count over memory threshold:**
+
+- Thread-local objects are typically similar sizes (no huge variance)
+- Tracking object count is cheaper than tracking bytes
+- Cycle collection cost is proportional to object count, not bytes
+- Fits well with the thread-local isolation model
+
+**Explicit collection** can also be triggered via `gc.collect()`:
+
+```yo
+import std/gc;
+
+// Force cycle collection
+gc.collect();
+
+// Query tracked object count
+count := gc.tracked_count();
+```
+
+**When to track:**
+Only objects that can form cycles are tracked:
+
+- Objects with reference-type fields
+- Closures capturing reference-counted values
+- Dyn trait objects
+
+**Skip tracking:**
+
+- Value types (struct with no Rc fields)
+- Primitives
+- Objects with no internal references
+
+### Algorithm Implementation
+
+#### Phase 1: Trial Deletion
+
+```c
+void yo_gc_mark_phase(yo_gc_state_t* gc) {
+    // 1. Mark all tracked objects as candidates
+    for (size_t i = 0; i < gc->tracked_count; i++) {
+        yo_object* obj = gc->tracked_objects[i];
+        obj->gc_mark = GC_CANDIDATE;
+    }
+
+    // 2. Trial deletion: decrement RC of all objects reachable from candidates
+    for (size_t i = 0; i < gc->tracked_count; i++) {
+        yo_object* obj = gc->tracked_objects[i];
+        if (obj->gc_mark == GC_CANDIDATE) {
+            yo_gc_trial_delete(obj);  // Recursively decrement RC
+        }
+    }
+
+    // 3. Mark survivors: objects with RC > 0 after trial deletion
+    for (size_t i = 0; i < gc->tracked_count; i++) {
+        yo_object* obj = gc->tracked_objects[i];
+        if (obj->ref_count > 0) {
+            obj->gc_mark = GC_LIVE;
+        } else {
+            obj->gc_mark = GC_GARBAGE;
+        }
+    }
+}
+
+void yo_gc_trial_delete(yo_object* obj) {
+    if (obj->gc_mark != GC_CANDIDATE) return;
+
+    obj->gc_mark = GC_TRIAL_DELETED;
+
+    // Traverse fields and trial-delete referenced objects
+    if (obj->traverse_fn) {
+        obj->traverse_fn(obj, yo_gc_trial_delete_visitor);
+    }
+}
+
+void yo_gc_trial_delete_visitor(yo_object* referenced) {
+    referenced->ref_count--;  // Non-atomic decrement
+    if (referenced->ref_count > 0 && referenced->gc_mark == GC_CANDIDATE) {
+        yo_gc_trial_delete(referenced);
+    }
+}
+```
+
+#### Phase 2: Restore and Sweep
+
+```c
+void yo_gc_sweep_phase(yo_gc_state_t* gc) {
+    size_t write_index = 0;
+
+    for (size_t i = 0; i < gc->tracked_count; i++) {
+        yo_object* obj = gc->tracked_objects[i];
+
+        if (obj->gc_mark == GC_LIVE) {
+            // Restore RC for live objects
+            yo_gc_restore_rc(obj);
+            gc->tracked_objects[write_index++] = obj;
+        } else if (obj->gc_mark == GC_GARBAGE) {
+            // Free garbage
+            yo_free_object(obj);
+            gc->objects_collected++;
+        }
+    }
+
+    gc->tracked_count = write_index;
+}
+
+void yo_gc_restore_rc(yo_object* obj) {
+    if (obj->gc_mark != GC_LIVE) return;
+
+    obj->gc_mark = GC_RESTORED;
+
+    // Restore RC for referenced objects
+    if (obj->traverse_fn) {
+        obj->traverse_fn(obj, yo_gc_restore_visitor);
+    }
+}
+
+void yo_gc_restore_visitor(yo_object* referenced) {
+    referenced->ref_count++;  // Non-atomic increment
+    if (referenced->gc_mark == GC_LIVE) {
+        yo_gc_restore_rc(referenced);
+    }
+}
+```
+
+### Isolated Spawn Model
+
+Yo uses **complete thread isolation** - spawned tasks run on separate threads with **no shared memory**. Communication happens exclusively through typed message passing (see `PARALLELISM.md`).
+
+**Why this simplifies GC:**
+
+1. Each thread has its own heap - no cross-thread references
+2. Each thread has its own cycle collector - no coordination needed
+3. No need to track which objects can be "stolen" - nothing moves between threads
+4. Only value types can be sent between threads (copied, not shared)
+
+```yo
+// Parent thread
+x := 42;
+node := Node(1, .None);  // Cycle-forming type, stays on this thread
+
+// Spawn isolated task - runs on different thread
+task := Task(i32, unit).spawn((parent) -> async {
+  // ❌ CANNOT access node here - completely isolated!
+  // ✅ Can only receive copies of value types
+  value := await parent.recv();
+});
+
+await task.send(x);  // Send COPY of x (value type)
+// Cannot send node - reference types stay on their thread
+```
+
+**What can be sent between threads (value types only):**
+
+| Type                             | Can Send? | Reason                          |
+| -------------------------------- | --------- | ------------------------------- |
+| Primitives (`i32`, `bool`, etc.) | ✅ Yes    | Value type, copied              |
+| Value structs (`struct(...)`)    | ✅ Yes    | Value type, copied              |
+| Tuples of value types            | ✅ Yes    | Value type, copied              |
+| Enums with value payloads        | ✅ Yes    | Value type, copied              |
+| `object(...)`                    | ❌ No     | Reference counted, thread-local |
+| Closures                         | ❌ No     | May capture references          |
+| `*T` (pointers)                  | ❌ No     | Not safe across threads         |
+
+**Key Design Decision:** Reference types (`object(...)`) **never** cross thread boundaries. This means:
+
+- Each thread's GC only tracks objects created on that thread
+- No cross-thread GC coordination needed
+- No atomic reference counting needed
+- Simple, predictable garbage collection
+
+**Common patterns:**
+
+```yo
+// ✅ Message passing with value types
+task := Task(Message, Response).spawn((parent) -> async {
+  msg := await parent.recv();  // Receives COPY of Message
+  await parent.send(Response(ok: true));
+});
+
+// ✅ Each thread owns its complex data
+main :: (fn() -> unit) {
+  // Main thread owns complex data structures
+  tree := ComplexTree();  // Has cycles, stays on main thread
+
+  async {
+    // Spawn worker for CPU-intensive computation
+    task := Task(Array(i32), i32).spawn((parent) -> async {
+      data := await parent.recv();
+      result := expensive_computation(data);
+      await parent.send(result);
+    });
+
+    await task.send([1, 2, 3, 4, 5]);  // Send value array
+    result := await task.recv();       // Receive value result
+    tree.update(result);               // Update local data
+  };
+};
+```
+
+**GC Collection Process:**
+
+```c
+void yo_gc_collect_thread_local() {
+    // No synchronization needed - thread-local only
+    yo_gc_state_t* gc = &yo_gc_state;
+
+    // Run trial deletion on this thread's tracked objects
+    yo_gc_mark_phase(gc);
+    yo_gc_sweep_phase(gc);
+
+    // Other threads continue running in parallel
+}
+```
+
+**Benefits of isolated spawn for GC:**
+
+- ✅ No stop-the-world pauses (each thread collects independently)
+- ✅ Predictable per-thread pause times (O(thread's objects))
+- ✅ Perfect scaling (threads don't interfere)
+- ✅ No cross-thread coordination needed
+- ✅ Non-atomic reference counting (zero synchronization overhead)
+- ✅ Simple implementation (no stealability analysis needed)
+
+## Performance Characteristics
+
+### Thread-Local Collection
+
+**Strengths:**
+
+- ✅ Non-atomic RC in hot path (zero synchronization overhead)
+- ✅ No stop-the-world pauses (each thread collects independently)
+- ✅ Predictable per-thread pause times (O(thread's objects))
+- ✅ Perfect scaling (N threads = N independent collectors)
+- ✅ Complete thread isolation (no cross-thread GC concerns)
+- ✅ Real-time friendly (no global synchronization)
+- ✅ Simple implementation (no stealability tracking needed)
+
+**Trade-offs:**
+
+- ⚠️ Reference types cannot be shared between threads (must use message passing)
+- ⚠️ Large data must be copied when sent between threads
+
+**Why this is better than Go's GC:**
+
+- Yo's pauses: 0.5-5ms per thread (only that thread's cycles)
+- Go's pauses: 10-100ms+ globally (all threads stop)
+- Yo has no global synchronization (true parallelism)
+
+### Pause Time Analysis
+
+```
+Objects tracked per thread: N/threads
+Pause time per thread: O(N/threads) for mark + sweep
+Typical: 0.5-5ms for 1K-10K objects per thread on modern CPU
+Scaling: ~0.1-1μs per object (including traversal)
+Global impact: Zero (other threads continue running)
+```
+
+**Optimization strategies:**
+
+1. **Conservative tracking**: Only track objects with reference-type fields
+2. **Generational**: Track young vs old objects, collect young more frequently
+3. **Threshold tuning**: Per-thread collection frequency based on allocation rate
+
+## API
+
+```yo
+// Runtime cycle collection control
+gc_collect :: (fn() -> unit);  // Trigger immediate collection
+gc_set_threshold :: (fn(threshold: usize) -> unit);  // Set collection frequency
+gc_get_stats :: (fn() -> GCStats);  // Get collection statistics
+
+GCStats :: struct(
+  collections: usize,
+  objects_collected: usize,
+  objects_tracked: usize,
+  last_pause_ns: u64,
+);
+```
+
+## Compiler Support
+
+### Automatic Tracking
+
+Compiler generates tracking code for cycle-forming types:
+
+```yo
+// User code
+Node :: object(value: i32, next: Option(Node));
+
+// Generated tracking
+node := Node(42, .None);  // Calls yo_gc_track(node)
+```
+
+### Traverse Function Generation
+
+For each object type, compiler generates traverse function:
+
+```c
+// Generated for Node
+void Node_traverse(void* obj, void (*visit)(void*)) {
+    Node* node = (Node*)obj;
+    if (node->next.tag == SOME) {
+        visit(node->next.value);  // Visit referenced Node
+    }
+}
+```
+
+### Object Registration
+
+Compiler generates code to register objects with thread-local GC:
+
+```c
+// Generated code for object allocation
+Node* node = yo_alloc_object(sizeof(Node));
+node->value = 42;
+node->next = OPTION_NONE;
+
+// Register with thread-local GC (no synchronization needed)
+yo_gc_track(&yo_gc_state, (yo_object*)node);
+
+// Increment thread-local allocation counter
+yo_gc_state.alloc_count++;
+if (yo_gc_state.alloc_count >= YO_GC_THRESHOLD) {
+    yo_gc_collect_thread_local();  // Collect this thread only
+    yo_gc_state.alloc_count = 0;
+}
+```
+
+Since spawned tasks are completely isolated (no shared memory), there's no need to track "stealability" - each thread simply manages its own objects independently.
+
+## Comparison with Other Approaches
+
+| Approach                              | Pause Time   | Cross-Thread         | Complexity  | Performance        |
+| ------------------------------------- | ------------ | -------------------- | ----------- | ------------------ |
+| **QuickJS trial deletion**            | O(N)         | No (single-threaded) | Low         | Good               |
+| **Nim ORC (coloring)**                | O(N/threads) | No (thread affinity) | Medium-High | Excellent          |
+| **Python (cycle detector)**           | O(N)         | Yes (GIL serializes) | Medium      | Good with GIL      |
+| **Swift (weak references)**           | O(1)         | Yes                  | Low         | Excellent          |
+| **Java (tracing GC)**                 | O(heap)      | Yes                  | High        | Variable           |
+| **Go (mark-sweep)**                   | O(heap)      | Yes                  | High        | 10-100ms STW       |
+| **Yo (QuickJS-style trial deletion)** | O(N/threads) | No (isolated)        | Low         | 0.5-5ms per thread |
+
+## Summary
+
+Yo's cycle collection design:
+
+1. ✅ **Non-atomic RC** - zero synchronization overhead in hot path
+2. ✅ **Thread-local cycle collection** - no stop-the-world pauses
+3. ✅ **QuickJS trial deletion** - simple, proven algorithm (simpler than [Nim's coloring approach](https://nim-works.github.io/nimskull/gc.html))
+4. ✅ **Isolated spawn model** - each thread has its own heap, no shared memory
+5. ✅ **Short per-thread pauses** - 0.5-5ms typical per thread (only that thread's cycles)
+6. ✅ **Simple implementation** - no cross-thread coordination or stealability tracking
+7. ✅ **Real-time friendly** - predictable latency, no global synchronization
+
+The key insights are:
+
+- **Reference counting frees most objects immediately** - GC only handles cycles
+- **Thread-local collection scales perfectly** - N threads = N independent collectors
+- **Complete isolation eliminates complexity** - no need to track what can move between threads
+- **No global pauses** - each thread collects independently while others continue
+- **Value-type message passing** - safe inter-thread communication without sharing references
+
+This design gives **excellent performance** (better than Go's 10-100ms STW pauses) and **predictable latency** for real-time applications, with a simpler implementation than work-stealing approaches.

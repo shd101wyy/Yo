@@ -23,7 +23,7 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import { canTypeFormGcCycle, typeImplementsFuture } from "../../types/utils";
+import { canTypeFormRcCycle, typeImplementsFuture } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -39,9 +39,9 @@ import {
   canOptimizeAsNullablePointer,
   CodeGenContext,
   getTypeString,
+  getVariableNameForCodegen,
   isComptFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
-  isGenericFunction,
   sanitizeForCIdentifier,
 } from "../utils";
 import { FunctionGenerationContext } from "./context";
@@ -107,7 +107,7 @@ export function generateFunctionDeclarations(
     const { cName, value } = context.functions[funcId]!;
 
     if (
-      isGenericFunction(value) ||
+      isFunctionSpecializable(value.type) ||
       isComptFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
@@ -327,7 +327,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
-  // Generate closure constructor and Gc functions
+  // Generate closure constructor and Rc functions
   generateClosureConstructorFunctions(context);
 
   // NOTE: Don't generate capture dispose functions here yet!
@@ -337,9 +337,15 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   for (const funcId in context.functions) {
     const { value, cName } = context.functions[funcId]!;
 
-    // If the function is generic, we will handle it later
+    // If the function is generic or has been specialized, we will handle it later
+    // EXCEPTION: Specialized functions from impl methods (not generic at function level)
+    // should be generated here, not in generateSpecializedFunctions
+    const isSpecializedImplMethod =
+      value.specializedType && !isFunctionSpecializable(value.type);
+
     if (
-      isGenericFunction(value) ||
+      isFunctionSpecializable(value.type) ||
+      (value.specializedType && !isSpecializedImplMethod) ||
       isComptFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
@@ -506,10 +512,12 @@ export function generateFunction(
 
   // For functions returning Impl(Module) (SomeType), use the concrete type from the body
   // This is for static dispatch - the body's actual return type is the function's return type
+  // BUT: Don't do this for specialized functions - their specializedType is already correct
   if (
     functionValue.body &&
     isSomeType(functionType.return.type) &&
-    !typeImplementsFuture(functionType.return.type)
+    !typeImplementsFuture(functionType.return.type) &&
+    !functionValue.specializedType // Don't override for specialized functions
   ) {
     // The body should have the concrete return type
     if (functionValue.body.$?.type) {
@@ -520,6 +528,9 @@ export function generateFunction(
   // For specialized functions where the body's return type is more specific than the signature's
   // (e.g., when generic type parameters have been substituted but the signature still uses generic types)
   // Use the body's concrete return type
+  // SKIP THIS: The body type might not be properly updated during specialization
+  // The specializedType is already correct, so just use it
+  /*
   if (
     !overrideReturnType &&
     functionValue.body &&
@@ -538,6 +549,7 @@ export function generateFunction(
       overrideReturnType = bodyReturnTypeCName;
     }
   }
+  */
 
   // Regular function generation (async blocks within the function handle their own state machines)
   const functionPrototype = overrideReturnType
@@ -636,6 +648,10 @@ export function generateFunctionBody(
   ) {
     // Handle begin block - generate all statements except the last, then return the last
     const args = expr.args;
+
+    // Set pending deferred drops from the function body begin block
+    // These need to be generated when early returning from anywhere inside this function
+    context.pendingDeferredDrops = expr.$?.deferredDropExpressions;
 
     // Generate all expressions except the last as statements
     let findReturn = false;
@@ -785,9 +801,13 @@ export function generateFunctionBody(
           ) {
             // First, generate the expression and store it in its temp variable
             if (lastExpr.$?.variableName) {
-              const exprType = getTypeString(lastExpr.$.type!, context);
-              const exprTempVar = sanitizeForCIdentifier(
-                lastExpr.$.variableName
+              // const exprType = getTypeString(lastExpr.$.type!, context);
+              // Use the function's return type instead of expression type for specialized functions
+              // because the expression type might still have unresolved type parameters
+              const exprType = getTypeString(functionType.return.type, context);
+              const exprTempVar = getVariableNameForCodegen(
+                lastExpr.$.variableName,
+                lastExpr.$.env
               );
               const rawCode = generateExpr(lastExpr, indent, context);
               if (exprTempVar !== rawCode) {
@@ -868,7 +888,10 @@ export function generateSpecializedFunctionDeclarations(
       continue;
     }
 
-    if (!specializedFunctionType || !isGenericFunction(functionValue)) {
+    if (
+      !specializedFunctionType ||
+      !isFunctionSpecializable(functionValue.type)
+    ) {
       continue; // Skip non-generic functions
     }
 
@@ -906,7 +929,10 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     }
 
     // Skip if not a generic function
-    if (!functionValue.specializedType || !isGenericFunction(functionValue)) {
+    if (
+      !functionValue.specializedType ||
+      !isFunctionSpecializable(functionValue.type)
+    ) {
       continue;
     }
 
@@ -1038,6 +1064,15 @@ function generateAtomicGCRuntimeFunctions(
   emitter.emitLine(`// Non-atomic reference counting functions (thread-local)
 void __yo_decr_rc(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  
+  // Skip if this object is marked as garbage by the GC.
+  // During GC collection, dispose functions may call ___drop on children,
+  // but those children are also being collected by the GC.
+  // The GC is responsible for freeing garbage objects, not the RC system.
+  if ((header->gc_flags & YO_GC_TRACKED) && header->gc_mark == YO_GC_GARBAGE) {
+    GC_DEBUG("Decr: Skipping ptr=%p (marked as GC garbage)\\n", ptr);
+    return;
+  }
   
   GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, header->ref_count, header->ref_count - 1);
   
@@ -1300,7 +1335,19 @@ void __yo_gc_collect() {
     obj = obj->gc_next;
   }
   
-  // Phase 4: Sweep - collect garbage objects
+  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid)
+  // This must happen before freeing any objects, because dispose functions may try
+  // to access other garbage objects (e.g., to check gc_mark in __yo_decr_rc).
+  obj = head;
+  while (obj != NULL) {
+    if (obj->gc_mark == YO_GC_GARBAGE && obj->dispose_fn) {
+      GC_DEBUG("GC: Disposing garbage: ptr=%p\\n", obj);
+      obj->dispose_fn(obj);
+    }
+    obj = obj->gc_next;
+  }
+  
+  // Phase 4b: Free all garbage objects and remove from tracking list
   yo_ref_header_t* current = head;
   yo_ref_header_t* prev = NULL;
   
@@ -1308,7 +1355,7 @@ void __yo_gc_collect() {
     yo_ref_header_t* next = current->gc_next;
     
     if (current->gc_mark == YO_GC_GARBAGE) {
-      GC_DEBUG("GC: Collecting garbage: ptr=%p\\n", current);
+      GC_DEBUG("GC: Freeing garbage: ptr=%p\\n", current);
       
       // Remove from tracking list
       if (prev == NULL) {
@@ -1323,10 +1370,7 @@ void __yo_gc_collect() {
       yo_current_thread_gc->tracked_count--;
       collected++;
       
-      // Call dispose and free
-      if (current->dispose_fn) {
-        current->dispose_fn(current);
-      }
+      // Free the object (dispose was already called in Phase 4a)
       __yo_free(current);
       
       current = next;
@@ -1600,7 +1644,7 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
-      if (canTypeFormGcCycle(type)) {
+      if (canTypeFormRcCycle(type)) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 
@@ -1612,7 +1656,7 @@ export function generateRefStructConstructorFunctions(
 }
 
 /**
- * Generate constructor function implementations for closures and their Gc functions
+ * Generate constructor function implementations for closures and their Rc functions
  */
 export function generateClosureConstructorFunctions(
   context: FunctionGenerationContext
@@ -1937,118 +1981,142 @@ export function generateDynWrapperFunctions(
     }
 
     // Regular dyn method wrappers (non-Fn modules)
-    const moduleType = impl.moduleValue.type;
-    const moduleFields = moduleType.fields;
+    // Iterate through all required modules and their corresponding module values
+    for (
+      let moduleIndex = 0;
+      moduleIndex < impl.dynType.requiredModules.length;
+      moduleIndex++
+    ) {
+      const requiredModuleType = impl.dynType.requiredModules[moduleIndex]!;
 
-    for (let i = 0; i < moduleFields.length; i++) {
-      const field = moduleFields[i]!;
-
-      // Skip 'Self' type declarations as they're not methods
-      if (field.label === "Self") {
+      // Skip Fn modules as they're handled above
+      if (isFnModuleType(requiredModuleType)) {
         continue;
       }
 
-      // Skip reserved ARC/GC hooks; Dyn dup/drop are generated separately.
-      if (reservedDynMethodLabels.has(field.label)) {
-        continue;
-      }
-
-      const fieldValue = impl.moduleValue.fields[i];
-
-      if (!fieldValue || !isFunctionValue(fieldValue)) {
+      const moduleValue = impl.moduleValues[moduleIndex];
+      if (!moduleValue) {
         emitter.emitDeclarationLine(
-          `/* Warning: Module field ${field.label} is not a function value */`
+          `/* Warning: Module value missing for module ${moduleIndex} */`
         );
         continue;
       }
 
-      const funcType = field.type;
-      if (!isFunctionType(funcType)) {
-        emitter.emitDeclarationLine(
-          `/* Warning: Module field ${field.label} is not a function type */`
-        );
-        continue;
-      }
+      const moduleType = moduleValue.type;
+      const moduleFields = moduleType.fields;
 
-      // Get the impl function name
-      const implFuncId = fieldValue.funcId;
-      const implFuncCName = context.functions[implFuncId]?.cName;
-      if (!implFuncCName) {
-        emitter.emitDeclarationLine(
-          `/* Warning: Impl function for ${field.label} not found */`
-        );
-        continue;
-      }
+      for (let i = 0; i < moduleFields.length; i++) {
+        const field = moduleFields[i]!;
 
-      // Generate wrapper function
-      const wrapperName = `yo_wrap_${implKey}_${field.label}`;
-
-      // Build parameter list
-      const returnTypeStr = getTypeString(funcType.return.type, context);
-      const params = ["void* self_ptr"];
-      for (let j = 1; j < funcType.parameters.length; j++) {
-        const param = funcType.parameters[j]!;
-        const paramTypeStr = getTypeString(param.type, context);
-        params.push(`${paramTypeStr} arg${j}`);
-      }
-
-      emitter.emitDeclarationLine(
-        `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
-      );
-
-      // Unwrap the boxed value and prepare first argument
-      // The first parameter of the impl function determines what we pass
-      const implFirstParamType = funcType.parameters[0]?.type;
-
-      let firstArg: string;
-
-      if (isBoxedType(dataType)) {
-        // Dyn wraps Box(T) from the prelude.
-        const boxedCName =
-          context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
-        const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
-        emitter.emitDeclarationLine(
-          `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
-        );
-
-        // If the impl expects a borrow, pass pointer to the field inside Box.
-        if (implFirstParamType && isPtrType(implFirstParamType)) {
-          firstArg = `&box->${fieldName}`;
-        } else {
-          firstArg = `box->${fieldName}`;
+        // Skip 'Self' type declarations as they're not methods
+        if (field.label === "Self") {
+          continue;
         }
-      } else {
-        // Dyn wraps a normal object type (already a pointer in C).
-        const concreteTypeStr = getTypeString(impl.concreteType, context);
-        emitter.emitDeclarationLine(
-          `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
-        );
 
-        // If the impl expects a pointer to the object type, take the address
-        if (implFirstParamType && isPtrType(implFirstParamType)) {
-          firstArg = `&concrete_value`;
-        } else {
-          firstArg = `concrete_value`;
+        // Skip reserved ARC/GC hooks; Dyn dup/drop are generated separately.
+        if (reservedDynMethodLabels.has(field.label)) {
+          continue;
         }
-      }
 
-      // Build argument list for impl call
-      const args = [firstArg];
-      for (let j = 1; j < funcType.parameters.length; j++) {
-        args.push(`arg${j}`);
-      }
+        const fieldValue = moduleValue.fields[i];
 
-      // Call the impl function
-      if (isVoidType(funcType.return.type)) {
-        emitter.emitDeclarationLine(`  ${implFuncCName}(${args.join(", ")});`);
-      } else {
+        if (!fieldValue || !isFunctionValue(fieldValue)) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Module field ${field.label} is not a function value */`
+          );
+          continue;
+        }
+
+        const funcType = field.type;
+        if (!isFunctionType(funcType)) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Module field ${field.label} is not a function type */`
+          );
+          continue;
+        }
+
+        // Get the impl function name
+        const implFuncId = fieldValue.funcId;
+        const implFuncCName = context.functions[implFuncId]?.cName;
+        if (!implFuncCName) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Impl function for ${field.label} not found */`
+          );
+          continue;
+        }
+
+        // Generate wrapper function
+        const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+
+        // Build parameter list
+        const returnTypeStr = getTypeString(funcType.return.type, context);
+        const params = ["void* self_ptr"];
+        for (let j = 1; j < funcType.parameters.length; j++) {
+          const param = funcType.parameters[j]!;
+          const paramTypeStr = getTypeString(param.type, context);
+          params.push(`${paramTypeStr} arg${j}`);
+        }
+
         emitter.emitDeclarationLine(
-          `  return ${implFuncCName}(${args.join(", ")});`
+          `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
         );
-      }
 
-      emitter.emitDeclarationLine(`}`);
-      emitter.emitDeclarationLine("");
+        // Unwrap the boxed value and prepare first argument
+        // The first parameter of the impl function determines what we pass
+        const implFirstParamType = funcType.parameters[0]?.type;
+
+        let firstArg: string;
+
+        if (isBoxedType(dataType)) {
+          // Dyn wraps Box(T) from the prelude.
+          const boxedCName =
+            context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
+          const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
+          emitter.emitDeclarationLine(
+            `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
+          );
+
+          // If the impl expects a borrow, pass pointer to the field inside Box.
+          if (implFirstParamType && isPtrType(implFirstParamType)) {
+            firstArg = `&box->${fieldName}`;
+          } else {
+            firstArg = `box->${fieldName}`;
+          }
+        } else {
+          // Dyn wraps a normal object type (already a pointer in C).
+          const concreteTypeStr = getTypeString(impl.concreteType, context);
+          emitter.emitDeclarationLine(
+            `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
+          );
+
+          // If the impl expects a pointer to the object type, take the address
+          if (implFirstParamType && isPtrType(implFirstParamType)) {
+            firstArg = `&concrete_value`;
+          } else {
+            firstArg = `concrete_value`;
+          }
+        }
+
+        // Build argument list for impl call
+        const args = [firstArg];
+        for (let j = 1; j < funcType.parameters.length; j++) {
+          args.push(`arg${j}`);
+        }
+
+        // Call the impl function
+        if (isVoidType(funcType.return.type)) {
+          emitter.emitDeclarationLine(
+            `  ${implFuncCName}(${args.join(", ")});`
+          );
+        } else {
+          emitter.emitDeclarationLine(
+            `  return ${implFuncCName}(${args.join(", ")});`
+          );
+        }
+
+        emitter.emitDeclarationLine(`}`);
+        emitter.emitDeclarationLine("");
+      }
     }
   }
 }

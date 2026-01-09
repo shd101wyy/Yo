@@ -171,12 +171,19 @@ export function findFunctionCallsInExpr(
 
     if (isDynType(dynType) && valueExpr && valueExpr.$?.type) {
       const valueType = valueExpr.$.type;
-      const moduleValue = expr.$.dynCallModuleValues[0];
+      const moduleValues = expr.$.dynCallModuleValues;
 
-      if (moduleValue && (isObjectType(valueType) || isBoxedType(valueType))) {
+      if (
+        moduleValues.length > 0 &&
+        (isObjectType(valueType) || isBoxedType(valueType))
+      ) {
         const concreteType: Type = isBoxedType(valueType)
           ? valueType.fields[0]!.type
           : valueType;
+
+        // Store all module values in order
+        // We don't merge them anymore since we need to match module types with their values
+        // during wrapper function generation
 
         // Use ID-based key for now, will be fixed up later
         const implKey = `${concreteType.id}_${dynType.id}`;
@@ -185,7 +192,7 @@ export function findFunctionCallsInExpr(
           dynType,
           concreteType,
           dataType: valueType,
-          moduleValue,
+          moduleValues,
         });
       }
     }

@@ -98,9 +98,7 @@ export function synthesizeExprAndType({
       if (!funcCallExpr.$?.type || !funcCallExpr.$?.env) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to evaluate expr and type for struct:\n${exprToString(
-            expr
-          )}`,
+          errorMessage: `Failed to evaluate expr and type for struct:\n${exprToString(expr)}`,
         });
       }
 
@@ -210,9 +208,7 @@ export function synthesizeExprAndType({
       if (!funcCallExpr.$?.type || !funcCallExpr.$?.env) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to evaluate expr and type for enum variant:\n${exprToString(
-            expr
-          )}`,
+          errorMessage: `Failed to evaluate expr and type for enum variant:\n${exprToString(expr)}`,
         });
       }
 

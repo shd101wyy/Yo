@@ -15,7 +15,7 @@ import {
   isSomeType,
   prohibitVoidType,
   SomeType,
-  typeContainsGcType,
+  typeContainsRcType,
   typeProhibitsComptModifier,
   typeRequiresComptModifier,
   typeToString,
@@ -30,7 +30,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
-import { findGcValueOwnerRelationship, isValidVariableName } from "../utils";
+import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -288,19 +288,19 @@ ${exprToString(rhs)}`,
     // All variables own their values
     // But we track shared ownership for dup/drop optimization
     // Find if RHS is sharing ownership with another variable
-    const rhsOwningVariable = findGcValueOwnerRelationship(
+    const rhsOwningVariable = findRcValueOwnerRelationship(
       rhs,
       env,
       env.modulePath
     );
 
     // If the RHS owning variable was consumed (moved), then the LHS should become
-    // the primary owner (isOwningTheSameGcValueAs: undefined), not a secondary reference.
+    // the primary owner (isOwningTheSameRcValueAs: undefined), not a secondary reference.
     // This ensures ownership transfers completely on move.
-    let isOwningTheSameGcValueAs = rhsOwningVariable;
+    let isOwningTheSameRcValueAs = rhsOwningVariable;
     if (rhsOwningVariable?.consumedAtToken) {
       // The RHS was moved, so LHS becomes the new primary owner
-      isOwningTheSameGcValueAs = undefined;
+      isOwningTheSameRcValueAs = undefined;
     }
 
     // Create new variable
@@ -315,10 +315,10 @@ ${exprToString(rhs)}`,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheGcValue: typeContainsGcType(finalLhsType),
+        isOwningTheRcValue: typeContainsRcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
-        isOwningTheSameGcValueAs,
+        isOwningTheSameRcValueAs,
         isReassignable: true, // This is not a function parameter
       },
     });

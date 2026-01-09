@@ -22,11 +22,11 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
-  isGcType,
   isIsoType,
   isNewtypeType,
   isObjectType,
   isPtrType,
+  isRcType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -38,7 +38,7 @@ import {
   SomeType,
   StructType,
   Type,
-  typeContainsGcType,
+  typeContainsRcType,
   typeImplementsFn,
   typeImplementsFuture,
   TypeTag,
@@ -53,6 +53,7 @@ import {
   isFunctionValue,
   isNumberValue,
   isStructValue,
+  isTupleValue,
   isTypeValue,
   isUnknownValue,
   Value,
@@ -70,11 +71,11 @@ import {
   CodeGenContext,
   getEnumVariantCName,
   getTypeString,
+  getVariableNameForCodegen,
   getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
-import { generateArrayFillCall, isArrayFillMethodCall } from "./array";
 
 /**
  * Check if a variable is captured by the closure or is a local variable.
@@ -100,34 +101,6 @@ function checkVariableIsClosureCaptured(
 
   // Check if it's from a captured frame level
   return latestVariable.frameLevel <= closureCaptureFrameLevel;
-}
-
-/**
- * Get the actual variable name to use in generated code, checking for parameterAlias.
- * In anonymous functions, the parameter name may differ from the expected interface parameter name.
- * If a parameterAlias exists, it should be used instead of the variable's actual name.
- *
- * @param variableName The variable name to look up
- * @param env The environment containing the variable
- * @returns The name to use in generated code (either parameterAlias or the original name), sanitized for C
- */
-function getVariableNameForCodegen(
-  variableName: string,
-  env: Environment | undefined
-): string {
-  if (!env) {
-    return sanitizeForCIdentifier(variableName);
-  }
-
-  const variables = getVariablesFromEnv(env, variableName);
-  if (variables.length > 0) {
-    const variable = variables[variables.length - 1]!;
-    if (variable.parameterAlias) {
-      return sanitizeForCIdentifier(variable.parameterAlias);
-    }
-  }
-
-  return sanitizeForCIdentifier(variableName);
 }
 
 /**
@@ -158,7 +131,7 @@ function getDeferredDupTargetAtomName(dupExpr: Expr): string | undefined {
  *
  * @param captureType The struct type containing captured variables
  * @param closureTypeId A unique ID for generating temp variable names
- * @param sourceExpr The expression containing deferredDupExpressions (for Gc handling)
+ * @param sourceExpr The expression containing deferredDupExpressions (for Rc handling)
  * @param indent The current indentation level
  * @param context The code generation context
  * @param useStackAllocation If true, allocate on stack (for Impl closures); if false, heap-allocate (for Dyn closures)
@@ -245,7 +218,7 @@ function allocateClosureCapture(
       if (!field) {
         return `/* Error: missing field at index ${i} */`;
       }
-      return `.${sanitizeForCIdentifier(field.label)} = ${arg}`;
+      return `.${sanitizeForCIdentifier(field.label, field.type.isExtern === "c")} = ${arg}`;
     })
     .join(", ")} }`;
 
@@ -498,7 +471,242 @@ function generateFuncCall(
     return selfCode; // Just return the argument as-is
   }
 
-  // ___dup - generic dup hook used by evaluator for GC/reference-counted values.
+  // __yo_drop_array_element - drop array element at index without borrowing
+  // This is used when dropping arrays to directly drop each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_array_element)) {
+    const arrayArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!arrayArg || !indexArg) {
+      return `// Error: __yo_drop_array_element requires exactly 2 arguments`;
+    }
+
+    const arrayCode = generateExpr(arrayArg, indent, context);
+    const indexCode = generateExpr(indexArg, indent, context);
+
+    // Get the array element type to find its drop function
+    const arrayType = arrayArg.$?.type;
+    if (!arrayType || !isArrayType(arrayType)) {
+      return `// Error: __yo_drop_array_element requires an array type`;
+    }
+
+    const elementType = arrayType.childType;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // If element type is array, recursively generate inline drop code
+    if (isArrayType(concreteElementType)) {
+      const nestedArrayLength = concreteElementType.length;
+      if (!isNumberValue(nestedArrayLength)) {
+        return `// Error: array element has non-constant length`;
+      }
+      const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
+      // Generate inline drop code using ___drop recursively
+      const emitter = (context as FunctionGenerationContext).emitter;
+      emitter.emitLine(
+        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
+      );
+      // Create a fake expression for the nested array element to recursively call ___drop codegen
+      const nestedArrayElement = `(${arrayCode}).data[${indexCode}].data[${loopVar}]`;
+      emitter.emitLine(`  { // drop nested array element`);
+      const dropCode = generateDropCodeForValue(
+        nestedArrayElement,
+        concreteElementType.childType,
+        context
+      );
+      if (dropCode) {
+        emitter.emitLine(`    ${dropCode};`);
+      }
+      emitter.emitLine(`  }`);
+      emitter.emitLine(`}`);
+      return ``;
+    }
+
+    // Call the drop function on the element
+    // Arrays are represented as structs with a .data field containing the actual C array
+    const dropFnCName = getDropFunctionForType(concreteElementType, context);
+    if (dropFnCName) {
+      return `${dropFnCName}((${arrayCode}).data[${indexCode}])`;
+    } else {
+      return `// No drop function for array element type`;
+    }
+  }
+
+  // __yo_dup_array_element - dup array element at index without borrowing
+  // This is used when duping arrays to directly dup each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_array_element)) {
+    const arrayArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!arrayArg || !indexArg) {
+      return `// Error: __yo_dup_array_element requires exactly 2 arguments`;
+    }
+
+    const arrayCode = generateExpr(arrayArg, indent, context);
+    const indexCode = generateExpr(indexArg, indent, context);
+
+    // Get the array element type to find its dup function
+    const arrayType = arrayArg.$?.type;
+    if (!arrayType || !isArrayType(arrayType)) {
+      return `// Error: __yo_dup_array_element requires an array type`;
+    }
+
+    const elementType = arrayType.childType;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // If element type is array, recursively generate inline dup code
+    if (isArrayType(concreteElementType)) {
+      const nestedArrayLength = concreteElementType.length;
+      if (!isNumberValue(nestedArrayLength)) {
+        return `// Error: array element has non-constant length`;
+      }
+      const tempVar = `temp_array_${Math.floor(Math.random() * 1000000)}`;
+      const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
+      const elementCName = getTypeString(concreteElementType, context);
+      const emitter = (context as FunctionGenerationContext).emitter;
+      emitter.emitLine(
+        `${elementCName} ${tempVar} = (${arrayCode}).data[${indexCode}];`
+      );
+      emitter.emitLine(
+        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
+      );
+      // Recursively generate dup code for nested array elements
+      const dupCode = generateDupCodeForValue(
+        `${tempVar}.data[${loopVar}]`,
+        concreteElementType.childType,
+        context
+      );
+      emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${dupCode};`);
+      emitter.emitLine(`}`);
+      return tempVar;
+    }
+
+    // Call the dup function on the element
+    // Arrays are represented as structs with a .data field containing the actual C array
+    const dupFnCName = getDupFunctionForType(concreteElementType, context);
+    if (dupFnCName) {
+      return `${dupFnCName}((${arrayCode}).data[${indexCode}])`;
+    } else {
+      return `// No dup function for array element type`;
+    }
+  }
+
+  // __yo_drop_tuple_element - drop tuple element at index without borrowing
+  // This is used when dropping tuples to directly drop each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_tuple_element)) {
+    const tupleArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!tupleArg || !indexArg) {
+      return `// Error: __yo_drop_tuple_element requires exactly 2 arguments`;
+    }
+
+    const tupleCode = generateExpr(tupleArg, indent, context);
+    generateExpr(indexArg, indent, context);
+
+    // Get the tuple element type to find its drop function
+    const tupleType = tupleArg.$?.type;
+    if (!tupleType || !isTupleType(tupleType)) {
+      return `// Error: __yo_drop_tuple_element requires a tuple type`;
+    }
+
+    // Get index value
+    const indexValue = indexArg.$?.value;
+    if (!isNumberValue(indexValue)) {
+      return `// Error: __yo_drop_tuple_element requires a constant index`;
+    }
+
+    const index = Number(indexValue.value);
+    if (index < 0 || index >= tupleType.fields.length) {
+      return `// Error: __yo_drop_tuple_element index out of bounds`;
+    }
+
+    const elementType = tupleType.fields[index]!.type;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // For nested tuples, we need to recursively drop the RC elements
+    if (isTupleType(concreteElementType)) {
+      const elementAccessCode = `(${tupleCode})._${index}`;
+      const dropCode = generateDropCodeForValue(
+        elementAccessCode,
+        concreteElementType,
+        context
+      );
+      return dropCode;
+    }
+
+    // Call the drop function on the element
+    // Tuples are represented as structs with fields named _0, _1, _2, etc.
+    const dropFnCName = getDropFunctionForType(concreteElementType, context);
+    if (dropFnCName) {
+      return `${dropFnCName}((${tupleCode})._${index})`;
+    } else {
+      return `// No drop function for tuple element type`;
+    }
+  }
+
+  // __yo_dup_tuple_element - dup tuple element at index without borrowing
+  // This is used when duping tuples to directly dup each element
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_tuple_element)) {
+    const tupleArg = expr.args[0];
+    const indexArg = expr.args[1];
+    if (!tupleArg || !indexArg) {
+      return `// Error: __yo_dup_tuple_element requires exactly 2 arguments`;
+    }
+
+    const tupleCode = generateExpr(tupleArg, indent, context);
+    generateExpr(indexArg, indent, context);
+
+    // Get the tuple element type to find its dup function
+    const tupleType = tupleArg.$?.type;
+    if (!tupleType || !isTupleType(tupleType)) {
+      return `// Error: __yo_dup_tuple_element requires a tuple type`;
+    }
+
+    // Get index value
+    const indexValue = indexArg.$?.value;
+    if (!isNumberValue(indexValue)) {
+      return `// Error: __yo_dup_tuple_element requires a constant index`;
+    }
+
+    const index = Number(indexValue.value);
+    if (index < 0 || index >= tupleType.fields.length) {
+      return `// Error: __yo_dup_tuple_element index out of bounds`;
+    }
+
+    const elementType = tupleType.fields[index]!.type;
+    const concreteElementType =
+      isSomeType(elementType) && elementType.resolvedConcreteType
+        ? elementType.resolvedConcreteType
+        : elementType;
+
+    // For nested tuples, we need to recursively dup the RC elements
+    if (isTupleType(concreteElementType)) {
+      const elementAccessCode = `(${tupleCode})._${index}`;
+      const dupCode = generateDupCodeForValue(
+        elementAccessCode,
+        concreteElementType,
+        context
+      );
+      return dupCode;
+    }
+
+    // Call the dup function on the element
+    // Tuples are represented as structs with fields named _0, _1, _2, etc.
+    const dupFnCName = getDupFunctionForType(concreteElementType, context);
+    if (dupFnCName) {
+      return `${dupFnCName}((${tupleCode})._${index})`;
+    } else {
+      return `// No dup function for tuple element type`;
+    }
+  }
+
+  // ___dup - generic dup hook used by evaluator for reference-counted values.
   // In many cases the evaluator rewrites `___dup(x)` into `x.___dup()`, but in
   // some contexts (e.g. deferred dup for dyn-closure captures) the builtin call
   // is intentionally deferred to codegen.
@@ -515,29 +723,10 @@ function generateFuncCall(
       return valueCode;
     }
 
-    // Dyn is a value type; duplication increments the RC of `.data` and returns the copied fat pointer.
-    if (isDynType(valueType)) {
-      const dynCName = getTypeString(valueType, context);
-      return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
-    }
-
-    // Object types are reference counted; duplication increments RC and returns the same pointer.
-    if (isObjectType(valueType)) {
-      const objCName = getTypeString(valueType, context);
-      return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
-    }
-
-    // Iso types use atomic reference counting
-    if (isIsoType(valueType)) {
-      const isoCName = getTypeString(valueType, context);
-      return `((${isoCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
-    }
-
-    // Value types: no-op dup.
-    return valueCode;
+    return generateDupCodeForValue(valueCode, valueType, context);
   }
 
-  // ___drop - generic drop hook used by evaluator for GC/reference-counted values.
+  // ___drop - generic drop hook used by evaluator for reference-counted values.
   // Similar to ___dup, some drops are deferred to codegen.
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
     const valueArg = expr.args[0];
@@ -551,37 +740,7 @@ function generateFuncCall(
       return ``;
     }
 
-    if (isDynType(valueType)) {
-      return `__yo_decr_rc((void*)(${valueCode}).data)`;
-    }
-    if (isObjectType(valueType)) {
-      return `__yo_decr_rc((void*)(${valueCode}))`;
-    }
-    // Iso types use atomic reference counting
-    if (isIsoType(valueType)) {
-      return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
-    }
-    // For SomeType with resolvedConcreteType, dispatch to the concrete type's ___drop
-    if (isSomeType(valueType) && valueType.resolvedConcreteType) {
-      const concreteType = valueType.resolvedConcreteType;
-      const dropFn = concreteType.module?.fields.find(
-        (f) => f.label === BuiltinFunctions.___drop[0]
-      );
-      if (
-        dropFn &&
-        dropFn.assignedValue &&
-        isFunctionValue(dropFn.assignedValue)
-      ) {
-        const dropFnCName =
-          context.functions[dropFn.assignedValue.funcId]?.cName;
-        if (dropFnCName) {
-          return `${dropFnCName}(${valueCode})`;
-        }
-      }
-    }
-
-    // Value types: no-op drop.
-    return ``;
+    return generateDropCodeForValue(valueCode, valueType, context);
   }
 
   // __yo_dyn_drop - call dispose on dyn object via dispose function then __yo_decr_rc on dyn
@@ -813,7 +972,7 @@ function generateFuncCall(
     const argCode = generateExpr(argExpr, indent, context);
 
     // For GC types (reference-counted objects), return the actual ref_count
-    if (isGcType(argType)) {
+    if (isRcType(argType)) {
       return `((yo_ref_header_t*)(${argCode}))->ref_count`;
     } else {
       // For value types, always return 1
@@ -992,7 +1151,11 @@ function generateFuncCall(
 
           // Declare and assign the temp variable
           const argType = getTypeString(arg.$.type!, context);
-          const argTempVar = sanitizeForCIdentifier(savedVariableName);
+          const argTempVar = getVariableNameForCodegen(
+            savedVariableName,
+            arg.$.env
+          );
+
           if (argTempVar !== rawArgCode) {
             context.emitter.emitLine(
               `${indent}${argType} ${argTempVar} = ${rawArgCode};`
@@ -1015,7 +1178,10 @@ function generateFuncCall(
         generateDeferredDupExpressions(arg, indent, functionContext);
         const dupExpr = arg.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          argCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          argCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
           handledDeferredDup = true;
         }
       }
@@ -1025,7 +1191,7 @@ function generateFuncCall(
       // The evaluator provides a temp variable name for return expressions so we can
       // compute the value before running deferred drops.
       const returnTempVar = expr.$.variableName
-        ? sanitizeForCIdentifier(expr.$.variableName)
+        ? getVariableNameForCodegen(expr.$.variableName, expr.$.env)
         : undefined;
 
       // Skip re-declaring if we already generated a dup call with a temp variable
@@ -1139,6 +1305,28 @@ function generateFuncCall(
       }
 
       // Normal (non-state-machine) return
+
+      // Generate pending deferred drops from enclosing begin blocks
+      // This is needed when returning early from inside a cond/match branch - the outer
+      // begin block's deferred drops would otherwise be skipped.
+      // Only generate these if the return expression doesn't already have its own
+      // deferred drops (to avoid double-dropping).
+      if (
+        functionContext.pendingDeferredDrops &&
+        (!expr.$.deferredDropExpressions ||
+          expr.$.deferredDropExpressions.length === 0)
+      ) {
+        context.emitter.emitLine(
+          `${indent}// Drop local variables before early return`
+        );
+        for (const dropExpr of functionContext.pendingDeferredDrops) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode) {
+            context.emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
+      }
+
       if (isUnitType(expr.$.type)) {
         return `return`;
       }
@@ -1154,14 +1342,63 @@ function generateFuncCall(
         generateDeferredDropExpressions(expr, indent, context);
       }
 
+      const functionContext = context as FunctionGenerationContext;
+
+      // Generate pending deferred drops for unit return as well
+      if (functionContext.pendingDeferredDrops) {
+        context.emitter.emitLine(
+          `${indent}// Drop local variables before early return`
+        );
+        for (const dropExpr of functionContext.pendingDeferredDrops) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode) {
+            context.emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
+      }
+
       return "return";
     }
   }
 
-  // TODO: Remove this and move the logic to prelude.yo
-  // Array.fill method call (macro-like expansion)
-  if (isArrayFillMethodCall(expr)) {
-    return generateArrayFillCall(expr, indent, context);
+  // __yo_array_fill builtin (handled similarly to Array.fill)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_array_fill, 2)) {
+    const arrayTypeArg = expr.args[0]!;
+    const fillValueArg = expr.args[1]!;
+
+    // Get the ArrayType from the first argument's value
+    const arrayTypeValue = arrayTypeArg.$?.value;
+    if (
+      !arrayTypeValue ||
+      !isTypeValue(arrayTypeValue) ||
+      !isArrayType(arrayTypeValue.value)
+    ) {
+      return "/* ERROR: __yo_array_fill first argument must be an ArrayType */";
+    }
+
+    const arrayType = arrayTypeValue.value;
+    const length = arrayType.length;
+    if (!isNumberValue(length)) {
+      return "/* ERROR: __yo_array_fill requires compile-time known array length */";
+    }
+
+    // Generate the array fill code (macro expansion)
+    const arrayTypeName = getTypeString(arrayType, context);
+    const fillValueCode = generateExpr(fillValueArg, indent, context);
+    const tempVarName = expr.$?.variableName || `temp_array_${Date.now()}`;
+    const indexVarName = `i_${randomId(expr.$?.env.modulePath ?? "")}`;
+
+    // Generate array declaration and fill loop
+    emitter.emitLine(`${indent}${arrayTypeName} ${tempVarName};`);
+    emitter.emitLine(
+      `${indent}for (int ${indexVarName} = 0; ${indexVarName} < ${length.value}; ${indexVarName}++) {`
+    );
+    emitter.emitLine(
+      `${indent}  ${tempVarName}.data[${indexVarName}] = ${fillValueCode};`
+    );
+    emitter.emitLine(`${indent}}`);
+
+    return tempVarName;
   }
 
   // compile-time variable
@@ -1247,7 +1484,10 @@ function generateFuncCall(
       const rhsType = rhs.$?.type;
       runtimeDestructurings.forEach(({ label, type, variableName }) => {
         // Sanitize the variable name for C
-        const sanitizedVariableName = sanitizeForCIdentifier(variableName);
+        const sanitizedVariableName = sanitizeForCIdentifier(
+          variableName,
+          type.isExtern === "c"
+        );
         const varTypeAndName = getVariableTypeString(
           type,
           sanitizedVariableName,
@@ -1273,7 +1513,7 @@ function generateFuncCall(
 
         let fieldName = label.match(/^\d+$/)
           ? `_${label}`
-          : sanitizeForCIdentifier(label);
+          : sanitizeForCIdentifier(label, type.isExtern === "c");
 
         if (rhsType && isTupleType(rhsType) && !label.match(/^\d+$/)) {
           const index = rhsType.fields.findIndex((el) => el.label === label);
@@ -1296,6 +1536,18 @@ function generateFuncCall(
         return `// Error: No type information for variable ${varName}\n`;
       }
 
+      // Check if the variable being assigned to is compile-time
+      // If so, skip code generation (compile-time variables don't exist at runtime)
+      if (lhs.$?.env) {
+        const variables = getVariablesFromEnv(lhs.$.env, varName);
+        if (
+          variables.length > 0 &&
+          variables[variables.length - 1]!.isCompileTimeOnly
+        ) {
+          return "";
+        }
+      }
+
       // Check if we're in a state machine context and this is a captured variable
       const functionContext = context as FunctionGenerationContext;
 
@@ -1315,8 +1567,8 @@ function generateFuncCall(
         if (variables.length > 0) {
           const variable = variables[variables.length - 1]!;
           // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isOwningTheSameGcValueAs
-            ? variable.isOwningTheSameGcValueAs.id
+          const idToCheck = variable.isOwningTheSameRcValueAs
+            ? variable.isOwningTheSameRcValueAs.id
             : variable.id;
 
           if (functionContext.stateMachineVariables.has(idToCheck)) {
@@ -1340,21 +1592,28 @@ function generateFuncCall(
             // In state machine - assign to sm->var_xxx field
             context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
-            const varTypeAndName = getVariableTypeString(
-              lhs.$.type,
-              varName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(lhs.$.type)) {
+              const varTypeAndName = getVariableTypeString(
+                lhs.$.type,
+                varName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${rhsCode};`
+              );
+            }
           }
         } else {
           // Copying from another array - use direct struct assignment
-          // Handle temp variable assignment for Gc values
+          // Handle temp variable assignment for Rc values
           let rhsCode: string;
           if (rhs.$?.variableName) {
-            const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
+            const tempVarName = getVariableNameForCodegen(
+              rhs.$.variableName,
+              rhs.$.env
+            );
+
             const rhsExprCode = generateExpr(rhs, indent, context);
 
             // Generate temp variable assignment first (only if not in state machine)
@@ -1381,14 +1640,17 @@ function generateFuncCall(
             // In state machine - assign to sm->var_xxx field
             context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
-            const varTypeAndName = getVariableTypeString(
-              lhs.$.type,
-              varName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(lhs.$.type)) {
+              const varTypeAndName = getVariableTypeString(
+                lhs.$.type,
+                varName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${rhsCode};`
+              );
+            }
           }
         }
       } else {
@@ -1401,14 +1663,21 @@ function generateFuncCall(
           rhs.$?.type &&
           typeImplementsFn(rhs.$.type);
 
-        // If RHS has a temp variable name (e.g., for Gc values), we need to:
+        // If RHS has a temp variable name (e.g., for Rc values), we need to:
         // 1. First generate the RHS expression and assign it to the temp variable
         // 2. Then use the temp variable for the assignment
         // BUT: don't create temp variables for captured variables
         // ALSO: don't create temp variables if the temp var name is the same as the variable itself
         if (rhs.$?.variableName) {
-          const tempVarName = sanitizeForCIdentifier(rhs.$.variableName);
-          const sanitizedVarName = sanitizeForCIdentifier(varName);
+          const tempVarName = getVariableNameForCodegen(
+            rhs.$.variableName,
+            rhs.$.env
+          );
+
+          const sanitizedVarName = getVariableNameForCodegen(
+            varName,
+            lhs.$.env
+          );
 
           // Skip temp variable creation if temp var name matches the actual variable name
           // This prevents redundant declarations like "int32_t x = x;"
@@ -1425,12 +1694,16 @@ function generateFuncCall(
               generateDeferredDupExpressions(rhs, indent, functionContext);
               const dupExpr = rhs.$.deferredDupExpressions[0]!;
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+                rhsCode = getVariableNameForCodegen(
+                  dupExpr.$.variableName,
+                  dupExpr.$.env
+                );
               }
             }
           } else if (
             exprIsAtom(rhs) &&
-            tempVarName === sanitizeForCIdentifier(rhs.token.value)
+            tempVarName ===
+              getVariableNameForCodegen(rhs.token.value, rhs.$.env)
           ) {
             // Just use the variable directly, no temp variable needed
             rhsCode = generateExpr(rhs, indent, context);
@@ -1444,7 +1717,10 @@ function generateFuncCall(
               generateDeferredDupExpressions(rhs, indent, functionContext);
               const dupExpr = rhs.$.deferredDupExpressions[0]!;
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+                rhsCode = getVariableNameForCodegen(
+                  dupExpr.$.variableName,
+                  dupExpr.$.env
+                );
               }
             }
           } else {
@@ -1475,12 +1751,12 @@ function generateFuncCall(
                   // Note: captureType is no longer on ClosureType, so we use a naming convention
                   // The capture struct name follows the pattern: closure_type_name + "_capture"
                   const captureStructName = `${closureTypeEntry.cName}_capture`;
-                  rhsCode = `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(rhs.token.value)}`;
+                  rhsCode = `((${captureStructName}*)closure_context->data)->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
                 } else {
-                  rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
+                  rhsCode = `closure_context->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
                 }
               } else {
-                rhsCode = `closure_context->${sanitizeForCIdentifier(rhs.token.value)}`;
+                rhsCode = `closure_context->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
               }
             } else {
               // Normal temp variable handling
@@ -1511,7 +1787,10 @@ function generateFuncCall(
                 // Use the dup result variable instead of the original temp variable
                 const dupExpr = rhs.$.deferredDupExpressions[0]!;
                 if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                  rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+                  rhsCode = getVariableNameForCodegen(
+                    dupExpr.$.variableName,
+                    dupExpr.$.env
+                  );
                 } else {
                   // Use temp variable for the main assignment
                   rhsCode = tempVarName;
@@ -1536,7 +1815,10 @@ function generateFuncCall(
             // Use the dup result variable
             const dupExpr = rhs.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              rhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+              rhsCode = getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
         }
@@ -1549,14 +1831,17 @@ function generateFuncCall(
             // In state machine - assign to sm->var_xxx field
             context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
           } else {
-            const varTypeAndName = getVariableTypeString(
-              sliceType,
-              varName,
-              context
-            );
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(sliceType)) {
+              const varTypeAndName = getVariableTypeString(
+                sliceType,
+                varName,
+                context
+              );
+              context.emitter.emitLine(
+                `${indent}${varTypeAndName} = ${rhsCode};`
+              );
+            }
           }
         } else {
           // Normal initialization
@@ -1584,9 +1869,12 @@ function generateFuncCall(
               cTypeString = getTypeString(lhs.$.type, context);
             }
 
-            context.emitter.emitLine(
-              `${indent}${cTypeString} ${sanitizeForCIdentifier(varName)} = ${rhsCode};`
-            );
+            // Skip unit type variables (zero-sized types, optimized away like Rust)
+            if (!isUnitType(lhs.$.type)) {
+              context.emitter.emitLine(
+                `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
+              );
+            }
           }
         }
       }
@@ -1609,6 +1897,39 @@ function generateFuncCall(
     ) {
       // compile-time variable
       return "";
+    }
+
+    // Check if LHS is a field/index access into a compile-time variable
+    // e.g., p1.x = 5 where p1 is compile-time
+    // e.g., arr(0) = 10 where arr is compile-time
+    if (lhs.$?.pathCollection && lhs.$?.pathCollection.length > 0) {
+      const path = lhs.$.pathCollection[0];
+      if (path && path.length >= 2) {
+        const baseVariableName = path[0];
+        if (typeof baseVariableName === "string" && lhs.$?.env) {
+          const variables = getVariablesFromEnv(lhs.$.env, baseVariableName);
+          if (
+            variables.length > 0 &&
+            variables[variables.length - 1]!.isCompileTimeOnly
+          ) {
+            // Base variable is compile-time, so this assignment should not generate code
+            return "";
+          }
+        }
+      }
+    }
+
+    // Check if LHS is a simple variable name that refers to a compile-time variable
+    if (exprIsAtom(lhs) && lhs.$?.env) {
+      const varName = lhs.token.value;
+      const variables = getVariablesFromEnv(lhs.$.env, varName);
+      if (
+        variables.length > 0 &&
+        variables[variables.length - 1]!.isCompileTimeOnly
+      ) {
+        // Compile-time variable - skip code generation
+        return "";
+      }
     }
 
     if (!lhs.$?.type) {
@@ -1670,7 +1991,10 @@ function generateFuncCall(
       ) {
         // If RHS has a variable name, we need to declare it first
         if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
+          const rhsVarName = getVariableNameForCodegen(
+            rhs.$.variableName,
+            rhs.$.env
+          );
           // Only emit the variable declaration if it's not the same as rhsCode
           if (rhsVarName !== rhsCode.trim()) {
             const rhsTypeStr = getTypeString(rhs.$.type, context);
@@ -1684,7 +2008,10 @@ function generateFuncCall(
         // Use the dup result variable instead of the original
         const dupExpr = rhs.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          finalRhsCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         }
       }
 
@@ -1723,7 +2050,10 @@ function generateFuncCall(
       ) {
         // If RHS has a variable name, we need to declare it first
         if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = sanitizeForCIdentifier(rhs.$.variableName);
+          const rhsVarName = getVariableNameForCodegen(
+            rhs.$.variableName,
+            rhs.$.env
+          );
           // Only emit the variable declaration if it's not the same as rhsCode
           if (rhsVarName !== rhsCode.trim()) {
             const rhsTypeStr = getTypeString(rhs.$.type, context);
@@ -1737,7 +2067,10 @@ function generateFuncCall(
         // Use the dup result variable instead of the original
         const dupExpr = rhs.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          finalRhsCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         }
       }
 
@@ -1833,6 +2166,7 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
     const tempVariableName = expr.$?.variableName;
     const valueType = expr.$?.type;
+    const functionContext = context as FunctionGenerationContext;
 
     if (tempVariableName && valueType) {
       // Expression form: begin block that returns a value
@@ -1844,6 +2178,11 @@ function generateFuncCall(
 
       // Evaluate each argument
       context.emitter.emitLine(`${indent}{ // begin block`);
+
+      // Set pending deferred drops from this begin block
+      // These need to be generated when early returning from inside this block
+      const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
+      functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
 
       // Generate and emit code for each arg IMMEDIATELY to preserve order
       // This is important because generateExpr may have side effects that emit code
@@ -1867,8 +2206,49 @@ function generateFuncCall(
         }
       }
       if (isReturningValue) {
+        const lastArg = expr.args[expr.args.length - 1]!;
+        let lastArgCode = argsCode[argsCode.length - 1]!;
+
+        // Handle deferred dup expressions for the return value
+        // This is needed when returning a borrowed value - we must call dup
+        if (
+          lastArg.$?.deferredDupExpressions &&
+          lastArg.$.deferredDupExpressions.length > 0
+        ) {
+          // Similar to return statement handling: first declare/assign the value
+          // before calling dup on it
+          if (lastArg.$?.variableName) {
+            const savedVariableName = lastArg.$.variableName;
+            lastArg.$.variableName = undefined;
+            const rawArgCode = generateExpr(lastArg, indent + "  ", context);
+            lastArg.$.variableName = savedVariableName;
+
+            const argType = getTypeString(lastArg.$.type!, context);
+            const argTempVar = getVariableNameForCodegen(
+              savedVariableName,
+              lastArg.$.env
+            );
+
+            if (argTempVar !== rawArgCode) {
+              context.emitter.emitLine(
+                `${indent}  ${argType} ${argTempVar} = ${rawArgCode};`
+              );
+            }
+            lastArgCode = argTempVar;
+          }
+
+          generateDeferredDupExpressions(lastArg, indent + "  ", context);
+          const dupExpr = lastArg.$.deferredDupExpressions[0]!;
+          if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+            lastArgCode = getVariableNameForCodegen(
+              dupExpr.$.variableName,
+              dupExpr.$.env
+            );
+          }
+        }
+
         context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${argsCode[argsCode.length - 1]};`
+          `${indent}  ${tempVariableName} = ${lastArgCode};`
         );
       }
 
@@ -1884,12 +2264,20 @@ function generateFuncCall(
 
       context.emitter.emitLine(`${indent}} // end begin block`);
 
+      // Restore previous pending deferred drops
+      functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+
       return isUnitType(valueType) || expr.$?.controlFlow
         ? ""
         : tempVariableName;
     } else {
       // Statement form: begin block without returning a value
       context.emitter.emitLine(`${indent}{ // begin block`);
+
+      // Set pending deferred drops for statement form as well
+      const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
+      functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
+
       const argsCode = expr.args.map((arg) =>
         generateExpr(arg, indent + "  ", context)
       );
@@ -1910,6 +2298,10 @@ function generateFuncCall(
       }
 
       context.emitter.emitLine(`${indent}} // end begin block`);
+
+      // Restore previous pending deferred drops
+      functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+
       return "";
     }
   }
@@ -2043,11 +2435,13 @@ function generateFuncCall(
       const functionContext = context as FunctionGenerationContext;
 
       // Generate tuple initialization with dup handling for each argument
+      // Use explicit field assignments with numeric indices
       const argsList = runtimeArgExprs
-        .map((arg) => {
+        .map((arg, index) => {
           const argCode = generateExpr(arg, indent, context);
 
           // Handle deferred dup expressions for tuple fields
+          let finalArgValue = argCode;
           if (
             arg.$?.deferredDupExpressions &&
             arg.$.deferredDupExpressions.length > 0
@@ -2056,11 +2450,15 @@ function generateFuncCall(
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
+              finalArgValue = getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
 
-          return argCode;
+          // Use explicit field assignment with numeric index
+          return `._${index} = ${finalArgValue}`;
         })
         .join(", ");
 
@@ -2078,8 +2476,37 @@ function generateFuncCall(
         return `(${cName}){ ${argsList} }`;
       }
     } else if (expr.args.length === 0) {
-      // unit
+      // unit value - optimize away like Rust (no storage, no code)
+      // If there's a temp variable, we don't declare it at all
+      // Just return empty string for inline use
       return "";
+    } else {
+      // Fallback: use expr.args directly if runtimeArgExprsInOrder is not set
+      const args = runtimeArgExprs ?? expr.args;
+      if (!cName) {
+        return `/* Error: tuple type not found - typeId: ${expr.$?.type?.id ?? "none"} */`;
+      }
+
+      const argsList = args
+        .map((arg, index) => {
+          const argCode = generateExpr(arg, indent, context);
+          return `._${index} = ${argCode}`;
+        })
+        .join(", ");
+
+      // If this tuple has a temporary variable name, declare it
+      if (tempVar && expr.$?.type) {
+        const tupleValue = `(${cName}){ ${argsList} }`;
+        const varTypeAndName = getVariableTypeString(
+          expr.$.type,
+          tempVar,
+          context
+        );
+        context.emitter.emitLine(`${indent}${varTypeAndName} = ${tupleValue};`);
+        return tempVar;
+      } else {
+        return `(${cName}){ ${argsList} }`;
+      }
     }
   }
   // (anonymous) array value
@@ -2105,7 +2532,10 @@ function generateFuncCall(
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
+              return getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
 
@@ -2149,7 +2579,10 @@ function generateFuncCall(
             // Use the dup result variable instead of the original
             const dupExpr = arg.$.deferredDupExpressions[0]!;
             if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              return sanitizeForCIdentifier(dupExpr.$.variableName);
+              return getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
             }
           }
 
@@ -2192,7 +2625,10 @@ function generateFuncCall(
           // Use the dup result variable instead of the original
           const dupExpr = arg.$.deferredDupExpressions[0]!;
           if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-            return sanitizeForCIdentifier(dupExpr.$.variableName);
+            return getVariableNameForCodegen(
+              dupExpr.$.variableName,
+              dupExpr.$.env
+            );
           }
         }
 
@@ -2227,20 +2663,70 @@ function generateFuncCall(
   }
   // consume
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
-    return generateExpr(expr.args[0]!, indent, context);
+    const argExpr = expr.args[0]!;
+    const argCode = generateExpr(argExpr, indent, context);
+    const argType = argExpr.$?.type;
+
+    // Generate drop code for the consumed value
+    // consume() marks the value as moved in the evaluator, so we must drop it in codegen
+    if (argType && argCode) {
+      const dropCode = generateDropCodeForValue(argCode, argType, context);
+      if (dropCode) {
+        const emitter = context.emitter;
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+
+    return argCode;
   }
   // functions that should be skipped
   // compt_expect_error
   else if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info) ||
     exprIsFunctionCallOf(
       expr,
-      BuiltinFunctions.__yo_var_is_owning_the_gc_value
+      BuiltinFunctions.__yo_var_is_owning_the_rc_value
     ) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_has_other_aliases)
   ) {
     // no-op in C, just return empty string
+    return "";
+  }
+  // open for runtime struct
+  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.open)) {
+    // Check if this is a runtime struct destructuring
+    if (
+      expr.$?.runtimeDestructurings &&
+      expr.$.runtimeDestructurings.length > 0
+    ) {
+      const argExpr = expr.args[0];
+      if (!argExpr || !argExpr.$?.type) {
+        return "// Error: open expression has no argument or type";
+      }
+
+      const argType = argExpr.$.type;
+      const argValue = argExpr.$.value;
+
+      // Only generate code for runtime struct values
+      if (isStructType(argType) && argValue === undefined) {
+        const structCode = generateExpr(argExpr, indent, context);
+        const runtimeDestructurings = expr.$.runtimeDestructurings;
+
+        // Generate local variable declarations for each field
+        for (const destructuring of runtimeDestructurings) {
+          const fieldType = getTypeString(destructuring.type, context);
+          const varName = destructuring.variableName;
+          const fieldLabel = sanitizeForCIdentifier(destructuring.label);
+
+          // Generate: type varName = structCode.fieldLabel;
+          context.emitter.emitLine(
+            `${indent}${fieldType} ${varName} = ${structCode}.${fieldLabel};`
+          );
+        }
+      }
+    }
     return "";
   }
   // other function call
@@ -2304,8 +2790,9 @@ function generateFuncCall(
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
               // 4. It's not a redundant self-assignment (e.g., int32_t errno_ = errno_)
-              const sanitizedVarName = sanitizeForCIdentifier(
-                arg.$.variableName
+              const sanitizedVarName = getVariableNameForCodegen(
+                arg.$.variableName,
+                arg.$.env
               );
               if (argCode !== sanitizedVarName) {
                 const varTypeAndName = getVariableTypeString(
@@ -2333,19 +2820,25 @@ function generateFuncCall(
               // the call argument.
               const argTargets = new Set<string>();
               if (arg.$?.variableName) {
-                argTargets.add(sanitizeForCIdentifier(arg.$.variableName));
+                argTargets.add(
+                  getVariableNameForCodegen(arg.$.variableName, arg.$.env)
+                );
               }
               if (argCode) {
                 argTargets.add(argCode);
               }
               if (exprIsAtom(arg)) {
-                argTargets.add(sanitizeForCIdentifier(arg.token.value));
+                argTargets.add(
+                  getVariableNameForCodegen(arg.token.value, arg.$.env)
+                );
               }
 
               const matchingDupExpr = arg.$.deferredDupExpressions.find((e) => {
                 const target = getDeferredDupTargetAtomName(e);
                 if (!target) return false;
-                return argTargets.has(sanitizeForCIdentifier(target));
+                return argTargets.has(
+                  getVariableNameForCodegen(target, e.$?.env)
+                );
               });
 
               if (matchingDupExpr) {
@@ -2354,8 +2847,9 @@ function generateFuncCall(
                   exprIsFunctionCall(matchingDupExpr) &&
                   matchingDupExpr.$?.variableName
                 ) {
-                  finalArgVarName = sanitizeForCIdentifier(
-                    matchingDupExpr.$.variableName
+                  finalArgVarName = getVariableNameForCodegen(
+                    matchingDupExpr.$.variableName,
+                    matchingDupExpr.$.env
                   );
                 }
               }
@@ -2571,7 +3065,10 @@ function generateFuncCall(
                     cTypeString = getTypeString(returnType, context);
                   }
                 } else {
-                  cTypeString = getTypeString(exprType ?? returnType, context);
+                  // cTypeString = getTypeString(exprType ?? returnType, context);
+                  // Use returnType (from function signature) instead of exprType (from expression metadata)
+                  // because exprType might have unresolved type parameters from nested generic calls
+                  cTypeString = getTypeString(returnType ?? exprType, context);
                 }
 
                 context.emitter.emitLine(
@@ -2745,8 +3242,9 @@ function generateFuncCall(
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    finalArgVarName = sanitizeForCIdentifier(
-                      dupExpr.$.variableName
+                    finalArgVarName = getVariableNameForCodegen(
+                      dupExpr.$.variableName,
+                      dupExpr.$.env
                     );
                   }
                 }
@@ -2882,8 +3380,9 @@ function generateFuncCall(
                   // If the arg has a variable name but generateExpr didn't create a declaration,
                   // we need to create it now so the dup call can reference it
                   if (arg.$?.variableName && arg.$?.type) {
-                    const argVarName = sanitizeForCIdentifier(
-                      arg.$.variableName
+                    const argVarName = getVariableNameForCodegen(
+                      arg.$.variableName,
+                      arg.$.env
                     );
                     // Only emit the declaration if argCode is different from the variable name
                     // to avoid generating code like: prev_opt = prev_opt;
@@ -2901,7 +3400,10 @@ function generateFuncCall(
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    return sanitizeForCIdentifier(dupExpr.$.variableName);
+                    return getVariableNameForCodegen(
+                      dupExpr.$.variableName,
+                      dupExpr.$.env
+                    );
                   }
                 }
 
@@ -2933,7 +3435,14 @@ function generateFuncCall(
             const argsList = runtimeArgExprs
               .map((arg, index) => {
                 const argCode = generateExpr(arg, indent, context);
-                const sanitizedLabel = sanitizeForCIdentifier(labels[index]!);
+                // For tuples, always use numeric field names _0, _1, _2...
+                // For regular structs, use the actual field labels
+                const fieldName = isTupleType(structType)
+                  ? `_${index}`
+                  : sanitizeForCIdentifier(
+                      labels[index]!,
+                      structType.isExtern === "c"
+                    );
 
                 // Handle deferred dup expressions for struct fields
                 let finalArgValue = argCode;
@@ -2944,8 +3453,9 @@ function generateFuncCall(
                   // If the arg has a variable name but generateExpr didn't create a declaration,
                   // we need to create it now so the dup call can reference it
                   if (arg.$?.variableName && arg.$?.type) {
-                    const argVarName = sanitizeForCIdentifier(
-                      arg.$.variableName
+                    const argVarName = getVariableNameForCodegen(
+                      arg.$.variableName,
+                      arg.$.env
                     );
                     const argType = arg.$.type;
                     const argTypeStr = getTypeString(argType, context);
@@ -2962,13 +3472,14 @@ function generateFuncCall(
                   // Use the dup result variable instead of the original
                   const dupExpr = arg.$.deferredDupExpressions[0]!;
                   if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                    finalArgValue = sanitizeForCIdentifier(
-                      dupExpr.$.variableName
+                    finalArgValue = getVariableNameForCodegen(
+                      dupExpr.$.variableName,
+                      dupExpr.$.env
                     );
                   }
                 }
 
-                return `.${sanitizedLabel} = ` + finalArgValue;
+                return `.${fieldName} = ` + finalArgValue;
               })
               .join(", ");
             const structValue = `(${cName}){ ${argsList} }`;
@@ -3011,7 +3522,10 @@ function generateFuncCall(
           if (cName && exprIsAtom(labelExpr) && fieldExpr) {
             const functionContext = context as FunctionGenerationContext;
             const label = labelExpr.token.value;
-            const sanitizedLabel = sanitizeForCIdentifier(label);
+            const sanitizedLabel = getVariableNameForCodegen(
+              label,
+              labelExpr.$?.env
+            );
             const fieldCode = generateExpr(fieldExpr, indent, context);
 
             // Handle deferred dup expressions for union field
@@ -3028,8 +3542,9 @@ function generateFuncCall(
               // Use the dup result variable instead of the original
               const dupExpr = fieldExpr.$.deferredDupExpressions[0]!;
               if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                finalFieldValue = sanitizeForCIdentifier(
-                  dupExpr.$.variableName
+                finalFieldValue = getVariableNameForCodegen(
+                  dupExpr.$.variableName,
+                  dupExpr.$.env
                 );
               }
             }
@@ -3151,7 +3666,10 @@ function generateFuncCall(
                   const field = variant.fields[index];
                   if (field && !isUnitType(field.type)) {
                     const argCode = generateExpr(arg, indent, context);
-                    const sanitizedLabel = sanitizeForCIdentifier(field.label);
+                    const sanitizedLabel = getVariableNameForCodegen(
+                      field.label,
+                      arg.$?.env
+                    );
 
                     // Handle deferred dup expressions for enum variant fields
                     let finalArgValue = argCode;
@@ -3170,8 +3688,9 @@ function generateFuncCall(
                         exprIsFunctionCall(dupExpr) &&
                         dupExpr.$?.variableName
                       ) {
-                        finalArgValue = sanitizeForCIdentifier(
-                          dupExpr.$.variableName
+                        finalArgValue = getVariableNameForCodegen(
+                          dupExpr.$.variableName,
+                          dupExpr.$.env
                         );
                       }
                     }
@@ -3330,6 +3849,173 @@ function generateFuncCall(
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;
+}
+
+/**
+ * Helper function to generate drop code for a value of any type.
+ * This handles arrays recursively.
+ */
+function generateDropCodeForValue(
+  valueCode: string,
+  valueType: Type,
+  context: CodeGenContext
+): string {
+  const concreteType =
+    isSomeType(valueType) && valueType.resolvedConcreteType
+      ? valueType.resolvedConcreteType
+      : valueType;
+
+  if (!typeContainsRcType(concreteType)) {
+    return "";
+  }
+
+  // Handle arrays recursively
+  if (isArrayType(concreteType)) {
+    const arrayLength = concreteType.length;
+    if (!isNumberValue(arrayLength)) {
+      return `/* Error: array has non-constant length */`;
+    }
+    const emitter = (context as FunctionGenerationContext).emitter;
+    emitter.emitLine(`for (size_t i = 0; i < ${arrayLength.value}; i++) {`);
+    const elementDropCode = generateDropCodeForValue(
+      `(${valueCode}).data[i]`,
+      concreteType.childType,
+      context
+    );
+    if (elementDropCode) {
+      emitter.emitLine(`  ${elementDropCode};`);
+    }
+    emitter.emitLine(`}`);
+    return "";
+  }
+
+  // Handle tuples recursively
+  if (isTupleType(concreteType)) {
+    const emitter = (context as FunctionGenerationContext).emitter;
+    for (let i = 0; i < concreteType.fields.length; i++) {
+      const fieldType = concreteType.fields[i]!.type;
+      const concreteFieldType =
+        isSomeType(fieldType) && fieldType.resolvedConcreteType
+          ? fieldType.resolvedConcreteType
+          : fieldType;
+      if (typeContainsRcType(concreteFieldType)) {
+        const fieldDropCode = generateDropCodeForValue(
+          `(${valueCode})._${i}`,
+          fieldType,
+          context
+        );
+        if (fieldDropCode) {
+          emitter.emitLine(`${fieldDropCode};`);
+        }
+      }
+    }
+    return "";
+  }
+
+  // Handle other types
+  if (isDynType(concreteType)) {
+    return `__yo_decr_rc((void*)(${valueCode}).data)`;
+  }
+  if (isObjectType(concreteType)) {
+    return `__yo_decr_rc((void*)(${valueCode}))`;
+  }
+  if (isIsoType(concreteType)) {
+    return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
+  }
+  if (isStructType(concreteType) || isEnumType(concreteType)) {
+    const dropFnCName = getDropFunctionForType(concreteType, context);
+    if (dropFnCName) {
+      return `${dropFnCName}(${valueCode})`;
+    }
+  }
+
+  return "";
+}
+
+/**
+ * Helper function to generate dup code for a value of any type.
+ * This handles arrays recursively.
+ */
+function generateDupCodeForValue(
+  valueCode: string,
+  valueType: Type,
+  context: CodeGenContext
+): string {
+  const concreteType =
+    isSomeType(valueType) && valueType.resolvedConcreteType
+      ? valueType.resolvedConcreteType
+      : valueType;
+
+  // Handle arrays recursively
+  if (isArrayType(concreteType)) {
+    const arrayLength = concreteType.length;
+    if (!isNumberValue(arrayLength)) {
+      return `/* Error: array has non-constant length */`;
+    }
+    const tempVar = `temp_dup_${randomId("")}`; // Use randomId instead of Date.now
+    const loopVar = `i_${randomId("")}`;
+    const arrayCName = getTypeString(concreteType, context);
+    const emitter = (context as FunctionGenerationContext).emitter;
+    emitter.emitLine(`${arrayCName} ${tempVar} = ${valueCode};`);
+    emitter.emitLine(
+      `for (size_t ${loopVar} = 0; ${loopVar} < ${arrayLength.value}; ${loopVar}++) {`
+    );
+    const elementDupCode = generateDupCodeForValue(
+      `${tempVar}.data[${loopVar}]`,
+      concreteType.childType,
+      context
+    );
+    emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${elementDupCode};`);
+    emitter.emitLine(`}`);
+    return tempVar;
+  }
+
+  // Handle tuples - dup the RC fields
+  if (isTupleType(concreteType)) {
+    const emitter = (context as FunctionGenerationContext).emitter;
+    const tempVar = `temp_dup_tuple_${randomId("")}`; // Use randomId instead of Date.now
+    const tupleCName = getTypeString(concreteType, context);
+    emitter.emitLine(`${tupleCName} ${tempVar} = ${valueCode};`);
+    for (let i = 0; i < concreteType.fields.length; i++) {
+      const fieldType = concreteType.fields[i]!.type;
+      const concreteFieldType =
+        isSomeType(fieldType) && fieldType.resolvedConcreteType
+          ? fieldType.resolvedConcreteType
+          : fieldType;
+      if (typeContainsRcType(concreteFieldType)) {
+        const fieldDupCode = generateDupCodeForValue(
+          `${tempVar}._${i}`,
+          fieldType,
+          context
+        );
+        emitter.emitLine(`${tempVar}._${i} = ${fieldDupCode};`);
+      }
+    }
+    return tempVar;
+  }
+
+  // Handle other types
+  if (isDynType(concreteType)) {
+    const dynCName = getTypeString(concreteType, context);
+    return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
+  }
+  if (isObjectType(concreteType)) {
+    const objCName = getTypeString(concreteType, context);
+    return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
+  }
+  if (isIsoType(concreteType)) {
+    const isoCName = getTypeString(concreteType, context);
+    return `((${isoCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
+  }
+  if (isStructType(concreteType) || isEnumType(concreteType)) {
+    const dupFnCName = getDupFunctionForType(concreteType, context);
+    if (dupFnCName) {
+      return `${dupFnCName}(${valueCode})`;
+    }
+  }
+
+  // Value types: no-op
+  return valueCode;
 }
 
 /**
@@ -3522,7 +4208,7 @@ function generateAsyncBlock(
     // Build the capture struct literal
     // Dup expressions are created at evaluation time and don't have correct context for code generation
     // When in a closure or state machine, always use generateAtom for proper context-aware access
-    // Otherwise, use dup expressions if available (they handle proper Gc semantics)
+    // Otherwise, use dup expressions if available (they handle proper Rc semantics)
     const functionContext = context as FunctionGenerationContext;
     const inSpecialContext =
       functionContext.currentClosureCaptures !== undefined ||
@@ -3531,7 +4217,7 @@ function generateAsyncBlock(
     const captureFields = captureType.fields
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
-        // deferredDupExpressions only contains dup expressions for Gc types,
+        // deferredDupExpressions only contains dup expressions for Rc types,
         // so we need to match by variable name, not by index
         let dupExpr: Expr | undefined;
         if (!inSpecialContext && expr.$?.deferredDupExpressions) {
@@ -3967,7 +4653,7 @@ function generateAsyncBlockStateDisposeFunction(
   emitter.emitLine(``);
 
   // Drop capture struct (like closures do)
-  if (captureType && typeContainsGcType(captureType)) {
+  if (captureType && typeContainsRcType(captureType)) {
     const existingCaptureTypeEntry = Object.values(context.types).find(
       (entry) => entry.type === captureType
     );
@@ -4006,7 +4692,7 @@ function generateAsyncBlockStateDisposeFunction(
   // Drop the result field if it contains GC-managed data
   // This is critical: when the state machine completes, the result is stored
   // but never dropped. The dispose function must clean it up.
-  if (!isUnitType(resultType) && typeContainsGcType(resultType)) {
+  if (!isUnitType(resultType) && typeContainsRcType(resultType)) {
     const resultTypeCName = getTypeString(resultType, context);
 
     emitter.emitLine(
@@ -4231,12 +4917,12 @@ function generateThreadSpawnCall(
 
   // If the argument has a variable name, use it; otherwise use the generated code
   const cbVarName = cbArg.$?.variableName
-    ? sanitizeForCIdentifier(cbArg.$.variableName)
+    ? getVariableNameForCodegen(cbArg.$.variableName, cbArg.$.env)
     : cbArgCode;
 
   // Emit code to heap-allocate a copy of the closure data
   // The thread entry wrapper will free this after the closure runs
-  const heapDataVar = `_thread_closure_data_${randomId()}`;
+  const heapDataVar = `_thread_closure_data_${randomId(expr.$?.env.modulePath ?? "")}`;
   context.emitter.emitLine(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
@@ -4311,12 +4997,12 @@ function generateWorkerSpawnCall(
 
   // If the argument has a variable name, use it; otherwise use the generated code
   const cbVarName = cbArg.$?.variableName
-    ? sanitizeForCIdentifier(cbArg.$.variableName)
+    ? getVariableNameForCodegen(cbArg.$.variableName, cbArg.$.env)
     : cbArgCode;
 
   // Emit code to heap-allocate a copy of the closure data
   // The worker thread will free this after the task runs
-  const heapDataVar = `_worker_closure_data_${randomId()}`;
+  const heapDataVar = `_worker_closure_data_${randomId(expr.$?.env.modulePath ?? "")}`;
   context.emitter.emitLine(
     `${indent}${captureStructCName}* ${heapDataVar} = (${captureStructCName}*)__yo_malloc(sizeof(${captureStructCName}));`
   );
@@ -4370,12 +5056,6 @@ function generateDynCall(
     return `/* Error: dyn() call missing module values */`;
   }
 
-  // For now, assume single module (no multiple traits yet)
-  const moduleValue = moduleValues[0];
-  if (!moduleValue) {
-    return `/* Error: Invalid module value */`;
-  }
-
   // dyn() requires an object type (including Box(T)); value types must use box().
   if (!isObjectType(valueType) && !isBoxedType(valueType)) {
     return `/* Error: dyn() requires an object type (use box() for value types) */`;
@@ -4409,7 +5089,7 @@ function generateDynCall(
     dynType,
     concreteType,
     dataType: valueType,
-    moduleValue,
+    moduleValues,
   });
 
   // Generate the value expression
@@ -4453,6 +5133,11 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
 
   // Handle control flow atoms first (before checking computed values or variable names)
   if (expr.token.value === "continue") {
+    // For 3-argument while loops, continue should jump to the continue label
+    // which is before the step expression
+    if (functionContext.currentContinueLabel) {
+      return `goto ${functionContext.currentContinueLabel}`;
+    }
     return "continue";
   }
 
@@ -4490,8 +5175,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!; // Most recent scope
-        const varId = variable.isOwningTheSameGcValueAs
-          ? variable.isOwningTheSameGcValueAs.id
+        const varId = variable.isOwningTheSameRcValueAs
+          ? variable.isOwningTheSameRcValueAs.id
           : variable.id;
 
         // Check if this variable ID is in the state machine
@@ -4536,10 +5221,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.isOwningTheSameGcValueAs) {
+        if (variable.isOwningTheSameRcValueAs) {
           // This variable is borrowing - try to find the owner in state machine
-          const ownerName = variable.isOwningTheSameGcValueAs.name;
-          const ownerId = variable.isOwningTheSameGcValueAs.id;
+          const ownerName = variable.isOwningTheSameRcValueAs.name;
+          const ownerId = variable.isOwningTheSameRcValueAs.id;
 
           for (const [
             varId,
@@ -4560,11 +5245,11 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // Variable not in stateMachineVariables - it's a local C variable in the resume function
     // Just use the variable name (don't regenerate its value)
     if (expr.$?.variableName) {
-      return sanitizeForCIdentifier(expr.$.variableName);
+      return getVariableNameForCodegen(expr.$.variableName, expr.$.env);
     }
   }
 
-  // If this atom has a temp variable name (e.g., for Gc values), use that instead of regenerating code
+  // If this atom has a temp variable name (e.g., for Rc values), use that instead of regenerating code
   // This prevents regenerating constructor calls for temp variables that should just use their variable names
   // BUT: if this is a captured variable in a closure, we should use closure access instead
   // ALSO: if this is a compile-time only variable with a value, inline it instead
@@ -4599,7 +5284,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         expr.$.variableName,
         expr.$?.env
       );
-      return sanitizeForCIdentifier(varNameToUse);
+      return varNameToUse; // Already sanitized
     }
   }
 
@@ -4609,13 +5294,14 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   // So this code path should never actually inline a value for variables
   if (expr.$?.value) {
     if (isUnknownValue(expr.$.value)) {
-      throw new Error(
-        `Cannot generate code for unknown compile-time value of atom: ${exprToString(expr)}`
-      );
+      // For unknown values (like mutually recursive function references), we should NOT inline
+      // Instead, fall through to use the variable name from the token
+      // This handles cases like is_even referencing is_odd before is_odd is defined
+    } else {
+      // Only inline if this is NOT a variable (e.g., it's a literal constant without a variable name)
+      // But all variables should have been handled above, so this is just for safety
+      return generateComptValue(expr.$.value, context, expr);
     }
-    // Only inline if this is NOT a variable (e.g., it's a literal constant without a variable name)
-    // But all variables should have been handled above, so this is just for safety
-    return generateComptValue(expr.$.value, context, expr);
   }
 
   const isClosureCaptured =
@@ -4639,10 +5325,10 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     const captureTypeCName = functionContext.currentClosureCaptureTypeCName;
     if (captureTypeCName) {
       // Cast void* closure_context directly to the capture struct pointer
-      return `((${captureTypeCName}*)closure_context)->${sanitizeForCIdentifier(expr.token.value)}`;
+      return `((${captureTypeCName}*)closure_context)->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
     }
     // Fallback to old approach if we can't determine the type (should not happen)
-    return `closure_context->${sanitizeForCIdentifier(expr.token.value)}`;
+    return `closure_context->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
   }
 
   // Fallback: Check if this is a closure function by looking at the current function name and finding its type
@@ -4667,7 +5353,45 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       if (closureTypeEntry) {
         // Note: captureType is no longer on ClosureType, use naming convention
         const captureStructName = `${closureTypeEntry.cName}_capture`;
-        return `((${captureStructName}*)closure_context->data)->${sanitizeForCIdentifier(expr.token.value)}`;
+        return `((${captureStructName}*)closure_context->data)->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
+      }
+    }
+  }
+
+  // Check if this is a function variable - if so, use its C function name
+  // This handles mutually recursive functions where the value might be UnknownValue
+  if (expr.$?.env) {
+    const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
+
+      // Check if the variable has a function value (or UnknownValue with function type)
+      if (variable.value && isFunctionValue(variable.value)) {
+        // Look up the C function name
+        const cFuncName = context.functions[variable.value.funcId]?.cName;
+        if (cFuncName) {
+          return cFuncName;
+        }
+      } else if (
+        isFunctionType(variable.type) &&
+        (isUnknownValue(variable.value) || variable.value === undefined)
+      ) {
+        // For UnknownValue or undefined with function type (mutual recursion case),
+        // we need to find the function ID another way.
+        // The function should have been registered in context.functions
+        // Try to find it by matching the variable name
+        const functionEntry = Object.entries(context.functions).find(
+          ([_funcId, entry]) => {
+            // Check if this function's definition matches our variable
+            // This is a heuristic - we match by checking if any specialization
+            // of the function has a matching variable name
+            return entry.value.funcName === expr.token.value;
+          }
+        );
+
+        if (functionEntry) {
+          return functionEntry[1].cName;
+        }
       }
     }
   }
@@ -4675,7 +5399,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   // Check if this variable has a parameterAlias (used in anonymous functions
   // where the actual parameter name differs from the expected interface parameter name)
   const varNameToUse = getVariableNameForCodegen(expr.token.value, expr.$?.env);
-  return sanitizeForCIdentifier(varNameToUse);
+  return varNameToUse;
 }
 
 /**
@@ -4784,6 +5508,21 @@ function generateComptValue(
 
       return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${nonUnitFields.join(", ")} } } }`;
     }
+  } else if (isTupleValue(value)) {
+    // For tuple values, generate tuple struct initialization with numeric field names
+    const type = value.type;
+    const cName = context.types[type.id]?.cName;
+    if (!cName) {
+      return `// Error: No C type name found for tuple ${typeToString(type)}\n`;
+    }
+
+    const fields = value.fields.map((field, index) => {
+      const fieldCode = generateComptValue(field, context);
+      // Tuples always use numeric field names _0, _1, _2...
+      return `._${index} = ${fieldCode}`;
+    });
+
+    return `(${cName}){ ${fields.join(", ")} }`;
   } else if (isStructValue(value)) {
     // For structs, we need to generate a struct initialization
     const type = value.type;
@@ -4816,7 +5555,11 @@ function generateComptValue(
         // For regular struct compile-time values, generate as before
         const fields = value.fields.map((field, index) => {
           const fieldValue = field;
-          const fieldName = sanitizeForCIdentifier(type.fields[index]!.label);
+          // For tuples, use numeric field names _0, _1, _2...
+          // For regular structs, use the actual field labels
+          const fieldName = isTupleType(type)
+            ? `_${index}`
+            : sanitizeForCIdentifier(type.fields[index]!.label);
           const fieldCode = generateComptValue(fieldValue, context);
           return `.${fieldName} = ${fieldCode}`;
         });
@@ -4890,8 +5633,8 @@ function generateFieldAccess(
       return cFunctionName;
     }
 
-    // Fallback: Check if this is an Gc method call (___drop, ___dup, ___dispose)
-    // Sometimes, we only called addARCFunctionSignaturesToStructType / addARCFunctionSignaturesToEnumType
+    // Fallback: Check if this is an Rc method call (___drop, ___dup, ___dispose)
+    // Sometimes, we only called addRcFunctionSignaturesToStructType / addRcFunctionSignaturesToEnumType
     // So they are using the `undefined` function value, before we actually update its module fields.
     if (
       !expr.$?.value &&
@@ -4900,7 +5643,7 @@ function generateFieldAccess(
         BuiltinFunctions.___dup.includes(fieldName)) &&
       objectType
     ) {
-      // For Gc methods, we need to look up the function from the type's module
+      // For Rc methods, we need to look up the function from the type's module
       // and return the function name directly instead of treating it as field access
       let typeModule: ModuleType | null = null;
 
@@ -4926,10 +5669,10 @@ function generateFieldAccess(
             functionValue.funcId;
           return cFunctionName;
         } else {
-          return `/* ERROR: Gc method ${fieldName} not found in type module */`;
+          return `/* ERROR: Rc method ${fieldName} not found in type module */`;
         }
       } else {
-        return `/* ERROR: No module found for Gc method ${fieldName} */`;
+        return `/* ERROR: No module found for Rc method ${fieldName} */`;
       }
     }
 
@@ -5160,11 +5903,22 @@ function generateCondExpression(
             if (
               valueCode &&
               valueCode !== "" &&
+              !valueCode.startsWith("goto") &&
               valueCode !== "continue" &&
               valueCode !== "break" &&
               !valueCode.includes("return")
             ) {
               context.emitter.emitLine(`${indent}${tempVar} = ${valueCode};`);
+            }
+            // For goto, continue, break, return statements, emit them directly
+            else if (
+              valueCode &&
+              (valueCode.startsWith("goto") ||
+                valueCode === "continue" ||
+                valueCode === "break" ||
+                valueCode.includes("return"))
+            ) {
+              context.emitter.emitLine(`${indent}${valueCode};`);
             }
           }
         }
@@ -5298,6 +6052,7 @@ function generateCondExpression(
                 if (
                   finalExprCode === "continue" ||
                   finalExprCode === "break" ||
+                  finalExprCode.startsWith("goto") ||
                   (exprIsFunctionCall(finalExpr) &&
                     exprIsFunctionCallOf(finalExpr, BuiltinKeywords.return)) ||
                   finalExprCode.includes("return")
@@ -5332,6 +6087,7 @@ function generateCondExpression(
             if (
               valueCode === "continue" ||
               valueCode === "break" ||
+              valueCode.startsWith("goto") ||
               (exprIsFunctionCall(value) &&
                 exprIsFunctionCallOf(value, BuiltinKeywords.return)) ||
               valueCode.includes("return")
@@ -5620,14 +6376,15 @@ function generateMatchExpression(
             context.emitter.emitLine(
               `${indent}  goto ${context.currentLoopLabel};`
             );
-          } else if (
-            context.currentLoopLabel &&
-            caseBody.$?.controlFlow === "continue"
-          ) {
-            // For continue, we still need to break the switch, then the loop will continue naturally
-            // But actually, continue should jump to the beginning of the loop
-            // We'll just use break here and let the loop continue on its own
+          } else if (caseBody.$?.controlFlow === "continue") {
+            // For continue, we need to break out of the switch first
             context.emitter.emitLine(`${indent}  break;`);
+            // Then add a goto to the continue label (if it exists for 3-argument while loops)
+            if (context.currentContinueLabel) {
+              context.emitter.emitLine(
+                `${indent}  goto ${context.currentContinueLabel};`
+              );
+            }
           } else {
             context.emitter.emitLine(`${indent}  break;`);
           }
@@ -5675,70 +6432,179 @@ function generateMatchExpression(
           // This is a destructuring pattern
           const variant = enumType.variants.find((v) => v.name === variantName);
           if (variant && variant.fields) {
-            // Generate local variable declarations for destructured fields
-            for (
-              let fieldIndex = 0;
-              fieldIndex <
-              Math.min(caseValue.args.length - 1, variant.fields.length);
-              fieldIndex++
-            ) {
-              const destructuredVar = caseValue.args[fieldIndex + 1]!; // Skip the variant name
-              const variantElement = variant.fields[fieldIndex];
+            // Get destructuring params (skip the variant name at index 0)
+            const destructuringParams = caseValue.args.slice(1);
 
-              if (destructuredVar.tag === ExprTag.Atom && variantElement) {
-                // Skip unit type fields - they don't exist in the generated struct
-                if (isUnitType(variantElement.type)) {
-                  continue;
-                }
+            // Check if we have labeled destructuring
+            const hasLabeledParams = destructuringParams.some(
+              (param) =>
+                exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+            );
 
-                const varName = destructuredVar.token.value;
-                const fieldName = sanitizeForCIdentifier(variantElement.label);
-                const fieldType = getTypeString(variantElement.type, context);
-
-                // Generate variable declaration and assignment
-                const accessPrefix =
-                  ptrOrRefType === "ref_semantics" || ptrOrRefType ? "->" : ".";
-                context.emitter.emitLine(
-                  `${indent}  /* MARKER: Generating destructured variable ${varName} */`
-                );
-                context.emitter.emitLine(
-                  `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
-                );
-                // Check if this variable needs to be stored in the state machine
-                // For async contexts, pattern-matched variables that are used across await points
-                // need to be stored in the state machine structure
-                const functionContext = context as FunctionGenerationContext;
+            if (hasLabeledParams) {
+              // Handle labeled destructuring like .Circle(r : radius)
+              for (const param of destructuringParams) {
                 if (
-                  functionContext?.inStateMachine &&
-                  functionContext.stateMachineVariables
+                  exprIsFunctionCall(param) &&
+                  exprIsFunctionCallOf(param, ":", 2)
                 ) {
-                  // Find the variable ID by searching through state machine variables
-                  // The state machine tracks variables by their ID
-                  let varId: string | undefined;
+                  const labelExpr = param.args[0]!;
+                  const variableExpr = param.args[1]!;
 
-                  // Try to get ID from expr metadata if available
-                  // if (destructuredVar.$?.id) {
-                  //   varId = destructuredVar.$.id;
-                  // } else
-                  if (destructuredVar.$?.env) {
-                    // Try to look up in environment
-                    const vars = getVariablesFromEnv(
-                      destructuredVar.$.env,
-                      varName
-                    );
-                    if (vars.length > 0) {
-                      varId = vars[vars.length - 1]!.id;
-                    }
+                  if (!exprIsAtom(labelExpr)) {
+                    continue;
                   }
 
-                  if (
-                    varId &&
-                    functionContext.stateMachineVariables.has(varId)
-                  ) {
-                    // This variable crosses an await boundary, store it in state machine
-                    context.emitter.emitLine(
-                      `${indent}  sm->var_${varId} = ${varName};`
+                  const label = labelExpr.token.value;
+
+                  // Find the field with matching label
+                  const variantElement = variant.fields.find(
+                    (f) => f.label === label
+                  );
+                  if (!variantElement) {
+                    continue;
+                  }
+
+                  // Skip unit type fields - they don't exist in the generated struct
+                  if (isUnitType(variantElement.type)) {
+                    continue;
+                  }
+
+                  // Handle the variable part (could be identifier or _)
+                  if (exprIsAtom(variableExpr)) {
+                    const varName = variableExpr.token.value;
+
+                    // Skip if variable name is "_" (ignore pattern)
+                    if (varName !== "_") {
+                      const fieldName = sanitizeForCIdentifier(label);
+                      const fieldType = getTypeString(
+                        variantElement.type,
+                        context
+                      );
+
+                      // Generate variable declaration and assignment
+                      const accessPrefix =
+                        ptrOrRefType === "ref_semantics" || ptrOrRefType
+                          ? "->"
+                          : ".";
+                      context.emitter.emitLine(
+                        `${indent}  /* MARKER: Generating labeled destructured variable ${varName} from field ${label} */`
+                      );
+                      context.emitter.emitLine(
+                        `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                      );
+
+                      // Check if this variable needs to be stored in the state machine
+                      const functionContext =
+                        context as FunctionGenerationContext;
+                      if (
+                        functionContext?.inStateMachine &&
+                        functionContext.stateMachineVariables
+                      ) {
+                        let varId: string | undefined;
+
+                        if (variableExpr.$?.env) {
+                          const vars = getVariablesFromEnv(
+                            variableExpr.$.env,
+                            varName
+                          );
+                          if (vars.length > 0) {
+                            varId = vars[vars.length - 1]!.id;
+                          }
+                        }
+
+                        if (
+                          varId &&
+                          functionContext.stateMachineVariables.has(varId)
+                        ) {
+                          context.emitter.emitLine(
+                            `${indent}  sm->var_${varId} = ${varName};`
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // Handle positional destructuring
+              // Generate local variable declarations for destructured fields
+              for (
+                let fieldIndex = 0;
+                fieldIndex < destructuringParams.length &&
+                fieldIndex < variant.fields.length;
+                fieldIndex++
+              ) {
+                const destructuredVar = destructuringParams[fieldIndex]!;
+                const variantElement = variant.fields[fieldIndex];
+
+                if (exprIsAtom(destructuredVar) && variantElement) {
+                  // Skip unit type fields - they don't exist in the generated struct
+                  if (isUnitType(variantElement.type)) {
+                    continue;
+                  }
+
+                  const varName = destructuredVar.token.value;
+
+                  // Skip if variable name is "_" (ignore pattern)
+                  if (varName !== "_") {
+                    const fieldName = sanitizeForCIdentifier(
+                      variantElement.label
                     );
+                    const fieldType = getTypeString(
+                      variantElement.type,
+                      context
+                    );
+
+                    // Generate variable declaration and assignment
+                    const accessPrefix =
+                      ptrOrRefType === "ref_semantics" || ptrOrRefType
+                        ? "->"
+                        : ".";
+                    context.emitter.emitLine(
+                      `${indent}  /* MARKER: Generating destructured variable ${varName} */`
+                    );
+                    context.emitter.emitLine(
+                      `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                    );
+                    // Check if this variable needs to be stored in the state machine
+                    // For async contexts, pattern-matched variables that are used across await points
+                    // need to be stored in the state machine structure
+                    const functionContext =
+                      context as FunctionGenerationContext;
+                    if (
+                      functionContext?.inStateMachine &&
+                      functionContext.stateMachineVariables
+                    ) {
+                      // Find the variable ID by searching through state machine variables
+                      // The state machine tracks variables by their ID
+                      let varId: string | undefined;
+
+                      // Try to get ID from expr metadata if available
+                      // if (destructuredVar.$?.id) {
+                      //   varId = destructuredVar.$.id;
+                      // } else
+                      if (destructuredVar.$?.env) {
+                        // Try to look up in environment
+                        const vars = getVariablesFromEnv(
+                          destructuredVar.$.env,
+                          varName
+                        );
+                        if (vars.length > 0) {
+                          varId = vars[vars.length - 1]!.id;
+                        }
+                      }
+
+                      if (
+                        varId &&
+                        functionContext.stateMachineVariables.has(varId)
+                      ) {
+                        // This variable crosses an await boundary, store it in state machine
+                        context.emitter.emitLine(
+                          `${indent}  sm->var_${varId} = ${varName};`
+                        );
+                      }
+                    }
                   }
                 }
               }
@@ -5773,11 +6639,13 @@ function generateMatchExpression(
           context.emitter.emitLine(
             `${indent}  goto ${context.currentLoopLabel};`
           );
-        } else if (
-          context.currentLoopLabel &&
-          caseBody.$?.controlFlow === "continue"
-        ) {
+        } else if (caseBody.$?.controlFlow === "continue") {
           context.emitter.emitLine(`${indent}  break;`);
+          if (context.currentContinueLabel) {
+            context.emitter.emitLine(
+              `${indent}  goto ${context.currentContinueLabel};`
+            );
+          }
         } else {
           context.emitter.emitLine(`${indent}  break;`);
         }
@@ -5803,72 +6671,168 @@ function generateMatchExpression(
         // Generate local variable declarations for destructured fields
         const variant = enumType.variants.find((v) => v.name === variantName);
         if (variant && variant.fields && destructuringParams.length > 0) {
-          for (
-            let fieldIndex = 0;
-            fieldIndex <
-            Math.min(destructuringParams.length, variant.fields.length);
-            fieldIndex++
-          ) {
-            const destructuredVar = destructuringParams[fieldIndex]!;
-            const variantElement = variant.fields[fieldIndex];
+          // Check if we have labeled destructuring
+          const hasLabeledParams = destructuringParams.some(
+            (param) =>
+              exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+          );
 
-            if (destructuredVar.tag === ExprTag.Atom && variantElement) {
-              const varName = destructuredVar.token.value;
+          if (hasLabeledParams) {
+            // Handle labeled destructuring like .Circle(r : radius)
+            for (const param of destructuringParams) {
+              if (
+                exprIsFunctionCall(param) &&
+                exprIsFunctionCallOf(param, ":", 2)
+              ) {
+                const labelExpr = param.args[0]!;
+                const variableExpr = param.args[1]!;
 
-              // Skip if variable name is "_" (ignore pattern)
-              if (varName !== "_") {
-                // For unit type fields, generate a comment instead of a variable
-                // This allows the variable name to be "declared" without generating invalid C
-                if (isUnitType(variantElement.type)) {
-                  context.emitter.emitLine(
-                    `${indent}  // ${varName} is unit type (no value)`
-                  );
-                  // Register this as a unit variable so expression generation can handle it
-                  // (Expression generation should skip generating references to unit variables)
-                } else {
-                  const fieldName = sanitizeForCIdentifier(
-                    variantElement.label
-                  );
-                  const fieldType = getTypeString(variantElement.type, context);
+                if (!exprIsAtom(labelExpr)) {
+                  continue;
+                }
 
-                  // Generate variable declaration and assignment
-                  const accessPrefix =
-                    ptrOrRefType === "ref_semantics" || ptrOrRefType
-                      ? "->"
-                      : ".";
-                  context.emitter.emitLine(
-                    `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
-                  );
+                const label = labelExpr.token.value;
 
-                  // Check if this variable needs to be stored in the state machine
-                  const functionContext = context as FunctionGenerationContext;
-                  if (
-                    functionContext?.inStateMachine &&
-                    functionContext.stateMachineVariables
-                  ) {
-                    let varId: string | undefined;
+                // Find the field with matching label
+                const variantElement = variant.fields.find(
+                  (f) => f.label === label
+                );
+                if (!variantElement) {
+                  continue;
+                }
 
-                    // if (destructuredVar.$?.id) {
-                    //   varId = destructuredVar.$.id;
-                    // } else
-                    if (destructuredVar.$?.env) {
-                      const vars = getVariablesFromEnv(
-                        destructuredVar.$.env,
-                        varName
+                // Handle the variable part (could be identifier or _)
+                if (exprIsAtom(variableExpr)) {
+                  const varName = variableExpr.token.value;
+
+                  // Skip if variable name is "_" (ignore pattern)
+                  if (varName !== "_") {
+                    if (isUnitType(variantElement.type)) {
+                      context.emitter.emitLine(
+                        `${indent}  // ${varName} is unit type (no value)`
                       );
-                      if (vars.length > 0) {
-                        varId = vars[vars.length - 1]!.id;
+                    } else {
+                      const fieldName = sanitizeForCIdentifier(label);
+                      const fieldType = getTypeString(
+                        variantElement.type,
+                        context
+                      );
+
+                      // Generate variable declaration and assignment
+                      const accessPrefix =
+                        ptrOrRefType === "ref_semantics" || ptrOrRefType
+                          ? "->"
+                          : ".";
+                      context.emitter.emitLine(
+                        `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                      );
+
+                      // Check if this variable needs to be stored in the state machine
+                      const functionContext =
+                        context as FunctionGenerationContext;
+                      if (
+                        functionContext?.inStateMachine &&
+                        functionContext.stateMachineVariables
+                      ) {
+                        let varId: string | undefined;
+
+                        if (variableExpr.$?.env) {
+                          const vars = getVariablesFromEnv(
+                            variableExpr.$.env,
+                            varName
+                          );
+                          if (vars.length > 0) {
+                            varId = vars[vars.length - 1]!.id;
+                          }
+                        }
+
+                        if (
+                          varId &&
+                          functionContext.stateMachineVariables.has(varId)
+                        ) {
+                          context.emitter.emitLine(
+                            `${indent}  sm->var_${varId} = ${varName};`
+                          );
+                        }
                       }
                     }
+                  }
+                }
+              }
+            }
+          } else {
+            // Handle positional destructuring like .Circle(radius)
+            for (
+              let fieldIndex = 0;
+              fieldIndex <
+              Math.min(destructuringParams.length, variant.fields.length);
+              fieldIndex++
+            ) {
+              const destructuredVar = destructuringParams[fieldIndex]!;
+              const variantElement = variant.fields[fieldIndex];
 
+              if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+                const varName = destructuredVar.token.value;
+
+                // Skip if variable name is "_" (ignore pattern)
+                if (varName !== "_") {
+                  // For unit type fields, generate a comment instead of a variable
+                  // This allows the variable name to be "declared" without generating invalid C
+                  if (isUnitType(variantElement.type)) {
+                    context.emitter.emitLine(
+                      `${indent}  // ${varName} is unit type (no value)`
+                    );
+                    // Register this as a unit variable so expression generation can handle it
+                    // (Expression generation should skip generating references to unit variables)
+                  } else {
+                    const fieldName = sanitizeForCIdentifier(
+                      variantElement.label
+                    );
+                    const fieldType = getTypeString(
+                      variantElement.type,
+                      context
+                    );
+
+                    // Generate variable declaration and assignment
+                    const accessPrefix =
+                      ptrOrRefType === "ref_semantics" || ptrOrRefType
+                        ? "->"
+                        : ".";
+                    context.emitter.emitLine(
+                      `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                    );
+
+                    // Check if this variable needs to be stored in the state machine
+                    const functionContext =
+                      context as FunctionGenerationContext;
                     if (
-                      varId &&
-                      functionContext.stateMachineVariables.has(varId)
+                      functionContext?.inStateMachine &&
+                      functionContext.stateMachineVariables
                     ) {
-                      // This variable crosses an await boundary, store it in state machine
-                      context.emitter.emitLine(
-                        `${indent}  sm->var_${varId} = ${varName};`
-                      );
+                      let varId: string | undefined;
+
+                      // if (destructuredVar.$?.id) {
+                      //   varId = destructuredVar.$.id;
+                      // } else
+                      if (destructuredVar.$?.env) {
+                        const vars = getVariablesFromEnv(
+                          destructuredVar.$.env,
+                          varName
+                        );
+                        if (vars.length > 0) {
+                          varId = vars[vars.length - 1]!.id;
+                        }
+                      }
+
+                      if (
+                        varId &&
+                        functionContext.stateMachineVariables.has(varId)
+                      ) {
+                        // This variable crosses an await boundary, store it in state machine
+                        context.emitter.emitLine(
+                          `${indent}  sm->var_${varId} = ${varName};`
+                        );
+                      }
                     }
                   }
                 }
@@ -5904,11 +6868,13 @@ function generateMatchExpression(
           context.emitter.emitLine(
             `${indent}  goto ${context.currentLoopLabel};`
           );
-        } else if (
-          context.currentLoopLabel &&
-          caseBody.$?.controlFlow === "continue"
-        ) {
+        } else if (caseBody.$?.controlFlow === "continue") {
           context.emitter.emitLine(`${indent}  break;`);
+          if (context.currentContinueLabel) {
+            context.emitter.emitLine(
+              `${indent}  goto ${context.currentContinueLabel};`
+            );
+          }
         } else {
           context.emitter.emitLine(`${indent}  break;`);
         }
@@ -5953,7 +6919,10 @@ export function generateReturnStatement(
         // Use the duped value's variable name instead of the original
         const dupExpr = expr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          atomCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          atomCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         }
       }
 
@@ -5998,7 +6967,10 @@ export function generateReturnStatement(
         // Use the duped value's variable name for the return
         const dupExpr = expr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          const dupedValue = sanitizeForCIdentifier(dupExpr.$.variableName);
+          const dupedValue = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
           context.emitter.emitLine(`${indent}return ${dupedValue};`);
         } else {
           // Fallback: return the raw code
@@ -6313,7 +7285,10 @@ function generateCaseBody(
         // Use the duped value's variable name instead of the original expression
         const dupExpr = finalExpr.$.deferredDupExpressions[0]!;
         if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalExprCode = sanitizeForCIdentifier(dupExpr.$.variableName);
+          finalExprCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
         } else {
           finalExprCode = generateExpr(finalExpr, indent, context);
         }
@@ -6386,8 +7361,11 @@ function generateWhileLoop(
 
     // Track that we're in a loop for proper break/continue handling in nested match expressions
     const savedLoopLabel = context.currentLoopLabel;
+    const savedContinueLabel = context.currentContinueLabel;
     const loopLabel = `loop_${Math.random().toString(36).substr(2, 9)}`;
+    const continueLabel = `continue_${Math.random().toString(36).substr(2, 9)}`;
     context.currentLoopLabel = loopLabel;
+    context.currentContinueLabel = continueLabel;
 
     context.emitter.emitLine(`${indent}while (true) {`);
     const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
@@ -6395,12 +7373,14 @@ function generateWhileLoop(
     context.emitter.emitLine(`${indent}    break;`);
     context.emitter.emitLine(`${indent}  }`);
     generateLoopBody(bodyExpr, indent + "  ", context);
+    context.emitter.emitLine(`${indent}${continueLabel}:;`);
     const stepCode = generateStepExpression(stepExpr, context);
     context.emitter.emitLine(`${indent}  ${stepCode};`);
     context.emitter.emitLine(`${indent}}`);
     context.emitter.emitLine(`${indent}${loopLabel}:;`);
 
     context.currentLoopLabel = savedLoopLabel;
+    context.currentContinueLabel = savedContinueLabel;
 
     return "";
   } else {

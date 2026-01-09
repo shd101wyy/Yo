@@ -5,6 +5,8 @@ export interface TokenAndError {
   errorMessage: string;
 }
 
+export type ErrorKind = "overflow";
+
 export class YoLexerError {
   public characterIndex: number;
   public message: string;
@@ -24,10 +26,16 @@ export class YoLexerError {
 export class YoError {
   public tokenAndErrorList: TokenAndError[] = [];
   public isAssertionError: boolean;
+  public kind?: ErrorKind;
 
-  constructor(tokenAndErrorList: TokenAndError[], isAssertionError?: boolean) {
+  constructor(
+    tokenAndErrorList: TokenAndError[],
+    isAssertionError?: boolean,
+    kind?: ErrorKind
+  ) {
     this.tokenAndErrorList = tokenAndErrorList;
     this.isAssertionError = isAssertionError || false;
+    this.kind = kind;
   }
 
   public toString(): string {
@@ -76,11 +84,13 @@ export function formatErrorMessage({
   errorMessage,
   cause,
   isAssertionError,
+  kind,
 }: {
   token: Token;
   errorMessage: string;
   cause?: Error;
   isAssertionError?: boolean;
+  kind?: ErrorKind;
 }): YoError {
   const errorMessages = `${errorMessage.trim()}
 
@@ -94,19 +104,21 @@ ${getLineAtToken({ token })}`;
           errorMessages + (cause?.message ? "\n" + cause.message : ""),
       },
     ],
-    isAssertionError
+    isAssertionError,
+    kind
   );
 }
 
 export function formatErrorMessages(
   tokenAndErrorList: TokenAndError[],
-  isAssertionError?: boolean
+  isAssertionError?: boolean,
+  kind?: ErrorKind
 ): YoError {
   if (tokenAndErrorList.length === 0) {
     throw new Error("tokenAndErrorList must not be empty");
   }
 
-  return new YoError(tokenAndErrorList, isAssertionError);
+  return new YoError(tokenAndErrorList, isAssertionError, kind);
 }
 
 export function formatWarningMessages({

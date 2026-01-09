@@ -7,14 +7,17 @@ This document outlines the implementation plan for Yo's parallelism features bas
 ## New Design (Simplified)
 
 **Thread** = Dedicated OS thread wrapper
-- `Thread.spawn(fn)` → spawns a dedicated OS thread  
+
+- `Thread.spawn(fn)` → spawns a dedicated OS thread
 - `Thread.join()` → wait for completion
 
 **Worker** = Thread pool task (fire-and-forget)
+
 - `Worker.spawn(fn)` → runs on thread pool with thread affinity
 - No handle returned
 
 **Channel** = Separate abstraction (future)
+
 - Not part of Thread/Worker, implemented separately
 
 ## Implementation Phases
@@ -58,11 +61,11 @@ extern "Yo",
 // High-level wrapper
 Thread :: struct(
   handle : __yo_thread_t,
-  
+
   spawn :: (fn(f : Impl(Fn() -> unit, Send)) -> Self)({
     Self(__yo_thread_spawn(f))
   }),
-  
+
   join :: (fn(self : Self) -> unit)(
     __yo_thread_join(self.handle)
   )
@@ -110,6 +113,7 @@ Separate implementation, not tied to Thread/Worker.
 ## Implementation Order
 
 1. **Phase 1a: Thread Runtime** ✅
+
    - [x] `__yo_thread_t` structure (value type)
    - [x] `__yo_thread_spawn` function (with closure support)
    - [x] `__yo_thread_join` function
@@ -117,10 +121,12 @@ Separate implementation, not tied to Thread/Worker.
    - [ ] Codegen support for `Impl(Fn() -> unit, Send)` parameters
 
 2. **Phase 1b: Thread Yo Wrapper**
+
    - [ ] `Thread` struct in fixme.yo
    - [ ] Test spawn/join
 
 3. **Phase 2: Worker Runtime**
+
    - [ ] Thread pool initialization
    - [ ] Per-thread task queues
    - [ ] Round-robin task assignment

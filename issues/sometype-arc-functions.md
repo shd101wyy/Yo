@@ -1,4 +1,4 @@
-# SomeType ARC Functions (___dup and ___drop)
+# SomeType ARC Functions (**_dup and _**drop)
 
 ## Problem
 
@@ -9,15 +9,16 @@ When a `SomeType` (used for `Impl(Fn(...))` closures) is stored in a container l
 
 However, `SomeType` is an abstract type - at evaluation time, we don't know the concrete type it will resolve to. This caused two issues:
 
-### Issue 1: `typeContainsGcType(SomeType)` returned `false`
+### Issue 1: `typeContainsRcType(SomeType)` returned `false`
 
-The `typeContainsGcType` function determines whether a type needs ARC management. Since `SomeType` doesn't have a known structure at generation time, it was returning `false`, causing Box's `___dispose` to not generate `___drop` calls for SomeType fields.
+The `typeContainsRcType` function determines whether a type needs ARC management. Since `SomeType` doesn't have a known structure at generation time, it was returning `false`, causing Box's `___dispose` to not generate `___drop` calls for SomeType fields.
 
-**Fix**: Changed `typeContainsGcType` to conservatively return `true` for `SomeType`, ensuring containers always generate proper cleanup code.
+**Fix**: Changed `typeContainsRcType` to conservatively return `true` for `SomeType`, ensuring containers always generate proper cleanup code.
 
 ### Issue 2: No ARC dispatch mechanism for SomeType
 
-Even after fixing `typeContainsGcType`, calling `___drop` on a SomeType value didn't work because:
+Even after fixing `typeContainsRcType`, calling `___drop` on a SomeType value didn't work because:
+
 - The codegen handles `___drop` as a builtin function
 - For value types, it returned empty string (no-op)
 - SomeType is technically a value type (its `resolvedConcreteType` is often a value struct like a closure capture)
@@ -37,7 +38,9 @@ if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_drop)) {
   if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
     // Dispatch to concrete type's ___drop
     const concreteType = argType.resolvedConcreteType;
-    const dropFn = concreteType.module?.fields.find(f => f.label === "___drop");
+    const dropFn = concreteType.module?.fields.find(
+      (f) => f.label === "___drop"
+    );
     // ... generate call to dropFn
   }
 }
@@ -63,7 +66,7 @@ Added a check for SomeType before the "value types: no-op" fallback:
 // For SomeType with resolvedConcreteType, dispatch to the concrete type's ___drop
 if (isSomeType(valueType) && valueType.resolvedConcreteType) {
   const concreteType = valueType.resolvedConcreteType;
-  const dropFn = concreteType.module?.fields.find(f => f.label === "___drop");
+  const dropFn = concreteType.module?.fields.find((f) => f.label === "___drop");
   // ... generate call
 }
 ```
@@ -85,6 +88,7 @@ Field labels like `*` (used by `Box`) are not valid identifiers. The generated c
 ### 5. Fixed `dispose_fn` in constructors
 
 The `dispose_fn` pointer in object headers was only set for user-defined `dispose` methods. Changed to use `___dispose` which properly:
+
 1. Calls user's `dispose` if it exists
 2. Drops all fields with GC types
 
@@ -97,7 +101,7 @@ For `Box(Impl(Fn(...)))` containing a capture struct with `MyBox`:
 2. Box's ref count = 0 → __yo_decr_rc calls Box's ___dispose
 3. Box's ___dispose → calls ___drop on SomeType field
 4. SomeType's ___drop → dispatches to capture struct's ___drop
-5. Capture struct's ___drop → decrements MyBox's ref count  
+5. Capture struct's ___drop → decrements MyBox's ref count
 6. MyBox's ref count = 0 → calls MyBox's ___dispose
 7. MyBox's ___dispose → calls user's dispose, then frees
 ```
@@ -105,7 +109,7 @@ For `Box(Impl(Fn(...)))` containing a capture struct with `MyBox`:
 ## Files Modified
 
 - `src/expr.ts` - Added `__yo_sometype_drop`, `__yo_sometype_dup` builtins
-- `src/types/utils.ts` - Made `typeContainsGcType(SomeType)` return `true`
-- `src/evaluator/types/utils.ts` - Added `addARCFunctionsToSomeType`, fixed field label sanitization
+- `src/types/utils.ts` - Made `typeContainsRcType(SomeType)` return `true`
+- `src/evaluator/types/utils.ts` - Added `addRcFunctionsToSomeType`, fixed field label sanitization
 - `src/codegen/expressions/generation.ts` - Added codegen for SomeType ARC builtins
 - `src/codegen/types/generation.ts` - Fixed `dispose_fn` to use `___dispose`

@@ -1,0 +1,1606 @@
+test "Test comments", {
+  /*
+    This is a block comment
+  */
+  x :: 0;
+
+  /*
+  This is a nested block comment
+  Outer comment
+    
+    /*
+      Inner comment
+    */
+
+    Yes the block comments can be nested
+  */
+  y :: 1;
+
+  /**
+  * Define the operator precedence for the Yo language.  
+  * 1 is the lowest precedence.  
+  * Reference: https://rosettacode.org/wiki/Operator_precedence#Haskell
+  */
+
+  // This is a line comment
+  // Another line comment
+  // One more line comment
+};
+
+test "Test assignments", {
+  {
+    x := 1;
+    y := (x = 2);
+
+    assert(x == 2);
+    assert(y == 1);
+  };
+
+  {
+    x := box(1);
+    y := (x = box(2));
+
+    assert(x.* == 2);
+    assert(y.* == 1);
+  };
+
+  {
+    x := [1, 2, 3];
+    y := (x = [2, 3, 4]);
+
+    assert(x(0) == 2);
+    assert(y(0) == 1);
+  };
+
+  {
+    x : i32;
+    
+    // Initialize a variable defined outside the function body is not allowed
+    test1 :: (fn() -> unit) {
+      compt_expect_error(
+        x = 12,
+        "Cannot initialize a variable that is defined outside the function body."
+      );
+    
+    };
+    
+    // Initialize a variable defined outside the while loop is not allowed
+    test2 :: (fn(flag: bool) -> unit) {
+      y : i32;
+      while flag, {
+        compt_expect_error(
+          x = 12,
+          "Cannot initialize a variable that is defined outside the while loop."
+        );
+        compt_expect_error(
+          y = 12,
+          "Cannot initialize a variable that is defined outside the while loop."
+        );
+        z : i32;
+        z = 12;
+      };
+      y = 12;
+    };
+    
+    x = 13;
+  };
+};
+
+test "Test bindings", {
+  {
+    x : i32;
+    y : i32;
+    x = 1;
+    y = 2;
+    assert((x + y) == 3);
+  };
+  // Runtime immutable variable
+  {
+    x : i32;
+    x = 12;
+  };
+  {
+    (x : bool) = true;
+  };
+
+  // Runtime mutable variable
+  {
+    x : i32;
+    x = 12;
+  };
+  {
+    (x : bool) = true;
+    x = false;
+  };
+
+  // Compile-time immutable variable
+  {
+    compt(x) : i32;
+    x = 12;
+  };
+  {
+    (compt(x) : bool) = true;
+    // x = false;
+  };
+
+  // Compile-time mutable variable
+  {
+    compt(x) : i32;
+    x = 12;
+  };
+  {
+    (compt(x) : bool) = true;
+    x = false;
+  };
+
+  // Runtime immutable variable
+  {
+    (x : i32) = 12;
+    // x = 13; // error
+  };
+
+  // Runtime mutable variable
+  {
+    (x : i32) = 12;
+    x = 13;
+  };
+
+  // Compile-time immutable variable
+  {
+    x :: 12;
+    // x = 13; // error
+  };
+
+  {
+    // Compile-time mutable variable
+    x :: 12;
+    x = 13;
+  };
+
+  {
+    compt(x) : Type;
+    x = struct(x: i32, y: i32);
+  };
+};
+
+test "Test variable shadowing", {
+  {
+    (x : i32) = 12;
+    compt_expect_error(
+      x := 13 // Not allowed, because `x` already exists at the current frame.
+    );
+    assert(x == 12);
+
+    {
+      compt_expect_error(
+        x := 15 // Not allowed, because `x` already exists at upper frame.
+      );
+    };
+    assert(x == 12);
+  };
+};
+
+test "Test compt", {
+  compt_12 :: (fn() -> compt(i32))(
+    12
+  );
+
+  Point :: struct(
+    x : i32,
+    y : i32
+  );
+
+  {
+    x :: 13;
+    y := x;
+    z :: compt_12();
+    assert((y + z) == 25);
+  };
+
+  {
+    use_point :: (fn(p : Point) -> i32)
+      (p.x + p.y)
+    ;
+
+    p :: Point(compt_12(), 16);
+    assert(use_point(p) == 28);
+  };
+};
+
+test "Test destructuring", {
+  // tuple destructuring
+  {
+    t := (1, 3.4, true);
+    (t2 : Tuple(a: i32, b: f64, c: bool)) = t;
+
+    {
+      // by index
+      assert(t.0 == 1);
+      assert(t.1 == 3.4);
+      assert(t.2 == true);
+    };
+
+    {
+      // by index
+      assert(t2.0 == 1);
+      assert(t2.1 == 3.4);
+      assert(t2.2 == true);
+
+      // by label
+      assert(t2.a == 1);
+      assert(t2.b == 3.4);
+      assert(t2.c == true);
+    };
+    
+    {
+      // by order
+      (x, y, z) := t;
+      assert(x == 1);
+      assert(y == 3.4);
+      assert(z == true);
+    };
+    {
+      // by order
+      (c, b, a) := t2;
+      assert(c == 1);
+      assert(b == 3.4);
+      assert(a == true);
+    };
+    {
+      // by label
+      (c : c, b : b, a : a) := t2;
+      assert(a == 1);
+      assert(b == 3.4);
+      assert(c == true);
+    };
+
+    {
+      // by label with different names
+      (c : c1, b : b1, a : a1) := t2;
+      assert(a1 == 1);
+      assert(b1 == 3.4);
+      assert(c1 == true);
+    };
+  };
+
+  // struct destructuring
+  {
+    Point :: struct(x : i32, y : f64);
+    point := Point(3, 4.5);
+    {
+      { x, y } := point;
+      assert(x == 3);
+      assert(y == 4.5);
+    };
+    {
+      { y, x } := point;
+      assert(x == 3);
+      assert(y == 4.5);
+    };
+    {
+      _(x : a, y : b) := point;
+      assert(a == 3);
+      assert(b == 4.5);
+    };
+    {
+      { x : another_x } := point;
+      assert(another_x == 3);
+    };
+    {
+      { x : another_x, ... } := point;
+      assert(another_x == 3);
+      assert(y == 4.5);
+    };
+  };
+};
+
+test "Test type auto derive Send", {
+  compt_assert(Type.impls(i32, Send));
+  
+  Point :: struct(x : i32, y : i32);
+  compt_assert(Type.impls(Point, Send) == true);
+  
+  MyBox :: object(v : i32);
+  compt_assert(Type.impls(MyBox, Send) == false);
+  
+  GenericPoint :: (fn(compt(T) : Type) -> compt(Type))
+    struct(x : T, y : T)
+  ;
+  compt_assert(Type.impls(GenericPoint(i32), Send) == true);
+  compt_assert(Type.impls(GenericPoint(MyBox), Send) == false);
+};
+
+test "Test 'struct'", {
+  // Struct
+  {
+    Point :: struct(x: i32, y: i32);
+
+    p := Point(3, 4); // Assign compt to runtime
+    p2 :: Point(3, 4); // Assign compt to compt
+
+    runt_value := 1;
+    p3 := Point(runt_value, 4);
+
+    compt_expect_error(
+      p4 :: Point(runt_value, 4) // Assign runt to compt is not allowed
+    );
+
+    assert(p.x == 3);
+    assert(p.y == 4);
+    compt_assert(p2.x == 3);
+    compt_assert(p2.y == 4);
+    assert(p3.x == 1);
+    assert(p3.y == 4);
+  };
+  {
+    Point :: struct(x: i32, (y: i32) ?= 12);
+    p4 :: Point(14);
+    assert(p4.x == 14);
+    assert(p4.y == 12);
+  };
+  // curly brackets
+  {
+    Point :: struct(x: i32, y: bool);
+
+    p := Point(3, true);
+    (p2: Point) = _(3, true);
+    (p3: Point) = {x: 3, y: true};
+    (p4: Point) = {y: true, x: 3};
+
+    x := 1;
+    y := true;
+    (p5: Point) = {x, y}; 
+    (p6: Point) = {y, x};
+    
+    {
+      { x : another_x, y: a } := p;
+      a;
+    };
+
+    {
+      { x: a, y: b } := p;
+      a;
+      b;
+    };
+  };
+
+  // nomimal type
+  {
+    Point1 :: struct(x : i32, y : i32);
+    Point2 :: struct(x : i32, y : i32);
+
+    x := Point1(3, 4);
+    (y : Point2) = _(5, 6);
+
+    compt_expect_error(
+      (z : Point1) := (3, 4),
+      "error: type Mismatch"
+    );
+
+    Point3 :: Point1;
+
+    (z : Point2) = y;
+    (z2 : Point3) = x;
+    compt_expect_error(
+      (z3 : Point2) = x,
+      "error: type Mismatch"
+    );
+
+    assert(x.x == 3);
+    assert(x.y == 4);
+
+    assert(y.x == 5);
+    assert(y.y == 6);
+
+    assert(z.x == 5);
+    assert(z.y == 6);
+
+    assert(z2.x == 3);
+    assert(z2.y == 4);
+  };
+
+  // anonymous struct
+  {
+    p := (struct(x: i32, y: i32))(3, 4);
+    (p2: struct(x: i32, y: i32)) = _(3, 4);
+
+    assert(p.x == 3);
+    assert(p.y == 4);
+    assert(p2.x == 3);
+    assert(p2.y == 4);
+  };
+
+  // struct default field values
+  {
+    Point :: struct
+      (x: i32) ?= 0,
+      (y: i32) ?= 0
+    ;
+
+    p := Point(y: 1, x: 2);
+    p2 := Point();
+    p3 := Point(13);
+    p4 := Point(x: 2);
+    p5 := Point(y: 3);
+
+    assert(p.x == 2);
+    assert(p.y == 1);
+
+    assert(p2.x == 0);
+    assert(p2.y == 0);
+
+    assert(p3.x == 13);
+    assert(p3.y == 0);
+
+    assert(p4.x == 2);
+    assert(p4.y == 0);
+
+    assert(p5.x == 0);
+    assert(p5.y == 3);
+  };
+
+  // struct in tuple
+  {
+    { 
+      SomeStruct :: struct(x: i32, y: bool);
+      Complex :: Tuple(s: SomeStruct);
+
+      x := SomeStruct(1, true);
+      (y: SomeStruct) = _(1, false);
+
+      (c: Complex) = (_(3, true),);
+
+      assert(x.x == 1);
+      assert(x.y == true);
+      assert(y.x == 1);
+      assert(y.y == false);
+      assert(c.0.x == 3);
+      assert(c.0.y == true);
+    };
+
+    {
+      Complex :: struct(x: Tuple(i32, bool), y: i32);
+      (c: Complex) = _((3, true), 4);
+      assert(c.x.0 == 3);
+      assert(c.x.1 == true);
+      assert(c.y == 4);        
+    };
+
+    {
+      SomeStruct :: struct(x: i32, y: bool);
+      Complex0 :: Tuple(SomeStruct);
+      Complex :: Tuple(Complex0);
+
+      (c: SomeStruct) = _(3, false);
+      (c2: Complex0) = (_(3, true),);
+      (c3: Complex) = ((_(3, true),),);
+      (c4: Complex) = ((_(y: true, x: 1),),);
+
+      assert(c.x == 3);
+      assert(c.y == false);
+
+      assert(c2.0.x == 3);
+      assert(c2.0.y == true);
+
+      assert(c3.0.0.x == 3);
+      assert(c3.0.0.y == true);
+
+      assert(c4.0.0.x == 1);
+      assert(c4.0.0.y == true);
+    };
+  };
+
+  // type methods
+  {
+    Withdraw :: struct(
+      balance: i32,
+
+      withdraw :: (fn(self: *(Self), amount: i32) -> i32)(
+        cond(
+          (self.balance >= amount) => {
+            self.balance = (self.balance - amount);
+            return self.balance;
+          }, 
+          true => {
+            return 0; // insufficient balance
+          }
+        )
+      )
+    );
+
+    make_widthdraw_balance_100 :: (fn() -> Withdraw) {
+      (balance : i32) = 100;
+      return { balance };
+    };
+
+    bank := make_widthdraw_balance_100();
+    left := bank.withdraw(50);
+    left2 := bank.withdraw(30);
+    left3 := bank.withdraw(40);
+
+    assert(left == 50);
+    assert(left2 == 20);
+    assert(left3 == 0);
+  };
+};
+
+test "Test 'enum'", {
+  {
+    Color :: enum(Red, Green, Blue);
+    (r : Color) = Color.Red;
+    r2 := Color.Blue;
+
+    Shape :: enum(
+      Circle(r: i32),
+      Rectangle(w: i32, h: i32)
+    );
+    (c : Shape) = Shape.Circle(5);
+    c2 := Shape.Rectangle(h: 1, w: 2);
+  };
+
+  // Anonymous enum
+  {
+    color := (enum(Red, Green, Blue)).Red;
+    (color2 : enum(Red, Green, Blue)) = .Blue;
+
+    shape := (enum(
+      Circle(r: i32),
+      Rectangle(w: i32, h: i32)
+    )).Circle(5);
+    (shape2 : enum(
+      Circle(r: i32),
+      Rectangle(w: i32, h: i32)
+    )) = .Rectangle(h: 1, w: 2);
+  };
+
+  // Type methods
+  {
+    Shape :: enum(
+      Circle(radius: i32),
+      Rectangle(width: i32, height: i32),
+      Triangle(base: i32, height: i32),
+
+      new_circle :: (
+        (fn(radius: i32) -> Self)
+          .Circle(radius)
+      ),
+      id :: ((fn(self: Self)-> Self)
+        self
+      )
+    );
+
+    // c := Shape.new_circle(5);
+    // c2 := c.id();
+    // c2.radius = 10;
+
+    // assert(c.radius == 5);
+    // assert(c2.radius == 10);
+  };
+
+  // Nested enum
+  {
+    NestedEnum :: enum
+      Level1(
+        x: enum Level2(value: i32)
+      );
+
+    n := NestedEnum.Level1(.Level2(3));
+    (n2 : NestedEnum) = .Level1(.Level2(3));
+  };
+};
+
+test "Test 'union'", {
+  SomeUnion :: union
+    x : i32,
+    y : bool,
+
+    new :: ((fn()-> Self) Self(x : 0)) 
+  ;
+
+  v1 := SomeUnion( x : 12 );
+  v2 := SomeUnion( y : true );
+  v3 := SomeUnion.new();
+
+  {
+    a := v1.x;
+    assert(a == 12);
+
+    b := v2.y;
+    assert(b == true);
+
+    c := v3.x;
+    assert(c == 0);
+  };
+
+  {
+    { x } := v1;
+    assert(x == 12);
+    { y : z } := v1; // unsafe access
+  };
+};
+
+test "Test tuple", {
+  {
+    x :: 12;
+    t :: (x,);
+
+    runt_x := 16;
+    compt_expect_error(t2 :: (x, runt_x)); // Expected error
+
+    t3 := (x, runt_x);
+
+    compt_assert(t.0 == 12);
+    assert(t3.0 == 12);
+    assert(t3.1 == 16);
+  };
+};
+
+// TODO: Add more tests to unit type
+// We should optimize away unit value when generating C code.
+// For example, we might have unit type/value in:
+// - variable type
+// - function parameter type
+// - struct/enum/union field type
+// - Array?   QUESTION: Should we just prohibit
+// - Pointer? QUESTION: Should we just prohibit
+// etc
+test "Test unit", {
+  // unit
+  {
+    // Unit type
+    UnitType :: unit;
+    UnitType2 :: Tuple();
+
+    // Unit value
+    unit_value :: ();
+    unit_value2 := ();
+    unit_value3 := tuple();
+  };
+};
+
+test "Test raw pointer", {
+  // allocate and free
+  {
+    { GlobalAllocator } :: import "std/allocator";
+    open GlobalAllocator;
+
+    {
+      ptr := (*(i32))(malloc(sizeof(i32) * 2).unwrap());
+      ptr.* = 42;
+      (ptr &+ 1).* = 84;
+
+      assert(ptr.* == 42);
+      assert((ptr &+ 1).* == 84);
+
+      free(.Some(*(void) ptr));
+    };
+  };
+
+  // mutate pointer
+  {
+    x := 12;
+
+    // pointer
+    {
+      I32Ptr :: *(i32);
+      p : *(i32);
+      p = &(x);
+      (p2 : *(i32)) = &(x); // Create pointer
+      p3 := &(x); // Create pointer
+      q := p.*; // Dereference pointer
+
+      assert(p.* == 12);
+      assert(p2.* == 12);
+      assert(p3.* == 12);
+      assert(q == 12);
+    
+      p.* = 16;
+      assert(x == 16);
+      assert(p.* == 16);
+      assert(p2.* == 16);
+      assert(p3.* == 16);
+      assert(q == 12); // q is a copy
+    };
+  };
+
+  // void pointer
+  {
+    compt_expect_error(
+      FuncType :: 
+        fn() -> void // Cannot use DST directly in function return type
+    );
+
+    use_void_ptr :: (fn(ptr : *(void)) -> unit) {
+      compt_expect_error(
+        x := ptr.*,
+        "Cannot use DST directly"
+      );
+
+      // Dereference a void pointer is prohibited.
+      // We need to cast it to a specific type first.
+      i32_ptr := *(i32)(ptr);
+    };
+
+    mutate_void_ptr :: (fn(ptr : *(void)) -> unit) {
+      compt_expect_error(
+        x := ptr.*,
+        "Cannot use DST directly"
+      );
+      
+      i32_ptr := *(i32)(ptr);
+      i32_ptr.* = 16;
+    };
+
+    x := 12;
+    
+    use_void_ptr(*(void)(&(x)));
+    assert(x == 12);
+
+    mutate_void_ptr(*(void)(&(x)));
+    assert(x == 16);
+  };
+};
+
+test "Test 'cond'", {
+  {
+    max :: (fn(x : i32, y : i32) -> i32)
+      cond(
+        (x > y) => {
+          a := 12;
+          x
+        },
+        true => {
+          b := 13;
+          y
+        }
+      )
+    ;
+
+    x := 5;
+    y := 10;
+    assert(max(x, y) == 10);
+  };
+
+  compt_expect_error(
+    x := cond(
+      (3 > 4) => 5,
+      (5 > 6) => 6
+    ),
+    "Expect the last condition to be compile-time known \"true\"."
+  );
+
+  {
+    x := cond(
+      (3 > 4) => 5,
+      (5 > 6) => 6,
+      true => 7 // the last case expects to be always compile-time known "true"
+    );
+    assert(x == 7);
+  };
+
+  // Test 'if' macro function
+  {
+    num := 3;
+    if num < 5, then: {
+      assert(true);
+    }, else: {
+      assert(false);
+    };
+  };
+};
+
+test "Test 'match'", {
+  Color :: enum(Red, Green, Blue);
+
+  color_to_i32 :: (fn(color : Color) -> i32)
+    match(color,
+      .Red   => 0,
+      .Green => 1,
+      .Blue  => 2
+    )
+  ;
+
+  Shape :: enum(
+    Circle(r: i32),
+    Rectangle(w: i32, h: i32)
+  );
+
+  area :: (fn(shape: Shape) -> i32)(
+    match(shape,
+      .Circle(r) => (i32(3) * (r * r)),
+      .Rectangle(w, h) => (w * h)
+    )
+  );
+
+  area_2 :: (fn(shape: Shape) -> i32)(
+    match(shape,
+      .Circle(radius) => (i32(3) * (radius * radius)),
+      .Rectangle(width, height) => (width * height)
+    )
+  );
+
+  // Test labeled destructuring
+  area_with_labels :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(r : radius) =>
+        (i32(3) * (radius * radius)),
+      .Rectangle(h : height, w : width) =>
+        (height * width)
+    )
+  ;
+
+  // Test partial labeled destructuring with ignore
+  area_partial :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(_) =>
+        100,
+      .Rectangle(w : _, h : height) =>
+        height
+    )
+  ;
+
+  // Test partial destructuring
+  area_partial_2 :: (fn(shape: Shape) -> i32)
+    match(shape,
+      .Circle(_) =>
+        100,
+      .Rectangle(h : height) =>
+        height
+    )
+  ;
+
+  // Test pointer as match input
+  area_ptr :: (fn(shape_ptr: *(Shape)) -> i32)
+    match(shape_ptr, // automatic dereference
+      .Circle(r) =>
+        (i32(3) * (r * r)),
+      .Rectangle(w, h) =>
+        (w * h)
+    )
+  ;
+
+  // This should now fail - trying to use .Circle without destructuring
+  compt_expect_error(
+    invalid_area :: (fn(shape: Shape) -> i32)
+      match shape,
+        .Circle => 0,  // ERROR: Circle has fields and must be destructured
+        .Rectangle => 0  // ERROR: Rectangle has fields and must be destructured
+  );
+
+
+  c1 := Color.Red;
+  c2 := Color.Green;
+  c3 := Color.Blue;
+  assert(color_to_i32(c1) == 0);
+  assert(color_to_i32(c2) == 1);
+  assert(color_to_i32(c3) == 2);
+
+  s1 := Shape.Circle(3);
+  s2 := Shape.Rectangle(4, 5);
+  assert(area(s1) == 27);
+  assert(area(s2) == 20);
+  assert(area_2(s1) == 27);
+  assert(area_2(s2) == 20);
+  assert(area_with_labels(s1) == 27);
+  assert(area_with_labels(s2) == 20);
+  assert(area_partial(s1) == 100);
+  assert(area_partial(s2) == 5);
+  assert(area_partial_2(s1) == 100);
+  assert(area_partial_2(s2) == 5);
+  assert(area_ptr(&(s1)) == 27);
+  assert(area_ptr(&(s2)) == 20);
+};
+
+test "Test 'while'", {
+  // without step expression
+  {
+    // runtime evaluation of sum
+    sum :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i <= max, {
+        result = (result + i);
+        i = (i + 1);
+      };
+
+      return result;
+    };
+
+    // compile-time evaluation of sum
+    sum_compt :: (fn(compt(max) : i32) -> compt(i32)) {
+      result :: i32(0);
+      i :: i32(0);
+      while i <= max, {
+        result = (result + i);
+        i = (i + 1);
+      };
+      return result;
+    };
+
+    x :: sum_compt(10);
+    compt_assert(x == 55);
+
+    y := sum(10);
+    assert(y == 55);
+  };
+
+  // with step expression
+  {
+    sum :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i <= max, i = (i + 1), {
+        result = (result + i);
+        continue;
+      };
+
+      return result;
+    };
+
+    // compile-time evaluation of sum
+    sum_compt :: (fn(compt(max) : i32) -> compt(i32)) {
+      result :: i32(0);
+      i :: i32(0);
+      while i <= max, i = (i + 1), {
+        result = (result + i);
+        continue;
+      };
+      return result;
+    };
+
+    x :: sum_compt(10);
+    compt_assert(x == 55);
+
+    y := sum(10);
+    assert(y == 55);
+  };
+
+  // multiple steps in while
+  {
+    test_multi_steps :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      j := i32(0);
+      
+      while i < max, begin(i = (i + 1), j = (j + 2)), {
+        result = ((result + i) + j);
+      };
+
+      return result;
+    };
+
+    result := test_multi_steps(5);
+    assert(result == 30);
+  };
+
+  // multiple tests
+  {
+    // Test 1: continue statement - skip even numbers
+    sum_odd :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i < max, {
+        i = (i + 1);
+        cond(
+          ((i % 2) == 0) => continue, 
+          true => {
+            result = (result + i);
+          }
+        );
+      };
+      return result;
+    };
+
+    // Test 2: break statement - stop at first number > 5
+    find_first_greater_than_five :: (fn(max : i32) -> i32) {
+      result := -(1);
+      i := i32(0);
+      while i < max, {
+        i = (i + 1);
+        cond(
+          (i > 5) => {
+            result = i;
+            break;
+          }, 
+          true => () // continue loop
+        );
+      };
+      return result;
+    };
+
+    // Test 3: return statement - early return when condition met
+    search_value :: (fn(target : i32, max : i32) -> i32) {
+      i := i32(0);
+      while i < max, {
+        i = (i + 1);
+        cond(
+          (i == target) => { 
+            return(i); 
+          }, 
+          true => () // continue loop
+        );
+      };
+      return -(1); // not found
+    };
+
+    // Test 4: while loop with step and continue
+    sum_with_step :: (fn(max : i32) -> i32) {
+      result := 0;
+      i := i32(0);
+      while i < max, i = (i + 1), {
+        cond(
+          ((i % 3) == 0) => continue,
+          true => {
+            result = (result + i);
+          }
+        );
+      };
+      return result;
+    };
+
+    assert(sum_odd(10) == 25); // 1 + 3 + 5 + 7 + 9 = 25
+    assert(find_first_greater_than_five(20) == 6);
+    assert(search_value(7, 10) == 7);
+    assert(search_value(15, 10) == -1);
+    assert(sum_with_step(10) == 27); // 1 + 2 + 4 + 5 + 7 + 8 = 27
+  };
+};
+
+test "Test control flows", {
+  (compt(LinearI32) : Type) = i32;
+
+  some_condition :: (fn() -> bool) 
+    true
+  ;
+
+  test_while_drop :: (fn() -> i32) {
+    (x : LinearI32) = 42;
+
+    compt_expect_error(
+      while some_condition(), {
+        drop(x);
+      },
+      "Shouldn't allow to drop x multiple times"
+    );
+
+    0
+  };
+
+  test_while_drop_with_break_nested :: (fn() -> i32) {
+    (x : LinearI32) = 42;
+
+    while some_condition(), {
+      ___drop(x); // allowed, because the `cond` expr below always break.
+      cond
+        some_condition() => break,
+        true => break
+      ;
+    };
+
+    0
+  };
+
+  test_while_drop_with_return_nested :: (fn() -> i32) {
+    (x : LinearI32) = 42;
+
+    while some_condition(), {
+      ___drop(x); // allowed, because the `cond` expr below always returns.
+      cond(
+        some_condition() => {
+          return 0;
+        },
+        true => {
+          return 12;
+        }
+      );
+    };
+
+    0
+  };
+
+  test_while_drop_with_continue_nested :: (fn() -> i32) {
+    (x : LinearI32) = 42;
+
+    compt_expect_error(
+      while some_condition(), {
+        drop(x);
+        cond
+          some_condition() => continue,
+          true => continue;
+      },
+      "Shouldn't allow to drop x multiple times"
+    );
+
+    0
+  };
+
+  test_while_drop_with_mixed :: (fn() -> i32) {
+    (x : LinearI32) = 42;
+    compt_expect_error(
+      while some_condition(), {
+        drop(x); // should give error
+        cond
+          some_condition() => break,
+          some_condition() => {
+            return 0;
+          },
+          true => continue;
+      },
+      "Shouldn't allow to drop x multiple times"
+    );
+
+    0
+  };
+
+  test_while_with_mixed_2 :: (fn() -> i32) {
+    while some_condition(), {
+      a := cond
+        some_condition() => break,
+        some_condition() => {
+          return 0;
+        },
+        some_condition() => true,
+        true => continue
+      ;
+    };
+
+    0
+  };
+
+  test_while_drop_with_mixed_2 :: (fn() -> i32) {
+    (x : LinearI32) = 42;
+    compt_expect_error(
+      while some_condition(), {
+        a := cond
+          some_condition() => break,
+          some_condition() => {
+            return 0;
+          },
+          some_condition() => true,
+          true => continue
+        ;
+
+        drop(x);
+      }, 
+      "Shouldn't allow to drop x multiple times"
+    );
+
+    0
+  };
+
+
+  // Test 1: Break in while loop
+  test_while_with_break :: (fn(flag: bool) -> i32) {
+    (x : LinearI32) = 42;
+    while flag, 
+      cond
+        some_condition() => {
+          ___drop(x);
+          break;
+        },
+        true => ()
+    ;
+    return 12;
+  };
+
+  // Test 2: Continue in while loop  
+  test_while_with_continue :: (fn(flag: bool) -> i32) {
+    while flag, 
+      cond
+        some_condition() => {
+          continue;
+        },
+        true => {
+          break;
+        }
+    ;
+    return 15;
+  };
+
+  // Test 3: Return in while loop
+  test_while_with_return :: (fn(flag: bool) -> i32) {
+    (x : LinearI32) = 42;
+    while flag,
+      cond
+        some_condition() => {
+          ___drop(x);
+          return 16;
+        },
+        true => ()
+    ;
+    return 12;
+  };
+
+  // Test 4: All cases break
+  test_cond_all_break :: (fn(flag: bool) -> i32) {
+    while flag,
+      cond
+        false => { break; },
+        true => { break; }
+    ;
+    return 20;
+  };
+
+  // Test 5: All cases continue
+  test_cond_all_continue :: (fn(flag: bool) -> i32) {
+    while flag,
+      cond
+        false => { continue; },
+        true => { continue; }
+    ;
+    return 25;
+  };
+
+  // Test 6: Mixed cases with one normal return
+  test_cond_mixed :: (fn(flag: bool) -> i32)
+    cond
+      some_condition() => { return 30; },
+      true => 35
+  ;
+
+  // Test enum for match expressions
+  (compt(Shape): Type) = enum(Circle, Square);
+
+  // Test 7: Match with all break cases
+  test_match_all_break :: (fn(shape: Shape) -> i32) {
+    while some_condition(),
+      match shape,
+        .Circle => { break; },
+        .Square => { break; }
+    ;
+    return 40;
+  };
+
+  // Test 8: Match with all continue cases  
+  test_match_all_continue :: (fn(shape: Shape) -> i32) {
+    while some_condition(),
+      match shape,
+        .Circle => { continue; },
+        .Square => { continue; }
+    ;
+    return 45;
+  };
+
+  // Test 9: Match with all return cases
+  test_match_all_return :: (fn(shape: Shape) -> i32)
+    match shape,
+      .Circle => { return 50; },
+      .Square => { return 55; }
+  ;
+
+  // ===========================================
+  // NESTED CONTROL STRUCTURES TESTS
+  // ===========================================
+
+  // Test 10: Nested cond inside while
+  test_nested_cond_in_while :: (fn(flag: bool) -> i32) {
+    (x : LinearI32) = 42;
+    while flag,
+      cond
+        some_condition() => {
+          cond
+            some_condition() => {
+              ___drop(x);
+              break;
+            },
+            true => continue
+          ;
+        },
+        true => break
+    ;
+    return 60;
+  };
+
+  // Test 11: Nested while inside cond - fixed version
+  test_nested_while_in_cond :: (fn(flag: bool) -> i32) {
+    (result: i32) = cond
+      some_condition() => {
+        while some_condition(), {
+          break;
+        };
+        10  // This ensures the branch returns i32
+      },
+      true => 20
+    ;
+    return result;
+  };
+
+  // Test 12: Nested match inside while
+  test_nested_match_in_while :: (fn(flag: bool, shape: Shape) -> i32) {
+    while flag,
+      match shape,
+        .Circle => {
+          cond
+            some_condition() => break,
+            true => continue
+          ;
+        },
+        .Square => break
+    ;
+    return 70;
+  };
+
+  // ===========================================
+  // VALUE-RETURNING CONTROL STRUCTURES TESTS
+  // ===========================================
+
+  // Test 13: Cond returning values assigned to variable
+  test_cond_value_assignment :: (fn(flag: bool) -> i32) {
+    (result: i32) = cond
+      some_condition() => 100,
+      true => 200
+    ;
+    return result;
+  };
+
+  // Test 14: Match returning values assigned to variable
+  test_match_value_assignment :: (fn(shape: Shape) -> i32) {
+    (result: i32) = match shape,
+      .Circle => 300,
+      .Square => 400
+    ;
+    return result;
+  };
+
+  // Test 15: Nested cond with values only (no early returns)
+  test_nested_cond_mixed :: (fn(flag: bool) -> i32) {
+    (result: i32) = cond(
+      some_condition() => cond(
+        some_condition() => 500,
+        true => 600
+      ),
+      true => 700
+    );
+    return result;
+  };
+
+  // Test 16: Complex nested structure with linear values
+  test_complex_nested :: (fn(flag: bool, shape: Shape) -> i32) {
+    (x : LinearI32) = 42;
+    (y : LinearI32) = 24;
+    
+    while flag, {
+      (choice: i32) = cond(
+        some_condition() => 1,
+        true => 2
+      );
+      
+      cond(
+        (choice == 1) => {
+          match(shape,
+            .Circle => {
+              ___drop(x);
+              break;
+            },
+            .Square => {
+              // drop(y) here should give error
+              continue;
+            }
+          );
+        },
+        true => {
+          break;
+        }
+      );
+    };
+    
+    return 800;
+  };
+
+  // Test 17: Multiple assignment with control flow
+  test_multiple_assignment :: (fn(flag: bool) -> i32) {
+    (a: i32) = cond
+      some_condition() => 10,
+      true => 20
+    ;
+    
+    (b: i32) = cond
+      flag => {
+        return a + 100;  // Early return
+      },
+      true => 30
+    ;
+    
+    return a + b;
+  };
+
+  // === ERROR TEST CASES ===
+
+  // Test: Break outside of loop should fail
+  test_break_outside_loop :: (fn() -> unit) 
+    compt_expect_error({
+      break;
+    })
+  ;
+
+  // Test: Continue outside of loop should fail  
+  test_continue_outside_loop :: (fn() -> unit)
+    compt_expect_error({
+      continue;
+    })
+  ;
+
+  // NOTE: Mixed control flows are now allowed in cond/match expressions
+  // Test: Mixed control flows in cond should work
+  test_mixed_control_flows :: (fn(flag: bool) -> i32) {
+    while flag,
+      cond(
+        some_condition() => {
+          break;
+        },
+        some_condition() => {
+          continue;  // Mixed break and continue is allowed
+        },
+        true => ()
+      )
+    ;
+    return 1;
+  };
+
+  // Test: Break in function (not in loop) should fail
+  test_break_in_function :: (fn() -> unit)
+    compt_expect_error({
+      cond(
+        some_condition() => {
+          break;  // Break outside loop context should fail
+        },
+        true => ()
+      );
+    })
+  ;
+
+  // Test: Continue in function (not in loop) should fail
+  test_continue_in_function :: (fn() -> unit)
+    compt_expect_error({
+      cond(
+        some_condition() => {
+          continue;  // Continue outside loop context should fail
+        },
+        true => ()
+      );
+    })
+  ;
+};
+
+test "Test destructuring by ... spread operator", {
+  SomeModule :: impl {
+    id :: (fn(x: i32)-> i32) x;
+    implicit_id :: (fn(x: i32)-> i32) x;
+    x :: 1;
+    y :: 2;
+    export id, implicit_id, x, y;
+  };
+
+  {
+    // Use ... to destructure all exports
+    { ... } :: SomeModule;
+    v := id(3);
+
+
+    Point :: struct(a: i32, b: i32);
+    p :: Point(3, 4);
+    { ... } :: p;
+    x2 := id(a);
+  };
+
+  {
+    // Use ...(given) to destructure all implicits // NOTE: "given" is no longer supported
+    open SomeModule;
+    
+    implicit_id(3);
+    id(3);
+  };
+};
+
+test "Test extending modules by ... spread operator", {
+  ModuleA :: impl {
+    a :: 1;
+    b :: 2;
+    export a, b;
+  };
+
+  ModuleB :: impl {
+    c :: 3;
+    export ...(ModuleA), c;
+  };
+
+  ModuleC :: impl {
+    d :: 4;
+    export ...(ModuleB), d;
+  };
+
+  {
+    open ModuleC;
+
+    assert(a == 1);
+    assert(b == 2);
+    assert(c == 3);
+    assert(d == 4);
+  };
+};
+
+test "Test 'open' statements", {
+  // Open a compt struct
+  {
+    anony :: { x : 12, y : 13 };
+    open anony;
+    compt_assert(x == 12);
+    compt_assert(y == 13);
+  };
+
+  // Open a runtime struct
+  {
+    anony := { x : 12, y : 13 };
+    open anony;
+    assert(x == 12);
+    assert(y == 13);
+  };
+
+  // Open a runtime anonymous struct with more fields
+  {
+    point := { x : i32(5), y : i32(10), z : i32(15) };
+    open point;
+    sum := ((x + y) + z);
+    assert(sum == i32(30));
+  };
+
+  // Open inside a function
+  {
+    Point :: struct(x: i32, y: i32);
+    calculate :: (fn(p : Point) -> i32) {
+      open p;
+      (x + y)
+    };
+
+    result := calculate(Point(7, 3));
+    assert(result == i32(10));
+  };
+
+  // Open a module
+  {
+    my_module :: impl {
+      x :: 6;
+      y :: 2;
+      export x, y;
+    };
+    open my_module;
+    
+    compt_assert(x == 6);
+    compt_assert(y == 2);
+
+    assert(x == 6);
+    assert(y == 2);
+  };
+};
+
+test "Test 'Impl'", {
+  {
+    Id :: module(
+      id : (fn(self : Self) -> Self)
+    );
+
+    ImplId :: Impl(Id);
+
+    test1 :: (fn(x : ImplId) -> ImplId) {
+      y := (typeof(x) <: Id).id(x);
+      return y.id();
+    };
+    // TODO: add assertions
+  };
+
+  {
+    Id :: module(
+      id : (fn(self : Self) -> Self)
+    );
+
+    test1 :: (fn(forall(T := Impl(Id)), x : T) -> T) {
+      y := (typeof(x) <: Id).id(x);
+      return y.id();
+    };
+
+    test2 :: (fn(compt(T) := Impl(Id), x : T) -> T) {
+      y := (typeof(x) <: Id).id(x);
+      return y.id();
+    };
+  };
+};

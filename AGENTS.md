@@ -7,9 +7,9 @@ You are a programming language and compiler expert.
 To test the Yo evaluator, you can run the command `bun test src/tests/fixme.test.ts` to test the `fixme.yo` file which contains the Yo language code.  
 Usually don't modify the `fixme.yo` unless I tell you to do so.
 
-Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so. 
+Do not create new `.yo` or `.js` or `.ts` files unless I tell you to do so.
 
-You can comment out the existing code in `src/tests/examples/fixme.yo` and create new one there. But don't create `.yo` file for testing.  
+You can comment out the existing code in `src/tests/fixme.yo` and create new one there. But don't create `.yo` file for testing.
 
 Do not use `npm` command, only use `bun` command.
 
@@ -17,9 +17,9 @@ Never hardcode any typescript or yo when you are trying to solve a problem.
 
 Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
-To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/examples/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/examples/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
+To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
-Or you can run `./yo-cli compile src/tests/examples/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
+Or you can run `./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
 
 For debugging running command, always use `| head` or `| tail` to limit the output.
 
@@ -32,14 +32,15 @@ For debugging running command, always use `| head` or `| tail` to limit the outp
 
 - `--sanitize address` - Enable AddressSanitizer for memory error and leak detection
 - `--sanitize leak` - Enable LeakSanitizer for leak detection only
-- Example: `./yo-cli compile src/tests/examples/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
+- Example: `./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
 
 **Running Tests:**
 
-- `./yo-cli test` - Run all \*.test.yo files
+- `./yo-cli test` - Run all \*.test.yo files, but don't do this as it takes long time to run.
 - `./yo-cli test path/to/file.yo` - Run tests in a specific file
 - `--bail` or `-b` - Stop immediately after first test failure
 - `-v` or `--verbose` - Show detailed error messages
+- `--test-name-pattern "Test XXX"` to run a specific test
 - Tests automatically use AddressSanitizer for memory leak detection
 
 Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
@@ -67,6 +68,7 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
      ```
 
 2. **Always write `cond(...)` and `match(...)` with parentheses:**
+
    - `cond(...)` - NOT `cond ...`
    - `match(...)` - NOT `match ...`
    - The parentheses are **required** and must not be omitted.
@@ -78,8 +80,6 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
 Ignore the `DESIGN.md` and other markdown files because they are out of date.
-
-Ignore the Yo files in `src/tests/examples/` except `fixme.yo`. They are all out of date.  
 
 No need to read fixme.test.ts
 
@@ -136,7 +136,6 @@ While implementing the evaluate or codegen, no shortcuts or simplcations!
    - Always write `cond(condition => result, true => default)`
    - Parentheses are required around `cond(...)`
 
-
 The `begin.ts` performs the reference counting optimization that cancels out the dup/drop pairs when possible.
 
 If you meet error like:
@@ -163,3 +162,6 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
   Box(V)(value)
 ;
 ```
+
+`UnknownValue` in Yo is a compile-time value, not runtime value.
+It's just we only know its type but not real value.

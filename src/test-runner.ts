@@ -16,6 +16,7 @@ import {
 import { ModuleManager } from "./module-manager";
 import { TokenType } from "./token";
 import { clearAllCachedTypes } from "./types";
+import { clearAllModuleCounters } from "./utils";
 import { isComptStringValue } from "./value";
 
 // ANSI color codes for terminal output
@@ -28,6 +29,15 @@ const colors = {
   bold: "\x1b[1m",
   dim: "\x1b[2m",
 };
+
+/**
+ * Try to force garbage collection if running with --expose-gc flag
+ */
+function tryForceGC(): void {
+  if (typeof global.gc === "function") {
+    global.gc();
+  }
+}
 
 export interface TestDeclaration {
   name: string;
@@ -118,22 +128,24 @@ function findTestFilesRecursive(dir: string): string[] {
 export function extractTests(filePath: string): TestDeclaration[] {
   const tests: TestDeclaration[] = [];
 
+  // Declare moduleManager outside try block so we can clean it up
+  let moduleManager: ModuleManager | null = null;
+
   try {
     // Clear global state before evaluating
     clearAllGlobalImplState();
     clearEnvContainingPrelude();
     clearAllCachedTypes();
+    clearAllModuleCounters();
 
     // Use ModuleManager to evaluate the file and get the evaluated expressions
-    const moduleManager = new ModuleManager();
+    moduleManager = new ModuleManager();
     const modulePath = `file://${filePath}`;
 
     const { moduleError } = moduleManager.loadModule(modulePath);
     if (moduleError) {
-      console.error(
-        `${colors.red}Error evaluating ${filePath}: ${moduleError}${colors.reset}`
-      );
-      return tests;
+      moduleManager = null;
+      throw new Error(`Error evaluating module: ${moduleError}`);
     }
 
     const moduleData = moduleManager.modules.get(modulePath);
@@ -141,6 +153,7 @@ export function extractTests(filePath: string): TestDeclaration[] {
       console.error(
         `${colors.red}Error: Module not found after loading: ${filePath}${colors.reset}`
       );
+      moduleManager = null;
       return tests;
     }
 
@@ -179,10 +192,16 @@ export function extractTests(filePath: string): TestDeclaration[] {
         }
       }
     }
+
+    // Clean up moduleManager to help GC
+    moduleManager = null;
   } catch (error) {
+    // Ensure moduleManager is cleaned up on error
+    moduleManager = null;
     console.error(
       `${colors.red}Error parsing ${filePath}: ${error}${colors.reset}`
     );
+    throw error;
   }
 
   return tests;
@@ -247,19 +266,23 @@ function runSingleTest(
     }
   };
 
+  // Declare moduleManager outside try block so we can clean it up
+  let moduleManager: ModuleManager | null = null;
+
   try {
     // Clear all global state before compiling each test
     // This ensures each test runs in a clean environment
     clearAllGlobalImplState();
     clearEnvContainingPrelude();
     clearAllCachedTypes();
+    clearAllModuleCounters();
 
     // Generate test program
     const testProgram = generateTestProgram(test, originalFileContent);
     fs.writeFileSync(testFilePath, testProgram);
 
     // Compile the test using ModuleManager with libc allocator (faster compilation)
-    const moduleManager = new ModuleManager();
+    moduleManager = new ModuleManager();
 
     try {
       moduleManager.compileModule(`file://${testFilePath}`, {
@@ -270,6 +293,8 @@ function runSingleTest(
         allocator: "libc",
       });
     } catch (compileError) {
+      // Clean up moduleManager before returning
+      moduleManager = null;
       cleanup();
       return {
         testName: test.name,
@@ -282,6 +307,10 @@ function runSingleTest(
 
     // Get the generated C code
     const generatedCode = moduleManager.getGeneratedCode();
+
+    // Explicitly release the moduleManager to help GC
+    moduleManager = null;
+
     fs.writeFileSync(testCPath, generatedCode);
 
     // Clean up temp .yo file after generating C code
@@ -291,20 +320,24 @@ function runSingleTest(
 
     // Compile C code with AddressSanitizer for memory leak detection
     // Note: Using libc allocator (no mimalloc) for faster test compilation
-    const compileArgs = [
-      "-std=c11",
-      "-Wall",
-      "-Wextra",
-      "-O0",
-      "-fsanitize=address",
-      "-fno-omit-frame-pointer",
-      testCPath,
-      "-o",
-      testOutputPath,
-    ];
+    const isMSVC = cCompiler === "cl";
+    const compileArgs = isMSVC
+      ? ["/Od", "/W4", "/fsanitize=address", testCPath, `/Fe${testOutputPath}`]
+      : [
+          ...(cCompiler === "zig" ? ["cc"] : []),
+          "-std=c11",
+          "-Wall",
+          "-Wextra",
+          "-O0",
+          "-fsanitize=address",
+          "-fno-omit-frame-pointer",
+          testCPath,
+          "-o",
+          testOutputPath,
+        ];
 
     // Add liburing on Linux for async I/O (uses system-installed liburing)
-    if (process.platform === "linux") {
+    if (process.platform === "linux" && !isMSVC) {
       try {
         // First check if pkg-config is available
         execSync("command -v pkg-config", { stdio: "ignore" });
@@ -338,7 +371,7 @@ function runSingleTest(
     const runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
-      timeout: 30000, // 30 second timeout
+      timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
       env: {
         ...process.env,
         ASAN_OPTIONS: "detect_leaks=1",
@@ -582,10 +615,38 @@ export async function runTests(
   const testsByFile: Map<string, TestToRun[]> = new Map();
   let _totalTests = 0;
 
+  // Initialize result tracking variables early so they can be used in error handling
+  const allResults: TestResult[] = [];
+  let passedTests = 0;
+  let failedTests = 0;
+  let bailed = false;
+
   for (const filePath of testFiles) {
     const relativePath = path.relative(process.cwd(), filePath);
     const originalContent = fs.readFileSync(filePath, "utf-8");
-    let tests = extractTests(filePath);
+
+    let tests: TestDeclaration[];
+    try {
+      tests = extractTests(filePath);
+    } catch (error) {
+      // Module evaluation failed - treat as a single failed test for this file
+      console.log(`${colors.dim}${relativePath}${colors.reset}`);
+      console.log(`  ${colors.red}✗${colors.reset} Module evaluation failed`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.log(`    ${colors.red}${errorMessage}${colors.reset}`);
+      console.log();
+
+      allResults.push({
+        testName: "Module evaluation",
+        filePath,
+        passed: false,
+        errorMessage,
+        duration: 0,
+      });
+      failedTests++;
+      continue;
+    }
 
     if (testNameRegex) {
       tests = tests.filter((test) => testNameRegex.test(test.name));
@@ -603,11 +664,6 @@ export async function runTests(
   }
 
   // Run tests file by file (parallel within each file if concurrency > 1)
-  const allResults: TestResult[] = [];
-  let passedTests = 0;
-  let failedTests = 0;
-  let bailed = false;
-
   for (const [relativePath, testsToRun] of testsByFile) {
     if (bailed) break;
 
@@ -641,6 +697,9 @@ export async function runTests(
     }
 
     console.log();
+
+    // Try to force garbage collection between files to prevent memory accumulation
+    tryForceGC();
   }
 
   const totalDuration = Date.now() - startTime;

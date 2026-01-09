@@ -1,0 +1,14 @@
+- struct can only hold runtime fields, while module can hold both runtime and compile-time fields.
+- module value can only be assigned to compt variable, while struct value can be assigned to both compt and runtime variables.
+
+- Why do we need to differentiate between struct and module. For example:
+
+Point :: struct(x: i32, y: i32);
+p :: Point(1, 2); // p has comptime fields x == 1, y == 2;
+
+mut(x) := 12; // x is runtime variable
+p :: Point(x, 2); // should give error because Point(x, 2) is a runtime value, and cannot be assigned to compt variable p.
+
+// But this case should be allowed to module:
+mut(x) := 12;
+m :: SomeModule(x: x); // module can take runtime values as fields, and can be assigned to compt variable m.

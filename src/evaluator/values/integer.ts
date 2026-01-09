@@ -67,7 +67,31 @@ export function evaluateIntegerLiteral(
       // QUESTION: Should we throw error here?
     }
 
-    const integerValue = parseInt(numberValue, radix);
+    // For 64-bit types, use BigInt; for smaller types, use number
+    const is64Bit =
+      valueTag === ValueTag.U64 ||
+      valueTag === ValueTag.I64 ||
+      valueTag === ValueTag.Usize ||
+      valueTag === ValueTag.Isize;
+
+    let integerValue: number | bigint;
+    if (is64Bit || valueTag === ValueTag.ComptInt) {
+      // Parse as BigInt for 64-bit types and compt_int to preserve precision
+      // For non-decimal radixes, prepend the appropriate prefix
+      if (radix === 16) {
+        integerValue = BigInt("0x" + numberValue);
+      } else if (radix === 8) {
+        integerValue = BigInt("0o" + numberValue);
+      } else if (radix === 2) {
+        integerValue = BigInt("0b" + numberValue);
+      } else {
+        integerValue = BigInt(numberValue);
+      }
+    } else {
+      // Parse as number for smaller types
+      integerValue = parseInt(numberValue, radix);
+    }
+
     const value = createNumberValue(valueTag, integerValue);
     expr.$ = {
       env,
