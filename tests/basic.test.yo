@@ -1524,6 +1524,26 @@ test "Test 'open' statements", {
     assert(y == 13);
   };
 
+  // Open a runtime anonymous struct with more fields
+  {
+    point := { x : i32(5), y : i32(10), z : i32(15) };
+    open point;
+    sum := ((x + y) + z);
+    assert(sum == i32(30));
+  };
+
+  // Open inside a function
+  {
+    Point :: struct(x: i32, y: i32);
+    calculate :: (fn(p : Point) -> i32) {
+      open p;
+      (x + y)
+    };
+
+    result := calculate(Point(7, 3));
+    assert(result == i32(10));
+  };
+
   // Open a module
   {
     my_module :: impl {
