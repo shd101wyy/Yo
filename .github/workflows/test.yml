@@ -36,7 +36,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '20'
+        node-version: '24'
         registry-url: 'https://registry.npmjs.org'
 
     - name: Install dependencies
@@ -62,6 +62,5 @@ jobs:
         registryUrl: https://marketplace.visualstudio.com
 
     - name: Run tests
-      run: ./yo-cli test ./tests --verbose
-      env:
-        BUN_HEAP_SIZE: "4096"
+      # run: ./yo-cli test ./tests --verbose
+      run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --verbose --parallel 1

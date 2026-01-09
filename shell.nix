@@ -12,6 +12,7 @@ mkShell rec {
   ];
   buildInputs = [
     bun
+    nodejs_24
     # python3
     # llvmPackages_14.llvm
     clang
