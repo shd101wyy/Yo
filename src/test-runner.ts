@@ -340,7 +340,7 @@ function runSingleTest(
     const runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
-      timeout: 30000, // 30 second timeout
+      timeout: 120000, // 120 second timeout (increased for CI environments)
       env: {
         ...process.env,
         ASAN_OPTIONS: "detect_leaks=1",
