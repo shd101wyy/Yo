@@ -1,9 +1,7 @@
-main :: (fn() -> unit) {
-  // Test with compile-time variable and anonymous function - should infer types automatically
-  compt(id) : (fn(forall(T : Type), x : T) -> T);
-  id = ((a) -> a);
-  
-  x := id(true);
-};
+x :: quote(2);
 
-export main;
+l1 :: quote((1, unquote(x), 3));
+compt_print(l1); // prints (1, 2, 3)
+
+l2 :: quote((0, unquote_splicing(l1.get_args()), 4));
+compt_print(l2); // prints (0, 1, 2, 3, 4)

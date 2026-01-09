@@ -1,6 +1,6 @@
 # Yo
 
-`Work in Progress`, NOT READY FOR PRODUCTION USE.
+**Work in Progress. Not Ready!**
 
 A multi-paradigm, general-purpose, compiled programming language.
 Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
@@ -11,7 +11,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 - First-class types.
 - Compile-time evaluation.
-- Homoiconicity and metaprogramming (**Yo** is just a combination of **Lisp** and **C**).
+- Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression).
 - Closure.
 - [Async/await](./docs/ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking).
 - `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/CYCLE_COLLECTION.md).
@@ -29,11 +29,33 @@ For design of the language, please refer to the [DESIGN.md](./docs/DESIGN.md).
 The `Yo` language is currently distributed as an `npm` package:
 
 ```bash
-$ npm install -g @shd101wyy/yo # Install yo compiler globally
+$ npm install -g @shd101wyy/yo         # Install yo compiler globally
+$ yarn global add @shd101wyy/yo        # Or using yarn
+$ pnpm add -g @shd101wyy/yo            # Or using pnpm
+$ bun install --global @shd101wyy/yo   # Or using bun
 ```
 
 It exposes the `yo` command in your terminal.
+
 There is also an alias `yo-cli` for `yo` command in case of naming conflicts.
+
+Run `yo --help` or `yo-cli --help` to see available commands.
+
+## Code examples
+
+Check the `./tests` and `./std` folders for code examples.
+
+### Hello World
+
+```typescript
+open import "std/libc/stdio";
+
+main :: (fn() -> unit) {
+  printf("Hello, World!\n");
+};
+
+export main;
+```
 
 ## Development
 
@@ -68,11 +90,10 @@ Test some local yo-cli:
 
 ```bash
 $ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
+
+# There is also a `yo-cli` script in the project root for testing:
+$ ./yo-cli compile src/tests/examples/fixme.yo
 ```
-
-## Code examples
-
-Check the `./tests` folder for code examples and test cases.
 
 ## Editor support
 

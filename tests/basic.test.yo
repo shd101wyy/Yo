@@ -769,12 +769,24 @@ test "Test 'cond'", {
     "Expect the last condition to be compile-time known \"true\"."
   );
 
-  x := cond(
-    (3 > 4) => 5,
-    (5 > 6) => 6,
-    true => 7 // the last case expects to be always compile-time known "true"
-  );
-  assert(x == 7);
+  {
+    x := cond(
+      (3 > 4) => 5,
+      (5 > 6) => 6,
+      true => 7 // the last case expects to be always compile-time known "true"
+    );
+    assert(x == 7);
+  };
+
+  // Test 'if' macro function
+  {
+    num := 3;
+    if num < 5, then: {
+      assert(true);
+    }, else: {
+      assert(false);
+    };
+  };
 };
 
 test "Test 'match'", {
