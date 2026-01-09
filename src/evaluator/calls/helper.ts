@@ -508,9 +508,13 @@ export function tryToCallFunctionWithArguments({
     // (e.g., when method is looked up from a concrete receiver type)
     if (functionValue.specializedType) {
       functionType = functionValue.specializedType;
+    } else {
+      // Because it might be an anonymous function
+      // the parameter names are different from the function type that it's implementing
+      // We need to use the functionValue.type to get the correct parameter names
+      // so that the function body can reference them correctly.
+      functionType = functionValue.type;
     }
-    // Because it might be an anonymous function
-    // the parameter names are different from the function type that it's implementing
   }
 
   let forallArgsExpr: FuncCallExpr | undefined = undefined;
