@@ -68,6 +68,30 @@ yo --version                     Show version number
     demandOption: false,
     default: "c",
   })
+  .option("I", {
+    alias: "include-path",
+    describe:
+      "Add directory to include search path (like gcc -I). Can be specified multiple times.",
+    type: "array",
+    demandOption: false,
+    default: [],
+  })
+  .option("L", {
+    alias: "library-path",
+    describe:
+      "Add directory to library search path (like gcc -L). Can be specified multiple times.",
+    type: "array",
+    demandOption: false,
+    default: [],
+  })
+  .option("l", {
+    alias: "library",
+    describe:
+      "Link against library (like gcc -l). Can be specified multiple times. Example: -l m",
+    type: "array",
+    demandOption: false,
+    default: [],
+  })
   .option("emit-c", {
     describe: "Print C code generated.",
     type: "boolean",
@@ -173,6 +197,9 @@ yo --version                     Show version number
         cCompiler,
         target: argv.t as "c",
         extern: (argv.extern ?? []) as string[],
+        includePaths: (argv.I ?? []) as string[],
+        libraryPaths: (argv.L ?? []) as string[],
+        libraries: (argv.l ?? []) as string[],
         emitC: argv.emitC,
         skipCodegen: argv.skipCodegen,
         skipCCompiler: argv.skipCCompiler,

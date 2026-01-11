@@ -30,6 +30,18 @@ export class CodeGenerator {
        */
       extern: string[];
       /**
+       * Include paths for header files (like gcc -I).
+       */
+      includePaths?: string[];
+      /**
+       * Library search paths (like gcc -L).
+       */
+      libraryPaths?: string[];
+      /**
+       * Libraries to link against (like gcc -l).
+       */
+      libraries?: string[];
+      /**
        * Print C code generated.
        */
       emitC?: boolean;
@@ -175,6 +187,35 @@ export class CodeGenerator {
             console.warn(
               `External file ${externFile} does not exist and will be ignored`
             );
+          }
+        });
+
+        // Add include paths from -I option
+        const includePaths = options.includePaths ?? [];
+        includePaths.forEach((includePath) => {
+          const includeFlag = isMSVC ? `/I${includePath}` : `-I${includePath}`;
+          compileArgs.splice(isMSVC ? -1 : -2, 0, includeFlag);
+        });
+
+        // Add library search paths from -L option
+        const libraryPaths = options.libraryPaths ?? [];
+        libraryPaths.forEach((libraryPath) => {
+          if (isMSVC) {
+            // MSVC uses /LIBPATH:
+            compileArgs.splice(-1, 0, `/LIBPATH:${libraryPath}`);
+          } else {
+            compileArgs.splice(-2, 0, `-L${libraryPath}`);
+          }
+        });
+
+        // Add libraries from -l option
+        const libraries = options.libraries ?? [];
+        libraries.forEach((library) => {
+          if (isMSVC) {
+            // MSVC uses library.lib format
+            compileArgs.splice(-1, 0, `${library}.lib`);
+          } else {
+            compileArgs.splice(-2, 0, `-l${library}`);
           }
         });
 
