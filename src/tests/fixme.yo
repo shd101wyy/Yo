@@ -1,9 +1,16 @@
-factorial :: (fn(compt(n) : compt_int) -> compt(compt_int))
-  cond(
-    (n <= 1) => 1,
-    true => (n * recur(n - 1))
-  )
-;
+// Test using std/libc/math.yo with -lm flag
+{ sin, cos, sqrt, M_PI } :: import "std/libc/math";
+open import "std/libc/stdio";
 
-result :: factorial(5);
+main :: (fn() -> unit)({
+  angle := M_PI;
+  s := sin(angle);
+  c := cos(angle);
+  root := sqrt(4.0);
+  printf("sin(π) = %f\n", s);
+  printf("cos(π) = %f\n", c);
+  printf("sqrt(4) = %f\n", root);
+  // sin(π) ≈ 0, cos(π) ≈ -1, sqrt(4) = 2
+});
 
+export main;

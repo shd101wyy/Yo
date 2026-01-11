@@ -211,7 +211,7 @@ export class ModuleManager {
     // console.log(`= Compiling module ${modulePath}`);
     const { moduleValue, moduleError } = this.loadModule(modulePath);
     if (moduleError) {
-      throw moduleError;
+      throw moduleError.toString();
     }
 
     // Get the evaluator for the module so we can access its environment

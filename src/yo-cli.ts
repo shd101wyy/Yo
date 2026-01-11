@@ -32,10 +32,14 @@ yargs(hideBin(process.argv))
 Usage:
 
 yo compile <file> [options]      Compile a '.yo' file
-Example:
-  $ yo compile hello.yo -o hello
-  $ yo compile hello.yo -cc clang -o hello
-  $ yo compile hello.yo -t wasm -o hello.wasm
+Examples:
+  $ yo compile main.yo -o app
+  $ yo compile main.yo -cc clang -o app
+  $ yo compile main.yo -l m -o app
+  $ yo compile main.yo -I./include -L./lib -l mylib -o app
+  $ yo compile main.yo --release -D NDEBUG -o app
+  $ yo compile main.yo -g -o app_debug
+  $ yo compile main.yo --release -s --cflags='-march=native' -o app
 
 yo test [path] [options]         Run tests
 Example:
@@ -45,13 +49,6 @@ Example:
 
 yo --help                        Show this help message
 yo --version                     Show version number
-
-yo install                       Install all packages
-yo add <package>                 Install a package
-yo add <package>@<version>       Install a specific version of a package
-yo remove <package>              Uninstall a package
-
-yo run <script>                  Run a script defined in 'yo.json'
 `
   )
   .option("o", {
@@ -74,6 +71,38 @@ yo run <script>                  Run a script defined in 'yo.json'
     type: "string",
     demandOption: false,
     default: "c",
+  })
+  .option("I", {
+    alias: "include-path",
+    describe:
+      "Add directory to include search path (like gcc -I). Can be specified multiple times.",
+    type: "array",
+    demandOption: false,
+    default: [],
+  })
+  .option("L", {
+    alias: "library-path",
+    describe:
+      "Add directory to library search path (like gcc -L). Can be specified multiple times.",
+    type: "array",
+    demandOption: false,
+    default: [],
+  })
+  .option("l", {
+    alias: "library",
+    describe:
+      "Link against library (like gcc -l). Can be specified multiple times. Example: -l m",
+    type: "array",
+    demandOption: false,
+    default: [],
+  })
+  .option("D", {
+    alias: "define",
+    describe:
+      "Define preprocessor macro (like gcc -D). Can be specified multiple times. Example: -D DEBUG -D VERSION=1",
+    type: "array",
+    demandOption: false,
+    default: [],
   })
   .option("emit-c", {
     describe: "Print C code generated.",
@@ -143,6 +172,32 @@ yo run <script>                  Run a script defined in 'yo.json'
     demandOption: false,
     choices: ["address", "leak"],
   })
+  .option("g", {
+    alias: "debug-symbols",
+    describe: "Include debug symbols in the binary (like gcc -g).",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
+  .option("s", {
+    alias: "strip",
+    describe: "Strip symbols from the binary to reduce size (like gcc -s).",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
+  .option("static", {
+    describe: "Produce a statically linked binary.",
+    type: "boolean",
+    demandOption: false,
+    default: false,
+  })
+  .option("cflags", {
+    describe:
+      "Pass arbitrary flags directly to the C compiler. Example: --cflags '-march=native -mtune=native'",
+    type: "string",
+    demandOption: false,
+  })
   .command(
     "compile <file>",
     "Compile a '.yo' file",
@@ -180,6 +235,10 @@ yo run <script>                  Run a script defined in 'yo.json'
         cCompiler,
         target: argv.t as "c",
         extern: (argv.extern ?? []) as string[],
+        includePaths: (argv.I ?? []) as string[],
+        libraryPaths: (argv.L ?? []) as string[],
+        libraries: (argv.l ?? []) as string[],
+        defines: (argv.D ?? []) as string[],
         emitC: argv.emitC,
         skipCodegen: argv.skipCodegen,
         skipCCompiler: argv.skipCCompiler,
@@ -190,6 +249,10 @@ yo run <script>                  Run a script defined in 'yo.json'
         optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
         allocator: argv.allocator as "mimalloc" | "libc",
         sanitize: argv.sanitize as "address" | "leak" | undefined,
+        debugSymbols: argv.g as boolean,
+        strip: argv.s as boolean,
+        static: argv.static as boolean,
+        cflags: argv.cflags as string | undefined,
       });
     }
   )
