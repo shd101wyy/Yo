@@ -42,6 +42,10 @@ export class CodeGenerator {
        */
       libraries?: string[];
       /**
+       * Preprocessor definitions (like gcc -D).
+       */
+      defines?: string[];
+      /**
        * Print C code generated.
        */
       emitC?: boolean;
@@ -83,6 +87,26 @@ export class CodeGenerator {
        * 'leak' - Leak detection only
        */
       sanitize?: "address" | "leak";
+      /**
+       * Include debug symbols in the binary (like gcc -g).
+       */
+      debugSymbols?: boolean;
+      /**
+       * Strip symbols from the binary (like gcc -s).
+       */
+      strip?: boolean;
+      /**
+       * Produce a statically linked binary.
+       */
+      static?: boolean;
+      /**
+       * C standard version to use (c11, c17, c23).
+       */
+      std?: "c11" | "c17" | "c23";
+      /**
+       * Arbitrary flags to pass directly to the C compiler.
+       */
+      cflags?: string;
     }
   ): void {
     if (!options.skipCodegen) {
@@ -139,16 +163,56 @@ export class CodeGenerator {
             : ["-Wall", "-Wextra", "-O0"];
         }
 
+        // Determine C standard to use
+        const cStandard = options.std ?? "c11";
+        const stdFlag = isMSVC ? `/std:${cStandard}` : `-std=${cStandard}`;
+
         const compileArgs = isMSVC
-          ? [...optimizationFlags, tempCFile, `/Fe${outputFile}`]
+          ? [stdFlag, ...optimizationFlags, tempCFile, `/Fe${outputFile}`]
           : [
               ...(options.cCompiler === "zig" ? ["cc"] : []),
-              "-std=c11",
+              stdFlag,
               ...optimizationFlags,
               tempCFile,
               "-o",
               outputFile,
             ];
+
+        // Add debug symbols flag if requested
+        if (options.debugSymbols) {
+          if (isMSVC) {
+            compileArgs.splice(-1, 0, "/Zi"); // MSVC debug info
+          } else {
+            compileArgs.splice(-2, 0, "-g");
+          }
+          console.log("Debug symbols enabled");
+        }
+
+        // Add strip flag if requested (conflicts with debug symbols)
+        if (options.strip) {
+          if (options.debugSymbols) {
+            console.warn(
+              "Warning: --strip and -g conflict; debug symbols will be stripped"
+            );
+          }
+          if (!isMSVC) {
+            compileArgs.splice(-2, 0, "-s");
+            console.log("Symbol stripping enabled");
+          } else {
+            console.warn("Symbol stripping (-s) is not supported with MSVC");
+          }
+        }
+
+        // Add static linking flag if requested
+        if (options.static) {
+          if (isMSVC) {
+            compileArgs.splice(-1, 0, "/MT"); // Static runtime for MSVC
+            console.log("Static linking enabled");
+          } else {
+            compileArgs.splice(-2, 0, "-static");
+            console.log("Static linking enabled");
+          }
+        }
 
         // Add sanitizer flags if requested
         if (options.sanitize) {
@@ -195,6 +259,13 @@ export class CodeGenerator {
         includePaths.forEach((includePath) => {
           const includeFlag = isMSVC ? `/I${includePath}` : `-I${includePath}`;
           compileArgs.splice(isMSVC ? -1 : -2, 0, includeFlag);
+        });
+
+        // Add preprocessor definitions from -D option
+        const defines = options.defines ?? [];
+        defines.forEach((define) => {
+          const defineFlag = isMSVC ? `/D${define}` : `-D${define}`;
+          compileArgs.splice(isMSVC ? -1 : -2, 0, defineFlag);
         });
 
         // Add library search paths from -L option
@@ -261,6 +332,15 @@ export class CodeGenerator {
               "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
             );
           }
+        }
+
+        // Add arbitrary custom compiler flags from --cflags option
+        if (options.cflags) {
+          const customFlags = options.cflags.trim().split(/\s+/);
+          customFlags.forEach((flag) => {
+            compileArgs.splice(isMSVC ? -1 : -2, 0, flag);
+          });
+          console.log(`Custom compiler flags added: ${options.cflags}`);
         }
 
         console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
