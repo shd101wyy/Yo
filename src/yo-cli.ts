@@ -38,7 +38,7 @@ Examples:
   $ yo compile main.yo -l m -o app
   $ yo compile main.yo -I./include -L./lib -l mylib -o app
   $ yo compile main.yo --release -D NDEBUG -o app
-  $ yo compile main.yo -g --std c17 -o app_debug
+  $ yo compile main.yo -g -o app_debug
   $ yo compile main.yo --release -s --cflags='-march=native' -o app
 
 yo test [path] [options]         Run tests
@@ -192,13 +192,6 @@ yo --version                     Show version number
     demandOption: false,
     default: false,
   })
-  .option("std", {
-    describe: "Specify C standard version (c11, c17, c23). Default is c11.",
-    type: "string",
-    demandOption: false,
-    choices: ["c11", "c17", "c23"],
-    default: "c11",
-  })
   .option("cflags", {
     describe:
       "Pass arbitrary flags directly to the C compiler. Example: --cflags '-march=native -mtune=native'",
@@ -259,7 +252,6 @@ yo --version                     Show version number
         debugSymbols: argv.g as boolean,
         strip: argv.s as boolean,
         static: argv.static as boolean,
-        std: argv.std as "c11" | "c17" | "c23",
         cflags: argv.cflags as string | undefined,
       });
     }

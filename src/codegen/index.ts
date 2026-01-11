@@ -100,10 +100,6 @@ export class CodeGenerator {
        */
       static?: boolean;
       /**
-       * C standard version to use (c11, c17, c23).
-       */
-      std?: "c11" | "c17" | "c23";
-      /**
        * Arbitrary flags to pass directly to the C compiler.
        */
       cflags?: string;
@@ -163,15 +159,12 @@ export class CodeGenerator {
             : ["-Wall", "-Wextra", "-O0"];
         }
 
-        // Determine C standard to use
-        const cStandard = options.std ?? "c11";
-        const stdFlag = isMSVC ? `/std:${cStandard}` : `-std=${cStandard}`;
-
+        // Yo compiles to C11 standard
         const compileArgs = isMSVC
-          ? [stdFlag, ...optimizationFlags, tempCFile, `/Fe${outputFile}`]
+          ? ["/std:c11", ...optimizationFlags, tempCFile, `/Fe${outputFile}`]
           : [
               ...(options.cCompiler === "zig" ? ["cc"] : []),
-              stdFlag,
+              "-std=c11",
               ...optimizationFlags,
               tempCFile,
               "-o",
