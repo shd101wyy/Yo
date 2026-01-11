@@ -45,13 +45,6 @@ Example:
 
 yo --help                        Show this help message
 yo --version                     Show version number
-
-yo install                       Install all packages
-yo add <package>                 Install a package
-yo add <package>@<version>       Install a specific version of a package
-yo remove <package>              Uninstall a package
-
-yo run <script>                  Run a script defined in 'yo.json'
 `
   )
   .option("o", {
