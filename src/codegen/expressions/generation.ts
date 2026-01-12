@@ -2876,7 +2876,10 @@ function generateFuncCall(
 
                   if (dynMethod) {
                     // This is a dyn object's own method, pass the dyn object directly
-                    return sanitizeForCIdentifier(finalArgVarName);
+                    return sanitizeForCIdentifier(
+                      finalArgVarName,
+                      arg.$.type.isExtern === "c"
+                    );
                   }
                 }
               }
@@ -2885,16 +2888,19 @@ function generateFuncCall(
               // Dyn is a value type, but callers may pass a borrow (pointer) depending on the method signature.
               const argType = arg.$?.type;
               if (argType && isPtrType(argType)) {
-                return `${sanitizeForCIdentifier(finalArgVarName)}->data`;
+                return `${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}->data`;
               }
-              return `(${sanitizeForCIdentifier(finalArgVarName)}).data`;
+              return `(${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}).data`;
             } else {
               // If this is a closure-captured variable, use the generated code (inline access)
               // If this is a state machine variable, use the generated code (sm->var_xxx access)
               // Otherwise use the sanitized variable name (potentially duped)
               return isClosureCapturedVariable || isStateMachineCapturedVariable
                 ? argCode
-                : sanitizeForCIdentifier(finalArgVarName);
+                : sanitizeForCIdentifier(
+                    finalArgVarName,
+                    arg.$.type.isExtern === "c"
+                  );
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
