@@ -1,0 +1,183 @@
+{ String } :: import "../string";
+{ snprintf } :: import "../libc/stdio";
+
+/**
+ * ToString - A module (trait) for converting values to String representation.
+ * 
+ * This is similar to:
+ * - Rust's `std::fmt::Display` / `ToString` trait
+ * - Go's `fmt.Stringer` interface
+ * - Java's `Object.toString()` method
+ * 
+ * Types implementing this module can be used with `println`, `print`, and `format`.
+ */
+ToString :: module(
+  to_string : (fn(self: *(Self)) -> String)
+);
+export ToString;
+
+
+// === Helper function for integer conversion ===
+
+// Buffer size for integer to string conversion
+// i64 min is -9223372036854775808 (20 chars + null = 21)
+// u64 max is 18446744073709551615 (20 chars + null = 21)
+_INT_BUFFER_SIZE :: usize(24);
+
+
+// === Signed Integer Implementations ===
+
+impl(i8, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhd", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(i16, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hd", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(i32, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%d", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(i64, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lld", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(isize, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zd", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+
+// === Unsigned Integer Implementations ===
+
+impl(u8, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhu", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(u16, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hu", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(u32, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%u", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(u64, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%llu", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(usize, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zu", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+
+// === Floating Point Implementations ===
+
+// Buffer size for float to string conversion
+// Scientific notation can be long, use generous buffer
+_FLOAT_BUFFER_SIZE :: usize(64);
+
+impl(f32, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    // Use %g for general format (removes trailing zeros)
+    snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", f64(self.*));
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+impl(f64, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
+    buffer_ptr := (&(buffer(0)));
+    // Use %g for general format (removes trailing zeros)
+    snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", self.*);
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+
+// === Boolean Implementation ===
+
+impl(bool, ToString(
+  to_string : (fn(self: *(Self)) -> String)(
+    cond(
+      self.* => String.from("true"),
+      true => String.from("false")
+    )
+  )
+));
+
+
+// === Char Implementation ===
+
+impl(char, ToString(
+  to_string : (fn(self: *(Self)) -> String)({
+    // char is a single byte, create a 2-byte buffer (char + null)
+    buffer := Array(u8, usize(2)).fill(0);
+    buffer(0) = u8(self.*);
+    buffer_ptr := (&(buffer(0)));
+    String.from_cstr(buffer_ptr).unwrap()
+  })
+));
+
+
+// === String Implementation (identity) ===
+
+impl(String, ToString(
+  to_string : (fn(self: *(Self)) -> String)(
+    // String already is a string, just return a clone
+    self.*
+  )
+));

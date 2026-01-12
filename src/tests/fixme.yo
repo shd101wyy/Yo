@@ -1,34 +1,27 @@
-{ String } :: import "std/string";
-{ snprintf, fwrite, stdout } :: import "std/libc/stdio";
-
-ToString :: module(
-  to_string :
-    (fn(self : *(Self)) -> String)
-);
-
-
-impl(i32, ToString(
-  to_string : (fn(self: *(Self)) -> String)({
-    // Use the snprintf function to convert i32 to string
-    buffer_size :: usize(12);
-    buffer := Array(u8, buffer_size).fill(0);
-    buffer_ptr := (&(buffer(0)));
-    snprintf(*(char)(buffer_ptr), buffer_size, "%d", self.*);
-    String.from_cstr(buffer_ptr).unwrap()
-  })
-));
-
-println :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit) {
-  str := v.to_string();
-  str_bytes := str.as_bytes();
-  str_bytes_len := str_bytes.len();
-  str_bytes_ptr := str_bytes.ptr().unwrap();
-  // Use libc's fwrite
-  fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
-};
+{ println } :: import "std/fmt";
 
 main :: (fn() -> unit) {
-  num := 16;
+  // Test integer types
+  println(i8(-128));
+  println(i16(-32768));
+  println(i32(-2147483648));
+  println(i64(-9223372036854775808));
+  
+  println(u8(255));
+  println(u16(65535));
+  println(u32(4294967295));
+  println(u64(18446744073709551615));
+  
+  // Test floating point
+  println(f32(3.14));
+  println(f64(2.718281828));
+  
+  // Test bool
+  println(true);
+  println(false);
+  
+  // Test isize/usize
+  num := 42;
   println(num);
 };
 
