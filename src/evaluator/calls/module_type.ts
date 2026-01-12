@@ -10,6 +10,8 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  FunctionType,
+  isFunctionType,
   ModuleType,
   Type,
   typeToString,
@@ -238,9 +240,14 @@ Got:   ${typeToString(argType)}`,
           // set the specializedType to the resolved moduleFieldType
           // This ensures that generic functions in modules get their types specialized
           // when the module is instantiated with concrete type arguments
-          if (!argValue.specializedType && moduleFieldType.tag === "Function") {
+          if (!argValue.specializedType && isFunctionType(moduleFieldType)) {
+            // Copy the parametersFrame from the function's type to the specializedType
+            // This preserves parameter aliases (e.g., self->lhs, other->rhs) for codegen
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            argValue.specializedType = moduleFieldType as any;
+            argValue.specializedType = {
+              ...moduleFieldType,
+              parametersFrame: argValue.type.parametersFrame,
+            } as FunctionType;
           }
         }
 
