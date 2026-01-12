@@ -282,6 +282,57 @@ String :: object(
   })
 );
 
+impl(String, Add(String, String)(
+  (+) : (fn(self: Self, other: Self) -> Self)({
+    return self.concat(other);
+  })
+));
+
+impl(String, Eq(String)(
+  (==) : (fn(self: Self, other: Self) -> bool)({
+    // First compare lengths
+    self_len := self._bytes.len();
+    other_len := other._bytes.len();
+    
+    cond(
+      (self_len != other_len) => {
+        return false;
+      },
+      true => ()
+    );
+    
+    // Compare each byte
+    i := usize(0);
+    while ((i < self_len)),
+          (i = (i + usize(1))),
+    {
+      self_byte_opt := self._bytes.get(i);
+      other_byte_opt := other._bytes.get(i);
+      
+      match(self_byte_opt,
+        .Some(self_byte) =>
+          match(other_byte_opt,
+            .Some(other_byte) => {
+              cond(
+                (self_byte != other_byte) => {
+                  return false;
+                },
+                true => ()
+              );
+            },
+            .None => return false
+          ),
+        .None => return false
+      );
+    };
+    
+    return true;
+  }),
+  (!=) : (fn(self: Self, other: Self) -> bool)({
+    return !(Self.(==)(self, other));
+  })
+));
+
 export
   String,
   StringError

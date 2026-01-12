@@ -18,8 +18,8 @@ println :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   str_bytes_ptr := str_bytes.ptr().unwrap();
   fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
   // Write newline
-  newline := "\n";
-  fwrite(*(void)(*(u8)(newline)), usize(1), usize(1), stdout);
+  (newline : *(u8)) = "\n";
+  fwrite(*(void)(newline), usize(1), usize(1), stdout);
 });
 export println;
 
@@ -52,8 +52,8 @@ eprintln :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   str_bytes_ptr := str_bytes.ptr().unwrap();
   fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr);
   // Write newline
-  newline := "\n";
-  fwrite(*(void)(*(u8)(newline)), usize(1), usize(1), stderr);
+  (newline : *(u8)) = "\n";
+  fwrite(*(void)(newline), usize(1), usize(1), stderr);
 });
 export eprintln;
 

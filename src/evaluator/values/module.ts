@@ -25,8 +25,10 @@ import {
   createTypeHierarchy,
   FunctionParameter,
   FunctionType,
+  isArrayType,
   isFunctionType,
   isModuleType,
+  isSliceType,
   isSomeType,
   isType0,
   ModuleField,
@@ -1377,6 +1379,12 @@ export function evaluateModuleValue({
     env = evaluatedReceiverTypeArg.$.env;
     const receiverType = evaluatedReceiverTypeArg.$.value.value;
 
+    // Check if the receiver type is a structural type (SliceType, ArrayType)
+    // For structural types, we need to register as a generic impl so they can be matched structurally
+    // because each [u8] or Array(u8, 10) creates a new type instance
+    const isStructuralType =
+      isSliceType(receiverType) || isArrayType(receiverType);
+
     // Anonymous module value
     if (
       exprIsFunctionCall(expr.args[1]) &&
@@ -1415,8 +1423,28 @@ export function evaluateModuleValue({
         errorToken: expr.token,
       });
 
-      // Attach the module to the receiver type for method lookup
-      attachModuleToReceiverType(moduleValue, expr, context.currentModulePath);
+      if (isStructuralType) {
+        // Register as a generic impl (with no forall parameters) for structural matching
+        const moduleTypeKey = moduleType.typeName || moduleType.id;
+        const genericImpl: GenericImpl = {
+          forallParameters: [],
+          whereConstraints: [],
+          receiverTypePattern: receiverType,
+          moduleType,
+          moduleValue,
+          expr,
+          sourceModulePath: context.currentModulePath,
+          definitionEnv: env,
+        };
+        registerGenericImpl(moduleTypeKey, genericImpl);
+      } else {
+        // Attach the module to the receiver type for method lookup
+        attachModuleToReceiverType(
+          moduleValue,
+          expr,
+          context.currentModulePath
+        );
+      }
 
       // Set the module value to the expr
       expr.$ = {
@@ -1450,6 +1478,7 @@ export function evaluateModuleValue({
       }
       env = evaluatedModuleCallArg.$.env;
       const moduleValue = evaluatedModuleCallArg.$.value;
+      const moduleType = moduleValue.type;
 
       // Check that the receiver type implements all selfConstraints from the module's where clause
       checkTypeImplementsSelfConstraints({
@@ -1459,8 +1488,28 @@ export function evaluateModuleValue({
         errorToken: expr.token,
       });
 
-      // Attach the module to the receiver type for method lookup
-      attachModuleToReceiverType(moduleValue, expr, context.currentModulePath);
+      if (isStructuralType) {
+        // Register as a generic impl (with no forall parameters) for structural matching
+        const moduleTypeKey = moduleType.typeName || moduleType.id;
+        const genericImpl: GenericImpl = {
+          forallParameters: [],
+          whereConstraints: [],
+          receiverTypePattern: receiverType,
+          moduleType,
+          moduleValue,
+          expr,
+          sourceModulePath: context.currentModulePath,
+          definitionEnv: env,
+        };
+        registerGenericImpl(moduleTypeKey, genericImpl);
+      } else {
+        // Attach the module to the receiver type for method lookup
+        attachModuleToReceiverType(
+          moduleValue,
+          expr,
+          context.currentModulePath
+        );
+      }
 
       // Set the module value to the expr
       expr.$ = {
