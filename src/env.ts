@@ -701,7 +701,19 @@ export function getMethodsByNameFromEnv(
         if (method.type.parameters.length === 0) {
           return false; // Methods must have at least one parameter (receiver)
         }
-        const methodFirstParamType = method.type.parameters[0]!.type;
+        const methodFirstParam = method.type.parameters[0]!;
+        const methodFirstParamType = methodFirstParam.type;
+
+        // CRITICAL: Filter out compile-time methods when receiver is runtime
+        // If the method's first parameter (receiver) is compile-time only,
+        // it cannot be called with a runtime receiver value.
+        // This prevents runtime values from calling compile-time-only methods.
+        // However, we keep compile-time methods if we're looking for them specifically.
+        // The actual compile-time vs runtime check will happen during argument evaluation.
+        // So we don't filter here - let the parameter checker handle it.
+        // if (methodFirstParam.isCompileTimeOnly) {
+        //   return false;
+        // }
 
         // CRITICAL: Check pointer conversion BEFORE checking SomeType
         // Because Self types are represented as SomeType, and *(Self) would contain SomeType,
@@ -942,34 +954,34 @@ export function getMethodsByNameFromEnv(
       checkModuleForMethod(dereferencedReceiverType.module, methodName);
     }
 
-    // If no methods found yet, check for impl'd modules (stored with empty label as ModuleValue)
-    // Type methods have higher priority than impl'd module methods
-    if (methods.length === 0) {
-      for (const field of dereferencedReceiverType.module.fields) {
-        if (
-          field.label === "" &&
-          field.assignedValue &&
-          isModuleValue(field.assignedValue)
-        ) {
-          const implModuleValue = field.assignedValue;
-          const implModuleType = implModuleValue.type;
-          // Search for the method in the impl'd module
-          const methodIndex = implModuleType.fields.findIndex(
-            (f) => f.label === methodName && isFunctionType(f.type)
-          );
-          if (methodIndex >= 0) {
-            const method = implModuleType.fields[methodIndex]!;
-            if (isFunctionType(method.type)) {
-              // Get the actual function value from the module value
-              const value = implModuleValue.fields[methodIndex];
-              // Use the function value's specialized type if available,
-              // as it has Self replaced with the concrete receiver type
-              let methodType = method.type;
-              if (isFunctionValue(value) && value.specializedType) {
-                methodType = value.specializedType;
-              }
-              methods.push({ type: methodType, value });
+    // Also check for impl'd modules (stored with empty label as ModuleValue)
+    // NOTE: We check impl'd modules regardless of whether direct methods were found,
+    // because both compile-time and runtime versions of a method might exist,
+    // and we need to let the function call resolution pick the right one.
+    for (const field of dereferencedReceiverType.module.fields) {
+      if (
+        field.label === "" &&
+        field.assignedValue &&
+        isModuleValue(field.assignedValue)
+      ) {
+        const implModuleValue = field.assignedValue;
+        const implModuleType = implModuleValue.type;
+        // Search for the method in the impl'd module
+        const methodIndex = implModuleType.fields.findIndex(
+          (f) => f.label === methodName && isFunctionType(f.type)
+        );
+        if (methodIndex >= 0) {
+          const method = implModuleType.fields[methodIndex]!;
+          if (isFunctionType(method.type)) {
+            // Get the actual function value from the module value
+            const value = implModuleValue.fields[methodIndex];
+            // Use the function value's specialized type if available,
+            // as it has Self replaced with the concrete receiver type
+            let methodType = method.type;
+            if (isFunctionValue(value) && value.specializedType) {
+              methodType = value.specializedType;
             }
+            methods.push({ type: methodType, value });
           }
         }
       }
@@ -1269,6 +1281,7 @@ export function getMethodsByNameFromEnv(
   // NOTE:
   // Type methods have higher priority than module methods,
   // so we check the module methods only if there are no type methods.
+
   if (methods.length > 0) {
     return filterMethodsByReceiverType(methods);
   }
@@ -1324,6 +1337,7 @@ export function getMethodsByNameFromEnv(
    * // The line `return v.id();` has ambiguity problem.
    *
    */
+
   return filterMethodsByReceiverType(methods);
 }
 
