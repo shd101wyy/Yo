@@ -5258,14 +5258,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // Variable not in stateMachineVariables - it's a local C variable in the resume function
     // Just use the variable name (don't regenerate its value)
     if (expr.$?.variableName) {
-      // IMPORTANT: Check parameter aliases FIRST before looking up in environment
-      // This handles specialized impl methods where body uses `self/other` but signature uses `lhs/rhs`
-      const identifierName = expr.token.value;
-      if (functionContext.parameterAliases?.has(identifierName)) {
-        const aliasedName =
-          functionContext.parameterAliases.get(identifierName)!;
-        return sanitizeForCIdentifier(aliasedName);
-      }
       return getVariableNameForCodegen(expr.$.variableName, expr.$.env);
     }
   }
@@ -5300,15 +5292,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     ) {
       // Don't return early - let it fall through to closure capture logic
     } else {
-      // Check if this variable has a parameter alias in context (for specialized functions)
-      // e.g., when impl method uses `self` but the specialized signature uses `lhs`
-      // Use token.value (the identifier name) not variableName (which might be a temp variable)
-      const identifierName = expr.token.value;
-      if (functionContext.parameterAliases?.has(identifierName)) {
-        const aliasedName =
-          functionContext.parameterAliases.get(identifierName)!;
-        return sanitizeForCIdentifier(aliasedName);
-      }
       // Otherwise check if this variable has a parameterAlias in the environment
       return getVariableNameForCodegen(expr.$.variableName, expr.$?.env);
     }
@@ -5348,14 +5331,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // We're accessing a captured variable in a closure function
     // The closure_context parameter is a void* that points directly to the capture struct
     // Need to cast it to the appropriate capture struct type
-
-    // IMPORTANT: Check parameter aliases FIRST before generating closure access code
-    // This handles specialized impl methods where body uses `self/other` but signature uses `lhs/rhs`
-    const identifierName = expr.token.value;
-    if (functionContext.parameterAliases?.has(identifierName)) {
-      const aliasedName = functionContext.parameterAliases.get(identifierName)!;
-      return sanitizeForCIdentifier(aliasedName);
-    }
 
     const captureTypeCName = functionContext.currentClosureCaptureTypeCName;
     if (captureTypeCName) {
@@ -5429,14 +5404,6 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         }
       }
     }
-  }
-
-  // Check if this variable has a parameter alias in context (for specialized functions)
-  // e.g., when impl method uses `self` but the specialized signature uses `lhs`
-  const identifierName = expr.token.value;
-  if (functionContext.parameterAliases?.has(identifierName)) {
-    const aliasedName = functionContext.parameterAliases.get(identifierName)!;
-    return sanitizeForCIdentifier(aliasedName);
   }
 
   // Check if this variable has a parameterAlias (used in anonymous functions
