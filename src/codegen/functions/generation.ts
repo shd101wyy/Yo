@@ -614,10 +614,33 @@ export function generateFunction(
     }
   }
 
+  // Set up parameter aliases for specialized functions (e.g., impl methods)
+  // When a function like `self.concat(other)` is specialized as `Add.+(lhs, rhs)`,
+  // the body still uses `self` and `other` but the C signature uses `lhs` and `rhs`.
+  // We need to map `self` -> `lhs` and `other` -> `rhs` when generating variable references.
+  const previousParameterAliases = context.parameterAliases;
+
+  if (functionValue.specializedType?.parametersFrame) {
+    const aliases = new Map<string, string>();
+    for (const variable of functionValue.specializedType.parametersFrame
+      .variables) {
+      if (
+        variable.parameterAlias &&
+        variable.name !== variable.parameterAlias
+      ) {
+        // Map the original name to the aliased name
+        aliases.set(variable.name, variable.parameterAlias);
+      }
+    }
+    if (aliases.size > 0) {
+      context.parameterAliases = aliases;
+    }
+  }
+
   // Generate function body with proper return handling
   generateFunctionBody(functionValue.body, functionType, "  ", context);
 
-  // Restore previous function name, type, and closure captures
+  // Restore previous function name, type, closure captures, and parameter aliases
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;
@@ -627,6 +650,7 @@ export function generateFunction(
     previousClosureType;
   (context as FunctionGenerationContext).currentClosureCaptureTypeCName =
     previousClosureCaptureTypeCName;
+  context.parameterAliases = previousParameterAliases;
 
   emitter.emitLine(`}`);
 }

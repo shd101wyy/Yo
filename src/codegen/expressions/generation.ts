@@ -2779,6 +2779,9 @@ function generateFuncCall(
             const isStateMachineCapturedVariable =
               functionContext.inStateMachine && argCode.startsWith("sm->");
 
+            // Track whether we emitted a temp variable declaration
+            let emittedTempVarDeclaration = false;
+
             if (
               argCode &&
               argCode !== arg.$.variableName &&
@@ -2803,12 +2806,16 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${varTypeAndName} = ${argCode};`
                 );
+                emittedTempVarDeclaration = true;
               }
             }
 
             // Handle deferred dup expressions for function arguments
             // After generating the argument temp variable, check if we need to dup it
-            let finalArgVarName = arg.$.variableName;
+            // Start with argCode (which may be aliased) instead of arg.$.variableName
+            let finalArgVarName = emittedTempVarDeclaration
+              ? arg.$.variableName
+              : argCode;
             if (
               arg.$?.deferredDupExpressions &&
               arg.$.deferredDupExpressions.length > 0
@@ -5251,6 +5258,14 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // Variable not in stateMachineVariables - it's a local C variable in the resume function
     // Just use the variable name (don't regenerate its value)
     if (expr.$?.variableName) {
+      // IMPORTANT: Check parameter aliases FIRST before looking up in environment
+      // This handles specialized impl methods where body uses `self/other` but signature uses `lhs/rhs`
+      const identifierName = expr.token.value;
+      if (functionContext.parameterAliases?.has(identifierName)) {
+        const aliasedName =
+          functionContext.parameterAliases.get(identifierName)!;
+        return sanitizeForCIdentifier(aliasedName);
+      }
       return getVariableNameForCodegen(expr.$.variableName, expr.$.env);
     }
   }
@@ -5285,12 +5300,17 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     ) {
       // Don't return early - let it fall through to closure capture logic
     } else {
-      // Check if this variable has a parameterAlias
-      const varNameToUse = getVariableNameForCodegen(
-        expr.$.variableName,
-        expr.$?.env
-      );
-      return varNameToUse; // Already sanitized
+      // Check if this variable has a parameter alias in context (for specialized functions)
+      // e.g., when impl method uses `self` but the specialized signature uses `lhs`
+      // Use token.value (the identifier name) not variableName (which might be a temp variable)
+      const identifierName = expr.token.value;
+      if (functionContext.parameterAliases?.has(identifierName)) {
+        const aliasedName =
+          functionContext.parameterAliases.get(identifierName)!;
+        return sanitizeForCIdentifier(aliasedName);
+      }
+      // Otherwise check if this variable has a parameterAlias in the environment
+      return getVariableNameForCodegen(expr.$.variableName, expr.$?.env);
     }
   }
 
@@ -5328,6 +5348,15 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // We're accessing a captured variable in a closure function
     // The closure_context parameter is a void* that points directly to the capture struct
     // Need to cast it to the appropriate capture struct type
+
+    // IMPORTANT: Check parameter aliases FIRST before generating closure access code
+    // This handles specialized impl methods where body uses `self/other` but signature uses `lhs/rhs`
+    const identifierName = expr.token.value;
+    if (functionContext.parameterAliases?.has(identifierName)) {
+      const aliasedName = functionContext.parameterAliases.get(identifierName)!;
+      return sanitizeForCIdentifier(aliasedName);
+    }
+
     const captureTypeCName = functionContext.currentClosureCaptureTypeCName;
     if (captureTypeCName) {
       // Cast void* closure_context directly to the capture struct pointer
@@ -5400,6 +5429,14 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         }
       }
     }
+  }
+
+  // Check if this variable has a parameter alias in context (for specialized functions)
+  // e.g., when impl method uses `self` but the specialized signature uses `lhs`
+  const identifierName = expr.token.value;
+  if (functionContext.parameterAliases?.has(identifierName)) {
+    const aliasedName = functionContext.parameterAliases.get(identifierName)!;
+    return sanitizeForCIdentifier(aliasedName);
   }
 
   // Check if this variable has a parameterAlias (used in anonymous functions
@@ -5734,18 +5771,18 @@ function generateFieldAccess(
         return `(${cName}){ .tag = ${tagName}, .data = {  } }`;
       }
     }
-    // Special handling for slice types: even if they appear as pointer types in AST,
-    // they should use dot notation because we generate them as struct values
-    else if (isPtrType(objectType) && isSliceType(objectType.childType)) {
-      // For slice types, always use dot notation regardless of pointer level in AST
-      return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
-    }
     // Check if the object is pointer or reference
     else if (isPtrType(objectType)) {
       if (fieldName === "*") {
         // Regular dereference for pointers/references
         // Ensure proper parenthesization: (*ptr) not *(ptr)
         return `(*${objectCode})`; // Dereference the pointer/reference
+      }
+      // Special handling for slice types: pointer-to-slice field access
+      // (but not dereference which was already handled above)
+      else if (isSliceType(objectType.childType)) {
+        // For pointer-to-slice, use arrow notation for field access
+        return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
       } else {
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;

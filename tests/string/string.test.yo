@@ -867,6 +867,202 @@ test "String concat identical strings", {
   assert(str.len() == usize(4));
 };
 
+// ===== String + Operator Tests =====
+
+test "String + operator two ASCII strings", {
+  str1 := String.from("Hello");
+  str2 := String.from(" world");
+  
+  result := (str1 + str2);
+  assert(result.len() == usize(11));
+  
+  assert(result.at(usize(0)).unwrap().to_u32() == u32(72));
+  assert(result.at(usize(5)).unwrap().to_u32() == u32(32));
+  assert(result.at(usize(6)).unwrap().to_u32() == u32(119));
+};
+
+test "String + operator empty with non-empty", {
+  empty := String.from("");
+  str := String.from("Hello");
+  
+  result := (empty + str);
+  assert(result.len() == usize(5));
+};
+
+test "String + operator non-empty with empty", {
+  str := String.from("Hello");
+  empty := String.from("");
+  
+  result := (str + empty);
+  assert(result.len() == usize(5));
+};
+
+test "String + operator two empty strings", {
+  empty1 := String.from("");
+  empty2 := String.from("");
+  
+  result := (empty1 + empty2);
+  assert(result.is_empty());
+};
+
+test "String + operator UTF-8 strings", {
+  str1 := String.from("你");
+  str2 := String.from("好");
+  
+  result := (str1 + str2);
+  assert(result.len() == usize(2));
+};
+
+test "String + operator mixed ASCII and UTF-8", {
+  str1 := String.from("Hello ");
+  str2 := String.from("世界");
+  
+  result := (str1 + str2);
+  assert(result.len() == usize(8));
+};
+
+test "String + operator chain", {
+  str1 := String.from("A");
+  str2 := String.from("B");
+  str3 := String.from("C");
+  
+  result := ((str1 + str2) + str3);
+  assert(result.len() == usize(3));
+  assert(result.at(usize(0)).unwrap().to_u32() == u32(65));
+  assert(result.at(usize(1)).unwrap().to_u32() == u32(66));
+  assert(result.at(usize(2)).unwrap().to_u32() == u32(67));
+};
+
+test "String + operator preserves original strings", {
+  str1 := String.from("Hello");
+  str2 := String.from(" world");
+  
+  result := (str1 + str2);
+  
+  assert(str1.len() == usize(5));
+  assert(str2.len() == usize(6));
+  assert(result.len() == usize(11));
+};
+
+// ===== String == Operator Tests =====
+
+test "String == operator identical ASCII strings", {
+  str1 := String.from("Hello");
+  str2 := String.from("Hello");
+  
+  assert(str1 == str2);
+};
+
+test "String == operator different ASCII strings", {
+  str1 := String.from("Hello");
+  str2 := String.from("World");
+  
+  assert(not(str1 == str2));
+};
+
+test "String == operator empty strings", {
+  str1 := String.from("");
+  str2 := String.from("");
+  
+  assert(str1 == str2);
+};
+
+test "String == operator empty vs non-empty", {
+  empty := String.from("");
+  str := String.from("Hello");
+  
+  assert(not(empty == str));
+  assert(not(str == empty));
+};
+
+test "String == operator different lengths", {
+  str1 := String.from("Hello");
+  str2 := String.from("Hello!");
+  
+  assert(not(str1 == str2));
+};
+
+test "String == operator UTF-8 strings equal", {
+  str1 := String.from("你好");
+  str2 := String.from("你好");
+  
+  assert(str1 == str2);
+};
+
+test "String == operator UTF-8 strings different", {
+  str1 := String.from("你好");
+  str2 := String.from("世界");
+  
+  assert(not(str1 == str2));
+};
+
+test "String == operator mixed ASCII and UTF-8 equal", {
+  str1 := String.from("Hello 世界");
+  str2 := String.from("Hello 世界");
+  
+  assert(str1 == str2);
+};
+
+test "String == operator mixed ASCII and UTF-8 different", {
+  str1 := String.from("Hello 世界");
+  str2 := String.from("Hello World");
+  
+  assert(not(str1 == str2));
+};
+
+test "String == operator with emoji equal", {
+  str1 := String.from("😀😁");
+  str2 := String.from("😀😁");
+  
+  assert(str1 == str2);
+};
+
+test "String == operator with emoji different", {
+  str1 := String.from("😀😁");
+  str2 := String.from("😁😀");
+  
+  assert(not(str1 == str2));
+};
+
+test "String == operator case sensitive", {
+  str1 := String.from("Hello");
+  str2 := String.from("hello");
+  
+  assert(not(str1 == str2));
+};
+
+test "String == operator with whitespace", {
+  str1 := String.from("Hello World");
+  str2 := String.from("HelloWorld");
+  
+  assert(not(str1 == str2));
+};
+
+test "String == operator single character equal", {
+  str1 := String.from("A");
+  str2 := String.from("A");
+  
+  assert(str1 == str2);
+};
+
+test "String == operator single character different", {
+  str1 := String.from("A");
+  str2 := String.from("B");
+  
+  assert(not(str1 == str2));
+};
+
+test "String + and == operators combined", {
+  str1 := String.from("Hello");
+  str2 := String.from(" ");
+  str3 := String.from("world");
+  
+  result := ((str1 + str2) + str3);
+  expected := String.from("Hello world");
+  
+  assert(result == expected);
+};
+
 // ===== Performance and Stress Tests =====
 
 test "String with_capacity and repeated push", {

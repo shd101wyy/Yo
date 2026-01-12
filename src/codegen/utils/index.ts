@@ -614,8 +614,8 @@ export function getTypeString(
       // For reference-semantics types (objects), the value is already a pointer in C,
       // so a borrow should NOT introduce another level of indirection.
 
-      // Special handling for pointer-to-slice: in Rust-like semantics,
-      // *[T] (pointer to slice) IS the fat pointer struct, not a pointer to fat pointer
+      // For slices, get the slice type name and add a pointer
+      // A `*([u8])` should be `Slice_uint8_t*`, a pointer to the fat pointer struct
       if (isSliceType(childType)) {
         const sliceType = childType as SliceType;
         const elementTypeString = getTypeString(sliceType.childType, context);
@@ -628,8 +628,8 @@ export function getTypeString(
           });
         }
 
-        // Return the slice struct type directly, not a pointer to it
-        return sliceTypeName;
+        // Return a pointer to the slice struct
+        return `${sliceTypeName}*`;
       }
 
       const baseTypeStr = getTypeString(childType, context);

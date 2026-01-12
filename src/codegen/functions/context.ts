@@ -26,6 +26,9 @@ export interface FunctionGenerationContext extends CodeGenContext {
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
   currentClosureType?: FunctionType; // Current closure type being generated
   currentClosureCaptureTypeCName?: string; // C name of the capture struct type (e.g. "yo_struct_abc123_capture")
+  // Parameter aliases for specialized functions (e.g., impl methods)
+  // Maps original parameter name (e.g., "self") to aliased name (e.g., "lhs")
+  parameterAliases?: Map<string, string>;
   // State machine context (when generating code inside async state machine)
   // FIXME: OUTDATED, it used to be { futureType: FutureType }
   inStateMachine?: { futureType: SomeType | DynType }; // Set when generating code inside a state machine, contains the Future type being generated
