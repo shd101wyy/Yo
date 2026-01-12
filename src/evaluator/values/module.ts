@@ -235,6 +235,23 @@ export function clearGenericImplsFromModule(modulePath: string): void {
 }
 
 /**
+ * Clear impl records from the type impl registry for a specific module.
+ * Call this before re-evaluating a module to prevent duplicate impl detection.
+ */
+function clearImplRecordsFromModule(modulePath: string): void {
+  for (const [typeId, impls] of typeImplRegistry.entries()) {
+    const filteredImpls = impls.filter(
+      (impl) => impl.modulePath !== modulePath
+    );
+    if (filteredImpls.length === 0) {
+      typeImplRegistry.delete(typeId);
+    } else {
+      typeImplRegistry.set(typeId, filteredImpls);
+    }
+  }
+}
+
+/**
  * Clear ALL global impl registries.
  * Use this to completely reset global state between independent compilation runs.
  */
@@ -1179,6 +1196,9 @@ export function clearImplsFromModule(modulePath: string): void {
   }
 
   implRegistry.delete(modulePath);
+
+  // Also clear the duplicate detection registry for this module
+  clearImplRecordsFromModule(modulePath);
 }
 
 /**
