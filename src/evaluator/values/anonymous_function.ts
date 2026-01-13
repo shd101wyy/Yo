@@ -331,33 +331,65 @@ Got:      "${paramName}"`,
   // Evaluate the function body
   // A function is a closure if it's being used as an implementation of an Fn trait (FnModuleType)
   const isClosureFunction = !!expectedFnModuleType;
-  // eslint-disable-next-line prefer-const
-  let { evaluationContext } = createFunctionBodyEvaluationContext(
-    {
+
+  // Check if the function has forall type parameters
+  // If so, we should NOT evaluate the body at definition time because we can't
+  // execute code that uses type variables. The body will be evaluated when the
+  // function is called with concrete type arguments.
+  const hasForallTypeParams = functionType.forallParameters.length > 0;
+
+  let evaluationContext: EvaluatorContext;
+  let evaluatedBody: Expr;
+
+  if (hasForallTypeParams) {
+    // Don't evaluate the body for generic functions
+    // Just attach the environment for later use when called
+    functionBodyExpr.$ = {
+      env,
+      type: functionType.return.type,
+      value: functionType.return.isCompileTimeOnly
+        ? createUnknownValue(functionType.return.type, "function_body")
+        : undefined,
+      pathCollection: [],
+    };
+    // Create a minimal evaluation context for generic functions
+    evaluationContext = {
       ...context,
-      isExecuting: false, // We're analyzing, not executing
-      isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
-    },
-    functionType,
-    functionValue,
-    env
-  );
+      isExecuting: false,
+      capturedVariables: new Map(),
+    };
+    evaluatedBody = functionBodyExpr;
+  } else {
+    // Non-generic function: evaluate the body now
+    // eslint-disable-next-line prefer-const
+    let { evaluationContext: ctx } = createFunctionBodyEvaluationContext(
+      {
+        ...context,
+        isExecuting: false, // We're analyzing, not executing
+        isValidatingFunctionDefinition: false, // Clear the validation flag during actual execution
+      },
+      functionType,
+      functionValue,
+      env
+    );
+    evaluationContext = ctx;
 
-  const evaluatedBody = evaluateBeginExpression({
-    expr: functionBodyExpr,
-    env,
-    context: evaluationContext,
-    variablesToAdd: [],
-    isEvaluatingFunctionBodyBeginBlock: true,
-  });
-
-  if (!evaluatedBody.$) {
-    throw formatErrorMessage({
-      token: functionBodyExpr.token,
-      errorMessage: `Failed to evaluate the function body.`,
+    evaluatedBody = evaluateBeginExpression({
+      expr: functionBodyExpr,
+      env,
+      context: evaluationContext,
+      variablesToAdd: [],
+      isEvaluatingFunctionBodyBeginBlock: true,
     });
+
+    if (!evaluatedBody.$) {
+      throw formatErrorMessage({
+        token: functionBodyExpr.token,
+        errorMessage: `Failed to evaluate the function body.`,
+      });
+    }
+    env = evaluatedBody.$.env;
   }
-  env = evaluatedBody.$.env;
 
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
