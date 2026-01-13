@@ -192,6 +192,14 @@ export function evaluatePropertyAccess({
         pathCollection: [],
       };
       propertyExpr.$ = expr.$;
+
+      // CRITICAL: Create a temp variable marked as NOT owning the RC value (borrowed).
+      // This ensures that when this dereferenced value is returned from a function,
+      // the ownership analysis in begin.ts will correctly identify it as borrowed
+      // and insert a ___dup call. Without this, returning `self.*` from a function
+      // would cause use-after-free bugs.
+      attachTempVariableToExpr(expr, false);
+
       return expr;
     }
   }

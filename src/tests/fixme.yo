@@ -1,31 +1,16 @@
 open import "std/fmt";
 
-// Point :: struct(
-//   x : i32,
-//   y : i32
-// );
-// impl(Point, ToString(
-//   to_string : (self -> {
-//     comma := ", ";
-//     return (self.x.to_string() 
-//     + comma.to_string()
-//     + self.y.to_string()
-//     );
-//   })
-// ));
-
+// Test that dereferencing a borrowed pointer and returning it
+// correctly calls ___dup to avoid use-after-free
 main :: (fn() -> unit) {
-  msg := "Hello, world!";
-  len := msg.len();
-  println(len);
-  println(msg);
-
-  bytes := msg.bytes;
-  bytes_len := bytes.len();
-  println(bytes_len);
-
-  // point := Point(3, 4);
-  // println(point);
+  msg := "Hello, 世界!";
+  {
+    println(msg); // no memory leak
+  };
+  {
+    s := msg.to_string();
+    println(s); // should no longer have memory leak
+  };
 };
 
 export main;
