@@ -1,7 +1,10 @@
-{ println } :: import "std/fmt";
+generic_fn :: (fn(forall(T: Type), x: T, callback: (fn(v: T)-> T))-> T)
+  callback(x)
+;
 
 main :: (fn() -> unit) {
-  println("Hello, world!");
+  // assert(generic_fn(2, (x) -> (x + 16)) == 18);
+  assert(generic_fn(2, (fn(y : i32) -> i32)(y + 18)) == 20);
 };
 
 export main;

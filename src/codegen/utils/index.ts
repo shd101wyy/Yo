@@ -815,13 +815,14 @@ export function canOptimizeAsSimpleEnum(enumType: EnumType): boolean {
 }
 
 /**
- * Get the actual variable name to use in generated code, checking for parameterAlias.
- * In anonymous functions, the parameter name may differ from the expected interface parameter name.
- * If a parameterAlias exists, it should be used instead of the variable's actual name.
+ * Get the actual variable name to use in generated code.
+ * For anonymous function parameters, uses the actual parameter name (not the alias).
+ * The parameterAlias field is not used for C code generation - both the function
+ * signature and body should use the actual variable name consistently.
  *
  * @param variableName The variable name to look up
  * @param env The environment containing the variable
- * @returns The name to use in generated code (either parameterAlias or the original name), sanitized for C
+ * @returns The name to use in generated code, sanitized for C
  */
 export function getVariableNameForCodegen(
   variableName: string,
@@ -834,17 +835,11 @@ export function getVariableNameForCodegen(
   const variables = getVariablesFromEnv(env, variableName);
   if (variables.length > 0) {
     const variable = variables[variables.length - 1]!;
-    if (variable.parameterAlias) {
-      return sanitizeForCIdentifier(
-        variable.parameterAlias,
-        variable.type.isExtern === "c"
-      );
-    } else {
-      return sanitizeForCIdentifier(
-        variable.name,
-        variable.type.isExtern === "c"
-      );
-    }
+    // Always use the actual variable name, not the parameterAlias
+    return sanitizeForCIdentifier(
+      variable.name,
+      variable.type.isExtern === "c"
+    );
   }
 
   return sanitizeForCIdentifier(variableName);

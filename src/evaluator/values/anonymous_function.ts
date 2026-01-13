@@ -336,30 +336,31 @@ Got:      "${paramName}"`,
   // If so, we should NOT evaluate the body at definition time because we can't
   // execute code that uses type variables. The body will be evaluated when the
   // function is called with concrete type arguments.
-  const hasForallTypeParams = functionType.forallParameters.length > 0;
+  // const hasForallTypeParams = functionType.forallParameters.length > 0;
 
   let evaluationContext: EvaluatorContext;
   let evaluatedBody: Expr;
 
-  if (hasForallTypeParams) {
-    // Don't evaluate the body for generic functions
-    // Just attach the environment for later use when called
-    functionBodyExpr.$ = {
-      env,
-      type: functionType.return.type,
-      value: functionType.return.isCompileTimeOnly
-        ? createUnknownValue(functionType.return.type, "function_body")
-        : undefined,
-      pathCollection: [],
-    };
-    // Create a minimal evaluation context for generic functions
-    evaluationContext = {
-      ...context,
-      isExecuting: false,
-      capturedVariables: new Map(),
-    };
-    evaluatedBody = functionBodyExpr;
-  } else {
+  // if (hasForallTypeParams) {
+  //   // Don't evaluate the body for generic functions
+  //   // Just attach the environment for later use when called
+  //   functionBodyExpr.$ = {
+  //     env,
+  //     type: functionType.return.type,
+  //     value: functionType.return.isCompileTimeOnly
+  //       ? createUnknownValue(functionType.return.type, "function_body")
+  //       : undefined,
+  //     pathCollection: [],
+  //   };
+  //   // Create a minimal evaluation context for generic functions
+  //   evaluationContext = {
+  //     ...context,
+  //     isExecuting: false,
+  //     capturedVariables: new Map(),
+  //   };
+  //   evaluatedBody = functionBodyExpr;
+  // } else
+  {
     // Non-generic function: evaluate the body now
     // eslint-disable-next-line prefer-const
     let { evaluationContext: ctx } = createFunctionBodyEvaluationContext(
