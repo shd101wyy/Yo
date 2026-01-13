@@ -165,3 +165,10 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 
 `UnknownValue` in Yo is a compile-time value, not runtime value.
 It's just we only know its type but not real value.
+
+To rebuild the VS Code extension, run the following commands:
+
+```
+cd vscode-extension
+bun package
+```
