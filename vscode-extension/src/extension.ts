@@ -210,7 +210,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(diagnosticCollection);
 
   // Yo language module manager
-  const moduleManager = new ModuleManager();
+  const moduleManager = new ModuleManager({ allowPartialModule: true });
 
   // Track in-flight analyses to avoid race conditions where an older run clears
   // diagnostics produced by a newer run.

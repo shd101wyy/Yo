@@ -56,8 +56,10 @@ export class ModuleManager {
 
   public stdPath = findStdDirectory(__dirname);
   private codeGenratorC: CodeGeneratorC;
+  private allowPartialModule: boolean;
 
-  constructor() {
+  constructor(options?: { allowPartialModule?: boolean }) {
+    this.allowPartialModule = options?.allowPartialModule ?? false;
     this.codeGenratorC = new CodeGeneratorC();
 
     // This line of code is to prevent circular dependency issues
@@ -156,6 +158,7 @@ export class ModuleManager {
         return this.loadModule(childModulePath, undefined, currentModulePath);
       },
       inputString,
+      allowPartialModule: this.allowPartialModule,
     });
     const moduleValue = evaluator.getModuleValue();
     const moduleError = evaluator.getModuleError();
