@@ -228,9 +228,6 @@ export function createEnvContainingPrelude(): Environment {
   }
   return _envContainingPrelude;
 }
-export function isEvaluatingPreludeModule(): boolean {
-  return _envContainingPrelude === null;
-}
 
 /**
  * This is the special variable name that allows variable shadowing.

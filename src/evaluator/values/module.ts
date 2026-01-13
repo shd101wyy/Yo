@@ -2,7 +2,6 @@ import {
   addVariableToEnv,
   Environment,
   getVariablesFromEnv,
-  isEvaluatingPreludeModule,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -1391,7 +1390,7 @@ export function evaluateModuleValue({
       exprIsFunctionCallOf(expr.args[1], BuiltinKeywords.begin)
     ) {
       // Restrict anonymous module impl to prelude.yo only
-      if (!isEvaluatingPreludeModule()) {
+      if (!context.currentModulePath?.endsWith("prelude.yo")) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,
@@ -1758,7 +1757,7 @@ export function evaluateModuleValue({
       exprIsFunctionCallOf(moduleCallArg, BuiltinKeywords.begin)
     ) {
       // Restrict anonymous module impl to prelude.yo only
-      if (!isEvaluatingPreludeModule()) {
+      if (!context.currentModulePath?.endsWith("prelude.yo")) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,

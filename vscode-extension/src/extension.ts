@@ -216,6 +216,9 @@ export function activate(context: vscode.ExtensionContext) {
   // diagnostics produced by a newer run.
   const analyzeGenerationByUri = new Map<string, number>();
 
+  // Track the last analyzed text to prevent duplicate analyses
+  const lastAnalyzedTextByUri = new Map<string, string>();
+
   // Function to analyze Yo file and show diagnostics
   const analyzeYoFile = async (document: vscode.TextDocument) => {
     // Only analyze Yo files
@@ -224,10 +227,18 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     const uriKey = document.uri.toString();
+    const text = document.getText();
+
+    // Skip if we've already analyzed this exact text
+    if (lastAnalyzedTextByUri.get(uriKey) === text) {
+      return;
+    }
+
+    lastAnalyzedTextByUri.set(uriKey, text);
+
     const generation = (analyzeGenerationByUri.get(uriKey) ?? 0) + 1;
     analyzeGenerationByUri.set(uriKey, generation);
 
-    const text = document.getText();
     const filePath = document.uri.fsPath;
     const modulePath = "file://" + filePath;
 

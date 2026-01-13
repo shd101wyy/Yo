@@ -168,10 +168,10 @@ The **Yo** language is inspired by the following programming languages and absor
 ## Hello World
 
 ```rust
-open import "std/libc/stdio";
+{ println } :: import "std/fmt";
 
-main :: (fn()-> unit) {
-  printf("Hello World!\n");
+main :: (fn() -> unit) {
+  println("Hello, world!");
 };
 
 export main;

@@ -150,6 +150,39 @@ export class ModuleManager {
       };
     }
 
+    // If we're about to load a prelude module, delete all existing prelude variants first
+    const isPrelude =
+      modulePath.endsWith("/std/prelude.yo") ||
+      modulePath.endsWith("/prelude.yo");
+    if (isPrelude) {
+      const preludesToDelete: string[] = [];
+      for (const [path] of this.modules) {
+        if (path.endsWith("/std/prelude.yo") || path.endsWith("/prelude.yo")) {
+          preludesToDelete.push(path);
+        }
+      }
+      // Delete all existing preludes and their dependents
+      for (const preludePath of preludesToDelete) {
+        const dependents = this.getDependentModules(preludePath);
+
+        // Delete dependents first
+        for (const dep of dependents) {
+          clearImplsFromModule(dep);
+          clearGenericImplsFromModule(dep);
+          this.clearDependencies(dep);
+          resetModuleIdCounter(dep);
+          this.modules.delete(dep);
+        }
+
+        // Then delete the prelude
+        clearImplsFromModule(preludePath);
+        clearGenericImplsFromModule(preludePath);
+        this.clearDependencies(preludePath);
+        resetModuleIdCounter(preludePath);
+        this.modules.delete(preludePath);
+      }
+    }
+
     const currentModulePath = modulePath;
     const evaluator = new Evaluator({
       modulePath,
@@ -173,11 +206,35 @@ export class ModuleManager {
       );
     }
 
-    // Get all modules that depend on this module (they need to be invalidated too)
-    const dependentModules = this.getDependentModules(modulePath);
+    // If this is a prelude module, find all prelude variants (workspace and extension)
+    const isPrelude =
+      modulePath.endsWith("/std/prelude.yo") ||
+      modulePath.endsWith("/prelude.yo");
+    const modulesToInvalidate = [modulePath];
+
+    if (isPrelude) {
+      // Find all modules that end with prelude.yo
+      for (const [path] of this.modules) {
+        if (
+          (path.endsWith("/std/prelude.yo") || path.endsWith("/prelude.yo")) &&
+          path !== modulePath
+        ) {
+          modulesToInvalidate.push(path);
+        }
+      }
+    }
+
+    // Get dependents for all modules to invalidate
+    const allDependents = new Set<string>();
+    for (const modPath of modulesToInvalidate) {
+      const dependents = this.getDependentModules(modPath);
+      for (const dep of dependents) {
+        allDependents.add(dep);
+      }
+    }
 
     // Delete the module and all its dependents
-    const modulesToDelete = [modulePath, ...dependentModules];
+    const modulesToDelete = [...modulesToInvalidate, ...allDependents];
 
     for (const modPath of modulesToDelete) {
       // Clear any impls that were added by this module before deleting it
