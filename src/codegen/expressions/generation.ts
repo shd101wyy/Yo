@@ -5427,9 +5427,27 @@ function generateComptValue(
     // For booleans, return true/false
     return value.value ? "true" : "false";
   } else if (isComptStringValue(value)) {
-    // Check if there's a converted runtime type (e.g., compt_string -> [u8]
+    // Check if there's a converted runtime type (e.g., compt_string -> str or [u8])
     const targetType =
       _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
+
+    // Check if the target type is a newtype wrapping a slice (e.g., str)
+    // Newtypes are transparent in C (just typedefs), so we generate the underlying slice
+    if (
+      targetType &&
+      isNewtypeType(targetType) &&
+      targetType.fields.length === 1
+    ) {
+      const wrappedType = targetType.fields[0]!.type;
+      if (isSliceType(wrappedType)) {
+        const newtypeCType = getTypeString(targetType, context);
+        const stringLiteral = JSON.stringify(value.value);
+        const stringLength = Buffer.byteLength(value.value, "utf8");
+
+        // Newtypes are zero-cost abstractions, so we just generate the slice value
+        return `(${newtypeCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
+      }
+    }
 
     // Check if the target type is a slice (e.g., [u8])
     // In Yo, [u8] is a fat pointer (slice value), represented as a struct with data+length
