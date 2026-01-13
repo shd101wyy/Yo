@@ -231,9 +231,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Skip if we've already analyzed this exact text
     if (lastAnalyzedTextByUri.get(uriKey) === text) {
+      // console.log(
+      //   `[Extension] Skipping analysis for ${uriKey} - text unchanged`
+      // );
       return;
     }
 
+    // console.log(`[Extension] Analyzing ${uriKey}`);
     lastAnalyzedTextByUri.set(uriKey, text);
 
     const generation = (analyzeGenerationByUri.get(uriKey) ?? 0) + 1;
@@ -244,11 +248,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     try {
       // Clear any previous evaluation for this file
+      // console.log(`[Extension] Deleting module: ${modulePath}`);
       moduleManager.deleteModule(modulePath);
 
       // Load the module again, passing the in-memory document content
       // This ensures we analyze the current editor content, not the saved file on disk
+      // console.log(`[Extension] Loading module: ${modulePath}`);
       const { moduleError } = moduleManager.loadModule(modulePath, text);
+
+      // console.log(`[Extension] Module loaded, error:`, moduleError);
 
       if (moduleError) {
         throw moduleError;
@@ -256,16 +264,25 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Only the latest analysis run is allowed to change diagnostics.
       if (analyzeGenerationByUri.get(uriKey) !== generation) {
+        // console.log(
+        //   `[Extension] Generation mismatch, skipping diagnostics update`
+        // );
         return;
       }
 
       // No errors for the latest content -> clear diagnostics.
+      // console.log(`[Extension] Clearing diagnostics for ${modulePath}`);
       diagnosticCollection.delete(document.uri);
     } catch (error) {
       // Only the latest analysis run is allowed to change diagnostics.
       if (analyzeGenerationByUri.get(uriKey) !== generation) {
+        // console.log(
+        //   `[Extension] Generation mismatch in error handler, skipping`
+        // );
         return;
       }
+
+      // console.log(`[Extension] Error analyzing ${modulePath}:`, error);
 
       const diagnostics: vscode.Diagnostic[] = [];
 
