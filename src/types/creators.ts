@@ -1,9 +1,14 @@
-import { createEmptyEnv, Environment, Frame } from "../env";
+import {
+  createEmptyEnv,
+  Environment,
+  Frame,
+  getVariablesFromEnv,
+} from "../env";
 import { addRcFunctionsToSomeType } from "../evaluator/types/utils";
 import { Expr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
-import { Value, valueToString } from "../value";
+import { isTypeValue, Value, valueToString } from "../value";
 import {
   ArrayType,
   ComptListType,
@@ -658,6 +663,25 @@ export function createSliceType(childType: Type): SliceType {
   cachedSliceTypeMap.set(childType, sliceType);
 
   return sliceType;
+}
+
+/**
+ * Look up the str type from the environment (prelude).
+ * Throws an error if str is not found.
+ */
+export function createStrType(env: Environment): Type {
+  const strVariables = getVariablesFromEnv(env, "str");
+  const strVariable = strVariables.find(
+    (v) => isTypeValue(v.value) && v.value.type
+  );
+
+  if (!strVariable || !isTypeValue(strVariable.value)) {
+    throw new Error(
+      "'str' type not found in environment. Make sure prelude is loaded."
+    );
+  }
+
+  return strVariable.value.value;
 }
 
 let cachedVoidType: VoidType | undefined = undefined;

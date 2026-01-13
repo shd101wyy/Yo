@@ -4,9 +4,9 @@ open import "std/collections/array_list";
 // ===== Construction Tests =====
 
 test "String.new creates empty string", {
-  str := String.new();
-  assert(str.is_empty());
-  assert(str.len() == usize(0));
+  s := String.new();
+  assert(s.is_empty());
+  assert(s.len() == usize(0));
 };
 
 test "String.from_bytes creates string from byte array", {
@@ -17,17 +17,17 @@ test "String.from_bytes creates string from byte array", {
   bytes.push(u8(108));
   bytes.push(u8(111));
   
-  str := String.from_bytes(bytes);
-  assert(not(str.is_empty()));
-  assert(str.len() == usize(5));
+  s := String.from_bytes(bytes);
+  assert(not(s.is_empty()));
+  assert(s.len() == usize(5));
 };
 
 test "String.from creates string from byte slice", {
   arr := [u8(72), u8(101), u8(108), u8(108), u8(111)];
   slice := arr(:);
   
-  str := String.from(slice);
-  assert(str.len() == usize(5));
+  s := String.from(slice);
+  assert(s.len() == usize(5));
 };
 
 // ===== ASCII String Tests =====
@@ -40,8 +40,8 @@ test "String ASCII length", {
   bytes.push(u8(108));
   bytes.push(u8(111));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(5));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(5));
 };
 
 test "String ASCII at() method", {
@@ -50,17 +50,17 @@ test "String ASCII at() method", {
   bytes.push(u8(66));
   bytes.push(u8(67));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  first := str.at(usize(0));
+  first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(65));
   
-  second := str.at(usize(1));
+  second := s.at(usize(1));
   assert(second.is_some());
   assert(second.unwrap().to_u32() == u32(66));
   
-  third := str.at(usize(2));
+  third := s.at(usize(2));
   assert(third.is_some());
   assert(third.unwrap().to_u32() == u32(67));
 };
@@ -69,9 +69,9 @@ test "String ASCII at() out of bounds", {
   bytes := ArrayList(u8).new();
   bytes.push(u8(65));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  result := str.at(usize(5));
+  result := s.at(usize(5));
   assert(result.is_none());
 };
 
@@ -82,8 +82,8 @@ test "String UTF-8 2-byte character length", {
   bytes.push(u8(0xC2));
   bytes.push(u8(0xA9));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(1));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(1));
 };
 
 test "String UTF-8 2-byte character decode", {
@@ -91,9 +91,9 @@ test "String UTF-8 2-byte character decode", {
   bytes.push(u8(0xC2));
   bytes.push(u8(0xA9));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  ch := str.at(usize(0));
+  ch := s.at(usize(0));
   assert(ch.is_some());
   assert(ch.unwrap().to_u32() == u32(0xA9));
 };
@@ -107,18 +107,18 @@ test "String UTF-8 2-byte multiple characters", {
   bytes.push(u8(0xC3));
   bytes.push(u8(0xB1));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(3));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(3));
   
-  first := str.at(usize(0));
+  first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0xE9));
   
-  second := str.at(usize(1));
+  second := s.at(usize(1));
   assert(second.is_some());
   assert(second.unwrap().to_u32() == u32(0xE7));
   
-  third := str.at(usize(2));
+  third := s.at(usize(2));
   assert(third.is_some());
   assert(third.unwrap().to_u32() == u32(0xF1));
 };
@@ -131,8 +131,8 @@ test "String UTF-8 3-byte character length", {
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(1));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(1));
 };
 
 test "String UTF-8 3-byte character decode", {
@@ -141,9 +141,9 @@ test "String UTF-8 3-byte character decode", {
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  ch := str.at(usize(0));
+  ch := s.at(usize(0));
   assert(ch.is_some());
   assert(ch.unwrap().to_u32() == u32(0x4E2D));
 };
@@ -157,14 +157,14 @@ test "String UTF-8 3-byte multiple characters", {
   bytes.push(u8(0x96));
   bytes.push(u8(0x87));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(2));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(2));
   
-  first := str.at(usize(0));
+  first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0x4E2D));
   
-  second := str.at(usize(1));
+  second := s.at(usize(1));
   assert(second.is_some());
   assert(second.unwrap().to_u32() == u32(0x6587));
 };
@@ -178,8 +178,8 @@ test "String UTF-8 4-byte character length", {
   bytes.push(u8(0x98));
   bytes.push(u8(0x80));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(1));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(1));
 };
 
 test "String UTF-8 4-byte character decode", {
@@ -189,9 +189,9 @@ test "String UTF-8 4-byte character decode", {
   bytes.push(u8(0x98));
   bytes.push(u8(0x80));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  ch := str.at(usize(0));
+  ch := s.at(usize(0));
   assert(ch.is_some());
   assert(ch.unwrap().to_u32() == u32(0x1F600));
 };
@@ -207,14 +207,14 @@ test "String UTF-8 4-byte multiple characters", {
   bytes.push(u8(0x98));
   bytes.push(u8(0x81));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(2));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(2));
   
-  first := str.at(usize(0));
+  first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0x1F600));
   
-  second := str.at(usize(1));
+  second := s.at(usize(1));
   assert(second.is_some());
   assert(second.unwrap().to_u32() == u32(0x1F601));
 };
@@ -232,19 +232,19 @@ test "String mixed ASCII and UTF-8", {
   bytes.push(u8(0x96));
   bytes.push(u8(0x87));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(4));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(4));
   
-  first := str.at(usize(0));
+  first := s.at(usize(0));
   assert(first.unwrap().to_u32() == u32(72));
   
-  second := str.at(usize(1));
+  second := s.at(usize(1));
   assert(second.unwrap().to_u32() == u32(101));
   
-  third := str.at(usize(2));
+  third := s.at(usize(2));
   assert(third.unwrap().to_u32() == u32(0x4E2D));
   
-  fourth := str.at(usize(3));
+  fourth := s.at(usize(3));
   assert(fourth.unwrap().to_u32() == u32(0x6587));
 };
 
@@ -261,19 +261,19 @@ test "String mixed 1,2,3,4 byte characters", {
   bytes.push(u8(0x98));
   bytes.push(u8(0x80));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(4));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(4));
   
-  char0 := str.at(usize(0));
+  char0 := s.at(usize(0));
   assert(char0.unwrap().to_u32() == u32(65));
   
-  char1 := str.at(usize(1));
+  char1 := s.at(usize(1));
   assert(char1.unwrap().to_u32() == u32(0xA9));
   
-  char2 := str.at(usize(2));
+  char2 := s.at(usize(2));
   assert(char2.unwrap().to_u32() == u32(0x4E2D));
   
-  char3 := str.at(usize(3));
+  char3 := s.at(usize(3));
   assert(char3.unwrap().to_u32() == u32(0x1F600));
 };
 
@@ -307,9 +307,9 @@ test "String concat empty with non-empty", {
   bytes.push(u8(65));
   bytes.push(u8(66));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  result := empty.concat(str);
+  result := empty.concat(s);
   assert(result.len() == usize(2));
 };
 
@@ -318,10 +318,10 @@ test "String concat non-empty with empty", {
   bytes.push(u8(65));
   bytes.push(u8(66));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   empty := String.new();
   
-  result := str.concat(empty);
+  result := s.concat(empty);
   assert(result.len() == usize(2));
 };
 
@@ -374,16 +374,16 @@ test "String concat preserves original strings", {
 // ===== Empty String Tests =====
 
 test "String is_empty on empty string", {
-  str := String.new();
-  assert(str.is_empty());
+  s := String.new();
+  assert(s.is_empty());
 };
 
 test "String is_empty on non-empty string", {
   bytes := ArrayList(u8).new();
   bytes.push(u8(65));
   
-  str := String.from_bytes(bytes);
-  assert(not(str.is_empty()));
+  s := String.from_bytes(bytes);
+  assert(not(s.is_empty()));
 };
 
 // ===== as_bytes Tests =====
@@ -393,18 +393,18 @@ test "String as_bytes returns byte array", {
   bytes.push(u8(72));
   bytes.push(u8(101));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  result_bytes := str.as_bytes();
+  result_bytes := s.as_bytes();
   assert(result_bytes.len() == usize(2));
   assert(result_bytes.get(usize(0)).unwrap() == u8(72));
   assert(result_bytes.get(usize(1)).unwrap() == u8(101));
 };
 
 test "String as_bytes on empty string", {
-  str := String.new();
+  s := String.new();
   
-  result_bytes := str.as_bytes();
+  result_bytes := s.as_bytes();
   assert(result_bytes.len() == usize(0));
 };
 
@@ -414,13 +414,13 @@ test "String at() on single character", {
   bytes := ArrayList(u8).new();
   bytes.push(u8(65));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
-  ch := str.at(usize(0));
+  ch := s.at(usize(0));
   assert(ch.is_some());
   assert(ch.unwrap().to_u32() == u32(65));
   
-  invalid := str.at(usize(1));
+  invalid := s.at(usize(1));
   assert(invalid.is_none());
 };
 
@@ -433,9 +433,9 @@ test "String length with continuation bytes only counts starts", {
   bytes.push(u8(0x96));
   bytes.push(u8(0x87));
   
-  str := String.from_bytes(bytes);
-  byte_count := str.as_bytes().len();
-  char_count := str.len();
+  s := String.from_bytes(bytes);
+  byte_count := s.as_bytes().len();
+  char_count := s.len();
   
   assert(byte_count == usize(6));
   assert(char_count == usize(2));
@@ -471,11 +471,11 @@ test "String at() sequential access", {
   bytes.push(u8(68));
   bytes.push(u8(69));
   
-  str := String.from_bytes(bytes);
+  s := String.from_bytes(bytes);
   
   i := usize(0);
-  while(i < str.len(), i = (i + usize(1)), {
-    ch := str.at(i);
+  while(i < s.len(), i = (i + usize(1)), {
+    ch := s.at(i);
     assert(ch.is_some());
     expected := (u32(65) + u32(i));
     assert(ch.unwrap().to_u32() == expected);
@@ -490,16 +490,16 @@ test "String UTF-8 null byte in middle", {
   bytes.push(u8(0));
   bytes.push(u8(66));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(3));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(3));
   
-  first := str.at(usize(0));
+  first := s.at(usize(0));
   assert(first.unwrap().to_u32() == u32(65));
   
-  second := str.at(usize(1));
+  second := s.at(usize(1));
   assert(second.unwrap().to_u32() == u32(0));
   
-  third := str.at(usize(2));
+  third := s.at(usize(2));
   assert(third.unwrap().to_u32() == u32(66));
 };
 
@@ -511,8 +511,8 @@ test "String UTF-8 all ASCII control characters", {
   bytes.push(u8(13));
   bytes.push(u8(32));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(5));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(5));
 };
 
 // ===== String.from_cstr Tests =====
@@ -522,10 +522,10 @@ test "String.from_cstr creates string from C string", {
   result := String.from_cstr(cstr);
   
   match(result,
-    .Ok(str) => {
-      assert(str.len() == usize(5));
-      assert(str.at(usize(0)).unwrap().to_u32() == u32(72));
-      assert(str.at(usize(4)).unwrap().to_u32() == u32(111));
+    .Ok(s) => {
+      assert(s.len() == usize(5));
+      assert(s.at(usize(0)).unwrap().to_u32() == u32(72));
+      assert(s.at(usize(4)).unwrap().to_u32() == u32(111));
     },
     .Err(_) => assert(false, "Should successfully create string from C string")
   );
@@ -536,9 +536,9 @@ test "String.from_cstr empty string", {
   result := String.from_cstr(cstr);
   
   match(result,
-    .Ok(str) => {
-      assert(str.is_empty());
-      assert(str.len() == usize(0));
+    .Ok(s) => {
+      assert(s.is_empty());
+      assert(s.len() == usize(0));
     },
     .Err(_) => assert(false, "Should successfully create empty string")
   );
@@ -549,8 +549,8 @@ test "String.from_cstr with UTF-8", {
   result := String.from_cstr(cstr);
   
   match(result,
-    .Ok(str) => {
-      assert(str.len() == usize(8));
+    .Ok(s) => {
+      assert(s.len() == usize(8));
     },
     .Err(_) => assert(false, "Should handle UTF-8 in C string")
   );
@@ -561,9 +561,9 @@ test "String.from_cstr single character", {
   result := String.from_cstr(cstr);
   
   match(result,
-    .Ok(str) => {
-      assert(str.len() == usize(1));
-      assert(str.at(usize(0)).unwrap().to_u32() == u32(88));
+    .Ok(s) => {
+      assert(s.len() == usize(1));
+      assert(s.at(usize(0)).unwrap().to_u32() == u32(88));
     },
     .Err(_) => assert(false, "Should create single character string")
   );
@@ -572,29 +572,29 @@ test "String.from_cstr single character", {
 // ===== String Literal Conversion Tests =====
 
 test "String.from with string literal", {
-  str := String.from("ABC");
-  assert(str.len() == usize(3));
-  assert(str.at(usize(0)).unwrap().to_u32() == u32(65));
-  assert(str.at(usize(1)).unwrap().to_u32() == u32(66));
-  assert(str.at(usize(2)).unwrap().to_u32() == u32(67));
+  s := String.from("ABC");
+  assert(s.len() == usize(3));
+  assert(s.at(usize(0)).unwrap().to_u32() == u32(65));
+  assert(s.at(usize(1)).unwrap().to_u32() == u32(66));
+  assert(s.at(usize(2)).unwrap().to_u32() == u32(67));
 };
 
 test "String.from with empty string literal", {
-  str := String.from("");
-  assert(str.is_empty());
-  assert(str.len() == usize(0));
+  s := String.from("");
+  assert(s.is_empty());
+  assert(s.len() == usize(0));
 };
 
 test "String.from with UTF-8 literal", {
-  str := String.from("你好");
-  assert(str.len() == usize(2));
+  s := String.from("你好");
+  assert(s.len() == usize(2));
 };
 
 test "String.from with emoji literal", {
-  str := String.from("😀😁");
-  assert(str.len() == usize(2));
-  assert(str.at(usize(0)).unwrap().to_u32() == u32(0x1F600));
-  assert(str.at(usize(1)).unwrap().to_u32() == u32(0x1F601));
+  s := String.from("😀😁");
+  assert(s.len() == usize(2));
+  assert(s.at(usize(0)).unwrap().to_u32() == u32(0x1F600));
+  assert(s.at(usize(1)).unwrap().to_u32() == u32(0x1F601));
 };
 
 // ===== Large String Tests =====
@@ -607,9 +607,9 @@ test "String with many ASCII characters", {
     bytes.push(u8(65));
   });
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(100));
-  assert(not(str.is_empty()));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(100));
+  assert(not(s.is_empty()));
 };
 
 test "String concat multiple times", {
@@ -633,8 +633,8 @@ test "String as_bytes preserves UTF-8 encoding", {
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
   
-  str := String.from_bytes(bytes);
-  result := str.as_bytes();
+  s := String.from_bytes(bytes);
+  result := s.as_bytes();
   
   assert(result.len() == usize(3));
   assert(result.get(usize(0)).unwrap() == u8(0xE4));
@@ -647,8 +647,8 @@ test "String as_bytes returns copy not reference", {
   original_bytes.push(u8(65));
   original_bytes.push(u8(66));
   
-  str := String.from_bytes(original_bytes);
-  retrieved := str.as_bytes();
+  s := String.from_bytes(original_bytes);
+  retrieved := s.as_bytes();
   
   assert(retrieved.len() == usize(2));
 };
@@ -664,16 +664,16 @@ test "String Greek characters", {
   bytes.push(u8(0xCE));
   bytes.push(u8(0xB3));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(3));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(3));
   
-  alpha := str.at(usize(0));
+  alpha := s.at(usize(0));
   assert(alpha.unwrap().to_u32() == u32(0x3B1));
   
-  beta := str.at(usize(1));
+  beta := s.at(usize(1));
   assert(beta.unwrap().to_u32() == u32(0x3B2));
   
-  gamma := str.at(usize(2));
+  gamma := s.at(usize(2));
   assert(gamma.unwrap().to_u32() == u32(0x3B3));
 };
 
@@ -686,16 +686,16 @@ test "String Cyrillic characters", {
   bytes.push(u8(0xD0));
   bytes.push(u8(0xB8));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(3));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(3));
   
-  p := str.at(usize(0));
+  p := s.at(usize(0));
   assert(p.unwrap().to_u32() == u32(0x41F));
   
-  r := str.at(usize(1));
+  r := s.at(usize(1));
   assert(r.unwrap().to_u32() == u32(0x440));
   
-  i := str.at(usize(2));
+  i := s.at(usize(2));
   assert(i.unwrap().to_u32() == u32(0x438));
 };
 
@@ -706,13 +706,13 @@ test "String Arabic characters", {
   bytes.push(u8(0xD9));
   bytes.push(u8(0x84));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(2));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(2));
   
-  alef := str.at(usize(0));
+  alef := s.at(usize(0));
   assert(alef.unwrap().to_u32() == u32(0x627));
   
-  lam := str.at(usize(1));
+  lam := s.at(usize(1));
   assert(lam.unwrap().to_u32() == u32(0x644));
 };
 
@@ -723,13 +723,13 @@ test "String Hebrew characters", {
   bytes.push(u8(0xD7));
   bytes.push(u8(0x9C));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(2));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(2));
   
-  shin := str.at(usize(0));
+  shin := s.at(usize(0));
   assert(shin.unwrap().to_u32() == u32(0x5E9));
   
-  lamed := str.at(usize(1));
+  lamed := s.at(usize(1));
   assert(lamed.unwrap().to_u32() == u32(0x5DC));
 };
 
@@ -742,13 +742,13 @@ test "String Japanese Hiragana", {
   bytes.push(u8(0x81));
   bytes.push(u8(0x84));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(2));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(2));
   
-  a := str.at(usize(0));
+  a := s.at(usize(0));
   assert(a.unwrap().to_u32() == u32(0x3042));
   
-  i := str.at(usize(1));
+  i := s.at(usize(1));
   assert(i.unwrap().to_u32() == u32(0x3044));
 };
 
@@ -761,13 +761,13 @@ test "String Korean Hangul", {
   bytes.push(u8(0xB8));
   bytes.push(u8(0x80));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(2));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(2));
   
-  han := str.at(usize(0));
+  han := s.at(usize(0));
   assert(han.unwrap().to_u32() == u32(0xD55C));
   
-  gul := str.at(usize(1));
+  gul := s.at(usize(1));
   assert(gul.unwrap().to_u32() == u32(0xAE00));
 };
 
@@ -788,16 +788,16 @@ test "String various emojis", {
   bytes.push(u8(0x8E));
   bytes.push(u8(0x89));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(3));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(3));
   
-  grinning := str.at(usize(0));
+  grinning := s.at(usize(0));
   assert(grinning.unwrap().to_u32() == u32(0x1F600));
   
-  thumbsup := str.at(usize(1));
+  thumbsup := s.at(usize(1));
   assert(thumbsup.unwrap().to_u32() == u32(0x1F44D));
   
-  tada := str.at(usize(2));
+  tada := s.at(usize(2));
   assert(tada.unwrap().to_u32() == u32(0x1F389));
 };
 
@@ -810,30 +810,30 @@ test "String various whitespace", {
   bytes.push(u8(10));
   bytes.push(u8(13));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(4));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(4));
   
-  space := str.at(usize(0));
+  space := s.at(usize(0));
   assert(space.unwrap().to_u32() == u32(32));
   
-  tab := str.at(usize(1));
+  tab := s.at(usize(1));
   assert(tab.unwrap().to_u32() == u32(9));
   
-  newline := str.at(usize(2));
+  newline := s.at(usize(2));
   assert(newline.unwrap().to_u32() == u32(10));
   
-  carriage := str.at(usize(3));
+  carriage := s.at(usize(3));
   assert(carriage.unwrap().to_u32() == u32(13));
 };
 
 test "String punctuation marks", {
-  str := String.from("!@#$%^&*()");
-  assert(str.len() == usize(10));
+  s := String.from("!@#$%^&*()");
+  assert(s.len() == usize(10));
   
-  exclaim := str.at(usize(0));
+  exclaim := s.at(usize(0));
   assert(exclaim.unwrap().to_u32() == u32(33));
   
-  at := str.at(usize(1));
+  at := s.at(usize(1));
   assert(at.unwrap().to_u32() == u32(64));
 };
 
@@ -860,11 +860,11 @@ test "String concat three strings", {
 };
 
 test "String concat identical strings", {
-  str := String.from("Test");
-  result := str.concat(str);
+  s := String.from("Test");
+  result := s.concat(s);
   
   assert(result.len() == usize(8));
-  assert(str.len() == usize(4));
+  assert(s.len() == usize(4));
 };
 
 // ===== String + Operator Tests =====
@@ -883,17 +883,17 @@ test "String + operator two ASCII strings", {
 
 test "String + operator empty with non-empty", {
   empty := String.from("");
-  str := String.from("Hello");
+  s := String.from("Hello");
   
-  result := (empty + str);
+  result := (empty + s);
   assert(result.len() == usize(5));
 };
 
 test "String + operator non-empty with empty", {
-  str := String.from("Hello");
+  s := String.from("Hello");
   empty := String.from("");
   
-  result := (str + empty);
+  result := (s + empty);
   assert(result.len() == usize(5));
 };
 
@@ -969,10 +969,10 @@ test "String == operator empty strings", {
 
 test "String == operator empty vs non-empty", {
   empty := String.from("");
-  str := String.from("Hello");
+  s := String.from("Hello");
   
-  assert(not(empty == str));
-  assert(not(str == empty));
+  assert(not(empty == s));
+  assert(not(s == empty));
 };
 
 test "String == operator different lengths", {
@@ -1073,9 +1073,9 @@ test "String with_capacity and repeated push", {
     bytes.push(u8(((i % usize(26)) + usize(65))));
   });
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(50));
-  assert(not(str.is_empty()));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(50));
+  assert(not(s.is_empty()));
 };
 
 test "String alternating ASCII and UTF-8", {
@@ -1090,12 +1090,12 @@ test "String alternating ASCII and UTF-8", {
   bytes.push(u8(0x87));
   bytes.push(u8(67));
   
-  str := String.from_bytes(bytes);
-  assert(str.len() == usize(5));
+  s := String.from_bytes(bytes);
+  assert(s.len() == usize(5));
   
-  assert(str.at(usize(0)).unwrap().to_u32() == u32(65));
-  assert(str.at(usize(1)).unwrap().to_u32() == u32(0x4E2D));
-  assert(str.at(usize(2)).unwrap().to_u32() == u32(66));
-  assert(str.at(usize(3)).unwrap().to_u32() == u32(0x6587));
-  assert(str.at(usize(4)).unwrap().to_u32() == u32(67));
+  assert(s.at(usize(0)).unwrap().to_u32() == u32(65));
+  assert(s.at(usize(1)).unwrap().to_u32() == u32(0x4E2D));
+  assert(s.at(usize(2)).unwrap().to_u32() == u32(66));
+  assert(s.at(usize(3)).unwrap().to_u32() == u32(0x6587));
+  assert(s.at(usize(4)).unwrap().to_u32() == u32(67));
 };

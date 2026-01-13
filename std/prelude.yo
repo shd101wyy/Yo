@@ -2735,6 +2735,16 @@ impl(forall(T : Type), Slice(T), {
   export len;
 });
 
+/// str
+str :: newtype(
+  bytes : Slice(u8),
+
+  len :: (fn(self : Self) -> usize)(
+    __yo_slice_len(self.bytes)
+  )
+);
+export str;
+
 /// ComptList
 impl(forall(T : Type), ComptList(T), {
   car :: (fn(compt(self): Self) -> compt(__yo_compt_list_element_type(Self)))(

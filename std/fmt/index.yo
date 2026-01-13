@@ -12,8 +12,8 @@ export ToString;
  *   println("hello");  // prints "hello\n"
  */
 println :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
-  str := v.to_string();
-  str_bytes := str.as_bytes();
+  s := v.to_string();
+  str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
   str_bytes_ptr := str_bytes.ptr().unwrap();
   fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
@@ -31,8 +31,8 @@ export println;
  *   print("world");   // prints "hello world"
  */
 print :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
-  str := v.to_string();
-  str_bytes := str.as_bytes();
+  s := v.to_string();
+  str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
   str_bytes_ptr := str_bytes.ptr().unwrap();
   fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
@@ -46,8 +46,8 @@ export print;
  *   eprintln("Error: something went wrong");
  */
 eprintln :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
-  str := v.to_string();
-  str_bytes := str.as_bytes();
+  s := v.to_string();
+  str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
   str_bytes_ptr := str_bytes.ptr().unwrap();
   fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr);
@@ -65,8 +65,8 @@ export eprintln;
  *   eprintln("be careful");
  */
 eprint :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
-  str := v.to_string();
-  str_bytes := str.as_bytes();
+  s := v.to_string();
+  str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
   str_bytes_ptr := str_bytes.ptr().unwrap();
   fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr);
