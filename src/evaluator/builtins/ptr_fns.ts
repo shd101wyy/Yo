@@ -7,7 +7,14 @@ import {
   exprToString,
   FuncCallExpr,
 } from "../../expr";
-import { createPtrType, isPtrType } from "../../types";
+import {
+  convertComptTypeToRuntimeType,
+  createPtrType,
+  isComptFloatType,
+  isComptIntType,
+  isComptStringType,
+  isPtrType,
+} from "../../types";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -72,7 +79,27 @@ export function evaluateAddressCall({
   }
   // Create pointer value
   else {
-    const argType = evaluatedArgExpr.$.type;
+    let argType = evaluatedArgExpr.$.type;
+
+    // If the argument is a compt type, convert it to its runtime equivalent
+    // before creating the pointer type. This ensures we get *(str) instead of *(compt_string).
+    if (
+      isComptIntType(argType) ||
+      isComptFloatType(argType) ||
+      isComptStringType(argType)
+    ) {
+      const runtimeType = convertComptTypeToRuntimeType({
+        type: argType,
+        expectedType: expectedType?.type,
+        expr: evaluatedArgExpr,
+        env,
+      });
+      // Update the argument's type and set convertedRuntimeType for codegen
+      evaluatedArgExpr.$.type = runtimeType;
+      evaluatedArgExpr.$.convertedRuntimeType = runtimeType;
+      argType = runtimeType;
+    }
+
     const pointerType = createPtrType(argType);
 
     expr.$ = {

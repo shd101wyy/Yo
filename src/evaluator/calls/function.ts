@@ -244,6 +244,8 @@ export function evaluateFunctionCall({
               let methodArgs: Expr[];
               if (method.needsPointerConversion) {
                 // Create &(receiverArg) expression
+                // Note: The compt type to runtime type conversion is handled
+                // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
                 const ampersandExpr: AtomExpr = {
                   tag: ExprTag.Atom,
                   token: receiverArg.token,

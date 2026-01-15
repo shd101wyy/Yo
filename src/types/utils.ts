@@ -13,12 +13,7 @@ import {
 } from "../value";
 import { ValueTag } from "../value-tag";
 import { areTypesCompatible } from "./compatibility";
-import {
-  createF64Type,
-  createI32Type,
-  createPtrType,
-  createStrType,
-} from "./creators";
+import { createF64Type, createI32Type, createStrType } from "./creators";
 import {
   ArrayType,
   ComptListType,
@@ -740,22 +735,6 @@ export function convertComptTypeToRuntimeType({
     convertedType = createI32Type();
   } else if (isComptFloatType(type)) {
     convertedType = createF64Type();
-  } else if (isPtrType(type)) {
-    // Recursively convert pointer child type
-    // This handles *(compt_string) -> *(str)
-    const convertedChildType = convertComptTypeToRuntimeType({
-      type: type.childType,
-      expectedType:
-        expectedType && isPtrType(expectedType)
-          ? expectedType.childType
-          : undefined,
-      expr: undefined,
-      env,
-    });
-    if (convertedChildType !== type.childType) {
-      return createPtrType(convertedChildType);
-    }
-    return type;
   } else if (isArrayType(type)) {
     type.childType = convertComptTypeToRuntimeType({
       type: type.childType,
