@@ -2419,6 +2419,26 @@ function generateFuncCall(
       }
     }
 
+    // Check if the argument is a literal value that needs to be made addressable
+    // In C, we can't take the address of a literal directly (&1 is invalid)
+    // We need to use a compound literal: &(int32_t){1}
+    const argValue = arg.$?.value;
+    const argType = arg.$?.type;
+
+    if (argValue !== undefined && argType) {
+      // Check for compile-time values that need compound literals
+      if (isNumberValue(argValue) || isBooleanValue(argValue)) {
+        const argCode = generateExpr(arg, indent, context);
+        const typeName = getTypeString(argType, context);
+        return `(&(${typeName}){${argCode}})`;
+      }
+      // For compt_string with conversion, the generateExpr already generates the struct
+      if (isComptStringValue(argValue) && arg.$?.convertedRuntimeType) {
+        const argCode = generateExpr(arg, indent, context);
+        return `(&${argCode})`;
+      }
+    }
+
     const argCode = generateExpr(arg, indent, context);
 
     // For pointer/reference creation, we need to be careful about constness
