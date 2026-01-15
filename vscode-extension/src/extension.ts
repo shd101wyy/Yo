@@ -1336,11 +1336,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidOpenTextDocument(analyzeYoFile)
   );
 
-  // Analyze when a document is changed
+  // Analyze when a document is saved (not on every change for better performance)
   context.subscriptions.push(
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      analyzeYoFile(event.document);
-    })
+    vscode.workspace.onDidSaveTextDocument(analyzeYoFile)
   );
 
   // Analyze when the active editor changes

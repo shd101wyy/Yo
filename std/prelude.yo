@@ -466,6 +466,11 @@ Isolation :: module(
 );
 export Isolation;
 
+// === ToComptString ===
+ComptToString :: module(
+  to_compt_string : (fn(compt(self) : Self) -> compt(compt_string))
+);
+
 // === Builtin types ===
 /// compt_int
 impl(compt_int, ComptAdd(compt_int)(
@@ -520,12 +525,11 @@ impl(compt_int, ComptOrd(compt_int)(
     __yo_compt_int_gte(lhs, rhs)
   )
 ));
-impl(compt_int, {
-  (to_string) :: (fn(compt(self): compt_int) -> compt(compt_string))(
+impl(compt_int, ComptToString(
+  (to_compt_string) : (self ->
     __yo_compt_int_to_string(self)
-  );
-  export to_string;
-});
+  )
+));
 _compt_int :: compt_int;
 export compt_int : _compt_int;
 
@@ -577,12 +581,9 @@ impl(compt_float, ComptOrd(compt_float)(
     __yo_compt_float_gte(lhs, rhs)
   )
 ));
-impl(compt_float, {
-  (to_string) :: (fn(compt(self): compt_float) -> compt(compt_string))(
-    __yo_compt_float_to_string(self)
-  );
-  export to_string;
-});
+impl(compt_float, ComptToString(
+  to_compt_string : (self -> __yo_compt_float_to_string(self))
+));
 _compt_float :: compt_float;
 export compt_float : _compt_float;
 
@@ -669,12 +670,9 @@ impl(bool, ComptEq(bool)(
     __yo_compt_boolean_neq(lhs, rhs)
   )
 ));
-impl(bool, {
-  (to_string) :: (fn(compt(self): bool) -> compt(compt_string))
-    __yo_compt_boolean_to_string(self)
-  ;
-  export to_string;
-});
+impl(bool, ComptToString(
+  to_compt_string : (self -> __yo_compt_boolean_to_string(self))
+));
 _boolean :: bool;
 export bool : _boolean;
 
@@ -792,12 +790,9 @@ impl(i8, ComptOrd(i8)(
     __yo_i8_gte(lhs, rhs)
   )
 ));
-impl(i8, {
-  (to_string) :: (fn(compt(self): i8) -> compt(compt_string))
-    __yo_i8_to_string(self)
-  ;
-  export to_string;
-});
+impl(i8, ComptToString(
+  to_compt_string : (self -> __yo_i8_to_string(self))
+));
 _i8 :: i8;
 export i8 : _i8;
 
@@ -915,12 +910,9 @@ impl(i16, ComptOrd(i16)(
     __yo_i16_gte(lhs, rhs)
   )
 ));
-impl(i16, {
-  (to_string) :: (fn(compt(self): i16) -> compt(compt_string))
-    __yo_i16_to_string(self)
-  ;
-  export to_string;
-});
+impl(i16, ComptToString(
+  to_compt_string : (self -> __yo_i16_to_string(self))
+));
 _i16 :: i16;
 export i16 : _i16;
 
@@ -1043,12 +1035,9 @@ impl(i32, ComptOrd(i32)(
     __yo_i32_gte(lhs, rhs)
   )
 ));
-impl(i32, {
-  (to_string) :: (fn(compt(self): i32) -> compt(compt_string))
-    __yo_i32_to_string(self)
-  ;
-  export to_string;
-});
+impl(i32, ComptToString(
+  to_compt_string : (self -> __yo_i32_to_string(self))
+));
 _i32 :: i32;
 export i32 : _i32;
 
@@ -1166,12 +1155,9 @@ impl(i64, ComptOrd(i64)(
     __yo_i64_gte(lhs, rhs)
   )
 ));
-impl(i64, {
-  (to_string) :: (fn(compt(self): i64) -> compt(compt_string))
-    __yo_i64_to_string(self)
-  ;
-  export to_string;
-});
+impl(i64, ComptToString(
+  to_compt_string : (self ->  __yo_i64_to_string(self))
+));
 _i64 :: i64;
 export i64 : _i64;
 
@@ -1284,12 +1270,9 @@ impl(u8, ComptOrd(u8)(
     __yo_u8_gte(lhs, rhs)
   )
 ));
-impl(u8, {
-  (to_string) :: (fn(compt(self): u8) -> compt(compt_string))
-    __yo_u8_to_string(self)
-  ;
-  export to_string;
-});
+impl(u8, ComptToString(
+  to_compt_string : (self -> __yo_u8_to_string(self))
+));
 _u8 :: u8;
 export u8 : _u8;
 
@@ -1402,12 +1385,9 @@ impl(u16, ComptOrd(u16)(
     __yo_u16_gte(lhs, rhs)
   )
 ));
-impl(u16, {
-  (to_string) :: (fn(compt(self): u16) -> compt(compt_string))
-    __yo_u16_to_string(self)
-  ;
-  export to_string;
-});
+impl(u16, ComptToString(
+  to_compt_string : (self -> __yo_u16_to_string(self))
+));
 _u16 :: u16;
 export u16 : _u16;
 
@@ -1520,12 +1500,9 @@ impl(u32, ComptOrd(u32)(
     __yo_u32_gte(lhs, rhs)
   )
 ));
-impl(u32, {
-  (to_string) :: (fn(compt(self): u32) -> compt(compt_string))
-    __yo_u32_to_string(self)
-  ;
-  export to_string;
-});
+impl(u32, ComptToString(
+  to_compt_string : (self -> __yo_u32_to_string(self))
+));
 _u32 :: u32;
 export u32 : _u32;
 
@@ -1638,12 +1615,9 @@ impl(u64, ComptOrd(u64)(
     __yo_u64_gte(lhs, rhs)
   )
 ));
-impl(u64, {
-  (to_string) :: (fn(compt(self): u64) -> compt(compt_string))
-    __yo_u64_to_string(self)
-  ;
-  export to_string;
-});
+impl(u64, ComptToString(
+  to_compt_string : (self -> __yo_u64_to_string(self))
+));
 _u64 :: u64;
 export u64 : _u64;
 
@@ -1745,12 +1719,9 @@ impl(f32, ComptOrd(f32)(
     __yo_f32_gte(lhs, rhs)
   )
 ));
-impl(f32, { 
-  (to_string) :: (fn(compt(self): f32) -> compt(compt_string))
-    __yo_f32_to_string(self)
-  ; 
-  export to_string; 
-});
+impl(f32, ComptToString(
+  to_compt_string : (self -> __yo_f32_to_string(self))
+));
 _f32 :: f32;
 export f32 : _f32;
 
@@ -1852,12 +1823,9 @@ impl(f64, ComptOrd(f64)(
     __yo_f64_gte(lhs, rhs)
   )
 ));
-impl(f64, { 
-  (to_string) :: (fn(compt(self): f64) -> compt(compt_string))
-    __yo_f64_to_string(self)
-  ; 
-  export to_string;
-});
+impl(f64, ComptToString(
+  to_compt_string : (self -> __yo_f64_to_string(self))
+));
 _f64 :: f64;
 export f64 : _f64;
 
@@ -1975,12 +1943,9 @@ impl(isize, ComptOrd(isize)(
     __yo_isize_gte(lhs, rhs)
   )
 ));
-impl(isize, {
-  (to_string) :: (fn(compt(self): isize) -> compt(compt_string))
-    __yo_isize_to_string(self)
-  ; 
-  export to_string;
-});
+impl(isize, ComptToString(
+  to_compt_string : (self -> __yo_isize_to_string(self))
+));
 _isize :: isize;
 export isize : _isize;
 
@@ -2093,12 +2058,9 @@ impl(usize, ComptOrd(usize)(
     __yo_usize_gte(lhs, rhs)
   )
 ));
-impl(usize, {
-  (to_string) :: (fn(compt(self): usize) -> compt(compt_string))
-    __yo_usize_to_string(self)
-  ;
-  export to_string;
-});
+impl(usize, ComptToString(
+  to_compt_string : (self -> __yo_usize_to_string(self))
+));
 _usize :: usize;
 export usize : _usize;
 
@@ -2800,22 +2762,15 @@ impl(Expr, {
     __yo_compt_list_cons(self, rest)
   );
   export cons;
-
-  (to_string) :: (fn(compt(self): Expr) -> compt(compt_string))(
-    __yo_expr_to_string(self)
-  );
-  export to_string;
 });
+impl(Expr, ComptToString(
+  to_compt_string : (self -> __yo_expr_to_string(self))
+));
 _Expr :: Expr;
 export Expr : _Expr;
 
 // Type
 impl(Type, {
-  to_string :: (fn(compt(self): Type) -> compt(compt_string))({
-     return __yo_type_to_string(self);
-  });
-  export to_string;
-
   is_compatible_with :: (fn(compt(self): Type, compt(expected_type): Type) -> compt(bool))({
      return __yo_are_types_compatible(expected_type, self);
   });
@@ -2836,6 +2791,9 @@ impl(Type, {
   });
   export impls;
 });
+impl(Type, ComptToString(
+  to_compt_string : (self -> __yo_type_to_string(self))
+));
 _Type :: Type;
 export Type : _Type;
 
