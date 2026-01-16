@@ -20,7 +20,10 @@ import {
   createExprType,
   extractFnModuleFromType,
   isArrayType,
+  isComptFloatType,
+  isComptIntType,
   isComptListType,
+  isComptStringType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -1119,6 +1122,30 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
   );
   if (comptFunctionCalls.length === 1) {
     functionsWithMatchingTypes = comptFunctionCalls;
+  }
+
+  // When there are still multiple matches and multiple are compt functions,
+  // prefer the one with compt parameter types over runtime parameter types.
+  // For example, when calling `3 > 4`:
+  // - Prefer fn(compt_int, compt_int) -> bool over fn(i32, i32) -> bool
+  // This ensures that compile-time operations stay at compile-time when possible.
+  if (functionsWithMatchingTypes.length > 1) {
+    const functionsWithComptParams = functionsWithMatchingTypes.filter(
+      (functionToCall) => {
+        if (!isFunctionType(functionToCall.type)) return false;
+        const params = functionToCall.type.parameters;
+        // Check if any parameter is a compt type (compt_int, compt_float, compt_string)
+        return params.some(
+          (param) =>
+            isComptIntType(param.type) ||
+            isComptFloatType(param.type) ||
+            isComptStringType(param.type)
+        );
+      }
+    );
+    if (functionsWithComptParams.length === 1) {
+      functionsWithMatchingTypes = functionsWithComptParams;
+    }
   }
 
   if (functionsWithMatchingTypes.length === 0) {
