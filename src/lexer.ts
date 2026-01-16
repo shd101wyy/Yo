@@ -352,13 +352,60 @@ export function tokenize(input: string, modulePath: string): Token[] {
         while (j < input.length) {
           // Handle escape sequences
           if (input[j] === "\\") {
-            value += input[j];
-            j = j + 1;
-            if (j < input.length) {
-              value += input[j];
-              j = j + 1;
+            if (j + 1 < input.length) {
+              const nextChar = input[j + 1];
+              if (nextChar === "$") {
+                // Escaped dollar sign: \$ should be stored specially for the parser
+                value += "\\$";
+                j = j + 2;
+                continue;
+              } else {
+                // Other escape sequences - interpret them like JavaScript
+                j = j + 1;
+                switch (nextChar) {
+                  case "n":
+                    value += "\n";
+                    break;
+                  case "t":
+                    value += "\t";
+                    break;
+                  case "r":
+                    value += "\r";
+                    break;
+                  case "\\":
+                    value += "\\";
+                    break;
+                  case '"':
+                    value += '"';
+                    break;
+                  case "'":
+                    value += "'";
+                    break;
+                  case "`":
+                    value += "`";
+                    break;
+                  case "0":
+                    value += "\0";
+                    break;
+                  case "b":
+                    value += "\b";
+                    break;
+                  case "f":
+                    value += "\f";
+                    break;
+                  case "v":
+                    value += "\v";
+                    break;
+                  default:
+                    // For unknown escapes, keep both backslash and character
+                    value += "\\";
+                    value += nextChar;
+                    break;
+                }
+                j = j + 1;
+                continue;
+              }
             }
-            continue;
           }
 
           // Handle interpolation start: ${

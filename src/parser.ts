@@ -115,22 +115,12 @@ export default class Parser {
     let i = 0;
 
     while (i < templateValue.length) {
-      // Handle escape sequences
-      if (templateValue[i] === "\\") {
-        if (i + 1 < templateValue.length) {
-          const nextChar = templateValue[i + 1];
-          // Handle escaped dollar sign - don't treat as interpolation
-          if (nextChar === "$") {
-            currentString += "$";
-            i += 2;
-            continue;
-          }
-          // Pass through other escape sequences as-is for the string literal
-          currentString += templateValue[i];
-          currentString += templateValue[i + 1];
-          i += 2;
-          continue;
-        }
+      // Handle escaped dollar sign: \$
+      if (templateValue[i] === "\\" && templateValue[i + 1] === "$") {
+        // Convert \$ to just $
+        currentString += "$";
+        i += 2;
+        continue;
       }
 
       // Handle interpolation start: ${
