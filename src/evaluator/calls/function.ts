@@ -327,10 +327,7 @@ export function evaluateFunctionCall({
         ];
       }
     } else {
-      const functionName =
-        func.token.type === TokenType.BacktickIdentifier
-          ? func.token.value.slice(1, -1) // Convert `add` to add
-          : func.token.value;
+      const functionName = func.token.value;
 
       // Check _ function
       if (functionName === "_") {

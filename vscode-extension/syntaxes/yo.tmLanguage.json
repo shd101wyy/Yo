@@ -41,7 +41,7 @@
         { "include": "#infix-precedence" },
         { "include": "#strings" },
         { "include": "#chars" },
-        { "include": "#infix-identifiers" },
+        { "include": "#template-strings" },
         { "include": "#builtin-types" },
         { "include": "#builtin-values" }
       ]
@@ -155,14 +155,28 @@
         }
       ]
     },
-    "infix-identifiers": {
-      "name": "entity.name.function.yo",
+    "template-strings": {
+      "name": "string.template.yo",
       "begin": "`",
       "end": "`",
       "patterns": [
         {
           "name": "constant.character.escape.yo",
           "match": "\\\\."
+        },
+        {
+          "name": "meta.template.expression.yo",
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin.yo"
+            }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.template-expression.end.yo" }
+          },
+          "patterns": [{ "include": "#statements" }]
         }
       ]
     },

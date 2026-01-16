@@ -27,6 +27,7 @@ export default class Parser {
   private tokens: Token[];
   private program: Expr[];
   private parserError: Error | undefined;
+  private hasTemplateString: boolean = false;
 
   constructor({
     modulePath,
@@ -87,6 +88,261 @@ export default class Parser {
       tokens[endIndex]!.type === TokenType.RParen &&
       findMatchingBracketTokenIndex(tokens, startIndex) === endIndex
     );
+  }
+
+  /**
+   * Parse a template string like `hello, ${name}!`
+   * and convert it to:
+   *   ((("hello, ".to_string() + name.to_string()) + "!".to_string()))
+   *
+   * If template string has no interpolations, just convert to:
+   *   "content".to_string()
+   */
+  private parseTemplateString({
+    token,
+    index,
+  }: {
+    token: Token;
+    index: number;
+  }): ParserReturn {
+    // Mark that we're using template strings (for auto-import)
+    this.hasTemplateString = true;
+
+    const templateValue = token.value;
+    const parts: Array<{ type: "string" | "expr"; value: string }> = [];
+
+    let currentString = "";
+    let i = 0;
+
+    while (i < templateValue.length) {
+      // Handle escape sequences
+      if (templateValue[i] === "\\") {
+        if (i + 1 < templateValue.length) {
+          const nextChar = templateValue[i + 1];
+          // Handle escaped dollar sign - don't treat as interpolation
+          if (nextChar === "$") {
+            currentString += "$";
+            i += 2;
+            continue;
+          }
+          // Pass through other escape sequences as-is for the string literal
+          currentString += templateValue[i];
+          currentString += templateValue[i + 1];
+          i += 2;
+          continue;
+        }
+      }
+
+      // Handle interpolation start: ${
+      if (templateValue[i] === "$" && templateValue[i + 1] === "{") {
+        // Save current string part if non-empty
+        if (currentString.length > 0) {
+          parts.push({ type: "string", value: currentString });
+          currentString = "";
+        }
+
+        // Find matching closing brace
+        let braceDepth = 1;
+        const exprStart = i + 2;
+        let j = exprStart;
+
+        while (j < templateValue.length && braceDepth > 0) {
+          if (templateValue[j] === "{") {
+            braceDepth++;
+          } else if (templateValue[j] === "}") {
+            braceDepth--;
+          }
+          if (braceDepth > 0) {
+            j++;
+          }
+        }
+
+        const exprCode = templateValue.substring(exprStart, j);
+        parts.push({ type: "expr", value: exprCode });
+
+        i = j + 1; // Skip past closing brace
+        continue;
+      }
+
+      currentString += templateValue[i];
+      i++;
+    }
+
+    // Add remaining string part
+    if (currentString.length > 0) {
+      parts.push({ type: "string", value: currentString });
+    }
+
+    // Handle empty template string
+    if (parts.length === 0) {
+      parts.push({ type: "string", value: "" });
+    }
+
+    // Build the concatenation expression
+    // Each part becomes either "str".to_string() or (expr).to_string()
+    // Combined with + operator
+
+    let resultExpr: Expr | null = null;
+
+    for (const part of parts) {
+      let partExpr: Expr;
+
+      if (part.type === "string") {
+        // Create "str".to_string()
+        const strToken: Token = {
+          type: TokenType.String,
+          value: JSON.stringify(part.value),
+          position: token.position,
+          modulePath: token.modulePath,
+          inputString: token.inputString,
+        };
+
+        const strAtom: Expr = {
+          tag: ExprTag.Atom,
+          token: strToken,
+        };
+
+        // Create str.to_string() method call using dot syntax
+        const propertyAccess: Expr = {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Dot,
+              value: ".",
+              position: token.position,
+              modulePath: token.modulePath,
+              inputString: token.inputString,
+            },
+          },
+          args: [
+            strAtom,
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Identifier,
+                value: "to_string",
+                position: token.position,
+                modulePath: token.modulePath,
+                inputString: token.inputString,
+              },
+            },
+          ],
+          isInfix: true,
+          token: token,
+        };
+
+        // Call the method: str.to_string()
+        partExpr = {
+          tag: ExprTag.FuncCall,
+          func: propertyAccess,
+          args: [],
+          token: token,
+        };
+      } else {
+        // Parse the expression inside ${}
+        const parser = new Parser({
+          modulePath: token.modulePath,
+          inputString: part.value,
+        });
+        const parsedExprs = parser.getProgram();
+
+        if (parsedExprs.length === 0) {
+          throw formatErrorMessage({
+            token: token,
+            errorMessage: `Empty expression in template string interpolation`,
+          });
+        }
+
+        const innerExpr = parsedExprs[0]!;
+
+        // Create expr.to_string() method call using dot syntax
+        const propertyAccess: Expr = {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Dot,
+              value: ".",
+              position: token.position,
+              modulePath: token.modulePath,
+              inputString: token.inputString,
+            },
+          },
+          args: [
+            innerExpr,
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Identifier,
+                value: "to_string",
+                position: token.position,
+                modulePath: token.modulePath,
+                inputString: token.inputString,
+              },
+            },
+          ],
+          isInfix: true,
+          token: token,
+        };
+
+        // Call the method: expr.to_string()
+        partExpr = {
+          tag: ExprTag.FuncCall,
+          func: propertyAccess,
+          args: [],
+          token: token,
+        };
+      }
+
+      if (resultExpr === null) {
+        resultExpr = partExpr;
+      } else {
+        // Create resultExpr.(+)(partExpr) using dot method call syntax
+        // First create the property access: resultExpr.(+)
+        const propertyAccess: Expr = {
+          tag: ExprTag.FuncCall,
+          func: {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.Dot,
+              value: ".",
+              position: token.position,
+              modulePath: token.modulePath,
+              inputString: token.inputString,
+            },
+          },
+          args: [
+            resultExpr,
+            {
+              tag: ExprTag.Atom,
+              token: {
+                type: TokenType.Operator,
+                value: "+",
+                position: token.position,
+                modulePath: token.modulePath,
+                inputString: token.inputString,
+              },
+            },
+          ],
+          isInfix: true,
+          token: token,
+        };
+
+        // Then call it with partExpr: resultExpr.(+)(partExpr)
+        resultExpr = {
+          tag: ExprTag.FuncCall,
+          func: propertyAccess,
+          args: [partExpr],
+          token: token,
+        };
+      }
+    }
+
+    return {
+      expr: resultExpr!,
+      index: index + 1,
+    };
   }
 
   private parseParenExpr({
@@ -539,6 +795,13 @@ export default class Parser {
         };
         break;
       }
+      case TokenType.TemplateString: {
+        returnValue = this.parseTemplateString({
+          token,
+          index,
+        });
+        break;
+      }
       default: {
         throw formatErrorMessage({
           token: token,
@@ -752,8 +1015,7 @@ export default class Parser {
       });
     } else if (
       (token.type === TokenType.Operator ||
-        (token.type === TokenType.Dot && !hasWhitespaceForward) ||
-        token.type === TokenType.BacktickIdentifier) &&
+        (token.type === TokenType.Dot && !hasWhitespaceForward)) &&
       // prevent the case
       // use &(x), a;
       // getting parsed as:
@@ -1153,6 +1415,45 @@ or ) to end the function call`,
   }
 
   public getProgram() {
+    // Auto-import "std/fmt/to_string" if template strings are used
+    if (this.hasTemplateString) {
+      const importExpr: Expr = {
+        tag: ExprTag.FuncCall,
+        func: {
+          tag: ExprTag.Atom,
+          token: {
+            type: TokenType.Identifier,
+            value: BuiltinKeywords.import[0]!,
+            position: { row: 0, column: 0, character: 0 },
+            modulePath: this.modulePath,
+            inputString: this.inputString,
+          },
+        },
+        args: [
+          {
+            tag: ExprTag.Atom,
+            token: {
+              type: TokenType.String,
+              value: JSON.stringify("std/fmt/to_string"),
+              position: { row: 0, column: 0, character: 0 },
+              modulePath: this.modulePath,
+              inputString: this.inputString,
+            },
+          },
+        ],
+        token: {
+          type: TokenType.Identifier,
+          value: BuiltinKeywords.import[0]!,
+          position: { row: 0, column: 0, character: 0 },
+          modulePath: this.modulePath,
+          inputString: this.inputString,
+        },
+      };
+
+      // Prepend the import to the program
+      return [importExpr, ...this.program];
+    }
+
     return this.program;
   }
   public getParserError() {

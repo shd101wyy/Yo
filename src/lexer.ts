@@ -343,34 +343,70 @@ export function tokenize(input: string, modulePath: string): Token[] {
 
         break;
       }
-      // backtick identifier
+      // template string
       case "`": {
         let value = "";
-        for (let j = i + 1; j < input.length; j++) {
+        let braceDepth = 0;
+        let j = i + 1;
+
+        while (j < input.length) {
+          // Handle escape sequences
           if (input[j] === "\\") {
             value += input[j];
             j = j + 1;
-            value += input[j];
+            if (j < input.length) {
+              value += input[j];
+              j = j + 1;
+            }
             continue;
           }
+
+          // Handle interpolation start: ${
+          if (braceDepth === 0 && input[j] === "$" && input[j + 1] === "{") {
+            value += "${";
+            j = j + 2;
+            braceDepth = 1;
+            continue;
+          }
+
+          // Handle nested braces inside interpolation
+          if (braceDepth > 0) {
+            if (input[j] === "{") {
+              braceDepth = braceDepth + 1;
+            } else if (input[j] === "}") {
+              braceDepth = braceDepth - 1;
+            }
+            value += input[j];
+            j = j + 1;
+            continue;
+          }
+
+          // Handle end of template string
           if (input[j] === "`") {
             i = j;
             break;
           }
 
+          // Handle newlines for line tracking
+          if (input[j] === "\n") {
+            line++;
+            totalCharacters = j + 1;
+          }
+
           value += input[j];
+          j = j + 1;
         }
 
-        if (!IdentifierRegex.test(value)) {
+        if (j >= input.length && input[j] !== "`") {
           throw new YoLexerError({
-            message: `Invalid backtick identifier \`${value}\``,
+            message: `Unterminated template string`,
             characterIndex: i,
           });
         }
 
         tokens.push({
-          type: TokenType.BacktickIdentifier,
-          value: `\`${value}\``,
+          type: TokenType.TemplateString,
+          value: value,
           position: {
             row: line,
             column: characterColumn,
