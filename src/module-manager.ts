@@ -272,9 +272,18 @@ export class ModuleManager {
 
     const modulesToInvalidate = [modulePath];
 
-    // If deleting a workspace module, also delete its extension duplicates
-    const duplicates = this.findExtensionDuplicates(modulePath);
-    modulesToInvalidate.push(...duplicates);
+    // If deleting a workspace module, aggressively delete ALL extension modules
+    // This prevents any possible type mismatches from stale extension modules
+    if (this.isWorkspaceModule(modulePath)) {
+      for (const [path] of this.modules) {
+        if (
+          !this.isWorkspaceModule(path) &&
+          !modulesToInvalidate.includes(path)
+        ) {
+          modulesToInvalidate.push(path);
+        }
+      }
+    }
 
     // If this is a prelude module, find all prelude variants (workspace and extension)
     const isPrelude =
