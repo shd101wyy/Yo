@@ -21,6 +21,7 @@ import {
   isTypeValue,
   isUnknownValue,
   ModuleValue,
+  TraitValue,
 } from "../../value";
 import { collectType } from "../types";
 import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
@@ -95,7 +96,7 @@ function exprContainsUnknownValue(expr: Expr): boolean {
  * First pass: collect all functions that need to be generated
  */
 export function collectRequiredFunctions(
-  moduleValue: ModuleValue,
+  moduleValue: ModuleValue | TraitValue,
   context: CodeGenContext
 ): void {
   // Start with exported functions
@@ -163,18 +164,18 @@ export function findFunctionCallsInExpr(
   if (
     exprIsFunctionCall(expr) &&
     expr.$ &&
-    expr.$.dynCallModuleValues &&
-    expr.$.dynCallModuleValues.length > 0
+    expr.$.dynCallTraitValues &&
+    expr.$.dynCallTraitValues.length > 0
   ) {
     const dynType = expr.$.type;
     const valueExpr = expr.args[0];
 
     if (isDynType(dynType) && valueExpr && valueExpr.$?.type) {
       const valueType = valueExpr.$.type;
-      const moduleValues = expr.$.dynCallModuleValues;
+      const traitValues = expr.$.dynCallTraitValues;
 
       if (
-        moduleValues.length > 0 &&
+        traitValues.length > 0 &&
         (isObjectType(valueType) || isBoxedType(valueType))
       ) {
         const concreteType: Type = isBoxedType(valueType)
@@ -192,7 +193,7 @@ export function findFunctionCallsInExpr(
           dynType,
           concreteType,
           dataType: valueType,
-          moduleValues,
+          traitValues,
         });
       }
     }
@@ -347,11 +348,11 @@ export function findFunctionCallsInExpr(
     }
   }
 
-  // Check for dynCallModuleValues and collect their functions
-  if (expr.$?.dynCallModuleValues) {
-    for (const moduleValue of expr.$.dynCallModuleValues) {
+  // Check for dynCallTraitValues and collect their functions
+  if (expr.$?.dynCallTraitValues) {
+    for (const traitValue of expr.$.dynCallTraitValues) {
       // Recursively collect functions from the dyn() module values
-      collectRequiredFunctions(moduleValue, context);
+      collectRequiredFunctions(traitValue, context);
     }
   }
 }

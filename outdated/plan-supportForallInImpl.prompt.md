@@ -49,7 +49,7 @@ Note: `where` must come after `forall` and is optional. `forall` must be the 1st
 - The resulting type will contain SomeTypes (e.g., `struct(value: T)` where T is SomeType)
 - Store this pattern type in the generic impl registry (don't attach to a concrete type)
 
-### 4. Update `typeImplementsModule`
+### 4. Update `typeImplementsTrait`
 
 **File:** `src/evaluator/exprs/subtype_of.ts`
 

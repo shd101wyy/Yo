@@ -12,56 +12,84 @@ import {
   areTypesCompatible,
   FunctionType,
   isFunctionType,
-  ModuleType,
+  TraitType,
   Type,
   typeToString,
 } from "../../types";
 import {
-  createModuleValue,
+  createTraitValue,
   isFunctionValue,
   isTypeValue,
   Value,
   valueToString,
 } from "../../value";
-import { EvaluatorContext, ModuleTypeCallResult } from "../context";
+import { EvaluatorContext, TraitTypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function tryToImplementModuleWithArgumentsByModuleType({
-  moduleExpr,
-  moduleType,
+export function tryToImplementTraitWithArgumentsByTraitType({
+  traitExpr,
+  traitType,
   argExprs,
   callerEnv,
   context,
 }: {
-  moduleExpr: Expr;
-  moduleType: ModuleType;
+  traitExpr: Expr;
+  traitType: TraitType;
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
-}): ModuleTypeCallResult {
-  if (argExprs.length > moduleType.fields.length) {
+}): TraitTypeCallResult {
+  if (argExprs.length > traitType.fields.length) {
     throw formatErrorMessage({
-      token: moduleExpr.token,
-      errorMessage: `Failed to implement the module. Too many fields provided.`,
+      token: traitExpr.token,
+      errorMessage: `Failed to implement the trait. Too many fields provided.`,
     });
   }
 
-  const fields: (Value | undefined)[] = Array(moduleType.fields.length).fill(
+  const fields: (Value | undefined)[] = Array(traitType.fields.length).fill(
     undefined
   );
 
-  // Create a working module type that we'll progressively update with concrete values
+  // Create a working trait type that we'll progressively update with concrete values
   // This allows Self.X references to resolve to concrete types as we bind values
-  const workingModuleType: ModuleType = {
-    ...moduleType,
-    fields: moduleType.fields.map((field, idx) => ({
+  const workingTraitType: TraitType = {
+    ...traitType,
+    fields: traitType.fields.map((field, idx) => ({
       ...field,
       assignedValue: fields[idx],
     })),
   };
 
-  for (let i = 0; i < moduleType.fields.length; i++) {
-    const moduleField = moduleType.fields[i]!;
+  const receiverType = context.ReceiverType;
+  const selfType = context.ReceiverType ?? workingTraitType;
+
+  if (!receiverType) {
+    throw formatErrorMessage({
+      token: traitExpr.token,
+      errorMessage: `Receiver type is undefined when implementing trait.
+Please consider using "impl" to specify the receiver type explicitly, like:
+
+// impl receiverType, traitImplementation
+impl Point, Id(Point)(
+  id : ((p) -> p)
+);
+`,
+    });
+  }
+  const receiverTypeOriginalTrait: TraitType | undefined = receiverType.trait;
+
+  // Extend the receiverType trait
+  if (!receiverType.trait) {
+    receiverType.trait = workingTraitType;
+  } else {
+    receiverType.trait = {
+      ...receiverType.trait,
+      fields: [...workingTraitType.fields, ...receiverType.trait.fields],
+    };
+  }
+
+  for (let i = 0; i < traitType.fields.length; i++) {
+    const traitField = traitType.fields[i]!;
     let foundArgExpr = false;
     let label: string | undefined = undefined;
     // Traverse over argExprs to see if there is label for the member
@@ -91,79 +119,79 @@ export function tryToImplementModuleWithArgumentsByModuleType({
         });
       }
 
-      // Check if label exists in the module type
-      if (!moduleType.fields.find((e) => e.label === label)) {
+      // Check if label exists in the trait type
+      if (!traitType.fields.find((e) => e.label === label)) {
         throw formatErrorMessage({
           token: labelExpr.token,
-          errorMessage: `Module member with label "${label}" does not exist in the module type.`,
+          errorMessage: `Trait member with label "${label}" does not exist in the trait type.`,
         });
       }
 
-      if (moduleField.label === label) {
+      if (traitField.label === label) {
         foundArgExpr = true;
 
-        if (moduleField.assignedValue) {
+        if (traitField.assignedValue) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Module member "${moduleField.label}" already has a assigned value:
-${valueToString(moduleField.assignedValue)}`,
+            errorMessage: `Trait member "${traitField.label}" already has a assigned value:
+${valueToString(traitField.assignedValue)}`,
           });
         }
 
-        // evaluate the module member type again.
+        // evaluate the trait member type again.
         // Check evaluateFunctionParameterTypeAgain function
         // They should be similar
-        let moduleFieldType: Type;
-        const typeExpr = moduleField.exprs.typeExpr;
-        const defaultValueExpr = moduleField.exprs.defaultValueExpr;
+        let traitFieldType: Type;
+        const typeExpr = traitField.exprs.typeExpr;
+        const defaultValueExpr = traitField.exprs.defaultValueExpr;
         if (typeExpr) {
-          const evaluatedModuleMember = evaluateExpression({
+          const evaluatedTraitMember = evaluateExpression({
             expr: cloneExpr(typeExpr),
             env: pushEnvFrame(
-              moduleType.env,
+              traitType.env,
               callerEnv.frames[callerEnv.frames.length - 1]
             ),
             context: {
               ...context,
               expectedType: undefined,
               ReceiverType: undefined,
-              SelfType: undefined,
+              SelfType: selfType, // Use working trait with progressively bound values
             },
           });
-          const evaluatedModuleMemberTypeValue = evaluatedModuleMember.$?.value;
-          if (!isTypeValue(evaluatedModuleMemberTypeValue)) {
+          const evaluatedTraitMemberTypeValue = evaluatedTraitMember.$?.value;
+          if (!isTypeValue(evaluatedTraitMemberTypeValue)) {
             throw formatErrorMessage({
               token: argExpr.token,
-              errorMessage: `Failed to evaluate the module member "${label}"`,
+              errorMessage: `Failed to evaluate the trait member "${label}"`,
             });
           }
-          moduleFieldType = evaluatedModuleMemberTypeValue.value;
+          traitFieldType = evaluatedTraitMemberTypeValue.value;
         } else if (defaultValueExpr) {
           const evaluatedValueExpr = evaluateExpression({
             expr: cloneExpr(defaultValueExpr),
             env: pushEnvFrame(
-              moduleType.env,
+              traitType.env,
               callerEnv.frames[callerEnv.frames.length - 1]
             ),
             context: {
               ...context,
               expectedType: undefined,
               ReceiverType: undefined,
-              SelfType: undefined,
+              SelfType: selfType, // Use working trait with progressively bound values
             },
           });
           const value = evaluatedValueExpr.$?.value;
           if (!value) {
             throw formatErrorMessage({
               token: argExpr.token,
-              errorMessage: `Failed to evaluate the module member "${label}"`,
+              errorMessage: `Failed to evaluate the trait member "${label}"`,
             });
           }
-          moduleFieldType = value.type;
+          traitFieldType = value.type;
         } else {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Module member "${label}" has no type or default value or assigned value.`,
+            errorMessage: `Trait member "${label}" has no type or default value or assigned value.`,
           });
         }
 
@@ -173,16 +201,16 @@ ${valueToString(moduleField.assignedValue)}`,
           env: callerEnv,
           context: {
             ...context,
-            expectedType: { type: moduleFieldType, env: callerEnv },
+            expectedType: { type: traitFieldType, env: callerEnv },
             ReceiverType: undefined,
-            SelfType: undefined,
+            SelfType: selfType,
           },
         });
         const argType = evaluatedArgExpr.$?.type;
         if (!argType) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Failed to evaluate the module member "${label}"`,
+            errorMessage: `Failed to evaluate the trait member "${label}"`,
           });
         }
         if (evaluatedArgExpr.$?.env) {
@@ -192,35 +220,35 @@ ${valueToString(moduleField.assignedValue)}`,
         // Compare the types
         if (
           !areTypesCompatible(
-            { type: moduleFieldType, env: callerEnv },
+            { type: traitFieldType, env: callerEnv },
             { type: argType, env: callerEnv }
           )
         ) {
           throw formatErrorMessage({
             token: argExpr.token,
-            errorMessage: `Type mismatch for the module member "${label}":
-Expected: ${typeToString(moduleFieldType)}
+            errorMessage: `Type mismatch for the trait member "${label}":
+Expected: ${typeToString(traitFieldType)}
 Got:   ${typeToString(argType)}`,
           });
         }
         const argValue = evaluatedArgExpr.$?.value;
 
         if (isFunctionValue(argValue)) {
-          argValue.funcId += `_${moduleField.label}`;
-          // If the function value's type contains SomeType but moduleFieldType doesn't,
-          // set the specializedType to the resolved moduleFieldType
-          // This ensures that generic functions in modules get their types specialized
-          // when the module is instantiated with concrete type arguments
-          if (!argValue.specializedType && isFunctionType(moduleFieldType)) {
+          argValue.funcId += `_${traitField.label}`;
+          // If the function value's type contains SomeType but traitFieldType doesn't,
+          // set the specializedType to the resolved traitFieldType
+          // This ensures that generic functions in traits get their types specialized
+          // when the trait is instantiated with concrete type arguments
+          if (!argValue.specializedType && isFunctionType(traitFieldType)) {
             // Copy the parametersFrame from the function's type to the specializedType
             // This preserves parameter aliases (e.g., self->lhs, other->rhs) for codegen
             // IMPORTANT: We must preserve the parameter labels from argValue.type,
-            // because those are the labels used in the function body. The moduleFieldType
+            // because those are the labels used in the function body. The traitFieldType
             // has labels from the trait definition (e.g., lhs, rhs) which don't match
             // the actual parameter names in the anonymous function (e.g., a, b).
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             argValue.specializedType = {
-              ...moduleFieldType,
+              ...traitFieldType,
               // Preserve the parameter labels from the function's actual type
               parameters: argValue.type.parameters,
               parametersFrame: argValue.type.parametersFrame,
@@ -231,9 +259,14 @@ Got:   ${typeToString(argType)}`,
         // Save the value to the members
         fields[i] = argValue;
 
-        // Update the working module type with the newly bound value
+        // Update the working trait type with the newly bound value
         // This allows subsequent Self.X references to resolve to this concrete value
-        workingModuleType.fields[i]!.assignedValue = argValue;
+        workingTraitType.fields[i]!.assignedValue = argValue;
+
+        if (receiverType && receiverType.trait) {
+          // Add the field to the ReceiverType.trait as well
+          receiverType.trait.fields[i]!.assignedValue = argValue;
+        }
 
         // Add the type information to argExpr
         argExpr.$ = {
@@ -250,8 +283,8 @@ Got:   ${typeToString(argType)}`,
     }
 
     if (!foundArgExpr) {
-      const defaultValue = moduleField.defaultValue;
-      const assignedValue = moduleField.assignedValue;
+      const defaultValue = traitField.defaultValue;
+      const assignedValue = traitField.assignedValue;
 
       // Re-evaluate default value in the current context if it exists
       let resolvedValue: Value | undefined = assignedValue;
@@ -260,21 +293,26 @@ Got:   ${typeToString(argType)}`,
       }
 
       if (!resolvedValue) {
-        // Check if moduleMember has default or required value
+        // Check if traitMember has default or required value
         throw formatErrorMessage({
-          token: moduleExpr.token,
-          errorMessage: `Module member "${moduleField.label}" is not provided and has no required/default value.`,
+          token: traitExpr.token,
+          errorMessage: `Trait member "${traitField.label}" is not provided and has no required/default value.`,
         });
       }
 
       fields[i] = resolvedValue;
 
-      // Update the working module type
-      workingModuleType.fields[i]!.assignedValue = resolvedValue;
+      // Update the working trait type
+      workingTraitType.fields[i]!.assignedValue = resolvedValue;
     }
   }
 
-  // Create the module value
-  const moduleValue = createModuleValue({ ...moduleType }, fields);
-  return { moduleValue, callerEnv };
+  // Restore the receiverTypeOriginalTrait
+  if (receiverType && receiverTypeOriginalTrait) {
+    receiverType.trait = receiverTypeOriginalTrait;
+  }
+
+  // Create the trait value
+  const traitValue = createTraitValue({ ...traitType, receiverType }, fields);
+  return { traitValue, callerEnv };
 }

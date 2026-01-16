@@ -4,15 +4,16 @@ import {
   ConcreteModuleType,
   DynType,
   EnumType,
-  FnModuleType,
+  FnTraitType,
   FunctionType,
-  FutureModuleType,
+  FutureTraitType,
   IsoType,
   ModuleType,
   PtrType,
   SliceType,
   SomeType,
   StructType,
+  TraitType,
   TupleType,
   Type,
   TypeHierarchyType,
@@ -177,12 +178,16 @@ export function isModuleType(type?: Type): type is ModuleType {
   return type?.tag === TypeTag.Module;
 }
 
+export function isTraitType(type?: Type): type is TraitType {
+  return type?.tag === TypeTag.Trait;
+}
+
 /**
- * Check if a type is a FnModuleType (callable/closure type).
- * This replaces the old isClosureType - closures are now ModuleTypes with isFn set.
+ * Check if a type is a FnTraitType (callable/closure type).
+ * This replaces the old isClosureType - closures are now TraitTypes with isFn set.
  */
-export function isFnModuleType(type?: Type): type is FnModuleType {
-  return type?.tag === TypeTag.Module && !!(type as ModuleType).isFn;
+export function isFnTraitType(type?: Type): type is FnTraitType {
+  return isTraitType(type) && type.isFn !== undefined;
 }
 
 export function isFunctionType(type?: Type): type is FunctionType {
@@ -245,7 +250,7 @@ export function isDynType(type?: Type): type is DynType {
 
 /**
  * This checks if the type is using the reference semantics.
- * Note: FnModuleType (closures) and FutureModuleType (futures) are NOT inherently reference types.
+ * Note: FnTraitType (closures) and FutureTraitType (futures) are NOT inherently reference types.
  * - Impl(Fn(...)) / Impl(Future(...)) is value semantics (anonymous struct)
  * - Dyn(Fn(...)) / Dyn(Future(...)) is reference semantics (handled by isDynType)
  * @param type
@@ -359,12 +364,12 @@ export function isVoidType(type?: Type): type is VoidType {
   return type?.tag === TypeTag.Void;
 }
 
-export function isFutureModuleType(type?: Type): type is FutureModuleType {
-  return isModuleType(type) && type.isFuture !== undefined;
+export function isFutureTraitType(type?: Type): type is FutureTraitType {
+  return isTraitType(type) && type.isFuture !== undefined;
 }
 
-export function isConcreteModuleType(type?: Type): type is ConcreteModuleType {
-  return isModuleType(type) && type.isConcrete !== undefined;
+export function isConcreteTraitType(type?: Type): type is ConcreteModuleType {
+  return isTraitType(type) && type.isConcrete !== undefined;
 }
 
 // Helper function to check if a type is a C compatible type

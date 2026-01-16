@@ -26,7 +26,7 @@ import {
   generateVarialeId,
   isTempVariableName,
 } from "./utils";
-import { isTypeValue, ModuleValue, Value } from "./value";
+import { isTypeValue, TraitValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
 /**
@@ -176,11 +176,11 @@ export interface EvaluatedExprData {
   controlFlow?: ControlFlowKind;
 
   /**
-   * For dyn() function calls, this contains the module values that provide
+   * For dyn() function calls, this contains the trait values that provide
    * the dynamic dispatch implementations. Used by C codegen to generate
    * vtables and method dispatch code.
    */
-  dynCallModuleValues?: ModuleValue[];
+  dynCallTraitValues?: TraitValue[];
 
   /**
    * This is for codegen for the "cond"/"match" expressions.
@@ -489,6 +489,7 @@ export const BuiltinKeywords = {
   enum: ["enum"],
   union: ["union"],
   module: ["module"],
+  trait: ["trait"],
   impl: ["impl"],
   Impl: ["Impl"],
   begin: ["begin"],
@@ -537,6 +538,7 @@ export const BuiltinKeywords = {
   Concrete: ["Concrete"],
   Type: ["Type"],
   Module: ["Module"],
+  Trait: ["Trait"],
   ComptList: ["ComptList"],
 
   // data values
@@ -871,7 +873,7 @@ export const BuiltinFunctions = {
   __yo_type_contains_rc_type: ["__yo_type_contains_rc_type"],
   __yo_type_can_form_rc_cycle: ["__yo_type_can_form_rc_cycle"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
-  __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a module (e.g., Copy, Send)
+  __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a trait (e.g., Copy, Send)
 
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],

@@ -25,6 +25,7 @@ import {
   createUnknownValue,
   isFunctionValue,
   isModuleValue,
+  isTraitValue,
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -233,7 +234,7 @@ ${exprToString(expr)}`,
       rhsValue.funcName = lhs.token.value;
       rhsValue.funcId += `_${lhs.token.value}`;
     } else if (
-      isModuleValue(rhsValue) &&
+      (isModuleValue(rhsValue) || isTraitValue(rhsValue)) &&
       !rhsValue.type.typeName &&
       rhsValue.type !== context.SelfType
     ) {

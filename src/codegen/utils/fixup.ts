@@ -1,6 +1,6 @@
 import { DynType, Type } from "../../types";
-import { extractFnModuleFromType } from "../../types/utils";
-import { ModuleValue } from "../../value";
+import { extractFnTraitFromType } from "../../types/utils";
+import { TraitValue } from "../../value";
 import { CodeGenContext } from "./index";
 
 /**
@@ -14,7 +14,7 @@ export function fixupDynImplKeys(context: CodeGenContext): void {
       dynType: DynType;
       concreteType: Type;
       dataType: Type;
-      moduleValues: ModuleValue[];
+      traitValues: TraitValue[];
     }
   >();
 
@@ -26,11 +26,11 @@ export function fixupDynImplKeys(context: CodeGenContext): void {
       if (direct) {
         return direct;
       }
-      const fnModule = extractFnModuleFromType(impl.concreteType);
-      const fnModuleCName = fnModule
-        ? context.types[fnModule.id]?.cName
+      const fnTrait = extractFnTraitFromType(impl.concreteType);
+      const fnTractCName = fnTrait
+        ? context.types[fnTrait.id]?.cName
         : undefined;
-      return fnModuleCName || `unknown_${impl.concreteType.id}`;
+      return fnTractCName || `unknown_${impl.concreteType.id}`;
     })();
     const newKey = `${concreteTypeCName}_${dynTypeCName}`;
 

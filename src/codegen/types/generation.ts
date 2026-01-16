@@ -5,9 +5,9 @@ import {
   FunctionType,
   isDynType,
   isEnumType,
-  isFnModuleType,
+  isFnTraitType,
   isFunctionType,
-  isFutureModuleType,
+  isFutureTraitType,
   isSomeType,
   isStructType,
   isTupleType,
@@ -239,7 +239,7 @@ typedef struct yo_io_future_t {
       continue; // Skip types that contain `SomeType` as they are not concrete types
     }
 
-    if (isFutureModuleType(type)) {
+    if (isFutureTraitType(type)) {
       // Forward declaration for Future types (they don't use _struct pattern)
       context.emitter.emitDeclarationLine(
         `typedef struct ${cName}_struct ${cName}; // Forward declaration`
@@ -575,8 +575,8 @@ typedef struct yo_io_future_t {
       generateUnionDeclaration(type, cName, context);
     }
     // Note: Tuples are now handled in the topologically sorted third pass
-    // FIXME: Handle FutureModuleType declarations if needed
-    // else if (isFutureModuleType(type)) {
+    // FIXME: Handle FutureTraitType declarations if needed
+    // else if (isFutureTraitType(type)) {
     //   generateFutureDeclaration(type, cName, context);
     // }
     // Note: isEnumType and isStructType are handled in the passes above
@@ -712,7 +712,7 @@ ${isoTypeName} __yo_create_iso_${isoTypeName}(${childTypeCName} value) {
     let dropInnerCode: string;
 
     // Check if the child type has a ___drop function we should call
-    const dropFn = childType.module?.fields.find(
+    const dropFn = childType.trait?.fields.find(
       (f) => f.label === BuiltinFunctions.___drop[0]
     );
 
@@ -1118,11 +1118,11 @@ export function generateDynDeclaration(
     BuiltinFunctions.dispose[0]!,
   ]);
 
-  // Process modules in the order they appear in dynType.requiredModules
-  for (const moduleType of dynType.requiredModules) {
-    // Handle FnModuleType specially - it has isFn which represents the "call" method
-    if (isFnModuleType(moduleType)) {
-      const functionType = moduleType.isFn.callType;
+  // Process modules in the order they appear in dynType.requiredTraits
+  for (const traitType of dynType.requiredTraits) {
+    // Handle FnTraitType specially - it has isFn which represents the "call" method
+    if (isFnTraitType(traitType)) {
+      const functionType = traitType.isFn.callType;
       const returnTypeStr = getTypeString(functionType.return.type, context);
 
       // Generate the complete parameter list for the call function pointer
@@ -1142,7 +1142,7 @@ export function generateDynDeclaration(
       continue;
     }
 
-    for (const field of moduleType.fields) {
+    for (const field of traitType.fields) {
       // Skip 'Self' type declarations as they're not methods
       if (field.label === "Self") {
         continue;

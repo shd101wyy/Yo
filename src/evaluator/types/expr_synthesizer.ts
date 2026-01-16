@@ -12,6 +12,7 @@ import {
   isEnumType,
   isModuleType,
   isStructType,
+  isTraitType,
   isTupleType,
   isUnionType,
   Type,
@@ -84,7 +85,12 @@ export function synthesizeExprAndType({
   // Handle the _ case
   else if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "_")) {
     // Check if type is a struct type
-    if (isStructType(type) || isUnionType(type) || isModuleType(type)) {
+    if (
+      isStructType(type) ||
+      isUnionType(type) ||
+      isModuleType(type) ||
+      isTraitType(type)
+    ) {
       const funcCallExpr = evaluateFunctionCall({
         expr,
         env,

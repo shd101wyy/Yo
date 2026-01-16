@@ -70,6 +70,9 @@ export enum TypeTag {
   // Module
   Module = "Module",
 
+  // Trait
+  Trait = "Trait",
+
   // Pointer
   Ptr = "Ptr",
 

@@ -12,7 +12,7 @@ import {
   FunctionType,
   isBoxedType,
   isEnumType,
-  isFnModuleType,
+  isFnTraitType,
   isFunctionSpecializable,
   isFunctionType,
   isPtrType,
@@ -127,7 +127,7 @@ export function generateFunctionDeclarations(
     // These are not truly generic - the concrete type is determined from the function body
     const returnsPlainImpl =
       isSomeType(functionType.return.type) &&
-      functionType.return.type.requiredModules.length > 0;
+      functionType.return.type.requiredTraits.length > 0;
 
     if (hasGenericParams || (hasGenericReturnType && !returnsPlainImpl)) {
       continue;
@@ -365,7 +365,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // These are not truly generic - the concrete type is determined from the function body
     const returnsPlainImpl =
       isSomeType(functionType.return.type) &&
-      functionType.return.type.requiredModules.length > 0;
+      functionType.return.type.requiredTraits.length > 0;
 
     if (hasGenericParams || (hasGenericReturnType && !returnsPlainImpl)) {
       continue;
@@ -1609,7 +1609,7 @@ export function generateRefStructConstructorFunctions(
 
       // Set dispose function pointer to ___dispose, which handles both user cleanup and field dropping.
       // ___dispose will call user's dispose() if it exists, then drop all GC-containing fields.
-      const disposeInternalFunctionElement = type.module.fields.find(
+      const disposeInternalFunctionElement = type.trait.fields.find(
         (field) =>
           field.label === BuiltinFunctions.___dispose[0]! &&
           field.assignedValue &&
@@ -1708,7 +1708,7 @@ export function generateClosureDisposeFunctions(
     const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
 
     // Get the drop function for the capture type
-    const dropFunction = captureType.module.fields.find(
+    const dropFunction = captureType.trait.fields.find(
       (field) => field.label === BuiltinFunctions.___drop[0]
     );
 
@@ -1820,7 +1820,7 @@ export function generateDynBoxFunctions(
         ? impl.concreteType.resolvedConcreteType
         : impl.concreteType;
 
-    const dropFn = concreteType.module?.fields.find(
+    const dropFn = concreteType.trait?.fields.find(
       (field) => field.label === BuiltinFunctions.___drop[0]
     );
     if (
@@ -1867,10 +1867,10 @@ export function generateDynWrapperFunctions(
       BuiltinFunctions.dispose[0]!,
     ]);
 
-    // Special-case Dyn(Fn(...)): the vtable uses a synthetic `call` slot derived from FnModuleType.isFn,
+    // Special-case Dyn(Fn(...)): the vtable uses a synthetic `call` slot derived from FnTraitType.isFn,
     // not from module fields. For boxed closures, we can dispatch directly to the embedded call pointer.
-    for (const requiredModule of impl.dynType.requiredModules) {
-      if (!isFnModuleType(requiredModule)) {
+    for (const requiredModule of impl.dynType.requiredTraits) {
+      if (!isFnTraitType(requiredModule)) {
         continue;
       }
 
@@ -1912,7 +1912,7 @@ export function generateDynWrapperFunctions(
           }
 
           // Fallback discovery: find a generated closure impl function whose capture type matches.
-          // This avoids relying on FnModuleType/FunctionType IDs being stable across instantiations
+          // This avoids relying on FnTraitType/FunctionType IDs being stable across instantiations
           // (e.g. when `test` blocks add extra evaluation paths).
           for (const [, entry] of Object.entries(context.functions)) {
             const fv = entry.value;
@@ -1984,17 +1984,17 @@ export function generateDynWrapperFunctions(
     // Iterate through all required modules and their corresponding module values
     for (
       let moduleIndex = 0;
-      moduleIndex < impl.dynType.requiredModules.length;
+      moduleIndex < impl.dynType.requiredTraits.length;
       moduleIndex++
     ) {
-      const requiredModuleType = impl.dynType.requiredModules[moduleIndex]!;
+      const requiredModuleType = impl.dynType.requiredTraits[moduleIndex]!;
 
       // Skip Fn modules as they're handled above
-      if (isFnModuleType(requiredModuleType)) {
+      if (isFnTraitType(requiredModuleType)) {
         continue;
       }
 
-      const moduleValue = impl.moduleValues[moduleIndex];
+      const moduleValue = impl.traitValues[moduleIndex];
       if (!moduleValue) {
         emitter.emitDeclarationLine(
           `/* Warning: Module value missing for module ${moduleIndex} */`
@@ -2146,7 +2146,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     const vtableTypeName = `${dynTypeCName}_vtable`;
 
     emitter.emitDeclarationLine(
-      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredModules.map((m) => m.typeName || "?").join(" + ")})`
+      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredTraits.map((m) => m.typeName || "?").join(" + ")})`
     );
     emitter.emitDeclarationLine(
       `static const ${vtableTypeName} ${vtableName} = {`
@@ -2161,8 +2161,8 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
       BuiltinFunctions.dispose[0]!,
     ]);
 
-    for (const moduleType of impl.dynType.requiredModules) {
-      if (isFnModuleType(moduleType)) {
+    for (const moduleType of impl.dynType.requiredTraits) {
+      if (isFnTraitType(moduleType)) {
         // Fn dyn has a synthetic `call` slot
         const wrapperName = `yo_wrap_${implKey}_call`;
         emitter.emitDeclarationLine(`  .call = ${wrapperName},`);

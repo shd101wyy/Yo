@@ -208,8 +208,8 @@ void yo_await(Future* future) {
 ### Phase 1: Type System Updates ✅ (Completed)
 
 1. ✅ Update `getTypeString()` to handle `Impl(Future(T))` as value types
-2. ✅ Update `collectType()` to collect `FutureModuleType`
-3. ✅ Add `typeImplementsFuture` and `extractFutureModuleFromType` imports
+2. ✅ Update `collectType()` to collect `FutureTraitType`
+3. ✅ Add `typeImplementsFuture` and `extractFutureTraitFromType` imports
 4. ✅ Update `areTypesCompatible()` to check `resolvedConcreteType` for SomeType
 5. ✅ Update `getMethodsByNameFromEnv()` to find methods in `resolvedConcreteType`
 6. ✅ Update evaluator's `evaluateDrop()` to handle SomeType with `resolvedConcreteType`
@@ -219,7 +219,7 @@ void yo_await(Future* future) {
 1. ✅ Remove `yo_ref_header_t` from state machine struct
 2. ✅ Add `result` field directly to struct (not pointer to Future)
 3. ✅ Use `typedef struct X_struct { ... } X;` pattern
-4. ✅ Register struct name in context.types under FutureModuleType's ID
+4. ✅ Register struct name in context.types under FutureTraitType's ID
 5. ✅ Generate proper `___drop`, `___dup`, `___dispose` methods for capture struct
 
 ### Phase 3: Constructor/Allocation (Current)
@@ -649,7 +649,7 @@ task1_state_t __yo_new_task1(capture_t capture) {
 **Phase 5: Await Codegen**
 
 - `src/codegen/expressions/generation.ts`:
-  - ✅ Updated await recognition: `typeImplementsFuture()` instead of `isFutureModuleType()`
+  - ✅ Updated await recognition: `typeImplementsFuture()` instead of `isFutureTraitType()`
   - ✅ Await returns empty string in state machine context (handled by state transitions)
   - ✅ Fixed return statement to avoid `counter = counter` bug
   - ✅ Removed unused `futureTypeCName` lookup that was causing errors

@@ -12,7 +12,7 @@ import {
 import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
 import {
   DynType,
-  extractFutureModuleFromType,
+  extractFutureTraitFromType,
   isDynType,
   isSomeType,
   isUnitType,
@@ -122,7 +122,7 @@ export function generateAsyncBlockResumeFunction(
 ): void {
   const emitter = context.emitter;
 
-  const futureModuleType = extractFutureModuleFromType(futureType)!;
+  const futureModuleType = extractFutureTraitFromType(futureType)!;
   const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 

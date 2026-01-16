@@ -16,6 +16,7 @@ import {
   ModuleField,
   SomeType,
   StructType,
+  TraitField,
   typeContainsRcType,
   typeContainsSomeType,
   typeImplementsSend,
@@ -24,7 +25,7 @@ import {
   UnionType,
 } from "../../types";
 import { randomId } from "../../utils";
-import { isFunctionValue, isModuleValue, isTypeValue } from "../../value";
+import { isFunctionValue, isTraitValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -98,7 +99,7 @@ export function addFunctionSignatureToSelfTypeModule({
     ) {
       const functionType = functionExpr.$.value.value;
 
-      // Add the drop function to the struct's module fields
+      // Add the drop function to the struct's trait fields
       const moduleField: ModuleField = {
         label: label,
         type: functionType,
@@ -112,16 +113,16 @@ export function addFunctionSignatureToSelfTypeModule({
           assignedValueExpr: undefined,
         },
       };
-      if (SelfType.module) {
-        const index = SelfType.module.fields.findIndex(
+      if (SelfType.trait) {
+        const index = SelfType.trait.fields.findIndex(
           (el) => el.label === label
         );
         if (index >= 0) {
-          SelfType.module.fields[index] = moduleField;
+          SelfType.trait.fields[index] = moduleField;
           // return env; // No need to update. Don't throw error.
         } else {
           // Add new field
-          SelfType.module.fields.push(moduleField);
+          SelfType.trait.fields.push(moduleField);
         }
       }
     }
@@ -164,7 +165,7 @@ export function addFunctionCodeToSelfTypeModule({
       // The code below is necessary for the C code generator to make the ___drop like function to have a more descriptive name.
       functionExpr.$.value.funcId += label;
 
-      // Add the drop function to the struct's module fields
+      // Add the drop function to the struct's trait fields
       const moduleField: ModuleField = {
         label: label,
         type: functionExpr.$.type,
@@ -178,16 +179,16 @@ export function addFunctionCodeToSelfTypeModule({
           assignedValueExpr: functionExpr,
         },
       };
-      if (SelfType.module) {
-        const index = SelfType.module.fields.findIndex(
+      if (SelfType.trait) {
+        const index = SelfType.trait.fields.findIndex(
           (el) => el.label === label
         );
         if (index >= 0) {
           // Replace existing field
-          SelfType.module.fields[index] = moduleField;
+          SelfType.trait.fields[index] = moduleField;
         } else {
           // Add new field
-          SelfType.module.fields.push(moduleField);
+          SelfType.trait.fields.push(moduleField);
         }
       }
     }
@@ -270,7 +271,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
     )
     .map((field) => field.label);
 
-  const hasDisposeFunction = structType.module.fields.some(
+  const hasDisposeFunction = structType.trait.fields.some(
     (field) => field.label === BuiltinFunctions.dispose[0]
   );
 
@@ -433,7 +434,7 @@ export function addRcFunctionsToStructType({
     context,
   });
 
-  // Add ___drop function to the struct type module fields
+  // Add ___drop function to the struct type trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___drop[0]!,
     functionCode: dropFunctionCode,
@@ -442,7 +443,7 @@ export function addRcFunctionsToStructType({
     context,
   });
 
-  // Add ___dup function to the struct type module fields
+  // Add ___dup function to the struct type trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
@@ -463,7 +464,7 @@ export function addRcFunctionSignaturesToStructType({
   env: Environment;
   context: EvaluatorContext;
 }) {
-  // NOTE: We need to add signature to the struct module first, to support recursive calls
+  // NOTE: We need to add signature to the struct trait first, to support recursive calls
   // Like
   //    List :: object
   //      head : i32,
@@ -505,7 +506,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
     return { signature, code: `(${signature} ())` };
   }
 
-  const hasDisposeFunction = enumType.module.fields.some(
+  const hasDisposeFunction = enumType.trait.fields.some(
     (field) => field.label === BuiltinFunctions.dispose[0]
   );
 
@@ -734,7 +735,7 @@ export function addRcFunctionsToEnumType({
     return env;
   }
 
-  // Add ___drop function to the enum type module fields
+  // Add ___drop function to the enum type trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___drop[0]!,
     functionCode: dropFunctionCode,
@@ -743,7 +744,7 @@ export function addRcFunctionsToEnumType({
     context,
   });
 
-  // Add ___dup function to the enum type module fields
+  // Add ___dup function to the enum type trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
@@ -764,7 +765,7 @@ export function addRcFunctionSignaturesToEnumType({
   env: Environment;
   context: EvaluatorContext;
 }) {
-  // Add function signatures to the enum module first, to support recursive calls
+  // Add function signatures to the enum trait first, to support recursive calls
   addFunctionSignatureToSelfTypeModule({
     label: BuiltinFunctions.___dispose[0]!,
     functionSignature: DisposeFnSignature,
@@ -789,7 +790,7 @@ export function addRcFunctionSignaturesToEnumType({
 }
 
 /**
- * Add Rc functions (___dup, ___drop) to a dyn type's module.
+ * Add Rc functions (___dup, ___drop) to a dyn type's trait.
  * These functions operate on the dyn wrapper itself, not the wrapped object.
  */
 export function addRcFunctionsToDynType({
@@ -805,7 +806,7 @@ export function addRcFunctionsToDynType({
   const dropFunctionCode = generateDropFunctionCodeForDynType(dynType);
   const dupFunctionCode = generateDupFunctionCodeForDynType(dynType);
 
-  // Add ___dup function to the dyn type module fields
+  // Add ___dup function to the dyn type trait fields
   if (dupFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___dup[0]!,
@@ -816,7 +817,7 @@ export function addRcFunctionsToDynType({
     });
   }
 
-  // Add ___drop function to the dyn type module fields
+  // Add ___drop function to the dyn type trait fields
   if (dropFunctionCode) {
     env = addFunctionCodeToSelfTypeModule({
       label: BuiltinFunctions.___drop[0]!,
@@ -877,7 +878,7 @@ function generateDupFunctionCodeForSomeType(someType: SomeType): string {
 }
 
 /**
- * Add Rc functions (___drop, ___dup) to a SomeType's module.
+ * Add Rc functions (___drop, ___dup) to a SomeType's trait.
  * These functions dispatch to resolvedConcreteType's methods in codegen.
  */
 export function addRcFunctionsToSomeType({
@@ -893,7 +894,7 @@ export function addRcFunctionsToSomeType({
   const dropFunctionCode = generateDropFunctionCodeForSomeType(someType);
   const dupFunctionCode = generateDupFunctionCodeForSomeType(someType);
 
-  // Add ___drop function to the SomeType module fields
+  // Add ___drop function to the SomeType trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___drop[0]!,
     functionCode: dropFunctionCode,
@@ -902,7 +903,7 @@ export function addRcFunctionsToSomeType({
     context,
   });
 
-  // Add ___dup function to the SomeType module fields
+  // Add ___dup function to the SomeType trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
@@ -951,7 +952,7 @@ function generateDupFunctionCodeForIsoType(_isoType: IsoType): string {
 }
 
 /**
- * Add Rc functions (___drop, ___dup, ___dispose) to an IsoType's module.
+ * Add Rc functions (___drop, ___dup, ___dispose) to an IsoType's trait.
  * These functions use atomic operations for thread-safe reference counting.
  */
 export function addRcFunctionsToIsoType({
@@ -968,7 +969,7 @@ export function addRcFunctionsToIsoType({
   const dropFunctionCode = generateDropFunctionCodeForIsoType(isoType);
   const dupFunctionCode = generateDupFunctionCodeForIsoType(isoType);
 
-  // Add ___dispose function to the IsoType module fields
+  // Add ___dispose function to the IsoType trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___dispose[0]!,
     functionCode: disposeFunctionCode,
@@ -977,7 +978,7 @@ export function addRcFunctionsToIsoType({
     context,
   });
 
-  // Add ___drop function to the IsoType module fields
+  // Add ___drop function to the IsoType trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___drop[0]!,
     functionCode: dropFunctionCode,
@@ -986,7 +987,7 @@ export function addRcFunctionsToIsoType({
     context,
   });
 
-  // Add ___dup function to the IsoType module fields
+  // Add ___dup function to the IsoType trait fields
   env = addFunctionCodeToSelfTypeModule({
     label: BuiltinFunctions.___dup[0]!,
     functionCode: dupFunctionCode,
@@ -999,21 +1000,21 @@ export function addRcFunctionsToIsoType({
 }
 
 /**
- * Helper function to attach a module to a receiver type.
- * This follows the same pattern as evaluateModuleValue for impl(type, Module()).
+ * Helper function to attach a trait to a receiver type.
+ * This follows the same pattern as evaluateModuleValue for impl(type, Trait()).
  */
-export function attachModuleToReceiverType(
+export function attachTraitToReceiverType(
   moduleName: string,
   receiverType: StructType | EnumType | UnionType,
   env: Environment,
   context: EvaluatorContext
 ): Environment {
-  // Evaluate the module call (e.g., Copy() or Send())
-  const moduleCallCode = `${moduleName}()`;
-  const moduleCallExpr = generateExprFromCode(moduleCallCode);
+  // Evaluate the trait call (e.g., Copy() or Send())
+  const traitCallCode = `${moduleName}()`;
+  const traitCallExpr = generateExprFromCode(traitCallCode);
 
-  const evaluatedModuleCall = evaluateExpression({
-    expr: moduleCallExpr,
+  const evaluatedTraitCall = evaluateExpression({
+    expr: traitCallExpr,
     env,
     context: {
       ...context,
@@ -1022,31 +1023,31 @@ export function attachModuleToReceiverType(
     },
   });
 
-  if (!evaluatedModuleCall.$ || !isModuleValue(evaluatedModuleCall.$.value)) {
+  if (!evaluatedTraitCall.$ || !isTraitValue(evaluatedTraitCall.$.value)) {
     return env;
   }
 
-  env = evaluatedModuleCall.$.env;
-  const moduleValue = evaluatedModuleCall.$.value;
+  env = evaluatedTraitCall.$.env;
+  const traitValue = evaluatedTraitCall.$.value;
 
-  // Set the receiver type on the module value's type
-  moduleValue.type.receiverType = receiverType;
+  // Set the receiver type on the trait value's type
+  traitValue.type.receiverType = receiverType;
 
-  // Attach the module to the receiver type's module (same as attachModuleToReceiverType in module.ts)
-  // Named module - attach with empty label for method lookup
-  const field: ModuleField = {
+  // Attach the trait to the receiver type's trait (same as attachTraitToReceiverType in trait.ts)
+  // Named trait - attach with empty label for method lookup
+  const field: TraitField = {
     label: "", // Empty label prevents direct access, only method calls work
-    type: createTypeHierarchy(1), // Module type
+    type: createTypeHierarchy(1), // Trait type
     isCompileTimeOnly: true,
-    assignedValue: moduleValue,
+    assignedValue: traitValue,
     sourceModulePath: context.currentModulePath,
     exprs: {
-      expr: moduleCallExpr,
+      expr: traitCallExpr,
     },
   };
 
-  // Add the field to the receiver type's module
-  receiverType.module.fields.push(field);
+  // Add the field to the receiver type's trait
+  receiverType.trait.fields.push(field);
 
   return env;
 }
@@ -1079,7 +1080,7 @@ export function autoDeriveSendForStructType({
     .every((field) => typeImplementsSend(field.type, env));
 
   if (allFieldsImplementSend) {
-    env = attachModuleToReceiverType("Send", structType, env, context);
+    env = attachTraitToReceiverType("Send", structType, env, context);
   }
 
   return env;
@@ -1108,7 +1109,7 @@ export function autoDeriveSendForEnumType({
   });
 
   if (allFieldsImplementSend) {
-    env = attachModuleToReceiverType("Send", enumType, env, context);
+    env = attachTraitToReceiverType("Send", enumType, env, context);
   }
 
   return env;
@@ -1134,7 +1135,7 @@ export function autoDeriveSendForUnionType({
     .every((field) => typeImplementsSend(field.type, env));
 
   if (allFieldsImplementSend) {
-    env = attachModuleToReceiverType("Send", unionType, env, context);
+    env = attachTraitToReceiverType("Send", unionType, env, context);
   }
 
   return env;

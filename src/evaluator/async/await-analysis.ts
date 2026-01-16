@@ -15,7 +15,7 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import {
-  extractFutureModuleFromType,
+  extractFutureTraitFromType,
   typeImplementsFuture,
 } from "../../types/utils";
 
@@ -238,9 +238,9 @@ function walkExprForAwaits(
 
         const futureType = awaitArg.$?.type;
 
-        // Check if the type implements Future (handles both FutureModuleType and SomeType)
+        // Check if the type implements Future (handles both FutureTraitType and SomeType)
         if (futureType && typeImplementsFuture(futureType)) {
-          const futureModuleType = extractFutureModuleFromType(futureType);
+          const futureModuleType = extractFutureTraitFromType(futureType);
           if (!futureModuleType) {
             break;
           }
@@ -298,7 +298,7 @@ function walkExprForAwaits(
             index: awaitPoints.length,
             expr,
             resultType,
-            futureType: futureModuleType, // Store the FutureModuleType itself, not the outer type
+            futureType: futureModuleType, // Store the FutureTraitType itself, not the outer type
             targetVariableId,
             futureVariableId,
           });

@@ -12,50 +12,50 @@ import { Token } from "../../token";
 import {
   areTypesCompatible,
   createTypeHierarchy,
-  isModuleType,
   isSomeType,
-  ModuleField,
-  ModuleType,
+  isTraitType,
+  TraitField,
+  TraitType,
   Type,
   typeToString,
 } from "../../types";
-import { createTypeValue, isModuleValue, isTypeValue } from "../../value";
+import { createTypeValue, isTraitValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { findMatchingGenericImpl } from "../values/module";
+import { findMatchingGenericImpl } from "../values/impl";
 
 /**
- * Check if a type implements a specific module.
- * @returns true if the type implements the module, false otherwise
+ * Check if a type implements a specific trait.
+ * @returns true if the type implements the trait, false otherwise
  */
-export function typeImplementsModule({
+export function typeImplementsTrait({
   targetType,
-  moduleType,
+  traitType,
   env,
 }: {
   targetType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   env: Environment;
 }): boolean {
-  const expectedModuleWithReceiver: ModuleType = {
-    ...moduleType,
+  const expectedTraitWithReceiver: TraitType = {
+    ...traitType,
     receiverType: targetType,
   };
 
-  const targetModule = targetType.module;
-  if (targetModule) {
-    for (const field of targetModule.fields) {
-      if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
+  const targetTrait = targetType.trait;
+  if (targetTrait) {
+    for (const field of targetTrait.fields) {
+      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
         continue;
       }
 
-      const fieldModuleValue = field.assignedValue;
-      const fieldModuleType = fieldModuleValue.type;
+      const fieldTraitValue = field.assignedValue;
+      const fieldTraitType = fieldTraitValue.type;
 
       if (
         areTypesCompatible(
-          { type: expectedModuleWithReceiver, env },
-          { type: fieldModuleType, env }
+          { type: expectedTraitWithReceiver, env },
+          { type: fieldTraitType, env }
         )
       ) {
         return true;
@@ -66,7 +66,7 @@ export function typeImplementsModule({
   // Check generic impl registry for matching patterns
   const matchingGenericImpl = findMatchingGenericImpl({
     concreteType: targetType,
-    moduleType,
+    traitType,
     env,
   });
 
@@ -78,30 +78,30 @@ export function typeImplementsModule({
 }
 
 /**
- * Check if a type implements all the selfConstraints of a module type.
+ * Check if a type implements all the selfConstraints of a trait type.
  * Also checks that the type does NOT implement any negativeSelfConstraints.
  * Throws an error if any constraint is not satisfied.
  */
 export function checkTypeImplementsSelfConstraints({
   targetType,
-  moduleType,
+  traitType,
   env,
   errorToken,
 }: {
   targetType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   env: Environment;
   errorToken: Token;
 }): void {
   // Check positive constraints (must implement)
-  if (moduleType.selfConstraints && moduleType.selfConstraints.length > 0) {
-    for (const constraintModule of moduleType.selfConstraints) {
+  if (traitType.selfConstraints && traitType.selfConstraints.length > 0) {
+    for (const constraintTrait of traitType.selfConstraints) {
       if (
-        !typeImplementsModule({ targetType, moduleType: constraintModule, env })
+        !typeImplementsTrait({ targetType, traitType: constraintTrait, env })
       ) {
         throw formatErrorMessage({
           token: errorToken,
-          errorMessage: `Type "${typeToString(targetType)}" does not implement required constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" from module "${moduleType.typeName ?? typeToString(moduleType)}"'s where clause.`,
+          errorMessage: `Type "${typeToString(targetType)}" does not implement required constraint "${constraintTrait.typeName ?? typeToString(constraintTrait)}" from trait "${traitType.typeName ?? typeToString(traitType)}"'s where clause.`,
         });
       }
     }
@@ -109,16 +109,16 @@ export function checkTypeImplementsSelfConstraints({
 
   // Check negative constraints (must NOT implement)
   if (
-    moduleType.negativeSelfConstraints &&
-    moduleType.negativeSelfConstraints.length > 0
+    traitType.negativeSelfConstraints &&
+    traitType.negativeSelfConstraints.length > 0
   ) {
-    for (const constraintModule of moduleType.negativeSelfConstraints) {
+    for (const constraintTrait of traitType.negativeSelfConstraints) {
       if (
-        typeImplementsModule({ targetType, moduleType: constraintModule, env })
+        typeImplementsTrait({ targetType, traitType: constraintTrait, env })
       ) {
         throw formatErrorMessage({
           token: errorToken,
-          errorMessage: `Type "${typeToString(targetType)}" implements "${constraintModule.typeName ?? typeToString(constraintModule)}" but the module "${moduleType.typeName ?? typeToString(moduleType)}"'s where clause requires it to NOT implement this module.`,
+          errorMessage: `Type "${typeToString(targetType)}" implements "${constraintTrait.typeName ?? typeToString(constraintTrait)}" but the trait "${traitType.typeName ?? typeToString(traitType)}"'s where clause requires it to NOT implement this trait.`,
         });
       }
     }
@@ -182,130 +182,130 @@ export function evaluateSubtypeOf({
     });
   }
 
-  // Collect module expressions to process
-  // Support both single module and tuple of modules: T <: Module or T <: (Module1, Module2)
-  // Also support negated modules: T <: !(Module) meaning T must NOT implement Module
-  const moduleExprs: { expr: typeof rhsExpr; isNegated: boolean }[] = [];
+  // Collect trait expressions to process
+  // Support both single trait and tuple of traits: T <: Trait or T <: (Trait1, Trait2)
+  // Also support negated traits: T <: !(Trait) meaning T must NOT implement Trait
+  const traitExprs: { expr: typeof rhsExpr; isNegated: boolean }[] = [];
   if (
     exprIsFunctionCall(rhsExpr) &&
     exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
   ) {
-    // Tuple form: (Module1, Module2, ...)
-    for (const moduleExpr of rhsExpr.args) {
-      // Check if this is a negated module: !(Module)
+    // Tuple form: (Trait1, Trait2, ...)
+    for (const traitExpr of rhsExpr.args) {
+      // Check if this is a negated trait: !(Trait)
       if (
-        exprIsFunctionCall(moduleExpr) &&
-        exprIsFunctionCallOf(moduleExpr, "!") &&
-        moduleExpr.args.length === 1
+        exprIsFunctionCall(traitExpr) &&
+        exprIsFunctionCallOf(traitExpr, "!") &&
+        traitExpr.args.length === 1
       ) {
-        moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
+        traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
       } else {
-        moduleExprs.push({ expr: moduleExpr, isNegated: false });
+        traitExprs.push({ expr: traitExpr, isNegated: false });
       }
     }
   } else {
-    // Single module form - check if negated
+    // Single trait form - check if negated
     if (
       exprIsFunctionCall(rhsExpr) &&
       exprIsFunctionCallOf(rhsExpr, "!") &&
       rhsExpr.args.length === 1
     ) {
-      moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+      traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
     } else {
-      moduleExprs.push({ expr: rhsExpr, isNegated: false });
+      traitExprs.push({ expr: rhsExpr, isNegated: false });
     }
   }
 
-  // Process each module
-  const moduleTypes: {
-    moduleType: ModuleType;
+  // Process each trait
+  const traitTypes: {
+    traitType: TraitType;
     expr: typeof rhsExpr;
     isNegated: boolean;
   }[] = [];
-  for (const { expr: moduleExpr, isNegated } of moduleExprs) {
+  for (const { expr: traitExpr, isNegated } of traitExprs) {
     const evaluatedRhs = evaluateExpression({
-      expr: moduleExpr,
+      expr: traitExpr,
       env,
       context: {
         ...context,
       },
     });
 
-    // Expect the rhs to be a module type
+    // Expect the rhs to be a trait type
     if (
       !evaluatedRhs.$ ||
       !evaluatedRhs.$.value ||
       !isTypeValue(evaluatedRhs.$.value) ||
-      !isModuleType(evaluatedRhs.$.value.value)
+      !isTraitType(evaluatedRhs.$.value.value)
     ) {
       throw formatErrorMessage({
-        token: moduleExpr.token,
-        errorMessage: `Expected module type for right-hand side expression.`,
+        token: traitExpr.token,
+        errorMessage: `Expected trait type for right-hand side expression.`,
       });
     }
     env = evaluatedRhs.$.env;
-    const moduleType = evaluatedRhs.$.value.value;
+    const traitType = evaluatedRhs.$.value.value;
 
-    if (moduleType.receiverType) {
+    if (traitType.receiverType) {
       throw formatErrorMessage({
-        token: moduleExpr.token,
-        errorMessage: `Expected module type already has a receiver type assigned.`,
+        token: traitExpr.token,
+        errorMessage: `Expected trait type already has a receiver type assigned.`,
       });
     }
 
     // Negated constraints are only allowed in where clauses
     if (isNegated && !context.isInsideWhereClause) {
       throw formatErrorMessage({
-        token: moduleExpr.token,
-        errorMessage: `Negated module constraints !(Module) are only allowed in where clauses.`,
+        token: traitExpr.token,
+        errorMessage: `Negated trait constraints !(Trait) are only allowed in where clauses.`,
       });
     }
 
-    moduleTypes.push({ moduleType, expr: moduleExpr, isNegated });
+    traitTypes.push({ traitType, expr: traitExpr, isNegated });
   }
 
-  // In a where clause, add the module constraints to the SomeType's module
+  // In a where clause, add the trait constraints to the SomeType's trait
   if (context.isInsideWhereClause && isSomeType(typeValue.value)) {
     const someType = typeValue.value;
 
-    for (const { moduleType, expr: moduleExpr, isNegated } of moduleTypes) {
-      // Create a copy of the module with receiverType set to the someType
-      const moduleWithReceiver: ModuleType = {
-        ...moduleType,
+    for (const { traitType, expr: traitExpr, isNegated } of traitTypes) {
+      // Create a copy of the trait with receiverType set to the someType
+      const traitWithReceiver: TraitType = {
+        ...traitType,
         receiverType: someType,
       };
 
       if (isNegated) {
-        // For negated constraints, mark the module as a negative constraint
-        const negatedModuleWithReceiver: ModuleType = {
-          ...moduleWithReceiver,
+        // For negated constraints, mark the trait as a negative constraint
+        const negatedTraitWithReceiver: TraitType = {
+          ...traitWithReceiver,
           isNegatedConstraint: true,
         };
         // Use empty label to prevent direct access - only method calls are allowed
         const label = "";
-        const field: ModuleField = {
+        const field: TraitField = {
           label,
-          type: createTypeHierarchy(1), // Module type
+          type: createTypeHierarchy(1), // Trait type
           isCompileTimeOnly: true,
-          assignedValue: createTypeValue(negatedModuleWithReceiver),
+          assignedValue: createTypeValue(negatedTraitWithReceiver),
           exprs: {
-            expr: moduleExpr,
+            expr: traitExpr,
           },
         };
-        someType.module.fields.push(field);
+        someType.trait.fields.push(field);
       } else {
         // Use empty label to prevent direct access - only method calls are allowed
         const label = "";
-        const field: ModuleField = {
+        const field: TraitField = {
           label,
-          type: createTypeHierarchy(1), // Module type
+          type: createTypeHierarchy(1), // Trait type
           isCompileTimeOnly: true,
-          assignedValue: createTypeValue(moduleWithReceiver),
+          assignedValue: createTypeValue(traitWithReceiver),
           exprs: {
-            expr: moduleExpr,
+            expr: traitExpr,
           },
         };
-        someType.module.fields.push(field);
+        someType.trait.fields.push(field);
       }
     }
 
@@ -319,39 +319,39 @@ export function evaluateSubtypeOf({
     return expr;
   }
 
-  // Non-where clause case: only single module is allowed
-  if (moduleTypes.length > 1) {
+  // Non-where clause case: only single trait is allowed
+  if (traitTypes.length > 1) {
     throw formatErrorMessage({
       token: rhsExpr.token,
-      errorMessage: `Multiple module constraints (tuple form) are only allowed in where clauses.`,
+      errorMessage: `Multiple trait constraints (tuple form) are only allowed in where clauses.`,
     });
   }
 
-  const { moduleType } = moduleTypes[0]!;
+  const { traitType } = traitTypes[0]!;
   const targetType = typeValue.value;
 
-  // Verify that the LHS type actually implements the RHS module
+  // Verify that the LHS type actually implements the RHS trait
   // Skip this check for SomeType (type parameters) as they are checked at instantiation time
   if (!isSomeType(targetType)) {
-    if (!typeImplementsModule({ targetType, moduleType, env })) {
+    if (!typeImplementsTrait({ targetType, traitType, env })) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Type "${typeToString(targetType)}" does not implement module "${moduleType.typeName ?? typeToString(moduleType)}".`,
+        errorMessage: `Type "${typeToString(targetType)}" does not implement trait "${traitType.typeName ?? typeToString(traitType)}".`,
       });
     }
   }
 
   /// Override the assigned value of the This element with the typeValue.
-  const newModuleType: ModuleType = {
-    ...moduleType,
+  const newTraitType: TraitType = {
+    ...traitType,
     receiverType: typeValue.value, // Set the subtype to the typeValue
   };
-  const newModuleTypeValue = createTypeValue(newModuleType);
+  const newTraitTypeValue = createTypeValue(newTraitType);
 
   expr.$ = {
     env,
-    value: newModuleTypeValue,
-    type: newModuleTypeValue.type,
+    value: newTraitTypeValue,
+    type: newTraitTypeValue.type,
     pathCollection: [],
   };
   return expr;

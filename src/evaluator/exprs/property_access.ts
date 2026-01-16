@@ -18,6 +18,7 @@ import {
   isPtrType,
   isSomeType,
   isStructType,
+  isTraitType,
   isTupleType,
   isUnionType,
   ModuleField,
@@ -32,6 +33,7 @@ import {
   isFunctionValue,
   isModuleValue,
   isStructValue,
+  isTraitValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
@@ -41,9 +43,9 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import {
-  findMethodFromGenericImplForModule,
+  findMethodFromGenericImplForTrait,
   findMethodsFromGenericImpls,
-} from "../values/module";
+} from "../values/impl";
 
 export function evaluatePropertyAccess({
   expr,
@@ -174,9 +176,9 @@ export function evaluatePropertyAccess({
       let baseType = pointerType.childType;
 
       // CRITICAL: If the child type is a SomeType, we need to resolve it from the environment
-      // to get the properly constrained version (e.g., with where clause module constraints).
+      // to get the properly constrained version (e.g., with where clause trait constraints).
       // This is necessary because during function specialization, SomeTypes might be created
-      // that reference the type parameter name but don't carry over the module.fields from
+      // that reference the type parameter name but don't carry over the trait.fields from
       // the original where clause constraints.
       // QUESTION: Is this correct? This fix is related to hash_set.yo
       if (isSomeType(baseType)) {
@@ -218,7 +220,7 @@ export function evaluatePropertyAccess({
       // Check if it's accessing comptime field
       {
         const propertyName = propertyExpr.token.value;
-        const field = typeValue.value.module.fields.find(
+        const field = typeValue.value.trait.fields.find(
           (method) => method.label === propertyName
         );
         if (field) {
@@ -287,7 +289,7 @@ export function evaluatePropertyAccess({
       return expr;
     }
     // Accessing compt fields of a struct/union/dyn etc type.
-    else if (typeValue.value.module) {
+    else if (typeValue.value.trait) {
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({
           token: propertyExpr.token,
@@ -297,7 +299,7 @@ export function evaluatePropertyAccess({
       const propertyName = propertyExpr.token.value;
       // Check if the type method exists
       // Use findLast to get the most recently added field (handles duplicates from impl blocks)
-      const field = typeValue.value.module.fields.findLast(
+      const field = typeValue.value.trait.fields.findLast(
         (property) => property.label === propertyName
       );
       if (field) {
@@ -314,7 +316,7 @@ export function evaluatePropertyAccess({
         propertyExpr.$ = expr.$;
         return expr;
       } else {
-        // Property not found in type's own module
+        // Property not found in type's own trait
         // Check if there's a generic impl for this type (e.g., impl(forall(T), *(T), {...}))
         const genericMethods = findMethodsFromGenericImpls({
           concreteType: typeValue.value,
@@ -353,38 +355,74 @@ export function evaluatePropertyAccess({
       const propertyName = propertyExpr.token.value;
       const moduleType = typeValue.value;
 
+      // Check if the type method exists in the module's own fields
+      const field = moduleType.fields.find(
+        (property) => property.label === propertyName
+      );
+      if (field) {
+        expr.$ = {
+          env,
+          type: field.type,
+          value:
+            field.assignedValue ?? createUnknownValue(field.type, field.label),
+          pathCollection: [],
+          isAccessingProperty: true,
+        };
+        propertyExpr.$ = expr.$;
+        return expr;
+      } else {
+        // Property not found in type's own module
+        // Return expr with expr.$ = undefined to allow function.ts
+        // to handle this as a uniform function call (method call)
+        // function.ts will call getMethodsByNameFromEnv to find the method
+        // in implicit given implementations (like TypeMethods)
+        expr.$ = undefined;
+        return expr;
+      }
+    }
+    // Access trait field
+    else if (isTraitType(typeValue.value)) {
+      if (!isValidVariableName(propertyExpr)) {
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage: `Expected identifier for type method, got:\n${exprToString(propertyExpr)}`,
+        });
+      }
+      const propertyName = propertyExpr.token.value;
+      const traitType = typeValue.value;
+
       // Special case: If the ModuleType has a receiverType set (from a subtype expression like (T <: PrintSelf)),
-      // we need to look up the actual method implementation from the receiver type's module.
-      if (moduleType.receiverType && moduleType.receiverType.module) {
-        // Look for the impl'd module that matches this module type
-        for (const field of moduleType.receiverType.module.fields) {
+      // we need to look up the actual method implementation from the receiver type's trait.
+      if (traitType.receiverType && traitType.receiverType.trait) {
+        // Look for the impl'd trait that matches this trait type
+        for (const field of traitType.receiverType.trait.fields) {
           if (
             field.label === "" &&
             field.assignedValue &&
-            isModuleValue(field.assignedValue)
+            isTraitValue(field.assignedValue)
           ) {
-            const implModuleValue = field.assignedValue;
-            const implModuleType = implModuleValue.type;
+            const implTraitValue = field.assignedValue;
+            const implTraitType = implTraitValue.type;
 
-            // Check if this impl module matches our module type using areTypesCompatible
+            // Check if this impl trait matches our trait type using areTypesCompatible
             if (
               !areTypesCompatible(
-                { type: moduleType, env },
-                { type: implModuleType, env }
+                { type: traitType, env },
+                { type: implTraitType, env }
               )
             ) {
               continue;
             }
 
-            // Now look for the method in this matched impl module
-            const methodIndex = implModuleType.fields.findIndex(
+            // Now look for the method in this matched impl trait
+            const methodIndex = implTraitType.fields.findIndex(
               (f) => f.label === propertyName && isFunctionType(f.type)
             );
             if (methodIndex >= 0) {
-              const method = implModuleType.fields[methodIndex]!;
+              const method = implTraitType.fields[methodIndex]!;
               if (isFunctionType(method.type)) {
-                // Get the actual function value from the module value
-                const methodValue = implModuleValue.fields[methodIndex];
+                // Get the actual function value from the trait value
+                const methodValue = implTraitValue.fields[methodIndex];
                 if (methodValue) {
                   // Use the function value's specialized type if available
                   let methodType = method.type;
@@ -409,11 +447,11 @@ export function evaluatePropertyAccess({
           }
         }
 
-        // Not found in receiverType.module.fields - try generic impl registry
+        // Not found in receiverType.trait.fields - try generic impl registry
         // This handles cases like `impl(forall(T : Type), Box(T), Isolation(...))`
-        const genericMethod = findMethodFromGenericImplForModule({
-          concreteType: moduleType.receiverType,
-          moduleType,
+        const genericMethod = findMethodFromGenericImplForTrait({
+          concreteType: traitType.receiverType,
+          traitType,
           methodName: propertyName,
           env,
         });
@@ -430,8 +468,8 @@ export function evaluatePropertyAccess({
         }
       }
 
-      // Check if the type method exists in the module's own fields
-      const field = moduleType.fields.find(
+      // Check if the type method exists in the trait's own fields
+      const field = traitType.fields.find(
         (property) => property.label === propertyName
       );
       if (field) {
@@ -446,7 +484,7 @@ export function evaluatePropertyAccess({
         propertyExpr.$ = expr.$;
         return expr;
       } else {
-        // Property not found in type's own module
+        // Property not found in type's own trait
         // Return expr with expr.$ = undefined to allow function.ts
         // to handle this as a uniform function call (method call)
         // function.ts will call getMethodsByNameFromEnv to find the method

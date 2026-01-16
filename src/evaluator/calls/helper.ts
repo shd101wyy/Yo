@@ -1533,12 +1533,12 @@ export function validateFunctionReturnType({
         continue;
       }
 
-      // Skip validation for Impl(Trait) with requiredModules but no generic type parameter
+      // Skip validation for Impl(Trait) with requiredTraits but no generic type parameter
       // These are existential types where the concrete type is determined by the function body,
       // not from the caller's environment. The type compatibility is checked separately.
       if (
-        returnTypeSomeType.requiredModules &&
-        returnTypeSomeType.requiredModules.length > 0
+        returnTypeSomeType.requiredTraits &&
+        returnTypeSomeType.requiredTraits.length > 0
       ) {
         continue;
       }

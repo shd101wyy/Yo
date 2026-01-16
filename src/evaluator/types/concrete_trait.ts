@@ -1,20 +1,20 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr } from "../../expr";
-import { createModuleType, typeOfType } from "../../types";
+import { createTraitType, typeOfType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Evaluates the `Concrete(T)` syntax.
- * Creates a marker module type that specifies the concrete type for Impl.
+ * Creates a marker trait type that specifies the concrete type for Impl.
  *
  * Example:
  *   extern "Yo", yo_io_future : Type;
  *   IOReadFuture :: Impl(Concrete(yo_io_future), Future(i32));
  *
- * The Concrete(T) module is used in Impl(...) to explicitly set the
+ * The Concrete(T) trait is used in Impl(...) to explicitly set the
  * resolvedConcreteType of the resulting SomeType to T.
  *
  * This is particularly useful for extern types where the C representation
@@ -68,19 +68,19 @@ export function evaluateConcreteType({
 
   const concreteType = evaluatedConcreteTypeExpr.$.value.value;
 
-  // Create the Concrete module type
-  const concreteModuleType = createModuleType(env);
+  // Create the Concrete trait type
+  const concreteTraitType = createTraitType(env);
 
-  // Set the isConcrete field to mark this as a ConcreteModuleType
-  concreteModuleType.isConcrete = { concreteType };
+  // Set the isConcrete field to mark this as a ConcreteTraitType
+  concreteTraitType.isConcrete = { concreteType };
 
   // Use canonical ID format
-  concreteModuleType.id = `concrete_module_${concreteType.id}`;
+  concreteTraitType.id = `concrete_module_${concreteType.id}`;
 
   expr.$ = {
     env,
-    type: typeOfType(concreteModuleType),
-    value: createTypeValue(concreteModuleType),
+    type: typeOfType(concreteTraitType),
+    value: createTypeValue(concreteTraitType),
     pathCollection: [],
   };
 

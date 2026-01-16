@@ -15,8 +15,8 @@ import {
 import {
   ArrayType,
   DynType,
-  extractFnModuleFromType,
-  extractFutureModuleFromType,
+  extractFnTraitFromType,
+  extractFutureTraitFromType,
   isArrayType,
   isBoxedType,
   isDynType,
@@ -33,10 +33,10 @@ import {
   isTupleType,
   isUnionType,
   isUnitType,
-  ModuleType,
   SliceType,
   SomeType,
   StructType,
+  TraitType,
   Type,
   typeContainsRcType,
   typeImplementsFn,
@@ -330,7 +330,7 @@ function generateFuncCall(
     expr.$?.type &&
     typeImplementsFn(expr.$.type)
   ) {
-    const fnModule = extractFnModuleFromType(expr.$.type)!;
+    const fnModule = extractFnTraitFromType(expr.$.type)!;
     const closureType = fnModule.isFn.callType;
     const closureFunctionValue = expr.$.closureFunctionValue;
     const captureType = expr.$.captureType;
@@ -348,7 +348,7 @@ function generateFuncCall(
 
     // For Dyn(Fn(...)), use the DynType's C name.
     // For Impl(Fn(...)), the runtime representation is the resolvedConcreteType (capture struct),
-    // so we do NOT use the FnModuleType's C name here.
+    // so we do NOT use the FnTraitType's C name here.
     let closureCName: string | undefined;
     if (isDynClosure) {
       const dynTypeEntry = context.types[expr.$.type.id];
@@ -894,7 +894,7 @@ function generateFuncCall(
     if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
       // Dispatch to concrete type's ___drop
       const concreteType = argType.resolvedConcreteType;
-      const dropFn = concreteType.module?.fields.find(
+      const dropFn = concreteType.trait?.fields.find(
         (f) => f.label === BuiltinFunctions.___drop[0]
       );
       if (
@@ -931,7 +931,7 @@ function generateFuncCall(
     if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
       // Dispatch to concrete type's ___dup
       const concreteType = argType.resolvedConcreteType;
-      const dupFn = concreteType.module?.fields.find(
+      const dupFn = concreteType.trait?.fields.find(
         (f) => f.label === BuiltinFunctions.___dup[0]
       );
       if (
@@ -1084,13 +1084,13 @@ function generateFuncCall(
     // const futureCode = generateExpr(futureArg, indent, context);
     const futureType = futureArg.$?.type;
 
-    // Check if the type implements Future (handles both FutureModuleType and SomeType with Future impl)
+    // Check if the type implements Future (handles both FutureTraitType and SomeType with Future impl)
     if (!futureType || !typeImplementsFuture(futureType)) {
       return `// Error: await argument must be a Future type`;
     }
 
     // Extract the Future module type to get the result type
-    const futureModuleType = extractFutureModuleFromType(futureType);
+    const futureModuleType = extractFutureTraitFromType(futureType);
     if (!futureModuleType) {
       return `// Error: could not extract Future module from type`;
     }
@@ -1215,7 +1215,7 @@ function generateFuncCall(
       if (functionContext.inStateMachine) {
         // State machine return - complete the Future and clean up
         const futureType = functionContext.inStateMachine.futureType;
-        const futureModuleType = extractFutureModuleFromType(futureType)!;
+        const futureModuleType = extractFutureTraitFromType(futureType)!;
         const childType = futureModuleType.isFuture.outputType;
         const isUnitResult = isUnitType(childType);
 
@@ -2883,9 +2883,9 @@ function generateFuncCall(
             }
 
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
-            // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
+            // EXCEPT for dyn object's own methods (which are in the dyn type's .trait)
             if (isDynMethodCall && index === 0) {
-              // Check if this method exists in the dyn type's own module
+              // Check if this method exists in the dyn type's own trait
               if (
                 exprIsFunctionCall(expr.func) &&
                 exprIsFunctionCallOf(expr.func, ".", 2)
@@ -2896,8 +2896,8 @@ function generateFuncCall(
 
                 if (exprIsAtom(methodExpr) && isDynType(dynType)) {
                   const methodName = methodExpr.token.value;
-                  // Check if this method exists in the dyn type's module
-                  const dynMethod = dynType.module.fields.find(
+                  // Check if this method exists in the dyn type's trait
+                  const dynMethod = dynType.trait.fields.find(
                     (field) => field.label === methodName
                   );
 
@@ -2931,11 +2931,11 @@ function generateFuncCall(
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
-            // EXCEPT for dyn object's own methods (which are in the dyn type's .module)
+            // EXCEPT for dyn object's own methods (which are in the dyn type's .trait)
             if (isDynMethodCall && index === 0) {
               const dynObjectCode = generateExpr(arg, indent, context);
 
-              // Check if this method exists in the dyn type's own module
+              // Check if this method exists in the dyn type's own trait
               if (
                 exprIsFunctionCall(expr.func) &&
                 exprIsFunctionCallOf(expr.func, ".", 2)
@@ -2946,8 +2946,8 @@ function generateFuncCall(
 
                 if (exprIsAtom(methodExpr) && isDynType(dynType)) {
                   const methodName = methodExpr.token.value;
-                  // Check if this method exists in the dyn type's module
-                  const dynMethod = dynType.module.fields.find(
+                  // Check if this method exists in the dyn type's trait
+                  const dynMethod = dynType.trait.fields.find(
                     (field) => field.label === methodName
                   );
 
@@ -3180,7 +3180,7 @@ function generateFuncCall(
       }
     } else if (functionType && typeImplementsFn(functionType)) {
       const closureValueType = functionType;
-      const fnModule = extractFnModuleFromType(closureValueType)!;
+      const fnModule = extractFnTraitFromType(closureValueType)!;
       // Check if this is a Dyn closure (uses vtable) or Impl closure (static dispatch)
       const isDynClosure = isDynType(closureValueType);
       {
@@ -4059,7 +4059,7 @@ function getDropFunctionForType(
   type: Type,
   context: CodeGenContext
 ): string | undefined {
-  // For types that have a module with ___drop function
+  // For types that have a trait with ___drop function
   if (
     isStructType(type) ||
     isEnumType(type) ||
@@ -4067,7 +4067,7 @@ function getDropFunctionForType(
     isSomeType(type) ||
     isIsoType(type)
   ) {
-    const dropFunction = type.module.fields.find(
+    const dropFunction = type.trait.fields.find(
       (field) => field.label === BuiltinFunctions.___drop[0]
     );
 
@@ -4093,7 +4093,7 @@ export function getDupFunctionForType(
   type: Type,
   context: CodeGenContext
 ): string | undefined {
-  // For types that have a module with ___dup function
+  // For types that have a trait with ___dup function
   if (
     isStructType(type) ||
     isEnumType(type) ||
@@ -4101,7 +4101,7 @@ export function getDupFunctionForType(
     isSomeType(type) ||
     isIsoType(type)
   ) {
-    const dupFunction = type.module.fields.find(
+    const dupFunction = type.trait.fields.find(
       (field) => field.label === BuiltinFunctions.___dup[0]
     );
 
@@ -4139,8 +4139,8 @@ function generateAsyncBlock(
     return `/* Error: async block must have Future type */`;
   }
 
-  // Extract the FutureModuleType from Impl(Future(T)) or Dyn(Future(T))
-  const futureModuleType = extractFutureModuleFromType(futureType);
+  // Extract the FutureTraitType from Impl(Future(T)) or Dyn(Future(T))
+  const futureModuleType = extractFutureTraitFromType(futureType);
   if (!futureModuleType) {
     return `/* Error: Could not extract Future module type */`;
   }
@@ -4155,7 +4155,7 @@ function generateAsyncBlock(
 
   // Register this state machine struct as the concrete type for this specific async block's SomeType.
   // IMPORTANT: We use futureType.id (the SomeType's ID) rather than futureModuleType.id because
-  // each async block creates its own fresh SomeType, but they may share the same FutureModuleType
+  // each async block creates its own fresh SomeType, but they may share the same FutureTraitType
   // (e.g., multiple async blocks returning Impl(Future(unit)) share the same Future(unit) module).
   // Using the SomeType's unique ID ensures each async block gets its own state machine struct.
   context.types[futureType.id] = {
@@ -4443,7 +4443,7 @@ function emitAsyncBlockStructDefinition(
         let awaitResultType = awaitPoint.resultType;
 
         if (awaitPoint.futureType) {
-          const futureModuleType = extractFutureModuleFromType(
+          const futureModuleType = extractFutureTraitFromType(
             awaitPoint.futureType
           );
           if (futureModuleType) {
@@ -4698,7 +4698,7 @@ function generateAsyncBlockStateDisposeFunction(
       const captureTypeName = existingCaptureTypeEntry.cName;
 
       // Find the ___drop function for the capture struct
-      const dropFunction = captureType.module.fields.find(
+      const dropFunction = captureType.trait.fields.find(
         (field) => field.label === BuiltinFunctions.___drop[0]
       );
       if (
@@ -5057,7 +5057,7 @@ function generateDynCall(
   indent: string,
   context: CodeGenContext
 ): string {
-  if (!expr.$?.dynCallModuleValues || expr.$.dynCallModuleValues.length === 0) {
+  if (!expr.$?.dynCallTraitValues || expr.$.dynCallTraitValues.length === 0) {
     return `/* Error: dyn() call missing module values */`;
   }
 
@@ -5083,9 +5083,9 @@ function generateDynCall(
     return `/* Error: dyn() value has no type */`;
   }
 
-  // Get the module value from dynCallModuleValues
-  const moduleValues = expr.$.dynCallModuleValues;
-  if (!moduleValues || moduleValues.length === 0) {
+  // Get the module value from dynCallTraitValues
+  const traitValues = expr.$.dynCallTraitValues;
+  if (!traitValues || traitValues.length === 0) {
     return `/* Error: dyn() call missing module values */`;
   }
 
@@ -5103,13 +5103,13 @@ function generateDynCall(
   const dynTypeCName =
     context.types[dynType.id]?.cName || `yo_dyn_${dynType.id}`;
   // For boxed closures, concreteType is often `Impl(Fn(...))` which is a `SomeType`.
-  // Prefer the corresponding FnModuleType's C name so generated symbols are stable.
+  // Prefer the corresponding FnTraitType's C name so generated symbols are stable.
   const concreteTypeCName = (() => {
     const direct = context.types[concreteType.id]?.cName;
     if (direct) {
       return direct;
     }
-    const fnModule = extractFnModuleFromType(concreteType);
+    const fnModule = extractFnTraitFromType(concreteType);
     const fnModuleCName = fnModule
       ? context.types[fnModule.id]?.cName
       : undefined;
@@ -5122,7 +5122,7 @@ function generateDynCall(
     dynType,
     concreteType,
     dataType: valueType,
-    moduleValues,
+    traitValues,
   });
 
   // Generate the value expression
@@ -5672,8 +5672,8 @@ function generateFieldAccess(
   if (exprIsAtom(fieldExpr)) {
     const fieldName = fieldExpr.token.value;
 
-    // Check if this field access is actually a method access (function from type's module or nested modules)
-    // This includes both direct type methods and methods from nested modules
+    // Check if this field access is actually a method access (function from type's trait or nested traits)
+    // This includes both direct type methods and methods from nested traits
     if (expr.$?.value && isFunctionValue(expr.$.value)) {
       const functionValue = expr.$.value;
       const cFunctionName =
@@ -5683,7 +5683,7 @@ function generateFieldAccess(
 
     // Fallback: Check if this is an Rc method call (___drop, ___dup, ___dispose)
     // Sometimes, we only called addRcFunctionSignaturesToStructType / addRcFunctionSignaturesToEnumType
-    // So they are using the `undefined` function value, before we actually update its module fields.
+    // So they are using the `undefined` function value, before we actually update its trait fields.
     if (
       !expr.$?.value &&
       (BuiltinFunctions.___dispose.includes(fieldName) ||
@@ -5691,19 +5691,19 @@ function generateFieldAccess(
         BuiltinFunctions.___dup.includes(fieldName)) &&
       objectType
     ) {
-      // For Rc methods, we need to look up the function from the type's module
+      // For Rc methods, we need to look up the function from the type's trait
       // and return the function name directly instead of treating it as field access
-      let typeModule: ModuleType | null = null;
+      let typeTrait: TraitType | null = null;
 
       if (isStructType(objectType)) {
-        typeModule = objectType.module;
+        typeTrait = objectType.trait;
       } else if (isEnumType(objectType)) {
-        typeModule = objectType.module;
+        typeTrait = objectType.trait;
       }
 
-      if (typeModule) {
-        // Find the function in the type's module
-        const functionElement = typeModule.fields.find(
+      if (typeTrait) {
+        // Find the function in the type's trait
+        const functionElement = typeTrait.fields.find(
           (field) =>
             field.label === fieldName &&
             field.assignedValue &&
@@ -7515,7 +7515,7 @@ function preRegisterAsyncBlocksInExpr(
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
-        const futureModuleType = extractFutureModuleFromType(futureType);
+        const futureModuleType = extractFutureTraitFromType(futureType);
         if (futureModuleType) {
           const asyncBlockId =
             expr.$?.variableName || `async_block_${Date.now()}`;
@@ -7529,7 +7529,7 @@ function preRegisterAsyncBlocksInExpr(
 
           // Register in context.types using the SomeType's unique ID.
           // IMPORTANT: Each async block creates its own fresh SomeType with a unique ID,
-          // but they may share the same FutureModuleType (e.g., multiple async blocks
+          // but they may share the same FutureTraitType (e.g., multiple async blocks
           // returning Impl(Future(unit)) share the same Future(unit) module).
           // Using the SomeType's unique ID ensures each async block's state machine
           // struct is registered separately.

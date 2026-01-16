@@ -16,9 +16,9 @@ import {
   isDynType,
   isEnumType,
   isExprType,
-  isFnModuleType,
+  isFnTraitType,
   isFunctionType,
-  isFutureModuleType,
+  isFutureTraitType,
   isIsoType,
   isModuleType,
   isObjectType,
@@ -27,6 +27,7 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
+  isTraitType,
   isTupleType,
   isTypeHierarchyType,
   isUnionType,
@@ -139,8 +140,8 @@ export function typeOfType(
   } else if (isFunctionType(type)) {
     // All functions are now level 0 types
     return createType0(type);
-  } else if (isFnModuleType(type)) {
-    // FnModuleType (closures) are level 0 types - they're just anonymous structs
+  } else if (isFnTraitType(type)) {
+    // FnTraitType (closures) are level 0 types - they're just anonymous structs
     return createType0(type);
   } else if (isArrayType(type)) {
     // For arrays, check the element type
@@ -182,7 +183,12 @@ export function typeOfType(
     return createTypeHierarchy(1, type);
     // Modules are treated as type hierarchies
     // It's the same level as Type(1)
-    // Module type itself has the same level as Free/Linear/Type
+    // Module type itself has the same level as Type
+  } else if (isTraitType(type)) {
+    return createTypeHierarchy(1, type);
+    // Traits are treated as type hierarchies
+    // It's the same level as Type(1)
+    // Trait type itself has the same level as Type
   } else if (isSomeType(type)) {
     return type.parentType;
   } else if (isPtrType(type)) {
@@ -193,7 +199,7 @@ export function typeOfType(
     // Isolated type hierarchy logic
     // Iso types use atomic RC, treated as level 0 types
     return createType0(type);
-  } else if (isFutureModuleType(type)) {
+  } else if (isFutureTraitType(type)) {
     return createType0(type);
   } else if (isVoidType(type)) {
     return createType0(type);

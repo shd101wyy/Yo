@@ -393,10 +393,7 @@ export function evaluateAnonymousModuleBeginExprs({
   }
 
   // Create the module value
-  const moduleValue = createModuleValue(
-    { ...moduleType, receiverType: receiverType },
-    moduleElementValues
-  );
+  const moduleValue = createModuleValue({ ...moduleType }, moduleElementValues);
 
   return {
     moduleValue,

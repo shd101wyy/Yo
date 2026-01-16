@@ -20,7 +20,7 @@ import {
   clearAllGlobalImplState,
   clearGenericImplsFromModule,
   clearImplsFromModule,
-} from "./values/module";
+} from "./values/impl";
 
 // Re-export clearImplsFromModule and clearGenericImplsFromModule for use by module manager
 export {

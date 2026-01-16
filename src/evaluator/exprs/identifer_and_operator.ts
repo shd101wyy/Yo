@@ -76,6 +76,18 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
+  // Trait
+  else if (identifier === "Trait") {
+    const value = createTypeValue(createTypeHierarchy(1));
+    expr.$ = {
+      env,
+      type: value.type,
+      value: value,
+
+      pathCollection: [],
+    };
+    return expr;
+  }
   // unit
   else if (identifier === TypeTag.Unit) {
     const value = createTypeValue(createUnitType());

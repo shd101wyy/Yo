@@ -1240,7 +1240,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
 
-        if (fieldAccessType.module) {
+        if (fieldAccessType.trait) {
           // Also check for methods defined in the struct's module (using original type for method calls)
           // Get environment from the target expression for type compatibility checking
           let env: unknown = null;
@@ -1250,7 +1250,7 @@ export function activate(context: vscode.ExtensionContext) {
             env = evalInfo?.env;
           }
 
-          for (const element of fieldAccessType.module.fields) {
+          for (const element of fieldAccessType.trait.fields) {
             if (isFunctionType(element.type)) {
               // Check if the first parameter of the function matches the original receiver type (not dereferenced)
               if (element.type.parameters.length > 0 && env) {

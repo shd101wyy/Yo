@@ -31,13 +31,13 @@ import {
   getValueOfSomeTypeFromEnv,
   isExprListType,
   isExprType,
-  isFnModuleType,
+  isFnTraitType,
   isFunctionType,
-  isModuleType,
   isSomeType,
-  ModuleType,
+  isTraitType,
   prohibitVoidType,
   SomeType,
+  TraitType,
   Type,
   typeOfType,
   typeProhibitsComptModifier,
@@ -55,7 +55,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsModule } from "../exprs/subtype_of";
+import { typeImplementsTrait } from "../exprs/subtype_of";
 import { isValidVariableName } from "../utils";
 
 /**
@@ -447,24 +447,24 @@ compt(${label}) : ${typeToString(parameterType)}`,
     prohibitVoidType(parameterType, typeExpr?.token ?? expr.token);
   }
 
-  // Check if the parameterType is a valid module type
-  if (isModuleType(parameterType)) {
+  // Check if the parameterType is a valid trait type
+  if (isTraitType(parameterType)) {
     if (!parameterType.receiverType) {
       throw formatErrorMessage({
         token: typeExpr?.token ?? expr.token,
-        errorMessage: `Module type without receiver type set cannot be used as function parameter type.
+        errorMessage: `Trait type without receiver type set cannot be used as function parameter type.
         
-Please consider using "<:" to specify the receiver type for a module type, for example:
+Please consider using "<:" to specify the receiver type for a trait type, for example:
 
-Id :: module
+Id :: trait
   id   : (fn(self : Self) -> Self)
 ;
 
 use_id :: (fn(forall(T : Type),
               val : T, 
-              using(IdModule) : (T <: Id)
+              where(T <: Id)
           ) -> T) {
-  return IdModule.id(val);
+  return val.id();
 }
 `,
       });
@@ -515,7 +515,7 @@ use_id :: (fn(forall(T : Type),
   }
 
   // Validate closure mutability requirements
-  if (isFnModuleType(parameterType)) {
+  if (isFnTraitType(parameterType)) {
     // Note: With the new simplified closure system, we don't have different closure kinds
     // All closures work the same way now
   }
@@ -542,7 +542,7 @@ use_id :: (fn(forall(T : Type),
 
 /**
  * Parse where clause constraints from constraint expressions.
- * Handles forms like: T <: Module, T <: (Module1, Module2), T <: !(Module)
+ * Handles forms like: T <: Trait, T <: (Trait1, Trait2), T <: !(Trait)
  */
 function parseWhereClauseConstraints({
   constraintExprs,
@@ -556,8 +556,8 @@ function parseWhereClauseConstraints({
   whereClauseConstraints: Map<
     SomeType,
     {
-      requiredModules: ModuleType[];
-      negativeModules: ModuleType[];
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
     }
   >;
   env: Environment;
@@ -565,20 +565,20 @@ function parseWhereClauseConstraints({
   const whereClauseConstraints = new Map<
     SomeType,
     {
-      requiredModules: ModuleType[];
-      negativeModules: ModuleType[];
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
     }
   >();
 
   for (const constraintExpr of constraintExprs) {
-    // Each constraint must be of the form: T <: Module or T <: (Module1, Module2)
+    // Each constraint must be of the form: T <: Trait or T <: (Trait1, Trait2)
     if (
       !exprIsFunctionCall(constraintExpr) ||
       !exprIsFunctionCallOf(constraintExpr, "<:", 2)
     ) {
       throw formatErrorMessage({
         token: constraintExpr.token,
-        errorMessage: `Expected constraint in the form "T <: Module" or "T <: (Module1, Module2)", got: ${exprToString(constraintExpr)}`,
+        errorMessage: `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${exprToString(constraintExpr)}`,
       });
     }
 
@@ -614,88 +614,88 @@ function parseWhereClauseConstraints({
       const concreteType = lhsTypeValue.value;
 
       // Continue to parse and evaluate the RHS modules, then check if concreteType implements them
-      // We'll handle this after parsing all module expressions below
+      // We'll handle this after parsing all trait expressions below
       // For now, skip adding to whereClauseConstraints and just validate
 
-      // Parse RHS: can be Module, (Module1, Module2), !(Module), or (!(Module1), Module2)
-      const moduleExprs: { expr: Expr; isNegated: boolean }[] = [];
+      // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
+      const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
       if (
         exprIsFunctionCall(rhsExpr) &&
         exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
       ) {
-        // Tuple form: (Module1, Module2, ...)
-        for (const moduleExpr of rhsExpr.args) {
+        // Tuple form: (Trait1, Trait2, ...)
+        for (const traitExpr of rhsExpr.args) {
           if (
-            exprIsFunctionCall(moduleExpr) &&
-            exprIsFunctionCallOf(moduleExpr, "!") &&
-            moduleExpr.args.length === 1
+            exprIsFunctionCall(traitExpr) &&
+            exprIsFunctionCallOf(traitExpr, "!") &&
+            traitExpr.args.length === 1
           ) {
-            moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
+            traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
           } else {
-            moduleExprs.push({ expr: moduleExpr, isNegated: false });
+            traitExprs.push({ expr: traitExpr, isNegated: false });
           }
         }
       } else {
-        // Single module - check if negated
+        // Single trait - check if negated
         if (
           exprIsFunctionCall(rhsExpr) &&
           exprIsFunctionCallOf(rhsExpr, "!") &&
           rhsExpr.args.length === 1
         ) {
-          moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+          traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
         } else {
-          moduleExprs.push({ expr: rhsExpr, isNegated: false });
+          traitExprs.push({ expr: rhsExpr, isNegated: false });
         }
       }
 
-      // Check each module constraint
-      for (const { expr: moduleExpr, isNegated } of moduleExprs) {
-        const evaluatedModule = evaluateExpression({
-          expr: moduleExpr,
+      // Check each trait constraint
+      for (const { expr: traitExpr, isNegated } of traitExprs) {
+        const evaluatedTrait = evaluateExpression({
+          expr: traitExpr,
           env,
           context: { ...context },
         });
         if (
-          !evaluatedModule.$ ||
-          !evaluatedModule.$.value ||
-          !isTypeValue(evaluatedModule.$.value)
+          !evaluatedTrait.$ ||
+          !evaluatedTrait.$.value ||
+          !isTypeValue(evaluatedTrait.$.value)
         ) {
           throw formatErrorMessage({
-            token: moduleExpr.token,
-            errorMessage: `Expected module type for right-hand side of where clause constraint.`,
+            token: traitExpr.token,
+            errorMessage: `Expected trait type for right-hand side of where clause constraint.`,
           });
         }
-        env = evaluatedModule.$.env;
+        env = evaluatedTrait.$.env;
 
-        const moduleTypeValue = evaluatedModule.$.value;
-        if (!isModuleType(moduleTypeValue.value)) {
+        const traitTypeValue = evaluatedTrait.$.value;
+        if (!isTraitType(traitTypeValue.value)) {
           throw formatErrorMessage({
-            token: moduleExpr.token,
-            errorMessage: `Expected module type for right-hand side of where clause constraint, got: ${typeToString(moduleTypeValue.value)}`,
+            token: traitExpr.token,
+            errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
           });
         }
 
-        const moduleType = moduleTypeValue.value;
-        const implemented = typeImplementsModule({
+        const traitType = traitTypeValue.value;
+        const implemented = typeImplementsTrait({
           targetType: concreteType,
-          moduleType,
+          traitType,
           env,
         });
 
         if (isNegated) {
-          // Negative constraint: type must NOT implement this module
+          // Negative constraint: type must NOT implement this trait
           if (implemented) {
             throw formatErrorMessage({
               token: constraintExpr.token,
-              errorMessage: `Type ${typeToString(concreteType)} must NOT implement ${typeToString(moduleType)}, but it does.`,
+              errorMessage: `Type ${typeToString(concreteType)} must NOT implement ${typeToString(traitType)}, but it does.`,
             });
           }
         } else {
-          // Positive constraint: type must implement this module
+          // Positive constraint: type must implement this trait
           if (!implemented) {
             throw formatErrorMessage({
               token: constraintExpr.token,
-              errorMessage: `Type ${typeToString(concreteType)} does not implement required module ${typeToString(moduleType)}.`,
+              errorMessage: `Type ${typeToString(concreteType)} does not implement required trait ${typeToString(traitType)}.`,
             });
           }
         }
@@ -707,44 +707,44 @@ function parseWhereClauseConstraints({
 
     const someType = lhsTypeValue.value;
 
-    // Parse RHS: can be Module, (Module1, Module2), !(Module), or (!(Module1), Module2)
-    const moduleExprs: { expr: Expr; isNegated: boolean }[] = [];
+    // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
+    const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
     if (
       exprIsFunctionCall(rhsExpr) &&
       exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
     ) {
-      // Tuple form: (Module1, Module2, ...)
-      for (const moduleExpr of rhsExpr.args) {
+      // Tuple form: (Trait1, Trait2, ...)
+      for (const traitExpr of rhsExpr.args) {
         if (
-          exprIsFunctionCall(moduleExpr) &&
-          exprIsFunctionCallOf(moduleExpr, "!") &&
-          moduleExpr.args.length === 1
+          exprIsFunctionCall(traitExpr) &&
+          exprIsFunctionCallOf(traitExpr, "!") &&
+          traitExpr.args.length === 1
         ) {
-          moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
+          traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
         } else {
-          moduleExprs.push({ expr: moduleExpr, isNegated: false });
+          traitExprs.push({ expr: traitExpr, isNegated: false });
         }
       }
     } else {
-      // Single module - check if negated
+      // Single trait - check if negated
       if (
         exprIsFunctionCall(rhsExpr) &&
         exprIsFunctionCallOf(rhsExpr, "!") &&
         rhsExpr.args.length === 1
       ) {
-        moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+        traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
       } else {
-        moduleExprs.push({ expr: rhsExpr, isNegated: false });
+        traitExprs.push({ expr: rhsExpr, isNegated: false });
       }
     }
 
-    // Evaluate each module expression
-    const requiredModules: ModuleType[] = [];
-    const negativeModules: ModuleType[] = [];
+    // Evaluate each trait expression
+    const requiredTraits: TraitType[] = [];
+    const negativeTraits: TraitType[] = [];
 
-    for (const { expr: moduleExpr, isNegated } of moduleExprs) {
+    for (const { expr: traitExpr, isNegated } of traitExprs) {
       const evaluatedRhs = evaluateExpression({
-        expr: moduleExpr,
+        expr: traitExpr,
         env,
         context: { ...context },
       });
@@ -754,44 +754,44 @@ function parseWhereClauseConstraints({
         !isTypeValue(evaluatedRhs.$.value)
       ) {
         throw formatErrorMessage({
-          token: moduleExpr.token,
-          errorMessage: `Expected module type for right-hand side of where clause constraint.`,
+          token: traitExpr.token,
+          errorMessage: `Expected trait type for right-hand side of where clause constraint.`,
         });
       }
       env = evaluatedRhs.$.env;
 
-      const moduleTypeValue = evaluatedRhs.$.value;
-      if (!isModuleType(moduleTypeValue.value)) {
+      const traitTypeValue = evaluatedRhs.$.value;
+      if (!isTraitType(traitTypeValue.value)) {
         throw formatErrorMessage({
-          token: moduleExpr.token,
-          errorMessage: `Expected module type for right-hand side of where clause constraint, got: ${typeToString(moduleTypeValue.value)}`,
+          token: traitExpr.token,
+          errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
         });
       }
 
-      const moduleType = moduleTypeValue.value;
-      if (moduleType.receiverType) {
+      const traitType = traitTypeValue.value;
+      if (traitType.receiverType) {
         throw formatErrorMessage({
-          token: moduleExpr.token,
-          errorMessage: `Module type in where clause already has a receiver type assigned.`,
+          token: traitExpr.token,
+          errorMessage: `Trait type in where clause already has a receiver type assigned.`,
         });
       }
 
       if (isNegated) {
-        negativeModules.push(moduleType);
+        negativeTraits.push(traitType);
       } else {
-        requiredModules.push(moduleType);
+        requiredTraits.push(traitType);
       }
     }
 
     // Store constraints for this SomeType
     const existing = whereClauseConstraints.get(someType);
     if (existing) {
-      existing.requiredModules.push(...requiredModules);
-      existing.negativeModules.push(...negativeModules);
+      existing.requiredTraits.push(...requiredTraits);
+      existing.negativeTraits.push(...negativeTraits);
     } else {
       whereClauseConstraints.set(someType, {
-        requiredModules,
-        negativeModules,
+        requiredTraits,
+        negativeTraits,
       });
     }
   }
@@ -818,8 +818,8 @@ export function evaluateFunctionParameters({
   whereClauseConstraints?: Map<
     SomeType,
     {
-      requiredModules: ModuleType[];
-      negativeModules: ModuleType[];
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
     }
   >;
 } {
@@ -832,8 +832,8 @@ export function evaluateFunctionParameters({
     | Map<
         SomeType,
         {
-          requiredModules: ModuleType[];
-          negativeModules: ModuleType[];
+          requiredTraits: TraitType[];
+          negativeTraits: TraitType[];
         }
       >
     | undefined = undefined;
@@ -882,7 +882,7 @@ export function evaluateFunctionParameters({
         env = nextEnv;
       }
     }
-    // Check if it's a where clause: where(T <: Module1, U <: Module2, ...)
+    // Check if it's a where clause: where(T <: Trait1, U <: Trait2, ...)
     else if (
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)

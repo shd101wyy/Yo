@@ -1,23 +1,23 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FuncCallExpr } from "../../expr";
-import { createModuleType, typeOfType } from "../../types";
+import { createTraitType, typeOfType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Evaluates the `Future(T)` syntax.
- * Creates a module type that represents a future trait (similar to Fn trait pattern).
+ * Creates a trait type that represents a future trait (similar to Fn trait pattern).
  *
  * Example:
  *   Future(i32)       // future that will yield i32
  *   Future(String)    // future that will yield String
  *   Future(unit)      // future that completes without returning a value
  *
- * This creates a module type with `isFuture` set to the child type.
+ * This creates a trait type with `isFuture` set to the child type.
  *
- * The Future module can be used with:
+ * The Future trait can be used with:
  * - Impl(Future(T)) for static dispatch with futures
  * - Dyn(Future(T)) for dynamic dispatch
  */
@@ -69,20 +69,20 @@ export function evaluateFutureType({
 
   const outputType = evaluatedElementTypeExpr.$.value.value;
 
-  // Create the Future module type (similar to how Fn module type is created)
-  const futureModuleType = createModuleType(env);
+  // Create the Future trait type (similar to how Fn trait type is created)
+  const futureTraitType = createTraitType(env);
 
   // Set the isFuture field to the child type
-  futureModuleType.isFuture = { outputType };
+  futureTraitType.isFuture = { outputType };
 
-  // Use canonical ID format to match createFutureModuleType
+  // Use canonical ID format to match createFutureTraitType
   // This ensures Future(unit) from type annotations and async blocks have the same ID
-  futureModuleType.id = `future_module_${outputType.id}`;
+  futureTraitType.id = `future_trait_${outputType.id}`;
 
   expr.$ = {
     env,
-    type: typeOfType(futureModuleType),
-    value: createTypeValue(futureModuleType),
+    type: typeOfType(futureTraitType),
+    value: createTypeValue(futureTraitType),
     pathCollection: [],
   };
 

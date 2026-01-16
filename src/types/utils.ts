@@ -4,11 +4,11 @@ import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
 import {
-  isModuleValue,
   isNumberValue,
+  isTraitValue,
   isTypeValue,
   isUnknownValue,
-  ModuleValue,
+  TraitValue,
   valueToString,
 } from "../value";
 import { ValueTag } from "../value-tag";
@@ -19,16 +19,17 @@ import {
   ComptListType,
   DynType,
   EnumType,
-  FnModuleType,
+  FnTraitType,
   FunctionParameter,
   FunctionType,
-  FutureModuleType,
+  FutureTraitType,
   IsoType,
   ModuleField,
   ModuleType,
   PtrType,
   SomeType,
   StructType,
+  TraitType,
   TupleType,
   Type,
   TypeField,
@@ -49,9 +50,9 @@ import {
   isF32Type,
   isF64Type,
   isFloatType,
-  isFnModuleType,
+  isFnTraitType,
   isFunctionType,
-  isFutureModuleType,
+  isFutureTraitType,
   isI16Type,
   isI32Type,
   isI64Type,
@@ -65,6 +66,7 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
+  isTraitType,
   isTupleType,
   isTypeHierarchyType,
   isU16Type,
@@ -82,18 +84,18 @@ import { TypeTag } from "./tags";
  * Get a module type from the environment by name (e.g., "Copy", "Send").
  * Returns undefined if not found.
  */
-export function getModuleTypeFromEnv(
+export function getTraitTypeFromEnv(
   env: Environment,
-  moduleName: string
-): ModuleType | undefined {
-  const variables = getVariablesFromEnv(env, moduleName);
+  traitName: string
+): TraitType | undefined {
+  const variables = getVariablesFromEnv(env, traitName);
   if (variables.length === 0) {
     return undefined;
   }
   const variable = variables[variables.length - 1]!;
   if (variable.value && isTypeValue(variable.value)) {
     const typeValue = variable.value as TypeValue;
-    if (isModuleType(typeValue.value)) {
+    if (isTraitType(typeValue.value)) {
       return typeValue.value;
     }
   }
@@ -104,34 +106,34 @@ export function getModuleTypeFromEnv(
  * Check if a type implements a specific module.
  * This is the core implementation used by typeImplementsCopy and typeImplementsSend.
  */
-export function typeImplementsModuleInternal({
+export function typeImplementsTraitInternal({
   targetType,
-  moduleType,
+  traitType,
   env,
 }: {
   targetType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   env: Environment;
 }): boolean {
-  const expectedModuleWithReceiver: ModuleType = {
-    ...moduleType,
+  const expectedTraitWithReceiver: TraitType = {
+    ...traitType,
     receiverType: targetType,
   };
 
-  const targetModule = targetType.module;
-  if (targetModule) {
-    for (const field of targetModule.fields) {
-      if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
+  const targetTrait = targetType.trait;
+  if (targetTrait) {
+    for (const field of targetTrait.fields) {
+      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
         continue;
       }
 
-      const fieldModuleValue = field.assignedValue as ModuleValue;
-      const fieldModuleType = fieldModuleValue.type;
+      const fieldTraitValue = field.assignedValue as TraitValue;
+      const fieldTraitType = fieldTraitValue.type;
 
       if (
         areTypesCompatible(
-          { type: expectedModuleWithReceiver, env },
-          { type: fieldModuleType, env }
+          { type: expectedTraitWithReceiver, env },
+          { type: fieldTraitType, env }
         )
       ) {
         return true;
@@ -158,12 +160,12 @@ export function typeImplementsCopy(
     return false;
   }
 
-  const copyModuleType = getModuleTypeFromEnv(env, "Copy");
+  const copyModuleType = getTraitTypeFromEnv(env, "Copy");
   if (!copyModuleType) {
     return false;
   }
 
-  return typeImplementsModuleInternal({
+  return typeImplementsTraitInternal({
     targetType: type,
     moduleType: copyModuleType,
     env,
@@ -186,14 +188,14 @@ export function typeImplementsSend(
     return false;
   }
 
-  const sendModuleType = getModuleTypeFromEnv(env, "Send");
-  if (!sendModuleType) {
+  const sendTraitType = getTraitTypeFromEnv(env, "Send");
+  if (!sendTraitType) {
     return false;
   }
 
-  return typeImplementsModuleInternal({
+  return typeImplementsTraitInternal({
     targetType: type,
-    moduleType: sendModuleType,
+    traitType: sendTraitType,
     env,
   });
 }
@@ -205,12 +207,12 @@ export function typeImplementsFn(
     return false;
   }
 
-  // Check requiredModules for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
+  // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
   if (isSomeType(type) || isDynType(type)) {
-    const requiredModules = (type as SomeType | DynType).requiredModules;
-    if (requiredModules) {
-      for (const moduleType of requiredModules) {
-        if (isFnModuleType(moduleType)) {
+    const requiredTraits = (type as SomeType | DynType).requiredTraits;
+    if (requiredTraits) {
+      for (const traitType of requiredTraits) {
+        if (isFnTraitType(traitType)) {
           return true;
         }
       }
@@ -221,22 +223,22 @@ export function typeImplementsFn(
 }
 
 /**
- * Extract FnModuleType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnModuleType directly)
- * Returns the FnModuleType if found, otherwise undefined.
+ * Extract FnTraitType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnTraitType directly)
+ * Returns the FnTraitType if found, otherwise undefined.
  */
-export function extractFnModuleFromType(type: Type): FnModuleType | undefined {
-  // If the type is already a FnModuleType, return it directly
-  if (isFnModuleType(type)) {
+export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
+  // If the type is already a FnTraitType, return it directly
+  if (isFnTraitType(type)) {
     return type;
   }
 
-  // Check requiredModules for SomeType and DynType
+  // Check requiredTraits for SomeType and DynType
   if (isSomeType(type) || isDynType(type)) {
-    const requiredModules = (type as SomeType | DynType).requiredModules;
-    if (requiredModules) {
-      for (const moduleType of requiredModules) {
-        if (isFnModuleType(moduleType)) {
-          return moduleType;
+    const requiredTraits = (type as SomeType | DynType).requiredTraits;
+    if (requiredTraits) {
+      for (const traitType of requiredTraits) {
+        if (isFnTraitType(traitType)) {
+          return traitType;
         }
       }
     }
@@ -252,12 +254,12 @@ export function typeImplementsFuture(
     return false;
   }
 
-  // Check requiredModules for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
+  // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
   if (isSomeType(type) || isDynType(type)) {
-    const requiredModules = (type as SomeType | DynType).requiredModules;
-    if (requiredModules) {
-      for (const moduleType of requiredModules) {
-        if (isFutureModuleType(moduleType)) {
+    const requiredTraits = (type as SomeType | DynType).requiredTraits;
+    if (requiredTraits) {
+      for (const traitType of requiredTraits) {
+        if (isFutureTraitType(traitType)) {
           return true;
         }
       }
@@ -268,24 +270,24 @@ export function typeImplementsFuture(
 }
 
 /**
- * Extract FutureModuleType from a type (e.g., from Impl(Future(T)) or Dyn(Future(T)) or FutureModuleType directly)
- * Returns the FutureModuleType if found, otherwise undefined.
+ * Extract FutureTraitType from a type (e.g., from Impl(Future(T)) or Dyn(Future(T)) or FutureTraitType directly)
+ * Returns the FutureTraitType if found, otherwise undefined.
  */
-export function extractFutureModuleFromType(
+export function extractFutureTraitFromType(
   type: Type
-): FutureModuleType | undefined {
-  // If the type is already a FutureModuleType, return it directly
-  if (isFutureModuleType(type)) {
+): FutureTraitType | undefined {
+  // If the type is already a FutureTraitType, return it directly
+  if (isFutureTraitType(type)) {
     return type;
   }
 
-  // Check requiredModules for SomeType and DynType
+  // Check requiredTraits for SomeType and DynType
   if (isSomeType(type) || isDynType(type)) {
-    const requiredModules = (type as SomeType | DynType).requiredModules;
-    if (requiredModules) {
-      for (const moduleType of requiredModules) {
-        if (isFutureModuleType(moduleType)) {
-          return moduleType;
+    const requiredTraits = (type as SomeType | DynType).requiredTraits;
+    if (requiredTraits) {
+      for (const traitType of requiredTraits) {
+        if (isFutureTraitType(traitType)) {
+          return traitType;
         }
       }
     }
@@ -304,6 +306,7 @@ export function typeRequiresComptModifier(type?: Type): boolean {
   return (
     isTypeHierarchyType(type) ||
     isModuleType(type) ||
+    isTraitType(type) ||
     isComptIntType(type) ||
     isComptFloatType(type) ||
     isComptStringType(type) ||
@@ -434,7 +437,7 @@ export function typeContainsSomeType(
       // FIXME: The check here is essentially wrong
 
       // Treat Impl(Fn(...)) as concrete at codegen time.
-      // Codegen lowers such SomeType to the corresponding FnModuleType.
+      // Codegen lowers such SomeType to the corresponding FnTraitType.
       if (typeImplementsFn(type)) {
         return false;
       }
@@ -659,10 +662,13 @@ export function typeRequiresInference(type?: Type): boolean {
       // SomeType represents unknown/inferable types
       return true;
     case TypeTag.Module: {
-      // For FnModuleType, check if the function signature requires inference
-      const moduleType = type as ModuleType;
-      if (moduleType.isFn) {
-        return typeRequiresInference(moduleType.isFn.callType);
+      return false;
+    }
+    case TypeTag.Trait: {
+      // For FnTraitType, check if the function signature requires inference
+      const traitType = type as TraitType;
+      if (traitType.isFn) {
+        return typeRequiresInference(traitType.isFn.callType);
       }
       return false;
     }
@@ -1222,17 +1228,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     case TypeTag.Module: {
       const moduleType = type as ModuleType;
 
-      // Check if it's a FnModuleType (closure/function module)
-      if (isFnModuleType(moduleType)) {
-        // Display as Fn(...) -> ReturnType
-        return `Fn${functionTypeToString(moduleType.isFn.callType, visited).slice(2)}`; // Remove "fn" prefix and add "Fn"
-      }
-
-      // Check if it's a FutureModuleType
-      if (isFutureModuleType(moduleType)) {
-        return `Future(${typeToString(moduleType.isFuture.outputType, visited)})`;
-      }
-
       let moduleTypeString: string;
       if (moduleType.typeName) {
         moduleTypeString = moduleType.typeName;
@@ -1242,11 +1237,37 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
         }module(${moduleType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
       }
 
-      if (moduleType.receiverType) {
-        moduleTypeString = `(${typeToString(moduleType.receiverType, visited)} <: ${moduleTypeString})`;
+      return moduleTypeString;
+    }
+
+    case TypeTag.Trait: {
+      const traitType = type as TraitType;
+
+      // Check if it's a FnTraitType (closure/function trait)
+      if (isFnTraitType(traitType)) {
+        // Display as Fn(...) -> ReturnType
+        return `Fn${functionTypeToString(traitType.isFn.callType, visited).slice(2)}`; // Remove "fn" prefix and add "Fn"
       }
 
-      return moduleTypeString;
+      // Check if it's a FutureTraitType
+      if (isFutureTraitType(traitType)) {
+        return `Future(${typeToString(traitType.isFuture.outputType, visited)})`;
+      }
+
+      let traitTypeString: string;
+      if (traitType.typeName) {
+        traitTypeString = traitType.typeName;
+      } else {
+        traitTypeString = `${
+          traitType.typeName ? `(${traitType.typeName}) ` : ""
+        }trait(${traitType.fields.map((field) => moduleElementToString(field, visited)).join(", ")})`;
+      }
+
+      if (traitType.receiverType) {
+        traitTypeString = `(${typeToString(traitType.receiverType, visited)} <: ${traitTypeString})`;
+      }
+
+      return traitTypeString;
     }
 
     case TypeTag.Function: {
@@ -1268,13 +1289,13 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }
       // Display as Impl(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
       const allModuleStrings: string[] = [];
-      if (someType.requiredModules && someType.requiredModules.length > 0) {
-        for (const mt of someType.requiredModules) {
+      if (someType.requiredTraits && someType.requiredTraits.length > 0) {
+        for (const mt of someType.requiredTraits) {
           allModuleStrings.push(typeToString(mt, visited));
         }
       }
-      if (someType.negativeModules && someType.negativeModules.length > 0) {
-        for (const mt of someType.negativeModules) {
+      if (someType.negativeTraits && someType.negativeTraits.length > 0) {
+        for (const mt of someType.negativeTraits) {
           allModuleStrings.push(`!(${typeToString(mt, visited)})`);
         }
       }
@@ -1310,11 +1331,11 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       }
       // Display as Dyn(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
       const allModuleStrings: string[] = [];
-      for (const mt of dynType.requiredModules) {
+      for (const mt of dynType.requiredTraits) {
         allModuleStrings.push(typeToString(mt, visited));
       }
-      if (dynType.negativeModules && dynType.negativeModules.length > 0) {
-        for (const mt of dynType.negativeModules) {
+      if (dynType.negativeTraits && dynType.negativeTraits.length > 0) {
+        for (const mt of dynType.negativeTraits) {
           allModuleStrings.push(`!(${typeToString(mt, visited)})`);
         }
       }
@@ -1508,6 +1529,7 @@ export function getAlignmentOfType(type: Type): number | null {
     isComptStringType(type) ||
     isComptListType(type) ||
     isModuleType(type) ||
+    isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
   ) {
     return 1; // Minimal alignment for compile-time only types
@@ -1615,6 +1637,7 @@ export function getSizeOfType(type: Type): number | null {
     isComptStringType(type) ||
     isComptListType(type) ||
     isModuleType(type) ||
+    isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
   ) {
     return 0;

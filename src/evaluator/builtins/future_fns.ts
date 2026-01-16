@@ -1,7 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FuncCallExpr } from "../../expr";
-import { extractFutureModuleFromType, typeToString } from "../../types";
+import { extractFutureTraitFromType, typeToString } from "../../types";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -58,7 +58,7 @@ export function evaluateAwait({
 
   // Check that the argument is a Future(T), Impl(Future(T)), or Dyn(Future(T))
   const argType = evaluatedArg.$.type;
-  const futureModuleType = extractFutureModuleFromType(argType);
+  const futureModuleType = extractFutureTraitFromType(argType);
   if (!futureModuleType) {
     throw formatErrorMessage({
       token: argExpr.token,

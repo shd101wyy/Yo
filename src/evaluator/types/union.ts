@@ -9,7 +9,7 @@ import {
 } from "../../expr";
 import {
   createUnionType,
-  ModuleField,
+  TraitField,
   typeContainsRcType,
   TypeField,
 } from "../../types";
@@ -40,7 +40,7 @@ export function evaluateUnionType({
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
     unionType.definedInModulePath = context.currentModulePath;
-    unionType.module.definedInModulePath = context.currentModulePath;
+    unionType.trait.definedInModulePath = context.currentModulePath;
   }
 
   const fields: TypeField[] = [];
@@ -88,11 +88,11 @@ export function evaluateUnionType({
       if (!field.assignedValue) {
         throw formatErrorMessage({
           token: field.exprs.expr.token,
-          errorMessage: `Module field in union type must have assigned value.`,
+          errorMessage: `Trait field in union type must have assigned value.`,
         });
       }
 
-      unionType.module.fields.push(field as ModuleField);
+      unionType.trait.fields.push(field as TraitField);
     } else {
       fields.push(field);
     }

@@ -11,23 +11,21 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  createModuleType,
+  createSomeType,
+  createTraitType,
+  createType0,
   isFunctionType,
-  isModuleType,
-  ModuleField,
-  ModuleType,
+  isTraitType,
+  TraitField,
   Type,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import {
-  areValuesEqual,
   createTypeValue,
   createUnknownValue,
-  isModuleValue,
   isTypeValue,
-  isUnknownValue,
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -35,26 +33,26 @@ import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
 /**
- * Evaluate the field in module rvalue
+ * Evaluate the field in trait rvalue
  *
  * type:
- * (x: i32) in module(x: i32, ...)
+ * (x: i32) in trait(x: i32, ...)
  *
- * All fields in module are compile-time only by default.
+ * All fields in trait are compile-time only by default.
  */
-export function evaluateModuleField({
+export function evaluateTraitField({
   expr,
-  moduleFieldIndex,
+  traitFieldIndex,
   env,
   context,
-  isForEvaluatingModuleType,
+  isForEvaluatingTraitType,
 }: {
   expr: Expr;
-  moduleFieldIndex: number;
+  traitFieldIndex: number;
   env: Environment;
   context: EvaluatorContext;
-  isForEvaluatingModuleType: boolean;
-}): { field: ModuleField; env: Environment } {
+  isForEvaluatingTraitType: boolean;
+}): { field: TraitField; env: Environment } {
   let label: string | undefined = undefined;
   let expr_ = expr;
 
@@ -85,8 +83,8 @@ export function evaluateModuleField({
     if (exprIsFunctionCallOf(expr_, "::", 2)) {
       throw formatErrorMessage({
         token: expr_.token,
-        errorMessage: `Cannot use "::" for module field. Use ":=" instead.
-All module fields are compile-time only by default.`,
+        errorMessage: `Cannot use "::" for trait field. Use ":=" instead.
+All trait fields are compile-time only by default.`,
       });
     }
 
@@ -98,7 +96,7 @@ All module fields are compile-time only by default.`,
   if (defaultValueExpr && assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Cannot have both default value and required value for module field.`,
+      errorMessage: `Cannot have both default value and required value for trait field.`,
     });
   }
 
@@ -114,7 +112,7 @@ All module fields are compile-time only by default.`,
     ) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `No need to use "compt" modifier. All module fields are compile-time only by default.`,
+        errorMessage: `No need to use "compt" modifier. All trait fields are compile-time only by default.`,
       });
     }
 
@@ -131,12 +129,12 @@ All module fields are compile-time only by default.`,
   ) {
     throw formatErrorMessage({
       token: expr_.token,
-      errorMessage: `No need to use "compt" modifier. All module fields are compile-time only by default.`,
+      errorMessage: `No need to use "compt" modifier. All trait fields are compile-time only by default.`,
     });
   } else if (!defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected label for module field, got ${exprToString(expr_)}`,
+      errorMessage: `Expected label for trait field, got ${exprToString(expr_)}`,
     });
   } else {
     //  eg:
@@ -146,13 +144,13 @@ All module fields are compile-time only by default.`,
     if (!isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
+        errorMessage: `Expected identifier for trait field label, got ${exprToString(labelExpr)}`,
       });
     }
     if (!exprIsAtom(labelExpr) && !isValidVariableName(labelExpr)) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `Expected identifier for module field label, got ${exprToString(labelExpr)}`,
+        errorMessage: `Expected identifier for trait field label, got ${exprToString(labelExpr)}`,
       });
     }
     label = labelExpr.token.value;
@@ -160,18 +158,18 @@ All module fields are compile-time only by default.`,
 
   // Check expectedType
   const expectedType = context.expectedType?.type;
-  let expectedModuleFieldType: Type | undefined = undefined;
+  let expectedTraitFieldType: Type | undefined = undefined;
   if (expectedType) {
-    if (isModuleType(expectedType)) {
-      const moduleField = expectedType.fields[moduleFieldIndex];
-      if (!moduleField) {
+    if (isTraitType(expectedType)) {
+      const traitField = expectedType.fields[traitFieldIndex];
+      if (!traitField) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Failed to get the field at index ${moduleFieldIndex}`,
+          errorMessage: `Failed to get the field at index ${traitFieldIndex}`,
         });
       }
 
-      expectedModuleFieldType = moduleField.type;
+      expectedTraitFieldType = traitField.type;
     } else {
       /*
         throw formatErrorMessage(
@@ -191,9 +189,9 @@ ${typeToString(expectedType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedModuleFieldType
+        expectedType: expectedTraitFieldType
           ? {
-              type: expectedModuleFieldType,
+              type: expectedTraitFieldType,
               env,
             }
           : undefined,
@@ -208,7 +206,7 @@ ${typeToString(expectedType)}`
     if (!isTypeValue(typeValue)) {
       throw formatErrorMessage({
         token: typeExpr.token,
-        errorMessage: `Expected type for module field, got ${exprToString(typeExpr)}`,
+        errorMessage: `Expected type for trait field, got ${exprToString(typeExpr)}`,
       });
     }
     fieldType = typeValue.value;
@@ -218,9 +216,9 @@ ${typeToString(expectedType)}`
   if (assignedValueExpr) {
     const expectedType = fieldType
       ? { type: fieldType, env }
-      : expectedModuleFieldType
+      : expectedTraitFieldType
         ? {
-            type: expectedModuleFieldType,
+            type: expectedTraitFieldType,
             env,
           }
         : undefined;
@@ -279,9 +277,9 @@ Given type: ${typeToString(assignedValueType)}`,
   if (defaultValueExpr) {
     const expectedType = fieldType
       ? { type: fieldType, env }
-      : expectedModuleFieldType
+      : expectedTraitFieldType
         ? {
-            type: expectedModuleFieldType,
+            type: expectedTraitFieldType,
             env,
           }
         : undefined;
@@ -346,20 +344,20 @@ Given type: ${typeToString(defaultValueType)}`,
   // Validate that function type parameters have typeExpr for re-evaluation support
   // This is required because we re-evaluate type expressions instead of substituting types
   // for nominal types like Option(T) to get correct funcIds
-  if (isForEvaluatingModuleType && isFunctionType(fieldType)) {
+  if (isForEvaluatingTraitType && isFunctionType(fieldType)) {
     if (fieldType.variadicParameter) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Variadic function parameters are not allowed in module field "${label ?? "unnamed"}".
-Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+        errorMessage: `Variadic function parameters are not allowed in trait field "${label ?? "unnamed"}".
+Type expressions are required for all function parameters in trait fields to support proper type specialization.`,
       });
     }
     for (const param of fieldType.forallParameters) {
       if (!param.exprs.typeExpr) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Function forall parameter "${param.label}" in module field "${label ?? "unnamed"}" must have an explicit type annotation.
-Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+          errorMessage: `Function forall parameter "${param.label}" in trait field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in trait fields to support proper type specialization.`,
         });
       }
     }
@@ -367,8 +365,8 @@ Type expressions are required for all function parameters in module fields to su
       if (!param.exprs.typeExpr) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Function parameter "${param.label}" in module field "${label ?? "unnamed"}" must have an explicit type annotation.
-Type expressions are required for all function parameters in module fields to support proper type specialization.`,
+          errorMessage: `Function parameter "${param.label}" in trait field "${label ?? "unnamed"}" must have an explicit type annotation.
+Type expressions are required for all function parameters in trait fields to support proper type specialization.`,
         });
       }
     }
@@ -376,19 +374,19 @@ Type expressions are required for all function parameters in module fields to su
     if (!fieldType.return.expr) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Function in module field "${label ?? "unnamed"}" must have an explicit return type annotation.
-Type expressions are required for return types in module fields to support proper type specialization.`,
+        errorMessage: `Function in trait field "${label ?? "unnamed"}" must have an explicit return type annotation.
+Type expressions are required for return types in trait fields to support proper type specialization.`,
       });
     }
   }
 
   // Validate default value expression restrictions
-  if (isForEvaluatingModuleType && defaultValueExpr) {
+  if (isForEvaluatingTraitType && defaultValueExpr) {
     if (!isFunctionType(fieldType)) {
       throw formatErrorMessage({
         token: defaultValueExpr.token,
-        errorMessage: `Default values (?=) are only allowed for function type module elements (excluding closures).
-Module field "${label ?? "unnamed"}" has type: ${typeToString(fieldType)}
+        errorMessage: `Default values (?=) are only allowed for function type trait elements (excluding closures).
+Trait field "${label ?? "unnamed"}" has type: ${typeToString(fieldType)}
 
 To avoid circular dependency issues, please explicitly provide the value for this field.`,
       });
@@ -432,7 +430,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
   };
 }
 
-export function evaluateModuleType({
+export function evaluateTraitType({
   expr,
   env,
   context,
@@ -441,180 +439,176 @@ export function evaluateModuleType({
   env: Environment;
   context: EvaluatorContext;
 }): FuncCallExpr {
-  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
+  if (!exprIsFunctionCallOf(expr, BuiltinKeywords.trait)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "module", got:\n${exprToString(expr)}`,
+      errorMessage: `Expected "trait", got:\n${exprToString(expr)}`,
     });
   }
 
-  // Create moduleType with empty fields
-  const moduleType = createModuleType(env);
-  const fields: ModuleField[] = [];
-  moduleType.fields = fields;
+  // Create traitType with empty fields
+  const traitType = createTraitType(env);
+  const fields: TraitField[] = [];
+  traitType.fields = fields;
 
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
-    moduleType.definedInModulePath = context.currentModulePath;
+    traitType.definedInModulePath = context.currentModulePath;
   }
 
-  // Don't push env frame - module fields shouldn't be in env
+  // Don't push env frame - trait fields shouldn't be in env
 
   const args = expr.args;
+
+  // Create "Self" type, which is a SomeType containing the current traitType
+  const selfType = createSomeType(createType0(), "Self");
+  selfType.trait = traitType;
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
-    // NOTE: Type methods are not allowed in module types.
-    // spread operator for extending another module
-    if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "...", 1)) {
-      const extendedModuleExpr = arg.args[0]!;
-      // Evaluate the extended struct expression
-      const evaluatedExtendedModuleExpr = evaluateExpression({
-        expr: extendedModuleExpr,
-        env,
-        context: {
-          ...context,
-          SelfType: undefined, // Modules cannot refer to Self while extending
-        },
-      });
-      if (!evaluatedExtendedModuleExpr.$) {
+    // where clause for adding constraints to Self
+    if (
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.where)
+    ) {
+      // where clause must be the first argument in a trait
+      if (i !== 0) {
         throw formatErrorMessage({
-          token: extendedModuleExpr.token,
-          errorMessage: `Failed to evaluate the extended struct expression: ${exprToString(extendedModuleExpr)}`,
+          token: arg.token,
+          errorMessage: `The where clause must be the first argument in a trait definition.`,
         });
       }
 
-      // Check if it's a module type
-      const value = evaluatedExtendedModuleExpr.$.value;
-      // Extending a module type
-      if (
-        (isTypeValue(value) && isModuleType(value.value)) ||
-        (isUnknownValue(value) && isModuleType(value.type))
-      ) {
-        let extendedModuleType: ModuleType;
-        if (isTypeValue(value) && isModuleType(value.value)) {
-          extendedModuleType = value.value;
+      // Process each constraint in the where clause
+      const constraintExprs = arg.args;
+      if (constraintExprs.length === 0) {
+        throw formatErrorMessage({
+          token: arg.token,
+          errorMessage: `The where clause must have at least one constraint.`,
+        });
+      }
+
+      // Initialize selfConstraints array if not already
+      if (!traitType.selfConstraints) {
+        traitType.selfConstraints = [];
+      }
+
+      for (const constraintExpr of constraintExprs) {
+        // Each constraint must be of the form: Self <: Trait or Self <: (Trait1, Trait2)
+        if (
+          !exprIsFunctionCall(constraintExpr) ||
+          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+        ) {
+          throw formatErrorMessage({
+            token: constraintExpr.token,
+            errorMessage: `Expected constraint in the form "Self <: Trait" or "Self <: (Trait1, Trait2)", got: ${exprToString(constraintExpr)}`,
+          });
+        }
+
+        // Check that LHS is "Self"
+        const lhsExpr = constraintExpr.args[0]!;
+        if (!exprIsAtom(lhsExpr) || lhsExpr.token.value !== "Self") {
+          throw formatErrorMessage({
+            token: lhsExpr.token,
+            errorMessage: `In a trait's where clause, the left-hand side of <: must be "Self", got: ${exprToString(lhsExpr)}`,
+          });
+        }
+
+        // Extract trait types from RHS before evaluating the constraint
+        // Support both single trait and tuple of traits
+        // Also handle negated traits: !(Trait)
+        const rhsExpr = constraintExpr.args[1]!;
+        const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
+        if (
+          exprIsFunctionCall(rhsExpr) &&
+          exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+        ) {
+          for (const traitExpr of rhsExpr.args) {
+            // Check if this is a negated trait: !(Trait)
+            if (
+              exprIsFunctionCall(traitExpr) &&
+              exprIsFunctionCallOf(traitExpr, "!") &&
+              traitExpr.args.length === 1
+            ) {
+              traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
+            } else {
+              traitExprs.push({ expr: traitExpr, isNegated: false });
+            }
+          }
         } else {
-          extendedModuleType = value.type as ModuleType;
-        }
-
-        // Iterate over the fields of the extended struct
-        for (const extendedModuleField of extendedModuleType.fields) {
-          // Check if there is duplicate labels
-          // If yes, then override the field
-          const duplicateLabelIndex = fields.findIndex(
-            (e) => e.label === extendedModuleField.label
-          );
-          if (duplicateLabelIndex >= 0) {
-            // Check if they have the same value.
-            if (
-              (fields[duplicateLabelIndex]!.assignedValue &&
-                extendedModuleField.assignedValue &&
-                areValuesEqual(
-                  { value: fields[duplicateLabelIndex]!.assignedValue, env },
-                  { value: extendedModuleField.assignedValue, env }
-                )) ||
-              (!fields[duplicateLabelIndex]!.assignedValue &&
-                !extendedModuleField.assignedValue &&
-                areTypesCompatible(
-                  { type: fields[duplicateLabelIndex]!.type, env },
-                  { type: extendedModuleField.type, env }
-                ))
-            ) {
-              continue;
-            }
-
-            console.log(
-              !!fields[duplicateLabelIndex]!.assignedValue,
-              !!extendedModuleField.assignedValue
-            );
-            console.log(
-              typeToString(fields[duplicateLabelIndex]!.type),
-              "\n",
-              typeToString(extendedModuleField.type),
-              "\n",
-              areTypesCompatible(
-                { type: fields[duplicateLabelIndex]!.type, env },
-                { type: extendedModuleField.type, env }
-              )
-            );
-
-            throw formatErrorMessage({
-              token: extendedModuleExpr.token,
-              errorMessage: `Duplicate label 1 "${extendedModuleField.label}" in module`,
-            });
+          // Check if this is a negated trait: !(Trait)
+          if (
+            exprIsFunctionCall(rhsExpr) &&
+            exprIsFunctionCallOf(rhsExpr, "!") &&
+            rhsExpr.args.length === 1
+          ) {
+            traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
           } else {
-            // Add the field to the module
-            fields.push(extendedModuleField);
-            // Don't add to environment - module fields are accessed via Self.XXX
+            traitExprs.push({ expr: rhsExpr, isNegated: false });
           }
         }
-      }
-      // Check if it's a module value
-      else if (isModuleValue(value)) {
-        const moduleValue = value;
 
-        // Iterate over the fields of the module value
-        for (let i = 0; i < moduleValue.fields.length; i++) {
-          const fieldValue = moduleValue.fields[i]!;
-          const extendedModuleField = moduleValue.type.fields[i]!;
+        // Initialize negativeSelfConstraints array if not already
+        if (!traitType.negativeSelfConstraints) {
+          traitType.negativeSelfConstraints = [];
+        }
 
-          // Check if there is a duplicate label
-          const duplicateLabelIndex = fields.findIndex(
-            (e) => e.label === extendedModuleField.label
-          );
-          if (duplicateLabelIndex >= 0) {
-            // Check if they have the same value.
-            if (
-              (fields[duplicateLabelIndex]!.assignedValue &&
-                extendedModuleField.assignedValue &&
-                areValuesEqual(
-                  { value: fields[duplicateLabelIndex]!.assignedValue, env },
-                  { value: extendedModuleField.assignedValue, env }
-                )) ||
-              (!fields[duplicateLabelIndex]!.assignedValue &&
-                !extendedModuleField.assignedValue &&
-                areTypesCompatible(
-                  { type: fields[duplicateLabelIndex]!.type, env },
-                  { type: extendedModuleField.type, env }
-                ))
-            ) {
-              continue;
+        // Evaluate each module expression to get the ModuleType
+        for (const { expr: traitExpr, isNegated } of traitExprs) {
+          const evaluatedTrait = evaluateExpression({
+            expr: traitExpr,
+            env,
+            context: {
+              ...context,
+              SelfType: selfType,
+            },
+          });
+          if (evaluatedTrait.$?.env) {
+            env = evaluatedTrait.$.env;
+          }
+          if (
+            evaluatedTrait.$?.value &&
+            isTypeValue(evaluatedTrait.$.value) &&
+            isTraitType(evaluatedTrait.$.value.value)
+          ) {
+            if (isNegated) {
+              traitType.negativeSelfConstraints.push(
+                evaluatedTrait.$.value.value
+              );
+            } else {
+              traitType.selfConstraints.push(evaluatedTrait.$.value.value);
             }
-
-            throw formatErrorMessage({
-              token: extendedModuleExpr.token,
-              errorMessage: `Duplicate label 2 "${extendedModuleField.label}" in module`,
-            });
-          } else {
-            // Add the field to the module
-            fields.push({
-              ...moduleValue.type.fields[i]!,
-              assignedValue: fieldValue,
-            });
-            // Don't add to environment - module fields are accessed via Self.XXX
           }
         }
-      } else {
-        throw formatErrorMessage({
-          token: extendedModuleExpr.token,
-          errorMessage: `Expected a Module type or value for extending, got ${exprToString(
-            extendedModuleExpr
-          )}`,
+
+        // Evaluate with isInsideWhereClause context
+        // The SelfType is already set to selfType which is a SomeType
+        const evaluated = evaluateExpression({
+          expr: constraintExpr,
+          env,
+          context: {
+            ...context,
+            SelfType: selfType,
+            isInsideWhereClause: true,
+          },
         });
+        if (evaluated.$?.env) {
+          env = evaluated.$.env;
+        }
       }
     }
-    // module field
+    // trait field
     else {
-      const { field: field, env: nextEnv } = evaluateModuleField({
+      const { field: field, env: nextEnv } = evaluateTraitField({
         expr: arg,
         env,
-        moduleFieldIndex: i,
+        traitFieldIndex: i,
         context: {
           ...context,
-          SelfType: undefined, // Modules cannot refer to Self while defining fields
+          SelfType: selfType, // Self refers to the trait itself
         },
-        isForEvaluatingModuleType: true,
+        isForEvaluatingTraitType: true,
       });
 
       // Check if there is duplicate labels
@@ -624,7 +618,7 @@ export function evaluateModuleType({
           token: exprIsFunctionCall(arg)
             ? (arg.args[0]?.token ?? arg.token)
             : arg.token,
-          errorMessage: `Duplicate label 3 "${field.label}" in module`,
+          errorMessage: `Duplicate label 3 "${field.label}" in trait`,
         });
       }
 
@@ -635,7 +629,7 @@ export function evaluateModuleType({
       if (!field.isCompileTimeOnly) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Expected compile-time only field for extern module, got ${exprToString(arg)}`,
+          errorMessage: `Expected compile-time only field for extern trait, got ${exprToString(arg)}`,
         });
       }
 
@@ -643,11 +637,11 @@ export function evaluateModuleType({
     }
   }
 
-  const moduleTypeValue = createTypeValue(moduleType);
+  const traitTypeValue = createTypeValue(traitType);
   expr.$ = {
     env,
-    value: moduleTypeValue,
-    type: moduleTypeValue.type,
+    value: traitTypeValue,
+    type: traitTypeValue.type,
     pathCollection: [],
   };
 

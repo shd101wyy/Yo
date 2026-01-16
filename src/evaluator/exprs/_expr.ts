@@ -89,17 +89,18 @@ import { EvaluatorContext } from "../context";
 import { evaluateArrayType } from "../types/array";
 import { evaluateClosureType } from "../types/closure";
 import { evaluateComptListType } from "../types/compt_list";
-import { evaluateConcreteType } from "../types/concrete_module";
+import { evaluateConcreteType } from "../types/concrete_trait";
 import { evaluateDynType } from "../types/dyn";
 import { evaluateEnumType } from "../types/enum";
-import { evaluateFnModuleType } from "../types/fn_module";
+import { evaluateFnTraitType } from "../types/fn_trait";
 import { evaluateFunctionType } from "../types/function";
-import { evaluateFutureType } from "../types/future_module";
+import { evaluateFutureType } from "../types/future_trait";
 import { evaluateModuleType } from "../types/module";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
 import { evaluateSliceType } from "../types/slice";
 import { evaluateStructType } from "../types/struct";
+import { evaluateTraitType } from "../types/trait";
 import { evaluateTupleType } from "../types/tuple";
 import { evaluateUnionType } from "../types/union";
 import { evaluateAnonymousFunctionImplementation } from "../values/anonymous_function";
@@ -109,8 +110,8 @@ import { evaluateCharLiteral } from "../values/char";
 import { evaluateComptListValue } from "../values/compt_list";
 import { evaluateDynValue } from "../values/dyn";
 import { evaluateFloatLiteral } from "../values/float";
+import { evaluateModuleValue } from "../values/impl";
 import { evaluateIntegerLiteral } from "../values/integer";
-import { evaluateModuleValue } from "../values/module";
 import { evaluateStringLiteral } from "../values/string";
 import { evaluateTupleValue } from "../values/tuple";
 import { evaluateAssignment } from "./assignment";
@@ -215,7 +216,7 @@ ${exprToString(expr)}`,
         exprIsFunctionCall(expr.args[0]) &&
         exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.Fn)
       ) {
-        return evaluateFnModuleType({
+        return evaluateFnTraitType({
           expr,
           env,
           context: { ...context },
@@ -346,6 +347,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
       // module type
       return evaluateModuleType({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.trait)) {
+      // trait type
+      return evaluateTraitType({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Impl)) {
       // Impl constraint type
       return evaluateImplConstraint({ expr, env, context: { ...context } });

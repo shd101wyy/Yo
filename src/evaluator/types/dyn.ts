@@ -11,8 +11,8 @@ import {
 import {
   createDynType,
   isFunctionType,
-  isModuleType,
-  ModuleType,
+  isTraitType,
+  TraitType,
   typeToString,
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
@@ -30,23 +30,23 @@ export function evaluateDynType({
   context: EvaluatorContext;
 }): FuncCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinKeywords.Dyn);
-  const moduleExprs = expr.args;
-  const moduleTypes: ModuleType[] = [];
-  const negativeModules: ModuleType[] = [];
+  const traitExprs = expr.args;
+  const traitTypes: TraitType[] = [];
+  const negativeTraits: TraitType[] = [];
 
-  for (let i = 0; i < moduleExprs.length; i++) {
-    const moduleExpr = moduleExprs[i]!;
+  for (let i = 0; i < traitExprs.length; i++) {
+    const traitExpr = traitExprs[i]!;
 
-    // Check if this is a negated module: !(Module)
+    // Check if this is a negated trait: !(Trait)
     const isNegated =
-      exprIsFunctionCall(moduleExpr) &&
-      exprIsFunctionCallOf(moduleExpr, "!") &&
-      moduleExpr.args.length === 1;
+      exprIsFunctionCall(traitExpr) &&
+      exprIsFunctionCallOf(traitExpr, "!") &&
+      traitExpr.args.length === 1;
 
-    const actualModuleExpr = isNegated ? moduleExpr.args[0]! : moduleExpr;
+    const actualTraitExpr = isNegated ? traitExpr.args[0]! : traitExpr;
 
-    const evaluatedModule = evaluateExpression({
-      expr: actualModuleExpr,
+    const evaluatedTrait = evaluateExpression({
+      expr: actualTraitExpr,
       env,
       context: {
         ...context,
@@ -54,52 +54,52 @@ export function evaluateDynType({
     });
 
     if (
-      !evaluatedModule.$ ||
-      !evaluatedModule.$.value ||
-      !isTypeValue(evaluatedModule.$.value) ||
-      !isModuleType(evaluatedModule.$.value.value)
+      !evaluatedTrait.$ ||
+      !evaluatedTrait.$.value ||
+      !isTypeValue(evaluatedTrait.$.value) ||
+      !isTraitType(evaluatedTrait.$.value.value)
     ) {
       throw new Error(
-        `Expected a module type for argument ${i + 1} of 'dyn' expression.`
+        `Expected a trait type for argument ${i + 1} of 'dyn' expression.`
       );
     }
-    env = evaluatedModule.$.env;
+    env = evaluatedTrait.$.env;
 
-    const moduleType = evaluatedModule.$.value.value;
+    const traitType = evaluatedTrait.$.value.value;
 
     if (isNegated) {
-      // Check if the moduleType already exists in negativeModules
-      if (negativeModules.some((mt) => mt.id === moduleType.id)) {
+      // Check if the traitType already exists in negativeTraits
+      if (negativeTraits.some((mt) => mt.id === traitType.id)) {
         throw formatErrorMessage({
-          token: actualModuleExpr.token,
-          errorMessage: `Module type ${typeToString(moduleType)} is already included in negative constraints of '${BuiltinKeywords.Dyn}' expression.`,
+          token: actualTraitExpr.token,
+          errorMessage: `Trait type ${typeToString(traitType)} is already included in negative constraints of '${BuiltinKeywords.Dyn}' expression.`,
         });
       }
-      negativeModules.push(moduleType);
+      negativeTraits.push(traitType);
     } else {
-      // Check if the moduleType already exists in moduleTypes
-      if (moduleTypes.some((mt) => mt.id === moduleType.id)) {
+      // Check if the traitType already exists in traitTypes
+      if (traitTypes.some((mt) => mt.id === traitType.id)) {
         throw formatErrorMessage({
-          token: actualModuleExpr.token,
-          errorMessage: `Module type ${typeToString(moduleType)} is already included in '${BuiltinKeywords.Dyn}' expression.`,
+          token: actualTraitExpr.token,
+          errorMessage: `Trait type ${typeToString(traitType)} is already included in '${BuiltinKeywords.Dyn}' expression.`,
         });
       }
-      moduleTypes.push(moduleType);
+      traitTypes.push(traitType);
     }
   }
 
-  // Prevent having the same function names in different moduleTypes
-  for (let i = 0; i < moduleTypes.length; i++) {
-    const moduleTypeA = moduleTypes[i]!;
-    for (let j = i + 1; j < moduleTypes.length; j++) {
-      const moduleTypeB = moduleTypes[j]!;
-      for (const elementA of moduleTypeA.fields) {
-        for (const elementB of moduleTypeB.fields) {
+  // Prevent having the same function names in different traitTypes
+  for (let i = 0; i < traitTypes.length; i++) {
+    const traitTypeA = traitTypes[i]!;
+    for (let j = i + 1; j < traitTypes.length; j++) {
+      const traitTypeB = traitTypes[j]!;
+      for (const elementA of traitTypeA.fields) {
+        for (const elementB of traitTypeB.fields) {
           if (elementA.label === elementB.label) {
             throw formatErrorMessage({
               token: expr.token,
-              errorMessage: `Module types ${typeToString(moduleTypeA)} and ${typeToString(
-                moduleTypeB
+              errorMessage: `Trait types ${typeToString(traitTypeA)} and ${typeToString(
+                traitTypeB
               )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
             });
           }
@@ -108,23 +108,23 @@ export function evaluateDynType({
     }
   }
 
-  // Prevent having ___dup, ___drop, ___dispose, dispose in moduleTypes
+  // Prevent having ___dup, ___drop, ___dispose, dispose in traitTypes
   const reservedFunctionNames = [
     BuiltinFunctions.___dup[0]!,
     BuiltinFunctions.___drop[0]!,
     BuiltinFunctions.___dispose[0]!,
     BuiltinFunctions.dispose[0]!,
   ];
-  for (const moduleType of moduleTypes) {
-    for (const element of moduleType.fields) {
+  for (const traitType of traitTypes) {
+    for (const element of traitType.fields) {
       if (
         reservedFunctionNames.includes(element.label) &&
         isFunctionType(element.type)
       ) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Module type ${typeToString(
-            moduleType
+          errorMessage: `Trait type ${typeToString(
+            traitType
           )} cannot have function '${element.label}' as it is reserved in 'dyn' expression.`,
         });
       }
@@ -133,13 +133,13 @@ export function evaluateDynType({
 
   // Note: We don't check object-safety here during Dyn type creation
   // Object-safety is checked when CALLING methods on Dyn values
-  // This allows modules to have any methods, but only object-safe ones are callable on Dyn
+  // This allows traits to have any methods, but only object-safe ones are callable on Dyn
 
-  // Create the dyn type with its own module for ARC functions
-  // Note: wrappedObjectARCModuleType is prepended to handle ARC for the wrapped object
-  const dynType = createDynType(moduleTypes, env, negativeModules);
+  // Create the dyn type with its own trait for ARC functions
+  // Note: wrappedObjectARCTraitType is prepended to handle ARC for the wrapped object
+  const dynType = createDynType(traitTypes, env, negativeTraits);
 
-  // Add ARC functions to the dyn type's module
+  // Add ARC functions to the dyn type's trait
   env = addRcFunctionsToDynType({
     dynType,
     env,

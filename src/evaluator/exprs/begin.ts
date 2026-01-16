@@ -173,7 +173,7 @@ function searchRecursively(
   }
 
   // Skip closures - they may be called multiple times
-  // if (exprIsFunctionCall(expr) && isFnModuleType(expr.$?.type)) {
+  // if (exprIsFunctionCall(expr) && isFnTraitType(expr.$?.type)) {
   //   return;
   // }
 

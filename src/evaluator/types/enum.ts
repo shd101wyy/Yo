@@ -12,6 +12,7 @@ import {
   createEnumType,
   EnumVariant,
   ModuleField,
+  TraitField,
   TypeField,
 } from "../../types";
 import { createTypeValue } from "../../value";
@@ -47,12 +48,12 @@ export function evaluateEnumType({
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
     enumType.definedInModulePath = context.currentModulePath;
-    enumType.module.definedInModulePath = context.currentModulePath;
+    enumType.trait.definedInModulePath = context.currentModulePath;
   }
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;
-  const moduleFields: ModuleField[] = enumType.module.fields;
+  const traitFields: TraitField[] = enumType.trait.fields;
 
   for (let i = 0; i < expr.args.length; i++) {
     const enumArg = expr.args[i]!;
@@ -78,7 +79,7 @@ export function evaluateEnumType({
       });
 
       // Check if there is duplicate labels
-      const duplicateLabel = moduleFields.find(
+      const duplicateLabel = traitFields.find(
         (elem) => elem.label === field.label
       );
       if (duplicateLabel) {
@@ -133,7 +134,7 @@ export function evaluateEnumType({
       // if (type.label === BuiltinFunctions.dispose[0]) {
       //   validateDisposeFunction(type as ModuleField, arg.token);
       // }
-      moduleFields.push(field as ModuleField);
+      traitFields.push(field as ModuleField);
       env = nextEnv;
     }
 

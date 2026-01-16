@@ -32,6 +32,7 @@ import {
   isTypeHierarchyType,
   ModuleType,
   StructType,
+  TraitType,
   TupleType,
   Type,
   typeOfType,
@@ -100,6 +101,15 @@ export type ModuleValue = {
   fields: (Value | undefined)[];
 };
 
+export type TraitValue = {
+  tag: ValueTag.Trait;
+  type: TraitType;
+  /**
+   * undefined element means runtime value.
+   */
+  fields: (Value | undefined)[];
+};
+
 export type ArrayValue = {
   tag: ValueTag.Array;
   type: ArrayType;
@@ -143,6 +153,7 @@ export type Value =
   | StructValue
   | EnumValue
   | ModuleValue
+  | TraitValue
   | FunctionValue
   | ExprValue
   | UnknownValue;
@@ -363,6 +374,10 @@ export function isModuleValue(value?: Value): value is ModuleValue {
   return value?.tag === ValueTag.Module;
 }
 
+export function isTraitValue(value?: Value): value is TraitValue {
+  return value?.tag === ValueTag.Trait;
+}
+
 export function isRegionValue(_value?: Value): boolean {
   return false;
 }
@@ -511,6 +526,17 @@ export function createModuleValue(
 ): ModuleValue {
   return {
     tag: ValueTag.Module,
+    type,
+    fields,
+  };
+}
+
+export function createTraitValue(
+  type: TraitType,
+  fields: (Value | undefined)[]
+): TraitValue {
+  return {
+    tag: ValueTag.Trait,
     type,
     fields,
   };
@@ -690,6 +716,28 @@ export function areValuesEqual(
     }
     return true;
   } else if (isModuleValue(value1) && isModuleValue(value2)) {
+    if (
+      value1.fields.length !== value2.fields.length ||
+      !areTypesCompatible(
+        { type: value1.type, env: expected.env },
+        { type: value2.type, env: given.env },
+        true
+      )
+    ) {
+      return false;
+    }
+    for (let i = 0; i < value1.fields.length; i++) {
+      if (
+        !areValuesEqual(
+          { value: value1.fields[i], env: expected.env },
+          { value: value2.fields[i], env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } else if (isTraitValue(value1) && isTraitValue(value2)) {
     if (
       value1.fields.length !== value2.fields.length ||
       !areTypesCompatible(

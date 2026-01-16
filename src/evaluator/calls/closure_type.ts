@@ -6,7 +6,7 @@ import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   DynType,
-  FnModuleType,
+  FnTraitType,
   isDynType,
   isSomeType,
   SomeType,
@@ -27,7 +27,7 @@ import { createFunctionBodyEvaluationContext } from "./function_type";
 
 /**
  * Handle calling a closure type to create a closure value.
- * expr should be: WrapperType(closureBody) where WrapperType is SomeType or DynType containing a FnModuleType
+ * expr should be: WrapperType(closureBody) where WrapperType is SomeType or DynType containing a FnTraitType
  */
 export function tryToImplementClosureByFnModuleType({
   expr,
@@ -37,7 +37,7 @@ export function tryToImplementClosureByFnModuleType({
   context,
 }: {
   expr: FuncCallExpr;
-  fnModuleType: FnModuleType;
+  fnModuleType: FnTraitType;
   wrapperType: SomeType | DynType;
   callerEnv: Environment;
   context: EvaluatorContext;

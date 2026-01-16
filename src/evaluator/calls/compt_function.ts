@@ -10,6 +10,7 @@ import {
   isModuleType,
   isSomeType,
   isStructType,
+  isTraitType,
   isUnionType,
 } from "../../types";
 import {
@@ -188,7 +189,8 @@ export function evaluateComptFunctionCall({
       isStructType(returnType) ||
       isEnumType(returnType) ||
       isUnionType(returnType) ||
-      isModuleType(returnType)
+      isModuleType(returnType) ||
+      isTraitType(returnType)
     ) {
       if (!returnType.functionValue) {
         returnType.functionValue = functionValue;

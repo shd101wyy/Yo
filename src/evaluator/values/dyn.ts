@@ -30,20 +30,20 @@ import {
   isFunctionType,
   isObjectType,
   isSomeType,
-  ModuleType,
   SomeType,
   StructType,
+  TraitType,
   Type,
   typeImplementsFuture,
   typeToString,
 } from "../../types";
 import {
-  createModuleValue,
+  createTraitValue,
   createTypeValue,
   isFunctionValue,
-  isModuleValue,
+  isTraitValue,
   isTypeValue,
-  ModuleValue,
+  TraitValue,
   Value,
 } from "../../value";
 import { evaluateComptFunctionCall } from "../calls/compt_function";
@@ -189,13 +189,13 @@ export function evaluateDynValue({
   let someType: SomeType | undefined;
   if (context.expectedType && isDynType(context.expectedType.type)) {
     const expectedDynType = context.expectedType.type;
-    // Create a SomeType from the DynType's requiredModules
+    // Create a SomeType from the DynType's requiredTraits
     someType = createSomeType(
       createType0(),
       "",
       undefined,
-      expectedDynType.requiredModules,
-      expectedDynType.negativeModules
+      expectedDynType.requiredTraits,
+      expectedDynType.negativeTraits
     );
 
     // Special handling for dyn(box(...)) pattern:
@@ -301,24 +301,24 @@ export function evaluateDynValue({
   }
 
   // Validate that the value type can be converted to Dyn
-  // Either a SomeType (Impl) with requiredModules, or a concrete type with a .module field
-  /// if (!isSomeType(valueType) && !valueType.module) {
+  // Either a SomeType (Impl) with requiredTraits, or a concrete type with a .trait field
+  /// if (!isSomeType(valueType) && !valueType.trait) {
   ///   throw formatErrorMessage({
   ///     token: valueExpr.token,
-  ///     errorMessage: `'${BuiltinKeywords.dyn}' expects a SomeType (Impl) value or a type with an associated module. Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
+  ///     errorMessage: `'${BuiltinKeywords.dyn}' expects a SomeType (Impl) value or a type with an associated trait. Got: ${typeToString(valueType)}\n${exprToString(valueExpr)}`,
   ///   });
   /// }
 
   setExprAsNeedsToCallDup(finalValueExpr, context);
   env = finalValueExpr.$!.env!;
 
-  const moduleTypes: ModuleType[] = [];
-  const moduleValues: ModuleValue[] = [];
-  const checkedModuleTypes = new Set<ModuleType>();
+  const traitTypes: TraitType[] = [];
+  const traitValues: TraitValue[] = [];
+  const checkedTraitTypes = new Set<TraitType>();
 
   // Determine the expected DynType
-  // If the value is a SomeType (Impl), we can infer the DynType from its requiredModules
-  // For concrete types with .module, we need an explicit expected DynType from context
+  // If the value is a SomeType (Impl), we can infer the DynType from its requiredTraits
+  // For concrete types with .trait, we need an explicit expected DynType from context
   let expectedDynType: DynType;
 
   if (context.expectedType && isDynType(context.expectedType.type)) {
@@ -328,15 +328,15 @@ export function evaluateDynValue({
   // Check if it's Box(T) case
   else if (isBoxedType(valueType)) {
     const boxedFieldType = valueType.fields[0]!.type;
-    if (boxedFieldType.module) {
-      const implementedModuleTypes: ModuleType[] = [];
-      for (const field of boxedFieldType.module.fields) {
-        if (field.assignedValue && isModuleValue(field.assignedValue)) {
-          implementedModuleTypes.push(field.assignedValue.type);
+    if (boxedFieldType.trait) {
+      const implementedTraitTypes: TraitType[] = [];
+      for (const field of boxedFieldType.trait.fields) {
+        if (field.assignedValue && isTraitValue(field.assignedValue)) {
+          implementedTraitTypes.push(field.assignedValue.type);
         }
       }
 
-      expectedDynType = createDynType(implementedModuleTypes, env, []);
+      expectedDynType = createDynType(implementedTraitTypes, env, []);
       // Add ARC functions to the DynType
       env = addRcFunctionsToDynType({
         dynType: expectedDynType,
@@ -346,19 +346,19 @@ export function evaluateDynValue({
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `'${BuiltinKeywords.dyn}' with Box(T) requires T to have a module. Got boxed type: ${typeToString(boxedFieldType)}`,
+        errorMessage: `'${BuiltinKeywords.dyn}' with Box(T) requires T to have a trait. Got boxed type: ${typeToString(boxedFieldType)}`,
       });
     }
-  } else if (valueType.module) {
-    // For concrete types with .module, create DynType from the module
-    const implementedModuleTypes: ModuleType[] = [];
-    for (const field of valueType.module.fields) {
-      if (field.assignedValue && isModuleValue(field.assignedValue)) {
-        implementedModuleTypes.push(field.assignedValue.type);
+  } else if (valueType.trait) {
+    // For concrete types with .trait, create DynType from the trait
+    const implementedTraitTypes: TraitType[] = [];
+    for (const field of valueType.trait.fields) {
+      if (field.assignedValue && isTraitValue(field.assignedValue)) {
+        implementedTraitTypes.push(field.assignedValue.type);
       }
     }
 
-    expectedDynType = createDynType(implementedModuleTypes, env, []);
+    expectedDynType = createDynType(implementedTraitTypes, env, []);
     // Add ARC functions to the DynType
     env = addRcFunctionsToDynType({
       dynType: expectedDynType,
@@ -368,43 +368,43 @@ export function evaluateDynValue({
   } else {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `'${BuiltinKeywords.dyn}' requires either an expected Dyn type context, a SomeType (Impl) value, or a type with a module. Got value type: ${typeToString(valueType)}`,
+      errorMessage: `'${BuiltinKeywords.dyn}' requires either an expected Dyn type context, a SomeType (Impl) value, or a type with a trait. Got value type: ${typeToString(valueType)}`,
     });
   }
 
-  // Check negativeModules - ensure required modules are not in the negative list
-  const negativeModules: ModuleType[] = [];
+  // Check negativeTraits - ensure required traits are not in the negative list
+  const negativeTraits: TraitType[] = [];
   // Check if it's Box(T) case
   if (isBoxedType(valueType)) {
     const boxedFieldType = valueType.fields[0]!.type;
     if (isSomeType(boxedFieldType) || isDynType(boxedFieldType)) {
-      negativeModules.push(...(boxedFieldType.negativeModules ?? []));
+      negativeTraits.push(...(boxedFieldType.negativeTraits ?? []));
     }
   }
 
-  for (const requiredModuleType of expectedDynType.requiredModules) {
-    for (const negativeModule of negativeModules) {
+  for (const requiredTraitType of expectedDynType.requiredTraits) {
+    for (const negativeTrait of negativeTraits) {
       if (
         areTypesCompatible(
-          { type: requiredModuleType, env },
-          { type: negativeModule, env }
+          { type: requiredTraitType, env },
+          { type: negativeTrait, env }
         )
       ) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Required module ${typeToString(requiredModuleType)} is in the negative modules list and cannot be used.`,
+          errorMessage: `Required trait ${typeToString(requiredTraitType)} is in the negative traits list and cannot be used.`,
         });
       }
     }
   }
 
-  // Find modules automatically for all required module types
-  for (const requiredModuleType of expectedDynType.requiredModules) {
-    if (checkedModuleTypes.has(requiredModuleType)) {
+  // Find traits automatically for all required trait types
+  for (const requiredTraitType of expectedDynType.requiredTraits) {
+    if (checkedTraitTypes.has(requiredTraitType)) {
       continue;
     }
 
-    // For Boxed SomeType values, check if the required module is in requiredModules
+    // For Boxed SomeType values, check if the required trait is in requiredTraits
     if (
       isBoxedType(valueType) &&
       (isSomeType(valueType.fields[0]!.type) ||
@@ -412,17 +412,17 @@ export function evaluateDynValue({
     ) {
       const boxedFieldType = valueType.fields[0]!.type;
       let foundInSomeType = false;
-      for (const someTypeModule of boxedFieldType.requiredModules) {
+      for (const someTypeModule of boxedFieldType.requiredTraits) {
         if (
           areTypesCompatible(
-            { type: requiredModuleType, env },
+            { type: requiredTraitType, env },
             { type: someTypeModule, env }
           )
         ) {
-          // Create a module value from the SomeType's required module
+          // Create a trait value from the SomeType's required trait
           const fields: (Value | undefined)[] = [];
-          for (let i = 0; i < requiredModuleType.fields.length; i++) {
-            const field = requiredModuleType.fields[i]!;
+          for (let i = 0; i < requiredTraitType.fields.length; i++) {
+            const field = requiredTraitType.fields[i]!;
             const someTypeModuleFieldIndex = someTypeModule.fields.findIndex(
               (e) => e.label === field.label
             );
@@ -434,11 +434,11 @@ export function evaluateDynValue({
               );
             }
           }
-          const moduleValue = createModuleValue(requiredModuleType, fields);
+          const traitValue = createTraitValue(requiredTraitType, fields);
 
-          moduleValues.push(moduleValue);
-          moduleTypes.push(moduleValue.type);
-          checkedModuleTypes.add(requiredModuleType);
+          traitValues.push(traitValue);
+          traitTypes.push(traitValue.type);
+          checkedTraitTypes.add(requiredTraitType);
           foundInSomeType = true;
           break;
         }
@@ -446,30 +446,30 @@ export function evaluateDynValue({
       if (!foundInSomeType) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Required module ${typeToString(requiredModuleType)} not found in SomeType's requiredModules.`,
+          errorMessage: `Required trait ${typeToString(requiredTraitType)} not found in SomeType's requiredTraits.`,
         });
       }
     }
-    // Check if it's Boxed T with T.module
+    // Check if it's Boxed T with T.trait
     else {
       const fieldType = isBoxedType(valueType)
         ? valueType.fields[0]!.type
         : valueType;
 
-      if (fieldType.module) {
+      if (fieldType.trait) {
         let foundInModule = false;
-        for (const field of fieldType.module.fields) {
-          if (field.assignedValue && isModuleValue(field.assignedValue)) {
-            // For concrete types, check if the module matches
+        for (const field of fieldType.trait.fields) {
+          if (field.assignedValue && isTraitValue(field.assignedValue)) {
+            // For concrete types, check if the trait matches
             if (
               areTypesCompatible(
-                { type: requiredModuleType, env },
+                { type: requiredTraitType, env },
                 { type: field.assignedValue.type, env }
               )
             ) {
-              moduleValues.push(field.assignedValue);
-              moduleTypes.push(field.assignedValue.type);
-              checkedModuleTypes.add(requiredModuleType);
+              traitValues.push(field.assignedValue);
+              traitTypes.push(field.assignedValue.type);
+              checkedTraitTypes.add(requiredTraitType);
 
               foundInModule = true;
               break;
@@ -480,26 +480,26 @@ export function evaluateDynValue({
         if (!foundInModule) {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `Required module ${typeToString(requiredModuleType)} is not implemented by type ${typeToString(valueType)}.`,
+            errorMessage: `Required trait ${typeToString(requiredTraitType)} is not implemented by type ${typeToString(valueType)}.`,
           });
         }
       }
-      // QUESTION: Should we allow to assign DynType to another DynType with superset of modules?
+      // QUESTION: Should we allow to assign DynType to another DynType with superset of traits?
       else {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Cannot find module ${typeToString(requiredModuleType)} for value type ${typeToString(valueType)}.`,
+          errorMessage: `Cannot find trait ${typeToString(requiredTraitType)} for value type ${typeToString(valueType)}.`,
         });
       }
     }
   }
 
-  // Reorder moduleValues to match the order of expectedDynType.requiredModules
+  // Reorder traitValues to match the order of expectedDynType.requiredTraits
   // This ensures the constructor parameters match the vtable order
-  const orderedModuleValues: ModuleValue[] = [];
-  for (const expectedModuleType of expectedDynType.requiredModules) {
-    // Find the corresponding module value
-    const moduleValueIndex = moduleTypes.findIndex((moduleType) =>
+  const orderedTraitValues: TraitValue[] = [];
+  for (const expectedModuleType of expectedDynType.requiredTraits) {
+    // Find the corresponding trait value
+    const moduleValueIndex = traitTypes.findIndex((moduleType) =>
       areTypesCompatible(
         { type: expectedModuleType, env },
         { type: moduleType, env }
@@ -509,23 +509,23 @@ export function evaluateDynValue({
     if (moduleValueIndex === -1) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `No module value found for expected module type ${typeToString(expectedModuleType)}.`,
+        errorMessage: `No trait value found for expected trait type ${typeToString(expectedModuleType)}.`,
       });
     }
 
-    orderedModuleValues.push(moduleValues[moduleValueIndex]!);
+    orderedTraitValues.push(traitValues[moduleValueIndex]!);
   }
 
   // Create a runtime object that implements dynamic dispatch
-  // This will be a special runtime construct that holds the value and the modules
-  // At runtime, property access on this object will dispatch to the appropriate module functions
+  // This will be a special runtime construct that holds the value and the traits
+  // At runtime, property access on this object will dispatch to the appropriate trait functions
 
   expr.$ = {
     env,
     value: undefined, // This indicates it's a runtime value
     type: expectedDynType,
     pathCollection: evaluatedValueExpr.$.pathCollection,
-    dynCallModuleValues: orderedModuleValues, // Store ordered module values for C codegen
+    dynCallTraitValues: orderedTraitValues, // Store ordered trait values for C codegen
   };
 
   // Attach temp variable to the expr
