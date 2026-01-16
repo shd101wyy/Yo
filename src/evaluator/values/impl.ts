@@ -30,7 +30,6 @@ import {
   isSomeType,
   isTraitType,
   isType0,
-  ModuleField,
   SomeType,
   TraitField,
   TraitType,
@@ -1285,9 +1284,9 @@ function attachTraitToReceiverType(
     }
   } else {
     // Named trait - attach with empty label for method lookup
-    const field: ModuleField = {
+    const field: TraitField = {
       label: "", // Empty label prevents direct access, only method calls work
-      type: createTypeHierarchy(1), // Module type
+      type: createTypeHierarchy(1), // Trait type
       isCompileTimeOnly: true,
       assignedValue: traitValue,
       sourceModulePath,
@@ -1412,6 +1411,9 @@ export function evaluateModuleValue({
         receiverType,
       });
       env = nextEnv;
+
+      // Attach the anonymous trait to the receiver type
+      attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
 
       // Set the trait value to the expr
       expr.$ = {
