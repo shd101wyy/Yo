@@ -228,9 +228,6 @@ export function createEnvContainingPrelude(): Environment {
   }
   return _envContainingPrelude;
 }
-export function isEvaluatingPreludeModule(): boolean {
-  return _envContainingPrelude === null;
-}
 
 /**
  * This is the special variable name that allows variable shadowing.
@@ -701,21 +698,58 @@ export function getMethodsByNameFromEnv(
         if (method.type.parameters.length === 0) {
           return false; // Methods must have at least one parameter (receiver)
         }
-        const methodFirstParamType = method.type.parameters[0]!.type;
+        const methodFirstParam = method.type.parameters[0]!;
+        const methodFirstParamType = methodFirstParam.type;
+
+        // CRITICAL: Filter out compile-time methods when receiver is runtime
+        // If the method's first parameter (receiver) is compile-time only,
+        // it cannot be called with a runtime receiver value.
+        // This prevents runtime values from calling compile-time-only methods.
+        // However, we keep compile-time methods if we're looking for them specifically.
+        // The actual compile-time vs runtime check will happen during argument evaluation.
+        // So we don't filter here - let the parameter checker handle it.
+        // if (methodFirstParam.isCompileTimeOnly) {
+        //   return false;
+        // }
 
         // CRITICAL: Check pointer conversion BEFORE checking SomeType
         // Because Self types are represented as SomeType, and *(Self) would contain SomeType,
         // we need to handle pointer conversion first
         if (!isInfixOperatorCall && isPtrType(methodFirstParamType)) {
           const methodPtrChildType = methodFirstParamType.childType;
+          // console.log(
+          //   `DEBUG filter ptr: method ${methodName} expects ptr, child type: ${typeToString(methodPtrChildType)}, receiverType: ${typeToString(receiverType)}`
+          // );
+
+          // For compt types, convert to runtime type before checking compatibility
+          let effectiveReceiverType = receiverType;
+          if (
+            isComptIntType(receiverType) ||
+            isComptFloatType(receiverType) ||
+            isComptStringType(receiverType)
+          ) {
+            effectiveReceiverType = convertComptTypeToRuntimeType({
+              type: receiverType,
+              expectedType: undefined,
+              expr: undefined,
+              env,
+            });
+            // console.log(
+            //   `DEBUG filter ptr: converted compt type to runtime: ${typeToString(effectiveReceiverType)}`
+            // );
+          }
+
           const receiverCompatibleWithPtrChild = areTypesCompatible(
             {
               type: methodPtrChildType,
               env: method.type.env,
             },
-            { type: receiverType, env },
+            { type: effectiveReceiverType, env },
             true // isMethodReceiver
           );
+          // console.log(
+          //   `DEBUG filter ptr: compatible: ${receiverCompatibleWithPtrChild}`
+          // );
 
           if (receiverCompatibleWithPtrChild) {
             // Mark this method as needing pointer conversion
@@ -780,11 +814,17 @@ export function getMethodsByNameFromEnv(
             expr: undefined,
             env,
           });
+          // console.log(
+          //   `DEBUG filter: checking compt ${typeToString(receiverType)} method ${methodName}, runtime type: ${typeToString(runtimeReceiverType)}, method param type: ${typeToString(methodFirstParamType)}`
+          // );
           const isRuntimeCompatible = areTypesCompatible(
             { type: methodFirstParamType, env: method.type.env },
             { type: runtimeReceiverType, env },
             true // isMethodReceiver
           );
+          // console.log(
+          //   `DEBUG filter: runtime compatible: ${isRuntimeCompatible}`
+          // );
           if (isRuntimeCompatible) {
             return true;
           }
@@ -942,34 +982,34 @@ export function getMethodsByNameFromEnv(
       checkModuleForMethod(dereferencedReceiverType.module, methodName);
     }
 
-    // If no methods found yet, check for impl'd modules (stored with empty label as ModuleValue)
-    // Type methods have higher priority than impl'd module methods
-    if (methods.length === 0) {
-      for (const field of dereferencedReceiverType.module.fields) {
-        if (
-          field.label === "" &&
-          field.assignedValue &&
-          isModuleValue(field.assignedValue)
-        ) {
-          const implModuleValue = field.assignedValue;
-          const implModuleType = implModuleValue.type;
-          // Search for the method in the impl'd module
-          const methodIndex = implModuleType.fields.findIndex(
-            (f) => f.label === methodName && isFunctionType(f.type)
-          );
-          if (methodIndex >= 0) {
-            const method = implModuleType.fields[methodIndex]!;
-            if (isFunctionType(method.type)) {
-              // Get the actual function value from the module value
-              const value = implModuleValue.fields[methodIndex];
-              // Use the function value's specialized type if available,
-              // as it has Self replaced with the concrete receiver type
-              let methodType = method.type;
-              if (isFunctionValue(value) && value.specializedType) {
-                methodType = value.specializedType;
-              }
-              methods.push({ type: methodType, value });
+    // Also check for impl'd modules (stored with empty label as ModuleValue)
+    // NOTE: We check impl'd modules regardless of whether direct methods were found,
+    // because both compile-time and runtime versions of a method might exist,
+    // and we need to let the function call resolution pick the right one.
+    for (const field of dereferencedReceiverType.module.fields) {
+      if (
+        field.label === "" &&
+        field.assignedValue &&
+        isModuleValue(field.assignedValue)
+      ) {
+        const implModuleValue = field.assignedValue;
+        const implModuleType = implModuleValue.type;
+        // Search for the method in the impl'd module
+        const methodIndex = implModuleType.fields.findIndex(
+          (f) => f.label === methodName && isFunctionType(f.type)
+        );
+        if (methodIndex >= 0) {
+          const method = implModuleType.fields[methodIndex]!;
+          if (isFunctionType(method.type)) {
+            // Get the actual function value from the module value
+            const value = implModuleValue.fields[methodIndex];
+            // Use the function value's specialized type if available,
+            // as it has Self replaced with the concrete receiver type
+            let methodType = method.type;
+            if (isFunctionValue(value) && value.specializedType) {
+              methodType = value.specializedType;
             }
+            methods.push({ type: methodType, value });
           }
         }
       }
@@ -986,13 +1026,12 @@ export function getMethodsByNameFromEnv(
     }
   }
 
-  // If no methods found and receiver is a compt type, also check the runtime type's module
+  // If receiver is a compt type, also check the runtime type's module
   // because compt literals should be able to call methods from their runtime equivalents
   if (
-    methods.length === 0 &&
-    (isComptIntType(dereferencedReceiverType) ||
-      isComptFloatType(dereferencedReceiverType) ||
-      isComptStringType(dereferencedReceiverType))
+    isComptIntType(dereferencedReceiverType) ||
+    isComptFloatType(dereferencedReceiverType) ||
+    isComptStringType(dereferencedReceiverType)
   ) {
     const runtimeType = convertComptTypeToRuntimeType({
       type: dereferencedReceiverType,
@@ -1000,7 +1039,37 @@ export function getMethodsByNameFromEnv(
       expr: undefined,
       env,
     });
+    // console.log(
+    //   `DEBUG getMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has module: ${!!runtimeType.module}`
+    // );
     if (runtimeType.module) {
+      // console.log(
+      //   `DEBUG: runtime type module fields: ${runtimeType.module.fields.map((f) => f.label).join(", ")}`
+      // );
+      // First check direct methods on the runtime type
+      const directMethod = runtimeType.module.fields.find(
+        (field) => field.label === methodName && isFunctionType(field.type)
+      );
+
+      if (directMethod && isFunctionType(directMethod.type)) {
+        // console.log(`DEBUG: Found direct method ${methodName}`);
+        let value: Value | undefined = directMethod.assignedValue;
+        if (isUnknownValue(value)) {
+          value = createUnknownValue(directMethod.type, directMethod.label);
+        }
+        methods.push({ type: directMethod.type, value });
+      } else {
+        // console.log(
+        //   `DEBUG: No direct method, checking nested modules for ${methodName}`
+        // );
+        // If no direct method found, recursively check nested modules
+        checkModuleForMethod(runtimeType.module, methodName);
+      }
+
+      // Also check for impl'd modules (stored with empty label as ModuleValue)
+      // console.log(
+      //   `DEBUG: Checking impl'd modules, found ${runtimeType.module.fields.filter((f) => f.label === "").length} empty-label fields`
+      // );
       for (const field of runtimeType.module.fields) {
         if (
           field.label === "" &&
@@ -1009,9 +1078,15 @@ export function getMethodsByNameFromEnv(
         ) {
           const implModuleValue = field.assignedValue;
           const implModuleType = implModuleValue.type;
+          // console.log(
+          //   `DEBUG: Checking impl module with fields: ${implModuleType.fields.map((f) => f.label).join(", ")}`
+          // );
           const methodIndex = implModuleType.fields.findIndex(
             (f) => f.label === methodName && isFunctionType(f.type)
           );
+          // console.log(
+          //   `DEBUG: Method ${methodName} index in impl: ${methodIndex}`
+          // );
           if (methodIndex >= 0) {
             const method = implModuleType.fields[methodIndex]!;
             if (isFunctionType(method.type)) {
@@ -1021,9 +1096,20 @@ export function getMethodsByNameFromEnv(
                 methodType = value.specializedType;
               }
               methods.push({ type: methodType, value });
+              // console.log(`DEBUG: Added method ${methodName} from impl module`);
             }
           }
         }
+      }
+
+      // If still no methods found, check generic impl registry for the runtime type
+      if (methods.length === 0) {
+        const genericMethods = findMethodsFromGenericImpls({
+          concreteType: runtimeType,
+          methodName,
+          env,
+        });
+        methods.push(...genericMethods);
       }
     }
   }
@@ -1269,6 +1355,7 @@ export function getMethodsByNameFromEnv(
   // NOTE:
   // Type methods have higher priority than module methods,
   // so we check the module methods only if there are no type methods.
+
   if (methods.length > 0) {
     return filterMethodsByReceiverType(methods);
   }
@@ -1324,6 +1411,7 @@ export function getMethodsByNameFromEnv(
    * // The line `return v.id();` has ambiguity problem.
    *
    */
+
   return filterMethodsByReceiverType(methods);
 }
 

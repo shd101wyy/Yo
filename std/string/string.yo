@@ -33,11 +33,11 @@ String :: object(
   ),
 
   /**
-   * Create a string from a slice of bytes [u8]
+   * Create a string from a slice of bytes str
    * The slice is a fat pointer containing data pointer and length
-   * Example: String.from(slice) where slice is [u8]
+   * Example: String.from(slice) where slice is str
    */
-  from :: (fn(slice: [u8]) -> Self)({
+  from :: (fn(slice: str) -> Self)({
     // Create a new ArrayList and copy bytes from the slice
     bytes := ArrayList(u8).with_capacity(slice.len());
     
@@ -45,7 +45,7 @@ String :: object(
     while ((i < slice.len())),
           (i = (i + usize(1))),
     {
-      byte := slice(i);
+      byte := slice.bytes(i);
       bytes.push(byte);
     };
     
@@ -281,6 +281,57 @@ String :: object(
     return Self(_bytes: new_bytes);
   })
 );
+
+impl(String, Add(String, String)(
+  (+) : (fn(self: Self, other: Self) -> Self)({
+    return self.concat(other);
+  })
+));
+
+impl(String, Eq(String)(
+  (==) : (fn(self: Self, other: Self) -> bool)({
+    // First compare lengths
+    self_len := self._bytes.len();
+    other_len := other._bytes.len();
+    
+    cond(
+      (self_len != other_len) => {
+        return false;
+      },
+      true => ()
+    );
+    
+    // Compare each byte
+    i := usize(0);
+    while ((i < self_len)),
+          (i = (i + usize(1))),
+    {
+      self_byte_opt := self._bytes.get(i);
+      other_byte_opt := other._bytes.get(i);
+      
+      match(self_byte_opt,
+        .Some(self_byte) =>
+          match(other_byte_opt,
+            .Some(other_byte) => {
+              cond(
+                (self_byte != other_byte) => {
+                  return false;
+                },
+                true => ()
+              );
+            },
+            .None => return false
+          ),
+        .None => return false
+      );
+    };
+    
+    return true;
+  }),
+  (!=) : (fn(self: Self, other: Self) -> bool)({
+    return !(Self.(==)(self, other));
+  })
+));
 
 export
   String,

@@ -35,7 +35,7 @@ export enum TokenType {
   Whitespace = "whitespace",
 
   // special
-  BacktickIdentifier = "backtick_identifier", // `abc`
+  TemplateString = "template_string", // `hello, ${name}!`
 }
 
 export interface Token {

@@ -210,11 +210,14 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(diagnosticCollection);
 
   // Yo language module manager
-  const moduleManager = new ModuleManager();
+  const moduleManager = new ModuleManager({ allowPartialModule: true });
 
   // Track in-flight analyses to avoid race conditions where an older run clears
   // diagnostics produced by a newer run.
   const analyzeGenerationByUri = new Map<string, number>();
+
+  // Track the last analyzed text to prevent duplicate analyses
+  const lastAnalyzedTextByUri = new Map<string, string>();
 
   // Function to analyze Yo file and show diagnostics
   const analyzeYoFile = async (document: vscode.TextDocument) => {
@@ -224,20 +227,36 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     const uriKey = document.uri.toString();
+    const text = document.getText();
+
+    // Skip if we've already analyzed this exact text
+    if (lastAnalyzedTextByUri.get(uriKey) === text) {
+      // console.log(
+      //   `[Extension] Skipping analysis for ${uriKey} - text unchanged`
+      // );
+      return;
+    }
+
+    // console.log(`[Extension] Analyzing ${uriKey}`);
+    lastAnalyzedTextByUri.set(uriKey, text);
+
     const generation = (analyzeGenerationByUri.get(uriKey) ?? 0) + 1;
     analyzeGenerationByUri.set(uriKey, generation);
 
-    const text = document.getText();
     const filePath = document.uri.fsPath;
     const modulePath = "file://" + filePath;
 
     try {
       // Clear any previous evaluation for this file
+      // console.log(`[Extension] Deleting module: ${modulePath}`);
       moduleManager.deleteModule(modulePath);
 
       // Load the module again, passing the in-memory document content
       // This ensures we analyze the current editor content, not the saved file on disk
+      // console.log(`[Extension] Loading module: ${modulePath}`);
       const { moduleError } = moduleManager.loadModule(modulePath, text);
+
+      // console.log(`[Extension] Module loaded, error:`, moduleError);
 
       if (moduleError) {
         throw moduleError;
@@ -245,16 +264,25 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Only the latest analysis run is allowed to change diagnostics.
       if (analyzeGenerationByUri.get(uriKey) !== generation) {
+        // console.log(
+        //   `[Extension] Generation mismatch, skipping diagnostics update`
+        // );
         return;
       }
 
       // No errors for the latest content -> clear diagnostics.
+      // console.log(`[Extension] Clearing diagnostics for ${modulePath}`);
       diagnosticCollection.delete(document.uri);
     } catch (error) {
       // Only the latest analysis run is allowed to change diagnostics.
       if (analyzeGenerationByUri.get(uriKey) !== generation) {
+        // console.log(
+        //   `[Extension] Generation mismatch in error handler, skipping`
+        // );
         return;
       }
+
+      // console.log(`[Extension] Error analyzing ${modulePath}:`, error);
 
       const diagnostics: vscode.Diagnostic[] = [];
 
@@ -473,12 +501,6 @@ export function activate(context: vscode.ExtensionContext) {
         if (stringIsOperator(tokenText)) {
           // Wrap operators in parentheses
           tokenText = `(${tokenText})`;
-        } else if (
-          exprIsAtom(expr) &&
-          expr.token.type === TokenType.BacktickIdentifier
-        ) {
-          // Remove backticks from identifiers
-          tokenText = tokenText.slice(1, -1);
         }
 
         // Get variable from the env - use it as the source of truth if available
@@ -1308,11 +1330,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidOpenTextDocument(analyzeYoFile)
   );
 
-  // Analyze when a document is changed
+  // Analyze when a document is saved (not on every change for better performance)
   context.subscriptions.push(
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      analyzeYoFile(event.document);
-    })
+    vscode.workspace.onDidSaveTextDocument(analyzeYoFile)
   );
 
   // Analyze when the active editor changes

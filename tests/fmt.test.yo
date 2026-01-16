@@ -1,0 +1,125 @@
+open import "std/fmt";
+
+test "Test 'println' function", {
+  // Test integer types
+  println(i8(-128));
+  println(i16(-32768));
+  println(i32(-2147483648));
+  println(i64(-9223372036854775808));
+  
+  println(u8(255));
+  println(u16(65535));
+  println(u32(4294967295));
+  println(u64(18446744073709551615));
+  
+  // Test floating point
+  println(f32(3.14));
+  println(f64(2.718281828));
+  
+  // Test bool
+  println(true);
+  println(false);
+  
+  // Test isize/usize
+  num := 42;
+  println(num);
+  println(isize(num));
+  println(usize(num));
+
+  // Test str
+  println("Hello, World!");
+};
+
+test "Test 'to_string' (for runtime value) function", {
+  x1 := "Hello".to_string();
+  y1 := 123.to_string();
+  z1 := (3.14).to_string();
+  m1 := true.to_string();
+  n1 := false.to_string();
+
+  t1 := "Hello";
+  x2 := t1.to_string();
+  t2 := 123;
+  y2 := t2.to_string();
+  t3 := 3.14;
+  z2 := t3.to_string();
+  t4 := true;
+  m2 := t4.to_string();
+  t5 := false;
+  n2 := t5.to_string();
+
+  assert(x1 == x2);
+  assert(y1 == y2);
+  assert(z1 == z2);
+  assert(m1 == m2);
+  assert(n1 == n2);
+};
+
+test "Test template strings", {
+  // Test simple template string with interpolations
+  x := `hello, ${123} and ${true}.`;
+  assert(x == "hello, 123 and true.".to_string());
+  
+  // Test template string with no interpolation
+  y := `just a string`;
+  assert(y == "just a string".to_string());
+  assert(y != "another string".to_string());
+  
+  // Test template string with only interpolation
+  z := `${42}`;
+  assert(z == "42".to_string());
+  
+  // Test template string with expression
+  a := `result: ${(1 + 2)}`;
+  assert(a == "result: 3".to_string());
+  
+  // Test adjacent interpolations
+  b := `${1}${2}${3}`;
+  assert(b == "123".to_string());
+  
+  // Test template string with different types
+  name := "World";
+  age := 25;
+  pi := 3.14;
+  is_active := true;
+  msg := `Name: ${name}, Age: ${age}, Pi: ${pi}, Active: ${is_active}`;
+  assert(msg == "Name: World, Age: 25, Pi: 3.14, Active: true".to_string());
+  
+  // Test nested expressions in template strings
+  c := `sum: ${(10 + 20)}, product: ${(5 * 6)}`;
+  assert(c == "sum: 30, product: 30".to_string());
+  
+  // Test empty template string
+  empty := ``;
+  assert(empty == "".to_string());
+  
+  // Test escaping dollar sign
+  escaped1 := `Price: \${100}`;
+  assert(escaped1 == "Price: ${100}".to_string());
+  
+  // Test escaped dollar with actual interpolation
+  escaped2 := `\${notInterpolated} but ${123} is`;
+  assert(escaped2 == "${notInterpolated} but 123 is".to_string());
+  
+  // Test escaped backslash
+  escaped3 := `Path: C:\\Users\\Name`;
+  assert(escaped3 == "Path: C:\\Users\\Name".to_string());
+  
+  // Test escaped newline
+  escaped4 := `Line1\nLine2`;
+  assert(escaped4 == "Line1\nLine2".to_string());
+  
+  // Test escaped tab
+  escaped5 := `Tab\there`;
+  assert(escaped5 == "Tab\there".to_string());
+  
+  // Test escaped quote
+  escaped6 := `He said \"Hello\"`;
+  assert(escaped6 == "He said \"Hello\"".to_string());
+  
+  // Test multiple escape sequences
+  escaped7 := `\${a} and \${b} with ${42}`;
+  assert(escaped7 == "${a} and ${b} with 42".to_string());
+  
+  println("All template string tests passed!");
+};

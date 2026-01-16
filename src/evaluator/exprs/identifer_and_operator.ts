@@ -1,7 +1,6 @@
 import { Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { AtomExpr } from "../../expr";
-import { TokenType } from "../../token";
 import {
   createBooleanType,
   createCharType,
@@ -51,10 +50,7 @@ export function evaluateIdentifierAndOperator({
   context: EvaluatorContext;
   throwErrorOnUndefined: boolean;
 }): AtomExpr {
-  const identifier =
-    expr.token.type === TokenType.BacktickIdentifier
-      ? expr.token.value.slice(1, -1) // Remove backticks
-      : expr.token.value;
+  const identifier = expr.token.value;
 
   // Type
   if (identifier === TypeTag.Type) {

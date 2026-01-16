@@ -2,7 +2,6 @@ import {
   addVariableToEnv,
   Environment,
   getVariablesFromEnv,
-  isEvaluatingPreludeModule,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -25,8 +24,10 @@ import {
   createTypeHierarchy,
   FunctionParameter,
   FunctionType,
+  isArrayType,
   isFunctionType,
   isModuleType,
+  isSliceType,
   isSomeType,
   isType0,
   ModuleField,
@@ -230,6 +231,23 @@ export function clearGenericImplsFromModule(modulePath: string): void {
       genericImplRegistry.delete(moduleTypeName);
     } else {
       genericImplRegistry.set(moduleTypeName, filteredImpls);
+    }
+  }
+}
+
+/**
+ * Clear impl records from the type impl registry for a specific module.
+ * Call this before re-evaluating a module to prevent duplicate impl detection.
+ */
+function clearImplRecordsFromModule(modulePath: string): void {
+  for (const [typeId, impls] of typeImplRegistry.entries()) {
+    const filteredImpls = impls.filter(
+      (impl) => impl.modulePath !== modulePath
+    );
+    if (filteredImpls.length === 0) {
+      typeImplRegistry.delete(typeId);
+    } else {
+      typeImplRegistry.set(typeId, filteredImpls);
     }
   }
 }
@@ -1179,6 +1197,9 @@ export function clearImplsFromModule(modulePath: string): void {
   }
 
   implRegistry.delete(modulePath);
+
+  // Also clear the duplicate detection registry for this module
+  clearImplRecordsFromModule(modulePath);
 }
 
 /**
@@ -1357,13 +1378,19 @@ export function evaluateModuleValue({
     env = evaluatedReceiverTypeArg.$.env;
     const receiverType = evaluatedReceiverTypeArg.$.value.value;
 
+    // Check if the receiver type is a structural type (SliceType, ArrayType)
+    // For structural types, we need to register as a generic impl so they can be matched structurally
+    // because each [u8] or Array(u8, 10) creates a new type instance
+    const isStructuralType =
+      isSliceType(receiverType) || isArrayType(receiverType);
+
     // Anonymous module value
     if (
       exprIsFunctionCall(expr.args[1]) &&
       exprIsFunctionCallOf(expr.args[1], BuiltinKeywords.begin)
     ) {
       // Restrict anonymous module impl to prelude.yo only
-      if (!isEvaluatingPreludeModule()) {
+      if (!context.currentModulePath?.endsWith("prelude.yo")) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,
@@ -1395,8 +1422,28 @@ export function evaluateModuleValue({
         errorToken: expr.token,
       });
 
-      // Attach the module to the receiver type for method lookup
-      attachModuleToReceiverType(moduleValue, expr, context.currentModulePath);
+      if (isStructuralType) {
+        // Register as a generic impl (with no forall parameters) for structural matching
+        const moduleTypeKey = moduleType.typeName || moduleType.id;
+        const genericImpl: GenericImpl = {
+          forallParameters: [],
+          whereConstraints: [],
+          receiverTypePattern: receiverType,
+          moduleType,
+          moduleValue,
+          expr,
+          sourceModulePath: context.currentModulePath,
+          definitionEnv: env,
+        };
+        registerGenericImpl(moduleTypeKey, genericImpl);
+      } else {
+        // Attach the module to the receiver type for method lookup
+        attachModuleToReceiverType(
+          moduleValue,
+          expr,
+          context.currentModulePath
+        );
+      }
 
       // Set the module value to the expr
       expr.$ = {
@@ -1430,6 +1477,7 @@ export function evaluateModuleValue({
       }
       env = evaluatedModuleCallArg.$.env;
       const moduleValue = evaluatedModuleCallArg.$.value;
+      const moduleType = moduleValue.type;
 
       // Check that the receiver type implements all selfConstraints from the module's where clause
       checkTypeImplementsSelfConstraints({
@@ -1439,8 +1487,28 @@ export function evaluateModuleValue({
         errorToken: expr.token,
       });
 
-      // Attach the module to the receiver type for method lookup
-      attachModuleToReceiverType(moduleValue, expr, context.currentModulePath);
+      if (isStructuralType) {
+        // Register as a generic impl (with no forall parameters) for structural matching
+        const moduleTypeKey = moduleType.typeName || moduleType.id;
+        const genericImpl: GenericImpl = {
+          forallParameters: [],
+          whereConstraints: [],
+          receiverTypePattern: receiverType,
+          moduleType,
+          moduleValue,
+          expr,
+          sourceModulePath: context.currentModulePath,
+          definitionEnv: env,
+        };
+        registerGenericImpl(moduleTypeKey, genericImpl);
+      } else {
+        // Attach the module to the receiver type for method lookup
+        attachModuleToReceiverType(
+          moduleValue,
+          expr,
+          context.currentModulePath
+        );
+      }
 
       // Set the module value to the expr
       expr.$ = {
@@ -1689,7 +1757,7 @@ export function evaluateModuleValue({
       exprIsFunctionCallOf(moduleCallArg, BuiltinKeywords.begin)
     ) {
       // Restrict anonymous module impl to prelude.yo only
-      if (!isEvaluatingPreludeModule()) {
+      if (!context.currentModulePath?.endsWith("prelude.yo")) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,

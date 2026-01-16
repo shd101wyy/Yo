@@ -20,7 +20,10 @@ import {
   createExprType,
   extractFnModuleFromType,
   isArrayType,
+  isComptFloatType,
+  isComptIntType,
   isComptListType,
+  isComptStringType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -244,6 +247,8 @@ export function evaluateFunctionCall({
               let methodArgs: Expr[];
               if (method.needsPointerConversion) {
                 // Create &(receiverArg) expression
+                // Note: The compt type to runtime type conversion is handled
+                // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
                 const ampersandExpr: AtomExpr = {
                   tag: ExprTag.Atom,
                   token: receiverArg.token,
@@ -322,10 +327,7 @@ export function evaluateFunctionCall({
         ];
       }
     } else {
-      const functionName =
-        func.token.type === TokenType.BacktickIdentifier
-          ? func.token.value.slice(1, -1) // Convert `add` to add
-          : func.token.value;
+      const functionName = func.token.value;
 
       // Check _ function
       if (functionName === "_") {
@@ -1117,6 +1119,30 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
   );
   if (comptFunctionCalls.length === 1) {
     functionsWithMatchingTypes = comptFunctionCalls;
+  }
+
+  // When there are still multiple matches and multiple are compt functions,
+  // prefer the one with compt parameter types over runtime parameter types.
+  // For example, when calling `3 > 4`:
+  // - Prefer fn(compt_int, compt_int) -> bool over fn(i32, i32) -> bool
+  // This ensures that compile-time operations stay at compile-time when possible.
+  if (functionsWithMatchingTypes.length > 1) {
+    const functionsWithComptParams = functionsWithMatchingTypes.filter(
+      (functionToCall) => {
+        if (!isFunctionType(functionToCall.type)) return false;
+        const params = functionToCall.type.parameters;
+        // Check if any parameter is a compt type (compt_int, compt_float, compt_string)
+        return params.some(
+          (param) =>
+            isComptIntType(param.type) ||
+            isComptFloatType(param.type) ||
+            isComptStringType(param.type)
+        );
+      }
+    );
+    if (functionsWithComptParams.length === 1) {
+      functionsWithMatchingTypes = functionsWithComptParams;
+    }
   }
 
   if (functionsWithMatchingTypes.length === 0) {

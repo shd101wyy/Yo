@@ -10,6 +10,8 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  FunctionType,
+  isFunctionType,
   ModuleType,
   Type,
   typeToString,
@@ -238,9 +240,20 @@ Got:   ${typeToString(argType)}`,
           // set the specializedType to the resolved moduleFieldType
           // This ensures that generic functions in modules get their types specialized
           // when the module is instantiated with concrete type arguments
-          if (!argValue.specializedType && moduleFieldType.tag === "Function") {
+          if (!argValue.specializedType && isFunctionType(moduleFieldType)) {
+            // Copy the parametersFrame from the function's type to the specializedType
+            // This preserves parameter aliases (e.g., self->lhs, other->rhs) for codegen
+            // IMPORTANT: We must preserve the parameter labels from argValue.type,
+            // because those are the labels used in the function body. The moduleFieldType
+            // has labels from the trait definition (e.g., lhs, rhs) which don't match
+            // the actual parameter names in the anonymous function (e.g., a, b).
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            argValue.specializedType = moduleFieldType as any;
+            argValue.specializedType = {
+              ...moduleFieldType,
+              // Preserve the parameter labels from the function's actual type
+              parameters: argValue.type.parameters,
+              parametersFrame: argValue.type.parametersFrame,
+            } as FunctionType;
           }
         }
 

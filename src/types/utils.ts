@@ -13,12 +13,7 @@ import {
 } from "../value";
 import { ValueTag } from "../value-tag";
 import { areTypesCompatible } from "./compatibility";
-import {
-  createF64Type,
-  createI32Type,
-  createSliceType,
-  createU8Type,
-} from "./creators";
+import { createF64Type, createI32Type, createStrType } from "./creators";
 import {
   ArrayType,
   ComptListType,
@@ -814,8 +809,8 @@ export function convertComptTypeToRuntimeType({
     }
 
     if (!convertedType) {
-      // Default: Convert the compt_string to [u8]
-      convertedType = createSliceType(createU8Type());
+      // Default: Convert the compt_string to str from prelude
+      convertedType = createStrType(env);
     }
   } else {
     // No change

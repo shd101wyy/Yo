@@ -143,8 +143,7 @@ export function _evaluateExpression({
   if (exprIsAtom(expr)) {
     switch (expr.token.type) {
       case TokenType.Identifier:
-      case TokenType.Operator:
-      case TokenType.BacktickIdentifier: {
+      case TokenType.Operator: {
         return evaluateIdentifierAndOperator({
           expr,
           env,

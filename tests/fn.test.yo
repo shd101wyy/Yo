@@ -24,9 +24,6 @@ test "Test simple functions", {
       b := 13;
       b
     }) == 25);
-
-    // Test backtick function call
-    assert((12 `add` 13) == 25);
   };
 
   {
@@ -539,7 +536,8 @@ test "Test generic function callback", {
   generic_fn :: (fn(forall(T: Type), x: T, callback: (fn(v: T)-> T))-> T)
     callback(x)
   ;
-  assert(generic_fn(2, (x) -> (x + 16)) == 18);
+  assert(generic_fn(2, (x) -> (x + 16)) == 18); // anonymous function
+  assert(generic_fn(2, (fn(y : i32) -> i32)(y + 18)) == 20); // regular function
 };
 
 test "Test 'recur'", {

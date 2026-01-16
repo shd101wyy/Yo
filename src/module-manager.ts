@@ -56,12 +56,99 @@ export class ModuleManager {
 
   public stdPath = findStdDirectory(__dirname);
   private codeGenratorC: CodeGeneratorC;
+  private allowPartialModule: boolean;
 
-  constructor() {
+  constructor(options?: { allowPartialModule?: boolean }) {
+    this.allowPartialModule = options?.allowPartialModule ?? false;
     this.codeGenratorC = new CodeGeneratorC();
 
     // This line of code is to prevent circular dependency issues
     setEvaluateExpressionFn(_evaluateExpression);
+  }
+
+  /**
+   * Extract the relative path from a module path (e.g., "std/prelude.yo" or "tests/fixme.yo")
+   */
+  private getRelativePath(path: string): string | null {
+    const stdMatch = path.match(/\/std\/(.+)$/);
+    if (stdMatch) return `std/${stdMatch[1]}`;
+    const testsMatch = path.match(/\/tests\/(.+)$/);
+    if (testsMatch) return `tests/${testsMatch[1]}`;
+    return null;
+  }
+
+  /**
+   * Check if a module is from the workspace (not from extension)
+   */
+  private isWorkspaceModule(modulePath: string): boolean {
+    return (
+      !modulePath.includes("/extensions/") && !modulePath.includes("/.vscode/")
+    );
+  }
+
+  /**
+   * Find all extension duplicates of a workspace module and return them.
+   * If the module is a std/ module, also includes extension prelude.
+   */
+  private findExtensionDuplicates(modulePath: string): string[] {
+    if (!this.isWorkspaceModule(modulePath)) {
+      return [];
+    }
+
+    const relPath = this.getRelativePath(modulePath);
+    if (!relPath) {
+      return [];
+    }
+
+    const duplicates: string[] = [];
+
+    // Find all extension versions of this module
+    for (const [path] of this.modules) {
+      if (path !== modulePath && !this.isWorkspaceModule(path)) {
+        const otherRelPath = this.getRelativePath(path);
+        if (otherRelPath === relPath) {
+          duplicates.push(path);
+        }
+      }
+    }
+
+    // If this is a workspace std/ module, also include extension prelude
+    if (relPath.startsWith("std/")) {
+      for (const [path] of this.modules) {
+        if (
+          !this.isWorkspaceModule(path) &&
+          (path.endsWith("/std/prelude.yo") || path.endsWith("/prelude.yo")) &&
+          !duplicates.includes(path)
+        ) {
+          duplicates.push(path);
+        }
+      }
+    }
+
+    return duplicates;
+  }
+
+  /**
+   * Delete a module and all its dependents, clearing impls and dependencies
+   */
+  private deleteModuleAndDependents(modulePath: string): void {
+    const dependents = this.getDependentModules(modulePath);
+
+    // Delete dependents first
+    for (const dep of dependents) {
+      clearImplsFromModule(dep);
+      clearGenericImplsFromModule(dep);
+      this.clearDependencies(dep);
+      resetModuleIdCounter(dep);
+      this.modules.delete(dep);
+    }
+
+    // Then delete the module itself
+    clearImplsFromModule(modulePath);
+    clearGenericImplsFromModule(modulePath);
+    this.clearDependencies(modulePath);
+    resetModuleIdCounter(modulePath);
+    this.modules.delete(modulePath);
   }
 
   /**
@@ -142,10 +229,21 @@ export class ModuleManager {
 
     const module = this.modules.get(modulePath);
     if (module) {
+      // console.log(`[ModuleManager] Cache hit for: ${modulePath}`);
       return {
         moduleValue: module.moduleValue,
         moduleError: module.moduleError,
       };
+    }
+
+    // console.log(`[ModuleManager] Loading module: ${modulePath}`);
+    // console.log(`[ModuleManager] Stack trace:`, new Error().stack);
+
+    // Before loading a workspace module, delete any extension duplicates
+    // This ensures workspace versions always take precedence over bundled extension versions
+    const duplicates = this.findExtensionDuplicates(modulePath);
+    for (const dupPath of duplicates) {
+      this.deleteModuleAndDependents(dupPath);
     }
 
     const currentModulePath = modulePath;
@@ -156,6 +254,7 @@ export class ModuleManager {
         return this.loadModule(childModulePath, undefined, currentModulePath);
       },
       inputString,
+      allowPartialModule: this.allowPartialModule,
     });
     const moduleValue = evaluator.getModuleValue();
     const moduleError = evaluator.getModuleError();
@@ -164,31 +263,47 @@ export class ModuleManager {
   }
 
   public deleteModule(modulePath: string): void {
+    // console.log(`[ModuleManager] deleteModule called for: ${modulePath}`);
     if (!modulePath.match(/^file:\/\//)) {
       throw new Error(
         `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `
       );
     }
 
-    // Get all modules that depend on this module (they need to be invalidated too)
-    const dependentModules = this.getDependentModules(modulePath);
+    const modulesToInvalidate = [modulePath];
 
-    // Delete the module and all its dependents
-    const modulesToDelete = [modulePath, ...dependentModules];
+    // If deleting a workspace module, aggressively delete ALL extension modules
+    // This prevents any possible type mismatches from stale extension modules
+    if (this.isWorkspaceModule(modulePath)) {
+      for (const [path] of this.modules) {
+        if (
+          !this.isWorkspaceModule(path) &&
+          !modulesToInvalidate.includes(path)
+        ) {
+          modulesToInvalidate.push(path);
+        }
+      }
+    }
 
-    for (const modPath of modulesToDelete) {
-      // Clear any impls that were added by this module before deleting it
-      clearImplsFromModule(modPath);
-      clearGenericImplsFromModule(modPath);
+    // If this is a prelude module, find all prelude variants (workspace and extension)
+    const isPrelude =
+      modulePath.endsWith("/std/prelude.yo") ||
+      modulePath.endsWith("/prelude.yo");
+    if (isPrelude) {
+      for (const [path] of this.modules) {
+        if (
+          (path.endsWith("/std/prelude.yo") || path.endsWith("/prelude.yo")) &&
+          path !== modulePath &&
+          !modulesToInvalidate.includes(path)
+        ) {
+          modulesToInvalidate.push(path);
+        }
+      }
+    }
 
-      // Clear dependency tracking for this module
-      this.clearDependencies(modPath);
-
-      // Clear the ID counter for this module
-      resetModuleIdCounter(modPath);
-
-      // Delete the module from cache
-      this.modules.delete(modPath);
+    // Delete all modules and their dependents
+    for (const modPath of modulesToInvalidate) {
+      this.deleteModuleAndDependents(modPath);
     }
   }
 

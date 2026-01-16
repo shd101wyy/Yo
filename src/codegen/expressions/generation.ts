@@ -2419,6 +2419,26 @@ function generateFuncCall(
       }
     }
 
+    // Check if the argument is a literal value that needs to be made addressable
+    // In C, we can't take the address of a literal directly (&1 is invalid)
+    // We need to use a compound literal: &(int32_t){1}
+    const argValue = arg.$?.value;
+    const argType = arg.$?.type;
+
+    if (argValue !== undefined && argType) {
+      // Check for compile-time values that need compound literals
+      if (isNumberValue(argValue) || isBooleanValue(argValue)) {
+        const argCode = generateExpr(arg, indent, context);
+        const typeName = getTypeString(argType, context);
+        return `(&(${typeName}){${argCode}})`;
+      }
+      // For compt_string with conversion, the generateExpr already generates the struct
+      if (isComptStringValue(argValue) && arg.$?.convertedRuntimeType) {
+        const argCode = generateExpr(arg, indent, context);
+        return `(&${argCode})`;
+      }
+    }
+
     const argCode = generateExpr(arg, indent, context);
 
     // For pointer/reference creation, we need to be careful about constness
@@ -2779,6 +2799,9 @@ function generateFuncCall(
             const isStateMachineCapturedVariable =
               functionContext.inStateMachine && argCode.startsWith("sm->");
 
+            // Track whether we emitted a temp variable declaration
+            let emittedTempVarDeclaration = false;
+
             if (
               argCode &&
               argCode !== arg.$.variableName &&
@@ -2803,12 +2826,16 @@ function generateFuncCall(
                 context.emitter.emitLine(
                   `${indent}${varTypeAndName} = ${argCode};`
                 );
+                emittedTempVarDeclaration = true;
               }
             }
 
             // Handle deferred dup expressions for function arguments
             // After generating the argument temp variable, check if we need to dup it
-            let finalArgVarName = arg.$.variableName;
+            // Start with argCode (which may be aliased) instead of arg.$.variableName
+            let finalArgVarName = emittedTempVarDeclaration
+              ? arg.$.variableName
+              : argCode;
             if (
               arg.$?.deferredDupExpressions &&
               arg.$.deferredDupExpressions.length > 0
@@ -2876,7 +2903,10 @@ function generateFuncCall(
 
                   if (dynMethod) {
                     // This is a dyn object's own method, pass the dyn object directly
-                    return sanitizeForCIdentifier(finalArgVarName);
+                    return sanitizeForCIdentifier(
+                      finalArgVarName,
+                      arg.$.type.isExtern === "c"
+                    );
                   }
                 }
               }
@@ -2885,16 +2915,19 @@ function generateFuncCall(
               // Dyn is a value type, but callers may pass a borrow (pointer) depending on the method signature.
               const argType = arg.$?.type;
               if (argType && isPtrType(argType)) {
-                return `${sanitizeForCIdentifier(finalArgVarName)}->data`;
+                return `${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}->data`;
               }
-              return `(${sanitizeForCIdentifier(finalArgVarName)}).data`;
+              return `(${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}).data`;
             } else {
               // If this is a closure-captured variable, use the generated code (inline access)
               // If this is a state machine variable, use the generated code (sm->var_xxx access)
               // Otherwise use the sanitized variable name (potentially duped)
               return isClosureCapturedVariable || isStateMachineCapturedVariable
                 ? argCode
-                : sanitizeForCIdentifier(finalArgVarName);
+                : sanitizeForCIdentifier(
+                    finalArgVarName,
+                    arg.$.type.isExtern === "c"
+                  );
             }
           } else {
             // For dyn method calls, transform the first argument (self) from dyn object to data pointer
@@ -5279,12 +5312,8 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     ) {
       // Don't return early - let it fall through to closure capture logic
     } else {
-      // Check if this variable has a parameterAlias
-      const varNameToUse = getVariableNameForCodegen(
-        expr.$.variableName,
-        expr.$?.env
-      );
-      return varNameToUse; // Already sanitized
+      // Otherwise check if this variable has a parameterAlias in the environment
+      return getVariableNameForCodegen(expr.$.variableName, expr.$?.env);
     }
   }
 
@@ -5322,6 +5351,7 @@ function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // We're accessing a captured variable in a closure function
     // The closure_context parameter is a void* that points directly to the capture struct
     // Need to cast it to the appropriate capture struct type
+
     const captureTypeCName = functionContext.currentClosureCaptureTypeCName;
     if (captureTypeCName) {
       // Cast void* closure_context directly to the capture struct pointer
@@ -5417,9 +5447,27 @@ function generateComptValue(
     // For booleans, return true/false
     return value.value ? "true" : "false";
   } else if (isComptStringValue(value)) {
-    // Check if there's a converted runtime type (e.g., compt_string -> [u8]
+    // Check if there's a converted runtime type (e.g., compt_string -> str or [u8])
     const targetType =
       _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
+
+    // Check if the target type is a newtype wrapping a slice (e.g., str)
+    // Newtypes are transparent in C (just typedefs), so we generate the underlying slice
+    if (
+      targetType &&
+      isNewtypeType(targetType) &&
+      targetType.fields.length === 1
+    ) {
+      const wrappedType = targetType.fields[0]!.type;
+      if (isSliceType(wrappedType)) {
+        const newtypeCType = getTypeString(targetType, context);
+        const stringLiteral = JSON.stringify(value.value);
+        const stringLength = Buffer.byteLength(value.value, "utf8");
+
+        // Newtypes are zero-cost abstractions, so we just generate the slice value
+        return `(${newtypeCType}){ .data = (uint8_t*)${stringLiteral}, .length = ${stringLength} }`;
+      }
+    }
 
     // Check if the target type is a slice (e.g., [u8])
     // In Yo, [u8] is a fat pointer (slice value), represented as a struct with data+length
@@ -5728,18 +5776,18 @@ function generateFieldAccess(
         return `(${cName}){ .tag = ${tagName}, .data = {  } }`;
       }
     }
-    // Special handling for slice types: even if they appear as pointer types in AST,
-    // they should use dot notation because we generate them as struct values
-    else if (isPtrType(objectType) && isSliceType(objectType.childType)) {
-      // For slice types, always use dot notation regardless of pointer level in AST
-      return `${objectCode}.${sanitizeForCIdentifier(fieldName)}`;
-    }
     // Check if the object is pointer or reference
     else if (isPtrType(objectType)) {
       if (fieldName === "*") {
         // Regular dereference for pointers/references
         // Ensure proper parenthesization: (*ptr) not *(ptr)
         return `(*${objectCode})`; // Dereference the pointer/reference
+      }
+      // Special handling for slice types: pointer-to-slice field access
+      // (but not dereference which was already handled above)
+      else if (isSliceType(objectType.childType)) {
+        // For pointer-to-slice, use arrow notation for field access
+        return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
       } else {
         // Dereference until not a pointer/reference
         let dereferenceLevel = 0;

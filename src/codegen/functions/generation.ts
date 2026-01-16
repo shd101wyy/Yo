@@ -617,7 +617,7 @@ export function generateFunction(
   // Generate function body with proper return handling
   generateFunctionBody(functionValue.body, functionType, "  ", context);
 
-  // Restore previous function name, type, and closure captures
+  // Restore previous function name, type, closure captures, and parameter aliases
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;

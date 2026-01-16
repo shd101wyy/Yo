@@ -57,6 +57,13 @@ export function evaluateImport({
   // Import the module
   let modulePathToImport = value.value; // Remove the quotes
 
+  if (modulePathToImport.endsWith("prelude.yo")) {
+    throw formatErrorMessage({
+      token: moduleArg.token,
+      errorMessage: `Directly importing module with name "prelude.yo" is not allowed.`,
+    });
+  }
+
   // Handle the std library path
   if (modulePathToImport.startsWith("std/")) {
     // std library

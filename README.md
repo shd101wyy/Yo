@@ -50,10 +50,10 @@ Check the `./tests` and `./std` folders for code examples.
 ### Hello World
 
 ```typescript
-open import "std/libc/stdio";
+{ println } :: import "std/fmt";
 
 main :: (fn() -> unit) {
-  printf("Hello, World!\n");
+  println("Hello, world!");
 };
 
 export main;

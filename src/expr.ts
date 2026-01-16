@@ -118,7 +118,7 @@ export interface EvaluatedExprData {
   /**
    * When a compile-time type needs to be converted to a different runtime type,
    * this field stores the target runtime type.
-   * For example: string literal "hello" with type compt_string converted to [u8]
+   * For example: string literal "hello" with type `compt_string` converted to `str`
    */
   convertedRuntimeType?: Type;
   /**
@@ -370,10 +370,7 @@ export function exprIsFunctionCallOf(
   if (expr.func.tag !== ExprTag.Atom) {
     return false;
   }
-  let funcName = expr.func.token.value;
-  if (expr.func.token.type === TokenType.BacktickIdentifier) {
-    funcName = funcName.slice(1, -1); // Remove backticks
-  }
+  const funcName = expr.func.token.value;
 
   return (
     expr.tag === ExprTag.FuncCall &&
@@ -956,8 +953,7 @@ export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
     expr.tag === "FuncCall" &&
       expr.isInfix &&
       expr.func.tag === "Atom" &&
-      (expr.func.token.type === TokenType.Operator ||
-        expr.func.token.type === TokenType.BacktickIdentifier) &&
+      expr.func.token.type === TokenType.Operator &&
       expr.args.length === 2
   );
 }
@@ -997,8 +993,7 @@ function exprToCompactString(expr: Expr): string {
       if (
         expr.func.tag === "Atom" &&
         (expr.func.token.type === TokenType.Operator ||
-          expr.func.token.type === TokenType.Dot ||
-          expr.func.token.type === TokenType.BacktickIdentifier)
+          expr.func.token.type === TokenType.Dot)
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {
@@ -1083,8 +1078,7 @@ function exprToPrettyString(
       if (
         expr.func.tag === "Atom" &&
         (expr.func.token.type === TokenType.Operator ||
-          expr.func.token.type === TokenType.Dot ||
-          expr.func.token.type === TokenType.BacktickIdentifier)
+          expr.func.token.type === TokenType.Dot)
       ) {
         if (expr.args.length === 1) {
           if (expr.func.token.value === ".") {

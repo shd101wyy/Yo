@@ -8,7 +8,7 @@ import {
 } from "../env";
 import { Expr } from "../expr";
 import Parser from "../parser";
-import { Token } from "../token";
+import { Token, TokenType } from "../token";
 import { isModuleType } from "../types";
 import { ModuleValue } from "../value";
 
@@ -33,6 +33,20 @@ const SKIP_PRELUDE =
   process.env.YO_SKIP_PRELUDE === "1" || process.env.YO_SKIP_PRELUDE === "true";
 
 /**
+ * Check if any comment in the tokens contains a specific attribute.
+ * This is useful for checking attributes like @skip_prelude, @no-implicit-prelude, etc.
+ * In the future, this can be extended to support JSDoc-like attributes.
+ */
+function hasCommentAttribute(tokens: Token[], attribute: string): boolean {
+  return tokens.some(
+    (token) =>
+      (token.type === TokenType.SingleLineComment ||
+        token.type === TokenType.MultiLineComment) &&
+      token.value.includes(attribute)
+  );
+}
+
+/**
  * This class is responsible for:
  * - Type checking the program
  * - Compile-time evaluation
@@ -45,19 +59,23 @@ export default class Evaluator {
   private tokens: Token[];
   private moduleValue: ModuleValue;
   private moduleError: Error | undefined;
+  private allowPartialModule: boolean;
 
   constructor({
     modulePath,
     stdPath,
     loadModule,
     inputString,
+    allowPartialModule = false,
   }: {
     modulePath: string;
     stdPath: string;
     loadModule: LoadModuleFn;
     inputString?: string;
+    allowPartialModule?: boolean;
   }) {
     this.modulePath = modulePath;
+    this.allowPartialModule = allowPartialModule;
 
     if (!this.modulePath.match(/^file:\/\//)) {
       throw new Error(
@@ -102,11 +120,11 @@ export default class Evaluator {
       inputString: this.inputString,
     });
 
-    // Auto-import prelude for all modules except prelude.yo itself
-    const preludePath = "file://" + path.join(stdPath, "prelude.yo");
-    const isPreludeItself = this.modulePath === preludePath;
+    // Auto-import prelude unless the file has @skip_prelude comment
+    const skipPrelude = hasCommentAttribute(this.tokens, "@skip_prelude");
 
-    if (!isPreludeItself && !SKIP_PRELUDE) {
+    if (!skipPrelude && !SKIP_PRELUDE) {
+      const preludePath = "file://" + path.join(stdPath, "prelude.yo");
       const { moduleValue: preludeValue, moduleError: preludeError } =
         loadModule(preludePath);
 
@@ -161,7 +179,7 @@ export default class Evaluator {
         stdPath,
         currentModulePath: this.modulePath,
       },
-      allowPartialModule: true,
+      allowPartialModule: this.allowPartialModule,
     });
     env = nextEnv;
     this.moduleValue = moduleValue;
