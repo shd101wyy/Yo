@@ -6,7 +6,7 @@ This document outlines the plan to implement Node.js-like APIs in Yo, making it 
 
 ### Already Implemented
 
-| Module                           | Location         | Status      | Notes                        |
+| Trait                            | Location         | Status      | Notes                        |
 | -------------------------------- | ---------------- | ----------- | ---------------------------- |
 | `std/io/file.yo`                 | File I/O         | ✅ Basic    | Async read/write, open/close |
 | `std/collections/array_list.yo`  | Dynamic arrays   | ✅ Complete | Similar to `Buffer`          |

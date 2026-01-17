@@ -362,7 +362,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
 
 **Completed:**
 
-- ✅ `Concrete(T)` builtin module for explicit extern type resolution
+- ✅ `Concrete(T)` builtin trait for explicit extern type resolution
 - ✅ `IOReadFuture` and `IOWriteFuture` types using `Impl(Concrete(yo_io_future_t), Future(i32))`
 - ✅ Fixed `getTypeString` to handle extern types vs async block capture structs
 - ✅ Added `localShadowedVariables` for match destructuring in state machines

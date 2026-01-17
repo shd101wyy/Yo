@@ -18,17 +18,17 @@ Instead of introducing move semantics, we ensure isolation at construction time 
 2. **Atomic operations**: Once wrapped, all RC operations use atomic instructions
 3. **Normal semantics**: After construction, `Iso(T)` can be freely copied and shared
 
-## Isolation module
+## Isolation trait
 
-The `Isolation` module provides function to check if a type can isolate.
+The `Isolation` trait provides function to check if a type can isolate.
 
 ```rust
-Isolation :: module(
+Isolation :: trait(
   can_isolate : (fn(self : Self) -> bool)
 );
 ```
 
-The user should implement this module for their own types to indicate if the type can isolate.
+The user should implement this trait for their own types to indicate if the type can isolate.
 For example:
 
 ```rust
@@ -62,7 +62,7 @@ In the future, we will support the `derive` keyword to automatically generate `I
 
 2. **Recursive isolation** (for reference types):
    - If `T` contains nested objects, they must also be uniquely owned
-   - Checked via `v.can_isolate()` method (see Isolation module below)
+   - Checked via `v.can_isolate()` method (see Isolation trait below)
 
 ```yo
 // ❌ Rejected: x has alias y

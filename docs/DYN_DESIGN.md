@@ -2,12 +2,12 @@
 
 ## Overview
 
-`Dyn(Module)` enables runtime polymorphism through dynamic dispatch with type erasure.
+`Dyn(Trait)` enables runtime polymorphism through dynamic dispatch with type erasure.
 
 **Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to an `object` type (reference counted).
 
-```yo
-Id :: module(id : (fn(self : *(Self)) -> i32));
+```typescript
+Id :: trait(id : (fn(self : *(Self)) -> i32));
 
 impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self.*); return self.*; })));
 impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
@@ -29,13 +29,13 @@ main :: (fn() -> unit) {
 
 ### 1. Dyn Type (Value Type - Fat Pointer)
 
-`Dyn(Module)` is a **value type struct** (no ref_header). It's a fat pointer containing data and vtable.
+`Dyn(Trait)` is a **value type struct** (no ref_header). It's a fat pointer containing data and vtable.
 
 ```c
 typedef struct {
   void* data;                    // MUST point to object type (has ref_header)
-  const ModuleVtable* vtable;    // Static vtable pointer
-} yo_dyn_module_Id;
+  const TraitVtable* vtable;    // Static vtable pointer
+} yo_dyn_trait_id;
 ```
 
 **Key Points:**
@@ -86,7 +86,7 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 typedef struct {
   int32_t (*return_i32)(void*);    // All return types must be concrete (no Self)
   void (*print)(void*);            // unit return type
-} yo_dyn_module_TestDyn_vtable;
+} yo_dyn_trait_TestDyn_vtable;
 ```
 
 **Wrapper Functions:**
@@ -96,7 +96,7 @@ typedef struct {
 
 ## Object-Safety Constraint (Following Rust)
 
-**Constraint**: Modules used with `Dyn()` **cannot** have methods that:
+**Constraint**: Traits used with `Dyn()` **cannot** have methods that:
 
 1. Take `Self` by value - must use `self : *(Self)` instead
 2. Return `Self`
@@ -109,8 +109,8 @@ This follows Rust's "object-safety" rules (dyn-compatibility). The reasons:
 
 **Valid** for dynamic dispatch:
 
-```yo
-TestDyn :: module(
+```typescript
+TestDyn :: trait(
   return_i32 : fn(self : *(Self)) -> i32,  // Takes *(Self), returns concrete type - OK!
   print : fn(self : *(Self)) -> unit        // Takes *(Self), returns unit - OK!
 );
@@ -118,14 +118,14 @@ TestDyn :: module(
 
 **Invalid** for dynamic dispatch (object-safety violations):
 
-```yo
-TestDyn :: module(
+```typescript
+TestDyn :: trait(
   by_value : fn(self : Self) -> unit,      // Takes Self by value - NOT object-safe!
   id : fn(self : *(Self)) -> Self           // Returns Self - NOT object-safe!
 );
 ```
 
-The constraint is **enforced at method call time**, not at module definition. You can define modules with non-object-safe methods, but you cannot call those methods on Dyn values.
+The constraint is **enforced at method call time**, not at trait definition. You can define traits with non-object-safe methods, but you cannot call those methods on Dyn values.
 
 ## Object Type Requirement for dyn(...)
 
@@ -166,7 +166,7 @@ int32_t wrapper_Box_i32_id(void* self_ptr) {
 }
 
 // Static vtable for dyn(box(i32))
-static const yo_dyn_module_Id_vtable yo_vtable_Box_i32_Id = {
+static const yo_dyn_trait_Id_vtable yo_vtable_Box_i32_Id = {
   .id = wrapper_Box_i32_id  // Points to wrapper
 };
 ```
@@ -180,7 +180,7 @@ void fn_Point_print(Point* self) {
 }
 
 // Static vtable for dyn(point) - no wrapper needed!
-static const yo_dyn_module_Printer_vtable yo_vtable_Point_Printer = {
+static const yo_dyn_trait_Printer_vtable yo_vtable_Point_Printer = {
   .print = (void(*)(void*))fn_Point_print  // Direct cast
 };
 ```
@@ -193,7 +193,7 @@ When constructing a `Dyn`, the value must be an object type. The `Dyn` struct is
 // For dyn(box(42)):
 Box_i32* boxed = /* result of box(42) */;  // Already has RC = 1
 
-yo_dyn_module_Id result = {
+yo_dyn_trait_id result = {
   .data = boxed,
   .vtable = &yo_vtable_Box_i32_Id
 };
@@ -204,7 +204,7 @@ yo_dyn_module_Id result = {
 // For dyn(point) where point : Point:
 Point* point = /* Point(3, 4) */;  // Already has RC = 1
 
-yo_dyn_module_Printer result = {
+yo_dyn_trait_Printer result = {
   .data = point,
   .vtable = &yo_vtable_Point_Printer
 };
@@ -218,7 +218,7 @@ yo_dyn_module_Printer result = {
 Method calls on `Dyn` go through the vtable. Since `Dyn` is a value type, `value` is the struct itself.
 
 ```c
-// value has type yo_dyn_module_TestDyn (struct, not pointer)
+// value has type yo_dyn_trait_TestDyn (struct, not pointer)
 int32_t result = value.vtable->return_i32(value.data);
 value.vtable->print(value.data);
 ```
@@ -232,7 +232,7 @@ Since `Dyn` is a value type, we need dup/drop functions that operate on the `dat
 When copying a `Dyn`, increment the `data` pointer's RC:
 
 ```c
-yo_dyn_module_Id __yo_dup_dyn_module_Id(yo_dyn_module_Id dyn) {
+yo_dyn_trait_id __yo_dup_dyn_trait_Id(yo_dyn_trait_id dyn) {
   if (dyn.data) {
     __yo_incr_rc(dyn.data);  // data is always an object type
   }
@@ -245,7 +245,7 @@ yo_dyn_module_Id __yo_dup_dyn_module_Id(yo_dyn_module_Id dyn) {
 When dropping a `Dyn`, decrement the `data` pointer's RC:
 
 ```c
-void __yo_drop_dyn_module_Id(yo_dyn_module_Id dyn) {
+void __yo_drop_dyn_trait_Id(yo_dyn_trait_id dyn) {
   if (dyn.data) {
     __yo_decr_rc(dyn.data);  // data is always an object type
   }
@@ -263,7 +263,7 @@ void __yo_drop_dyn_module_Id(yo_dyn_module_Id dyn) {
 ### Phase 1: Collection & Analysis
 
 - Track `dyn()` call sites during expression analysis
-- Collect: `{ dynType, concreteType, implModuleValue }[]`
+- Collect: `{ dynType, concreteType, implTraitValue }[]`
 - Store in `context.dynImpls` or similar
 
 ### Phase 2: Generate Wrapper Functions
@@ -276,7 +276,7 @@ For boxed value types, generate wrappers to unwrap `Box(T)` before calling impl:
 function generateDynMethodWrapper(
   implType: Type,
   method: Method,
-  moduleType: ModuleType,
+  traitType: TraitType,
   context: CodeGenContext
 ): string {
   if (isObjectType(implType)) {
@@ -313,16 +313,16 @@ function generateStaticVtable(
   dynType: DynType,
   context: FunctionGenerationContext
 ) {
-  const vtableName = `yo_vtable_${implCName}_${moduleCName}`;
+  const vtableName = `yo_vtable_${implCName}_${traitCName}`;
 
   emitter.emitLine(`static const ${dynVtableType} ${vtableName} = {`);
 
-  for (const method of moduleType.fields) {
+  for (const method of traitType.fields) {
     // Generate wrapper (or direct cast for object types)
     const funcPtr = generateDynMethodWrapper(
       implType,
       method,
-      moduleType,
+      traitType,
       context
     );
     emitter.emitLine(`  .${method.name} = ${funcPtr},`);
@@ -359,7 +359,7 @@ function generateDynCall(
   // Create Dyn struct on stack
   const dynVar = expr.$.variableName || generateTempName();
   const dynCName = getTypeCName(dynType, context);
-  const vtableName = `yo_vtable_${getTypeCName(concreteType, context)}_${dynType.moduleName}`;
+  const vtableName = `yo_vtable_${getTypeCName(concreteType, context)}_${dynType.traitName}`;
 
   context.emitter.emitLine(`${indent}${dynCName} ${dynVar} = {`);
   context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
@@ -385,7 +385,7 @@ function generateMethodCallOnDyn(
 ): string {
   const receiverCode = generateExpr(receiver, indent, context);
 
-  // receiver is a struct: yo_dyn_module_TestDyn
+  // receiver is a struct: yo_dyn_trait_TestDyn
   // Generate: receiver.vtable->method(receiver.data)
   return `${receiverCode}.vtable->${methodName}(${receiverCode}.data)`;
 }
