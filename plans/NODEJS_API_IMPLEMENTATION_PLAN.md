@@ -189,9 +189,9 @@ Path :: object(
 | `Path.format(obj)`        | `path.format()`     | Medium   | Sync                      |
 | `Path.sep`                | `path.sep`          | High     | Const                     |
 | `Path.delimiter`          | `path.delimiter`    | Medium   | Const                     |
-| `exists()`                | -                   | High     | Async - see `fs.exists()` |
-| `is_file()`               | -                   | High     | Async - see `fs.stat()`   |
-| `is_dir()`                | -                   | High     | Async - see `fs.stat()`   |
+| `Path.exists()`           | -                   | High     | Async - see `fs.exists()` |
+| `Path.is_file()`          | -                   | High     | Async - see `fs.stat()`   |
+| `Path.is_dir()`           | -                   | High     | Async - see `fs.stat()`   |
 
 ---
 

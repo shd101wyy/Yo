@@ -1,7 +1,588 @@
 open import "std/fmt";
+open import "std/string";
+open import "std/collections/array_list";
+
+/**
+ * Path - Cross-platform path manipulation
+ * 
+ * Provides utilities for working with filesystem paths similar to Node.js's path module.
+ * Path operations are synchronous (pure computation, no I/O).
+ */
+
+PathError :: enum(
+  EmptyPath,
+  InvalidPath(message: String)
+);
+
+/**
+ * Path separator for the current platform
+ * Unix: '/', Windows: '\\'
+ */
+PATH_SEPARATOR :: (fn() -> u8)(
+  u8(47)  // '/' for Unix (we'll focus on Unix first)
+);
+
+/**
+ * Path delimiter for the current platform
+ * Unix: ':', Windows: ';'
+ */
+PATH_DELIMITER :: (fn() -> u8)(
+  u8(58)  // ':' for Unix
+);
+
+/**
+ * Path - Represents a filesystem path
+ */
+Path :: object(
+  _segments: ArrayList(String),
+  _is_absolute: bool,
+
+  /**
+   * Create a new path from a string
+   * Example: Path.new("./src/main.yo")
+   */
+  new :: (fn(path_str: String) -> Self)({
+    segments := ArrayList(String).new();
+    is_abs := false;
+
+    // Check if path is absolute (starts with '/')
+    bytes := path_str._bytes;
+    cond(
+      (bytes.len() > usize(0)) => {
+        first_byte := bytes.get(usize(0));
+        match(first_byte,
+          .Some(b) => cond(
+            (b == u8(47)) => {
+              is_abs = true;
+            },
+            true => ()
+          ),
+          .None => ()
+        );        
+      },
+      true => ()
+    );
+
+    // Split path by separator
+    current_segment := ArrayList(u8).new();
+    i := usize(0);
+    while ((i < bytes.len())),
+          (i = (i + usize(1))),
+    {
+      byte := bytes.get(i);
+      match(byte,
+        .Some(b) => cond(
+          (b == u8(47)) => {
+            // Found separator
+            cond(
+              (current_segment.len() > usize(0)) => {
+                segment_str := String.from_bytes(current_segment);
+                cond(
+                  // Skip "." segments (current directory)
+                  ((segment_str.len() == usize(1)) 
+                  && (segment_str.byte_at(usize(0)) == .Ok(u8(46)))) => (),
+                  // Handle ".." segments (parent directory)
+                  ((segment_str.len() == usize(2))
+                  && (segment_str.byte_at(usize(0)) == .Ok(u8(46))) 
+                    && (segment_str.byte_at(usize(1)) == .Ok(u8(46)))) => {
+                    // Pop the last segment if exists and not absolute root
+                    cond(
+                      (segments.len() > usize(0)) => {
+                        segments.pop();
+                      },
+                      true => ()
+                    );
+                  },
+                  true => {
+                    segments.push(segment_str);
+                  }
+                );
+                current_segment = ArrayList(u8).new();
+              },
+              true => ()
+            );
+          },
+          true => {
+            current_segment.push(b);
+          }
+        ),
+        .None => ()
+      );
+    };
+
+    // Add the last segment if any
+    cond(
+      (current_segment.len() > usize(0)) => {
+        segment_str := String.from_bytes(current_segment);
+        cond(
+          ((segment_str.len() == usize(1)) 
+            && (segment_str.byte_at(usize(0)) == .Ok(u8(46)))) => (),
+          ((segment_str.len() == usize(2)) 
+            && (segment_str.byte_at(usize(0)) == .Ok(u8(46)))
+            && (segment_str.byte_at(usize(1)) == .Ok(u8(46)))) => {
+            cond(
+              (segments.len() > usize(0)) => {
+                _ := segments.pop();
+              },
+              true => ()
+            );
+          },
+          true => {
+            segments.push(segment_str);
+          }
+        );
+      },
+      true => ()
+    );
+
+    return Self(_segments: segments, _is_absolute: is_abs);
+  }),
+
+  /**
+   * Create a path from a C string
+   * Example: Path.from_cstr(c"./src/main.yo")
+   */
+  from_cstr :: (fn(cstr: *(u8)) -> Self)({
+    str := String.from_cstr(cstr);
+    return Path.new(str);
+  }),
+
+  /**
+   * Join this path with another path
+   * Example: Path.new("/usr").join(Path.new("local/bin"))
+   */
+  join :: (fn(self: Self, other: Self) -> Self)({
+    // If other is absolute, return other
+    cond(
+      (other._is_absolute) => {
+        return other;
+      },
+      true => ()
+    );
+
+    // Otherwise, concatenate segments
+    new_segments := ArrayList(String).with_capacity((self._segments.len() + other._segments.len()));
+    
+    // Copy self segments
+    i := usize(0);
+    while ((i < self._segments.len())),
+          (i = (i + usize(1))),
+    {
+      seg := self._segments.get(i);
+      match(seg) {
+        .Ok(s) => {
+          new_segments.push(s);
+        },
+        .Err(_) => ()
+      };
+    };
+
+    // Copy other segments
+    j := usize(0);
+    while ((j < other._segments.len())),
+          (j = (j + usize(1))),
+    {
+      seg := other._segments.get(j);
+      match(seg) {
+        .Ok(s) => {
+          new_segments.push(s);
+        },
+        .Err(_) => ()
+      };
+    };
+
+    return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+  }),
+
+  /**
+   * Get the parent path
+   * Example: Path.new("/usr/local/bin").parent() => Some(Path.new("/usr/local"))
+   */
+  parent :: (fn(self: Self) -> Option(Self))({
+    cond(
+      (self._segments.len() == usize(0)) => {
+        return .None();
+      },
+      true => ()
+    );
+
+    new_segments := ArrayList(String).with_capacity((self._segments.len() - usize(1)));
+    i := usize(0);
+    while ((i < (self._segments.len() - usize(1)))),
+          (i = (i + usize(1))),
+    {
+      seg := self._segments.get(i);
+      match(seg) {
+        .Ok(s) => {
+          new_segments.push(s);
+        },
+        .Err(_) => ()
+      };
+    };
+
+    return .Some(Self(_segments: new_segments, _is_absolute: self._is_absolute));
+  }),
+
+  /**
+   * Get the file name (last segment)
+   * Example: Path.new("/usr/local/bin").file_name() => Some("bin")
+   */
+  file_name :: (fn(self: Self) -> Option(String))({
+    cond(
+      (self._segments.len() == usize(0)) => {
+        return .None();
+      },
+      true => ()
+    );
+
+    last := self._segments.get((self._segments.len() - usize(1)));
+    match(last) {
+      .Ok(s) => {
+        return .Some(s);
+      },
+      .Err(_) => {
+        return .None();
+      }
+    };
+  }),
+
+  /**
+   * Get the file stem (file name without extension)
+   * Example: Path.new("main.yo").file_stem() => Some("main")
+   */
+  file_stem :: (fn(self: Self) -> Option(String))({
+    name_opt := self.file_name();
+    match(name_opt) {
+      .Some(name) => {
+        // Find the last dot
+        bytes := name._bytes;
+        last_dot_idx := Option(usize).None();
+        i := usize(0);
+        while ((i < bytes.len())),
+              (i = (i + usize(1))),
+        {
+          byte := bytes.get(i);
+          match(byte) {
+            .Ok(b) => cond(
+              (b == u8(46)) => {
+                last_dot_idx = .Some(i);
+              },
+              true => ()
+            ),
+            .Err(_) => ()
+          };
+        };
+
+        match(last_dot_idx) {
+          .Some(idx) => {
+            // Extract bytes before the dot
+            stem_bytes := ArrayList(u8).with_capacity(idx);
+            j := usize(0);
+            while ((j < idx)),
+                  (j = (j + usize(1))),
+            {
+              byte := bytes.get(j);
+              match(byte) {
+                .Ok(b) => {
+                  stem_bytes.push(b);
+                },
+                .Err(_) => ()
+              };
+            };
+            return .Some(String.from_bytes(stem_bytes));
+          },
+          .None() => {
+            return .Some(name);
+          }
+        };
+      },
+      .None() => {
+        return .None();
+      }
+    };
+  }),
+
+  /**
+   * Get the file extension
+   * Example: Path.new("main.yo").extension() => Some("yo")
+   */
+  extension :: (fn(self: Self) -> Option(String))({
+    name_opt := self.file_name();
+    match(name_opt) {
+      .Some(name) => {
+        // Find the last dot
+        bytes := name._bytes;
+        last_dot_idx := Option(usize).None();
+        i := usize(0);
+        while ((i < bytes.len())),
+              (i = (i + usize(1))),
+        {
+          byte := bytes.get(i);
+          match(byte) {
+            .Ok(b) => cond(
+              (b == u8(46)) => {
+                last_dot_idx = .Some(i);
+              },
+              true => ()
+            ),
+            .Err(_) => ()
+          };
+        };
+
+        match(last_dot_idx) {
+          .Some(idx) => {
+            // Extract bytes after the dot
+            ext_bytes := ArrayList(u8).new();
+            j := (idx + usize(1));
+            while ((j < bytes.len())),
+                  (j = (j + usize(1))),
+            {
+              byte := bytes.get(j);
+              match(byte) {
+                .Ok(b) => {
+                  ext_bytes.push(b);
+                },
+                .Err(_) => ()
+              };
+            };
+            return .Some(String.from_bytes(ext_bytes));
+          },
+          .None() => {
+            return .None();
+          }
+        };
+      },
+      .None() => {
+        return .None();
+      }
+    };
+  }),
+
+  /**
+   * Replace the extension of the path
+   * Example: Path.new("main.yo").with_extension("js") => Path.new("main.js")
+   */
+  with_extension :: (fn(self: Self, ext: String) -> Self)({
+    cond(
+      (self._segments.len() == usize(0)) => {
+        return self;
+      },
+      true => ()
+    );
+
+    // Get the file stem
+    stem_opt := self.file_stem();
+    match(stem_opt) {
+      .Some(stem) => {
+        // Build new file name with extension
+        new_name := stem.concat(".").concat(ext);
+        
+        // Replace the last segment
+        new_segments := ArrayList(String).with_capacity(self._segments.len());
+        i := usize(0);
+        while ((i < (self._segments.len() - usize(1)))),
+              (i = (i + usize(1))),
+        {
+          seg := self._segments.get(i);
+          match(seg) {
+            .Ok(s) => {
+              new_segments.push(s);
+            },
+            .Err(_) => ()
+          };
+        };
+        new_segments.push(new_name);
+
+        return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+      },
+      .None() => {
+        return self;
+      }
+    };
+  }),
+
+  /**
+   * Check if the path is absolute
+   */
+  is_absolute :: (fn(self: Self) -> bool)(
+    self._is_absolute
+  ),
+
+  /**
+   * Check if the path is relative
+   */
+  is_relative :: (fn(self: Self) -> bool)(
+    !self._is_absolute
+  ),
+
+  /**
+   * Convert the path to a string
+   * Example: Path.new("/usr/local").to_string() => "/usr/local"
+   */
+  to_string :: (fn(self: Self) -> String)({
+    result := String.new();
+    
+    cond(
+      (self._is_absolute) => {
+        result = result.concat("/");
+      },
+      true => ()
+    );
+
+    i := usize(0);
+    while ((i < self._segments.len())),
+          (i = (i + usize(1))),
+    {
+      seg := self._segments.get(i);
+      match(seg) {
+        .Ok(s) => {
+          result = result.concat(s);
+          cond(
+            ((i < (self._segments.len() - usize(1)))) => {
+              result = result.concat("/");
+            },
+            true => ()
+          );
+        },
+        .Err(_) => ()
+      };
+    };
+
+    return result;
+  }),
+
+  /**
+   * Convert the path to a C string (null-terminated byte array)
+   */
+  to_cstr :: (fn(self: Self) -> ArrayList(u8))({
+    str := self.to_string();
+    bytes := ArrayList(u8).new();
+    
+    // Copy string bytes
+    i := usize(0);
+    while ((i < str._bytes.len())),
+          (i = (i + usize(1))),
+    {
+      byte := str._bytes.get(i);
+      match(byte) {
+        .Ok(b) => {
+          bytes.push(b);
+        },
+        .Err(_) => ()
+      };
+    };
+
+    // Add null terminator
+    bytes.push(u8(0));
+
+    return bytes;
+  })
+);
+
 
 main :: (fn() -> unit) {
-  x := 12;
+  println("=== Testing Path Module ===");
+  println("");
+  
+  // Test 1: Create a simple path
+  println("Test 1: Create simple path");
+  path1 := Path.new("src/main.yo");
+  println(path1.to_string());
+  println("");
+  
+  // Test 2: Create absolute path
+  println("Test 2: Create absolute path");
+  path2 := Path.new("/usr/local/bin");
+  println(path2.to_string());
+  print("Is absolute: ");
+  println(path2.is_absolute());
+  println("");
+  
+  // Test 3: Join paths
+  println("Test 3: Join paths");
+  base := Path.new("/home/user");
+  subdir := Path.new("documents/work");
+  joined := base.join(subdir);
+  println(joined.to_string());
+  println("");
+  
+  // Test 4: Get parent
+  println("Test 4: Get parent path");
+  path3 := Path.new("/usr/local/bin");
+  parent_opt := path3.parent();
+  match(parent_opt) {
+    .Some(parent) => {
+      print("Parent of /usr/local/bin: ");
+      println(parent.to_string());
+    },
+    .None() => {
+      println("No parent found");
+    }
+  };
+  println("");
+  
+  // Test 5: Get file name
+  println("Test 5: Get file name");
+  path4 := Path.new("/home/user/document.txt");
+  name_opt := path4.file_name();
+  match(name_opt) {
+    .Some(name) => {
+      print("File name: ");
+      println(name);
+    },
+    .None() => {
+      println("No file name found");
+    }
+  };
+  println("");
+  
+  // Test 6: Get file stem and extension
+  println("Test 6: Get file stem and extension");
+  path5 := Path.new("main.yo");
+  stem_opt := path5.file_stem();
+  ext_opt := path5.extension();
+  match(stem_opt) {
+    .Some(stem) => {
+      print("File stem: ");
+      println(stem);
+    },
+    .None() => {
+      println("No stem found");
+    }
+  };
+  match(ext_opt) {
+    .Some(ext) => {
+      print("Extension: ");
+      println(ext);
+    },
+    .None() => {
+      println("No extension found");
+    }
+  };
+  println("");
+  
+  // Test 7: Change extension
+  println("Test 7: Change extension");
+  path6 := Path.new("main.yo");
+  path7 := path6.with_extension("js");
+  print("Changed extension: ");
+  println(path7.to_string());
+  println("");
+  
+  // Test 8: Normalize path with .. and .
+  println("Test 8: Normalize path");
+  path8 := Path.new("/usr/local/../bin/./test");
+  println(path8.to_string());
+  println("");
+  
+  // Test 9: Relative path
+  println("Test 9: Relative path check");
+  path9 := Path.new("./src/main.yo");
+  print("Is relative: ");
+  println(path9.is_relative());
+  println("");
+  
+  println("=== All Path tests completed ===");
 };
 
 export main;
