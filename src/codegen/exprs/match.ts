@@ -308,6 +308,10 @@ export function generateMatchExpression(
       `${indent}switch (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode}) {`
     );
 
+    // Set insideMatch flag so nested break statements use goto instead of break
+    const savedInsideMatch = context.insideMatch;
+    context.insideMatch = true;
+
     const caseExprs = expr.args.slice(1);
     for (let i = 0; i < caseExprs.length; i++) {
       const caseExpr = caseExprs[i];
@@ -345,27 +349,15 @@ export function generateMatchExpression(
             context.emitter.emitLine(`${indent}  ${bodyCode};`);
           }
 
-          // Check if we need to break out of the loop instead of just the switch
-          if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
-            context.emitter.emitLine(
-              `${indent}  goto ${context.currentLoopLabel};`
-            );
-          } else if (caseBody.$?.controlFlow === "continue") {
-            // For continue, we need to break out of the switch first
-            context.emitter.emitLine(`${indent}  break;`);
-            // Then add a goto to the continue label (if it exists for 3-argument while loops)
-            if (context.currentContinueLabel) {
-              context.emitter.emitLine(
-                `${indent}  goto ${context.currentContinueLabel};`
-              );
-            }
-          } else {
-            context.emitter.emitLine(`${indent}  break;`);
-          }
+          // Always emit break to exit the switch case
+          // (nested break to exit loop is handled by generateAtom with insideMatch flag)
+          context.emitter.emitLine(`${indent}  break;`);
         }
       }
     }
 
+    // Restore insideMatch flag
+    context.insideMatch = savedInsideMatch;
     context.emitter.emitLine(`${indent}}`);
     return isUnit ? "" : (tempVariableName ?? "");
   }
@@ -374,6 +366,10 @@ export function generateMatchExpression(
   context.emitter.emitLine(
     `${indent}switch (${ptrOrRefType === "ref_semantics" || ptrOrRefType ? matchedValueCode + "->tag" : "(" + matchedValueCode + ").tag"}) {`
   );
+
+  // Set insideMatch flag so nested break statements use goto instead of break
+  const savedInsideMatch = context.insideMatch;
+  context.insideMatch = true;
 
   const caseExprs = expr.args.slice(1);
   for (let i = 0; i < caseExprs.length; i++) {
@@ -608,21 +604,9 @@ export function generateMatchExpression(
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
         }
 
-        // Check if we need to break out of the loop instead of just the switch
-        if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
-          context.emitter.emitLine(
-            `${indent}  goto ${context.currentLoopLabel};`
-          );
-        } else if (caseBody.$?.controlFlow === "continue") {
-          context.emitter.emitLine(`${indent}  break;`);
-          if (context.currentContinueLabel) {
-            context.emitter.emitLine(
-              `${indent}  goto ${context.currentContinueLabel};`
-            );
-          }
-        } else {
-          context.emitter.emitLine(`${indent}  break;`);
-        }
+        // Always emit break to exit the switch case
+        // (nested break to exit loop is handled by generateAtom with insideMatch flag)
+        context.emitter.emitLine(`${indent}  break;`);
       }
       // Handle destructuring patterns like .Point(point) => { ... }
       else if (
@@ -837,25 +821,15 @@ export function generateMatchExpression(
           context.emitter.emitLine(`${indent}  ${bodyCode};`);
         }
 
-        // Check if we need to break out of the loop instead of just the switch
-        if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
-          context.emitter.emitLine(
-            `${indent}  goto ${context.currentLoopLabel};`
-          );
-        } else if (caseBody.$?.controlFlow === "continue") {
-          context.emitter.emitLine(`${indent}  break;`);
-          if (context.currentContinueLabel) {
-            context.emitter.emitLine(
-              `${indent}  goto ${context.currentContinueLabel};`
-            );
-          }
-        } else {
-          context.emitter.emitLine(`${indent}  break;`);
-        }
+        // Always emit break to exit the switch case
+        // (nested break to exit loop is handled by generateAtom with insideMatch flag)
+        context.emitter.emitLine(`${indent}  break;`);
       }
     }
   }
 
+  // Restore insideMatch flag
+  context.insideMatch = savedInsideMatch;
   context.emitter.emitLine(`${indent}}`);
 
   // Generate deferred drop expressions for the match expression after the switch closes

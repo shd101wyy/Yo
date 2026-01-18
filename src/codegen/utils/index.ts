@@ -205,6 +205,12 @@ export interface CodeGenContext {
    * When continue is executed, it should jump to this label (which is before the step)
    */
   currentContinueLabel?: string;
+
+  /**
+   * Track when we're inside a match expression (which compiles to a switch in C)
+   * This is needed because break inside a switch breaks the switch, not an outer loop
+   */
+  insideMatch?: boolean;
 }
 
 /**

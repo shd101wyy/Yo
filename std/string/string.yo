@@ -342,10 +342,11 @@ String :: object(
   /**
    * Find the first occurrence of a substring (like JavaScript indexOf)
    * Returns the character index of the first match, or None if not found
+   * from_index specifies the character index to start searching from
    */
   index_of :: (fn(self: Self, substring: Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
-      substring.is_empty() => .Some(usize(0)),
+      substring.is_empty() => .Some(from_index),
       true => {
         self_bytes := self._bytes.len();
         sub_bytes := substring._bytes.len();
@@ -355,6 +356,25 @@ String :: object(
           true => {
             char_index := usize(0);
             byte_index := usize(0);
+            
+            // Skip to from_index character position
+            while (((byte_index < self_bytes) && (char_index < from_index))),
+                  (byte_index = (byte_index + usize(1))),
+            {
+              first_byte_opt := self._bytes.get(byte_index);
+              match(first_byte_opt,
+                .Some(first_byte) => {
+                  is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
+                  cond(
+                    is_start => {
+                      char_index = (char_index + usize(1));
+                    },
+                    true => ()
+                  );
+                },
+                .None => ()
+              );
+            };
             
             while ((byte_index <= (self_bytes - sub_bytes))),
                   (byte_index = (byte_index + usize(1))),
@@ -522,6 +542,643 @@ String :: object(
         return result;
       }
     )
+  }),
+
+  /**
+   * Find the last occurrence of a substring (like JavaScript lastIndexOf)
+   * Returns the character index of the last match, or None if not found
+   * from_index specifies the character index to start searching backwards from
+   */
+  last_index_of :: (fn(self: Self, substring: Self, (from_index : usize) ?= 0xFFFFFFFFFFFFFFFF) -> Option(usize))(
+    cond(
+      substring.is_empty() => .Some(self.len()),
+      true => {
+        self_bytes := self._bytes.len();
+        sub_bytes := substring._bytes.len();
+        
+        cond(
+          (sub_bytes > self_bytes) => .None,
+          true => {
+            // Build a mapping of byte_index -> char_index for character start bytes
+            char_positions := ArrayList(usize).new();
+            byte_positions := ArrayList(usize).new();
+            
+            byte_idx := usize(0);
+            char_idx := usize(0);
+            while ((byte_idx < self_bytes)),
+                  (byte_idx = (byte_idx + usize(1))),
+            {
+              byte_opt := self._bytes.get(byte_idx);
+              match(byte_opt,
+                .Some(byte) => {
+                  is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+                  cond(
+                    is_start => {
+                      char_positions.push(char_idx);
+                      byte_positions.push(byte_idx);
+                      char_idx = (char_idx + usize(1));
+                    },
+                    true => ()
+                  );
+                },
+                .None => ()
+              );
+            };
+            
+            // Determine max_char_index based on from_index
+            max_char_index := cond(
+              (from_index >= char_idx) => char_idx,
+              true => (from_index + usize(1))
+            );
+            
+            // Search backwards from the end
+            (last_match : Option(usize)) = .None;
+            i := usize(0);
+            while ((i < char_positions.len())),
+                  (i = (i + usize(1))),
+            {
+              char_pos_opt := char_positions.get(i);
+              byte_pos_opt := byte_positions.get(i);
+              match(char_pos_opt,
+                .Some(char_pos) =>
+                  match(byte_pos_opt,
+                    .Some(byte_pos) => {
+                      cond(
+                        (char_pos >= max_char_index) => break,
+                        ((byte_pos + sub_bytes) <= self_bytes) => {
+                          matches := true;
+                          j := usize(0);
+                          while ((j < sub_bytes)),
+                                (j = (j + usize(1))),
+                          {
+                            self_byte_opt := self._bytes.get((byte_pos + j));
+                            sub_byte_opt := substring._bytes.get(j);
+                            match(self_byte_opt,
+                              .Some(self_byte) =>
+                                match(sub_byte_opt,
+                                  .Some(sub_byte) => {
+                                    cond(
+                                      (self_byte != sub_byte) => {
+                                        matches = false;
+                                        break;
+                                      },
+                                      true => ()
+                                    );
+                                  },
+                                  .None => {
+                                    matches = false;
+                                    break;
+                                  }
+                                ),
+                              .None => {
+                                matches = false;
+                                break;
+                              }
+                            );
+                          };
+                          cond(
+                            matches => {
+                              last_match = .Some(char_pos);
+                            },
+                            true => ()
+                          );
+                        },
+                        true => ()
+                      );
+                    },
+                    .None => ()
+                  ),
+                .None => ()
+              );
+            };
+            
+            return last_match;
+          }
+        )
+      }
+    )
+  ),
+
+  /**
+   * Check if the string starts with the specified substring (like JavaScript startsWith)
+   */
+  starts_with :: (fn(self: Self, prefix: Self) -> bool)({
+    prefix_bytes := prefix._bytes.len();
+    self_bytes := self._bytes.len();
+    
+    cond(
+      (prefix_bytes > self_bytes) => false,
+      (prefix_bytes == usize(0)) => true,
+      true => {
+        i := usize(0);
+        matches := true;
+        while ((i < prefix_bytes)),
+              (i = (i + usize(1))),
+        {
+          self_byte_opt := self._bytes.get(i);
+          prefix_byte_opt := prefix._bytes.get(i);
+          match(self_byte_opt,
+            .Some(self_byte) =>
+              match(prefix_byte_opt,
+                .Some(prefix_byte) => {
+                  cond(
+                    (self_byte != prefix_byte) => {
+                      matches = false;
+                      break;
+                    },
+                    true => ()
+                  );
+                },
+                .None => {
+                  matches = false;
+                  break;
+                }
+              ),
+            .None => {
+              matches = false;
+              break;
+            }
+          );
+        };
+        return matches;
+      }
+    )
+  }),
+
+  /**
+   * Check if the string ends with the specified substring (like JavaScript endsWith)
+   */
+  ends_with :: (fn(self: Self, suffix: Self) -> bool)({
+    suffix_bytes := suffix._bytes.len();
+    self_bytes := self._bytes.len();
+    
+    cond(
+      (suffix_bytes > self_bytes) => false,
+      (suffix_bytes == usize(0)) => true,
+      true => {
+        offset := (self_bytes - suffix_bytes);
+        i := usize(0);
+        matches := true;
+        while ((i < suffix_bytes)),
+              (i = (i + usize(1))),
+        {
+          self_byte_opt := self._bytes.get((offset + i));
+          suffix_byte_opt := suffix._bytes.get(i);
+          match(self_byte_opt,
+            .Some(self_byte) =>
+              match(suffix_byte_opt,
+                .Some(suffix_byte) => {
+                  cond(
+                    (self_byte != suffix_byte) => {
+                      matches = false;
+                      break;
+                    },
+                    true => ()
+                  );
+                },
+                .None => {
+                  matches = false;
+                  break;
+                }
+              ),
+            .None => {
+              matches = false;
+              break;
+            }
+          );
+        };
+        return matches;
+      }
+    )
+  }),
+
+  /**
+   * Replace the first occurrence of search_value with new_value (like JavaScript replace)
+   */
+  replace :: (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
+    cond(
+      search_value.is_empty() => {
+        // If search is empty, prepend new_value
+        return new_value.concat(self);
+      },
+      true => {
+        self_bytes := self._bytes.len();
+        search_bytes := search_value._bytes.len();
+        
+        // Find first occurrence at byte level
+        byte_index := usize(0);
+        (found_at : Option(usize)) = .None;
+        
+        while ((byte_index <= (self_bytes - search_bytes))),
+              (byte_index = (byte_index + usize(1))),
+        {
+          matches := true;
+          j := usize(0);
+          while ((j < search_bytes)),
+                (j = (j + usize(1))),
+          {
+            self_byte_opt := self._bytes.get((byte_index + j));
+            search_byte_opt := search_value._bytes.get(j);
+            match(self_byte_opt,
+              .Some(self_byte) =>
+                match(search_byte_opt,
+                  .Some(search_byte) => {
+                    cond(
+                      (self_byte != search_byte) => {
+                        matches = false;
+                        break;
+                      },
+                      true => ()
+                    );
+                  },
+                  .None => {
+                    matches = false;
+                    break;
+                  }
+                ),
+              .None => {
+                matches = false;
+                break;
+              }
+            );
+          };
+          
+          cond(
+            matches => {
+              found_at = .Some(byte_index);
+              break;
+            },
+            true => ()
+          );
+        };
+        
+        match(found_at,
+          .Some(pos) => {
+            new_bytes := ArrayList(u8).with_capacity(((self_bytes - search_bytes) + new_value._bytes.len()));
+            
+            // Copy bytes before match
+            i := usize(0);
+            while ((i < pos)),
+                  (i = (i + usize(1))),
+            {
+              byte_opt := self._bytes.get(i);
+              match(byte_opt,
+                .Some(byte) => { new_bytes.push(byte); },
+                .None => ()
+              );
+            };
+            
+            // Copy replacement bytes
+            k := usize(0);
+            while ((k < new_value._bytes.len())),
+                  (k = (k + usize(1))),
+            {
+              byte_opt := new_value._bytes.get(k);
+              match(byte_opt,
+                .Some(byte) => { new_bytes.push(byte); },
+                .None => ()
+              );
+            };
+            
+            // Copy bytes after match
+            m := (pos + search_bytes);
+            while ((m < self_bytes)),
+                  (m = (m + usize(1))),
+            {
+              byte_opt := self._bytes.get(m);
+              match(byte_opt,
+                .Some(byte) => { new_bytes.push(byte); },
+                .None => ()
+              );
+            };
+            
+            return Self(_bytes: new_bytes);
+          },
+          .None => self
+        )
+      }
+    )
+  ),
+
+  /**
+   * Replace all occurrences of search_value with new_value (like JavaScript replaceAll)
+   */
+  replace_all :: (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
+    cond(
+      search_value.is_empty() => self,
+      true => {
+        self_bytes := self._bytes.len();
+        search_bytes := search_value._bytes.len();
+        new_bytes := ArrayList(u8).new();
+        
+        byte_index := usize(0);
+        while ((byte_index < self_bytes)),
+              (byte_index = (byte_index + usize(1))),
+        {
+          matches := true;
+          cond(
+            ((byte_index + search_bytes) <= self_bytes) => {
+              j := usize(0);
+              while ((j < search_bytes)),
+                    (j = (j + usize(1))),
+              {
+                self_byte_opt := self._bytes.get((byte_index + j));
+                search_byte_opt := search_value._bytes.get(j);
+                match(self_byte_opt,
+                  .Some(self_byte) =>
+                    match(search_byte_opt,
+                      .Some(search_byte) => {
+                        cond(
+                          (self_byte != search_byte) => {
+                            matches = false;
+                            break;
+                          },
+                          true => ()
+                        );
+                      },
+                      .None => {
+                        matches = false;
+                        break;
+                      }
+                    ),
+                  .None => {
+                    matches = false;
+                    break;
+                  }
+                );
+              };
+            },
+            true => {
+              matches = false;
+            }
+          );
+          
+          cond(
+            matches => {
+              // Copy replacement bytes
+              k := usize(0);
+              while ((k < new_value._bytes.len())),
+                    (k = (k + usize(1))),
+              {
+                byte_opt := new_value._bytes.get(k);
+                match(byte_opt,
+                  .Some(byte) => { new_bytes.push(byte); },
+                  .None => ()
+                );
+              };
+              byte_index = ((byte_index + search_bytes) - usize(1));
+            },
+            true => {
+              byte_opt := self._bytes.get(byte_index);
+              match(byte_opt,
+                .Some(byte) => { new_bytes.push(byte); },
+                .None => ()
+              );
+            }
+          );
+        };
+        
+        return Self(_bytes: new_bytes);
+      }
+    )
+  ),
+
+  /**
+   * Convert ASCII lowercase letters to uppercase (like JavaScript toUpperCase)
+   * Note: Only handles ASCII a-z, not full Unicode case mapping
+   */
+  to_upper_case :: (fn(self: Self) -> Self)({
+    new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
+    
+    i := usize(0);
+    while ((i < self._bytes.len())),
+          (i = (i + usize(1))),
+    {
+      byte_opt := self._bytes.get(i);
+      match(byte_opt,
+        .Some(byte) => {
+          // ASCII lowercase a-z is 0x61-0x7A, uppercase A-Z is 0x41-0x5A
+          new_byte := cond(
+            ((byte >= u8(0x61)) && (byte <= u8(0x7A))) => (byte - u8(0x20)),
+            true => byte
+          );
+          new_bytes.push(new_byte);
+        },
+        .None => ()
+      );
+    };
+    
+    return Self(_bytes: new_bytes);
+  }),
+
+  /**
+   * Convert ASCII uppercase letters to lowercase (like JavaScript toLowerCase)
+   * Note: Only handles ASCII A-Z, not full Unicode case mapping
+   */
+  to_lower_case :: (fn(self: Self) -> Self)({
+    new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
+    
+    i := usize(0);
+    while ((i < self._bytes.len())),
+          (i = (i + usize(1))),
+    {
+      byte_opt := self._bytes.get(i);
+      match(byte_opt,
+        .Some(byte) => {
+          // ASCII uppercase A-Z is 0x41-0x5A, lowercase a-z is 0x61-0x7A
+          new_byte := cond(
+            ((byte >= u8(0x41)) && (byte <= u8(0x5A))) => (byte + u8(0x20)),
+            true => byte
+          );
+          new_bytes.push(new_byte);
+        },
+        .None => ()
+      );
+    };
+    
+    return Self(_bytes: new_bytes);
+  }),
+
+  /**
+   * Helper to check if a byte is ASCII whitespace
+   * Space (0x20), Tab (0x09), Newline (0x0A), Carriage Return (0x0D), Form Feed (0x0C), Vertical Tab (0x0B)
+   */
+  _is_whitespace_byte :: (fn(byte: u8) -> bool)(
+    ((byte == u8(0x20)) || ((byte == u8(0x09)) || ((byte == u8(0x0A)) || ((byte == u8(0x0D)) || ((byte == u8(0x0C)) || (byte == u8(0x0B)))))))
+  ),
+
+  /**
+   * Remove whitespace from both ends of the string (like JavaScript trim)
+   */
+  trim :: (fn(self: Self) -> Self)({
+    total_bytes := self._bytes.len();
+    
+    cond(
+      (total_bytes == usize(0)) => {
+        return Self.new();
+      },
+      true => ()
+    );
+    
+    // Find start index (skip leading whitespace)
+    start_idx := usize(0);
+    while ((start_idx < total_bytes)),
+          (start_idx = (start_idx + usize(1))),
+    {
+      byte_opt := self._bytes.get(start_idx);
+      match(byte_opt,
+        .Some(byte) => {
+          is_ws := Self._is_whitespace_byte(byte);
+          cond(
+            (!(is_ws)) => break,
+            true => ()
+          );
+        },
+        .None => break
+      );
+    };
+    
+    // Find end index (skip trailing whitespace)
+    end_idx := total_bytes;
+    while ((end_idx > start_idx)),
+          (end_idx = (end_idx - usize(1))),
+    {
+      byte_opt := self._bytes.get((end_idx - usize(1)));
+      match(byte_opt,
+        .Some(byte) => {
+          is_ws := Self._is_whitespace_byte(byte);
+          cond(
+            (!(is_ws)) => break,
+            true => ()
+          );
+        },
+        .None => break
+      );
+    };
+    
+    cond(
+      (start_idx >= end_idx) => {
+        return Self.new();
+      },
+      true => ()
+    );
+    
+    new_bytes := ArrayList(u8).with_capacity((end_idx - start_idx));
+    i := start_idx;
+    while ((i < end_idx)),
+          (i = (i + usize(1))),
+    {
+      byte_opt := self._bytes.get(i);
+      match(byte_opt,
+        .Some(byte) => { new_bytes.push(byte); },
+        .None => ()
+      );
+    };
+    return Self(_bytes: new_bytes);
+  }),
+
+  /**
+   * Remove whitespace from the start of the string (like JavaScript trimStart)
+   */
+  trim_start :: (fn(self: Self) -> Self)({
+    total_bytes := self._bytes.len();
+    
+    cond(
+      (total_bytes == usize(0)) => {
+        return Self.new();
+      },
+      true => ()
+    );
+    
+    // Find start index (skip leading whitespace)
+    start_idx := usize(0);
+    while ((start_idx < total_bytes)),
+          (start_idx = (start_idx + usize(1))),
+    {
+      byte_opt := self._bytes.get(start_idx);
+      match(byte_opt,
+        .Some(byte) => {
+          is_ws := Self._is_whitespace_byte(byte);
+          cond(
+            (!(is_ws)) => break,
+            true => ()
+          );
+        },
+        .None => break
+      );
+    };
+    
+    cond(
+      (start_idx >= total_bytes) => {
+        return Self.new();
+      },
+      true => ()
+    );
+    
+    new_bytes := ArrayList(u8).with_capacity((total_bytes - start_idx));
+    i := start_idx;
+    while ((i < total_bytes)),
+          (i = (i + usize(1))),
+    {
+      byte_opt := self._bytes.get(i);
+      match(byte_opt,
+        .Some(byte) => { new_bytes.push(byte); },
+        .None => ()
+      );
+    };
+    return Self(_bytes: new_bytes);
+  }),
+
+  /**
+   * Remove whitespace from the end of the string (like JavaScript trimEnd)
+   */
+  trim_end :: (fn(self: Self) -> Self)({
+    total_bytes := self._bytes.len();
+    
+    cond(
+      (total_bytes == usize(0)) => {
+        return Self.new();
+      },
+      true => ()
+    );
+    
+    // Find end index (skip trailing whitespace)
+    end_idx := total_bytes;
+    while ((end_idx > usize(0))),
+          (end_idx = (end_idx - usize(1))),
+    {
+      byte_opt := self._bytes.get((end_idx - usize(1)));
+      match(byte_opt,
+        .Some(byte) => {
+          is_ws := Self._is_whitespace_byte(byte);
+          cond(
+            (!(is_ws)) => break,
+            true => ()
+          );
+        },
+        .None => break
+      );
+    };
+    
+    cond(
+      (end_idx == usize(0)) => {
+        return Self.new();
+      },
+      true => ()
+    );
+    
+    new_bytes := ArrayList(u8).with_capacity(end_idx);
+    i := usize(0);
+    while ((i < end_idx)),
+          (i = (i + usize(1))),
+    {
+      byte_opt := self._bytes.get(i);
+      match(byte_opt,
+        .Some(byte) => { new_bytes.push(byte); },
+        .None => ()
+      );
+    };
+    return Self(_bytes: new_bytes);
   })
 );
 

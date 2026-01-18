@@ -15,8 +15,13 @@ println :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   s := v.to_string();
   str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
-  str_bytes_ptr := str_bytes.ptr().unwrap();
-  fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
+  cond(
+    (str_bytes_len > usize(0)) => {
+      str_bytes_ptr := str_bytes.ptr().unwrap();
+      fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
+    },
+    true => ()
+  );
   // Write newline
   (newline : *(u8)) = "\n";
   fwrite(*(void)(newline), usize(1), usize(1), stdout);
@@ -34,8 +39,13 @@ print :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   s := v.to_string();
   str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
-  str_bytes_ptr := str_bytes.ptr().unwrap();
-  fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
+  cond(
+    (str_bytes_len > usize(0)) => {
+      str_bytes_ptr := str_bytes.ptr().unwrap();
+      fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
+    },
+    true => ()
+  );
 });
 export print;
 
@@ -49,8 +59,13 @@ eprintln :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   s := v.to_string();
   str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
-  str_bytes_ptr := str_bytes.ptr().unwrap();
-  fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr);
+  cond(
+    (str_bytes_len > usize(0)) => {
+      str_bytes_ptr := str_bytes.ptr().unwrap();
+      fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr);
+    },
+    true => ()
+  );
   // Write newline
   (newline : *(u8)) = "\n";
   fwrite(*(void)(newline), usize(1), usize(1), stderr);
@@ -68,7 +83,12 @@ eprint :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   s := v.to_string();
   str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
-  str_bytes_ptr := str_bytes.ptr().unwrap();
-  fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr);
+  cond(
+    (str_bytes_len > usize(0)) => {
+      str_bytes_ptr := str_bytes.ptr().unwrap();
+      fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr);
+    },
+    true => ()
+  );
 });
 export eprint;
