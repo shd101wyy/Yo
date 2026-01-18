@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import path from "path";
 import { Environment } from "../../env";
-import { formatErrorMessage, YoError } from "../../error";
+import { formatErrorMessage, YoError, YoLexerError } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
@@ -148,7 +148,7 @@ ${modulePathToImport}`,
       token: moduleArg.token,
       errorMessage: `Failed to import module "${modulePathToImport}":
 ${
-  error instanceof YoError
+  error instanceof YoError || error instanceof YoLexerError
     ? error.toString()
     : error instanceof Error
       ? error.message

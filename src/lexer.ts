@@ -163,6 +163,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
             throw new YoLexerError({
               message: "Unterminated multi-line comment",
               characterIndex: input.length - 1,
+              row: line,
             });
           }
 
@@ -182,6 +183,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           throw new YoLexerError({
             message: `Unexpected character ${char}`,
             characterIndex: i + 1,
+            row: line,
           });
         }
         break;
@@ -305,6 +307,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           throw new YoLexerError({
             message: `Invalid char '${value}', expected char to have length 1.`,
             characterIndex: i,
+            row: line,
           });
         }
 
@@ -448,6 +451,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           throw new YoLexerError({
             message: `Unterminated template string`,
             characterIndex: i,
+            row: line,
           });
         }
 
@@ -685,12 +689,14 @@ export function tokenize(input: string, modulePath: string): Token[] {
             throw new YoLexerError({
               message: `Invalid identifier ${value}`,
               characterIndex: startIndex,
+              row: line,
             });
           }
         } else {
           throw new YoLexerError({
             message: `Unexpected character ${char}`,
             characterIndex: i,
+            row: line,
           });
         }
 
