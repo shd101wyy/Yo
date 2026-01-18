@@ -331,7 +331,7 @@ function generateFuncCall(
   // Initialization assignment
   else if (exprIsFunctionCallOf(expr, ":=", 2)) {
     const result = generateInitializationAssignment(expr, indent, context);
-    if (result) {
+    if (result !== undefined) {
       return result;
     }
   }
@@ -375,7 +375,7 @@ function generateFuncCall(
   // (anonymous) array value
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
     const result = generateAnonymousArray(expr, indent, context);
-    if (result) {
+    if (result !== undefined) {
       return result;
     }
   }
@@ -468,7 +468,7 @@ function generateFuncCall(
   // other function call
   else {
     const result = generateOtherFunctionCall(expr, indent, context);
-    if (result) {
+    if (result !== undefined) {
       return result;
     }
   }
