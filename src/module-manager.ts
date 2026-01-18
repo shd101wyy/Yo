@@ -3,13 +3,15 @@ import path from "node:path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
 import { setGenerateExprFn } from "./codegen/exprs/expr";
 import { _generateExpr } from "./codegen/exprs/generation";
+import { clearEnvContainingPrelude } from "./env";
 import { _evaluateExpression } from "./evaluator/exprs/_expr";
 import { setEvaluateExpressionFn } from "./evaluator/exprs/expr";
 import Evaluator, {
+  clearAllGlobalImplState,
   clearGenericImplsFromModule,
   clearImplsFromModule,
 } from "./evaluator/index";
-import { resetModuleIdCounter } from "./utils";
+import { clearAllModuleCounters, resetModuleIdCounter } from "./utils";
 import { ModuleValue } from "./value";
 
 function findStdDirectory(startPath: string): string {
@@ -56,12 +58,13 @@ export class ModuleManager {
    */
   private dependents: Map<string, Set<string>> = new Map();
 
-  public stdPath = findStdDirectory(__dirname);
+  public stdPath: string;
   private codeGenratorC: CodeGeneratorC;
   private allowPartialModule: boolean;
 
-  constructor(options?: { allowPartialModule?: boolean }) {
+  constructor(options?: { allowPartialModule?: boolean; stdPath?: string }) {
     this.allowPartialModule = options?.allowPartialModule ?? false;
+    this.stdPath = options?.stdPath ?? findStdDirectory(__dirname);
     this.codeGenratorC = new CodeGeneratorC();
 
     // This line of code is to prevent circular dependency issues
@@ -210,6 +213,26 @@ export class ModuleManager {
       }
     }
     this.dependencies.delete(modulePath);
+  }
+
+  /**
+   * Reset all cached modules, dependencies, and global evaluator state.
+   * This is useful when switching std paths or forcing a clean analysis run.
+   */
+  public resetAllState(): void {
+    for (const modulePath of this.modules.keys()) {
+      clearImplsFromModule(modulePath);
+      clearGenericImplsFromModule(modulePath);
+      resetModuleIdCounter(modulePath);
+    }
+
+    this.modules.clear();
+    this.dependencies.clear();
+    this.dependents.clear();
+
+    clearAllGlobalImplState();
+    clearEnvContainingPrelude();
+    clearAllModuleCounters();
   }
 
   public loadModule(

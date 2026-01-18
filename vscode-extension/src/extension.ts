@@ -1,4 +1,6 @@
 // Activate the extension
+import { existsSync } from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
 // Import the parser and lexer from Yo project
@@ -209,8 +211,53 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.createDiagnosticCollection("yo");
   context.subscriptions.push(diagnosticCollection);
 
-  // Yo language module manager
-  const moduleManager = new ModuleManager({ allowPartialModule: true });
+  // Yo language module manager (initialized lazily per workspace std path)
+  let moduleManager: ModuleManager | null = null;
+  let moduleManagerStdPath: string | null = null;
+
+  const findStdPathForDocument = (
+    document: vscode.TextDocument
+  ): string | null => {
+    if (document.uri.scheme !== "file") {
+      return null;
+    }
+    let currentPath = path.dirname(document.uri.fsPath);
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const candidate = path.join(currentPath, "std");
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+      const parentPath = path.dirname(currentPath);
+      if (parentPath === currentPath) {
+        return null;
+      }
+      currentPath = parentPath;
+    }
+  };
+
+  const getModuleManagerForDocument = (
+    document: vscode.TextDocument
+  ): ModuleManager => {
+    const stdPath = findStdPathForDocument(document);
+
+    if (!moduleManager) {
+      moduleManager = new ModuleManager({
+        allowPartialModule: true,
+        stdPath: stdPath ?? undefined,
+      });
+      moduleManagerStdPath = moduleManager.stdPath;
+      return moduleManager;
+    }
+
+    if (stdPath && moduleManagerStdPath !== stdPath) {
+      moduleManager.resetAllState();
+      moduleManager.stdPath = stdPath;
+      moduleManagerStdPath = stdPath;
+    }
+
+    return moduleManager;
+  };
 
   // Track in-flight analyses to avoid race conditions where an older run clears
   // diagnostics produced by a newer run.
@@ -225,6 +272,8 @@ export function activate(context: vscode.ExtensionContext) {
     if (!document.languageId.match(/^yo$/i)) {
       return;
     }
+
+    const moduleManager = getModuleManagerForDocument(document);
 
     const uriKey = document.uri.toString();
     const text = document.getText();
@@ -367,6 +416,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Register hover provider for Yo language
   const hoverProvider = vscode.languages.registerHoverProvider("yo", {
     provideHover(document, position) {
+      const moduleManager = getModuleManagerForDocument(document);
       const filePath = document.uri.fsPath;
 
       // Include protocol in the file path
@@ -566,6 +616,7 @@ export function activate(context: vscode.ExtensionContext) {
     "yo",
     {
       provideCompletionItems(document, position) {
+        const moduleManager = getModuleManagerForDocument(document);
         const filePath = document.uri.fsPath;
         const modulePath = "file://" + filePath;
 
@@ -1347,6 +1398,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Register definition provider for Yo language
   const definitionProvider = vscode.languages.registerDefinitionProvider("yo", {
     provideDefinition(document, position) {
+      const moduleManager = getModuleManagerForDocument(document);
       const filePath = document.uri.fsPath;
       const modulePath = "file://" + filePath;
 
