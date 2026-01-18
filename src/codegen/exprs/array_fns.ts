@@ -1,9 +1,74 @@
-import { FnCallExpr } from "../../expr";
+import { exprIsFunctionCall, FnCallExpr } from "../../expr";
 import { isArrayType } from "../../types";
 import { randomId } from "../../utils";
 import { isNumberValue, isTypeValue } from "../../value";
-import { CodeGenContext, getTypeString } from "../utils";
+import { FunctionGenerationContext } from "../functions/context";
+import {
+  CodeGenContext,
+  getTypeString,
+  getVariableNameForCodegen,
+  getVariableTypeString,
+} from "../utils";
+import { generateDeferredDupExpressions } from "./drop_dup";
 import { generateExpr } from "./expr";
+
+/**
+ * `array` function call, to generate an anonymous array value.
+ * eg: array(1, 2, 3)
+ */
+export function generateAnonymousArray(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string | undefined {
+  const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+  const arrayType = expr.$?.type;
+  const tempVar = expr.$?.variableName;
+
+  if (isArrayType(arrayType) && runtimeArgExprs) {
+    const functionContext = context as FunctionGenerationContext;
+
+    // Generate struct wrapper initialization with dup handling for each element
+    const argsList = runtimeArgExprs
+      .map((arg) => {
+        const argCode = generateExpr(arg, indent, context);
+
+        // Handle deferred dup expressions for array fields
+        if (
+          arg.$?.deferredDupExpressions &&
+          arg.$.deferredDupExpressions.length > 0
+        ) {
+          generateDeferredDupExpressions(arg, indent, functionContext);
+          // Use the dup result variable instead of the original
+          const dupExpr = arg.$.deferredDupExpressions[0]!;
+          if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+            return getVariableNameForCodegen(
+              dupExpr.$.variableName,
+              dupExpr.$.env
+            );
+          }
+        }
+
+        return argCode;
+      })
+      .join(", ");
+    const arrayTypeName = getTypeString(arrayType, context);
+
+    // If this array has a temporary variable name, declare it
+    if (tempVar && expr.$?.type) {
+      const arrayValue = `(${arrayTypeName}){ .data = { ${argsList} } }`;
+      const varTypeAndName = getVariableTypeString(
+        expr.$.type,
+        tempVar,
+        context
+      );
+      context.emitter.emitLine(`${indent}${varTypeAndName} = ${arrayValue};`);
+      return tempVar;
+    } else {
+      return `(${arrayTypeName}){ .data = { ${argsList} } }`;
+    }
+  }
+}
 
 /**
  * __yo_array_fill builtin (handled similarly to Array.fill)
