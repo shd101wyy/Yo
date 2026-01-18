@@ -232,6 +232,7 @@ export function checkIfFunctionParameterMatchesArgument({
         env: calleeEnv,
         context: {
           ...context,
+          expectedType: { type: parameterType, env: calleeEnv },
         },
       });
       if (evaluatedArgExpr.$?.env) {

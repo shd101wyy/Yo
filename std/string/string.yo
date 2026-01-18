@@ -343,7 +343,7 @@ String :: object(
    * Find the first occurrence of a substring (like JavaScript indexOf)
    * Returns the character index of the first match, or None if not found
    */
-  index_of :: (fn(self: Self, substring: Self) -> Option(usize))(
+  index_of :: (fn(self: Self, substring: Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
       substring.is_empty() => .Some(usize(0)),
       true => {
@@ -422,8 +422,8 @@ String :: object(
   /**
    * Check if the string contains a substring (like JavaScript includes)
    */
-  includes :: (fn(self: Self, substring: Self) -> bool)(
-    match(self.index_of(substring),
+  includes :: (fn(self: Self, substring: Self, (from_index : usize) ?= 0) -> bool)(
+    match(self.index_of(substring, from_index),
       .Some(_) => true,
       .None => false
     )
