@@ -62,7 +62,7 @@ export function tryToConvertToPointerType({
   // Create __yo_as(value, TargetType) call for runtime pointer casting
   // Reuse the generic __yo_as builtin for pointer casting
   const yoAsFuncExpr: FuncCallExpr = {
-    tag: ExprTag.FuncCall,
+    tag: ExprTag.FnCall,
     func: {
       tag: ExprTag.Atom,
       token: {

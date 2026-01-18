@@ -426,7 +426,7 @@ export function activate(context: vscode.ExtensionContext) {
                 bestEnv = atomExpr.$.env;
                 bestExprPosition = atomExpr.token.position.row;
               }
-            } else if (expr.tag === "FuncCall") {
+            } else if (expr.tag === "FnCall") {
               const funcCallExpr = expr as FuncCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
@@ -1007,7 +1007,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
           }
         } else {
-          // Must be a FuncCall since we only set targetExpr for these two types
+          // Must be a FnCall since we only set targetExpr for these two types
           const funcCallExpr = targetExpr as FuncCallExpr;
           const evalInfo = (
             funcCallExpr as FuncCallExpr & { $?: { type?: Type } }

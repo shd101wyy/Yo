@@ -261,7 +261,7 @@ export function evaluateDynValue({
     };
 
     const boxCallExpr: FuncCallExpr = {
-      tag: ExprTag.FuncCall,
+      tag: ExprTag.FnCall,
       func: boxAtom,
       args: [evaluatedValueExpr],
       token: valueExpr.token,

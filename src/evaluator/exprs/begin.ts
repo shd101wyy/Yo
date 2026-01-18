@@ -340,7 +340,7 @@ export function evaluateBeginExpression({
     //   `begin(${exprToString(expr)})`
     // ) as FuncCallExpr;
     const beginExpr: FuncCallExpr = {
-      tag: ExprTag.FuncCall,
+      tag: ExprTag.FnCall,
       func: {
         tag: ExprTag.Atom,
         token: {

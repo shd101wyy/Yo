@@ -132,7 +132,7 @@ function walkExprForAwaits(
       }
       break;
 
-    case ExprTag.FuncCall: {
+    case ExprTag.FnCall: {
       // Check if this is a while loop - handle specially
       if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // For while loops, awaits in the loop body need special handling
@@ -275,7 +275,7 @@ function walkExprForAwaits(
           let targetVariableId: string | undefined;
           if (
             parentExpr &&
-            parentExpr.tag === ExprTag.FuncCall &&
+            parentExpr.tag === ExprTag.FnCall &&
             exprIsFunctionCallOf(parentExpr, ":=")
           ) {
             const varExpr = parentExpr.args[0];
@@ -349,7 +349,7 @@ function collectVariableBindings(
       // Atoms don't introduce new bindings
       break;
 
-    case ExprTag.FuncCall: {
+    case ExprTag.FnCall: {
       // Check if this is a let binding or variable declaration
       const func = expr.func;
       if (func.tag === ExprTag.Atom) {

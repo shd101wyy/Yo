@@ -264,7 +264,7 @@ export function evaluateFunctionCall({
                 };
 
                 const addressOfExpr: FuncCallExpr = {
-                  tag: ExprTag.FuncCall,
+                  tag: ExprTag.FnCall,
                   func: ampersandExpr,
                   args: [receiverArg],
                   token: receiverArg.token,

@@ -194,7 +194,7 @@ export default class Parser {
 
         // Create str.to_string() method call using dot syntax
         const propertyAccess: Expr = {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: {
@@ -224,7 +224,7 @@ export default class Parser {
 
         // Call the method: str.to_string()
         partExpr = {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: propertyAccess,
           args: [],
           token: token,
@@ -248,7 +248,7 @@ export default class Parser {
 
         // Create expr.to_string() method call using dot syntax
         const propertyAccess: Expr = {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: {
@@ -278,7 +278,7 @@ export default class Parser {
 
         // Call the method: expr.to_string()
         partExpr = {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: propertyAccess,
           args: [],
           token: token,
@@ -291,7 +291,7 @@ export default class Parser {
         // Create resultExpr.(+)(partExpr) using dot method call syntax
         // First create the property access: resultExpr.(+)
         const propertyAccess: Expr = {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: {
@@ -321,7 +321,7 @@ export default class Parser {
 
         // Then call it with partExpr: resultExpr.(+)(partExpr)
         resultExpr = {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: propertyAccess,
           args: [partExpr],
           token: token,
@@ -353,7 +353,7 @@ export default class Parser {
       // unit type
       return {
         expr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: {
@@ -439,7 +439,7 @@ export default class Parser {
 
       return {
         expr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: {
@@ -535,7 +535,7 @@ export default class Parser {
 
     return {
       expr: {
-        tag: ExprTag.FuncCall,
+        tag: ExprTag.FnCall,
         func: {
           tag: ExprTag.Atom,
           token: {
@@ -626,7 +626,7 @@ export default class Parser {
           };
           // Push unit
           args.push({
-            tag: ExprTag.FuncCall,
+            tag: ExprTag.FnCall,
             func: {
               tag: ExprTag.Atom,
               token,
@@ -664,7 +664,7 @@ export default class Parser {
             inputString: this.inputString,
           };
           const newArg: FuncCallExpr = {
-            tag: ExprTag.FuncCall,
+            tag: ExprTag.FnCall,
             func: {
               tag: ExprTag.Atom,
               token: colonToken,
@@ -678,7 +678,7 @@ export default class Parser {
       }
 
       const returnExpr: FuncCallExpr = {
-        tag: ExprTag.FuncCall,
+        tag: ExprTag.FnCall,
         func: {
           tag: ExprTag.Atom,
           token: {
@@ -700,7 +700,7 @@ export default class Parser {
     } else {
       return {
         expr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: {
@@ -845,7 +845,7 @@ export default class Parser {
     // Desired: (1 + 2) + 3
 
     if (
-      rhs.tag === "FuncCall" &&
+      rhs.tag === "FnCall" &&
       rhs.isInfix &&
       rhs.func.tag === "Atom" &&
       rhs.func.token.type !== TokenType.Dot
@@ -857,7 +857,7 @@ export default class Parser {
       const rhsOperator = rhs.func;
 
       const leftSide: Expr = {
-        tag: ExprTag.FuncCall,
+        tag: ExprTag.FnCall,
         func: {
           tag: ExprTag.Atom,
           token: operatorToken,
@@ -869,7 +869,7 @@ export default class Parser {
 
       return this.parsePrimaryEnd({
         primaryExpr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: rhsOperator,
           args: [leftSide, rightOperand],
           isInfix: true,
@@ -882,7 +882,7 @@ export default class Parser {
       // Simple case: no chaining
       return this.parsePrimaryEnd({
         primaryExpr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: operatorToken,
@@ -965,7 +965,7 @@ export default class Parser {
       index = nextIndex;
       let returnValue: ParserReturn = {
         expr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token: primaryExprIsDotOperator ? primaryExpr.token : token,
@@ -984,7 +984,7 @@ export default class Parser {
         });
         returnValue = {
           expr: {
-            tag: ExprTag.FuncCall,
+            tag: ExprTag.FnCall,
             func: {
               tag: ExprTag.Atom,
               token,
@@ -1022,7 +1022,7 @@ export default class Parser {
 
       // Check if the RHS is already an operator expression (meaning we have chained operators)
       if (
-        rhs.tag === "FuncCall" &&
+        rhs.tag === "FnCall" &&
         rhs.isInfix &&
         rhs.func.tag === "Atom" &&
         rhs.func.token.type !== TokenType.Dot && // Allow dot operator to chain
@@ -1103,7 +1103,7 @@ Or use newline after "${token.value}" to confirm the right-associativity.
 
       return this.parsePrimaryEnd({
         primaryExpr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token,
@@ -1139,7 +1139,7 @@ Or use newline after "${token.value}" to confirm the right-associativity.
       });
       return this.parsePrimaryEnd({
         primaryExpr: {
-          tag: ExprTag.FuncCall,
+          tag: ExprTag.FnCall,
           func: {
             tag: ExprTag.Atom,
             token,
@@ -1303,7 +1303,7 @@ or ) to end the function call`,
     index = nextIndex;
     return {
       expr: {
-        tag: ExprTag.FuncCall,
+        tag: ExprTag.FnCall,
         func,
         args,
         token: func.token,
@@ -1391,7 +1391,7 @@ or ) to end the function call`,
       };
       // Add unit
       exprs.push({
-        tag: ExprTag.FuncCall,
+        tag: ExprTag.FnCall,
         func: {
           tag: ExprTag.Atom,
           token,
@@ -1408,7 +1408,7 @@ or ) to end the function call`,
     // Auto-import "std/fmt/to_string" if template strings are used
     if (this.hasTemplateString) {
       const importExpr: Expr = {
-        tag: ExprTag.FuncCall,
+        tag: ExprTag.FnCall,
         func: {
           tag: ExprTag.Atom,
           token: {

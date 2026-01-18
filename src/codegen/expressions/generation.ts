@@ -93,7 +93,7 @@ export function _generateExpr(
   let result: string;
 
   switch (expr.tag) {
-    case ExprTag.FuncCall:
+    case ExprTag.FnCall:
       result = generateFuncCall(expr, indent, context);
       break;
     case ExprTag.Atom:
@@ -3988,7 +3988,7 @@ function emitAsyncBlockStructDefinition(
       emitter.emitDeclarationLine(`  // Future references for awaits`);
       for (const awaitPoint of awaitPointsNeedingFutureStorage) {
         const awaitExpr = awaitPoint.expr as Expr;
-        if (awaitExpr.tag !== ExprTag.FuncCall) {
+        if (awaitExpr.tag !== ExprTag.FnCall) {
           continue;
         }
         const futureExpr = awaitExpr.args[0];
@@ -4101,7 +4101,7 @@ function emitDeferredAsyncBlockStructDefinitions(
         continue;
       }
       const awaitExpr = ap.expr as Expr;
-      if (awaitExpr.tag !== ExprTag.FuncCall) {
+      if (awaitExpr.tag !== ExprTag.FnCall) {
         continue;
       }
       const futureExpr = awaitExpr.args[0];
@@ -6227,7 +6227,7 @@ export function generateReturnStatement(
       context.emitter.emitLine(`${indent}return ${atomCode};`);
       break;
     }
-    case ExprTag.FuncCall: {
+    case ExprTag.FnCall: {
       // Handle deferred dup expressions for function calls (e.g., field access that needs duping)
       if (
         expr.$?.deferredDupExpressions &&

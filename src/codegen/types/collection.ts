@@ -223,7 +223,7 @@ export function collectTypesFromExpr(
   }
 
   switch (expr.tag) {
-    case ExprTag.FuncCall:
+    case ExprTag.FnCall:
       // Skip test blocks - they should not generate code
       if (exprIsFunctionCallOf(expr, BuiltinKeywords.test)) {
         break;

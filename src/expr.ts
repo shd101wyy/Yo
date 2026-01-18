@@ -90,7 +90,7 @@ export function pathConflictsWithPath(path1: Path, path2: Path): boolean {
 
 export enum ExprTag {
   Atom = "Atom",
-  FuncCall = "FuncCall",
+  FnCall = "FnCall",
 }
 
 export interface RuntimeDestructuring {
@@ -150,7 +150,7 @@ export interface EvaluatedExprData {
   pathCollection: PathCollection;
 
   /**
-   * This is mainly for FuncCall expressions.
+   * This is mainly for FnCall expressions.
    * It is used to record the runtime arguments passed to the function call in order.
    * This is useful for the codegen stage.
    */
@@ -303,7 +303,7 @@ export type AtomExpr = {
 
 export type FuncCallExpr = {
   // Parser stage
-  tag: ExprTag.FuncCall;
+  tag: ExprTag.FnCall;
   func: Expr;
   args: Expr[];
   isInfix?: boolean;
@@ -324,7 +324,7 @@ export function cloneExpr(expr: Expr): Expr {
         $: undefined, //  expr.$ ? { ...expr.$ } : undefined
         // NOTE: We should unset the evaluated data here,
       };
-    case ExprTag.FuncCall:
+    case ExprTag.FnCall:
       return {
         ...expr,
         func: cloneExpr(expr.func),
@@ -340,7 +340,7 @@ export type Expr = AtomExpr | FuncCallExpr;
 export function exprIsFunctionCall(
   expr: Expr | undefined
 ): expr is FuncCallExpr {
-  return expr?.tag === ExprTag.FuncCall;
+  return expr?.tag === ExprTag.FnCall;
 }
 export function exprIsAtom(expr: Expr | undefined): expr is AtomExpr {
   return expr?.tag === ExprTag.Atom;
@@ -364,7 +364,7 @@ export function exprIsFunctionCallOf(
   funcNames: string | string[],
   argumentCount?: number
 ): boolean {
-  if (expr.tag !== ExprTag.FuncCall) {
+  if (expr.tag !== ExprTag.FnCall) {
     return false;
   }
   if (expr.func.tag !== ExprTag.Atom) {
@@ -373,7 +373,7 @@ export function exprIsFunctionCallOf(
   const funcName = expr.func.token.value;
 
   return (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     expr.func.tag === ExprTag.Atom &&
     (typeof funcNames === "string"
       ? funcName === funcNames
@@ -439,7 +439,7 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
     return expr1.token.value === expr2.token.value;
   }
 
-  if (expr1.tag === ExprTag.FuncCall && expr2.tag === ExprTag.FuncCall) {
+  if (expr1.tag === ExprTag.FnCall && expr2.tag === ExprTag.FnCall) {
     // For function calls, compare the function and all arguments
     if (!exprsAreEqual(expr1.func, expr2.func)) {
       return false;
@@ -952,7 +952,7 @@ export const BuiltinFunctions = {
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
   return Boolean(
-    expr.tag === "FuncCall" &&
+    expr.tag === "FnCall" &&
       expr.isInfix &&
       expr.func.tag === "Atom" &&
       expr.func.token.type === TokenType.Operator &&
@@ -991,7 +991,7 @@ function exprToCompactString(expr: Expr): string {
       printed = expr.token.value;
       break;
     }
-    case "FuncCall": {
+    case "FnCall": {
       if (
         expr.func.tag === "Atom" &&
         (expr.func.token.type === TokenType.Operator ||
@@ -1075,7 +1075,7 @@ function exprToPrettyString(
     case "Atom": {
       return expr.token.value;
     }
-    case "FuncCall": {
+    case "FnCall": {
       // Handle special operators and dots
       if (
         expr.func.tag === "Atom" &&

@@ -330,7 +330,7 @@ export function tryToConvertToNumericType({
     // Create __yo_as(value, TargetType) call
     // We need to properly transform the expr
     const yoAsFuncExpr: FuncCallExpr = {
-      tag: ExprTag.FuncCall,
+      tag: ExprTag.FnCall,
       func: {
         tag: ExprTag.Atom,
         token: {

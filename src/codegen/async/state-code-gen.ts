@@ -60,7 +60,7 @@ export function splitIntoStateSegments(
   // For now, we'll implement a simple version that handles the common case:
   // A begin block with sequential expressions containing await calls
 
-  if (body.tag !== ExprTag.FuncCall || !exprIsFunctionCallOf(body, "begin")) {
+  if (body.tag !== ExprTag.FnCall || !exprIsFunctionCallOf(body, "begin")) {
     // Not a begin block - check if we need to transform it
     if (awaitPoints.length === 0) {
       // No awaits - single segment
@@ -156,7 +156,7 @@ function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
   }
 
   switch (expr.tag) {
-    case ExprTag.FuncCall:
+    case ExprTag.FnCall:
       if (containsAwaitExpr(expr.func, awaitExpr)) {
         return true;
       }
@@ -197,7 +197,7 @@ export function generateStateSegmentCode(
     // Also check if this is a while/cond that contains await (even if it's not THE await expr)
     const isWhileOrCondWithAwait =
       segment.awaitPoint &&
-      expr.tag === ExprTag.FuncCall &&
+      expr.tag === ExprTag.FnCall &&
       (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
         exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) &&
       exprContainsAwait(expr);
@@ -250,7 +250,7 @@ function generateAwaitExpression(
 
   // Check if this is a standalone await expression: await(futureExpr)
   if (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinFunctions.await)
   ) {
     // This is a standalone await: await(futureExpr)
@@ -282,7 +282,7 @@ function generateAwaitExpression(
   }
 
   // Handle assignment with await: varName := await(futureExpr)
-  if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, ":=")) {
+  if (expr.tag === ExprTag.FnCall && exprIsFunctionCallOf(expr, ":=")) {
     // This is an assignment
     const varNameExpr = expr.args[0];
     const valueExpr = expr.args[1];
@@ -294,7 +294,7 @@ function generateAwaitExpression(
 
     // Check if the value is an await expression
     if (
-      valueExpr.tag === ExprTag.FuncCall &&
+      valueExpr.tag === ExprTag.FnCall &&
       exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
     ) {
       // This is: varName := await(futureExpr)
@@ -334,7 +334,7 @@ function generateAwaitExpression(
 
     // Check if the value is a cond with await in branches
     if (
-      valueExpr.tag === ExprTag.FuncCall &&
+      valueExpr.tag === ExprTag.FnCall &&
       exprIsFunctionCallOf(valueExpr, BuiltinKeywords.cond)
     ) {
       // This is: varName := cond(... await ...)
@@ -365,7 +365,7 @@ function generateAwaitExpression(
 
   // Handle cond expression with await in branches
   if (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
   ) {
     generateCondWithAwait(expr, awaitPoint, indent, context);
@@ -374,7 +374,7 @@ function generateAwaitExpression(
 
   // Handle match expression with await in branches
   if (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.match)
   ) {
     generateMatchWithAwait(expr, awaitPoint, indent, context);
@@ -383,7 +383,7 @@ function generateAwaitExpression(
 
   // Handle while loop with await in body
   if (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.while)
   ) {
     generateWhileWithAwait(expr, awaitPoint, indent, context);
@@ -395,7 +395,7 @@ function generateAwaitExpression(
     `${indent}// ERROR: Unsupported pattern for await expression`
   );
   emitter.emitLine(
-    `${indent}// Expression type: ${expr.tag}, function: ${expr.tag === ExprTag.FuncCall ? (expr.func.tag === ExprTag.Atom ? expr.func.token?.value : expr.func.tag) : "N/A"}`
+    `${indent}// Expression type: ${expr.tag}, function: ${expr.tag === ExprTag.FnCall ? (expr.func.tag === ExprTag.Atom ? expr.func.token?.value : expr.func.tag) : "N/A"}`
   );
 }
 
@@ -416,9 +416,9 @@ function generateCondWithAwait(
 ): void {
   const emitter = context.emitter;
 
-  // Type guard - condExpr should be a FuncCall
+  // Type guard - condExpr should be a FnCall
   if (
-    condExpr.tag !== ExprTag.FuncCall ||
+    condExpr.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(condExpr, BuiltinKeywords.cond)
   ) {
     emitter.emitLine(`${indent}// Error: Expected cond expression`);
@@ -448,7 +448,7 @@ function generateCondWithAwait(
 
     // Each branch is a => expression: condition => value
     if (
-      pairExpr.tag !== ExprTag.FuncCall ||
+      pairExpr.tag !== ExprTag.FnCall ||
       !exprIsFunctionCallOf(pairExpr, "=>")
     ) {
       emitter.emitLine(`${indent}// Error: Expected => pair in cond`);
@@ -598,13 +598,13 @@ function generateCondWithAwait(
  */
 function branchHasAwait(expr: Expr): boolean {
   if (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinFunctions.await)
   ) {
     return true;
   }
 
-  if (expr.tag === ExprTag.FuncCall) {
+  if (expr.tag === ExprTag.FnCall) {
     for (const arg of expr.args) {
       if (branchHasAwait(arg)) {
         return true;
@@ -634,7 +634,7 @@ function generateMatchWithAwait(
   const emitter = context.emitter;
 
   if (
-    matchExpr.tag !== ExprTag.FuncCall ||
+    matchExpr.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(matchExpr, BuiltinKeywords.match)
   ) {
     emitter.emitLine(`${indent}// Error: Expected match expression`);
@@ -1028,7 +1028,7 @@ function generateCondBranchWithAwait(
 
   // The branch value should be a begin block: { value := await future; printf(...); }
   if (
-    branchValue.tag !== ExprTag.FuncCall ||
+    branchValue.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(branchValue, "begin")
   ) {
     emitter.emitLine(
@@ -1055,13 +1055,13 @@ function generateCondBranchWithAwait(
 
       // This expression contains an await
       // Handle assignment: varName := await(futureExpr)
-      if (expr.tag === ExprTag.FuncCall && exprIsFunctionCallOf(expr, ":=")) {
+      if (expr.tag === ExprTag.FnCall && exprIsFunctionCallOf(expr, ":=")) {
         // const varNameExpr = expr.args[0];
         const valueExpr = expr.args[1];
 
         if (
           valueExpr &&
-          valueExpr.tag === ExprTag.FuncCall &&
+          valueExpr.tag === ExprTag.FnCall &&
           exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
         ) {
           const futureExpr = valueExpr.args[0];
@@ -1077,7 +1077,7 @@ function generateCondBranchWithAwait(
           }
         }
       } else if (
-        expr.tag === ExprTag.FuncCall &&
+        expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinFunctions.await)
       ) {
         // Standalone await
@@ -1100,7 +1100,7 @@ function generateCondBranchWithAwait(
           }
         }
       } else if (
-        expr.tag === ExprTag.FuncCall &&
+        expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinKeywords.match)
       ) {
         // Match expression with await in one of its branches
@@ -1135,9 +1135,9 @@ function generateWhileWithAwait(
 ): void {
   const emitter = context.emitter;
 
-  // Type guard - whileExpr should be a FuncCall to while
+  // Type guard - whileExpr should be a FnCall to while
   if (
-    whileExpr.tag !== ExprTag.FuncCall ||
+    whileExpr.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(whileExpr, "while")
   ) {
     emitter.emitLine(`${indent}// Error: Expected while expression`);
@@ -1211,7 +1211,7 @@ function generateWhileBodyWithAwait(
   // If body is a begin block, extract expressions
   let bodyExprs: Expr[] = [];
   if (
-    bodyExpr.tag === ExprTag.FuncCall &&
+    bodyExpr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(bodyExpr, "begin")
   ) {
     bodyExprs = bodyExpr.args;
@@ -1253,7 +1253,7 @@ function generateWhileBodyWithAwait(
     const valueExpr = awaitExpr.args[1];
     if (
       valueExpr &&
-      valueExpr.tag === ExprTag.FuncCall &&
+      valueExpr.tag === ExprTag.FnCall &&
       exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
     ) {
       const futureExpr = valueExpr.args[0];
@@ -1268,7 +1268,7 @@ function generateWhileBodyWithAwait(
       }
     }
   } else if (
-    awaitExpr.tag === ExprTag.FuncCall &&
+    awaitExpr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(awaitExpr, BuiltinFunctions.await)
   ) {
     // Standalone await
@@ -1315,13 +1315,13 @@ function generateWhileBodyWithAwait(
  */
 function exprContainsAwait(expr: Expr): boolean {
   if (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinFunctions.await)
   ) {
     return true;
   }
 
-  if (expr.tag === ExprTag.FuncCall) {
+  if (expr.tag === ExprTag.FnCall) {
     if (exprContainsAwait(expr.func)) {
       return true;
     }
