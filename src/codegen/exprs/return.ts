@@ -1,17 +1,122 @@
-import { exprIsFunctionCall, FnCallExpr } from "../../expr";
+import {
+  AtomExpr,
+  BuiltinKeywords,
+  Expr,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  ExprTag,
+  FnCallExpr,
+} from "../../expr";
 import { extractFutureTraitFromType, isUnitType } from "../../types";
 import { FunctionGenerationContext } from "../functions/context";
 import {
   CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
+  sanitizeForCIdentifier,
 } from "../utils";
+import { generateAtom } from "./atom";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
 } from "./drop_dup";
 import { generateExpr } from "./expr";
 
+/**
+ * Helper: Handle deferred dup expressions for an atom and return the final code
+ */
+function handleAtomDeferredDup(
+  expr: AtomExpr,
+  atomCode: string,
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  if (
+    expr.$?.deferredDupExpressions &&
+    expr.$.deferredDupExpressions.length > 0
+  ) {
+    generateDeferredDupExpressions(expr, indent, context);
+    const dupExpr = expr.$.deferredDupExpressions[0]!;
+    if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+      return getVariableNameForCodegen(dupExpr.$.variableName, dupExpr.$.env);
+    }
+  }
+  return atomCode;
+}
+
+/**
+ * Helper: Handle deferred dup expressions for a function call and return the final code
+ */
+function handleFuncCallDeferredDup(
+  expr: FnCallExpr,
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  if (
+    expr.$?.deferredDupExpressions &&
+    expr.$.deferredDupExpressions.length > 0
+  ) {
+    // Declare temp variable if needed
+    if (expr.$?.variableName) {
+      const savedVariableName = expr.$.variableName;
+      expr.$.variableName = undefined;
+      const rawCode = generateExpr(expr, indent, context);
+      expr.$.variableName = savedVariableName;
+
+      const exprType = getTypeString(expr.$.type!, context);
+      const exprTempVar = sanitizeForCIdentifier(savedVariableName);
+      if (exprTempVar !== rawCode) {
+        context.emitter.emitLine(
+          `${indent}${exprType} ${exprTempVar} = ${rawCode};`
+        );
+      }
+    } else {
+      const rawCode = generateExpr(expr, indent, context);
+      context.emitter.emitLine(`${indent}${rawCode};`);
+    }
+
+    generateDeferredDupExpressions(expr, indent, context);
+
+    const dupExpr = expr.$.deferredDupExpressions[0]!;
+    if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+      return getVariableNameForCodegen(dupExpr.$.variableName, dupExpr.$.env);
+    }
+  }
+  return generateExpr(expr, indent, context);
+}
+
+/**
+ * Helper: Generate pending deferred drops from enclosing begin blocks
+ */
+function generatePendingDeferredDrops(
+  indent: string,
+  context: FunctionGenerationContext,
+  expr: Expr,
+  isCompletion: boolean = false
+): void {
+  if (
+    context.pendingDeferredDrops &&
+    (!expr.$?.deferredDropExpressions ||
+      expr.$.deferredDropExpressions.length === 0)
+  ) {
+    const message = isCompletion
+      ? "Drop local variables before early completion"
+      : "Drop local variables before early return";
+    context.emitter.emitLine(`${indent}// ${message}`);
+    for (const dropExpr of context.pendingDeferredDrops) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        context.emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+}
+
+/**
+ * Generate a return statement for `return` expressions
+ * Function with explicit return:
+ *   bar :: (fn() -> i32) { return(42); }
+ */
 export function generateReturn(
   expr: FnCallExpr,
   indent: string,
@@ -125,26 +230,7 @@ export function generateReturn(
       const childType = futureModuleType.isFuture.outputType;
       const isUnitResult = isUnitType(childType);
 
-      // Generate pending deferred drops from enclosing begin blocks
-      // This is needed when returning early from inside a cond branch - the outer
-      // begin block's deferred drops would otherwise be skipped.
-      // Only generate these if the return expression doesn't already have its own
-      // deferred drops (to avoid double-dropping).
-      if (
-        functionContext.pendingDeferredDrops &&
-        (!expr.$.deferredDropExpressions ||
-          expr.$.deferredDropExpressions.length === 0)
-      ) {
-        context.emitter.emitLine(
-          `${indent}// Drop local variables before early completion`
-        );
-        for (const dropExpr of functionContext.pendingDeferredDrops) {
-          const dropCode = generateExpr(dropExpr, indent, context);
-          if (dropCode) {
-            context.emitter.emitLine(`${indent}${dropCode};`);
-          }
-        }
-      }
+      generatePendingDeferredDrops(indent, functionContext, expr, true);
 
       context.emitter.emitLine(
         `${indent}// Final state - complete the result Future`
@@ -211,58 +297,67 @@ export function generateReturn(
     }
 
     // Normal (non-state-machine) return
-
-    // Generate pending deferred drops from enclosing begin blocks
-    // This is needed when returning early from inside a cond/match branch - the outer
-    // begin block's deferred drops would otherwise be skipped.
-    // Only generate these if the return expression doesn't already have its own
-    // deferred drops (to avoid double-dropping).
-    if (
-      functionContext.pendingDeferredDrops &&
-      (!expr.$.deferredDropExpressions ||
-        expr.$.deferredDropExpressions.length === 0)
-    ) {
-      context.emitter.emitLine(
-        `${indent}// Drop local variables before early return`
-      );
-      for (const dropExpr of functionContext.pendingDeferredDrops) {
-        const dropCode = generateExpr(dropExpr, indent, context);
-        if (dropCode) {
-          context.emitter.emitLine(`${indent}${dropCode};`);
-        }
-      }
-    }
+    generatePendingDeferredDrops(indent, functionContext, expr);
 
     if (isUnitType(expr.$.type)) {
       return `return`;
     }
 
-    // If we handled deferred dup, use argCode (which is the dup result temp variable)
-    // Otherwise use expr.$.variableName as before
     const returnValue = handledDeferredDup
       ? argCode
       : (returnTempVar ?? argCode);
     return `return ${returnValue}`;
   } else {
+    // Unit return (no argument)
     if (expr.$?.deferredDropExpressions) {
       generateDeferredDropExpressions(expr, indent, context);
     }
 
     const functionContext = context as FunctionGenerationContext;
-
-    // Generate pending deferred drops for unit return as well
-    if (functionContext.pendingDeferredDrops) {
-      context.emitter.emitLine(
-        `${indent}// Drop local variables before early return`
-      );
-      for (const dropExpr of functionContext.pendingDeferredDrops) {
-        const dropCode = generateExpr(dropExpr, indent, context);
-        if (dropCode) {
-          context.emitter.emitLine(`${indent}${dropCode};`);
-        }
-      }
-    }
+    generatePendingDeferredDrops(indent, functionContext, expr);
 
     return "return";
+  }
+}
+
+/**
+ * Generate a return statement for implicit function body return
+ * Example: foo :: (fn() -> i32)(42)
+ */
+export function generateImplicitReturnStatement(
+  expr: Expr,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const functionContext = context as FunctionGenerationContext;
+
+  switch (expr.tag) {
+    case ExprTag.Atom: {
+      const atomCode = generateAtom(expr, context);
+      const finalCode = handleAtomDeferredDup(
+        expr,
+        atomCode,
+        indent,
+        functionContext
+      );
+      context.emitter.emitLine(`${indent}return ${finalCode};`);
+      break;
+    }
+
+    case ExprTag.FnCall: {
+      // Special case: explicit return call should not be wrapped in another return
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+        const funcCallCode = generateExpr(expr, indent, context);
+        context.emitter.emitLine(`${indent}${funcCallCode};`);
+      } else {
+        const finalCode = handleFuncCallDeferredDup(
+          expr,
+          indent,
+          functionContext
+        );
+        context.emitter.emitLine(`${indent}return ${finalCode};`);
+      }
+      break;
+    }
   }
 }

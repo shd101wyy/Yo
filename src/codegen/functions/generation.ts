@@ -26,7 +26,7 @@ import {
   generateDeferredDupExpressions,
 } from "../exprs/drop_dup";
 import { generateExpr } from "../exprs/expr";
-import { generateReturnStatement } from "../exprs/generation";
+import { generateImplicitReturnStatement } from "../exprs/return";
 import { generateParallelismRuntime } from "../parallelism/runtime";
 import { generateIsoTypeDeclarations } from "../types";
 import {
@@ -553,7 +553,7 @@ export function generateFunctionBody(
       }
     } else {
       // For other functions, return the expression
-      generateReturnStatement(expr, indent, context);
+      generateImplicitReturnStatement(expr, indent, context);
     }
   }
 }

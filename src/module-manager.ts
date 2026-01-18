@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
+import { setGenerateExprFn } from "./codegen/exprs/expr";
+import { _generateExpr } from "./codegen/exprs/generation";
 import { _evaluateExpression } from "./evaluator/exprs/_expr";
 import { setEvaluateExpressionFn } from "./evaluator/exprs/expr";
 import Evaluator, {
@@ -64,6 +66,8 @@ export class ModuleManager {
 
     // This line of code is to prevent circular dependency issues
     setEvaluateExpressionFn(_evaluateExpression);
+    // Set the generateExpr function for use in other modules
+    setGenerateExprFn(_generateExpr);
   }
 
   /**

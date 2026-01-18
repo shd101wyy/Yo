@@ -13,12 +13,7 @@ import { isSomeType, isUnitType, typeImplementsFuture } from "../../types";
 import { isFunctionValue, isUnknownValue, Value } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";
-import {
-  CodeGenContext,
-  getTypeString,
-  getVariableNameForCodegen,
-  sanitizeForCIdentifier,
-} from "../utils";
+import { CodeGenContext, getVariableNameForCodegen } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and_or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array_fns";
 import { generateAssignment } from "./assignment";
@@ -33,7 +28,7 @@ import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
 import { generateDeferredDupExpressions } from "./drop_dup";
 import { generateDynCall } from "./dyn";
-import { generateExpr, setGenerateExprFn } from "./expr";
+import { generateExpr } from "./expr";
 import { generateYoGcCollect } from "./gc";
 import { generateInitializationAssignment } from "./initialization_assignment";
 import { generateYoInlineFunctionCall } from "./inline_fns";
@@ -95,9 +90,6 @@ export function _generateExpr(
 
   return result;
 }
-
-// Set the generateExpr function for use in other modules
-setGenerateExprFn(_generateExpr);
 
 /**
  * Generate C code for a function call expression - extracted from original codegen-c.ts
@@ -478,102 +470,4 @@ function generateFuncCall(
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;
-}
-
-/**
- * Generate a return statement for a function body expression - extracted from original codegen-c.ts
- */
-export function generateReturnStatement(
-  expr: Expr,
-  indent: string,
-  context: CodeGenContext
-): void {
-  switch (expr.tag) {
-    case ExprTag.Atom: {
-      // Use generateExpressionAsCode to handle compile-time values
-      let atomCode = generateAtom(expr, context);
-
-      // Handle deferred dup expressions for atoms (borrowed parameters that need to be duped before returning)
-      if (
-        expr.$?.deferredDupExpressions &&
-        expr.$.deferredDupExpressions.length > 0
-      ) {
-        generateDeferredDupExpressions(
-          expr,
-          indent,
-          context as FunctionGenerationContext
-        );
-        // Use the duped value's variable name instead of the original
-        const dupExpr = expr.$.deferredDupExpressions[0]!;
-        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          atomCode = getVariableNameForCodegen(
-            dupExpr.$.variableName,
-            dupExpr.$.env
-          );
-        }
-      }
-
-      context.emitter.emitLine(`${indent}return ${atomCode};`);
-      break;
-    }
-    case ExprTag.FnCall: {
-      // Handle deferred dup expressions for function calls (e.g., field access that needs duping)
-      if (
-        expr.$?.deferredDupExpressions &&
-        expr.$.deferredDupExpressions.length > 0
-      ) {
-        // Check if expr has a variableName for storing the intermediate value
-        if (expr.$?.variableName) {
-          // Generate the expression value without the variableName to get the raw expression
-          const savedVariableName = expr.$.variableName;
-          expr.$.variableName = undefined;
-          const rawCode = generateFuncCall(expr, indent, context);
-          expr.$.variableName = savedVariableName;
-
-          // Declare and assign the temp variable
-          const exprType = getTypeString(expr.$.type!, context);
-          const exprTempVar = sanitizeForCIdentifier(savedVariableName);
-          if (exprTempVar !== rawCode) {
-            context.emitter.emitLine(
-              `${indent}${exprType} ${exprTempVar} = ${rawCode};`
-            );
-          }
-        } else {
-          // No temp variable name, just generate the expression
-          const rawCode = generateFuncCall(expr, indent, context);
-          context.emitter.emitLine(`${indent}${rawCode};`);
-        }
-
-        // Generate the deferred dup expressions
-        generateDeferredDupExpressions(
-          expr,
-          indent,
-          context as FunctionGenerationContext
-        );
-
-        // Use the duped value's variable name for the return
-        const dupExpr = expr.$.deferredDupExpressions[0]!;
-        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          const dupedValue = getVariableNameForCodegen(
-            dupExpr.$.variableName,
-            dupExpr.$.env
-          );
-          context.emitter.emitLine(`${indent}return ${dupedValue};`);
-        } else {
-          // Fallback: return the raw code
-          const funcCallCode = generateFuncCall(expr, indent, context);
-          context.emitter.emitLine(`${indent}return ${funcCallCode};`);
-        }
-      } else {
-        // No deferred dup expressions, generate normally
-        const funcCallCode = generateFuncCall(expr, indent, context);
-        if (!exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
-          context.emitter.emitLine(`${indent}return ${funcCallCode};`);
-        } else {
-          context.emitter.emitLine(`${indent}${funcCallCode};`);
-        }
-      }
-      break;
-    }
-  }
 }
