@@ -41,7 +41,7 @@ import { PrimitiveTypeTags } from "../constants";
 import {
   collectRequiredFunctions,
   findFunctionCallsInExpr,
-} from "../functions";
+} from "../functions/collection";
 import {
   CodeGenContext,
   getTypeString,

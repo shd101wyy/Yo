@@ -6,6 +6,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  FnCallExpr,
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
@@ -858,4 +859,32 @@ export function getDeferredDupTargetAtomName(
     return;
   }
   return firstArg.token.value;
+}
+
+/**
+ * Find async blocks in an expression that might be returned.
+ * Returns the first async block found in the function body.
+ * For functions returning Impl(Future(T)), any async block in the body
+ * could potentially be the return value, so we return the first one we find.
+ */
+export function findReturnedAsyncBlock(
+  expr: Expr | undefined
+): Expr | undefined {
+  if (!expr) return undefined;
+
+  // If this is an async block itself, return it
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    return expr;
+  }
+
+  // Recursively search in function call arguments
+  if (exprIsFunctionCall(expr)) {
+    const funcCallExpr = expr as FnCallExpr;
+    for (const arg of funcCallExpr.args) {
+      const found = findReturnedAsyncBlock(arg);
+      if (found) return found;
+    }
+  }
+
+  return undefined;
 }

@@ -21,7 +21,8 @@ import {
   typeContainsRcType,
 } from "../../types";
 import { isTempVariableName } from "../../utils";
-import { generateExpr, getDupFunctionForType } from "../exprs";
+import { getDupFunctionForType } from "../exprs/drop_dup";
+import { generateExpr } from "../exprs/expr";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {

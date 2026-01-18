@@ -1,4 +1,3 @@
-import { generateExpr } from ".";
 import { FnCallExpr } from "../../expr";
 import {
   extractFnTraitFromType,
@@ -8,6 +7,7 @@ import {
   Type,
 } from "../../types";
 import { CodeGenContext, getVariableTypeString } from "../utils";
+import { generateExpr } from "./expr";
 
 /**
  * Generate C code for a dyn() constructor call

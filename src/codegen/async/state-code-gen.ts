@@ -19,7 +19,7 @@ import {
 import { TokenType } from "../../token";
 import { EnumType, isEnumType } from "../../types";
 import { isTempVariableName } from "../../utils";
-import { generateExpr } from "../exprs";
+import { generateExpr } from "../exprs/expr";
 import { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
