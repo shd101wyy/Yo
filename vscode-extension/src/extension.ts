@@ -19,7 +19,7 @@ import {
   exprIsFunctionCall,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, Token, TokenType } from "@yo/token";
@@ -87,7 +87,7 @@ const collectExpressionCandidates = (
     }
 
     if (exprIsFunctionCall(expr)) {
-      const funcCallExpr = expr as FuncCallExpr;
+      const funcCallExpr = expr as FnCallExpr;
       findExprWithToken(funcCallExpr.func);
       for (const arg of funcCallExpr.args) {
         findExprWithToken(arg);
@@ -427,7 +427,7 @@ export function activate(context: vscode.ExtensionContext) {
                 bestExprPosition = atomExpr.token.position.row;
               }
             } else if (expr.tag === "FnCall") {
-              const funcCallExpr = expr as FuncCallExpr;
+              const funcCallExpr = expr as FnCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
                 findBestEnv(arg);
@@ -671,7 +671,7 @@ export function activate(context: vscode.ExtensionContext) {
               }
             } else if (exprIsFunctionCall(expr)) {
               // Recursively extract from function calls
-              const funcCallExpr = expr as FuncCallExpr;
+              const funcCallExpr = expr as FnCallExpr;
               extractVariables(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
                 extractVariables(arg);
@@ -920,7 +920,7 @@ export function activate(context: vscode.ExtensionContext) {
             return true;
           }
         } else if (exprIsFunctionCall(expr)) {
-          const funcCallExpr = expr as FuncCallExpr;
+          const funcCallExpr = expr as FnCallExpr;
           if (findExprByToken(funcCallExpr.func)) return true;
           for (const arg of funcCallExpr.args) {
             if (findExprByToken(arg)) return true;
@@ -952,7 +952,7 @@ export function activate(context: vscode.ExtensionContext) {
               }
             }
           } else if (exprIsFunctionCall(expr)) {
-            const funcCallExpr = expr as FuncCallExpr;
+            const funcCallExpr = expr as FnCallExpr;
             const result = findVariableInScope(funcCallExpr.func);
             if (result) return result;
 
@@ -1008,9 +1008,9 @@ export function activate(context: vscode.ExtensionContext) {
           }
         } else {
           // Must be a FnCall since we only set targetExpr for these two types
-          const funcCallExpr = targetExpr as FuncCallExpr;
+          const funcCallExpr = targetExpr as FnCallExpr;
           const evalInfo = (
-            funcCallExpr as FuncCallExpr & { $?: { type?: Type } }
+            funcCallExpr as FnCallExpr & { $?: { type?: Type } }
           ).$;
           if (evalInfo?.type) {
             variableType = evalInfo.type;
@@ -1037,7 +1037,7 @@ export function activate(context: vscode.ExtensionContext) {
                 bestExprPosition = atomExpr.token.position.row;
               }
             } else if (exprIsFunctionCall(expr)) {
-              const funcCallExpr = expr as FuncCallExpr;
+              const funcCallExpr = expr as FnCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
                 findBestEnv(arg);

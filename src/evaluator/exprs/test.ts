@@ -5,7 +5,7 @@ import {
   cloneExpr,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { isUnitType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -31,10 +31,10 @@ export function evaluateTest({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.test)) {
     throw formatErrorMessage({
       token: expr.token,

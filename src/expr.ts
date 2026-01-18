@@ -301,7 +301,7 @@ export type AtomExpr = {
   $?: EvaluatedExprData | undefined;
 };
 
-export type FuncCallExpr = {
+export type FnCallExpr = {
   // Parser stage
   tag: ExprTag.FnCall;
   func: Expr;
@@ -335,11 +335,9 @@ export function cloneExpr(expr: Expr): Expr {
   }
 }
 
-export type Expr = AtomExpr | FuncCallExpr;
+export type Expr = AtomExpr | FnCallExpr;
 
-export function exprIsFunctionCall(
-  expr: Expr | undefined
-): expr is FuncCallExpr {
+export function exprIsFunctionCall(expr: Expr | undefined): expr is FnCallExpr {
   return expr?.tag === ExprTag.FnCall;
 }
 export function exprIsAtom(expr: Expr | undefined): expr is AtomExpr {
@@ -1801,8 +1799,8 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
  * @param newFuncExpr
  */
 export function replaceFuncCallExprWithFuncCallExpr(
-  funcExpr: FuncCallExpr,
-  newFuncExpr: FuncCallExpr
+  funcExpr: FnCallExpr,
+  newFuncExpr: FnCallExpr
 ): void {
   funcExpr.$ = newFuncExpr.$;
   funcExpr.args = newFuncExpr.args;
@@ -1813,7 +1811,7 @@ export function replaceFuncCallExprWithFuncCallExpr(
 }
 
 export function replaceFuncCallExprWithAtomExpr(
-  funcExpr: FuncCallExpr,
+  funcExpr: FnCallExpr,
   newAtomExpr: AtomExpr
 ): void {
   // Convert function call to atom by changing its properties
@@ -1823,21 +1821,21 @@ export function replaceFuncCallExprWithAtomExpr(
   atomExpr.$ = newAtomExpr.$;
 
   // Clean up function call specific properties by setting them to undefined
-  (funcExpr as Partial<FuncCallExpr>).func = undefined;
-  (funcExpr as Partial<FuncCallExpr>).args = undefined;
-  (funcExpr as Partial<FuncCallExpr>).isInfix = undefined;
+  (funcExpr as Partial<FnCallExpr>).func = undefined;
+  (funcExpr as Partial<FnCallExpr>).args = undefined;
+  (funcExpr as Partial<FnCallExpr>).isInfix = undefined;
 }
 
 export function replaceExprWithFuncCallExpr(
   expr: Expr,
-  newFuncExpr: FuncCallExpr
+  newFuncExpr: FnCallExpr
 ): void {
   if (exprIsFunctionCall(expr)) {
     replaceFuncCallExprWithFuncCallExpr(expr, newFuncExpr);
   } else {
     // expr is atom;
     (expr as Expr).tag = newFuncExpr.tag;
-    const funcExpr = expr as unknown as FuncCallExpr;
+    const funcExpr = expr as unknown as FnCallExpr;
     replaceFuncCallExprWithFuncCallExpr(funcExpr, newFuncExpr);
   }
 }
@@ -1994,7 +1992,7 @@ export function setExprAsNeedsToCallDup(
       // Don't pass expectedType when calling ___dup, as it refers to the outer expression's expected type,
       // not the expected type for the dup call itself. The dup call always returns the same type as its argument.
       context: { ...context, expectedType: undefined },
-    }) as FuncCallExpr;
+    }) as FnCallExpr;
 
     if (evaluatedDupCallExpr.$?.variableName) {
       // Set the variable as consumed so we won't need to drop it later

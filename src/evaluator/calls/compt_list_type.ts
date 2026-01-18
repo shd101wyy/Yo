@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr, setExprAsNeedsToCallDup } from "../../expr";
+import { Expr, FnCallExpr, setExprAsNeedsToCallDup } from "../../expr";
 import { areTypesCompatible, ComptListType, typeToString } from "../../types";
 import { createComptListValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -20,7 +20,7 @@ export function tryToImplementComptListByComptListType({
   callerEnv,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   comptListType: ComptListType;
   argExprs: Expr[];
   callerEnv: Environment;

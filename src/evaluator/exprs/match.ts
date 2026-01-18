@@ -15,7 +15,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
 import {
@@ -51,10 +51,10 @@ export function evaluateMatch({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
     throw formatErrorMessage({
       token: expr.token,

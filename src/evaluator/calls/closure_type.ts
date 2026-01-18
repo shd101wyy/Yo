@@ -1,6 +1,6 @@
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { attachTempVariableToExpr, Expr, FuncCallExpr } from "../../expr";
+import { attachTempVariableToExpr, Expr, FnCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
@@ -36,7 +36,7 @@ export function tryToImplementClosureByFnModuleType({
   callerEnv,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   fnModuleType: FnTraitType;
   wrapperType: SomeType | DynType;
   callerEnv: Environment;

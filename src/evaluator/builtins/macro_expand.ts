@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage, YoError } from "../../error";
-import { exprIsFunctionCall, exprToString, FuncCallExpr } from "../../expr";
+import { exprIsFunctionCall, exprToString, FnCallExpr } from "../../expr";
 import {
   createExprType,
   isComptIntType,
@@ -30,10 +30,10 @@ export function evaluateMacroExpand({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // Accept 1 or 2 arguments
   if (expr.args.length !== 1 && expr.args.length !== 2) {
     throw formatErrorMessage({

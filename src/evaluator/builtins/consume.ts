@@ -3,7 +3,7 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  FuncCallExpr,
+  FnCallExpr,
   setExprAsConsumed,
 } from "../../expr";
 import { VUnit } from "../../unit-value";
@@ -19,10 +19,10 @@ export function evaluateConsume({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.consume, 1);
 
   const argExpr = expr.args[0]!;

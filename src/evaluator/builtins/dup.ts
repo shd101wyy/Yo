@@ -10,7 +10,7 @@ import {
   Expr,
   exprIsFunctionCall,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
@@ -115,7 +115,7 @@ export function evaluateDup({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -214,7 +214,7 @@ export function evaluateDup({
       // Handle struct types and other types with ___dup methods
       const dupMethodCallExpr = generateExprFromCode(
         `(${exprToString(evaluatedArgExpr)}).___dup()`
-      ) as FuncCallExpr;
+      ) as FnCallExpr;
 
       // Convert this ___dup(x) to x.___dup() and evaluate the function call
       const evaluatedDupMethodCallExpr = evaluateFunctionCall({

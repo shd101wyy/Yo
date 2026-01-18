@@ -6,7 +6,7 @@ import {
   exprIsAtom,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "./expr";
 import { tokenize } from "./lexer";
 import {
@@ -663,7 +663,7 @@ export default class Parser {
             modulePath: this.modulePath,
             inputString: this.inputString,
           };
-          const newArg: FuncCallExpr = {
+          const newArg: FnCallExpr = {
             tag: ExprTag.FnCall,
             func: {
               tag: ExprTag.Atom,
@@ -677,7 +677,7 @@ export default class Parser {
         }
       }
 
-      const returnExpr: FuncCallExpr = {
+      const returnExpr: FnCallExpr = {
         tag: ExprTag.FnCall,
         func: {
           tag: ExprTag.Atom,

@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { attachTempVariableToExpr, FuncCallExpr } from "../../expr";
+import { attachTempVariableToExpr, FnCallExpr } from "../../expr";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
@@ -49,10 +49,10 @@ export function evaluateAsync({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (expr.args.length !== 1) {
     throw formatErrorMessage({
       token: expr.token,

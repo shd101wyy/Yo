@@ -6,7 +6,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   isArrayType,
@@ -29,10 +29,10 @@ export function evaluateBinding({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): { expr: FuncCallExpr; variableExpr: Expr; variableName: string } {
+}): { expr: FnCallExpr; variableExpr: Expr; variableName: string } {
   if (!exprIsFunctionCallOf(expr, ":", 2)) {
     throw formatErrorMessage({
       token: expr.token,

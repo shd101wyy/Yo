@@ -3,7 +3,7 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { createUsizeType, getSizeOfType, Type } from "../../types";
 import {
@@ -22,10 +22,10 @@ export function evaluateSizeOf({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.sizeof, 1);
 
   const typeExpr = expr.args[0]!;

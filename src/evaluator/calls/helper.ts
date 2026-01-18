@@ -20,7 +20,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   PathCollection,
   requireExprNotConsumed,
   setExprAsConsumed,
@@ -517,7 +517,7 @@ export function tryToCallFunctionWithArguments({
     }
   }
 
-  let forallArgsExpr: FuncCallExpr | undefined = undefined;
+  let forallArgsExpr: FnCallExpr | undefined = undefined;
 
   const forallArgValues: {
     value: Value;
@@ -540,7 +540,7 @@ export function tryToCallFunctionWithArguments({
     exprIsFunctionCall(argExprs[0]!) &&
     exprIsFunctionCallOf(argExprs[0]!, BuiltinKeywords.forall)
   ) {
-    forallArgsExpr = argExprs[0]! as FuncCallExpr;
+    forallArgsExpr = argExprs[0]! as FnCallExpr;
     regularArgStartIndex = 1;
   }
 

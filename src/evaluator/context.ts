@@ -1,6 +1,6 @@
 import { Environment, Variable } from "../env";
 import { YoError } from "../error";
-import { Expr, FuncCallExpr, PathCollection } from "../expr";
+import { Expr, FnCallExpr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
 import { FunctionType, Type } from "../types";
@@ -372,7 +372,7 @@ export interface FunctionToCall {
          *   evaluateIsoValueCall
          */
         kind: "iso-value";
-        result: FuncCallExpr;
+        result: FnCallExpr;
       }
     | {
         kind: "error";

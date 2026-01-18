@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr } from "../../expr";
+import { exprToString, FnCallExpr } from "../../expr";
 import { createTraitType, typeOfType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -26,10 +26,10 @@ export function evaluateFutureType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // Future type constructor expects exactly 1 argument (element type)
   if (expr.args.length !== 1) {
     throw formatErrorMessage({

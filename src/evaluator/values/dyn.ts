@@ -15,7 +15,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { PlaceholderToken, TokenType } from "../../token";
@@ -143,7 +143,7 @@ function isBoxFunctionCall(
       expr: funcExpr,
       env,
       context,
-    }) as FuncCallExpr;
+    }) as FnCallExpr;
 
     if (!evaluatedFuncExpr.$) {
       return false;
@@ -175,10 +175,10 @@ export function evaluateDynValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinKeywords.dyn, 1);
 
   const valueExpr = expr.args[0]!;
@@ -226,7 +226,7 @@ export function evaluateDynValue({
       ...context,
       expectedType: innerExpectedType,
     },
-  }) as FuncCallExpr;
+  }) as FnCallExpr;
 
   if (!evaluatedValueExpr.$) {
     throw formatErrorMessage({
@@ -236,7 +236,7 @@ export function evaluateDynValue({
   }
 
   let valueType = evaluatedValueExpr.$.type;
-  let finalValueExpr: FuncCallExpr = evaluatedValueExpr;
+  let finalValueExpr: FnCallExpr = evaluatedValueExpr;
 
   // Auto-box non-object types so users don't need to call box() explicitly
   if (
@@ -260,7 +260,7 @@ export function evaluateDynValue({
       $: undefined,
     };
 
-    const boxCallExpr: FuncCallExpr = {
+    const boxCallExpr: FnCallExpr = {
       tag: ExprTag.FnCall,
       func: boxAtom,
       args: [evaluatedValueExpr],
@@ -279,7 +279,7 @@ export function evaluateDynValue({
           env,
         },
       },
-    }) as FuncCallExpr;
+    }) as FnCallExpr;
 
     if (!boxedExpr.$) {
       throw formatErrorMessage({

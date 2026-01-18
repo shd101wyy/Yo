@@ -6,7 +6,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { createStructType, TraitField } from "../../types";
 import { createTypeValue } from "../../value";
@@ -24,10 +24,10 @@ export function evaluateStructType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
   const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
   const isNewtypeKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.newtype);

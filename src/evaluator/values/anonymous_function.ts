@@ -13,7 +13,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   FunctionCapturedVariableInfo,
@@ -52,10 +52,10 @@ export function evaluateAnonymousFunctionImplementation({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const expectedType = context.expectedType?.type;
   if (!expectedType) {
     throw formatErrorMessage({

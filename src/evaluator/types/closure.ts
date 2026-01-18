@@ -1,5 +1,5 @@
 import { Environment } from "../../env";
-import { FuncCallExpr } from "../../expr";
+import { FnCallExpr } from "../../expr";
 import { EvaluatorContext } from "../context";
 import { evaluateFunctionType } from "./function";
 
@@ -8,10 +8,10 @@ export function evaluateClosureType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // For fn(x : i32) => i32 syntax, delegate directly to evaluateFunctionType
   // which should handle the => operator and set isClosure = true
   return evaluateFunctionType({

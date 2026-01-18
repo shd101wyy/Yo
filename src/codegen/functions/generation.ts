@@ -4,7 +4,7 @@ import {
   Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
@@ -28,7 +28,7 @@ import {
   generateDeferredDupExpressions,
   generateExpr,
   generateReturnStatement,
-} from "../expressions";
+} from "../exprs";
 import { generateParallelismRuntime } from "../parallelism/runtime";
 import { generateIsoTypeDeclarations } from "../types";
 import {
@@ -227,7 +227,7 @@ function findReturnedAsyncBlock(expr: Expr | undefined): Expr | undefined {
 
   // Recursively search in function call arguments
   if (exprIsFunctionCall(expr)) {
-    const funcCallExpr = expr as FuncCallExpr;
+    const funcCallExpr = expr as FnCallExpr;
     for (const arg of funcCallExpr.args) {
       const found = findReturnedAsyncBlock(arg);
       if (found) return found;

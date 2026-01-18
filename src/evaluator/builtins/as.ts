@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr } from "../../expr";
+import { exprToString, FnCallExpr } from "../../expr";
 import { TypeValue } from "../../type-value";
 import { areTypesCompatible, typeToString } from "../../types";
 import { isTypeValue } from "../../value";
@@ -17,10 +17,10 @@ export function evaluateAs({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (expr.args.length !== 2) {
     throw formatErrorMessage({
       token: expr.token,

@@ -3,7 +3,7 @@ import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   BuiltinKeywords,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   RuntimeDestructuring,
 } from "../../expr";
 import { isStructType } from "../../types";
@@ -22,10 +22,10 @@ export function evaluateOpen({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const argExpr = expr.args[0];
   if (!argExpr) {
     throw formatErrorMessage({

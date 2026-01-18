@@ -7,7 +7,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { createStructType, TraitField, TypeField } from "../../types";
@@ -29,10 +29,10 @@ export function evaluateAnonymousStructValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const func = expr.func;
   const args = expr.args;
 

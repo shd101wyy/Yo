@@ -10,7 +10,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { stringIsOperator, TokenType } from "../../token";
@@ -174,7 +174,7 @@ export function evaluateFunctionCall({
   givenFunc,
   forMacroExpansion,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
   givenFunc?: { type: Type; value: TypeValue | FunctionValue | undefined };
@@ -263,7 +263,7 @@ export function evaluateFunctionCall({
                   type: TokenType.Identifier,
                 };
 
-                const addressOfExpr: FuncCallExpr = {
+                const addressOfExpr: FnCallExpr = {
                   tag: ExprTag.FnCall,
                   func: ampersandExpr,
                   args: [receiverArg],

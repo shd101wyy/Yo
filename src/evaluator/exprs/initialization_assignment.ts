@@ -5,7 +5,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -45,10 +45,10 @@ export function evaluateInitializationAssignment({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (
     !exprIsFunctionCallOf(expr, ":=", 2) &&
     !exprIsFunctionCallOf(expr, "::", 2)

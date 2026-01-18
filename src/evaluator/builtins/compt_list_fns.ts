@@ -4,7 +4,7 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -29,10 +29,10 @@ export function evaluateYoComptListCar({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_car, 1);
 
   const argExpr = expr.args[0]!;
@@ -98,10 +98,10 @@ export function evaluateYoComptListCdr({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cdr, 1);
 
   const argExpr = expr.args[0]!;
@@ -170,10 +170,10 @@ export function evaluateYoComptListCons({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cons, 2);
 
   const carArg = evaluateExpression({
@@ -278,10 +278,10 @@ export function evaluateYoComptListAppend({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_compt_list_append,
@@ -409,10 +409,10 @@ export function evaluateYoComptListLength({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_compt_list_length,
@@ -475,10 +475,10 @@ export function evaluateYoComptListElementType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_compt_list_element_type,

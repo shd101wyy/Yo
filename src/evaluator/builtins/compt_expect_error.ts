@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, exprToString, FuncCallExpr } from "../../expr";
+import { cloneExpr, exprToString, FnCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { isComptStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -14,10 +14,10 @@ export function evaluateComptExpectError({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const argExpr = cloneExpr(expr.args[0]!);
   const messageExpr = expr.args[1] ? cloneExpr(expr.args[1]!) : undefined;
 

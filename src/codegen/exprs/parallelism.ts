@@ -1,4 +1,4 @@
-import { FuncCallExpr } from "../../expr";
+import { FnCallExpr } from "../../expr";
 import { isSomeType, isStructType, SomeType, Type } from "../../types";
 import { randomId } from "../../utils";
 import {
@@ -18,7 +18,7 @@ import { generateExpr } from "./expr";
  * 3. Call __yo_thread_spawn(closure_fn_ptr, heap_closure_data)
  */
 export function generateThreadSpawnCall(
-  expr: FuncCallExpr,
+  expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
 ): string {
@@ -102,7 +102,7 @@ export function generateThreadSpawnCall(
  * The worker pool handles thread affinity - each task stays on its assigned thread.
  */
 export function generateWorkerSpawnCall(
-  expr: FuncCallExpr,
+  expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
 ): string {

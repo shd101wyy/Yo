@@ -2,7 +2,7 @@ import { Environment } from "../../env";
 import {
   BuiltinFunctions,
   Expr,
-  FuncCallExpr,
+  FnCallExpr,
   expectExprToBeFunctionCallOf,
 } from "../../expr";
 import { VUnit } from "../../unit-value";
@@ -22,7 +22,7 @@ export function evaluateYoGcCollect({
   env,
   // context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {

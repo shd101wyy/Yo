@@ -6,7 +6,7 @@ import {
   expectExprToBeFunctionCallOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createDynType,
@@ -25,10 +25,10 @@ export function evaluateDynType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinKeywords.Dyn);
   const traitExprs = expr.args;
   const traitTypes: TraitType[] = [];

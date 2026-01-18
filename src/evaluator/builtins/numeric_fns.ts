@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { FuncCallExpr, exprToString } from "../../expr";
+import { FnCallExpr, exprToString } from "../../expr";
 import { Token } from "../../token";
 import {
   Type,
@@ -292,10 +292,10 @@ export function evaluateYoNumericFunctions({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const funcName = expr.func.token.value;
 
   // Check if this is a numeric function by pattern matching

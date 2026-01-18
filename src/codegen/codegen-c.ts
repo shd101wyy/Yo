@@ -2,12 +2,12 @@ import { Emitter } from "../emitter";
 import { generateModuleId } from "../utils";
 import { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
-
-// Import the modular components
 import {
   generateDeferredAsyncBlocks,
   preRegisterAsyncBlockTypes,
-} from "./expressions/generation";
+} from "./exprs/async";
+
+// Import the modular components
 import { collectRequiredFunctions } from "./functions/collection";
 import { FunctionGenerationContext } from "./functions/context";
 import {

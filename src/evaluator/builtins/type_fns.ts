@@ -4,7 +4,7 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -33,10 +33,10 @@ export function evaluateYoTypeToString({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_string, 1);
 
   const arg = evaluateExpression({
@@ -94,10 +94,10 @@ export function evaluateYoAreTypesCompatible({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const args = expr.args;
   const expectedTypeArg = args[0]!;
   const givenTypeArg = args[1]!;
@@ -160,10 +160,10 @@ export function evaluateYoTypeContainsRcType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_type_contains_rc_type,
@@ -222,10 +222,10 @@ export function evaluateYoTypeCanFormRcCycle({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_type_can_form_rc_cycle,
@@ -292,10 +292,10 @@ export function evaluateYoTypeImpls({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_impls, 2);
 
   // Evaluate the first argument (the type to check)

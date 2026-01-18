@@ -2,7 +2,7 @@ import { Environment, getVariableInfo, getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { createBooleanType } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -15,10 +15,10 @@ export function evaluateYoVarPrintInfo({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info, 1);
 
   const varExpr = expr.args[0]!;
@@ -54,10 +54,10 @@ export function evaluateYoVarIsOwningTheRcValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_var_is_owning_the_rc_value,
@@ -98,10 +98,10 @@ export function evaluateYoVarHasOtherAliases({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_var_has_other_aliases,

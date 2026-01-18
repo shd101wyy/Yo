@@ -9,7 +9,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
@@ -733,7 +733,7 @@ ${exprToString(expr)}`,
         expr.func.token.value.startsWith("__yo_longdouble_"))
     ) {
       return evaluateYoNumericFunctions({
-        expr: expr as FuncCallExpr,
+        expr: expr as FnCallExpr,
         env,
         context: { ...context },
       });

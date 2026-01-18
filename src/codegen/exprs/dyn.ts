@@ -1,5 +1,5 @@
 import { generateExpr } from ".";
-import { FuncCallExpr } from "../../expr";
+import { FnCallExpr } from "../../expr";
 import {
   extractFnTraitFromType,
   isBoxedType,
@@ -13,7 +13,7 @@ import { CodeGenContext, getVariableTypeString } from "../utils";
  * Generate C code for a dyn() constructor call
  */
 export function generateDynCall(
-  expr: FuncCallExpr,
+  expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
 ): string {

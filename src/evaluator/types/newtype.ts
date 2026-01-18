@@ -2,7 +2,7 @@ import { Environment } from "../../env";
 import {
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { EvaluatorContext } from "../context";
 import { evaluateStructType } from "./struct";
@@ -17,10 +17,10 @@ export function evaluateNewtypeType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinKeywords.newtype);
 
   // Object is essentially a struct with reference semantics enabled

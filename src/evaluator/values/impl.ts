@@ -14,7 +14,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, Token } from "../../token";
@@ -1305,10 +1305,10 @@ export function evaluateModuleValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.impl)) {
     throw formatErrorMessage({
       token: expr.token,
@@ -1505,7 +1505,7 @@ export function evaluateModuleValue({
 
     // Determine if we have a where clause
     let hasWhere = false;
-    let whereArg: FuncCallExpr | undefined;
+    let whereArg: FnCallExpr | undefined;
     let receiverTypeArg: Expr;
     let moduleCallArg: Expr;
 

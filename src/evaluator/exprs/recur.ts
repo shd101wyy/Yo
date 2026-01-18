@@ -5,7 +5,7 @@ import {
   Expr,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
@@ -15,7 +15,7 @@ export function evaluateRecur({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {

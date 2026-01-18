@@ -14,7 +14,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
 import {
@@ -1132,10 +1132,10 @@ export function evaluateFunctionType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // Only regular function types are supported with fn(...) -> ...
   // For closures, use Impl(Fn(...) -> ...) syntax instead
   if (!exprIsFunctionCallOf(expr, "->", 2)) {

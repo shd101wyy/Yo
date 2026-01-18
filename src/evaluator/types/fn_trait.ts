@@ -5,7 +5,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createFunctionType,
@@ -38,10 +38,10 @@ export function evaluateFnTraitType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // expr is the `->` expression with Fn(...) on the left and return type on the right
   if (!exprIsFunctionCallOf(expr, "->", 2)) {
     throw formatErrorMessage({

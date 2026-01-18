@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { FuncCallExpr } from "../../expr";
+import { FnCallExpr } from "../../expr";
 import { extractFutureTraitFromType, typeToString } from "../../types";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -19,10 +19,10 @@ export function evaluateAwait({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (expr.args.length !== 1) {
     throw formatErrorMessage({
       token: expr.token,

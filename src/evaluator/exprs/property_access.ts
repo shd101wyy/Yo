@@ -5,7 +5,7 @@ import {
   exprIsAtom,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
 import {
@@ -52,10 +52,10 @@ export function evaluatePropertyAccess({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, ".")) {
     throw formatErrorMessage({
       token: expr.token,

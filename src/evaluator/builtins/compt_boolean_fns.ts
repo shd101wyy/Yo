@@ -4,7 +4,7 @@ import {
   BuiltinFunctions,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createBooleanType,
@@ -26,10 +26,10 @@ export function evaluateYoComptBooleanFunctions({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_not) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_to_string)

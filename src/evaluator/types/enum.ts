@@ -6,7 +6,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createEnumType,
@@ -30,10 +30,10 @@ export function evaluateEnumType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
     throw formatErrorMessage({
       token: expr.token,

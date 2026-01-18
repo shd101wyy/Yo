@@ -5,7 +5,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createSomeType,
@@ -41,10 +41,10 @@ export function evaluateImplConstraint({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Impl)) {
     throw formatErrorMessage({
       token: expr.token,

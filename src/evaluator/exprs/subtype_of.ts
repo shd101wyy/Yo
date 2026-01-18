@@ -6,7 +6,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { Token } from "../../token";
 import {
@@ -143,10 +143,10 @@ export function evaluateSubtypeOf({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, "<:", 2);
   const lhsExpr = expr.args[0]!;
   const rhsExpr = expr.args[1]!;

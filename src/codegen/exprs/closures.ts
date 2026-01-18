@@ -1,5 +1,5 @@
 import { Environment, getVariablesFromEnv } from "../../env";
-import { AtomExpr, Expr, exprIsAtom, ExprTag, FuncCallExpr } from "../../expr";
+import { AtomExpr, Expr, exprIsAtom, ExprTag, FnCallExpr } from "../../expr";
 import {
   extractFnTraitFromType,
   isDynType,
@@ -10,9 +10,12 @@ import {
   TypeTag,
 } from "../../types";
 import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext, getTypeString } from "../utils";
+import {
+  CodeGenContext,
+  getDeferredDupTargetAtomName,
+  getTypeString,
+} from "../utils";
 import { generateExpr } from "./expr";
-import { getDeferredDupTargetAtomName } from "./utils";
 
 /**
  * Check if a variable is captured by the closure or is a local variable.
@@ -43,7 +46,7 @@ export function checkVariableIsClosureCaptured(
 /**
  * Check if this is a closure construction expression
  */
-export function isClosureConstruction(expr: FuncCallExpr): boolean {
+export function isClosureConstruction(expr: FnCallExpr): boolean {
   return !!(
     expr.$?.closureFunctionValue &&
     expr.$?.type &&
@@ -182,7 +185,7 @@ function allocateClosureCapture(
  * Generate C code for anonymous function/closure construction
  */
 export function generateClosureConstruction(
-  expr: FuncCallExpr,
+  expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
 ): string {

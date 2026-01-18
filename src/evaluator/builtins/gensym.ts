@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr, ExprTag, exprToString, FuncCallExpr } from "../../expr";
+import { AtomExpr, ExprTag, exprToString, FnCallExpr } from "../../expr";
 import { TokenType } from "../../token";
 import { randomId } from "../../utils";
 import { createExprValue, isComptStringValue } from "../../value";
@@ -19,10 +19,10 @@ export function evaluateGensym({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const prefixArg = expr.args[0];
   let prefix: string = "";
   if (prefixArg) {

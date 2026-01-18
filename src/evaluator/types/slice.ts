@@ -4,7 +4,7 @@ import {
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { createSliceType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
@@ -16,10 +16,10 @@ export function evaluateSliceType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinKeywords.Slice, 1);
 
   const elementTypeExpr = expr.args[0]!;
