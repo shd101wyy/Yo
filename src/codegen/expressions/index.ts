@@ -1,3 +1,4 @@
+export * from "./closures";
 export * from "./drop_dup";
 export * from "./dyn";
 export * from "./expr";
