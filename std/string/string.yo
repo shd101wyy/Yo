@@ -279,6 +279,256 @@ String :: object(
     };
     
     return Self(_bytes: new_bytes);
+  }),
+
+  /**
+   * Extract a substring from start to end character indices (like JavaScript slice)
+   * Returns a new string containing characters from start (inclusive) to end (exclusive)
+   * If end is greater than length, it will slice to the end of the string
+   */
+  slice :: (fn(self: Self, start: usize, end: usize) -> Self)({
+    total_bytes := self._bytes.len();
+    new_bytes := ArrayList(u8).new();
+    
+    char_index := usize(0);
+    byte_index := usize(0);
+    
+    while byte_index < total_bytes,
+          byte_index = (byte_index + usize(1)),
+    {
+      byte_opt := self._bytes.get(byte_index);
+      match(byte_opt,
+        .Some(byte) => {
+          is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+          cond(
+            is_start => {
+              cond(
+                ((char_index >= start) && (char_index < end)) => {
+                  new_bytes.push(byte);
+                  byte_len := cond(
+                    (byte < u8(0x80)) => usize(1),
+                    ((byte >= u8(0xC0)) && (byte < u8(0xE0))) => usize(2),
+                    ((byte >= u8(0xE0)) && (byte < u8(0xF0))) => usize(3),
+                    ((byte >= u8(0xF0)) && (byte < u8(0xF8))) => usize(4),
+                    true => usize(1)
+                  );
+                  k := usize(1);
+                  while ((k < byte_len)),
+                        (k = (k + usize(1))),
+                  {
+                    next_byte_opt := self._bytes.get((byte_index + k));
+                    match(next_byte_opt,
+                      .Some(next_byte) => { new_bytes.push(next_byte); },
+                      .None => ()
+                    );
+                  };
+                  byte_index = ((byte_index + byte_len) - usize(1));
+                },
+                (char_index >= end) => break,
+                true => ()
+              );
+              char_index = (char_index + usize(1));
+            },
+            true => {
+              cond(
+                ((char_index > start) && (char_index <= end)) => {
+                  new_bytes.push(byte);
+                },
+                true => ()
+              );
+            }
+          );
+        },
+        .None => ()
+      );
+    };
+    
+    return Self(_bytes: new_bytes);
+  }),
+
+  /**
+   * Find the first occurrence of a substring (like JavaScript indexOf)
+   * Returns the character index of the first match, or None if not found
+   */
+  index_of :: (fn(self: Self, substring: Self) -> Option(usize))(
+    cond(
+      substring.is_empty() => .Some(usize(0)),
+      true => {
+        self_bytes := self._bytes.len();
+        sub_bytes := substring._bytes.len();
+        
+        cond(
+          (sub_bytes > self_bytes) => .None,
+          true => {
+            char_index := usize(0);
+            byte_index := usize(0);
+            
+            while ((byte_index <= (self_bytes - sub_bytes))),
+                  (byte_index = (byte_index + usize(1))),
+            {
+              matches := true;
+              j := usize(0);
+              while ((j < sub_bytes)),
+                    (j = (j + usize(1))),
+              {
+                self_byte_opt := self._bytes.get((byte_index + j));
+                sub_byte_opt := substring._bytes.get(j);
+                match(self_byte_opt,
+                  .Some(self_byte) =>
+                    match(sub_byte_opt,
+                      .Some(sub_byte) => {
+                        cond(
+                          (self_byte != sub_byte) => {
+                            matches = false;
+                            break;
+                          },
+                          true => ()
+                        );
+                      },
+                      .None => {
+                        matches = false;
+                        break;
+                      }
+                    ),
+                  .None => {
+                    matches = false;
+                    break;
+                  }
+                );
+              };
+              
+              cond(
+                matches => {
+                  return .Some(char_index);
+                },
+                true => ()
+              );
+              
+              first_byte_opt := self._bytes.get(byte_index);
+              match(first_byte_opt,
+                .Some(first_byte) => {
+                  is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
+                  cond(
+                    is_start => {
+                      char_index = (char_index + usize(1));
+                    },
+                    true => ()
+                  );
+                },
+                .None => ()
+              );
+            };
+            
+            return .None;
+          }
+        )
+      }
+    )
+  ),
+
+  /**
+   * Check if the string contains a substring (like JavaScript includes)
+   */
+  includes :: (fn(self: Self, substring: Self) -> bool)(
+    match(self.index_of(substring),
+      .Some(_) => true,
+      .None => false
+    )
+  ),
+
+  /**
+   * Split the string by a separator into an array of strings (like JavaScript split)
+   * Returns an ArrayList of String
+   */
+  split :: (fn(self: Self, separator: Self) -> ArrayList(Self))({
+    result := ArrayList(Self).new();
+    
+    cond(
+      separator.is_empty() => {
+        char_count := self.len();
+        i := usize(0);
+        while ((i < char_count)),
+              (i = (i + usize(1))),
+        {
+          char_str := self.slice(i, (i + usize(1)));
+          result.push(char_str);
+        };
+        return result;
+      },
+      self.is_empty() => {
+        result.push(Self.new());
+        return result;
+      },
+      true => {
+        self_bytes := self._bytes.len();
+        sep_bytes := separator._bytes.len();
+        
+        current_bytes := ArrayList(u8).new();
+        byte_index := usize(0);
+        
+        while ((byte_index < self_bytes)),
+              (byte_index = (byte_index + usize(1))),
+        {
+          matches := true;
+          cond(
+            ((byte_index + sep_bytes) <= self_bytes) => {
+              j := usize(0);
+              while ((j < sep_bytes)),
+                    (j = (j + usize(1))),
+              {
+                self_byte_opt := self._bytes.get((byte_index + j));
+                sep_byte_opt := separator._bytes.get(j);
+                match(self_byte_opt,
+                  .Some(self_byte) =>
+                    match(sep_byte_opt,
+                      .Some(sep_byte) => {
+                        cond(
+                          (self_byte != sep_byte) => {
+                            matches = false;
+                            break;
+                          },
+                          true => ()
+                        );
+                      },
+                      .None => {
+                        matches = false;
+                        break;
+                      }
+                    ),
+                  .None => {
+                    matches = false;
+                    break;
+                  }
+                );
+              };
+            },
+            true => {
+              matches = false;
+            }
+          );
+          
+          cond(
+            matches => {
+              result.push(Self(_bytes: current_bytes));
+              current_bytes = ArrayList(u8).new();
+              byte_index = ((byte_index + sep_bytes) - usize(1));
+            },
+            true => {
+              byte_opt := self._bytes.get(byte_index);
+              match(byte_opt,
+                .Some(byte) => {
+                  current_bytes.push(byte);
+                },
+                .None => ()
+              );
+            }
+          );
+        };
+        
+        result.push(Self(_bytes: current_bytes));
+        return result;
+      }
+    )
   })
 );
 
