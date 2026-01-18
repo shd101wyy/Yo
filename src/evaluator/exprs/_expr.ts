@@ -14,23 +14,6 @@ import {
 import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
 import { evaluateAndOr } from "../builtins/and_or";
-import {
-  evaluateYoDecrRc,
-  evaluateYoDecrRcAtomic,
-  evaluateYoDropArrayElement,
-  evaluateYoDropTupleElement,
-  evaluateYoDupArrayElement,
-  evaluateYoDupTupleElement,
-  evaluateYoDynVtableDrop,
-  evaluateYoDynVtableDup,
-  evaluateYoIncrRc,
-  evaluateYoIncrRcAtomic,
-  evaluateYoIsoDispose,
-  evaluateYoIsoExtract,
-  evaluateYoRcOwn,
-  evaluateYoSomeTypeDrop,
-  evaluateYoSomeTypeDup,
-} from "../builtins/arc_fns";
 import { evaluateYoArrayFill } from "../builtins/array_fns";
 import { evaluateAsync } from "../builtins/async_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
@@ -67,6 +50,23 @@ import { evaluatePanic } from "../builtins/panic";
 import { evaluateAddressCall } from "../builtins/ptr_fns";
 import { evaluateQuote } from "../builtins/quote";
 import { evaluateRc } from "../builtins/rc";
+import {
+  evaluateYoDecrRc,
+  evaluateYoDecrRcAtomic,
+  evaluateYoDropArrayElement,
+  evaluateYoDropTupleElement,
+  evaluateYoDupArrayElement,
+  evaluateYoDupTupleElement,
+  evaluateYoDynVtableDrop,
+  evaluateYoDynVtableDup,
+  evaluateYoIncrRc,
+  evaluateYoIncrRcAtomic,
+  evaluateYoIsoDispose,
+  evaluateYoIsoExtract,
+  evaluateYoRcOwn,
+  evaluateYoSomeTypeDrop,
+  evaluateYoSomeTypeDup,
+} from "../builtins/rc_fns";
 import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {

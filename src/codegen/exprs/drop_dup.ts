@@ -1,4 +1,4 @@
-import { BuiltinFunctions } from "../../expr";
+import { BuiltinFunctions, Expr, exprIsFunctionCall } from "../../expr";
 import {
   isArrayType,
   isDynType,
@@ -15,6 +15,7 @@ import { randomId } from "../../utils";
 import { isFunctionValue, isNumberValue } from "../../value";
 import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext, getTypeString } from "../utils";
+import { generateExpr } from "./expr";
 
 /**
  * Helper function to generate drop code for a value of any type.
@@ -249,4 +250,46 @@ export function getDupFunctionForType(
   }
 
   return undefined;
+}
+
+export function generateDeferredDropExpressions(
+  expr: Expr,
+  indent: string,
+  context: FunctionGenerationContext
+) {
+  const emitter = context.emitter;
+
+  if (expr.$?.deferredDropExpressions) {
+    for (const dropExpr of expr.$.deferredDropExpressions) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+}
+
+/**
+ * Generate C code for all deferred dup expressions.
+ * This is used to generate dup calls for expressions that need reference counting.
+ * The dup expressions are created during evaluation and deferred to codegen to ensure
+ * proper context (e.g., closure captures, state machine variables).
+ */
+export function generateDeferredDupExpressions(
+  expr: Expr,
+  indent: string,
+  context: FunctionGenerationContext
+) {
+  const emitter = context.emitter;
+
+  if (expr.$?.deferredDupExpressions) {
+    for (const dupExpr of expr.$.deferredDupExpressions) {
+      if (exprIsFunctionCall(dupExpr)) {
+        const dupCode = generateExpr(dupExpr, indent, context);
+        if (dupCode) {
+          emitter.emitLine(`${indent}${dupCode};`);
+        }
+      }
+    }
+  }
 }
