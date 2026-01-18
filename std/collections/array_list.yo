@@ -259,8 +259,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
             element_ptr := (base_ptr &+ i);
-            element := element_ptr.*;
-            // element will be automatically dropped here
+            ___drop(element_ptr.*);
           });
         },
         true => ()
